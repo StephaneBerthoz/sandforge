@@ -206,10 +206,10 @@ export interface WriteConfirmation {
   stage: 'write';
   /**
    * The module whose run asks: a Forge clone unless said. An Autopilot run
-   * asks the same question of its plan, and a Sync run of the records it
-   * counted under each object's filter.
+   * asks the same question of its plan, a Sync run of the records it
+   * counted under each object's filter, and a seed of its template's.
    */
-  module?: 'autopilot' | 'sync';
+  module?: 'autopilot' | 'sync' | 'seed';
   /**
    * Of a Sync run of a saved configuration: the records an earlier run of it
    * copied, which this one leaves as they are and does not count. Absent when none.
@@ -282,6 +282,30 @@ export interface WriteConfirmation {
    * source, and that cap: the rows past it are not cloned. Absent when none.
    */
   capped?: { perObject: number; objects: string[] };
+  /**
+   * Of a Sync run: the objects the target takes no record of as the run
+   * writes them, not among `objects`, with their records and why. Confirmed,
+   * the run leaves them out and writes the rest. Absent when none.
+   */
+  unwritable?: Array<{
+    objectApiName: string;
+    rows: number;
+    why: 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+  }>;
+  /**
+   * The API requests the run takes, when it would leave the org under a
+   * tenth of its daily requests. Absent otherwise.
+   */
+  apiRequests?: { estimate: number; remaining: number; max: number };
+  /**
+   * The daily email limits the records make the target's flows send against
+   * that the target did not say what it has left of. Absent when none.
+   */
+  emailsUnread?: Array<{
+    limit: 'SingleEmail' | 'DailyWorkflowEmails';
+    emails: number;
+    unread: string;
+  }>;
 }
 
 /**

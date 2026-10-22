@@ -277,6 +277,29 @@ describe('ConnectionHelper', () => {
       expect(orgManager.updateStatus).toHaveBeenCalledWith('org-1', 'expired');
     });
 
+    it('says a scratch org past its date is gone and offers no reconnect, which could never work', async () => {
+      // "Reconnect" re-ran an import that leaves such an org out: the card stayed.
+      const org = {
+        ...makeOrg(),
+        orgType: 'Scratch' as const,
+        metadata: { ...makeOrg().metadata, expirationDate: '2020-01-31' },
+      };
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(makeCreds());
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
+
+      const err = await getJsforceConnection('org-1', orgRegistry, orgManager).catch(
+        (e: unknown) => e,
+      );
+
+      expect((err as OrgConnectionError).code).toBe('SCRATCH_ORG_EXPIRED');
+      expect((err as Error).message).toMatch(
+        /^SCRATCH_ORG_EXPIRED: The scratch org "test-org" expired on 2020-01-31: Salesforce deletes a scratch org when it expires/,
+      );
+      expect((err as Error).message).not.toContain('Reconnect it');
+    });
+
     it('never takes the placeholder sf org display prints for a token', async () => {
       const org = makeOrg();
       const creds = makeCreds();

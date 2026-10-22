@@ -265,7 +265,13 @@ export class SchemaScanner {
    * same, marked `missingInTarget`: the picker shows it and does not let it
    * be picked. Offered as any other, a custom object never deployed to the
    * target was picked, scanned and planned, and every one of its records
-   * refused at the write.
+   * refused at the write. So is one whose records the target's user may not
+   * create, marked `notCreateableInTarget`.
+   *
+   * Reading needs no Create: an object is listed when the user of either org
+   * may create its records. Listed only when the source's user could, a
+   * read-only source user had an empty picker; and an object the target's
+   * user could not create was dropped with the platform's own, with no word.
    */
   async listObjects(
     sourceConn: AutopilotConnection,
@@ -276,20 +282,30 @@ export class SchemaScanner {
       sourceConn.describeGlobal(),
       targetConn.describeGlobal(),
     ]);
+    const createableInSource = new Set(
+      sourceGlobal.sobjects.filter((s) => s.createable).map((s) => s.name),
+    );
+    // An object no user of either org may create is one no copy writes, as
+    // the platform's own records are; one the source's user may create is
+    // the target user's to be refused, said on the object.
     const described = excludedByDescribe(
-      targetGlobal.sobjects,
+      targetGlobal.sobjects.filter((t) => !createableInSource.has(t.name)),
       await this.toolingObjects(targetConn),
     );
-    const inTarget = new Set(targetGlobal.sobjects.map((s) => s.name));
+    const inTarget = new Map(targetGlobal.sobjects.map((t) => [t.name, t.createable !== false]));
     return sourceGlobal.sobjects
-      .filter((s) => s.queryable && s.createable)
+      .filter((s) => s.queryable && (s.createable || inTarget.get(s.name) === true))
       .filter((s) => includeStandardObjects || s.custom)
       .filter((s) => !isNeverCopied(s.name, described))
       .map((s) => ({
         apiName: s.name,
         label: s.label,
         custom: s.custom,
-        ...(inTarget.has(s.name) ? {} : { missingInTarget: true as const }),
+        ...(!inTarget.has(s.name)
+          ? { missingInTarget: true as const }
+          : inTarget.get(s.name) === false
+            ? { notCreateableInTarget: true as const }
+            : {}),
       }));
   }
 

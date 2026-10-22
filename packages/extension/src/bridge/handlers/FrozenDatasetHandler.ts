@@ -71,6 +71,7 @@ import {
   bulkManagerOf,
   ABORTED_BEFORE_START,
   PRODUCTION_GUARD_MISSING,
+  undeletableAsker,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -2858,6 +2859,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         removalStamps: load.removalStamps,
         removalSpans: load.removalSpans,
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
+        onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
         includeChanged,
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {

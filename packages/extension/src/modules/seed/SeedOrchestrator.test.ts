@@ -666,7 +666,7 @@ describe('SeedOrchestrator — a field the org does not have', () => {
     ).toEqual(['Name']);
     expect(result.objectResults[0].recordsCreated).toBe(2);
     expect(result.objectResults[0].errors).toEqual([
-      'Written without AnnualRevenue: this org does not have that field.',
+      'Written without AnnualRevenue: this org does not have that field, or field-level security hides it from the user SandForge connects as.',
     ]);
   });
 
@@ -685,8 +685,67 @@ describe('SeedOrchestrator — a field the org does not have', () => {
     expect(insert).not.toHaveBeenCalled();
     expect(result.objectResults[0].recordsCreated).toBe(0);
     expect(result.objectResults[0].errors).toEqual([
-      'Skipped: this org has none of the fields the template names (AnnualRevenue).',
+      'Skipped: none of the fields the template names can be written (AnnualRevenue: this org ' +
+        'does not have that field, or field-level security hides it from the user SandForge ' +
+        'connects as).',
     ]);
+  });
+
+  it('says a field the user can see but may not set exists, apart from one the describe does not list', async () => {
+    // Both read "this org does not have that field": a standard field the
+    // user's profile made read-only, and one it hid.
+    const mapFields = vi.fn().mockResolvedValue([{ Name: 'Acme' }, { Name: 'Globex' }]);
+    const orchestrator = new SeedOrchestrator(
+      partitionedDeps({
+        ...createMockDeps(),
+        fieldMapper: { mapFields } as never,
+        describeCreateableFields: async () => new Set(['Name']),
+        describeVisibleFields: async () => new Set(['Name', 'Rating']),
+      }),
+    );
+
+    const result = await orchestrator.execute(
+      oneObject([nameRule, missingRule, { ...missingRule, fieldApiName: 'Rating' }]) as never,
+      'org',
+    );
+
+    expect(result.objectResults[0].errors).toEqual([
+      'Written without AnnualRevenue: this org does not have that field, or field-level ' +
+        'security hides it from the user SandForge connects as.',
+      'Written without Rating: it exists, but the user SandForge connects as may not set it.',
+    ]);
+  });
+});
+
+describe('SeedOrchestrator — how an insert sent its records', () => {
+  it("says in the object's result what its insert said of how it sent the records", async () => {
+    const note = 'Sent through REST: the duplicate rules could not be read.';
+    const insert = vi.fn().mockResolvedValue({
+      successIds: ['001000000000001AAA'],
+      errors: [],
+      notes: [note],
+    });
+    const orchestrator = new SeedOrchestrator({ ...createMockDeps(), insert: insert as never });
+
+    const result = await orchestrator.execute(
+      createTemplate({
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 1,
+            fieldRules: [
+              { fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company.name' } },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
+      }) as never,
+      'org',
+    );
+
+    expect(result.objectResults[0].errors).toContain(note);
   });
 });
 

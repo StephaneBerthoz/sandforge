@@ -44,6 +44,8 @@ export interface SentAgain {
   written?: WrittenWithoutFields;
   /** Why refused rows could not be sent again, when sending them failed outright. */
   unsent: string[];
+  /** What the first insert said of how it sent the records (`InsertResult.notes`). */
+  notes?: string[];
 }
 
 /**

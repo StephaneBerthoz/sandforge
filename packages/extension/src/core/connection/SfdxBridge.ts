@@ -341,6 +341,22 @@ function isUsable(entry: SfdxOrgEntry): boolean {
   return entry.isScratch === true && entry.status === 'Active' && entry.isExpired !== true;
 }
 
+/**
+ * Why the CLI's entry is not an org it can reach, in its own words: what its
+ * ping answered, or what its Dev Hub says of a scratch org.
+ */
+function notUsableReason(entry: SfdxOrgEntry): string {
+  if (entry.connectedStatus !== undefined) return `the CLI reports ${entry.connectedStatus}`;
+  if (entry.isScratch === true && (entry.isExpired === true || entry.status === 'Expired')) {
+    return entry.expirationDate
+      ? `a scratch org that expired on ${entry.expirationDate}`
+      : 'a scratch org that expired';
+  }
+  return entry.isScratch === true
+    ? `a scratch org its Dev Hub reports ${entry.status ?? 'without a status'}`
+    : 'the CLI did not say it is connected';
+}
+
 /** Result of importing orgs from SF CLI */
 export interface SfdxImportResult {
   org: SalesforceOrg;
@@ -350,13 +366,19 @@ export interface SfdxImportResult {
 /** Reads, through the CLI, a live access token for one of the users it holds. */
 export type CliTokenReader = (username: string) => Promise<CliCredentials>;
 
-/** An org the CLI lists as connected but gave no access token for. */
+/**
+ * An org the CLI lists that an import leaves out: one it lists as connected
+ * but gave no access token for (`noToken`), or one it cannot reach — a ping
+ * that failed, a revoked token, a scratch org past its date (`notConnected`).
+ */
 export interface SfdxUnreadableOrg {
   username: string;
   alias?: string;
   orgId: string;
-  /** Why, as the failed read worded it. */
+  /** Why, as the failed read, or the CLI's listing, worded it. */
   reason: string;
+  /** Which of the two; `noToken` when absent. */
+  why?: 'noToken' | 'notConnected';
 }
 
 /** Run `tasks` with at most `limit` in flight; the results come back in the tasks' order. */
@@ -437,12 +459,29 @@ export class SfdxBridge {
    * its token read from the CLI here, a few orgs at a time, before anything is
    * stored; an org the CLI gives no token for is left out and reported.
    *
-   * @param onUnreadable - Told of each org left out for want of a token.
+   * An org the CLI cannot reach — what its ping answered, a scratch org past
+   * its date — is left out and reported too, with the CLI's words: it was
+   * dropped without one, and an import that found nothing else said the CLI
+   * "holds no connected org yet". Kept apart before the orgs are deduped, so
+   * a user of an org the CLI cannot reach no longer hides another user of
+   * the same org that it can.
+   *
+   * @param onUnreadable - Told of each org left out, and why.
    */
   async listOrgs(onUnreadable?: (org: SfdxUnreadableOrg) => void): Promise<SfdxImportResult[]> {
-    const connected = this.dedupeByOrgId(await this.readOrgEntries()).filter((entry) =>
-      isUsable(entry),
-    );
+    const entries = await this.readOrgEntries();
+    const connected = this.dedupeByOrgId(entries.filter((entry) => isUsable(entry)));
+    const reachable = new Set(connected.map((entry) => entry.orgId));
+    for (const entry of this.dedupeByOrgId(entries.filter((e) => !isUsable(e)))) {
+      if (reachable.has(entry.orgId)) continue;
+      onUnreadable?.({
+        username: entry.username,
+        ...(entry.alias ? { alias: entry.alias } : {}),
+        orgId: entry.orgId,
+        reason: notUsableReason(entry),
+        why: 'notConnected',
+      });
+    }
     const outcomes = await inPool(
       connected.map((entry) => async (): Promise<{ entry: SfdxOrgEntry; reason?: string }> => {
         try {

@@ -62,7 +62,13 @@ import {
 import { ACCOUNT, leftOutForAccountKind } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { seedStorageGate } from '../../modules/seed/seedStorage.js';
-import { formatMB, readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
+import {
+  API_BUDGET_EXCEEDED,
+  confirmationApiOf,
+  confirmationStorageOf,
+  formatMB,
+  readEmailLimits,
+} from '../../modules/forge/ForgeRunGate.js';
 import {
   readSeedAutomation,
   seedEmailGate,
@@ -79,6 +85,9 @@ const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
 
 /** The code a seed refused for the emails its records make the org send is answered with. */
 const SEED_EMAILS_EXCEEDED = 'SEED_EMAILS_EXCEEDED';
+
+/** The code a seed the user declined at its write question is answered with. */
+const SEED_WRITE_DECLINED = 'SEED_WRITE_DECLINED';
 
 /**
  * How long reading what the org runs as a seed's records are created may
@@ -796,20 +805,22 @@ export class SeedOpsHandler implements DomainHandler {
         );
       }
       if (storage.refusal) {
+        const code =
+          storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
         recordWriteRun(this.deps, {
           action: 'seed_execute',
           module: 'seed',
           operationId,
           orgId: payload.orgId,
           outcome: 'stopped',
-          code: SEED_STORAGE_EXCEEDED,
+          code,
         });
         const check = storage.check;
         sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(storage.refusal), {
-          code: SEED_STORAGE_EXCEEDED,
+          code,
           retryable: false,
           extraPayload:
-            check.verdict === 'unread'
+            check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
               ? {}
               : {
                   estimateMB: Number(formatMB(check.estimateMB)),
@@ -934,6 +945,53 @@ export class SeedOpsHandler implements DomainHandler {
         });
         sendOperationFailed(this.deps, operationId, message, false, { context: failure });
         return;
+      }
+
+      // Asked before the first write when the org would not say what storage
+      // it has left, or the seed would leave it short of today's API
+      // requests: said only in the log, nobody saw either. With nobody to ask,
+      // the seed goes on, said in the log as before.
+      if (storage.check.verdict === 'unread' || storage.api.verdict === 'near') {
+        const answer = await guard.confirmRun({
+          stage: 'write',
+          module: 'seed',
+          org: orgName,
+          orgTier: guardTierOf(org),
+          objects: kinds.template.objects
+            .map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount }))
+            .sort((a, b) => b.rows - a.rows),
+          total: plannedRecords,
+          storage: confirmationStorageOf(storage.check),
+          counted: true,
+          ...confirmationApiOf(storage.api),
+        });
+        if (answer === 'declined') {
+          recordWriteRun(this.deps, {
+            action: 'seed_execute',
+            module: 'seed',
+            operationId,
+            orgId: payload.orgId,
+            outcome: 'stopped',
+            guard: decision,
+            code: SEED_WRITE_DECLINED,
+          });
+          const message = 'The seed was cancelled before it wrote anything. Nothing was written.';
+          sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
+            code: SEED_WRITE_DECLINED,
+            retryable: false,
+          });
+          sendOperationFailed(this.deps, operationId, message, false, {
+            context: failure,
+            authored: true,
+          });
+          return;
+        }
+        if (answer === 'unavailable') {
+          this.deps.log(
+            `[WARN] seed:execute ${operationId}: nobody could be asked about the storage or the ` +
+              'API requests the org has left; the seed goes on',
+          );
+        }
       }
 
       // Start performance tracking
@@ -1132,6 +1190,7 @@ export class SeedOpsHandler implements DomainHandler {
       const seedDeps = {
         validator,
         describeCreateableFields: describedFields.createable,
+        describeVisibleFields: describedFields.visible,
         describePicklistValues: describedFields.picklistValues,
         // What the org requires and the template names no rule for, less what
         // the kind of account written does not take.

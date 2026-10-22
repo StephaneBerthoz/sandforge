@@ -230,9 +230,9 @@ describe('DataOpsHandler', () => {
     }
 
     /**
-     * An org that answers each object's `SELECT COUNT()` with its count, and
-     * whose describe fails: a masking run the guard lets go ahead stops at its
-     * permission check, having written nothing.
+     * An org that answers each object's `SELECT COUNT()` with its count, lets
+     * the user update every object, and lists no field: a masking run the
+     * guard lets go ahead stops at its first read, having written nothing.
      */
     async function countingOrg(counts: Record<string, number>) {
       const query = vi.fn(async (soql: string) => {
@@ -243,7 +243,14 @@ describe('DataOpsHandler', () => {
       const sobject = vi.fn();
       const conn = {
         query,
-        describe: vi.fn().mockRejectedValue(new Error('describe unavailable')),
+        describe: vi.fn().mockResolvedValue({
+          name: 'Contact',
+          createable: true,
+          updateable: true,
+          deletable: true,
+          queryable: true,
+          fields: [{ name: 'Id', type: 'id', createable: false, updateable: false }],
+        }),
         sobject,
       };
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
@@ -1755,7 +1762,7 @@ describe('DataOpsHandler', () => {
         tracker.dispose();
       });
 
-      it('lists a restore that stopped at an object it may not write as failed in Live Operations', async () => {
+      it('refuses a restore of an object it may not write before Live Operations lists it', async () => {
         await mockConnection({
           ...accountDescribe,
           fields: accountDescribe.fields.map((f) =>
@@ -1768,12 +1775,12 @@ describe('DataOpsHandler', () => {
 
         await handler.handle(rollbackMsg('org-1'));
 
-        expect(tracker.get('msg-rb')?.status).toBe('failed');
-        expect(tracker.get('msg-rb')?.error).toContain('Name');
+        expect(tracker.get('msg-rb')).toBeUndefined();
+        expect(posted().some((m) => m.type === 'operation:started')).toBe(false);
         tracker.dispose();
       });
 
-      it('records a restore that stopped at an object it may not write as failed', async () => {
+      it('records a restore refused for an object it may not write as stopped, under the code that says why', async () => {
         await mockConnection({
           ...accountDescribe,
           fields: accountDescribe.fields.map((f) =>
@@ -1785,7 +1792,11 @@ describe('DataOpsHandler', () => {
         await handler.handle(rollbackMsg('org-1'));
 
         expect(new AuditTrailStore(store).list().entries).toEqual([
-          expect.objectContaining({ action: 'backup_restore', outcome: 'failure', objects: [] }),
+          expect.objectContaining({
+            action: 'backup_restore',
+            outcome: 'stopped',
+            details: { code: 'CRUD_FLS_DENIED' },
+          }),
         ]);
       });
     });
@@ -1805,8 +1816,66 @@ describe('DataOpsHandler', () => {
       expect(upsert).not.toHaveBeenCalled();
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
-      expect(errors[0].payload.message).toContain('Name');
-      expect(errors[0].payload.message).toContain('FLS violation');
+      expect(errors[0].payload.message).toContain("fields [Name] of 'Account' are not updateable");
+      expect((errors[0].payload as { code?: string }).code).toBe('CRUD_FLS_DENIED');
+    });
+
+    it('refuses a restore once, naming every object it may not write, before it restores the first', async () => {
+      // Checked as the restore reached each object, the accounts were
+      // restored, then the restore stopped at the contacts and named only them.
+      const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn(async (name: string) =>
+          name === 'Contact'
+            ? { ...accountDescribe, name: 'Contact', createable: false }
+            : name === 'Lead'
+              ? {
+                  ...accountDescribe,
+                  name: 'Lead',
+                  fields: accountDescribe.fields.map((f) =>
+                    f.name === 'Name' ? { ...f, createable: false, updateable: false } : f,
+                  ),
+                }
+              : accountDescribe,
+        ),
+        sobject: vi.fn(() => ({ upsert })),
+      } as never);
+      const entries: Record<string, unknown> = {
+        'backup:bk-1': {
+          operationId: 'bk-1',
+          orgId: 'org-1',
+          objects: ['Account', 'Contact', 'Lead'].map((objectApiName) => ({
+            objectApiName,
+            recordCount: 1,
+          })),
+          totalRecords: 3,
+        },
+        'backup:bk-1:Account': [backedUpRecord],
+        'backup:bk-1:Contact': [{ ...backedUpRecord, Id: '003000000000001' }],
+        'backup:bk-1:Lead': [{ ...backedUpRecord, Id: '00Q000000000001' }],
+      };
+      deps.configStore = {
+        get: vi.fn((key: string) => entries[key]),
+        set: vi.fn(),
+        delete: vi.fn(),
+        has: vi.fn((key: string) => key in entries),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          Object.keys(entries).filter((k) => k.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(rollbackMsg('org-1'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      expect(posted().some((m) => m.type === 'operation:started')).toBe(false);
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe(
+        'CRUD_FLS_DENIED: nothing was written, as the connected user may not write all it ' +
+          "would: User lacks 'upsert' permission on 'Contact'; fields [Name] of 'Lead' are " +
+          'not updateable.',
+      );
     });
   });
 
@@ -2890,7 +2959,11 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
   let registry: BackgroundOperationRegistry;
   let store: ConfigStore;
 
-  /** A Contact the CRUD/FLS check lets the run write. */
+  /**
+   * A Contact the CRUD/FLS check lets the run write, listing every field the
+   * GDPR template masks: a field it did not list would be one the run could
+   * not mask, which makes the run partial.
+   */
   const contactDescribe = {
     name: 'Contact',
     label: 'Contact',
@@ -2900,17 +2973,22 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     queryable: true,
     fields: [
       { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
-      {
-        name: 'FirstName',
-        label: 'First Name',
-        type: 'string',
-        createable: true,
-        updateable: true,
-      },
+      ...[
+        'FirstName',
+        'LastName',
+        'Email',
+        'Phone',
+        'MailingStreet',
+        'MailingCity',
+        'MailingPostalCode',
+      ].map((name) => ({ name, label: name, type: 'string', createable: true, updateable: true })),
     ],
     recordTypeInfos: [],
     childRelationships: [],
   };
+
+  /** What a run of the GDPR template selects of a contact, as the describe lists it. */
+  const CONTACT_FIELDS = contactDescribe.fields.map((f) => f.name).join(', ');
 
   /** `count` contacts, their Ids in the order the org sorts them. */
   function contactsOf(count: number): Array<Record<string, unknown>> {
@@ -3102,8 +3180,8 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
     // Two pages of a sandbox's 2,000 rows, the second after the last row of
     // the first.
     expect(pagesAsked(query)).toEqual([
-      'SELECT Id, FirstName FROM Contact ORDER BY Id LIMIT 2000',
-      `SELECT Id, FirstName FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
+      `SELECT ${CONTACT_FIELDS} FROM Contact ORDER BY Id LIMIT 2000`,
+      `SELECT ${CONTACT_FIELDS} FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
     ]);
     // The first page written back, all ten batches of it, before the second
     // is read: the run holds one page, whatever the object holds.
@@ -3371,7 +3449,7 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
       // Counted and read from where the first run stopped.
       expect(query.mock.calls.slice(queriesBefore).map(([soql]) => soql)).toEqual([
         `SELECT COUNT() FROM Contact WHERE Id > '${String(rows[1999].Id)}'`,
-        `SELECT Id, FirstName FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
+        `SELECT ${CONTACT_FIELDS} FROM Contact WHERE Id > '${String(rows[1999].Id)}' ORDER BY Id LIMIT 2000`,
       ]);
       expect(last('dataops:anonymize:response')?.payload).toMatchObject({
         status: 'success',
@@ -3425,7 +3503,7 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
 
       expect(idsSent(update, callsBefore)).toEqual([String(rows[4].Id), String(rows[9].Id)]);
       expect(query.mock.calls.slice(queriesBefore).map(([soql]) => soql)).toEqual([
-        `SELECT Id, FirstName FROM Contact WHERE Id IN ('${String(rows[4].Id)}', '${String(rows[9].Id)}')`,
+        `SELECT ${CONTACT_FIELDS} FROM Contact WHERE Id IN ('${String(rows[4].Id)}', '${String(rows[9].Id)}')`,
       ]);
       expect(rows[9].FirstName).not.toBe('Person 10');
       expect(rows[4].FirstName).toBe('Person 5');
@@ -3487,7 +3565,7 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
 
       // Read back first; only the 80 rows still holding their values are sent.
       expect(query.mock.calls[queriesBefore + 1]?.[0]).toBe(
-        `SELECT Id, FirstName FROM Contact WHERE Id IN (${rows
+        `SELECT ${CONTACT_FIELDS} FROM Contact WHERE Id IN (${rows
           .slice(200, 400)
           .map((r) => `'${String(r.Id)}'`)
           .join(', ')})`,
@@ -3656,16 +3734,9 @@ describe('DataOpsHandler — a masking run over more rows than a page', () => {
       /** A Contact whose names and address the GDPR template makes up, all writable. */
       const personDescribe = {
         ...contactDescribe,
-        fields: [
-          ...contactDescribe.fields,
-          ...['LastName', 'Email'].map((name) => ({
-            name,
-            label: name,
-            type: name === 'Email' ? 'email' : 'string',
-            createable: true,
-            updateable: true,
-          })),
-        ],
+        fields: contactDescribe.fields.map((f) =>
+          f.name === 'Email' ? { ...f, type: 'email' } : f,
+        ),
       };
 
       /** `count` contacts holding a name and an address each, in Id order. */
@@ -3981,14 +4052,142 @@ describe('DataOpsHandler — templates the user saves', () => {
     expect(result?.fieldsNotFound).toEqual([
       { objectApiName: 'Contact', fieldApiName: 'Loyalty_Code__c' },
     ]);
-    expect(String(result?.message)).toContain('Masked nothing in Contact.Loyalty_Code__c');
+    expect(String(result?.message)).toContain(
+      'The values of Contact.Loyalty_Code__c were NOT masked: the org has no such field, or ' +
+        'field-level security hides it from the user SandForge connects as.',
+    );
     expect(
       vi
         .mocked(deps.log)
-        .mock.calls.some(([line]) => String(line).includes('Contact has no field Loyalty_Code__c')),
+        .mock.calls.some(([line]) =>
+          String(line).includes('Contact lists no field Loyalty_Code__c'),
+        ),
     ).toBe(true);
     // The page shows a run's end through a notification alone.
     expect(String(last('notification')?.payload.message)).toContain('Contact.Loyalty_Code__c');
+  });
+
+  /** A describe of `name` listing `fields`, each writable unless `readOnly` names it. */
+  function describeOf(
+    name: string,
+    fields: string[],
+    options: { updateable?: boolean; readOnly?: string[] } = {},
+  ) {
+    return {
+      name,
+      label: name,
+      createable: true,
+      updateable: options.updateable ?? true,
+      deletable: true,
+      queryable: true,
+      fields: [
+        { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+        ...fields.map((field) => ({
+          name: field,
+          label: field,
+          type: 'string',
+          createable: !(options.readOnly ?? []).includes(field),
+          updateable: !(options.readOnly ?? []).includes(field),
+        })),
+      ],
+      recordTypeInfos: [],
+      childRelationships: [],
+    };
+  }
+
+  it('records a run as partial when field-level security hides a field it masks, saying its values were not masked and what to do', async () => {
+    // A describe lists only the fields the connected user can read: a profile
+    // that hides Birthdate leaves it out as an org without it would. The run
+    // said "the org has no such field", as if no data were at risk, and was
+    // recorded as a success.
+    await send('dataops:anonymization-template:save', {
+      name: 'Birthdays',
+      rules: [
+        { fieldPattern: 'Contact.FirstName', ruleType: 'nullify' },
+        { fieldPattern: 'Contact.Birthdate', ruleType: 'nullify' },
+      ],
+    });
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () =>
+        answer([{ Id: '003000000000001', FirstName: 'Ada', Birthdate: '1815-12-10' }]),
+      ),
+      describe: vi.fn().mockResolvedValue(describeOf('Contact', ['FirstName'])),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    const result = last('dataops:anonymize:response')?.payload;
+    expect(result?.status).toBe('partial');
+    expect(String(result?.message)).toMatch(/^Anonymization partial: 1 records processed\./);
+    expect(String(result?.message)).toContain(
+      'The values of Contact.Birthdate were NOT masked: the org has no such field, or ' +
+        'field-level security hides it from the user SandForge connects as. Give that user ' +
+        'read and edit access to it, or connect as an administrator.',
+    );
+    expect(last('operation:completed')?.payload).toMatchObject({ result: { status: 'partial' } });
+    expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+      expect.objectContaining({ action: 'anonymize_execute', outcome: 'partial' }),
+    ]);
+  });
+
+  it('refuses a masking run once, naming every object and field the user may not update, before anything is asked, started or written', async () => {
+    // Checked object by object as the run reached each one, the run masked
+    // every contact, then stopped at the leads, and named only them.
+    await send('dataops:anonymization-template:save', {
+      name: 'Two objects',
+      rules: [
+        { fieldPattern: 'Contact.FirstName', ruleType: 'nullify' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'nullify' },
+        { fieldPattern: 'Lead.Email', ruleType: 'nullify' },
+        { fieldPattern: 'Account.Name', ruleType: 'nullify' },
+      ],
+    });
+    const templateId = (
+      last('dataops:anonymization-template:save:response')?.payload.template as { id: string }
+    ).id;
+    const update = vi.fn().mockResolvedValue([{ success: true, id: '003000000000001' }]);
+    const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+    vi.mocked(getJsforceConnection).mockResolvedValue({
+      query: vi.fn(async () => answer([{ Id: '003000000000001', FirstName: 'Ada' }])),
+      describe: vi.fn(async (name: string) =>
+        name === 'Contact'
+          ? describeOf('Contact', ['FirstName', 'Phone'], { readOnly: ['Phone'] })
+          : name === 'Lead'
+            ? describeOf('Lead', ['Email'], { updateable: false })
+            : describeOf(name, ['Name']),
+      ),
+      sobject: vi.fn(() => ({ update })),
+    } as never);
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+    const check = vi.spyOn(deps.infraServices!.productionGuard!, 'check');
+
+    await send('dataops:anonymize', { orgId: 'org-1', templateId });
+
+    expect(update).not.toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
+    expect(posted().some((m) => m.type === 'operation:started')).toBe(false);
+    const errors = posted().filter((m) => m.type === 'dataops:error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].payload.code).toBe('CRUD_FLS_DENIED');
+    expect(String(errors[0].payload.message)).toBe(
+      'CRUD_FLS_DENIED: nothing was written, as the connected user may not write all it ' +
+        "would: fields [Phone] of 'Contact' are not updateable; User lacks 'update' " +
+        "permission on 'Lead'.",
+    );
+    expect(new AuditTrailStore(deps.configStore).list().entries).toEqual([
+      expect.objectContaining({
+        action: 'anonymize_execute',
+        outcome: 'stopped',
+        details: { code: 'CRUD_FLS_DENIED' },
+      }),
+    ]);
   });
 
   it('saves a hash rule, which the run keys with the window’s key', async () => {

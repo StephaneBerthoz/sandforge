@@ -11,13 +11,33 @@
 
 import type { SeedTemplate } from '@sandforge/shared';
 import {
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
   countedStorageBytes,
   readDataStorage,
+  runRequestsEstimate,
   storageCheckOf,
   storageRefusal,
+  type ApiBudgetCheck,
   type LimitsTransport,
   type StorageCheck,
 } from '../forge/ForgeRunGate.js';
+
+/** Records past which a seed sends an object as a Bulk API job (`seedInsert`'s default). */
+const SEED_BULK_THRESHOLD = 200;
+
+/**
+ * The API requests a seed's writes make of its target, roughly: each object
+ * by REST up to {@link SEED_BULK_THRESHOLD} records, as a Bulk API job past it.
+ */
+export function seedRequestsEstimate(template: Pick<SeedTemplate, 'objects'>): number {
+  return runRequestsEstimate(
+    template.objects.map((object) => ({
+      rows: object.recordCount,
+      bulk: object.recordCount > SEED_BULK_THRESHOLD,
+    })),
+  );
+}
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /**
@@ -46,8 +66,14 @@ export function seedStorageBytes(
 /** What the seed takes against what the target has left, and why it cannot run when it cannot. */
 export interface SeedStorageGate {
   check: StorageCheck;
-  /** Why nothing is written: the records take more than the target has left. */
+  /** Its calls against the daily API requests the target has left, read from the same `/limits`. */
+  api: ApiBudgetCheck;
+  /**
+   * Why nothing is written: the records take more than the target has left
+   * of its storage, or of today's API requests (`refusedFor`).
+   */
   refusal?: string;
+  refusedFor?: 'storage' | 'apiRequests';
 }
 
 /**
@@ -72,6 +98,16 @@ export async function seedStorageGate(
     storage = { unread: extractErrorMessage(err) };
   }
   const check = storageCheckOf(plan, storage);
+  const api = apiBudgetCheckOf(
+    seedRequestsEstimate(template),
+    'unread' in storage ? storage : storage.dailyApiRequests,
+  );
   const refusal = storageRefusal(check, target);
-  return refusal ? { check, refusal: `${refusal} Nothing was written.` } : { check };
+  if (refusal) {
+    return { check, api, refusal: `${refusal} Nothing was written.`, refusedFor: 'storage' };
+  }
+  const overBudget = apiBudgetRefusal(api, target);
+  return overBudget
+    ? { check, api, refusal: overBudget, refusedFor: 'apiRequests' }
+    : { check, api };
 }

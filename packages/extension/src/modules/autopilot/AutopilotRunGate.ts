@@ -22,9 +22,13 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
 import {
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
+  confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
   overEmailOf,
+  runRequestsEstimate,
   storageCheckOf,
   storageRefusal,
   writePlanOf,
@@ -111,8 +115,18 @@ function overEmailsOf(checks: readonly EmailCheck[]): NonNullable<WriteConfirmat
   return checks.filter((check) => check.verdict === 'exceeds').map(overEmailOf);
 }
 
+/** The limits a plan's emails are counted against that the target did not say it has left of. */
+function unreadEmailsOf(
+  checks: readonly EmailCheck[],
+): NonNullable<WriteConfirmation['emailsUnread']> {
+  return checks
+    .filter((check) => check.verdict === 'unread')
+    .map((check) => ({ limit: check.limit, emails: check.emails, unread: check.unread ?? '' }));
+}
+
 /** Why a run's gate stopped it: Forge's codes for the same stops. */
-export type AutopilotGateCode = 'STORAGE_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
+export type AutopilotGateCode =
+  'STORAGE_EXCEEDED' | 'API_BUDGET_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
 
 /** What the gate came to: the run goes on, or it stops before its first write, and why. */
 export type AutopilotGateOutcome =
@@ -153,10 +167,27 @@ export async function gateAutopilotWrite(input: {
       check,
     };
   }
+  // Its calls against the daily API requests the target has left, read
+  // from the same `/limits` as its storage: refused past them, as the run
+  // would stop part way through.
+  const api = apiBudgetCheckOf(
+    runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
+    'unread' in input.storage ? input.storage : input.storage.dailyApiRequests,
+  );
+  const overBudget = apiBudgetRefusal(api, input.org);
+  if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };
   const threshold = input.confirmAboveRecords;
   const aboveRecords = threshold > 0 && plan.totalRows > threshold ? threshold : undefined;
   const overEmails = overEmailsOf(input.emails ?? []);
-  if (aboveRecords === undefined && check.verdict === 'fits' && overEmails.length === 0) {
+  // A limit the target would not say what it has left of is asked about, as
+  // storage it would not say is: said only in the log, nobody saw it.
+  const unreadEmails = unreadEmailsOf(input.emails ?? []);
+  if (
+    aboveRecords === undefined &&
+    check.verdict === 'fits' &&
+    overEmails.length === 0 &&
+    unreadEmails.length === 0
+  ) {
     return { go: true, check, asked: false };
   }
   const line = largeVolumeThreshold(input.orgTier);
@@ -172,6 +203,8 @@ export async function gateAutopilotWrite(input: {
     storage: confirmationStorageOf(check),
     counted: true,
     ...(overEmails.length > 0 ? { emails: overEmails } : {}),
+    ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
+    ...confirmationApiOf(api),
   });
   if (answer === 'confirmed') return { go: true, check, asked: true };
   return answer === 'declined'

@@ -64,6 +64,7 @@
       "autopilotConfirmationUnavailable": "Der Autopilot-Lauf wurde angehalten, bevor er etwas geschrieben hat: Er brauchte Ihre Bestätigung, und sie konnte nicht eingeholt werden.",
       "seedStorageExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat: Seine Datensätze brauchen rund {{estimate}} MB Datenspeicher, und in {{org}} sind noch {{remaining}} MB von {{max}} MB frei. Verringern Sie die Anzahl der Datensätze, wählen Sie eine kleinere Vorlage oder geben Sie Datenspeicher in {{org}} frei.",
       "seedEmailsExceeded": "Der Seed wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Verringern Sie die Anzahl der Datensätze, setzen Sie {{objects}} auf 0, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
+      "seedWriteDeclined": "Der Seed wurde abgebrochen, bevor er etwas schrieb. In die Ziel-Org wurde nichts geschrieben.",
       "backupBusy": "Eine Sicherung oder eine Wiederherstellung dieser Org läuft: Löschen Sie ihre Sicherungen, sobald der Vorgang beendet ist.",
       "autopilotRunning": "Ein Autopilot-Lauf schreibt noch in diese Ziel-Org, und es wurde nichts weiter gestartet: Die Live-Operationen im Monitor zeigen, wo er steht. Starten Sie einen weiteren, wenn er beendet ist."
     },
@@ -146,6 +147,8 @@
     "title": "Organisationen",
     "connect": "Org verbinden",
     "disconnect": "Trennen",
+    "scratchExpiredBadge": "Abgelaufen am {{date}}",
+    "scratchExpired": "Diese Scratch-Org ist am {{date}} abgelaufen: Salesforce löscht eine Scratch-Org, wenn sie abläuft, und kein erneutes Verbinden bringt sie zurück. Erstellen Sie eine neue und importieren Sie sie, und trennen Sie dann diese.",
     "disconnectConfirm": "{{alias}} trennen? SandForge vergisst diese Org: Alias, Tags, Farbe und Sicherheitsstufe werden gelöscht, und eine erneute Verbindung beginnt mit den Standardwerten.",
     "edit": "Org bearbeiten",
     "noOrgs": "Keine Organisationen verbunden",
@@ -976,6 +979,7 @@
         "PRODUCTION_GUARD_BLOCKED": "Der Produktionsschutz hat diesen Klonvorgang blockiert, bevor ein Datensatz geschrieben wurde.",
         "CLONE_FAILED": "Der Klonvorgang wurde vor dem Abschluss beendet.",
         "CLONE_EMAILS_EXCEEDED": "Der Klonvorgang wurde abgelehnt, bevor er etwas geschrieben hat. {{limit}}, die diese Datensätze {{org}} senden lassen würden: etwa {{emails}}, bei {{remaining}} von {{max}} heute verbleibenden. Schränken Sie die Filter von {{objects}} ein oder lassen Sie sie weg, schalten Sie {{senders}} ab oder weisen Sie sich die Berechtigung zu, die sie still hält.",
+        "API_BUDGET_EXCEEDED": "Der Klon wurde abgelehnt, bevor er etwas schrieb: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat.",
         "INVALID_PAYLOAD": "SandForge hat diese Anfrage abgelehnt, bevor eine der beiden Orgs gelesen wurde. Ein Klonvorgang braucht eine Quell-Org, eine Ziel-Org und 1 bis 100 Objekte, und ein Filter darf nur Datensätze auswählen: kein LIMIT, kein ORDER BY, keine Unterabfrage, kein Semikolon und kein Kommentar. Der SandForge-Ausgabekanal nennt den abgelehnten Teil.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge hat diesen Lauf abgelehnt, bevor etwas geschrieben wurde: Er galt nicht den Orgs, für die seine Vorschau erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
         "NOT_PREVIEWED": "SandForge hat diesen Lauf abgelehnt, bevor eine der beiden Orgs gelesen wurde: Er nannte keine Vorschau, und ein Klonvorgang läuft nur aus der Vorschau, für die er erstellt wurde. Erstellen Sie die Vorschau erneut und starten Sie dann den Klonvorgang.",
@@ -1167,6 +1171,11 @@
     "addObject": "Objekt hinzufügen",
     "removeObject": "Objekt entfernen",
     "noObjects": "Keine Objekte konfiguriert",
+    "unwritableOption": {
+      "notInTarget": "{{object}} — nicht in der Ziel-Org",
+      "notCreateable": "{{object}} — darf in der Ziel-Org nicht erstellt werden"
+    },
+    "unwritableNote": "Nicht auswählbar: {{objects}}. Die Ziel-Org hat diese Objekte nicht, oder der Benutzer, mit dem SandForge schreibt, darf ihre Datensätze dort weder erstellen noch bearbeiten.",
     "dataFlow": "Datenfluss",
     "totalProcessed": "Gesamt verarbeitet",
     "totalSuccess": "Gesamt erfolgreich",
@@ -1241,7 +1250,8 @@
       "applyDeletes": "Löschungen übernehmen",
       "sessionError": "Echtzeit-Sync: {{message}}",
       "refusedTitle": "Die Quell-Org hat diese Objekte abgelehnt:",
-      "refusedHint": "Ein Objekt, für das die Quell-Org keine Änderungsereignisse veröffentlicht, wird abgelehnt. Wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus und starten Sie erneut.",
+      "refusedHint": "Der Benutzer, mit dem sich SandForge mit der Quelle verbindet, braucht „Alle Daten anzeigen“ oder „Alle anzeigen“ für das Objekt („Alle Benutzer anzeigen“ für User), um seine Änderungsereignisse zu empfangen; oder das Objekt ist in der Quell-Org unter Setup → Change Data Capture nicht für den Standardkanal ChangeEvents ausgewählt. Beheben Sie eines davon und starten Sie erneut.",
+      "refusedHintPermission": "Die Quell-Org veröffentlicht Änderungsereignisse für diese Objekte: Der Benutzer, mit dem sich SandForge mit ihr verbindet, braucht „Alle Daten anzeigen“ oder „Alle anzeigen“ für jedes Objekt („Alle Benutzer anzeigen“ für User), um sie zu empfangen. Geben Sie diesem Benutzer die Berechtigung und starten Sie erneut.",
       "outcome": {
         "applied": "In das Ziel geschrieben",
         "failed": "Nicht geschrieben",
@@ -1466,7 +1476,20 @@
       },
       "unread": "Die zu schreibenden Datensätze konnten nicht gezählt werden ({{reason}}): Ein Lauf wird abgelehnt, bis sie gezählt werden können.",
       "overwrites_one": "Davon kann {{count}} einen Datensatz überschreiben, den die Ziel-Org enthält: Sein Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
-      "overwrites_other": "Davon können bis zu {{count}} Datensätze überschreiben, die die Ziel-Org enthält: Ihr Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her."
+      "overwrites_other": "Davon können bis zu {{count}} Datensätze überschreiben, die die Ziel-Org enthält: Ihr Inhalt wird zuerst gelesen und aufbewahrt, und das Entfernen des Laufs stellt ihn wieder her.",
+      "unwritable": {
+        "notInTarget": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat kein solches Objekt, oder der Benutzer, mit dem der Lauf schreibt, kann es nicht sehen. Keiner seiner Datensätze kann geschrieben werden.",
+        "notCreateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf in der Ziel-Org keine Datensätze davon erstellen. Keiner kann geschrieben werden.",
+        "notUpdateable": "{{object}} ({{rows}} Datensätze): Der Benutzer, mit dem der Lauf schreibt, darf seine Datensätze in der Ziel-Org nicht bearbeiten. Keiner kann geschrieben werden.",
+        "unread": "{{object}} ({{rows}} Datensätze): Die Ziel-Org hat es nicht beschrieben, daher würde keiner seiner Datensätze gesendet.",
+        "hint": "Von der Seite gestartet, fragt der Lauf, ob diese Objekte ausgelassen werden sollen, und schreibt den Rest; ein geplanter Lauf und die Befehlszeile werden abgelehnt."
+      },
+      "apiRequests": {
+        "fits": "API-Anfragen: etwa {{estimate}}, von den {{remaining}}, die der Ziel-Org von ihren {{max}} pro Tag bleiben.",
+        "near": "API-Anfragen: etwa {{estimate}}, womit der Ziel-Org weniger als ein Zehntel ihrer {{max}} pro Tag bliebe ({{remaining}} übrig).",
+        "exceeds": "API-Anfragen: etwa {{estimate}}, mehr als die {{remaining}}, die der Ziel-Org von ihren {{max}} pro Tag bleiben.",
+        "unread": "API-Anfragen: etwa {{estimate}}. Was der Ziel-Org heute bleibt, konnte nicht gelesen werden ({{reason}})."
+      }
     },
     "runControls": {
       "cancelSimulation": "Simulation abbrechen",
@@ -2020,7 +2043,7 @@
       "empty": "(leer)",
       "notRead": "Nicht gelesen: {{error}}",
       "noRecords": "Keine Datensätze zu maskieren.",
-      "fieldsNotFound": "Anwenden maskiert nichts in {{fields}}: Die Org hat kein solches Feld."
+      "fieldsNotFound": "Anwenden maskiert nichts in {{fields}}, ihre Werte bleiben unverändert: Die Org hat kein solches Feld, oder die Feldebenensicherheit verbirgt es vor dem Benutzer, als der sich SandForge verbindet. Geben Sie diesem Benutzer Lese- und Bearbeitungszugriff darauf, oder verbinden Sie sich als Administrator."
     },
     "backupDelete": "Löschen",
     "backupDeleteConfirm": "Diese Sicherung löschen? Die Werte der Datensätze, die sie im Klartext auf diesem Rechner enthält, sind endgültig weg, und sie lässt sich nicht mehr wiederherstellen.",
@@ -3460,6 +3483,7 @@
       "noDiffs": "Keine Metadaten-Unterschiede erkannt.",
       "diffsFound_one": "{{count}} Unterschied zwischen Quelle und Ziel gefunden.",
       "diffsFound_other": "{{count}} Unterschiede zwischen Quelle und Ziel gefunden.",
+      "objectNotCreateable": "{{object}} ist in der Ziel-Org, aber der Benutzer, mit dem der Klon schreibt, darf dort keine Datensätze davon erstellen: Ausführen überspringt es, nach den zuvor geschriebenen Objekten. Lassen Sie es unter Abweichungen aus, oder geben Sie diesem Benutzer das Erstellrecht dafür.",
       "planLoading": "Ausführungsplan wird erstellt...",
       "wave": "Welle",
       "cycles": "Zyklusauflösungen",
@@ -3672,6 +3696,7 @@
         "validation_rule": "Validierungsregel",
         "duplicate_rule": "Duplikatregel",
         "api_budget": "Tägliches API-Anfragekontingent",
+        "object_not_createable": "Objekt, das der Benutzer, mit dem der Klon schreibt, im Ziel nicht erstellen darf",
         "rehearsal_refusal": "In der Probe abgelehnt",
         "rehearsal_update_refusal": "In der Probe abgelehnte Aktualisierung"
       },
@@ -3833,6 +3858,7 @@
       "noResults": "Keine Objekte entsprechen Ihrer Suche.",
       "selectedCount": "{{count}} von {{total}} Objekten ausgewählt",
       "notInTarget": "Nicht in der Ziel-Org",
+      "notCreateableInTarget": "Der Benutzer, mit dem SandForge schreibt, darf diese in der Ziel-Org nicht erstellen",
       "countShown": "Datensätze der angezeigten Objekte zählen ({{objects}})"
     },
     "step3": {
@@ -5019,6 +5045,10 @@
       "explanation": "Die Sitzung mit dieser Org ist abgelaufen und konnte nicht erneuert werden.",
       "action": "Verbinden Sie sie auf der Seite Organisationen erneut (Erneut verbinden auf ihrer Karte)."
     },
+    "scratchOrgExpired": {
+      "explanation": "Diese Scratch-Org hat ihr Ablaufdatum überschritten: Salesforce löscht eine Scratch-Org, wenn sie abläuft, und kein erneutes Verbinden bringt sie zurück.",
+      "action": "Erstellen Sie eine neue Scratch-Org, importieren Sie sie auf der Seite Organisationen, und trennen Sie die abgelaufene."
+    },
     "orgTemporarilyUnreachable": {
       "explanation": "Diese Org ist mehrmals hintereinander fehlgeschlagen, daher wartet SandForge einen Moment, bevor es sie erneut aufruft.",
       "action": "Versuchen Sie es in einer Minute erneut."
@@ -5046,6 +5076,10 @@
     "notCreateable": {
       "explanation": "Die Ziel-Org beschreibt dieses Objekt, nimmt aber für den Benutzer, unter dem der Klon schreibt, keine Einfügung davon an: ein Verlaufs- oder Systemobjekt, das die Plattform selbst schreibt, oder eines, das das Profil dieses Benutzers nicht erstellen darf. Seine Datensätze wurden ausgelassen.",
       "action": "Geben Sie dem Benutzer, unter dem der Klon schreibt, das Recht, das Objekt in der Ziel-Org zu erstellen, wenn seine Datensätze dort benötigt werden; andernfalls lassen Sie das Objekt aus dem Klon heraus."
+    },
+    "notUpdateable": {
+      "explanation": "Die Ziel-Org beschreibt dieses Objekt, nimmt aber vom Benutzer, mit dem der Lauf schreibt, keine Bearbeitung seiner Datensätze an: Das Profil dieses Benutzers darf es nicht bearbeiten. Keiner seiner Datensätze wurde gesendet.",
+      "action": "Geben Sie dem Benutzer, mit dem der Lauf schreibt, das Recht, das Objekt in der Ziel-Org zu bearbeiten, oder lassen Sie das Objekt aus dem Lauf heraus."
     },
     "guardBlocked": {
       "explanation": "Production Guard hat diesen Lauf abgelehnt, bevor etwas gelesen wurde, aus dem Grund, den die Meldung nennt. Es wurde nichts geschrieben.",
@@ -5102,6 +5136,14 @@
     "syncEmailsExceeded": {
       "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas geschrieben hat: Ihre Datensätze würden die Automatisierung der Ziel-Org mehr E-Mails senden lassen, als ihr heute bleiben, und jeder Datensatz darüber hinaus würde abgelehnt.",
       "action": "Simulieren Sie sie, um die Zahlen zu sehen, und geben Sie dann dem ausführenden Benutzer eine Umgehung, die diese Flows stumm hält, schreiben Sie weniger Datensätze oder führen Sie sie morgen erneut aus."
+    },
+    "syncTargetUnwritable": {
+      "explanation": "Die Synchronisierung wurde abgelehnt, bevor sie etwas schrieb: Die Ziel-Org würde keinen Datensatz eines Objekts annehmen, das sie schreibt. Sie hat das Objekt nicht, oder der Benutzer, mit dem die Synchronisierung schreibt, darf es dort nicht sehen, erstellen oder bearbeiten.",
+      "action": "Lassen Sie diese Objekte aus dem Lauf heraus, oder geben Sie dem Benutzer, mit dem die Synchronisierung schreibt, Zugriff darauf in der Ziel-Org. Von der Seite gestartet, fragt die Synchronisierung, ob sie sie auslassen soll, und schreibt den Rest."
+    },
+    "apiBudgetExceeded": {
+      "explanation": "Der Lauf wurde abgelehnt, bevor er etwas schrieb: Er braucht mehr API-Anfragen, als die Ziel-Org heute noch hat, und wäre mittendrin stehen geblieben, seine Datensätze mit REQUEST_LIMIT_EXCEEDED abgelehnt.",
+      "action": "Starten Sie ihn, wenn die Org Anfragen übrig hat — das Tageslimit zählt über die letzten 24 Stunden —, oder schreiben Sie weniger Datensätze."
     },
     "syncWriteDeclined": {
       "explanation": "Sie haben die Synchronisierung abgebrochen, bevor sie etwas geschrieben hat. In die Ziel-Org wurde nichts geschrieben.",

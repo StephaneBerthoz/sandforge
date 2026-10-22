@@ -9,6 +9,9 @@ import { CDCSubscriptionPanel } from './CDCSubscriptionPanel';
 import { CDCMetricsDashboard } from './CDCMetricsDashboard';
 import { CDCEventFeed } from './CDCEventFeed';
 
+/** The standard channel every object selected in Setup → Change Data Capture publishes on. */
+const STANDARD_CHANNEL = 'ChangeEvents';
+
 /** Props for the RealTimeSyncPanel component. */
 export interface RealTimeSyncPanelProps {
   /** Source org ID for the CDC stream. */
@@ -74,6 +77,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
       {publishing.error && (
         <ErrorBanner
           message={t('sync.realtime.objectsError', { message: publishing.error })}
+          code={publishing.errorCode}
           data-testid="realtime-objects-error"
         />
       )}
@@ -108,7 +112,20 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
               </li>
             ))}
           </ul>
-          <p className="text-text-secondary">{t('sync.realtime.refusedHint')}</p>
+          {/* The objects offered are those the org publishes change events
+              for: a refusal is most often the permission the subscription
+              needs. Listed on the standard channel, it is that alone; on
+              another channel, the object may also not be selected for the
+              standard one. Every refusal was said to be the selection. */}
+          <p className="text-text-secondary" data-testid="realtime-refused-hint">
+            {refused.every(
+              ({ objectApiName }) =>
+                objects.find((o) => o.objectApiName === objectApiName)?.channel ===
+                STANDARD_CHANNEL,
+            )
+              ? t('sync.realtime.refusedHintPermission')
+              : t('sync.realtime.refusedHint')}
+          </p>
         </div>
       )}
       {notes.length > 0 && (

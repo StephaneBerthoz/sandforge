@@ -227,6 +227,11 @@ export type ForgeGapKind =
   | 'validation_rule'
   | 'duplicate_rule'
   | 'api_budget'
+  /**
+   * The target has the object, and the user the run writes as may not create
+   * its records there: Execute skips it whole, after the objects before it.
+   */
+  | 'object_not_createable'
   | 'rehearsal_refusal'
   /**
    * The platform refused, in a rehearsal, an update the run makes after its

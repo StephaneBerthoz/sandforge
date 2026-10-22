@@ -6,6 +6,8 @@ import type {
   ForgeTargetFlow,
 } from '@sandforge/shared';
 import {
+  apiBudgetCheckOf,
+  runRequestsEstimate,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   DEFAULT_MAX_TOTAL,
   ForgeRunGateError,
@@ -1158,5 +1160,42 @@ describe('what the command line says of the reversibility of a run', () => {
       "reversibility: nothing found in TARGET that refuses a removal of this run's records " +
         '(no flow before a delete, no Apex trigger on one, no record that locks past Draft)',
     ]);
+  });
+});
+
+describe('the daily API requests', () => {
+  it('reads them from the same /limits as the storage, in one request', async () => {
+    const request = vi.fn(async () => ({
+      DataStorageMB: { Max: 5, Remaining: 4 },
+      DailyApiRequests: { Max: 15_000, Remaining: 900 },
+    }));
+
+    expect(await readDataStorage({ request })).toEqual({
+      maxMB: 5,
+      remainingMB: 4,
+      dailyApiRequests: { max: 15_000, remaining: 900 },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('estimates a run: a REST call per 200 rows, five per Bulk API job of 10 000, a read per 2 000', () => {
+    expect(
+      runRequestsEstimate([
+        { rows: 401 },
+        { rows: 12_000, bulk: true },
+        { rows: 0, readRows: 4_001 },
+      ]),
+    ).toBe(3 + 10 + 3);
+  });
+
+  it('says a run exceeds what is left, comes near a tenth of the day, fits, or could not be read', () => {
+    expect(apiBudgetCheckOf(100, { max: 15_000, remaining: 99 }).verdict).toBe('exceeds');
+    expect(apiBudgetCheckOf(100, { max: 15_000, remaining: 1_500 }).verdict).toBe('near');
+    expect(apiBudgetCheckOf(100, { max: 15_000, remaining: 1_600 }).verdict).toBe('fits');
+    expect(apiBudgetCheckOf(100, undefined)).toMatchObject({ verdict: 'unread' });
+    expect(apiBudgetCheckOf(100, { unread: 'INSUFFICIENT_ACCESS' })).toMatchObject({
+      verdict: 'unread',
+      unread: 'INSUFFICIENT_ACCESS',
+    });
   });
 });

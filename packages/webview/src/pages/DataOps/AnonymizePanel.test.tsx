@@ -153,6 +153,30 @@ describe('AnonymizePanel', () => {
       );
     });
 
+    it('says a field Apply cannot mask may be hidden by field-level security, with what to do, in the preview and again in the confirmation', () => {
+      // It said only "the org has no such field": a standard field the
+      // user's profile hid read as if no data were at risk.
+      render(
+        <AnonymizePanel
+          templates={templates}
+          selectedTemplateId="tpl-1"
+          onPreview={vi.fn()}
+          onApply={vi.fn()}
+          preview={preview}
+        />,
+      );
+      const said =
+        'Apply masks nothing in Contact.Loyalty__c, and their values stay as they are: the org ' +
+        'has no such field, or field-level security hides it from the user SandForge connects ' +
+        'as. Give that user read and edit access to it, or connect as an administrator.';
+      expect(screen.getByTestId('preview-fields-not-found').textContent).toBe(said);
+      expect(screen.queryByTestId('confirm-fields-not-found')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+
+      expect(screen.getByTestId('confirm-fields-not-found').textContent).toBe(said);
+    });
+
     it('shows no preview taken for another template', () => {
       render(
         <AnonymizePanel

@@ -323,7 +323,11 @@ export interface DataOpsAnonymizePreviewResponse extends BaseMessage {
   payload: {
     templateId: string;
     objects: AnonymizePreviewObject[];
-    /** The fields the template's rules name that their object lacks: Apply masks nothing there. */
+    /**
+     * The fields the template's rules name that their object's describe does
+     * not list — the org has none, or field-level security hides them from
+     * the connected user: Apply masks nothing there.
+     */
     fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
   };
 }
@@ -489,8 +493,10 @@ export interface DataOpsAnonymizeResponse extends BaseMessage {
     /** Why the org refused them, per object. */
     errors: Array<{ objectApiName: string; message: string }>;
     /**
-     * The fields the template's rules name that their object does not have in
-     * this org, among the objects the run read: their rules masked nothing.
+     * The fields the template's rules name that their object's describe does
+     * not list in this org — it has none, or field-level security hides them
+     * from the connected user — among the objects the run read: their rules
+     * masked nothing, and the run is partial.
      */
     fieldsNotFound: Array<{ objectApiName: string; fieldApiName: string }>;
     /** Present when a cancel stopped the run before every record was masked. */

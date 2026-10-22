@@ -186,6 +186,44 @@ describe('SeedOpsHandler — storage and locale', () => {
     );
   });
 
+  it('asks before it writes when the org will not say its storage, and writes nothing when declined', async () => {
+    // Said only in the Output log: nothing reached the panel.
+    const { request } = developerEdition();
+    request.mockRejectedValue(new Error('INSUFFICIENT_ACCESS: View Setup'));
+    const guard = deps.infraServices?.productionGuard as ProductionGuard;
+    const confirmRun = vi.spyOn(guard, 'confirmRun').mockResolvedValue('declined');
+
+    await execute(CRM_STARTER);
+
+    expect(confirmRun.mock.calls[0][0]).toMatchObject({
+      stage: 'write',
+      module: 'seed',
+      org: 'my-dev-org',
+      storage: { unread: 'INSUFFICIENT_ACCESS: View Setup' },
+      counted: true,
+    });
+    expect(executed).toEqual([]);
+    expect(posted('seed:error')[0].payload).toMatchObject({ code: 'SEED_WRITE_DECLINED' });
+  });
+
+  it('refuses a seed past the API requests the org has left today, before the guard or any write', async () => {
+    const { request } = developerEdition();
+    request.mockResolvedValue({
+      DataStorageMB: { Max: 5, Remaining: 5 },
+      DailyApiRequests: { Max: 15_000, Remaining: 2 },
+    } as never);
+
+    await execute(CRM_STARTER);
+
+    expect(executed).toEqual([]);
+    expect(guardChecks).not.toHaveBeenCalled();
+    const [error] = posted('seed:error');
+    expect(error.payload).toMatchObject({ code: 'API_BUDGET_EXCEEDED' });
+    expect(String(error.payload.message)).toContain(
+      'my-dev-org has 2 of its 15000 daily requests left',
+    );
+  });
+
   it("draws the people of a seed in the org's own locale, and in the one the request names", async () => {
     // The panel drew every seed in en_US: American people in a French org.
     const contacts = CRM_STARTER.objects.find((o) => o.objectApiName === 'Contact');

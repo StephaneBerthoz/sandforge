@@ -201,7 +201,7 @@ export interface TargetGapDeps {
   describeFields: (
     orgId: string,
     objectApiName: string,
-  ) => Promise<{ fields: GapField[]; sent: boolean }>;
+  ) => Promise<{ fields: GapField[]; sent: boolean; createable?: boolean }>;
   /**
    * The Metadata API definitions of duplicate rules, by full name
    * (`<Object>.<DeveloperName>`), {@link DUPLICATE_RULES_PER_READ} at most a
@@ -727,6 +727,8 @@ export class TargetGapReader {
     let limitsRefusal: string | undefined;
     const targetFields = new Map<string, GapField[]>();
     const sourceFields = new Map<string, GapField[]>();
+    /** The objects of the run the target's user may not create, as its describe says. */
+    const closedInTarget = new Set<string>();
     const ask =
       (part: GapUnreadPart, run: () => Promise<QueryAnswer>, keep: (rows: Row[]) => void) =>
       async (): Promise<void> => {
@@ -743,9 +745,10 @@ export class TargetGapReader {
       (orgId: string, objectApiName: string, part: GapUnreadPart, into: Map<string, GapField[]>) =>
       async (): Promise<void> => {
         try {
-          const { fields, sent } = await this.deps.describeFields(orgId, objectApiName);
+          const { fields, sent, createable } = await this.deps.describeFields(orgId, objectApiName);
           if (sent) requests++;
           into.set(objectApiName, fields);
+          if (into === targetFields && createable === false) closedInTarget.add(objectApiName);
         } catch (err: unknown) {
           requests++;
           said(part, `${objectApiName}: ${extractErrorMessage(err)}`);
@@ -981,6 +984,19 @@ export class TargetGapReader {
       ...rules.map((rule) => validationGap(rule, heldKnown ? held : undefined, grants)),
       ...duplicates.map((rule) => duplicateGap(rule, definitions.get(rule.fullName.toLowerCase()))),
       ...objects.flatMap((objectApiName) => {
+        // An object the target's user may not create: one gap, which holds
+        // Execute until the user leaves it out. Nothing said it before the
+        // run, which wrote its parents, then skipped it.
+        if (closedInTarget.has(objectApiName)) {
+          return [
+            gapOf({
+              kind: 'object_not_createable',
+              severity: 'blocking',
+              objectApiName,
+              decisions: ['exclude_object'],
+            }),
+          ];
+        }
         const target = targetFields.get(objectApiName);
         const source = sourceFields.get(objectApiName);
         return target && source ? fieldGaps(objectApiName, target, source, scope) : [];
@@ -1278,6 +1294,11 @@ function gapWords(gap: ForgeGap): string {
         (detail.optional === true
           ? 'a lookup it refuses is left empty'
           : 'the lookup is required, and a row it refuses is refused')
+      );
+    case 'object_not_createable':
+      return (
+        'the user the run writes as may not create its records in the target: every row is ' +
+        'skipped, after the objects written before it, unless the object is left out'
       );
     case 'api_budget': {
       const calls = `about ${count(detail.calls)} call(s) (${count(detail.writes)} write(s) of 200 rows, ${count(detail.reads)} read(s))`;

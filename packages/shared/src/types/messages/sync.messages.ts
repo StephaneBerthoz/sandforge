@@ -94,10 +94,21 @@ export interface SyncResumeResponse extends BaseMessage {
   payload: SyncRunControlAnswer;
 }
 
-/** Response containing the createable + queryable object API names of an org. */
+/**
+ * Response containing the objects a sync may copy from an org: those its
+ * user may read, and, asked with the target, that the target takes.
+ */
 export interface SyncDescribeGlobalResponse extends BaseMessage {
   type: 'sync:describe-global:response';
-  payload: { objects: string[] };
+  payload: {
+    objects: string[];
+    /**
+     * Asked with the target: the source's objects the target has not, or
+     * whose records the user SandForge writes as may neither create nor edit
+     * there. Listed for the picker to show and not let be picked. Absent when none.
+     */
+    unwritable?: Array<{ objectApiName: string; why: 'notInTarget' | 'notCreateable' }>;
+  };
 }
 
 /** Response containing the createable fields of an object on both source and target orgs. */

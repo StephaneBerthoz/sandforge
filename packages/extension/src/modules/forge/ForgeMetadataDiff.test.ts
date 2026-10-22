@@ -135,6 +135,33 @@ describe('ForgeMetadataDiff', () => {
       expect(result[0].details).toContain('target=number');
     });
 
+    it('names once an object the target user may not create, in place of a warning per field', async () => {
+      // One English warning per field, and nothing said Execute would skip
+      // the object, after its parents were written.
+      const fields: DescribedField[] = [
+        { name: 'Subject', type: 'string', createable: true },
+        { name: 'Status', type: 'picklist', createable: true },
+      ];
+      const diff = new ForgeMetadataDiff({
+        describeObject: async (orgId) =>
+          orgId === 'target'
+            ? { createable: false, fields: fields.map((f) => ({ ...f, createable: false })) }
+            : { createable: true, fields },
+      });
+
+      expect(await diff.compare('source', 'target', ['Case'])).toEqual([
+        {
+          objectApiName: 'Case',
+          fieldApiName: '',
+          issue: 'object_not_createable',
+          severity: 'error',
+          details:
+            'Case is in the target org, but the user the clone writes as may not create its ' +
+            'records there: Execute skips it',
+        },
+      ]);
+    });
+
     it('should detect permission denied as warning severity', async () => {
       const deps = makeDeps({
         source: {

@@ -142,6 +142,9 @@ function guardRefusal(
       senders: list(senderNames.map((name) => i18n.t('common.quoted', { name }))),
     });
   }
+  // A seed the user declined at its write question, asked for storage the org
+  // would not say or for the API requests it would leave the org short of.
+  if (code === 'SEED_WRITE_DECLINED') return i18n.t('common.refusal.seedWriteDeclined');
   if (code === 'GUARD_BLOCKED') {
     const said = message ?? '';
     const reason = said.startsWith(GUARD_BLOCKED_PREFIX)

@@ -43,7 +43,12 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
 import { readOtherColumns, wideStatement } from '../../core/common/wideRead.js';
-import { CRUD_FLS_DENIED, CrudFlsGuard, flsViolation } from '../../core/metadata/CrudFlsGuard.js';
+import {
+  CRUD_FLS_DENIED,
+  CrudFlsGuard,
+  crudFlsDenials,
+  type CrudFlsDenial,
+} from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/describeTypes.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
@@ -725,6 +730,24 @@ function maskingAuditOutcome(
   return recordsProcessed + recordsFailed > 0
     ? { outcome: 'cancelled' }
     : { outcome: 'stopped', code: RUN_CANCELLED };
+}
+
+/**
+ * What a run says of the fields its template names that their object's
+ * describe does not list. A describe lists only the fields the connected user
+ * can read: field-level security that hides `Contact.Birthdate` from that user
+ * leaves it out as an org without it would. The run said the org had no such
+ * field, as if no data were at risk, and recorded itself as a success.
+ */
+function unseenFieldsSentence(
+  fields: ReadonlyArray<{ objectApiName: string; fieldApiName: string }>,
+): string {
+  return (
+    `The values of ${fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
+    'were NOT masked: the org has no such field, or field-level security hides it from the ' +
+    'user SandForge connects as. Give that user read and edit access to it, or connect as an ' +
+    'administrator.'
+  );
 }
 
 /** Per object, the rows a run left holding their original values: `Contact 500, Lead 450`. */
@@ -2281,6 +2304,23 @@ export class DataOpsHandler implements DomainHandler {
     };
   }
 
+  /**
+   * The first record a restore of one object writes, read as the restore reads
+   * them: merged by record for a Sync run's backup. None when it holds none.
+   */
+  private async firstBackupRecord(
+    operationId: string,
+    objectApiName: string,
+    meta: Pick<BackupMeta, 'origin'>,
+  ): Promise<BackupRecord | undefined> {
+    const kept = await this.backupBatches(operationId, objectApiName);
+    const batches = meta.origin === 'sync' ? mergedById(kept, RESTORE_BATCH_SIZE).batches : kept;
+    for await (const batch of batches) {
+      if (batch[0] !== undefined) return batch[0];
+    }
+    return undefined;
+  }
+
   private pruneBackups(orgId: string): void {
     const maxCount = this.deps.services?.getSandforgeSetting?.('backup.maxCount', 10) ?? 10;
     const metas: Array<{ key: string; timestamp: string }> = [];
@@ -2497,6 +2537,56 @@ export class DataOpsHandler implements DomainHandler {
         this.refuseWithoutGuard('dataops:rollback', msg, rollbackOpId, failure, run);
         return;
       }
+
+      // Whether the user may upsert every object the backup holds, and the
+      // business fields it kept of each, before anything is asked or written:
+      // checked as the restore reached each object, a refusal stopped it with
+      // the objects before it already restored, and named only that object.
+      const denials: CrudFlsDenial[] = [];
+      for (const obj of backupMeta.objects) {
+        const first = await this.firstBackupRecord(
+          payload.operationId,
+          obj.objectApiName,
+          backupMeta,
+        );
+        if (first === undefined) continue;
+        const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
+        const crudCheck = await crudFlsGuard.checkCrudPermission(safeObj, 'upsert');
+        if (!crudCheck.allowed) {
+          denials.push({ objectApiName: safeObj, operation: 'upsert', deniedFields: [] });
+          continue;
+        }
+        // A business field this org may not write is a hard stop: dropping it
+        // would restore the record with that column silently missing. The
+        // fields no one writes are left out below, and said.
+        const { denied } = await crudFlsGuard.partitionWritableFields(
+          safeObj,
+          'upsert',
+          Object.keys(first).filter((k) => k !== 'attributes'),
+        );
+        if (denied.length > 0) {
+          denials.push({ objectApiName: safeObj, operation: 'upsert', deniedFields: denied });
+        }
+      }
+      if (denials.length > 0) {
+        const reason = crudFlsDenials(denials);
+        this.deps.log(`[WARN] CRUD/FLS check failed for rollback ${rollbackOpId}: ${reason}`);
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CRUD_FLS_DENIED,
+        });
+        sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason), {
+          code: CRUD_FLS_DENIED,
+        });
+        sendOperationFailed(this.deps, rollbackOpId, reason, false, {
+          context: failure,
+          authored: true,
+        });
+        return;
+      }
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -2693,52 +2783,17 @@ export class DataOpsHandler implements DomainHandler {
           continue;
         }
 
-        // Can this org upsert the object at all? That question is all-or-nothing
-        // and still gates the restore.
-        const crudCheck = await crudFlsGuard.checkCrudPermission(safeObj, 'upsert');
-        if (!crudCheck.allowed) {
-          this.deps.log(`[WARN] CRUD check failed for rollback on ${safeObj}: ${crudCheck.reason}`);
-          sendHandlerError(
-            this.deps,
-            'dataops:rollback',
-            'dataops:error',
-            msg,
-            new Error(crudCheck.reason),
-            { code: CRUD_FLS_DENIED },
-          );
-          sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false, {
-            context: failure,
-            authored: true,
-          });
-          live.fail(crudCheck.reason);
-          return;
-        }
-
         // Which of the backup's fields can actually be written? A backup is a
         // verbatim `SELECT FIELDS(ALL)` snapshot, so it always carries fields
         // nobody may write. Asking "may I write ALL of these?" made every
-        // restore fail; the describe answers the field-by-field question.
+        // restore fail; the describe answers the field-by-field question. The
+        // object and its business fields were checked before the restore began.
         const payloadFields = Object.keys(first).filter((k) => k !== 'attributes');
-        const { skipped, denied } = await crudFlsGuard.partitionWritableFields(
+        const { skipped } = await crudFlsGuard.partitionWritableFields(
           safeObj,
           'upsert',
           payloadFields,
         );
-        // A business field this org may not write is still a hard stop: dropping
-        // it would restore the record with that column silently missing.
-        if (denied.length > 0) {
-          const reason = flsViolation(safeObj, denied, 'upsert');
-          this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
-          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason), {
-            code: CRUD_FLS_DENIED,
-          });
-          sendOperationFailed(this.deps, rollbackOpId, reason, false, {
-            context: failure,
-            authored: true,
-          });
-          live.fail(reason);
-          return;
-        }
         // `Id` is the upsert match key, not a field being written.
         const droppedFields = new Set(
           skipped.filter((f) => f.toLowerCase() !== 'id').map((f) => f.toLowerCase()),
@@ -3420,6 +3475,48 @@ export class DataOpsHandler implements DomainHandler {
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
+      // Whether the user may write every object and field the run masks,
+      // before anything is asked or written: checked object by object as the
+      // run reached each one, a refusal stopped it after the objects before
+      // it were masked, and named only the first object it could not write.
+      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
+        const desc = await conn.describe(objectApiName);
+        return describeToObjectDescribe(desc);
+      });
+      const denials = await crudFlsGuard.deniedOf(
+        work
+          .filter((w) => w.tally.total > 0)
+          .map((w) => ({
+            objectApiName: w.tally.objectApiName,
+            operation: 'update' as const,
+            // A field of a person account the org lacks is not asked about,
+            // as any field it lacks.
+            fieldNames: [...w.objectRules, ...w.personRules]
+              .map((r) =>
+                r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
+              )
+              .filter((f) => f !== '*'),
+          })),
+      );
+      if (denials.length > 0) {
+        const reason = crudFlsDenials(denials);
+        this.deps.log(`[WARN] CRUD/FLS check failed for anonymize ${operationId}: ${reason}`);
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CRUD_FLS_DENIED,
+        });
+        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(reason), {
+          code: CRUD_FLS_DENIED,
+        });
+        sendOperationFailed(this.deps, operationId, reason, false, {
+          context: failure,
+          authored: true,
+        });
+        return;
+      }
+
       const org = this.deps.orgManager.getOrg(payload.orgId);
       const guardRequest = {
         orgId: payload.orgId,
@@ -3472,12 +3569,6 @@ export class DataOpsHandler implements DomainHandler {
       // was read, and the run said it had succeeded.
       const anonOrgTier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
       const pageSize = getQueryLimits(anonOrgTier).defaultQueryLimit;
-
-      // Create CrudFlsGuard for permission checks before DML
-      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
-        const desc = await conn.describe(objectApiName);
-        return describeToObjectDescribe(desc);
-      });
 
       // A snapshot of what the run is about to write over, when asked: after
       // the guard, which may stop the run, and before the first write.
@@ -3591,22 +3682,6 @@ export class DataOpsHandler implements DomainHandler {
         const safeObj = tally.objectApiName;
         failure.objectName = safeObj;
 
-        // Verify CRUD/FLS permissions before update: a field of a person
-        // account the org lacks is not asked about, as any field it lacks.
-        const updateFieldNames = [...objectRules, ...personRules]
-          .map((r) =>
-            r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
-          )
-          .filter((f) => f !== '*');
-        const flsCheck = await crudFlsGuard.checkCrudAndFls(safeObj, 'update', updateFieldNames);
-        if (!flsCheck.allowed) {
-          this.deps.log(
-            `[WARN] CRUD/FLS check failed for anonymize on ${safeObj}: ${flsCheck.reason}`,
-          );
-          failRun(new Error(flsCheck.reason), false);
-          return;
-        }
-
         const templateRules = this.maskingRules(objectName, objectRules);
         const {
           select: fields,
@@ -3623,8 +3698,9 @@ export class DataOpsHandler implements DomainHandler {
             ...missing.map((fieldApiName) => ({ objectApiName: safeObj, fieldApiName })),
           );
           this.deps.log(
-            `[WARN] dataops:anonymize ${operationId}: ${safeObj} has no field ` +
-              `${missing.join(', ')} — the template's rule masks nothing there.`,
+            `[WARN] dataops:anonymize ${operationId}: ${safeObj} lists no field ` +
+              `${missing.join(', ')} to this user (the org has none, or field-level security ` +
+              "hides it) — the template's rule masks nothing there.",
           );
         }
         failure.batchSize = MASKING_BATCH_SIZE;
@@ -3878,7 +3954,10 @@ export class DataOpsHandler implements DomainHandler {
       }
 
       const limitHit = usageAtStop();
-      const status = maskingStatus(tallies, cancelled);
+      // A field the template names and the run could not mask leaves its
+      // values in every record: the run did not do all it was asked.
+      const byRows = maskingStatus(tallies, cancelled);
+      const status = byRows === 'success' && fieldsNotFound.length > 0 ? 'partial' : byRows;
       const { recordsProcessed, recordsFailed, recordsNotMasked } = maskingTotals(tallies);
       const left = leftByObject(tallies);
       unrecorded = false;
@@ -3931,7 +4010,7 @@ export class DataOpsHandler implements DomainHandler {
             `${stillHeld}. ${resumable ? 'Resume it' : 'Run it again'} once the org has ` +
             'requests to spare.'
           : recordsFailed === 0
-            ? `Anonymization completed: ${recordsProcessed} records processed.`
+            ? `Anonymization ${status === 'success' ? 'completed' : status}: ${recordsProcessed} records processed.`
             : `Anonymization ${status}: ${recordsProcessed} masked, ${recordsFailed} rejected by the org` +
               ' — those records still hold their original values.';
       // Said once the run left something a resume can mask, and not for a run
@@ -3940,9 +4019,7 @@ export class DataOpsHandler implements DomainHandler {
         resumable && recordsNotMasked > 0 ? ' Resume masks only what this run left.' : '';
       const message =
         (fieldsNotFound.length > 0
-          ? `${ranMessage} Masked nothing in ${fieldsNotFound
-              .map((f) => `${f.objectApiName}.${f.fieldApiName}`)
-              .join(', ')}: the org has no such field.`
+          ? `${ranMessage} ${unseenFieldsSentence(fieldsNotFound)}`
           : ranMessage) + resumeHint;
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
         templateId: payload.templateId,
@@ -3977,8 +4054,7 @@ export class DataOpsHandler implements DomainHandler {
       // cancelled. Dual channel, single display (see handleBackup).
       failRun(err, true);
     } finally {
-      // A run that stopped at an object it may not write, or threw, after it
-      // started: recorded with what it masked — partial once it wrote a row,
+      // A run that threw after it started: recorded with what it masked — partial once it wrote a row,
       // failed otherwise — and, per object, the rows it never reached.
       if (unrecorded) {
         const wrote = tallies.some((t) => t.masked > 0);

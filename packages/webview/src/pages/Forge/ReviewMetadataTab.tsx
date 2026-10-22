@@ -92,7 +92,12 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
               {diff.severity.toUpperCase()}
             </span>
           </div>
-          <p className="text-text-secondary text-[10px]">{diff.details}</p>
+          <p className="text-text-secondary text-[10px]">
+            {/* Said in the interface language, with what Execute does about it. */}
+            {diff.issue === 'object_not_createable'
+              ? t('forgeRun.review.objectNotCreateable', { object: diff.objectApiName })
+              : diff.details}
+          </p>
         </div>
       ))}
     </div>

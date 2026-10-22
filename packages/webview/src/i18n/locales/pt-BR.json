@@ -64,6 +64,7 @@
       "autopilotConfirmationUnavailable": "A execução do Autopilot foi interrompida antes de gravar qualquer coisa: ela precisava da sua confirmação, e não foi possível pedi-la.",
       "seedStorageExceeded": "O seed foi recusado antes de gravar qualquer coisa: seus registros ocupam cerca de {{estimate}} MB de armazenamento de dados, e restam {{remaining}} MB de {{max}} MB em {{org}}. Reduza o número de registros, escolha um modelo mais leve ou libere armazenamento de dados em {{org}}.",
       "seedEmailsExceeded": "O seed foi recusado antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Reduza o número de registros, defina {{objects}} como 0, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
+      "seedWriteDeclined": "O seed foi cancelado antes de gravar qualquer coisa. Nada foi gravado na org de destino.",
       "backupBusy": "Um backup ou uma restauração desta org está em andamento: exclua seus backups quando terminar.",
       "autopilotRunning": "Uma execução do Autopilot ainda está gravando nesta org de destino, e nada mais foi iniciado: as Operações ao vivo do Monitor mostram em que ponto ela está. Inicie outra quando ela terminar."
     },
@@ -146,6 +147,8 @@
     "title": "Organizações",
     "connect": "Conectar Org",
     "disconnect": "Desconectar",
+    "scratchExpiredBadge": "Expirou em {{date}}",
+    "scratchExpired": "Esta scratch org expirou em {{date}}: o Salesforce exclui uma scratch org quando ela expira, e nenhuma reconexão a traz de volta. Crie uma nova e importe-a, depois desconecte esta.",
     "disconnectConfirm": "Desconectar {{alias}}? O SandForge esquece esta organização: alias, tags, cor e nível de segurança são excluídos, e reconectar recomeça pelos padrões.",
     "edit": "Editar Org",
     "noOrgs": "Nenhuma organização conectada",
@@ -976,6 +979,7 @@
         "PRODUCTION_GUARD_BLOCKED": "A proteção de produção bloqueou esta clonagem antes de gravar qualquer registro.",
         "CLONE_FAILED": "A clonagem parou antes de terminar.",
         "CLONE_EMAILS_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa. {{limit}} que estes registros fariam {{org}} enviar: cerca de {{emails}}, com {{remaining}} de {{max}} disponíveis hoje. Restrinja os filtros de {{objects}} ou retire-os, desative {{senders}} ou atribua a si mesmo a permissão que os silencia.",
+        "API_BUDGET_EXCEEDED": "A clonagem foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino.",
         "INVALID_PAYLOAD": "O SandForge recusou esta solicitação antes de ler qualquer uma das orgs. Uma clonagem precisa de uma org de origem, de uma org de destino e de 1 a 100 objetos, e um filtro só pode selecionar registros: sem LIMIT, ORDER BY, subconsulta, ponto e vírgula ou comentário. O canal de saída do SandForge indica qual parte foi recusada.",
         "PREVIEWED_FOR_OTHER_ORGS": "O SandForge recusou esta execução antes de gravar qualquer coisa: ela não era para as orgs para as quais sua pré-visualização foi feita. Refaça a pré-visualização e depois execute a clonagem.",
         "NOT_PREVIEWED": "O SandForge recusou esta execução antes de ler qualquer uma das orgs: ela não indicava nenhuma pré-visualização, e uma clonagem só é executada a partir da pré-visualização para a qual foi feita. Refaça a pré-visualização e depois execute a clonagem.",
@@ -1167,6 +1171,11 @@
     "addObject": "Adicionar objeto",
     "removeObject": "Remover objeto",
     "noObjects": "Nenhum objeto configurado",
+    "unwritableOption": {
+      "notInTarget": "{{object}} — não está na org de destino",
+      "notCreateable": "{{object}} — não pode ser criado na org de destino"
+    },
+    "unwritableNote": "Não selecionáveis: {{objects}}. A org de destino não tem esses objetos, ou o usuário com que o SandForge grava não pode nem criar nem editar seus registros lá.",
     "dataFlow": "Fluxo de dados",
     "totalProcessed": "Total processados",
     "totalSuccess": "Total com sucesso",
@@ -1241,7 +1250,8 @@
       "applyDeletes": "Aplicar exclusões",
       "sessionError": "Sync em tempo real: {{message}}",
       "refusedTitle": "A org de origem recusou estes objetos:",
-      "refusedHint": "Um objeto para o qual a org de origem não publica eventos de alteração é recusado. Selecione-o em Configuração → Change Data Capture na org de origem e inicie novamente.",
+      "refusedHint": "O usuário com que o SandForge se conecta à origem precisa de \"Exibir todos os dados\", ou \"Exibir tudo\" no objeto (\"Exibir todos os usuários\" para User), para receber seus eventos de alteração; ou o objeto não está selecionado para o canal padrão ChangeEvents em Configuração → Change Data Capture na org de origem. Corrija um dos dois e inicie novamente.",
+      "refusedHintPermission": "A org de origem publica eventos de alteração para estes objetos: o usuário com que o SandForge se conecta a ela precisa de \"Exibir todos os dados\", ou \"Exibir tudo\" em cada objeto (\"Exibir todos os usuários\" para User), para recebê-los. Dê a esse usuário a permissão e inicie novamente.",
       "outcome": {
         "applied": "Gravado no destino",
         "failed": "Não gravado",
@@ -1466,7 +1476,20 @@
       },
       "unread": "Não foi possível contar os registros a gravar ({{reason}}): uma execução é recusada enquanto não puderem ser contados.",
       "overwrites_one": "Deles, {{count}} pode sobrescrever um registro que a org de destino contém: o que ele contém é lido e guardado antes, e remover a execução o restaura.",
-      "overwrites_other": "Deles, até {{count}} podem sobrescrever registros que a org de destino contém: o que eles contêm é lido e guardado antes, e remover a execução o restaura."
+      "overwrites_other": "Deles, até {{count}} podem sobrescrever registros que a org de destino contém: o que eles contêm é lido e guardado antes, e remover a execução o restaura.",
+      "unwritable": {
+        "notInTarget": "{{object}} ({{rows}} registros): a org de destino não tem esse objeto, ou o usuário com que a execução grava não pode vê-lo. Nenhum de seus registros pode ser gravado.",
+        "notCreateable": "{{object}} ({{rows}} registros): o usuário com que a execução grava não pode criar seus registros na org de destino. Nenhum pode ser gravado.",
+        "notUpdateable": "{{object}} ({{rows}} registros): o usuário com que a execução grava não pode editar seus registros na org de destino. Nenhum pode ser gravado.",
+        "unread": "{{object}} ({{rows}} registros): a org de destino não o descreveu, então nenhum de seus registros seria enviado.",
+        "hint": "Iniciada pela página, a execução pergunta se deve deixar esses objetos de fora e grava o resto; uma execução agendada e a linha de comando são recusadas."
+      },
+      "apiRequests": {
+        "fits": "Solicitações de API: cerca de {{estimate}}, das {{remaining}} que restam à org de destino de suas {{max}} diárias.",
+        "near": "Solicitações de API: cerca de {{estimate}}, o que deixaria a org de destino com menos de um décimo de suas {{max}} diárias ({{remaining}} restantes).",
+        "exceeds": "Solicitações de API: cerca de {{estimate}}, mais do que as {{remaining}} que restam à org de destino de suas {{max}} diárias.",
+        "unread": "Solicitações de API: cerca de {{estimate}}. O que resta hoje à org de destino não pôde ser lido ({{reason}})."
+      }
     },
     "runControls": {
       "cancelSimulation": "Cancelar simulação",
@@ -2020,7 +2043,7 @@
       "empty": "(vazio)",
       "notRead": "Não lido: {{error}}",
       "noRecords": "Nenhum registro para mascarar.",
-      "fieldsNotFound": "Aplicar não mascara nada em {{fields}}: a org não tem esse campo."
+      "fieldsNotFound": "Aplicar não mascara nada em {{fields}}, cujos valores ficam como estão: a org não tem esse campo, ou a segurança no nível do campo o oculta do usuário com que o SandForge se conecta. Dê a esse usuário acesso de leitura e edição, ou conecte-se como administrador."
     },
     "backupDelete": "Excluir",
     "backupDeleteConfirm": "Excluir este backup? Os valores dos registros que ele guarda em claro nesta máquina somem de vez, e ele não poderá mais ser restaurado.",
@@ -3460,6 +3483,7 @@
       "noDiffs": "Nenhuma diferença de metadados detectada.",
       "diffsFound_one": "{{count}} diferença encontrada entre origem e destino.",
       "diffsFound_other": "{{count}} diferenças encontradas entre origem e destino.",
+      "objectNotCreateable": "{{object}} está na org de destino, mas o usuário com que a clonagem grava não pode criar seus registros lá: Executar o pula, depois dos objetos gravados antes dele. Deixe-o de fora em Divergências, ou dê a esse usuário a permissão de criação nele.",
       "planLoading": "Gerando o plano de execução...",
       "wave": "Onda",
       "cycles": "Resoluções de ciclos",
@@ -3672,6 +3696,7 @@
         "validation_rule": "Regra de validação",
         "duplicate_rule": "Regra de duplicidade",
         "api_budget": "Cota diária de solicitações de API",
+        "object_not_createable": "Objeto que o usuário com que a clonagem grava não pode criar no destino",
         "rehearsal_refusal": "Recusado no ensaio",
         "rehearsal_update_refusal": "Atualização recusada no ensaio"
       },
@@ -3833,6 +3858,7 @@
       "noResults": "Nenhum objeto corresponde à sua busca.",
       "selectedCount": "{{count}} de {{total}} objetos selecionados",
       "notInTarget": "Não existe na org de destino",
+      "notCreateableInTarget": "O usuário com que o SandForge grava não pode criá-los na org de destino",
       "countShown": "Contar os registros dos objetos exibidos ({{objects}})"
     },
     "step3": {
@@ -5019,6 +5045,10 @@
       "explanation": "A sessão com esta org expirou e não pôde ser renovada.",
       "action": "Reconecte-a na página Organizações (Tentar reconectar, no cartão dela)."
     },
+    "scratchOrgExpired": {
+      "explanation": "Esta scratch org passou da data de expiração: o Salesforce exclui uma scratch org quando ela expira, e nenhuma reconexão a traz de volta.",
+      "action": "Crie uma nova scratch org, importe-a na página Organizações e desconecte a que expirou."
+    },
     "orgTemporarilyUnreachable": {
       "explanation": "Esta org falhou várias vezes seguidas, então o SandForge espera um momento antes de chamá-la de novo.",
       "action": "Tente novamente em um minuto."
@@ -5046,6 +5076,10 @@
     "notCreateable": {
       "explanation": "A org de destino descreve este objeto, mas não aceita nenhuma inserção dele para o usuário com que o clone grava: um objeto de histórico ou de sistema que a própria plataforma grava, ou um que o perfil desse usuário não pode criar. Seus registros foram deixados de fora.",
       "action": "Dê ao usuário com que o clone grava a permissão de criar o objeto na org de destino se os registros forem necessários lá; caso contrário, deixe o objeto fora do clone."
+    },
+    "notUpdateable": {
+      "explanation": "A org de destino descreve este objeto, mas não aceita nenhuma edição de seus registros do usuário com que a execução grava: o perfil desse usuário não pode editá-lo. Nenhum de seus registros foi enviado.",
+      "action": "Dê ao usuário com que a execução grava o direito de editar o objeto na org de destino, ou deixe o objeto fora da execução."
     },
     "guardBlocked": {
       "explanation": "O Production Guard recusou esta execução antes de ler qualquer coisa, pelo motivo que a mensagem dá. Nada foi gravado.",
@@ -5102,6 +5136,14 @@
     "syncEmailsExceeded": {
       "explanation": "A sincronização foi recusada antes de gravar qualquer coisa: seus registros fariam a automação da org de destino enviar mais e-mails do que lhe restam hoje, e cada registro além disso seria recusado.",
       "action": "Simule-a para ver os números e depois dê ao usuário que a executa um bypass que silencie esses Flows, grave menos registros ou execute-a de novo amanhã."
+    },
+    "syncTargetUnwritable": {
+      "explanation": "A sincronização foi recusada antes de gravar qualquer coisa: a org de destino não aceitaria nenhum registro de um objeto que ela grava. Ela não tem o objeto, ou o usuário com que a sincronização grava não pode vê-lo, criá-lo ou editá-lo lá.",
+      "action": "Deixe esses objetos fora da execução, ou dê ao usuário com que a sincronização grava acesso a eles na org de destino. Iniciada pela página, a sincronização pergunta se deve deixá-los de fora e grava o resto."
+    },
+    "apiBudgetExceeded": {
+      "explanation": "A execução foi recusada antes de gravar qualquer coisa: ela usa mais solicitações de API do que restam hoje à org de destino, e teria parado no meio do caminho, com seus registros recusados com REQUEST_LIMIT_EXCEEDED.",
+      "action": "Execute-a quando a org tiver solicitações de sobra — o limite diário é contado nas últimas 24 horas — ou grave menos registros."
     },
     "syncWriteDeclined": {
       "explanation": "Você cancelou a sincronização antes que ela gravasse qualquer coisa. Nada foi gravado na org de destino.",

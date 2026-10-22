@@ -998,6 +998,25 @@ describe('useClone', () => {
     expect(result.current.error).not.toContain('The clone was refused');
   });
 
+  it('says in French a clone refused for the API requests the target has left, with the figures the host gave', async () => {
+    await i18nInstance.changeLanguage('fr');
+    const { result, rerender } = previewed();
+    act(() => {
+      result.current.handleExecute();
+    });
+    mockExecuteState = { ...mockExecuteState, loading: true, requestId: 'wv-clone-run' };
+    rerender();
+
+    operationFailed(
+      'wv-clone-run',
+      'The run takes about 2 API requests, and my-dev-org has 1 of its 15000 daily requests left',
+      'API_BUDGET_EXCEEDED',
+    );
+
+    expect(result.current.error).toContain(fr.seed.clone.error.API_BUDGET_EXCEEDED);
+    expect(result.current.error).toContain('1 of its 15000 daily requests left');
+  });
+
   it('falls back to the translated generic failure on a code it does not know', async () => {
     await i18nInstance.changeLanguage('fr');
     const { result, rerender } = previewed();

@@ -50,8 +50,17 @@ export interface MetadataDiffEntry {
   objectApiName: string;
   /** Field API name; empty for an entry about the object as a whole. */
   fieldApiName: string;
-  /** Type of issue: `object_missing` and `unreadable` are about the object as a whole. */
-  issue: 'missing' | 'type_mismatch' | 'permission_denied' | 'object_missing' | 'unreadable';
+  /**
+   * Type of issue: `object_missing`, `unreadable` and `object_not_createable`
+   * are about the object as a whole.
+   */
+  issue:
+    | 'missing'
+    | 'type_mismatch'
+    | 'permission_denied'
+    | 'object_missing'
+    | 'unreadable'
+    | 'object_not_createable';
   /** Severity level. */
   severity: 'info' | 'warning' | 'error';
   /** Human-readable description. */

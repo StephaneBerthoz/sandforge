@@ -122,6 +122,7 @@ import { refuseProductionTarget, typeTarget, type TypedTarget } from './targetKi
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import { undeletableAnswer } from './undeletableAnswer.js';
 import { SyncOrchestrator, type SourceRead } from '../src/modules/sync/SyncOrchestrator.js';
 import { orgDeltaReads, sourceReadWhere } from '../src/modules/sync/SyncDelta.js';
 import { DataSync } from '../src/modules/sync/DataSync.js';
@@ -297,6 +298,11 @@ Remove what a run created:
                          stay, unless --include-changed     (default: off)
   --sweep-list           list what --sweep would delete, per object with a few
                          names, and delete nothing, the run's records included
+  --leave-undeletable    remove the rest when the user the removal runs as
+                         may not delete the records of some objects of the
+                         run, leaving those with what they hang from; without
+                         it the removal stops before its first delete and
+                         names them                             (default: off)
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
@@ -813,6 +819,16 @@ const EMAIL_LIMIT_WORDS: Readonly<Record<SyncWriteCheck['emails'][number]['limit
   DailyWorkflowEmails: 'workflow emails',
 };
 
+/** Why the target takes none of an object's records, as the command says it. */
+const UNWRITABLE_WORDS: Readonly<
+  Record<NonNullable<SyncWriteCheck['unwritable']>[number]['why'], string>
+> = {
+  notInTarget: 'it has no such object, or the user the run writes as cannot see it',
+  notCreateable: 'the user the run writes as may not create its records',
+  notUpdateable: 'the user the run writes as may not edit its records',
+  unread: 'it did not describe the object',
+};
+
 /**
  * What the command says of the records a run writes, before its first write
  * or in a simulation: how many per object, the records an earlier run copied
@@ -874,6 +890,27 @@ export function writeCheckLines(check: SyncWriteCheck, target: string): string[]
   if (check.emailsUnread !== undefined) {
     lines.push(`  emails: not counted, ${check.emailsUnread} could not be read`);
   }
+  // The day's API requests the run takes of the target, against what it has left.
+  const api = check.apiRequests;
+  if (api) {
+    lines.push(
+      api.verdict === 'unread'
+        ? `  API requests: about ${api.estimate}; what ${target} has left today could not be read (${api.unread ?? ''})`
+        : `  API requests: about ${api.estimate}, of the ${api.remaining ?? '?'} ${target} has left ` +
+            `of its ${api.max ?? '?'} a day` +
+            (api.verdict === 'exceeds'
+              ? ': more than it has left'
+              : api.verdict === 'near'
+                ? ': it would leave less than a tenth of them'
+                : ''),
+    );
+  }
+  // The objects the target takes none of, as the run writes them.
+  for (const object of check.unwritable ?? []) {
+    lines.push(
+      `  ${object.objectApiName}: ${object.rows} record(s) ${target} takes none of — ${UNWRITABLE_WORDS[object.why]}`,
+    );
+  }
   if (check.aboveRecords !== undefined) {
     lines.push(
       `  more than ${check.aboveRecords} records: the panel asks before it writes ` +
@@ -902,7 +939,21 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
   if (simulation.writeCheck) {
     for (const line of writeCheckLines(simulation.writeCheck, target)) lines.push(`  ${line}`);
     if (simulation.writeCheck.verdict === 'refused') {
-      lines.push('    a run would be refused before it writes: the records do not fit');
+      const check = simulation.writeCheck;
+      lines.push(
+        `    a run would be refused before it writes: ${
+          check.storage.verdict === 'exceeds'
+            ? 'the records do not fit'
+            : check.apiRequests?.verdict === 'exceeds'
+              ? 'it takes more API requests than the target has left today'
+              : 'the target takes none of the records of an object it writes'
+        }`,
+      );
+    } else if ((simulation.writeCheck.unwritable ?? []).length > 0) {
+      lines.push(
+        '    a run of the command would be refused before it writes: the target takes none of ' +
+          'the records of an object it writes; leave it out of the configuration',
+      );
     }
     const over = simulation.writeCheck.emails.some((email) => email.verdict === 'exceeds');
     if (simulation.writeCheck.verdict !== 'refused' && over) {
@@ -1867,6 +1918,8 @@ export interface RemoveArgs {
   sweep: boolean;
   /** List what a sweep would delete, and delete nothing. */
   sweepList: boolean;
+  /** Remove the rest when the user may not delete some of the run's objects; else stop. */
+  leaveUndeletable: boolean;
 }
 
 /** The flags a removal reads. */
@@ -1877,6 +1930,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--store',
   '--sweep',
   '--sweep-list',
+  '--leave-undeletable',
   '--json',
 ]);
 const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target', '--store']);
@@ -1892,8 +1946,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --store, --sweep, --sweep-list and ` +
-          `--json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --store, --sweep, --sweep-list, ` +
+          `--leave-undeletable and --json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -1930,6 +1984,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     ...(store !== undefined ? { store } : {}),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    leaveUndeletable: args.includes('--leave-undeletable'),
   };
 }
 
@@ -2712,6 +2767,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       org: removalOrg(conn, 'sandforge-sync --remove'),
       includeChanged: args.includeChanged,
       ...(sweepFirst ? { sweep: sweepFirst } : {}),
+      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
       signal: stop.signal,
       // The configuration's store, told what the removal took: its
       // watermarks and copied files, and which records its runs wrote.
@@ -2737,6 +2793,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   } finally {
     releaseStop();
   }
+  // Stopped before its first delete, for objects the user may not delete:
+  // named above, and nothing was removed.
+  if (outcome.stoppedForUndeletable) process.exit(1);
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const took = outcome.result.objects.some((o) => o.deleted + o.alreadyGone > 0);
   if (subject.configId !== undefined && !configs && took) {

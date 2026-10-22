@@ -53,6 +53,50 @@ describe('SyncWriteCheckCard', () => {
     );
   });
 
+  it('names each object the target would take none of, and that the run asks whether to leave it out', () => {
+    // Nothing said it: the run wrote the objects before, then had every
+    // record of these refused.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          unwritable: [
+            { objectApiName: 'Case', rows: 120, why: 'notCreateable' },
+            { objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-unwritable-Case').textContent).toBe(
+      'Case (120 records): the user the run writes as may not create its records in the target ' +
+        'org. None of them can be written.',
+    );
+    expect(screen.getByTestId('sync-write-check-unwritable-Invoice__c').textContent).toBe(
+      'Invoice__c (8 records): the target org has no such object, or the user the run writes as ' +
+        'cannot see it. None of its records can be written.',
+    );
+    expect(screen.getByTestId('sync-write-check').textContent).toContain(
+      'Started from the page, the run asks whether to leave these objects out and writes the rest',
+    );
+  });
+
+  it('says the API requests the run takes against what the target has left today', () => {
+    // Only Forge's Review compared them.
+    render(
+      <SyncWriteCheckCard
+        check={{
+          ...PAST_EMAILS,
+          apiRequests: { verdict: 'near', estimate: 15, remaining: 900, max: 15_000 },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-write-check-api').textContent).toBe(
+      'API requests: about 15, which would leave the target org less than a tenth of its 15,000 a day (900 left).',
+    );
+  });
+
   it('says a run past the storage is refused before it writes anything', () => {
     render(
       <SyncWriteCheckCard

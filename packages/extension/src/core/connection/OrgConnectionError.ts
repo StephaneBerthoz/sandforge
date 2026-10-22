@@ -1,5 +1,9 @@
 /** The codes a connection failure the user can act on is named by. */
-export type OrgConnectionErrorCode = 'ORG_AUTH_EXPIRED' | 'ORG_TEMPORARILY_UNREACHABLE';
+export type OrgConnectionErrorCode =
+  | 'ORG_AUTH_EXPIRED'
+  | 'ORG_TEMPORARILY_UNREACHABLE'
+  /** A scratch org past its expiration date: Salesforce deleted it, and no reconnect brings it back. */
+  | 'SCRATCH_ORG_EXPIRED';
 
 /**
  * A connection that failed in a way the user can act on, named by a code and

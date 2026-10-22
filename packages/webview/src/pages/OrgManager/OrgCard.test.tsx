@@ -36,6 +36,35 @@ describe('OrgCard', () => {
     vi.clearAllMocks();
   });
 
+  it('says a scratch org past its date expired and is gone, and offers no reconnect', () => {
+    // It read "Session Expired" with Try Reconnect, whose import leaves such
+    // an org out: nothing changed.
+    const onReconnect = vi.fn();
+    const expired: SalesforceOrg = {
+      ...mockOrg,
+      orgType: 'Scratch',
+      status: 'expired',
+      metadata: { ...mockOrg.metadata, expirationDate: '2020-01-31' },
+    };
+    render(<OrgCard {...defaultProps} org={expired} onReconnect={onReconnect} />);
+
+    const date = new Date('2020-01-31T00:00:00').toLocaleDateString('en');
+    expect(screen.getByText(`Expired on ${date}`)).toBeTruthy();
+    expect(screen.getByTestId('org-scratch-expired-org-1').textContent).toBe(
+      `This scratch org expired on ${date}: Salesforce deletes a scratch org when it expires, ` +
+        'and no reconnect brings it back. Create a new one and import it, then disconnect this one.',
+    );
+    expect(screen.queryByTestId('org-reconnect-org-1')).toBeNull();
+    expect(screen.queryByText('Session Expired')).toBeNull();
+  });
+
+  it('still offers a reconnect for an expired session of any other org', () => {
+    render(
+      <OrgCard {...defaultProps} org={{ ...mockOrg, status: 'expired' }} onReconnect={vi.fn()} />,
+    );
+    expect(screen.getByTestId('org-reconnect-org-1')).toBeTruthy();
+  });
+
   it('should render org alias and username', () => {
     render(<OrgCard {...defaultProps} />);
     expect(screen.getByText('Dev Sandbox')).toBeDefined();

@@ -312,6 +312,115 @@ describe('gateSyncWrite', () => {
     }
   });
 
+  /** A run of accounts and cases, whose cases the target user may not create. */
+  const casesClosed: SyncCountedWrite = {
+    objects: [{ objectApiName: 'Account', operation: 'insert', rows: 40 }],
+    alreadyCopied: 0,
+    unwritable: [{ objectApiName: 'Case', operation: 'insert', rows: 120, why: 'notCreateable' }],
+  };
+
+  it('asks the user who started the run whether to leave out an object the target takes none of, and says it on the page', async () => {
+    // A run wrote the accounts, then had each of the 120 cases refused.
+    const confirm = vi.fn(
+      async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
+    );
+    const measured = await measureSyncWrite(casesClosed, measures());
+
+    expect(measured.check).toMatchObject({
+      objects: [{ objectApiName: 'Account', rows: 40 }],
+      total: 40,
+      unwritable: [{ objectApiName: 'Case', rows: 120, why: 'notCreateable' }],
+      verdict: 'asks',
+    });
+    const answer = await gateSyncWrite(measured, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(answer).toEqual({ go: true, asked: true });
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      objects: [{ objectApiName: 'Account', rows: 40 }],
+      unwritable: [{ objectApiName: 'Case', rows: 120, why: 'notCreateable' }],
+    });
+  });
+
+  it('refuses a run nobody watches, the command line, and a run with nothing else to write, naming each object the target takes none of', async () => {
+    const confirm = vi.fn();
+    const measured = await measureSyncWrite(casesClosed, measures());
+    const alone = await measureSyncWrite(
+      { objects: [], alreadyCopied: 0, unwritable: casesClosed.unwritable },
+      measures(),
+    );
+    expect(alone.check.verdict).toBe('refused');
+
+    for (const [policy, run] of [
+      ['unattended', measured],
+      ['refuse', measured],
+      ['ask', alone],
+    ] as const) {
+      expect(
+        await gateSyncWrite(run, { policy, org: 'TRAP', orgTier: 'development', confirm }),
+      ).toEqual({
+        go: false,
+        code: 'SYNC_TARGET_UNWRITABLE',
+        message:
+          'TRAP would take no record of one object the sync writes — Case (120 records): the ' +
+          'user the run writes as may not create its records in TRAP. Leave it out of the run, ' +
+          'or give the user SandForge writes as access to it in TRAP. Nothing was written.',
+      });
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('refuses a run past the API requests the target has left today, whoever answers for it, and says them on the page', async () => {
+    const confirm = vi.fn();
+    const measured = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'update', rows: 1_000 }]),
+      measures({
+        readStorage: async () => ({
+          maxMB: 5,
+          remainingMB: 3,
+          dailyApiRequests: { max: 15_000, remaining: 4 },
+        }),
+      }),
+    );
+
+    expect(measured.check).toMatchObject({
+      apiRequests: { verdict: 'exceeds', estimate: 5, remaining: 4, max: 15_000 },
+      verdict: 'refused',
+    });
+    for (const policy of ['ask', 'unattended', 'refuse'] as const) {
+      expect(
+        await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development', confirm }),
+      ).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('says in the question it asks anyway that the run would leave the target short of API requests', async () => {
+    const confirm = vi.fn(
+      async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
+    );
+    const measured = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 3_000 }]),
+      measures({
+        readStorage: async () => ({
+          maxMB: 500,
+          remainingMB: 400,
+          dailyApiRequests: { max: 15_000, remaining: 1_000 },
+        }),
+      }),
+    );
+
+    await gateSyncWrite(measured, { policy: 'ask', org: 'TRAP', orgTier: 'development', confirm });
+
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      apiRequests: { estimate: 15, remaining: 1_000, max: 15_000 },
+    });
+  });
+
   it('lets a run nobody watches through past the setting, as it was set up', async () => {
     const measured = await measureSyncWrite(
       counted([{ objectApiName: 'Case', operation: 'update', rows: 9_000 }]),

@@ -1,6 +1,19 @@
 import type { SalesforceOrg } from '@sandforge/shared';
-import { registeredOrgType } from '@sandforge/shared';
+import { expiredScratchDate, registeredOrgType } from '@sandforge/shared';
 import type { TFunction } from 'i18next';
+
+/**
+ * The day a scratch org expired on, `YYYY-MM-DD`, when it is past it; undefined
+ * for any other org. Salesforce deletes a scratch org when it expires: its card
+ * read "Session Expired" and offered Try Reconnect, whose import leaves such an
+ * org out, and nothing changed.
+ */
+export function scratchExpiredOn(
+  org: Pick<SalesforceOrg, 'orgType' | 'metadata'>,
+  today: string = new Date().toISOString().slice(0, 10),
+): string | undefined {
+  return expiredScratchDate(org, today);
+}
 
 /** Environment tags recognized for org type resolution. */
 const ENV_TAGS = [

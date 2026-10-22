@@ -26,6 +26,7 @@ import type { Services } from './services.js';
 import { logger } from './logger.js';
 import { createCoreComposition } from './composition/coreComposition';
 import {
+  confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   startOfflineProbing,
@@ -302,6 +303,8 @@ export function activate(context: vscode.ExtensionContext): void {
       backgroundRegistry,
       // A restore into an org a refresh replaced asks first (DataOps).
       confirmRestoreIntoReplacedOrg,
+      // A removal whose user may not delete some of the run's objects asks first.
+      confirmRemovalLeavingUndeletable,
     },
     backgroundRegistry,
     migrationFileReader: fsReader,

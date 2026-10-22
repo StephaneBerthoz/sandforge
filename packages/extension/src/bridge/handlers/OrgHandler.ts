@@ -312,11 +312,26 @@ export class OrgHandler implements DomainHandler {
   private reportUnreadable(unreadable: readonly SfdxUnreadableOrg[]): string {
     for (const org of unreadable) {
       this.deps.log(
-        `[WARN] org:import: no access token for ${org.alias ?? org.username}: ${org.reason}`,
+        `[WARN] org:import: ${org.why === 'notConnected' ? 'not connected' : 'no access token for'} ` +
+          `${org.alias ?? org.username}: ${org.reason}`,
       );
     }
-    const orgs = unreadable.map((org) => `${org.alias ?? org.username} (${org.reason})`);
-    return `No access token from the Salesforce CLI, so not imported: ${orgs.join('; ')}`;
+    const named = (orgs: readonly SfdxUnreadableOrg[]): string =>
+      orgs.map((org) => `${org.alias ?? org.username} (${org.reason})`).join('; ');
+    const noToken = unreadable.filter((org) => org.why !== 'notConnected');
+    const notConnected = unreadable.filter((org) => org.why === 'notConnected');
+    return [
+      ...(notConnected.length > 0
+        ? [
+            `The Salesforce CLI cannot reach these orgs, so they were not imported: ` +
+              `${named(notConnected)}. Log in to each again with the CLI, or sign in with ` +
+              'OAuth (Web); a scratch org past its date is gone, create a new one.',
+          ]
+        : []),
+      ...(noToken.length > 0
+        ? [`No access token from the Salesforce CLI, so not imported: ${named(noToken)}`]
+        : []),
+    ].join(' ');
   }
 
   /**
@@ -558,8 +573,11 @@ export class OrgHandler implements DomainHandler {
         'OAuth',
         `Authenticated via browser as ${login.username}. ${results.length} org(s) available.`,
       );
-      if (unreadable.length > 0) {
-        sendNotification(this.deps, 'warning', 'OAuth', this.reportUnreadable(unreadable), {
+      // A sign-in says what it could not read of the orgs it lists, not every
+      // org the CLI holds and can no longer reach: the import says those.
+      const tokenless = unreadable.filter((org) => org.why !== 'notConnected');
+      if (tokenless.length > 0) {
+        sendNotification(this.deps, 'warning', 'OAuth', this.reportUnreadable(tokenless), {
           autoDismissMs: null,
         });
       }

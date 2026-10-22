@@ -234,6 +234,7 @@ export const SyncPage: React.FC = () => {
 
   const {
     availableObjects,
+    unwritableObjects,
     sourceFields,
     targetFields,
     result,
@@ -685,6 +686,7 @@ export const SyncPage: React.FC = () => {
                     <ObjectSetEditor
                       entries={objectEntries}
                       availableObjects={availableObjects}
+                      unwritableObjects={unwritableObjects}
                       onAdd={handleAddObject}
                       onRemove={handleRemoveObject}
                       onChange={handleObjectChange}

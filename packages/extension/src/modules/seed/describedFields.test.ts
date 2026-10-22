@@ -37,6 +37,18 @@ describe('describedFieldsOf', () => {
     });
   });
 
+  it('reads every field the describe lists, settable or not', async () => {
+    const fields = describedFieldsOf(async () => ACCOUNT);
+    expect([...(await fields.visible('Account'))]).toEqual([
+      'Name',
+      'Id',
+      'Type',
+      'Tags__c',
+      'Rating',
+      'Subject',
+    ]);
+  });
+
   it('reads the fields the org refuses a record without, lookups and defaulted fields apart', async () => {
     const fields = describedFieldsOf(async () => ({
       fields: [

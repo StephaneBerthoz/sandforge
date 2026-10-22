@@ -17,8 +17,15 @@ export interface DescribedField {
 
 /** Dependencies for ForgeMetadataDiff. */
 export interface MetadataDiffDeps {
-  /** Describe an object's fields in a given org. */
-  describeObject: (orgId: string, objectApiName: string) => Promise<{ fields: DescribedField[] }>;
+  /**
+   * Describe an object's fields in a given org, and whether the user the
+   * connection runs as may create its records there (absent when the org
+   * does not say).
+   */
+  describeObject: (
+    orgId: string,
+    objectApiName: string,
+  ) => Promise<{ fields: DescribedField[]; createable?: boolean }>;
 }
 
 /** A single metadata diff entry. */
@@ -30,8 +37,16 @@ export interface MetadataDiffEntry {
   /**
    * Type of issue. `object_missing`: the target has no such object, or the
    * running user cannot see it. `unreadable`: an org could not describe it.
+   * `object_not_createable`: the target has it, and the running user may not
+   * create its records there.
    */
-  issue: 'missing' | 'type_mismatch' | 'permission_denied' | 'object_missing' | 'unreadable';
+  issue:
+    | 'missing'
+    | 'type_mismatch'
+    | 'permission_denied'
+    | 'object_missing'
+    | 'unreadable'
+    | 'object_not_createable';
   /** Severity level. */
   severity: 'info' | 'warning' | 'error';
   /** Human-readable description. */
@@ -100,6 +115,19 @@ export class ForgeMetadataDiff {
       }
       const sourceDesc = source.value;
       const targetDesc = target.value;
+      // One entry for the object, in place of one per field: the tab listed
+      // each field "createable in source but not in target", in English, and
+      // nothing said Execute would skip the object, after its parents.
+      if (targetDesc.createable === false) {
+        diffs.push({
+          objectApiName,
+          fieldApiName: '',
+          issue: 'object_not_createable',
+          severity: 'error',
+          details: `${objectApiName} is in the target org, but the user the clone writes as may not create its records there: Execute skips it`,
+        });
+        continue;
+      }
 
       const targetFieldMap = new Map(targetDesc.fields.map((f) => [f.name, f]));
 

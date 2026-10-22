@@ -21,7 +21,7 @@ import type {
   SyncFileCopyOption,
   SyncWriteOrder,
 } from '@sandforge/shared';
-import type { PIIScanResponse } from '@sandforge/shared';
+import type { PIIScanResponse, SyncDescribeGlobalResponse } from '@sandforge/shared';
 import {
   FILE_COPY_CEILING_MB,
   FILE_COPY_DEFAULT_MAX_MB,
@@ -84,6 +84,8 @@ export interface PIIWarning {
 export interface SyncPageData {
   /** Available objects from the source org describe-global. */
   availableObjects: string[];
+  /** The source's objects the target takes none of, shown and not selectable. */
+  unwritableObjects: NonNullable<SyncDescribeGlobalResponse['payload']['unwritable']>;
   /** Source field metadata for the currently described object. */
   sourceFields: FieldInfo[];
   /** Target field metadata for the currently described object. */
@@ -300,6 +302,9 @@ const DELTA_OPERATIONS: ReadonlySet<SyncOperation> = new Set<SyncOperation>(['up
 
 /** One shared empty list: a fresh `[]` per render would retrigger every memo. */
 const EMPTY_MAPPINGS: FieldMapping[] = [];
+
+/** No object the target takes none of: one list, so the picker's props stay the same. */
+const NO_UNWRITABLE: NonNullable<SyncDescribeGlobalResponse['payload']['unwritable']> = [];
 
 /** The bounds of each file cap, in MB, as the extension checks them. */
 const FILE_CAP_BOUNDS: Readonly<Record<keyof SyncFileCopyOption, number>> = {
@@ -526,10 +531,12 @@ export function useSyncPageData(): SyncPageData {
   /** Set when the run is fired, so elapsed time is real rather than a literal 0. */
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
 
-  // Bridge query: fetch available objects from source org
-  const objectsQuery = useBridgeQuery<{ objects: string[] }>(
+  // Bridge query: the objects the source's user may read, and once the target
+  // is picked, those the target takes — what its user may create is read
+  // there, not in the source.
+  const objectsQuery = useBridgeQuery<SyncDescribeGlobalResponse['payload']>(
     'sync:describe-global',
-    { orgId: sourceOrgId },
+    { orgId: sourceOrgId, ...(targetOrgId ? { targetOrgId } : {}) },
     { responseType: 'sync:describe-global:response', skip: !sourceOrgId },
   );
 
@@ -607,6 +614,7 @@ export function useSyncPageData(): SyncPageData {
 
   // Derive available objects from bridge query
   const availableObjects = objectsQuery.data?.objects ?? [];
+  const unwritableObjects = objectsQuery.data?.unwritable ?? NO_UNWRITABLE;
 
   // Derive fields from bridge mutation
   const sourceFields = fieldsMutation.data?.sourceFields ?? [];
@@ -1033,6 +1041,7 @@ export function useSyncPageData(): SyncPageData {
 
   return {
     availableObjects,
+    unwritableObjects,
     sourceFields,
     targetFields,
     result: result ?? undefined,

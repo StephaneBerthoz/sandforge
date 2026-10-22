@@ -75,7 +75,13 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 import type { SeedRunCreations, SeedRunRecorder } from '../../modules/seed/SeedRunCreations.js';
 import { seedWriterCalls } from '../../modules/seed/seedRunCalls.js';
 import { RUN_CANCELLED, contactPointsAudit } from '../../modules/forge/forgeAudit.js';
-import { readEmailLimits } from '../../modules/forge/ForgeRunGate.js';
+import {
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
+  readApiBudget,
+  readEmailLimits,
+  runRequestsEstimate,
+} from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { FieldInfo } from '../../modules/forge/ForgeExecutor.js';
 import { contactPointsOfRun, neutralizeSyncRows } from '../../modules/sync/syncContactPoints.js';
@@ -126,6 +132,8 @@ const CLONE_FAILURE_CODES = {
   guardBlocked: 'PRODUCTION_GUARD_BLOCKED',
   failed: 'CLONE_FAILED',
   emailsExceeded: 'CLONE_EMAILS_EXCEEDED',
+  // Every module's code for a run past the target's daily API requests.
+  apiBudgetExceeded: 'API_BUDGET_EXCEEDED',
 } as const;
 
 /** How long the read of what the target runs as the records are created may take. */
@@ -803,6 +811,41 @@ export class SeedCloneHandler implements DomainHandler {
           extraPayload: { code: CLONE_FAILURE_CODES.emailsExceeded, ...emails.figures },
         });
         settle(new Error(refusal));
+        return;
+      }
+
+      // The records the preview counted against the daily API requests the
+      // target has left, before anything is written. An org that would not
+      // say is said in the log, and holds nothing back.
+      const budget = await readApiBudget(targetConn).catch((err: unknown) => ({
+        unread: extractErrorMessage(err),
+      }));
+      const api = apiBudgetCheckOf(
+        runRequestsEstimate(
+          parsed.objects.map((o) => ({ rows: recordCounts?.get(o.objectApiName) ?? 0 })),
+        ),
+        budget,
+      );
+      if (api.verdict === 'unread') {
+        this.deps.log(
+          `[WARN] seed:clone:execute ${operationId}: the daily API requests the target has left ` +
+            `could not be read (${api.unread})`,
+        );
+      }
+      const overBudget = apiBudgetRefusal(api, targetName);
+      if (overBudget) {
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: CLONE_FAILURE_CODES.apiBudgetExceeded,
+        });
+        sendOperationFailed(this.deps, operationId, overBudget, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code: CLONE_FAILURE_CODES.apiBudgetExceeded },
+        });
+        settle(new Error(overBudget));
         return;
       }
 

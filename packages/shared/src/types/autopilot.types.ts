@@ -327,6 +327,12 @@ export interface AutopilotObjectListing {
    * picked. Absent when the target has it.
    */
   readonly missingInTarget?: true;
+  /**
+   * Set when the target has the object and the user SandForge writes as may
+   * not create its records there: shown, with why, and not to be picked. It
+   * was left out of the list like the platform's own objects, with no word.
+   */
+  readonly notCreateableInTarget?: true;
 }
 
 /** Autopilot configuration provided by the user */

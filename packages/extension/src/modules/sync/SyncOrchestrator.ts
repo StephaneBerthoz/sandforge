@@ -30,10 +30,10 @@ import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
 import type { CoreServices } from '../../services.js';
 import type { PauseGate } from './PauseGate.js';
-import type { TargetWriteFields } from './targetWriteFields.js';
+import { targetAccessOf, type TargetRefusal, type TargetWriteFields } from './targetWriteFields.js';
 import { SyncRunFailure, SyncRunRefused } from './SyncRunFailure.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
-import type { SyncCountedObject, SyncWriteGate } from './SyncRunGate.js';
+import type { SyncCountedObject, SyncCountedWrite, SyncWriteGate } from './SyncRunGate.js';
 import { lookupsOf, orderSyncObjects, type WriteLookup } from './syncWriteOrder.js';
 import {
   REFUSED_BY_THE_TARGET,
@@ -540,7 +540,8 @@ function countedWriteOf(
   objects: readonly SyncObjectConfig[],
   counted: ReadonlyMap<string, { rows: number; personAccounts?: number }>,
   copied: AlreadyCopied,
-): { objects: SyncCountedObject[]; alreadyCopied: number } {
+  refused: ReadonlyMap<string, TargetRefusal> = new Map(),
+): SyncCountedWrite {
   let alreadyCopied = 0;
   const measured = objects.map((objectConfig): SyncCountedObject => {
     const name = objectConfig.objectApiName;
@@ -554,7 +555,38 @@ function countedWriteOf(
       ...(count.personAccounts !== undefined ? { personAccounts: count.personAccounts } : {}),
     };
   });
-  return { objects: measured, alreadyCopied };
+  // An object the target will take no record of is counted apart: its rows
+  // are not written, and the gate asks whether to leave it out.
+  const unwritable = measured.flatMap((object) => {
+    const refusal = refused.get(object.objectApiName);
+    return refusal ? [{ ...object, why: refusal.why }] : [];
+  });
+  return {
+    objects: measured.filter((object) => !refused.has(object.objectApiName)),
+    alreadyCopied,
+    ...(unwritable.length > 0 ? { unwritable } : {}),
+  };
+}
+
+/**
+ * The result of an object the run left out before its first write, as the
+ * user confirmed: the target would take none of its records.
+ */
+function leftOutResult(
+  objectConfig: SyncObjectConfig,
+  refusal: TargetRefusal,
+  rows: number,
+): SyncObjectResult {
+  return {
+    objectApiName: objectConfig.objectApiName,
+    operation: objectConfig.operation,
+    processed: 0,
+    success: 0,
+    failed: 0,
+    skipped: rows,
+    conflictCount: 0,
+    errors: [`${refusal.message} Left out of the run, as confirmed before it wrote.`],
+  };
 }
 
 /**
@@ -599,7 +631,11 @@ export class SyncOrchestrator {
     const operationId = `sync-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
 
-    const { ordered: sortedObjects, order } = await this.writeOrderOf(config.objects);
+    const {
+      ordered: sortedObjects,
+      order,
+      refused: unwritable,
+    } = await this.writeOrderOf(config.objects);
     // Of each object a cycle of lookups ties to others, those written after it.
     const later = laterInCycles(order);
     const deltaLoad = this.deltaLoadOf(config);
@@ -671,11 +707,15 @@ export class SyncOrchestrator {
         error: message,
       });
     }
+    /** The objects the target takes none of, left out as the user confirmed, with their rows. */
+    const leftOutOfRun = new Map<string, number>();
     if (this.deps.writeGate && 'counted' in counts) {
-      const { answer } = await this.deps.writeGate.hold(
-        countedWriteOf(sortedObjects, counts.counted, copied),
-      );
+      const measured = countedWriteOf(sortedObjects, counts.counted, copied, unwritable);
+      const { answer } = await this.deps.writeGate.hold(measured);
       if (!answer.go) throw refuse(answer.message, answer.code);
+      for (const object of measured.unwritable ?? []) {
+        leftOutOfRun.set(object.objectApiName, object.rows);
+      }
     }
     const links = new SyncRunLinks(earlier.links);
     const recordTypes = this.recordTypesOnce();
@@ -971,6 +1011,12 @@ export class SyncOrchestrator {
       // A pause holds the run here, between two objects; a cancel ends it.
       await this.deps.pauseGate?.whilePaused(this.deps.signal);
       if (this.deps.signal?.aborted) return stopHere(sortedObjects.slice(index));
+      const refusal = unwritable.get(objectConfig.objectApiName);
+      const leftOutRows = leftOutOfRun.get(objectConfig.objectApiName);
+      if (refusal && leftOutRows !== undefined) {
+        await push(leftOutResult(objectConfig, refusal, leftOutRows));
+        continue;
+      }
       // The rows the object's read leaves to the platform, kept out here: its
       // result says them however it ends — written, stopped by a cancel, or
       // failed. Held inside the read, they reached the result of a write that
@@ -1566,29 +1612,35 @@ export class SyncOrchestrator {
   /**
    * The objects in the order the run writes them (`syncWriteOrder`): the
    * parents a lookup of an object names before it, read from the target's
-   * describe of each. An object whose describe fails keeps its place: its
-   * write describes it again, and says why it cannot.
+   * describe of each; and, from the same describes, the objects the target
+   * will take no record of as the run writes them (`targetAccessOf`), which
+   * the run holds to its gate before its first write. An object whose
+   * describe fails keeps its place, ordered without its lookups.
    */
-  private async writeOrderOf(
-    objects: readonly SyncObjectConfig[],
-  ): Promise<{ ordered: SyncObjectConfig[]; order?: SyncWriteOrder }> {
+  private async writeOrderOf(objects: readonly SyncObjectConfig[]): Promise<{
+    ordered: SyncObjectConfig[];
+    order?: SyncWriteOrder;
+    refused: ReadonlyMap<string, TargetRefusal>;
+  }> {
     const describe = this.deps.describeTargetFields;
+    const refused = new Map<string, TargetRefusal>();
     if (!describe) {
-      return { ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder) };
+      return { ordered: [...objects].sort((a, b) => a.insertOrder - b.insertOrder), refused };
     }
     const lookups = new Map<string, WriteLookup[]>();
     for (const objectConfig of objects) {
       if (objectConfig.operation === 'delete') continue;
-      try {
-        lookups.set(
-          objectConfig.objectApiName,
-          lookupsOf(objectConfig, await describe(objectConfig.objectApiName)),
-        );
-      } catch {
-        // Ordered without its lookups.
+      const access = await targetAccessOf(
+        describe,
+        objectConfig.objectApiName,
+        objectConfig.operation,
+      );
+      if ('refused' in access) refused.set(objectConfig.objectApiName, access.refused);
+      if ('target' in access && access.target) {
+        lookups.set(objectConfig.objectApiName, lookupsOf(objectConfig, access.target));
       }
     }
-    return orderSyncObjects(objects, lookups);
+    return { ...orderSyncObjects(objects, lookups), refused };
   }
 
   /** Check whether grappe mode should activate based on the counted records and config. */
@@ -1615,7 +1667,7 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     // In the order the run writes them, said with the simulation.
-    const { ordered, order: writeOrder } = await this.writeOrderOf(config.objects);
+    const { ordered, order: writeOrder, refused } = await this.writeOrderOf(config.objects);
     let filePlan: SyncFilePlan | undefined;
     let writeCheck: SyncWriteCheck | undefined;
     let writeCheckUnread: string | undefined;
@@ -1676,7 +1728,7 @@ export class SyncOrchestrator {
     if (gate && counts && 'unread' in counts) writeCheckUnread = counts.unread;
     if (gate && counts && 'counted' in counts) {
       try {
-        writeCheck = await gate.measure(countedWriteOf(ordered, counts.counted, copied));
+        writeCheck = await gate.measure(countedWriteOf(ordered, counts.counted, copied, refused));
       } catch (err: unknown) {
         writeCheckUnread = err instanceof Error ? err.message : String(err);
       }
@@ -1699,6 +1751,7 @@ export class SyncOrchestrator {
           deltaLoad,
           run,
           copied.get(objectConfig.objectApiName),
+          refused.get(objectConfig.objectApiName),
         );
         const files = filePlan?.objects.get(objectConfig.objectApiName);
         const { rules, onChange } = rulesFor(
@@ -1768,6 +1821,8 @@ export class SyncOrchestrator {
    *   before this object, and both orgs' record types.
    * @param copied - The source records an earlier run copied, which the run
    *   leaves as they are, by the first fifteen characters of their id.
+   * @param refusal - Why the target takes none of the object's records, when
+   *   it takes none: every record read is counted refused, none written.
    */
   private async simulateObject(
     config: SyncConfig,
@@ -1775,6 +1830,7 @@ export class SyncOrchestrator {
     deltaLoad: SyncDeltaLoad | null | undefined,
     run: RunContext,
     copied?: ReadonlySet<string>,
+    refusal?: TargetRefusal,
   ): Promise<SyncObjectSimulation> {
     const find = this.deps.findInTarget;
     if (!find) throw new Error('A simulation needs to look records up in the target org.');
@@ -1796,6 +1852,34 @@ export class SyncOrchestrator {
     const settled =
       asRead.records.length > 0 ? await this.pricesSettled(objectConfig, asRead, run) : undefined;
     const prepared = settled ? { ...asRead, ...settled } : asRead;
+
+    // An object the target takes none of: the simulation counted each of its
+    // records written, then the run had every one refused, after the objects
+    // before it were written.
+    if (refusal && prepared.records.length > 0) {
+      if (objectConfig.operation === 'insert' || objectConfig.operation === 'upsert') {
+        for (const source of prepared.sources) {
+          const id = source?.['Id'];
+          if (typeof id === 'string' && id !== '') {
+            run.links.noteRefused(id, objectConfig.objectApiName);
+          }
+        }
+      }
+      return {
+        objectApiName: objectConfig.objectApiName,
+        operation: objectConfig.operation,
+        read: prepared.read,
+        insert: 0,
+        update: 0,
+        delete: 0,
+        skipped: prepared.alreadyCopied,
+        ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
+        refused: prepared.records.length,
+        conflicts: 0,
+        conflictFields: [],
+        notes: [refusal.message],
+      };
+    }
 
     // What the target lets a write carry, the describe the write reads too.
     let target: TargetWriteFields | null = null;

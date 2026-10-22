@@ -339,7 +339,9 @@ test.describe('Real-time CDC — starting a subscription', () => {
     await expect(refused).toContainText(
       'Case: 403::User not allowed to subscribe CDC without required permissions',
     );
-    await expect(refused).toContainText('Setup → Change Data Capture');
+    // Listed on the standard channel: the permission alone, not the selection.
+    await expect(refused).toContainText('View All Data, or View All on each object');
+    await expect(refused).not.toContainText('Setup → Change Data Capture');
   });
 
   test('the conflict strategy picked in the panel travels in realtime:start', async ({ page }) => {

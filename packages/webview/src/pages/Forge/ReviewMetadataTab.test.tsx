@@ -40,6 +40,26 @@ describe('ReviewMetadataTab', () => {
     expect(screen.getByTestId('no-diffs')).toBeDefined();
   });
 
+  it('says in the interface language that Execute skips an object the target user may not create', () => {
+    // Each field read "createable in source but not in target", in English.
+    mockDiffs = [
+      {
+        objectApiName: 'Case',
+        fieldApiName: '',
+        issue: 'object_not_createable',
+        severity: 'error',
+        details: 'Case is in the target org, but the user the clone writes as may not create it',
+      },
+    ];
+    render(<ReviewMetadataTab />);
+
+    expect(screen.getByTestId('diff-0').textContent).toContain(
+      'Case is in the target org, but the user the clone writes as may not create its records ' +
+        'there: Execute skips it, after the objects written before it. Leave it out in Gaps, or ' +
+        'give that user Create on it.',
+    );
+  });
+
   it('should render diff entries with severity badges when diffs exist', () => {
     mockDiffs = [
       {

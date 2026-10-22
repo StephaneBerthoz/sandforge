@@ -516,6 +516,15 @@ export interface RunRemovalOptions {
    */
   sweep?: () => Promise<boolean>;
   /**
+   * Asked before the removal's first write, when the user it runs as may not
+   * delete the records of some objects of the run, as their describes say:
+   * whether to remove the rest, leaving those, or to stop with nothing
+   * removed. Absent, the rest is removed. Either way the records of those
+   * objects are never sent: each object's result says why they stay. Asked
+   * nothing, a removal deleted the children, then had every parent refused.
+   */
+  onUndeletable?: (objects: readonly UndeletableObject[]) => Promise<boolean>;
+  /**
    * Stops the removal before its next call to the org, but for the calls that
    * give a status it changed for a delete back to the records it leaves, and
    * the reads of what it left on them.
@@ -556,8 +565,32 @@ export interface RunPartAlongside {
   removalStamps?: Readonly<Record<string, string>>;
 }
 
+/** An object of a run whose records the user a removal runs as may not delete, and how many it holds. */
+export interface UndeletableObject {
+  objectApiName: string;
+  records: number;
+}
+
+/** Why the records of an object the user may not delete stay, as its result says it. */
+export function undeletableReason(objectApiName: string, records: number): string {
+  return (
+    `The user SandForge connects as may not delete ${objectApiName} records in this org: ` +
+    `the ${records} record(s) of the run stay, and were not sent.`
+  );
+}
+
 /** What a removal did, object by object. */
 export interface RunRemovalOutcome {
+  /**
+   * The objects of the run whose records the user the removal runs as may
+   * not delete, as their describes say. Absent when there is none.
+   */
+  undeletable?: UndeletableObject[];
+  /**
+   * Set when the removal stopped before its first write, asked about
+   * {@link undeletable} (`RunRemovalOptions.onUndeletable`): nothing was removed.
+   */
+  stoppedForUndeletable?: true;
   /**
    * Per object, in the order they were removed. An object not reached is left
    * out, unless the removal could not give a status back to one of its records.
@@ -995,6 +1028,17 @@ export async function removeRunRecords(
     },
   };
   const order = await removalOrder(session, records.objects);
+  // Whether the user may delete each object's records, from the describes the
+  // order read, before anything is written: a profile without Delete on
+  // Account had the run's contacts deleted, then every account refused.
+  const undeletable = await undeletableOf(session, order);
+  const undeletableNames = new Set(undeletable.map((object) => object.objectApiName));
+  if (undeletable.length > 0 && options.onUndeletable) {
+    if (stopped()) return untouched();
+    if (!(await options.onUndeletable(undeletable))) {
+      return { ...untouched(), undeletable, stoppedForUndeletable: true };
+    }
+  }
   // Read before the removal's first write: what the org creates from then on,
   // as the user the removal runs as, is the removal's doing, dated by the same
   // clock as the run.
@@ -1146,6 +1190,7 @@ export async function removeRunRecords(
       }
     }
     return {
+      ...(undeletable.length > 0 ? { undeletable } : {}),
       objects: removals.map((removal) => removal.settle()),
       cancelled,
       gone,
@@ -1169,6 +1214,7 @@ export async function removeRunRecords(
       return (
         snapshot !== undefined &&
         snapshot.error === undefined &&
+        !undeletableNames.has(objectApiName) &&
         !snapshot.missing.has(key) &&
         !(changed.has(key) && !options.includeChanged)
       );
@@ -1187,6 +1233,14 @@ export async function removeRunRecords(
 
     if (!snapshot || snapshot.error !== undefined) {
       removal.unread = { reason: snapshot?.error ?? 'The org gave no reason.', count };
+      settled += count;
+      options.onProgress?.(settled, total, objectApiName);
+      continue;
+    }
+    // Refused unsent, as the object's records the org would refuse each: and
+    // they stay, so what they hang from stays with them.
+    if (undeletableNames.has(objectApiName)) {
+      removal.unread = { reason: undeletableReason(objectApiName, count), count };
       settled += count;
       options.onProgress?.(settled, total, objectApiName);
       continue;
@@ -1499,6 +1553,31 @@ export function setBackToDraftOf(objects: readonly string[]): string[] {
  *
  * @param goes - Whether the record is still in the org and not kept as changed.
  */
+/**
+ * The objects of the plan whose records the user the removal runs as may not
+ * delete, as their describes say (`deletable: false`), with their records. A
+ * file's version is deleted through its document, whatever its own describe
+ * says; and a describe that does not say is not taken for a refusal.
+ */
+async function undeletableOf(
+  org: RemovalOrg,
+  order: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+): Promise<UndeletableObject[]> {
+  const undeletable: UndeletableObject[] = [];
+  for (const { objectApiName, count } of order) {
+    if (objectApiName === FILE_VERSION || count === 0) continue;
+    try {
+      const described = describedObjectSchema.safeParse(await org.describe(objectApiName));
+      if (described.success && described.data.deletable === false) {
+        undeletable.push({ objectApiName, records: count });
+      }
+    } catch {
+      // Not described: its deletes answer for it, as they did.
+    }
+  }
+  return undeletable;
+}
+
 async function backToDraft(
   org: RemovalOrg,
   dependents: DependentsCheck,

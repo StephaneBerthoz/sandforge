@@ -311,6 +311,30 @@ describe('ReviewGapsTab', () => {
       });
     });
 
+    it('names an object the target user may not create, and leaves it out in one click', () => {
+      // Nothing said it before Execute, which wrote the objects before it,
+      // then skipped it.
+      const closed: ForgeGap = {
+        id: forgeGapId('object_not_createable', 'Case'),
+        kind: 'object_not_createable',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'Case',
+        rows: 0,
+        decisions: ['exclude_object'],
+      };
+      act(() => useForgeStore.getState().setGaps('metadata', [closed]));
+      render(<ReviewGapsTab />);
+
+      expect(
+        within(item(closed)).getByText(
+          'Object the user the clone writes as may not create in the target',
+        ),
+      ).toBeTruthy();
+      fireEvent.click(within(item(closed)).getByTestId('gap-exclude-object'));
+      expect(useForgeStore.getState().config?.excludedObjects).toEqual(['Case']);
+    });
+
     it('maps a refused value in one pick, shows it chosen, and takes it back', () => {
       render(<ReviewGapsTab />);
       fireEvent.change(within(item(REFUSED)).getByTestId('gap-map-value'), {

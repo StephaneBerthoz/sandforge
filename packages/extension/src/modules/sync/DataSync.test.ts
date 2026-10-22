@@ -306,7 +306,9 @@ describe('DataSync — what the target will take', () => {
     expect(Object.keys(insert.mock.calls[0][1][0]).sort()).toEqual(['CreatedDate', 'Name']);
   });
 
-  it('carries on when the describe fails', async () => {
+  // A describe that failed was read as "could not say": every row went as it
+  // was read, every field of it, and the target refused each one.
+  it('sends nothing, and refuses every record, when the target would not describe the object', async () => {
     const insert = vi.fn().mockResolvedValue([{ id: '001', success: true, errors: [] }]);
     const sync = new DataSync(
       createDeps({
@@ -319,11 +321,78 @@ describe('DataSync — what the target will take', () => {
 
     const result = await sync.sync(
       createConfig({ operation: 'insert', externalIdField: undefined }),
-      [{ Name: 'Acme' }],
+      [{ Name: 'Acme' }, { Name: 'Globex' }],
     );
 
-    expect(result.success).toBe(1);
+    expect(insert).not.toHaveBeenCalled();
+    expect(result.failed).toBe(2);
+    expect(result.errors[0]).toContain(
+      'The target org did not describe Account (no describe today), so what it takes could ' +
+        'not be told and none of its records were sent.',
+    );
   });
+
+  it('sends nothing of an object the target has not, or that the user it writes as cannot see', async () => {
+    const insert = vi.fn();
+    const sync = new DataSync(
+      createDeps({
+        insert,
+        describeTargetFields: async () => {
+          throw Object.assign(new Error('The requested resource does not exist'), {
+            errorCode: 'NOT_FOUND',
+          });
+        },
+      }),
+    );
+
+    const result = await sync.sync(
+      createConfig({
+        objectApiName: 'Invoice__c',
+        operation: 'insert',
+        externalIdField: undefined,
+      }),
+      [{ Name: 'Invoice 0001' }],
+    );
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]).toContain(
+      'Object is not in the target org, or the user the run writes as cannot see it: Invoice__c.',
+    );
+  });
+
+  it.each([
+    ['insert', { objectCreateable: false, objectUpdateable: true }, 'not createable'],
+    ['upsert', { objectCreateable: false, objectUpdateable: true }, 'not createable'],
+    ['update', { objectCreateable: true, objectUpdateable: false }, 'not updateable'],
+    ['upsert', { objectCreateable: true, objectUpdateable: false }, 'not updateable'],
+  ] as const)(
+    'sends nothing of an %s the user it writes as may not make (%o)',
+    async (operation, access, said) => {
+      const write = vi.fn();
+      const sync = new DataSync(
+        createDeps({
+          insert: write,
+          update: write,
+          upsert: write,
+          describeTargetFields: async () => ({
+            creatable: new Set(['Subject']),
+            references: new Set(),
+            ...access,
+          }),
+        }),
+      );
+
+      const result = await sync.sync(
+        createConfig({ objectApiName: 'Case', operation, externalIdField: 'Id' }),
+        [{ Id: '500000000000001', Subject: 'Help' }],
+      );
+
+      expect(write).not.toHaveBeenCalled();
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain(`Object is ${said} on target org`);
+    },
+  );
 });
 
 describe('DataSync — a lookup the target does not have', () => {

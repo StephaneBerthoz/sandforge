@@ -736,6 +736,50 @@ describe('SfdxBridge', () => {
       ]);
     });
 
+    it('names each org it leaves out, with what the CLI says of it', async () => {
+      // Dropped without a word: with nothing else to import, the page said
+      // the CLI "holds no connected org yet".
+      mockExec.mockResolvedValueOnce({ stdout: realOrgList(), stderr: '' } as never);
+      const left: SfdxUnreadableOrg[] = [];
+
+      await bridge.listOrgs((org) => left.push(org));
+
+      expect(left).toEqual([
+        expect.objectContaining({
+          alias: 'acme-old',
+          reason: 'the CLI reports RefreshTokenAuthError',
+          why: 'notConnected',
+        }),
+        expect.objectContaining({
+          alias: 'spent',
+          reason: 'a scratch org that expired on 2026-09-26',
+          why: 'notConnected',
+        }),
+      ]);
+    });
+
+    it('imports a user of an org the CLI reaches though another user of it listed first cannot', async () => {
+      const user = (username: string, connectedStatus: string) => ({
+        orgId: '00D000000000007AAA',
+        username,
+        instanceUrl: 'https://acme.my.salesforce.com',
+        connectedStatus,
+      });
+      mockExec.mockResolvedValueOnce({
+        stdout: makeSfOrgListOutput([
+          user('old@acme.example', 'RefreshTokenAuthError'),
+          user('new@acme.example', 'Connected'),
+        ]),
+        stderr: '',
+      } as never);
+      const left: SfdxUnreadableOrg[] = [];
+
+      const results = await bridge.listOrgs((org) => left.push(org));
+
+      expect(results.map(({ org }) => org.username)).toEqual(['new@acme.example']);
+      expect(left).toEqual([]);
+    });
+
     it("records the edition the CLI reports, never the org's name", async () => {
       const orgs = await importReal();
 

@@ -86,6 +86,28 @@ type PreviewLine = {
 };
 
 /**
+ * The fields a template names that Apply masks nothing in, with why and what
+ * to do: the org lacks them, or field-level security hides them from the user
+ * SandForge connects as.
+ */
+const FieldsNotMasked: React.FC<{
+  fields: AnonymizePreview['fieldsNotFound'];
+  testId: string;
+}> = ({ fields, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <p
+      className="rounded border border-status-warning p-2 text-xs text-text-primary"
+      data-testid={testId}
+    >
+      {t('dataops.preview.fieldsNotFound', {
+        fields: fields.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', '),
+      })}
+    </p>
+  );
+};
+
+/**
  * What a template would write over the first rows of each object it masks:
  * per object, each masked field of each record, the value the org holds
  * beside the one Apply writes. Nothing was written to show it.
@@ -103,14 +125,12 @@ const PreviewResult: React.FC<{ preview: AnonymizePreview }> = ({ preview }) => 
         />
         <CardBody>
           <div className="flex flex-col gap-3">
+            {/* A field the describe does not list is one the org lacks or
+                one field-level security hides from the user: said with what
+                to do, as a line the eye stops at — it read as if no data were
+                at risk, and Contact.Birthdate stayed as it was. */}
             {preview.fieldsNotFound.length > 0 && (
-              <span className="text-xs text-text-primary" data-testid="preview-fields-not-found">
-                {t('dataops.preview.fieldsNotFound', {
-                  fields: preview.fieldsNotFound
-                    .map((f) => `${f.objectApiName}.${f.fieldApiName}`)
-                    .join(', '),
-                })}
-              </span>
+              <FieldsNotMasked fields={preview.fieldsNotFound} testId="preview-fields-not-found" />
             )}
             {preview.objects.map((object) => {
               const lines: PreviewLine[] = object.rows.flatMap((row) =>
@@ -586,6 +606,14 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                   {t('dataops.snapshot.keepHint')}
                 </p>
               </div>
+            )}
+            {/* What the preview found Apply cannot mask, said again where
+                the user confirms it. */}
+            {selectedPreview && selectedPreview.fieldsNotFound.length > 0 && (
+              <FieldsNotMasked
+                fields={selectedPreview.fieldsNotFound}
+                testId="confirm-fields-not-found"
+              />
             )}
             {/* What a restore cannot bring back, unless the run keeps the
                 values first: then it writes nothing unless it keeps them all. */}

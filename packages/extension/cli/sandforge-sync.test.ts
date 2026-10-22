@@ -880,6 +880,30 @@ describe('what a run says before its first write', () => {
     ]);
   });
 
+  it('says the API requests the run takes, and each object the target takes none of', () => {
+    const lines = writeCheckLines(
+      {
+        objects: [{ objectApiName: 'Account', rows: 40 }],
+        total: 40,
+        alreadyCopied: 0,
+        storage: { verdict: 'fits', estimateMB: 0.08, maxMB: 5, remainingMB: 3 },
+        emails: [],
+        unwritable: [{ objectApiName: 'Case', rows: 120, why: 'notCreateable' }],
+        apiRequests: { verdict: 'near', estimate: 1, remaining: 900, max: 15_000 },
+        verdict: 'asks',
+      },
+      'TRAP',
+    );
+
+    expect(lines).toContain(
+      '  API requests: about 1, of the 900 TRAP has left of its 15000 a day: it would leave less ' +
+        'than a tenth of them',
+    );
+    expect(lines).toContain(
+      '  Case: 120 record(s) TRAP takes none of — the user the run writes as may not create its records',
+    );
+  });
+
   it('says a dry run of a run past the storage would be refused, with the write order and what an earlier run copied', () => {
     const lines = simulationLines(
       {

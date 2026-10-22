@@ -267,6 +267,21 @@ describe('RealtimeHandler', () => {
     );
   });
 
+  it("says a refused listing under the org's code, for the page to give its hint", async () => {
+    const { handler, access, ofType } = setup();
+    vi.mocked(access.tooling).mockRejectedValue(
+      Object.assign(new Error('Insufficient access rights on cross-reference id'), {
+        errorCode: 'INSUFFICIENT_ACCESS',
+      }),
+    );
+
+    await handler.handle(
+      request('realtime:objects', { sourceOrgId: 'org-source', targetOrgId: 'org-target' }),
+    );
+
+    expect(ofType('realtime:error')[0].payload).toMatchObject({ code: 'INSUFFICIENT_ACCESS' });
+  });
+
   it('refuses a start that watches nothing, before reaching any org', async () => {
     const { handler, access, ofType } = setup();
 

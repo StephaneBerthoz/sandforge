@@ -20,6 +20,15 @@ export interface ObjectSetEntry {
 export interface ObjectSetEditorProps {
   entries: ObjectSetEntry[];
   availableObjects: string[];
+  /**
+   * The source's objects the target takes none of: it has not the object, or
+   * the user SandForge writes as may neither create nor edit it there. Shown
+   * in the list, not selectable, with why.
+   */
+  unwritableObjects?: ReadonlyArray<{
+    objectApiName: string;
+    why: 'notInTarget' | 'notCreateable';
+  }>;
   onAdd: (objectApiName: string) => void;
   onRemove: (index: number) => void;
   onChange: (index: number, field: keyof ObjectSetEntry, value: string | number) => void;
@@ -51,6 +60,7 @@ function rowLabel(field: string, objectApiName: string): string {
 export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
   entries,
   availableObjects,
+  unwritableObjects = [],
   onAdd,
   onRemove,
   onChange,
@@ -60,9 +70,16 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
   const [newObject, setNewObject] = React.useState('');
 
   const usedObjects = new Set(entries.map((e) => e.objectApiName));
-  const objectOptions = availableObjects
-    .filter((o) => !usedObjects.has(o))
-    .map((o) => ({ value: o, label: o }));
+  const objectOptions = [
+    ...availableObjects.filter((o) => !usedObjects.has(o)).map((o) => ({ value: o, label: o })),
+    ...unwritableObjects
+      .filter(({ objectApiName }) => !usedObjects.has(objectApiName))
+      .map(({ objectApiName, why }) => ({
+        value: objectApiName,
+        label: t(`sync.unwritableOption.${why}`, { object: objectApiName }),
+        disabled: true,
+      })),
+  ];
   const opOptionsOf = (current: SyncOperation) =>
     (OPERATIONS.includes(current) ? OPERATIONS : [...OPERATIONS, current]).map((op) => ({
       value: op,
@@ -155,6 +172,13 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
           {t('sync.addObject')}
         </Button>
       </div>
+      {unwritableObjects.length > 0 && (
+        <p className="text-xs text-text-secondary" data-testid="unwritable-objects-note">
+          {t('sync.unwritableNote', {
+            objects: unwritableObjects.map((o) => o.objectApiName).join(', '),
+          })}
+        </p>
+      )}
     </div>
   );
 };

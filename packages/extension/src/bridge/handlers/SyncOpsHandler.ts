@@ -893,12 +893,54 @@ export class SyncOpsHandler implements DomainHandler {
       // The objects no copy writes are left out — files, users, metadata,
       // history, sharing and the platform's own records — and the bridge
       // refuses a config naming one: the list Forge and Autopilot read.
-      const objects = result.sobjects
-        .filter((s: { createable: boolean; queryable: boolean }) => s.createable && s.queryable)
-        .map((s: { name: string }) => s.name)
-        .filter((name: string) => !syncCannotCopy(name));
+      const copyable = result.sobjects.filter(
+        (s: { name: string; queryable: boolean }) => s.queryable && !syncCannotCopy(s.name),
+      );
+      let objects: string[];
+      const unwritable: Array<{ objectApiName: string; why: 'notInTarget' | 'notCreateable' }> = [];
+      if (parsed.targetOrgId === undefined) {
+        objects = copyable
+          .filter((s: { createable: boolean }) => s.createable)
+          .map((s: { name: string }) => s.name);
+      } else {
+        // Asked with the target, what the user may create is read where the
+        // run writes. Read from the source alone, the list held only what the
+        // source's user may create — reading needs no Create — and a
+        // read-only source user got an empty picker, "No objects configured".
+        const targetConn = await getJsforceConnection(
+          parsed.targetOrgId,
+          this.deps.orgRegistry,
+          this.deps.orgManager,
+        );
+        const target = await timeout.withTimeout('describe-global', () =>
+          targetConn.describeGlobal(),
+        );
+        checkApiLimits(targetConn.limitInfo, 'sync:describe-global target');
+        const inTarget = new Map<string, { createable: boolean; updateable: boolean }>(
+          target.sobjects.map((t: { name: string; createable: boolean; updateable: boolean }) => [
+            t.name,
+            { createable: t.createable, updateable: t.updateable },
+          ]),
+        );
+        objects = [];
+        for (const s of copyable as Array<{ name: string; createable: boolean }>) {
+          const there = inTarget.get(s.name);
+          if (there && (there.createable || there.updateable)) {
+            objects.push(s.name);
+            continue;
+          }
+          // An object neither org's user may create is one no copy writes, as
+          // the platform's own records are: left out as before. One the
+          // source's user may create is shown, with why it cannot be picked.
+          if (!s.createable) continue;
+          unwritable.push({ objectApiName: s.name, why: there ? 'notCreateable' : 'notInTarget' });
+        }
+      }
 
-      const response = buildResponse(this.deps, msg, 'sync:describe-global:response', { objects });
+      const response = buildResponse(this.deps, msg, 'sync:describe-global:response', {
+        objects,
+        ...(unwritable.length > 0 ? { unwritable } : {}),
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {

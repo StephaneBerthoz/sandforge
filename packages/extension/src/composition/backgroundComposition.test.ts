@@ -25,6 +25,7 @@ vi.mock('vscode', () => ({
 
 import * as vscode from 'vscode';
 import {
+  confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
   runQuestionDetail,
@@ -697,6 +698,33 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it("names in a Sync run's question each object the target takes none of, which confirming leaves out", () => {
+    expect(
+      runQuestionDetail({
+        ...write,
+        module: 'sync',
+        counted: true,
+        unwritable: [
+          { objectApiName: 'Case', rows: 120, why: 'notCreateable' },
+          { objectApiName: 'Invoice__c', rows: 8, why: 'notInTarget' },
+          { objectApiName: 'Asset', rows: 3, why: 'notUpdateable' },
+          { objectApiName: 'Order', rows: 2, why: 'unread' },
+        ],
+      }).split('\n'),
+    ).toEqual([
+      'This sync is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'Left out: Case, 120 records: the user the sync writes as may not create its records in DEV.',
+      'Left out: Invoice__c, 8 records: DEV has no such object, or the user the sync writes as cannot see it.',
+      'Left out: Asset, 3 records: the user the sync writes as may not edit its records in DEV.',
+      'Left out: Order, 2 records: DEV did not describe it, so what it takes could not be told.',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
+  });
+
   it('says what it does not count, and that rows only counted have not been read yet', () => {
     expect(
       runQuestionDetail({
@@ -810,6 +838,30 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ).toContain(
       'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
     );
+  });
+
+  it("asks a seed's question as its own: the limits it could not read, with why, and the API requests it would leave", () => {
+    // Said only in the Output log: nothing reached the panel.
+    expect(
+      runQuestionDetail({
+        ...write,
+        module: 'seed',
+        aboveRecords: undefined,
+        counted: true,
+        storage: { estimateMB: 4.69, unread: 'INSUFFICIENT_ACCESS' },
+        emailsUnread: [{ limit: 'SingleEmail', emails: 40, unread: 'INSUFFICIENT_ACCESS' }],
+        apiRequests: { estimate: 20, remaining: 900, max: 15_000 },
+      }).split('\n'),
+    ).toEqual([
+      'This seed is about to write 2401 records to DEV:',
+      '• Contact: 2400',
+      '• Account: 1',
+      'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+      'These records make the flows of DEV send about 40 single emails. What it has left today could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+      'DEV gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
+      'The run takes about 20 API requests, and DEV has 900 of its 15000 daily requests left: it would leave the org with less than a tenth of them.',
+      'The records have been counted, and nothing has been read or written yet.',
+    ]);
   });
 
   it('lists no more than a dozen entries, and says how many more there are', () => {
@@ -970,6 +1022,33 @@ describe('restore confirmation for an org a refresh replaced (localized)', () =>
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
 
     await expect(confirmRestoreIntoReplacedOrg(question)).resolves.toBe(false);
+  });
+
+  it('asks before a removal whether to remove the rest, naming each object its user may not delete', async () => {
+    // Asked nothing, a removal deleted the children, then had every parent refused.
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+    const asked = {
+      org: 'DEV',
+      objects: [
+        { objectApiName: 'Account', records: 12 },
+        { objectApiName: 'Opportunity', records: 3 },
+      ],
+    };
+
+    await expect(confirmRemovalLeavingUndeletable(asked)).resolves.toBe(true);
+
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0];
+    expect(call[0]).toBe('SandForge: some records of the run cannot be removed');
+    expect((call[1] as { detail: string }).detail.split('\n')).toEqual([
+      'The user SandForge connects as may not delete the records of these objects in DEV, so they stay whatever you choose:',
+      '• Account: 12',
+      '• Opportunity: 3',
+      'Remove the rest removes every other record of the run, and keeps these with the records they hang from. Cancel removes nothing.',
+    ]);
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+    await expect(confirmRemovalLeavingUndeletable(asked)).resolves.toBe(false);
   });
 });
 

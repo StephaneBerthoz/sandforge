@@ -160,3 +160,22 @@ export function orgRegistrationOf(orgType: string): {
       return { safetyTier: OrgSafetyTier.CRITICAL, color: PRODUCTION_ORG_COLOR };
   }
 }
+
+/**
+ * The expiration date of a scratch org that is past it, or undefined.
+ *
+ * Such an org is deleted: its token is refused, and the CLI it would be
+ * refreshed through no longer holds a session for it either. Checking it cost
+ * an identity call and an `sf org display` in every window, each time a window
+ * opened, for an org that stays expired until the user removes or replaces it.
+ *
+ * @param today - The current day, `YYYY-MM-DD`.
+ */
+export function expiredScratchDate(
+  org: { orgType: string; metadata?: { expirationDate?: string } },
+  today: string,
+): string | undefined {
+  const expires = org.metadata?.expirationDate;
+  if (org.orgType !== 'Scratch' || typeof expires !== 'string') return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(expires) && expires < today ? expires : undefined;
+}

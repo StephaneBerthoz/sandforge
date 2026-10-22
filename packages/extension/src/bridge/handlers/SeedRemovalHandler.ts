@@ -16,6 +16,7 @@ import {
   sendOperationCompleted,
   sendOperationProgress,
   sendOperationStarted,
+  undeletableAsker,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -811,6 +812,7 @@ export class SeedRemovalHandler implements DomainHandler {
         includeChanged,
         store,
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
+        onUndeletable: undeletableAsker(this.deps, orgId, 'seed:remove'),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

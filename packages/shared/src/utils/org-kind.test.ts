@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import { OrgSafetyTier } from '../types/org.types.js';
 import {
+  expiredScratchDate,
   DEVELOPMENT_ORG_COLOR,
   PRODUCTION_ORG_COLOR,
   guardTierOf,
@@ -159,5 +160,23 @@ describe('orgRegistrationOf', () => {
 
   it('registers a type none of these as a production org', () => {
     expect(orgRegistrationOf('Unknown').safetyTier).toBe(OrgSafetyTier.CRITICAL);
+  });
+});
+
+describe('expiredScratchDate', () => {
+  it('names the day a scratch org expired on once it is past, and nothing for any other org', () => {
+    const scratch = (expirationDate?: string) => ({
+      orgType: 'Scratch',
+      metadata: { expirationDate },
+    });
+    expect(expiredScratchDate(scratch('2026-10-01'), '2026-10-22')).toBe('2026-10-01');
+    expect(expiredScratchDate(scratch('2026-10-22'), '2026-10-22')).toBeUndefined();
+    expect(expiredScratchDate(scratch(), '2026-10-22')).toBeUndefined();
+    expect(
+      expiredScratchDate(
+        { orgType: 'Sandbox', metadata: { expirationDate: '2020-01-01' } },
+        '2026-10-22',
+      ),
+    ).toBeUndefined();
   });
 });

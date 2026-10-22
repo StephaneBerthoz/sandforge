@@ -764,6 +764,15 @@ export interface SyncWriteOrder {
 }
 
 /**
+ * Why a target takes no record of an object as a run writes it: it has not
+ * the object, or the user the run writes as cannot see it (its describe
+ * answers NOT_FOUND alike); that user may not create its records, for an
+ * insert or an upsert, or edit them, for an update or an upsert; or its
+ * describe failed.
+ */
+export type SyncUnwritableReason = 'notInTarget' | 'notCreateable' | 'notUpdateable' | 'unread';
+
+/**
  * What a run is held to before its first write, as the run and a simulation
  * of it measure it: the records it writes, counted object by object under
  * each filter, the data storage they take against what the target has left,
@@ -809,6 +818,28 @@ export interface SyncWriteCheck {
   }>;
   /** Why the target's automation could not be read, so no email was counted; absent when it was. */
   emailsUnread?: string;
+  /**
+   * The objects the target would take none of, as the run writes them, with
+   * the records the run would write of each: it has not the object, or the
+   * user the run writes as may not see, create or edit it, or it would not
+   * describe it. Not counted in `objects`. A run asks whether to leave them
+   * out; one nobody watches, and the command line, are refused. Absent when none.
+   */
+  unwritable?: Array<{ objectApiName: ApiName; rows: number; why: SyncUnwritableReason }>;
+  /**
+   * The API requests the run takes of the target, roughly, against the daily
+   * requests it has left: `near` when the run would leave it under a tenth of
+   * them, `exceeds` past them — refused, as a run would stop part way through.
+   * Absent for a run that writes nothing.
+   */
+  apiRequests?: {
+    verdict: 'fits' | 'near' | 'exceeds' | 'unread';
+    estimate: number;
+    remaining?: number;
+    max?: number;
+    /** Why the target did not say what it has left. */
+    unread?: string;
+  };
   /**
    * What the run comes to before it writes, asked from the page: it writes,
    * it asks first — past the setting's volume, near the storage, when the

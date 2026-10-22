@@ -361,7 +361,11 @@ export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSch
 export const syncRunControlPayloadSchema = z.object({ operationId: opaqueIdSchema });
 export const syncConfigSavePayloadSchema = z.object({ config: syncConfigPayloadSchema });
 export const syncConfigIdPayloadSchema = z.object({ id: opaqueIdSchema });
-export const syncDescribeGlobalPayloadSchema = z.object({ orgId: orgIdSchema });
+export const syncDescribeGlobalPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  /** The org the run writes to: what its user may create there is read from it. */
+  targetOrgId: orgIdSchema.optional(),
+});
 export const syncDescribeFieldsPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
   targetOrgId: orgIdSchema,

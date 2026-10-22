@@ -1020,7 +1020,11 @@ describe('sandforge-dataops', () => {
         },
       );
       expect(lines).toContain('    fields: Email (hash)');
-      expect(lines).toContain('    Contact.Nickname__c: the org has no such field — masks nothing');
+      expect(lines).toContain(
+        '    Contact.Nickname__c: the org has no such field, or field-level security hides it ' +
+          'from this user — masks nothing (give the user read and edit access to it, or connect ' +
+          'as an administrator)',
+      );
       expect(lines.at(-1)).toContain('--resume masks only what it left');
     });
 

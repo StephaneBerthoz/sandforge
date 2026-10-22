@@ -91,6 +91,7 @@ import { refuseProductionTarget, typeTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { endWith, runExitCode } from './exitCodes.js';
+import { undeletableAnswer } from './undeletableAnswer.js';
 import {
   SeedOrchestrator,
   type InsertResult,
@@ -233,6 +234,11 @@ Remove what a run created:
                          --include-changed                 (default: off)
   --sweep-list           list what --sweep would delete, per object with a few
                          names, and delete nothing, the run's records included
+  --leave-undeletable    remove the rest when the user the removal runs as
+                         may not delete the records of some objects of the
+                         run, leaving those with what they hang from; without
+                         it the removal stops before its first delete and
+                         names them                             (default: off)
   --json                 print the removal as JSON
 
   What the removal left on the run's records is kept beside the summary, in
@@ -907,6 +913,7 @@ export function describeDistribution(distribution: SeedRelation['distribution'])
 export function seedOrchestrator(deps: {
   insert: SeedOrchestratorDependencies['insert'];
   describeCreateableFields: NonNullable<SeedOrchestratorDependencies['describeCreateableFields']>;
+  describeVisibleFields?: SeedOrchestratorDependencies['describeVisibleFields'];
   readExistingParentIds: NonNullable<SeedOrchestratorDependencies['readExistingParentIds']>;
   describePicklistValues?: SeedOrchestratorDependencies['describePicklistValues'];
   describeRequiredFields?: SeedOrchestratorDependencies['describeRequiredFields'];
@@ -921,6 +928,7 @@ export function seedOrchestrator(deps: {
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
     describeCreateableFields: deps.describeCreateableFields,
+    ...(deps.describeVisibleFields ? { describeVisibleFields: deps.describeVisibleFields } : {}),
     ...(deps.describePicklistValues ? { describePicklistValues: deps.describePicklistValues } : {}),
     ...(deps.describeRequiredFields ? { describeRequiredFields: deps.describeRequiredFields } : {}),
     ...(deps.objectAccess ? { objectAccess: deps.objectAccess } : {}),
@@ -1244,6 +1252,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     readExistingParentIds: (objectApiName, where, limit) =>
       readExistingParentIds(conn, objectApiName, where, limit),
     describeCreateableFields: described.createable,
+    describeVisibleFields: described.visible,
     describePicklistValues: described.picklistValues,
     describeRequiredFields: async (objectApiName) =>
       (await described.required(objectApiName)).filter(
@@ -1437,6 +1446,8 @@ export interface RemoveArgs {
   sweepList: boolean;
   /** Print the removal as JSON on stdout, every other line on stderr. */
   json: boolean;
+  /** Remove the rest when the user may not delete some of the run's objects; else stop. */
+  leaveUndeletable: boolean;
 }
 
 /** The flags a removal reads. */
@@ -1446,6 +1457,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--include-changed',
   '--sweep',
   '--sweep-list',
+  '--leave-undeletable',
   '--json',
 ]);
 const REMOVE_VALUE_FLAGS: ReadonlySet<string> = new Set(['--remove', '--target']);
@@ -1461,7 +1473,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --sweep, --sweep-list and --json, ` +
+        `--remove takes --target, --include-changed, --sweep, --sweep-list, --leave-undeletable and --json, ` +
           `not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
@@ -1493,6 +1505,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
     json: args.includes('--json'),
+    leaveUndeletable: args.includes('--leave-undeletable'),
   };
 }
 
@@ -1929,6 +1942,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       org: removalOrg(conn, 'sandforge-seed --remove'),
       includeChanged: args.includeChanged,
       ...(sweepFirst ? { sweep: sweepFirst } : {}),
+      onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
       signal: stop.signal,
       store: {
         // Kept beside the summary, or beside the run's file, whatever the
@@ -1943,6 +1957,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   } finally {
     releaseStop();
   }
+  // Stopped before its first delete, for objects the user may not delete:
+  // named above, and nothing was removed.
+  if (outcome.stoppedForUndeletable) process.exit(1);
   for (const note of outcome.notes) process.stderr.write(`${note}\n`);
   const sweep = sweepMade.result;
   output(outcome.result.status, outcome.result.objects, outcome.planned, sweep);

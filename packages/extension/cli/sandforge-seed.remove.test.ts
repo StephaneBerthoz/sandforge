@@ -119,7 +119,11 @@ describe('sandforge-seed --remove: the command line and the summary', () => {
       sweep: false,
       sweepList: false,
       json: true,
+      leaveUndeletable: false,
     });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--leave-undeletable')),
+    ).toMatchObject({ leaveUndeletable: true });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep')),
     ).toMatchObject({ sweep: true, sweepList: false });
@@ -248,6 +252,26 @@ describe('sandforge-seed --remove', () => {
       result: { objects: Array<{ objectApiName: string; keptChanged: number }> };
     };
     expect(outcome.result.objects.find((o) => o.objectApiName === 'Contact')?.keptChanged).toBe(1);
+  });
+
+  it('stops before its first delete when the user may not delete an object of the run, unless --leave-undeletable', async () => {
+    // It deleted the contacts, then had every account refused.
+    org.undeletable.add('Account');
+    const exit = stubExit();
+
+    await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+    expect(exit.stderr()).toContain(
+      'The user SandForge connects as may not delete the records of Account (2 records) in TGT.',
+    );
+    expect(exit.stderr()).toContain('run again with --leave-undeletable');
+    expect(org.deletes).toEqual([]);
+
+    await expect(
+      main(argv('--remove', file, '--target', 'TGT', '--leave-undeletable')),
+    ).rejects.toThrow('exit 3');
+    expect(org.deletes.map((d) => d.objectApiName)).toEqual(['Contact']);
+    expect(org.all('Account').map((r) => r.Id)).toEqual([A1, A2]);
   });
 
   it('refuses a production org, deleting nothing', async () => {

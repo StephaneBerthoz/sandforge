@@ -584,6 +584,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
           describeObject: async (orgId, objectApiName) => {
             const described = await describeOnce(orgId, objectApiName);
             return {
+              createable: described.createable,
               fields: described.fields.map((f) => ({
                 name: f.name,
                 type: f.type,
@@ -613,6 +614,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): Promise<void> 
             });
             return {
               sent,
+              createable: described.createable,
               fields: described.fields.map((f) => ({
                 name: f.name,
                 type: f.type,

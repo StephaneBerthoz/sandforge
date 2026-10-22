@@ -7,6 +7,14 @@ import { Button } from '../../../components/ui/Button';
 import type { AutopilotObjectInfo } from './AutopilotWizard';
 import { uiLocale } from '../../../utils/formatters';
 
+/** Whether an object can be picked: the target has it, and its user may create its records. */
+export function pickableInTarget(o: {
+  readonly missingInTarget?: true;
+  readonly notCreateableInTarget?: true;
+}): boolean {
+  return !o.missingInTarget && !o.notCreateableInTarget;
+}
+
 /** Step2Objects component props. */
 export interface Step2ObjectsProps {
   /** All available objects to select from */
@@ -54,7 +62,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
   const uncountedShown = useMemo(
     () =>
       filteredObjects
-        .filter((o) => o.recordCount === undefined && !o.countAsked && !o.missingInTarget)
+        .filter((o) => o.recordCount === undefined && !o.countAsked && pickableInTarget(o))
         .map((o) => o.apiName),
     [filteredObjects],
   );
@@ -88,9 +96,10 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
       <div className="flex flex-col gap-1 max-h-64 overflow-y-auto" data-testid="object-list">
         {filteredObjects.map((obj) => {
           const isSelected = selectedObjects.includes(obj.apiName);
-          // Not in the target: shown, so the user knows why it cannot be
-          // copied, and not to be picked.
-          const missing = obj.missingInTarget === true;
+          // Not in the target, or its user may not create the object there:
+          // shown, so the user knows why it cannot be copied, and not to be
+          // picked.
+          const missing = !pickableInTarget(obj);
           return (
             <label
               key={obj.apiName}
@@ -114,12 +123,20 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
               <span className="text-sm text-text-primary flex-1">
                 {obj.label}
                 <span className="text-xs text-text-primary ml-1">({obj.apiName})</span>
-                {missing && (
+                {obj.missingInTarget && (
                   <span
                     className="text-xs text-status-warning ml-2"
                     data-testid={`object-${obj.apiName}-missing`}
                   >
                     {t('autopilot.step2.notInTarget')}
+                  </span>
+                )}
+                {!obj.missingInTarget && obj.notCreateableInTarget && (
+                  <span
+                    className="text-xs text-status-warning ml-2"
+                    data-testid={`object-${obj.apiName}-not-createable`}
+                  >
+                    {t('autopilot.step2.notCreateableInTarget')}
                   </span>
                 )}
               </span>

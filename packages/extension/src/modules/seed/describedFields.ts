@@ -35,6 +35,12 @@ const PICKLIST_TYPES: ReadonlySet<string> = new Set(['picklist', 'multipicklist'
 export interface DescribedFields {
   /** The fields the org lets a write set. */
   createable(objectApiName: string): Promise<ReadonlySet<string>>;
+  /**
+   * Every field the describe lists, settable or not: those the connected user
+   * can see. A field it leaves out is one the org lacks, or one field-level
+   * security hides from that user.
+   */
+  visible(objectApiName: string): Promise<ReadonlySet<string>>;
   /** The active values of each picklist that has any, by field. */
   picklistValues(objectApiName: string): Promise<ReadonlyMap<string, readonly string[]>>;
   /**
@@ -72,6 +78,10 @@ export function describedFieldsOf(
     async createable(objectApiName) {
       const { fields } = await describeOnce(objectApiName);
       return new Set(fields.filter((f) => f.createable === true).map((f) => f.name));
+    },
+    async visible(objectApiName) {
+      const { fields } = await describeOnce(objectApiName);
+      return new Set(fields.map((f) => f.name));
     },
     async picklistValues(objectApiName) {
       const { fields } = await describeOnce(objectApiName);

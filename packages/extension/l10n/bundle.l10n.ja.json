@@ -150,5 +150,19 @@
   "staging": "ステージング",
   "development": "開発",
   "scratch": "スクラッチ",
-  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: {1} に {2} で開始された {0} の実行の記録は、作成した {3} 件のレコードがその組織にまだ残っていますが、このマシンに保持する実行を上限内に収めるために削除されました。これらのレコードは sandforge-cleanup で、または組織から削除してください。"
+  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: {1} に {2} で開始された {0} の実行の記録は、作成した {3} 件のレコードがその組織にまだ残っていますが、このマシンに保持する実行を上限内に収めるために削除されました。これらのレコードは sandforge-cleanup で、または組織から削除してください。",
+  "Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.": "除外: {0} の {1} 件のレコード。{2} にこのオブジェクトがないか、同期で書き込むユーザーから参照できません。",
+  "Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.": "除外: {0} の {1} 件のレコード。同期で書き込むユーザーは {2} でそのレコードを作成できません。",
+  "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "除外: {0} の {1} 件のレコード。同期で書き込むユーザーは {2} でそのレコードを編集できません。",
+  "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "除外: {0} の {1} 件のレコード。{2} が記述を返さなかったため、受け付ける内容がわかりません。",
+  "Remove the rest": "残りを削除",
+  "SandForge: some records of the run cannot be removed": "SandForge: 実行のレコードの一部は削除できません",
+  "The user SandForge connects as may not delete the records of these objects in {0}, so they stay whatever you choose:": "SandForge が接続するユーザーは {0} でこれらのオブジェクトのレコードを削除できないため、どちらを選んでも残ります:",
+  "Remove the rest removes every other record of the run, and keeps these with the records they hang from. Cancel removes nothing.": "「残りを削除」は実行のほかのレコードをすべて削除し、これらのレコードとその親レコードを残します。キャンセルすると何も削除しません。",
+  "This seed is about to write {0} records to {1}:": "この Seed は {1} に {0} 件のレコードを書き込もうとしています:",
+  "SandForge: confirm this seed": "SandForge: この Seed を確認",
+  "These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.": "これらのレコードにより、{0} のフローが約 {1} 通の単一メールを送信します。今日の残り数を読み取れなかったため ({2})、収まるかどうかはわかりません。",
+  "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "これらのレコードにより、{0} のフローが約 {1} 通のワークフローメールを送信します。今日の残り数を読み取れなかったため ({2})、収まるかどうかはわかりません。",
+  "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} は「設定・定義を参照する」権限を持つユーザーにのみ制限値を返します。SandForge が接続するユーザーにはその権限がない可能性があります。",
+  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "この実行は約 {0} 件の API 要求を使い、{1} には 1 日の {3} 件のうち {2} 件が残っています。実行後は 10 分の 1 未満しか残りません。"
 }

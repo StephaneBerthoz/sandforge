@@ -100,6 +100,7 @@ describe('parseRemoveArgs', () => {
       json: true,
       sweep: false,
       sweepList: false,
+      leaveUndeletable: false,
     });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--store', 'state')),
@@ -111,7 +112,11 @@ describe('parseRemoveArgs', () => {
       store: 'state',
       sweep: false,
       sweepList: false,
+      leaveUndeletable: false,
     });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--leave-undeletable')),
+    ).toMatchObject({ leaveUndeletable: true });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep')),
     ).toMatchObject({ sweep: true, sweepList: false });

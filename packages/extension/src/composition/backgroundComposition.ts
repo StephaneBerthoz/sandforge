@@ -24,7 +24,10 @@ import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
-import type { ReplacedOrgRestoreQuestion } from '../bridge/handlers/HandlerTypes';
+import type {
+  ReplacedOrgRestoreQuestion,
+  UndeletableRemovalQuestion,
+} from '../bridge/handlers/HandlerTypes';
 import type { Services } from '../services.js';
 
 /** Inputs required to build the infrastructure/background service layer. */
@@ -78,6 +81,42 @@ export async function confirmRestoreIntoReplacedOrg(
     restoreAnyway,
   );
   return choice === restoreAnyway;
+}
+
+/**
+ * What a removal asks before its first write when the user SandForge connects
+ * as may not delete the records of some objects of the run: remove the rest,
+ * leaving those, or stop with nothing removed. A modal, as the restore's: the
+ * removal deleted the children, then had every parent refused, and nothing
+ * said so before it began.
+ *
+ * @returns Whether the user chose to remove the rest.
+ */
+export async function confirmRemovalLeavingUndeletable(
+  question: UndeletableRemovalQuestion,
+): Promise<boolean> {
+  const removeTheRest = vscode.l10n.t('Remove the rest');
+  const choice = await vscode.window.showWarningMessage(
+    vscode.l10n.t('SandForge: some records of the run cannot be removed'),
+    { modal: true, detail: undeletableQuestionDetail(question) },
+    removeTheRest,
+  );
+  return choice === removeTheRest;
+}
+
+/** The lines of {@link confirmRemovalLeavingUndeletable}'s question. */
+function undeletableQuestionDetail(question: UndeletableRemovalQuestion): string {
+  return [
+    vscode.l10n.t(
+      'The user SandForge connects as may not delete the records of these objects in {0}, so they stay whatever you choose:',
+      question.org,
+    ),
+    // Names and counts alone: nothing in them to translate.
+    ...question.objects.map(({ objectApiName, records }) => `• ${objectApiName}: ${records}`),
+    vscode.l10n.t(
+      'Remove the rest removes every other record of the run, and keeps these with the records they hang from. Cancel removes nothing.',
+    ),
+  ].join('\n');
 }
 
 /** The most entries a run's question lists before it says how many more there are. */
@@ -336,17 +375,23 @@ function writeQuestion(question: WriteConfirmation): string[] {
           question.total,
           question.org,
         )
-      : question.module === 'sync'
+      : question.module === 'seed'
         ? vscode.l10n.t(
-            'This sync is about to write {0} records to {1}:',
+            'This seed is about to write {0} records to {1}:',
             question.total,
             question.org,
           )
-        : vscode.l10n.t(
-            'This clone is about to write {0} records to {1}:',
-            question.total,
-            question.org,
-          ),
+        : question.module === 'sync'
+          ? vscode.l10n.t(
+              'This sync is about to write {0} records to {1}:',
+              question.total,
+              question.org,
+            )
+          : vscode.l10n.t(
+              'This clone is about to write {0} records to {1}:',
+              question.total,
+              question.org,
+            ),
   ];
   // Names and counts alone: nothing in them to translate.
   for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
@@ -369,6 +414,38 @@ function writeQuestion(question: WriteConfirmation): string[] {
         'Not counted: {0} records the run it retries or resumes wrote, which it links to and does not write again.',
         leftOut.writtenBefore,
       ),
+    );
+  }
+  // The objects the target takes none of: confirmed, the sync leaves them out.
+  for (const { objectApiName, rows, why } of question.unwritable ?? []) {
+    lines.push(
+      why === 'notInTarget'
+        ? vscode.l10n.t(
+            'Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.',
+            objectApiName,
+            rows,
+            question.org,
+          )
+        : why === 'notCreateable'
+          ? vscode.l10n.t(
+              'Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.',
+              objectApiName,
+              rows,
+              question.org,
+            )
+          : why === 'notUpdateable'
+            ? vscode.l10n.t(
+                'Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.',
+                objectApiName,
+                rows,
+                question.org,
+              )
+            : vscode.l10n.t(
+                'Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.',
+                objectApiName,
+                rows,
+                question.org,
+              ),
     );
   }
   for (const { objectApiName, rows } of leftOut?.heldBack ?? []) {
@@ -445,6 +522,46 @@ function writeQuestion(question: WriteConfirmation): string[] {
         ),
       );
     }
+  }
+  // The emails the records make the target send that it did not say it has
+  // left of: whether they fit is not known.
+  for (const unread of question.emailsUnread ?? []) {
+    lines.push(
+      unread.limit === 'SingleEmail'
+        ? vscode.l10n.t(
+            'These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.',
+            question.org,
+            unread.emails,
+            unread.unread,
+          )
+        : vscode.l10n.t(
+            'These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.',
+            question.org,
+            unread.emails,
+            unread.unread,
+          ),
+    );
+  }
+  // A limit the org would not give: the user it answers needs View Setup.
+  if ('unread' in question.storage || (question.emailsUnread ?? []).length > 0) {
+    lines.push(
+      vscode.l10n.t(
+        '{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
+        question.org,
+      ),
+    );
+  }
+  // The day's API requests the run would leave the org short of.
+  if (question.apiRequests) {
+    lines.push(
+      vscode.l10n.t(
+        'The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.',
+        question.apiRequests.estimate,
+        question.org,
+        question.apiRequests.remaining,
+        question.apiRequests.max,
+      ),
+    );
   }
   // The daily email limits the records take the target past: the rest of
   // them would be refused one by one, as the flow that sends fails.
@@ -624,7 +741,9 @@ export async function confirmRun(question: RunConfirmation): Promise<boolean> {
         ? vscode.l10n.t('SandForge: confirm this Autopilot run')
         : question.stage === 'write' && question.module === 'sync'
           ? vscode.l10n.t('SandForge: confirm this sync')
-          : vscode.l10n.t('SandForge: confirm this clone'),
+          : question.stage === 'write' && question.module === 'seed'
+            ? vscode.l10n.t('SandForge: confirm this seed')
+            : vscode.l10n.t('SandForge: confirm this clone'),
     { modal: true, detail: runQuestionDetail(question) },
     ...(commands.length > 0 ? [go, copy] : [go]),
   );

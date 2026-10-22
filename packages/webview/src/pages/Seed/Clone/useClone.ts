@@ -45,6 +45,7 @@ const CLONE_ERROR_CODES = [
   'PRODUCTION_GUARD_BLOCKED',
   'CLONE_FAILED',
   'CLONE_EMAILS_EXCEEDED',
+  'API_BUDGET_EXCEEDED',
 ];
 
 /**
@@ -279,7 +280,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     // SandForge's own sentences and their translation already says all of it.
     const hostMessage = typeof failed.error === 'string' ? failed.error : '';
     setError(
-      hostMessage && (!known || code === 'CLONE_FAILED')
+      hostMessage && (!known || code === 'CLONE_FAILED' || code === 'API_BUDGET_EXCEEDED')
         ? `${headline} ${t('seed.clone.error.detail', { detail: hostMessage })}`
         : headline,
     );

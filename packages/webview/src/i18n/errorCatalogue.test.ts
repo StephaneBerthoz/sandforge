@@ -58,6 +58,7 @@ const MESSAGE_SAMPLES: readonly string[] = [
   'Written with the lookup empty: the InsurancePolicy record it points at is not in the clone.',
   'Object is not in the target org, or the user the run writes as cannot see it: none of its records can be written there',
   'Object is not createable on target org',
+  'Object is not updateable on target org: the user the run writes as may not edit Case records there.',
 ];
 
 /** Forge's refusals of a run, by their code. */

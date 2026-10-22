@@ -41,6 +41,17 @@ import { objectsUnderDuplicateRules } from './seedDuplicateRules.js';
 export const STREAMING_THRESHOLD = 10_000;
 
 /**
+ * The objects the standard duplicate rules every org starts with watch, and
+ * keep active: Account, Contact and Lead. Sent as a Bulk API job, which cannot
+ * waive a rule, the standard account rule refused 296 of 500 accounts.
+ */
+const STANDARD_DUPLICATE_RULE_OBJECTS: ReadonlySet<string> = new Set([
+  'Account',
+  'Contact',
+  'Lead',
+]);
+
+/**
  * What a Bulk API job answered for each record, in the order sent, its
  * refusals read with the code and fields of their `sf__Error`
  * (`bulkSaveErrorDetail`): what a row refused on a field a validation rule
@@ -148,7 +159,19 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       }
       return ruled;
     });
-    const watched = (await duplicateRules)?.has(objectApiName) === true;
+    const ruled = await duplicateRules;
+    // Not read — the query needs View Setup and Configuration — the objects
+    // the standard rules watch go through REST all the same: the job sent
+    // them past rules nobody could see, and said so only in the log.
+    if (ruled === undefined) {
+      if (!STANDARD_DUPLICATE_RULE_OBJECTS.has(objectApiName)) return false;
+      deps.log(
+        `[INFO] ${label}: ${objectApiName} goes through REST: the duplicate rules could not be ` +
+          'read, and a standard rule watches it',
+      );
+      return true;
+    }
+    const watched = ruled.has(objectApiName);
     if (watched) {
       deps.log(
         `[INFO] ${label}: ${objectApiName} goes through REST: an active ` +
@@ -167,6 +190,17 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
     const throughRest =
       (records.length > STREAMING_THRESHOLD || bulkExecutor.shouldUseBulkApi(records.length)) &&
       (await watchedByDuplicateRule(objectApiName, records.length, batchSize));
+    // Said in the object's result, not the log alone: why it went in many
+    // calls, and that a rule may still have refused records.
+    const unreadRulesNote =
+      throughRest && (await duplicateRules) === undefined
+        ? [
+            `The org's duplicate rules could not be read (the user SandForge connects as needs ` +
+              `View Setup and Configuration): ${objectApiName}, which a standard duplicate rule ` +
+              'watches, was sent through REST, whose header lets its matches be saved, rather ' +
+              'than as a Bulk API job.',
+          ]
+        : [];
     // Streaming path for large record sets
     if (records.length > STREAMING_THRESHOLD && !throughRest) {
       // A cancel that came before the insert opens no job: see the Bulk
@@ -294,6 +328,11 @@ export function seedInsert(deps: SeedInsertDeps): SeedInsert {
       }
     }
 
-    return { successIds, errors, rows };
+    return {
+      successIds,
+      errors,
+      rows,
+      ...(unreadRulesNote.length > 0 ? { notes: unreadRulesNote } : {}),
+    };
   };
 }

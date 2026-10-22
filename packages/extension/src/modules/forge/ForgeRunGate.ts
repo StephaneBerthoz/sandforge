@@ -279,6 +279,17 @@ export function pricesForLinesOf(plan: Pick<WritePlan, 'objects'>): { pricesForL
 export interface DataStorage {
   maxMB: number;
   remainingMB: number;
+  /**
+   * The daily API requests it has, read from the same answer: absent when
+   * the answer did not list them.
+   */
+  dailyApiRequests?: ApiBudget;
+}
+
+/** What an org has of its daily API requests, as its `/limits` say. */
+export interface ApiBudget {
+  max: number;
+  remaining: number;
 }
 
 /** The part of a connection reading an org's limits needs. */
@@ -286,10 +297,18 @@ export interface LimitsTransport {
   request(request: { method: 'GET'; url: string }): Promise<unknown>;
 }
 
-/** What `/limits` says of an org's data storage. */
+/** What `/limits` says of an org's data storage, and of its daily API requests when it lists them. */
 const dataStorageSchema = z
   .object({
     DataStorageMB: z.object({ Max: z.number(), Remaining: z.number() }).loose(),
+    DailyApiRequests: z.object({ Max: z.number(), Remaining: z.number() }).loose().optional(),
+  })
+  .loose();
+
+/** What `/limits` says of an org's daily API requests. */
+const apiBudgetSchema = z
+  .object({
+    DailyApiRequests: z.object({ Max: z.number(), Remaining: z.number() }).loose(),
   })
   .loose();
 
@@ -305,7 +324,121 @@ export async function readDataStorage(transport: LimitsTransport): Promise<DataS
   return {
     maxMB: limits.DataStorageMB.Max,
     remainingMB: limits.DataStorageMB.Remaining,
+    ...(limits.DailyApiRequests
+      ? {
+          dailyApiRequests: {
+            max: limits.DailyApiRequests.Max,
+            remaining: limits.DailyApiRequests.Remaining,
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * The daily API requests an org has left, as its `/limits` say: for a run
+ * that reads nothing else of them. The org may refuse it to the user the run
+ * writes as; the caller says so, and never takes it for enough.
+ */
+export async function readApiBudget(transport: LimitsTransport): Promise<ApiBudget> {
+  const limits = apiBudgetSchema.parse(await transport.request({ method: 'GET', url: '/limits' }));
+  return { max: limits.DailyApiRequests.Max, remaining: limits.DailyApiRequests.Remaining };
+}
+
+/** Records a REST call writes, as the runs send them. */
+const ROWS_PER_REST_CALL = 200;
+/** Records a Bulk API job takes before another is opened. */
+const ROWS_PER_BULK_JOB = 10_000;
+/** The calls a Bulk API job costs: open, upload, close, and polling it. */
+const CALLS_PER_BULK_JOB = 5;
+/** Records a query page reads. */
+const ROWS_PER_READ = 2_000;
+/**
+ * The share of its daily requests an org may be left with, under which a run
+ * that asks before it writes says so.
+ */
+export const API_BUDGET_NEAR_SHARE = 0.1;
+
+/**
+ * The calls a run makes of the org it writes to, roughly: per object, a REST
+ * call per {@link ROWS_PER_REST_CALL} records, or {@link CALLS_PER_BULK_JOB} per
+ * Bulk API job of {@link ROWS_PER_BULK_JOB}, and a call per page of
+ * {@link ROWS_PER_READ} records it reads of that org.
+ */
+export function runRequestsEstimate(
+  objects: ReadonlyArray<{ rows: number; bulk?: boolean; readRows?: number }>,
+): number {
+  return objects.reduce((sum, { rows, bulk, readRows }) => {
+    const writes =
+      rows <= 0
+        ? 0
+        : bulk
+          ? CALLS_PER_BULK_JOB * Math.ceil(rows / ROWS_PER_BULK_JOB)
+          : Math.ceil(rows / ROWS_PER_REST_CALL);
+    const reads = readRows && readRows > 0 ? Math.ceil(readRows / ROWS_PER_READ) : 0;
+    return sum + writes + reads;
+  }, 0);
+}
+
+/** The calls a run makes against what the org it writes to has left today, or why that is not known. */
+export type ApiBudgetCheck =
+  | { verdict: 'fits' | 'near' | 'exceeds'; estimate: number; max: number; remaining: number }
+  | { verdict: 'unread'; estimate: number; unread: string };
+
+/**
+ * A run's calls against the target's daily API requests: `exceeds` past what
+ * it has left, `near` when the run would leave it under
+ * {@link API_BUDGET_NEAR_SHARE} of its daily limit, `unread` when it did not
+ * say. Only Forge's Review compared them: a seed, a sync or an Autopilot run
+ * into an org whose integrations had used the day's requests stopped part way
+ * through, its records refused with REQUEST_LIMIT_EXCEEDED.
+ */
+export function apiBudgetCheckOf(
+  estimate: number,
+  budget: ApiBudget | { unread: string } | undefined,
+): ApiBudgetCheck {
+  if (!budget) {
+    return {
+      verdict: 'unread',
+      estimate,
+      unread: 'the limits the org answered list no DailyApiRequests',
+    };
+  }
+  if ('unread' in budget) return { verdict: 'unread', estimate, unread: budget.unread };
+  const { max, remaining } = budget;
+  const verdict =
+    estimate > remaining
+      ? 'exceeds'
+      : remaining - estimate < API_BUDGET_NEAR_SHARE * max
+        ? 'near'
+        : 'fits';
+  return { verdict, estimate, max, remaining };
+}
+
+/**
+ * The code every module's run is refused under past the daily API requests
+ * its target has left, worded by the panel (`error-hints.ts`).
+ */
+export const API_BUDGET_EXCEEDED = 'API_BUDGET_EXCEEDED';
+
+/** Why a run cannot be written for the API requests it takes, or nothing when it can. */
+export function apiBudgetRefusal(check: ApiBudgetCheck, target: string): string | undefined {
+  if (check.verdict !== 'exceeds') return undefined;
+  return (
+    `The run takes about ${check.estimate} API requests, and ${target} has ${check.remaining} ` +
+    `of its ${check.max} daily requests left: it would stop part way through, its records ` +
+    'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
+    'limit is counted over the last 24 hours — or write fewer records. Nothing was written.'
+  );
+}
+
+/** The API requests of a check, as a run's question says them: only when they run short. */
+export function confirmationApiOf(
+  check: ApiBudgetCheck,
+): { apiRequests: { estimate: number; remaining: number; max: number } } | Record<string, never> {
+  return check.verdict === 'near'
+    ? { apiRequests: { estimate: check.estimate, remaining: check.remaining, max: check.max } }
+    : {};
 }
 
 /** What the rows take against what the target has left, or why that could not be told. */

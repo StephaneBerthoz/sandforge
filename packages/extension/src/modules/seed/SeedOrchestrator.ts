@@ -88,6 +88,8 @@ export interface InsertResult {
    * see refused stays refused.
    */
   rows?: InsertedRow[];
+  /** What the object's result says of how its records were sent. Absent when nothing is. */
+  notes?: string[];
 }
 
 /**
@@ -154,6 +156,14 @@ export interface SeedOrchestratorDependencies {
    * still refused rather than written empty.
    */
   describeCreateableFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
+  /**
+   * Every field the describe lists, settable or not. A dropped rule's field it
+   * lists exists and is one the user may not set; one it does not list the
+   * org lacks, or field-level security hides from the user. The result said
+   * "this org does not have that field" of both. Optional: without it, the
+   * result names both causes.
+   */
+  describeVisibleFields?: (objectApiName: string) => Promise<ReadonlySet<string>>;
   /**
    * Whether the org has an object and lets the user the seed runs as create
    * its records. An object it has not — `Knowledge__kav` where Knowledge is
@@ -411,11 +421,12 @@ export class SeedOrchestrator {
 
     const own = withoutRelationLookup(obj, relation);
     const { config: fitted, dropped } = await this.dropRulesTheOrgCannotTake(own);
+    const why = await this.whyDropped(obj.objectApiName, dropped);
     if (fitted.fieldRules.length === 0 && own.fieldRules.length > 0) {
       return skipObject(
         run,
         obj.objectApiName,
-        `Skipped: this org has none of the fields the template names (${dropped.join(', ')}).`,
+        `Skipped: none of the fields the template names can be written (${why.join('; ')}).`,
       );
     }
     const { config: usable, filled } = await this.withWhatTheOrgRequires(
@@ -437,11 +448,7 @@ export class SeedOrchestrator {
       config: placed ? { ...usable, recordCount: placed.parentIds.length } : usable,
       placed,
       notes: [
-        ...(dropped.length > 0
-          ? [
-              `Written without ${dropped.join(', ')}: this org does not have ${dropped.length === 1 ? 'that field' : 'those fields'}.`,
-            ]
-          : []),
+        ...why.map((reason) => `Written without ${reason}.`),
         ...(filled.length > 0
           ? [
               `Written with ${filled.join(', ')}, which this org requires and the template names no rule for.`,
@@ -582,13 +589,15 @@ export class SeedOrchestrator {
   ): Promise<SentAgain> {
     const send = (rows: Record<string, unknown>[]): Promise<InsertResult> =>
       this.deps.insert(orgId, obj.objectApiName, rows, obj.batchSize);
-    return sendRefusedRowsAgain(
+    const first = await send(records);
+    const sent = await sendRefusedRowsAgain(
       send,
       records,
-      await send(records),
+      first,
       settledFields(ready),
       () => this.deps.signal?.aborted === true,
     );
+    return first.notes && first.notes.length > 0 ? { ...sent, notes: first.notes } : sent;
   }
 
   /**
@@ -717,7 +726,46 @@ export class SeedOrchestrator {
   }
 
   /**
-   * The object's rules, less the ones naming a field this org does not have.
+   * Why each field a seed leaves out was left out, one reason to a group:
+   * `Birthdate: it exists, but the user SandForge connects as may not set it`.
+   * A field the describe does not list is one the org lacks, or one
+   * field-level security hides from the user; the result said "this org does
+   * not have that field" of a standard field the user's profile hid, and of
+   * one the user could see but not set.
+   */
+  private async whyDropped(objectApiName: string, dropped: readonly string[]): Promise<string[]> {
+    if (dropped.length === 0) return [];
+    let visible: ReadonlySet<string> = new Set();
+    try {
+      if (this.deps.describeVisibleFields) {
+        visible = await this.deps.describeVisibleFields(objectApiName);
+      }
+    } catch {
+      // Cannot tell: every field is said with both of its possible causes.
+    }
+    const notSettable = dropped.filter((field) => visible.has(field));
+    const unseen = dropped.filter((field) => !visible.has(field));
+    const one = (fields: readonly string[], single: string, plural: string): string =>
+      fields.length === 1 ? single : plural;
+    return [
+      ...(unseen.length > 0
+        ? [
+            `${unseen.join(', ')}: this org does not have ${one(unseen, 'that field', 'those fields')}, ` +
+              `or field-level security hides ${one(unseen, 'it', 'them')} from the user SandForge connects as`,
+          ]
+        : []),
+      ...(notSettable.length > 0
+        ? [
+            `${notSettable.join(', ')}: ${one(notSettable, 'it exists', 'they exist')}, but the user ` +
+              `SandForge connects as may not set ${one(notSettable, 'it', 'them')}`,
+          ]
+        : []),
+    ];
+  }
+
+  /**
+   * The object's rules, less the ones naming a field this org does not have,
+   * or the user may not set.
    *
    * A reference rule fills a lookup and is left alone: the field it writes is
    * named by the rule, and a describe that cannot see it is a reason to let
@@ -836,6 +884,11 @@ export class SeedOrchestrator {
           objSentAgain.written = addWrittenWithoutFields(objSentAgain.written, sent.written);
         }
         objSentAgain.unsent.push(...sent.unsent);
+        for (const note of sent.notes ?? []) {
+          if (!(objSentAgain.notes ?? []).includes(note)) {
+            objSentAgain.notes = [...(objSentAgain.notes ?? []), note];
+          }
+        }
 
         objSuccess += insertResult.successIds.length;
         objFailed += insertResult.errors.length;
@@ -1028,8 +1081,12 @@ function settledFields(ready: ReadyObject): ReadonlySet<string> {
 }
 
 /** What an object's result says of its rows sent again: the fields left out, then what could not go. */
-function notesOf(sent: Pick<SentAgain, 'written' | 'unsent'>): string[] {
-  return [...(sent.written ? [fieldsLeftOutNote(sent.written)] : []), ...sent.unsent];
+function notesOf(sent: Pick<SentAgain, 'written' | 'unsent' | 'notes'>): string[] {
+  return [
+    ...(sent.notes ?? []),
+    ...(sent.written ? [fieldsLeftOutNote(sent.written)] : []),
+    ...sent.unsent,
+  ];
 }
 
 /** Skip an object before anything is written for it, saying why; null for the caller to return. */
@@ -1133,6 +1190,10 @@ function keepWhatASliceWrote(kept: SentAgain, sent: SentAgain): void {
   for (const error of sent.result.errors) kept.result.errors.push(error);
   if (sent.written) kept.written = addWrittenWithoutFields(kept.written, sent.written);
   kept.unsent.push(...sent.unsent);
+  // What an insert said of how it sent the records, once however many slices said it.
+  for (const note of sent.notes ?? []) {
+    if (!(kept.notes ?? []).includes(note)) kept.notes = [...(kept.notes ?? []), note];
+  }
 }
 
 /** The result of an object skipped before anything was written for it. */

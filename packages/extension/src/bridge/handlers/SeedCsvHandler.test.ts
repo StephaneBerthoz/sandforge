@@ -212,6 +212,26 @@ describe('SeedCsvHandler', () => {
       expect(new LineageStore(store).get()?.nodes[0]).toMatchObject({ origin: 'csv' });
     });
 
+    it('refuses an import past the API requests the org has left today, writing nothing', async () => {
+      // Nothing compared them: an import into an org whose integrations had
+      // used the day's requests stopped part way through.
+      mockGetConn.mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
+        request: vi.fn(async () => ({ DailyApiRequests: { Max: 15_000, Remaining: 2 } })),
+        limitInfo: undefined,
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      const records = Array.from({ length: 25_000 }, (_, i) => ({ name: `Acme ${i}` }));
+
+      await handler.handle(buildMsg('seed:csv:execute', csvPayload({ records })));
+
+      expect(writer.insert).not.toHaveBeenCalled();
+      const [error] = posted(deps, 'seed:csv:error');
+      expect((error.payload as { code?: string }).code).toBe('API_BUDGET_EXCEEDED');
+      expect(String((error.payload as { message?: string }).message)).toContain(
+        'The run takes about 15 API requests',
+      );
+    });
+
     it('counts an upsert apart: it says it wrote a row, not whether it created it', async () => {
       const store = recordingStore();
 

@@ -21,6 +21,7 @@ import type {
   ForgeEmailLimit,
   ForgeTargetAutomation,
   SyncOperation,
+  SyncUnwritableReason,
   SyncWriteCheck,
 } from '@sandforge/shared';
 import type {
@@ -30,13 +31,19 @@ import type {
 } from '../../core/precheck/ProductionGuard.js';
 import { largeVolumeThreshold } from '../../core/precheck/ProductionGuard.js';
 import {
+  API_BUDGET_EXCEEDED,
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
+  confirmationApiOf,
   confirmationStorageOf,
   countedTargetEmails,
   emailRefusal,
   formatMB,
   overEmailOf,
+  runRequestsEstimate,
   storageCheckOf,
   writePlanOf,
+  type ApiBudgetCheck,
   type DataStorage,
   type EmailCheck,
   type EmailLimit,
@@ -54,11 +61,22 @@ export interface SyncCountedObject {
   personAccounts?: number;
 }
 
+/** An object of a run the target will take no record of as the run writes it, and why. */
+export interface SyncUnwritableObject extends SyncCountedObject {
+  why: SyncUnwritableReason;
+}
+
 /** What a run writes, as counted before its first write. */
 export interface SyncCountedWrite {
   objects: SyncCountedObject[];
   /** Records an earlier run of the configuration copied, left as they are and not counted. */
   alreadyCopied: number;
+  /**
+   * The objects the target will take none of — it has not the object, or the
+   * user the run writes as may not see, create or edit it — counted apart
+   * from `objects`. Absent when none.
+   */
+  unwritable?: SyncUnwritableObject[];
 }
 
 /** Whether an object's write creates records: an insert, or an upsert that may. */
@@ -113,6 +131,8 @@ export interface MeasuredSyncWrite {
   plan: WritePlan;
   storage: StorageCheck;
   emails: EmailCheck[];
+  /** Its calls against the daily API requests the target has left. */
+  api: ApiBudgetCheck;
 }
 
 /**
@@ -139,13 +159,18 @@ export async function measureSyncWrite(
   let storage: StorageCheck = storageCheckOf(plan, { maxMB: 0, remainingMB: 0 });
   let emails: EmailCheck[] = [];
   let emailsUnread: string | undefined;
+  // The calls of its writes to the target, from the same `/limits` the
+  // storage is read from: its reads are of the source, whose own budget they take.
+  const estimate = runRequestsEstimate(objects);
+  let api: ApiBudgetCheck = apiBudgetCheckOf(estimate, { unread: 'not read' });
+  if (total > 0) {
+    const limits = await measures.readStorage().catch((err: unknown) => ({
+      unread: err instanceof Error ? err.message : String(err),
+    }));
+    api = apiBudgetCheckOf(estimate, 'unread' in limits ? limits : limits.dailyApiRequests);
+    if (plan.totalRows > 0) storage = storageCheckOf(plan, limits);
+  }
   if (plan.totalRows > 0) {
-    storage = storageCheckOf(
-      plan,
-      await measures.readStorage().catch((err: unknown) => ({
-        unread: err instanceof Error ? err.message : String(err),
-      })),
-    );
     const said = await countedTargetEmails({
       plan,
       objects: plan.objects.map((object) => object.objectApiName),
@@ -157,12 +182,20 @@ export async function measureSyncWrite(
   }
   const threshold = measures.confirmAboveRecords;
   const aboveRecords = threshold > 0 && total > threshold ? threshold : undefined;
+  const unwritable = (counted.unwritable ?? []).map(({ objectApiName, rows, why }) => ({
+    objectApiName,
+    rows,
+    why,
+  }));
   const verdict: SyncWriteCheck['verdict'] =
     total === 0
-      ? 'writes'
-      : storage.verdict === 'exceeds'
+      ? unwritable.length > 0
+        ? 'refused'
+        : 'writes'
+      : storage.verdict === 'exceeds' || api.verdict === 'exceeds'
         ? 'refused'
         : aboveRecords !== undefined ||
+            unwritable.length > 0 ||
             (plan.totalRows > 0 && storage.verdict !== 'fits') ||
             emails.some((check) => check.verdict === 'exceeds')
           ? 'asks'
@@ -195,9 +228,23 @@ export async function measureSyncWrite(
       ...(email.unread !== undefined ? { unread: email.unread } : {}),
     })),
     ...(emailsUnread !== undefined ? { emailsUnread } : {}),
+    ...(unwritable.length > 0 ? { unwritable } : {}),
+    ...(total > 0
+      ? {
+          apiRequests:
+            api.verdict === 'unread'
+              ? { verdict: 'unread' as const, estimate: api.estimate, unread: api.unread }
+              : {
+                  verdict: api.verdict,
+                  estimate: api.estimate,
+                  remaining: api.remaining,
+                  max: api.max,
+                },
+        }
+      : {}),
     verdict,
   };
-  return { check, plan, storage, emails };
+  return { check, plan, storage, emails, api };
 }
 
 /**
@@ -207,6 +254,8 @@ export async function measureSyncWrite(
  */
 export type SyncGateCode =
   | 'SYNC_STORAGE_EXCEEDED'
+  | typeof API_BUDGET_EXCEEDED
+  | 'SYNC_TARGET_UNWRITABLE'
   | 'SYNC_EMAILS_EXCEEDED'
   | 'SYNC_WRITE_DECLINED'
   | 'SYNC_CONFIRMATION_UNAVAILABLE';
@@ -244,7 +293,18 @@ export async function gateSyncWrite(
     confirm?: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
   },
 ): Promise<SyncGateAnswer> {
-  const { check, storage, emails, plan } = measured;
+  const { check, storage, emails, plan, api } = measured;
+  // An object the target takes none of stops the run unless the user, asked,
+  // leaves it out: nobody watches a scheduled run or the command line, and a
+  // run with nothing else to write has nothing to go on with.
+  const unwritable = check.unwritable ?? [];
+  if (unwritable.length > 0 && (input.policy !== 'ask' || check.total === 0)) {
+    return {
+      go: false,
+      code: 'SYNC_TARGET_UNWRITABLE',
+      message: unwritableRefusal(unwritable, input.org),
+    };
+  }
   if (check.total === 0) return { go: true, asked: false };
   if (plan.totalRows > 0 && storage.verdict === 'exceeds') {
     return {
@@ -257,6 +317,10 @@ export async function gateSyncWrite(
         'written.',
     };
   }
+  // Past the requests the target has left today, whoever answers for it: it
+  // would stop part way through, its records refused with REQUEST_LIMIT_EXCEEDED.
+  const overBudget = apiBudgetRefusal(api, input.org);
+  if (overBudget) return { go: false, code: API_BUDGET_EXCEEDED, message: overBudget };
   if (input.policy !== 'ask') {
     const over = emailRefusal(emails, input.org);
     return over
@@ -281,6 +345,8 @@ export async function gateSyncWrite(
         ...(check.overwrites !== undefined ? { overwrites: check.overwrites } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
+        ...(unwritable.length > 0 ? { unwritable } : {}),
+        ...confirmationApiOf(api),
       })
     : 'unavailable';
   if (answer === 'confirmed') return { go: true, asked: true };
@@ -297,6 +363,36 @@ export async function gateSyncWrite(
           'The sync needed a confirmation before it wrote, and there was no one to ask. ' +
           'Nothing was written.',
       };
+}
+
+/** Why the target takes none of an object's records, in a sentence of the refusal. */
+const UNWRITABLE_WHY: Record<SyncUnwritableReason, (org: string) => string> = {
+  notInTarget: (org) => `${org} has no such object, or the user the run writes as cannot see it`,
+  notCreateable: (org) => `the user the run writes as may not create its records in ${org}`,
+  notUpdateable: (org) => `the user the run writes as may not edit its records in ${org}`,
+  unread: (org) => `${org} did not describe it, so what it takes could not be told`,
+};
+
+/**
+ * The refusal of a run some of whose objects the target takes none of: each
+ * named, with why and its records, and what to do. A run went on to write
+ * the objects before them, then had every record of theirs refused.
+ */
+export function unwritableRefusal(
+  unwritable: ReadonlyArray<{ objectApiName: string; rows: number; why: SyncUnwritableReason }>,
+  org: string,
+): string {
+  const named = unwritable
+    .map(
+      ({ objectApiName, rows, why }) =>
+        `${objectApiName} (${rows} records): ${UNWRITABLE_WHY[why](org)}`,
+    )
+    .join('; ');
+  return (
+    `${org} would take no record of ${unwritable.length === 1 ? 'one object' : `${unwritable.length} objects`} ` +
+    `the sync writes — ${named}. Leave ${unwritable.length === 1 ? 'it' : 'them'} out of the run, or give ` +
+    `the user SandForge writes as access to ${unwritable.length === 1 ? 'it' : 'them'} in ${org}. Nothing was written.`
+  );
 }
 
 /**

@@ -442,6 +442,13 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     wordsTheMessage: true,
     keys: ['errors.orgAuthExpired.explanation', 'errors.orgAuthExpired.action'],
   },
+  // A scratch org past its expiration date, which Salesforce deleted: no
+  // reconnect brings it back, and the panel offers none.
+  SCRATCH_ORG_EXPIRED: {
+    severity: 'error',
+    own: true,
+    keys: ['errors.scratchOrgExpired.explanation', 'errors.scratchOrgExpired.action'],
+  },
   ORG_TEMPORARILY_UNREACHABLE: {
     severity: 'warning',
     own: true,
@@ -476,6 +483,20 @@ const CATALOGUE: Readonly<Record<string, Entry>> = {
     own: true,
     wordsTheMessage: true,
     keys: ['errors.syncEmailsExceeded.explanation', 'errors.syncEmailsExceeded.action'],
+  },
+  // A run of any module refused before its first write: it takes more API
+  // requests than the target has left today. The message gives the figures.
+  API_BUDGET_EXCEEDED: {
+    severity: 'error',
+    own: true,
+    keys: ['errors.apiBudgetExceeded.explanation', 'errors.apiBudgetExceeded.action'],
+  },
+  // A Sync run stopped before its first write for objects the target takes
+  // none of: the message names each, with why, which the panel keeps.
+  SYNC_TARGET_UNWRITABLE: {
+    severity: 'error',
+    own: true,
+    keys: ['errors.syncTargetUnwritable.explanation', 'errors.syncTargetUnwritable.action'],
   },
   SYNC_WRITE_DECLINED: {
     severity: 'info',
@@ -619,6 +640,17 @@ const FORGE_MESSAGES: ReadonlyArray<{
       code: 'NOT_CREATEABLE_ON_TARGET',
       explanationKey: 'errors.notCreateable.explanation',
       actionKey: 'errors.notCreateable.action',
+      severity: 'warning',
+    }),
+  },
+  // An object whose records the user a Sync run writes as may not edit in
+  // the target: every record of an update or an upsert refused, none sent.
+  {
+    match: /^Object is not updateable on target org/,
+    build: () => ({
+      code: 'NOT_UPDATEABLE_ON_TARGET',
+      explanationKey: 'errors.notUpdateable.explanation',
+      actionKey: 'errors.notUpdateable.action',
       severity: 'warning',
     }),
   },

@@ -60,6 +60,42 @@ export interface InfraServices {
    * there is nobody to ask.
    */
   confirmRestoreIntoReplacedOrg?: (question: ReplacedOrgRestoreQuestion) => Promise<boolean>;
+  /**
+   * Asks the user, before a removal's first write, whether to remove the rest
+   * of a run when the user SandForge connects as may not delete the records
+   * of some of its objects. Resolves to their answer: false stops it with
+   * nothing removed. Absent, the rest is removed and the result says what stayed.
+   */
+  confirmRemovalLeavingUndeletable?: (question: UndeletableRemovalQuestion) => Promise<boolean>;
+}
+
+/** What a removal asks about the objects whose records its user may not delete. */
+export interface UndeletableRemovalQuestion {
+  /** The org, as the user knows it. */
+  org: string;
+  objects: ReadonlyArray<{ objectApiName: string; records: number }>;
+}
+
+/**
+ * The question a panel's removal puts before its first write when the user
+ * it runs as may not delete some of the run's objects: asked through the
+ * window's modal, or answered "remove the rest" with nobody to ask.
+ */
+export function undeletableAsker(
+  deps: Pick<HandlerDeps, 'infraServices' | 'orgManager' | 'log'>,
+  orgId: string,
+  origin: string,
+): (objects: ReadonlyArray<{ objectApiName: string; records: number }>) => Promise<boolean> {
+  return async (objects) => {
+    const named = objects.map((o) => `${o.objectApiName} (${o.records})`).join(', ');
+    deps.log(
+      `[WARN] ${origin}: the user may not delete ${named} in the target: those records stay`,
+    );
+    const ask = deps.infraServices?.confirmRemovalLeavingUndeletable;
+    if (!ask) return true;
+    const org = deps.orgManager.getOrg(orgId);
+    return ask({ org: org?.alias ?? org?.username ?? orgId, objects });
+  };
 }
 
 /** Core dependencies available to all domain handlers. */

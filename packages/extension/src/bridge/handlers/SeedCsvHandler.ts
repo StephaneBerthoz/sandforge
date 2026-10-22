@@ -24,6 +24,13 @@ import {
 import { validatePayload, seedCsvPayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  API_BUDGET_EXCEEDED,
+  apiBudgetCheckOf,
+  apiBudgetRefusal,
+  readApiBudget,
+  runRequestsEstimate,
+} from '../../modules/forge/ForgeRunGate.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { CsvValidator } from '../../modules/seed/CsvValidator.js';
 import type { DescribeField } from '../../modules/seed/describeField.js';
@@ -322,6 +329,51 @@ export class SeedCsvHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
+
+      // The import's Bulk API jobs against the daily API requests the org has
+      // left, before anything is written: an import into an org whose
+      // integrations had used the day's requests stopped part way through.
+      // An org that would not say is said in the log, and holds nothing back.
+      const budget = await readApiBudget(conn).catch((err: unknown) => ({
+        unread: extractErrorMessage(err),
+      }));
+      const api = apiBudgetCheckOf(
+        runRequestsEstimate([{ rows: parsed.records.length, bulk: true }]),
+        budget,
+      );
+      if (api.verdict === 'unread') {
+        this.deps.log(
+          `[WARN] seed:csv:execute ${operationId}: the daily API requests the org has left ` +
+            `could not be read (${api.unread})`,
+        );
+      }
+      const overBudget = apiBudgetRefusal(
+        api,
+        targetOrg?.alias || targetOrg?.username || parsed.orgId,
+      );
+      if (overBudget) {
+        recordWriteRun(this.deps, {
+          ...run,
+          outcome: 'stopped',
+          source: undefined,
+          code: API_BUDGET_EXCEEDED,
+        });
+        sendHandlerError(
+          this.deps,
+          'seed:csv:execute',
+          'seed:csv:error',
+          msg,
+          new Error(overBudget),
+          { code: API_BUDGET_EXCEEDED, retryable: false },
+        );
+        sendOperationFailed(this.deps, operationId, overBudget, false, {
+          context: failure,
+          authored: true,
+          extraPayload: { code: API_BUDGET_EXCEEDED },
+        });
+        settle(new Error(overBudget));
+        return;
+      }
 
       sendOperationStarted(
         this.deps,

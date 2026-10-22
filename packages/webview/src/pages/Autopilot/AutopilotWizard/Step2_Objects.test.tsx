@@ -135,6 +135,29 @@ describe('Step2_Objects', () => {
     expect(onToggleObject).not.toHaveBeenCalled();
   });
 
+  it('shows an object the target user may not create, said so, and does not let it be picked', () => {
+    // It was dropped from the list with the platform's own objects, and
+    // nothing said why the object the user looked for was not there.
+    const onToggleObject = vi.fn();
+    render(
+      <Step2Objects
+        availableObjects={[{ apiName: 'Case', label: 'Case', notCreateableInTarget: true }]}
+        selectedObjects={[]}
+        selectAll={false}
+        onToggleObject={onToggleObject}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByTestId('object-Case');
+    expect(row.querySelector('input')?.disabled).toBe(true);
+    expect(screen.getByTestId('object-Case-not-createable').textContent).toBe(
+      'The user SandForge writes as may not create these in the target org',
+    );
+    fireEvent.click(row);
+    expect(onToggleObject).not.toHaveBeenCalled();
+  });
+
   it('counts on demand the objects shown whose count is not known, as the search narrows them', () => {
     const onCountShown = vi.fn();
     render(

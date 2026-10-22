@@ -27,7 +27,11 @@ import type {
   SyncRemovalResult,
   SyncRestoreObjectResult,
 } from '@sandforge/shared';
-import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
+import {
+  removeRunRecords,
+  type RemovalOrg,
+  type RunRemovalOptions,
+} from '../forge/ForgeRunRemoval.js';
 import { removalMark, removalStatus } from '../forge/removalOutcome.js';
 import type { SyncCopiedFile } from './SyncFiles.js';
 import type { SyncLinkForgetter } from './SyncIdMap.js';
@@ -128,6 +132,11 @@ export interface SyncRunRemovalInput {
   signal?: AbortSignal;
   /** Told how many of the run's creations are settled, after each step. */
   onProgress?: (settled: number, total: number, objectApiName: string) => void;
+  /**
+   * Asked before the first write when the user may not delete the records of
+   * some objects of the run: see `RunRemovalOptions.onUndeletable`.
+   */
+  onUndeletable?: RunRemovalOptions['onUndeletable'];
 }
 
 /** What a removal of a run's creations did, and what the follow-ups it made noted. */
@@ -145,6 +154,11 @@ export interface SyncRunRemovalOutcome {
   linksForgotten?: number;
   /** The earlier runs it stamped records of, and how many each. Absent when none. */
   earlierStamped?: Array<{ runId: string; records: number }>;
+  /**
+   * Set when it stopped before its first write, asked about objects whose
+   * records the user may not delete (`onUndeletable`): nothing was removed.
+   */
+  stoppedForUndeletable?: true;
 }
 
 /**
@@ -256,10 +270,22 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
     includeChanged,
     ...(beforeDeletes ? { sweep: beforeDeletes } : {}),
+    ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),
     signal: input.signal,
     onProgress: input.onProgress,
   });
   const finishedAt = new Date().toISOString();
+  // Stopped before its first write, as the user answered: nothing to keep.
+  if (outcome.stoppedForUndeletable) {
+    return {
+      result: { runId: run.runId, status: 'cancelled', includeChanged, objects: [], finishedAt },
+      planned,
+      plannedBack,
+      plannedUndelete,
+      notes: [],
+      stoppedForUndeletable: true,
+    };
+  }
   const leftBy = run.removal?.undo?.removedAt;
   let result: SyncRemovalResult = {
     runId: run.runId,

@@ -16,6 +16,7 @@ import {
   sendOperationCompleted,
   sendOperationProgress,
   sendOperationStarted,
+  undeletableAsker,
 } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -981,6 +982,7 @@ export class SyncRemovalHandler implements DomainHandler {
         // What it deleted, as the source had deleted them, comes back from the recycle bin.
         undelete: (ids) => conn.soap.undelete(ids),
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
+        onUndeletable: undeletableAsker(this.deps, orgId, 'sync:remove'),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
           const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

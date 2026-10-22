@@ -22,7 +22,7 @@ import {
   type SyncRunLinks,
   type SyncWriteRun,
 } from './syncRowPreparation.js';
-import type { TargetWriteFields } from './targetWriteFields.js';
+import { targetAccessOf, type TargetWriteFields } from './targetWriteFields.js';
 import { neutralizeSyncRows } from './syncContactPoints.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
 import { WriteCancelledError } from './WriteCancelledError.js';
@@ -259,19 +259,30 @@ export class DataSync {
     sourceRecords: Record<string, unknown>[],
     run?: SyncWriteRun,
   ): Promise<WriteAnswer> {
-    // What the target will take. A failure to describe is not a reason to
-    // stop: the run then behaves as it did before this existed.
+    // What the target will take. An object it has not, or whose records the
+    // user it writes as may not create or edit, or that it would not
+    // describe, has every record refused here, nothing sent: a describe that
+    // failed was read as "could not say", and every row went as it was read,
+    // every field of it, for the target to refuse one by one.
     let target: TargetWriteFields | null = null;
     if (this.deps.describeTargetFields) {
-      try {
-        const answer = await this.deps.describeTargetFields(config.objectApiName);
-        // An empty creatable set means the describe could not say, not that
-        // the object takes no field: filtering on it would send an empty
-        // record to every row.
-        target = answer.creatable.size > 0 ? answer : null;
-      } catch {
-        target = null;
+      const access = await targetAccessOf(
+        this.deps.describeTargetFields,
+        config.objectApiName,
+        config.operation,
+      );
+      if ('refused' in access) {
+        const refused = sourceRecords.map((): OperationOutcome => ({
+          success: false,
+          errors: [access.refused.message],
+        }));
+        if (run) noteInRun(config, refused, run);
+        return { outcomes: refused, notes: [], currencies: [], lookupsLeftOut: [] };
       }
+      // An empty creatable set means the describe could not say, not that
+      // the object takes no field: filtering on it would send an empty
+      // record to every row.
+      if ('target' in access && access.target.creatable.size > 0) target = access.target;
     }
 
     const prepared = prepareSyncRows({ config, records: sourceRecords, target, run });

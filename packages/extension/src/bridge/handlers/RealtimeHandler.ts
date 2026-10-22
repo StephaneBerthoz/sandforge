@@ -29,7 +29,7 @@ import {
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { describeCached } from '../../core/connection/describeCache.js';
-import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { extractErrorCode, extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -414,7 +414,17 @@ export class RealtimeHandler implements DomainHandler {
       );
       this.post(buildResponse(this.deps, msg, 'realtime:objects:response', { objects }));
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'realtime:objects', 'realtime:error', msg, err);
+      // Under the org's own code, which the page words: the Tooling query a
+      // user without Setup access is refused was shown with no hint at all.
+      const code = extractErrorCode(extractErrorMessage(err));
+      sendHandlerError(
+        this.deps,
+        'realtime:objects',
+        'realtime:error',
+        msg,
+        err,
+        code ? { code } : undefined,
+      );
     }
   }
 

@@ -29,7 +29,8 @@
  *     --object Account --where "<condition>" --object Contact --where "<condition>" \
  *     --source <alias> --target <alias> [--dry-run] [--resume <journal>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
- *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
+ *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
+ *       [--leave-undeletable] [--json]
  *       [--sweep | --sweep-list] [--audit <file>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
@@ -234,6 +235,7 @@ import {
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
+import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
   RehearsalNotRolledBackError,
@@ -374,7 +376,8 @@ Usage:
     --object <ApiName> [--where <condition>] [--object <ApiName> [--where <condition>]]... \\
     --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
-    --remove <summary.json> --target <alias> [--include-changed] [--accept-automation] [--json]
+    --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
+      [--leave-undeletable] [--json]
       [--sweep | --sweep-list] [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
@@ -644,6 +647,11 @@ Remove what a run created:
                          before or after a delete, or as an activated order
                          is set back to Draft for its delete — or could not
                          say what it runs                       (default: off)
+  --leave-undeletable    remove the rest when the user the removal runs as
+                         may not delete the records of some objects of the
+                         run, leaving those with what they hang from; without
+                         it the removal stops before its first delete and
+                         names them                             (default: off)
   --sweep                before the run's records go, delete too what the
                          target's automation created during the run, as the
                          run's user, that the run's id map does not hold: in
@@ -2849,7 +2857,7 @@ export function targetGapReader(
     describeFields: async (orgId, objectName) => {
       const sent = !described.has(`${orgId}::${objectName}`);
       const meta = await describe(orgId, objectName);
-      return { sent, fields: meta.fields.map(gapFieldOf) };
+      return { sent, createable: meta.createable !== false, fields: meta.fields.map(gapFieldOf) };
     },
     readDuplicateRules: async (orgId, fullNames) => {
       const answer: unknown = await conn(orgId).metadata.read('DuplicateRule', fullNames);
@@ -3041,6 +3049,12 @@ export interface RemoveArgs {
   json: boolean;
   /** Delete although the target runs automation as the records go, or could not say what it runs. */
   acceptAutomation: boolean;
+  /**
+   * Remove the rest when the user may not delete the records of some objects
+   * of the run, leaving those; without it the removal stops before its first
+   * delete and names them.
+   */
+  leaveUndeletable: boolean;
   /** Before the run's records go, sweep what the target's automation created during the run. */
   sweep: boolean;
   /** List what a sweep would delete, and delete nothing. */
@@ -3056,6 +3070,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--include-changed',
   '--json',
   '--accept-automation',
+  '--leave-undeletable',
   '--sweep',
   '--sweep-list',
   '--audit',
@@ -3091,7 +3106,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --accept-automation, --sweep, --sweep-list, --json and --audit, not "${arg}". ` +
+        `--remove takes --target, --include-changed, --accept-automation, --leave-undeletable, --sweep, --sweep-list, --json and --audit, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -3118,6 +3133,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     includeChanged: has('--include-changed'),
     json: has('--json'),
     acceptAutomation: has('--accept-automation'),
+    leaveUndeletable: has('--leave-undeletable'),
     sweep: has('--sweep'),
     sweepList: has('--sweep-list'),
     audit: auditArg(args),
@@ -4104,6 +4120,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   let outcome: RunRemovalOutcome | undefined;
   if (plan.length > 0) {
     outcome = await removeThePlan();
+    // Stopped before its first delete, for objects the user may not delete:
+    // named above, and nothing was removed.
+    if (outcome.stoppedForUndeletable) process.exit(1);
   } else if (sweepFirst) {
     const releaseStop = onStopSignal(interrupt);
     try {
@@ -4178,11 +4197,13 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
           : {}),
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
         includeChanged: args.includeChanged,
+        onUndeletable: undeletableAnswer(args.leaveUndeletable, args.target),
         signal: stop.signal,
       });
     } finally {
       releaseStop();
     }
+    if (removal.stoppedForUndeletable) return removal;
     // A removal after an earlier one of the summary takes what that one left,
     // as the panel records it: with when that one ended, by the org's clock.
     const leftBy = earlier?.removalSpans.at(-1)?.last;

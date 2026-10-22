@@ -120,6 +120,8 @@ interface FakeOrgs {
   definitions?: Record<string, Record<string, unknown>>;
   targetFields?: Record<string, GapField[]>;
   sourceFields?: Record<string, GapField[]>;
+  /** The target's objects whose records its user may not create. */
+  closedInTarget?: ReadonlySet<string>;
   limits?: unknown;
   held?: Array<Record<string, unknown>>;
   /** The custom permissions of the target, as `CustomPermission` lists them. */
@@ -218,7 +220,12 @@ function fakeDeps(orgs: FakeOrgs = {}) {
       const run = () => {
         if (refuse.describe?.has(key)) throw new Error(`INVALID_TYPE: ${objectApiName}`);
         const fields = (orgId === TARGET ? orgs.targetFields : orgs.sourceFields)?.[objectApiName];
-        return { fields: fields ?? [field('Name')], sent };
+        const closed = orgId === TARGET && orgs.closedInTarget?.has(objectApiName) === true;
+        return {
+          fields: fields ?? [field('Name')],
+          sent,
+          ...(closed ? { createable: false } : {}),
+        };
       };
       return sent ? call(`describe ${key}`, run) : Promise.resolve().then(run);
     },
@@ -972,6 +979,34 @@ describe('TargetGapReader — duplicate rules', () => {
       part: 'duplicateRules',
       reason: 'INSUFFICIENT_ACCESS: View Setup',
     });
+  });
+});
+
+describe('TargetGapReader — an object the target user may not create', () => {
+  it('says it once, blocking until the user leaves it out, in place of its fields', async () => {
+    // Nothing said it before the run: Execute wrote the objects before it,
+    // then skipped it with "Object is not createable on target org".
+    const read = await readGaps([node('Account'), node('Case')], {
+      targetFields: { Case: [field('Subject', { nillable: false })] },
+      sourceFields: { Case: [field('Name')] },
+      closedInTarget: new Set(['Case']),
+    });
+
+    expect(read.gaps.filter((gap) => gap.objectApiName === 'Case')).toEqual([
+      {
+        id: forgeGapId('object_not_createable', 'Case'),
+        kind: 'object_not_createable',
+        severity: 'blocking',
+        source: 'metadata',
+        objectApiName: 'Case',
+        rows: 0,
+        decisions: ['exclude_object'],
+      },
+    ]);
+    expect(gapLines(read, 'TGT').join('\n')).toContain(
+      'the user the run writes as may not create its records in the target: every row is ' +
+        'skipped, after the objects written before it, unless the object is left out',
+    );
   });
 });
 

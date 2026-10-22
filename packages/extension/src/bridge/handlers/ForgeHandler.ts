@@ -55,6 +55,7 @@ import {
   sendOperationFailed,
   ABORTED_BEFORE_START,
   PRODUCTION_GUARD_MISSING,
+  undeletableAsker,
 } from './HandlerTypes.js';
 import { validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -4852,6 +4853,7 @@ export class ForgeHandler implements DomainHandler {
                 ? { otherParts: parts.parts.map((part) => part.alongside) }
                 : {}),
               includeChanged,
+              onUndeletable: undeletableAsker(this.deps, targetOrgId, 'forge:undo'),
               signal: stop.signal,
               onProgress: (settled, of, objectApiName) => {
                 const percent = Math.min(100, Math.round((settled / Math.max(of, 1)) * 100));

@@ -18,6 +18,7 @@ import { useGrappeStore } from '../stores/useGrappeStore';
 import { useForgeViewStore } from '../stores/useForgeViewStore';
 import { importLanguageFromSettings } from '../i18n';
 import { buildMessage } from './messageHelpers';
+import { scratchExpiredOn } from '../utils/orgFormatters';
 import { isRequestFromHere } from './sendBridgeMessage';
 
 /**
@@ -95,6 +96,10 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
       if (state.selectedOrgId && !msg.payload.orgs.some((o) => o.id === state.selectedOrgId)) {
         state.selectOrg(null);
       }
+      // Nor does a scratch org past its date stay the default every run
+      // picker starts from: Salesforce deleted it.
+      const selected = msg.payload.orgs.find((o) => o.id === useOrgStore.getState().selectedOrgId);
+      if (selected && scratchExpiredOn(selected)) state.selectOrg(null);
 
       // Auto-select first connected org when none selected
       const after = useOrgStore.getState();

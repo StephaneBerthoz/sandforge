@@ -475,7 +475,9 @@ export function dryRunLines(
     );
     for (const m of missing.filter((m) => m.objectApiName === o.objectApiName)) {
       lines.push(
-        `    ${m.objectApiName}.${m.fieldApiName}: the org has no such field — masks nothing`,
+        `    ${m.objectApiName}.${m.fieldApiName}: the org has no such field, or field-level ` +
+          'security hides it from this user — masks nothing (give the user read and edit ' +
+          'access to it, or connect as an administrator)',
       );
     }
     const sample = shownObject?.rows ?? [];

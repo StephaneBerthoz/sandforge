@@ -234,15 +234,27 @@ describe('the write path of a seed', () => {
     );
   });
 
-  it('says once when the duplicate rules could not be read, and sends the object as a job', async () => {
+  it('sends what a standard duplicate rule watches through REST when the rules could not be read, says so in the result, and the rest as a job', async () => {
+    // Sent as jobs past rules nobody could read — the query needs View
+    // Setup — the standard account rule refused 296 of 500 accounts, said
+    // only in the log.
     const org = fakeOrg({ rulesUnread: true });
     const { insert, logged } = writer(org);
 
-    await insert('org', 'Contact', records(300), 200);
-    await insert('org', 'Lead', records(300), 200);
+    const contacts = await insert('org', 'Contact', records(300), 200);
+    const leads = await insert('org', 'Lead', records(300), 200);
+    await insert('org', 'Asset', records(300), 200);
 
-    expect(org.jobs.map((job) => job.object)).toEqual(['Contact', 'Lead']);
-    expect(logged.filter((line) => line.includes('could not be read'))).toHaveLength(1);
+    expect(org.jobs.map((job) => job.object)).toEqual(['Asset']);
+    expect(org.restCalls).toHaveLength(4);
+    expect(org.restCalls.every((call) => call.headers['Sforce-Duplicate-Rule-Header'])).toBe(true);
+    expect(contacts.notes).toEqual([
+      "The org's duplicate rules could not be read (the user SandForge connects as needs View " +
+        'Setup and Configuration): Contact, which a standard duplicate rule watches, was sent ' +
+        'through REST, whose header lets its matches be saved, rather than as a Bulk API job.',
+    ]);
+    expect(leads.notes?.[0]).toContain('Lead, which a standard duplicate rule watches');
+    expect(logged.filter((line) => line.includes('could not be read:'))).toHaveLength(1);
   });
 
   it('sends an insert past 10 000 records as one job, uploaded once', async () => {

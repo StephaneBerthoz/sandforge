@@ -160,6 +160,8 @@ const savedConfigList = vi.hoisted(() => ({
 
 /** What `sync:write-order` answers: the order a run writes the objects in. */
 const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
+/** What the page last asked `sync:describe-global` with. */
+const objectsAsked = vi.hoisted(() => ({ value: undefined as unknown }));
 
 /*
  * The Schedules tab comes in a chunk of its own (syncPanels.test.tsx); here it
@@ -182,8 +184,9 @@ vi.mock('./syncPanels', async () => {
 });
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: (type: string) => {
+  useBridgeQuery: (type: string, payload?: unknown) => {
     if (type === 'sync:describe-global') {
+      objectsAsked.value = payload;
       return mockObjectsQueryState;
     }
     if (type === 'sync:write-order') {
@@ -448,6 +451,26 @@ describe('SyncPage', () => {
     // Said beside it: where it is read, and that a run writes to the target alone.
     const hint = document.getElementById(choice.getAttribute('aria-describedby') ?? '');
     expect(hint?.textContent).toContain('A run only ever writes to the target org');
+  });
+
+  it('asks for the objects with the target once it is picked: what its user may create is read there', () => {
+    // Asked of the source alone, the list held only what the source's user
+    // may create, and a read-only source user had nothing to pick.
+    useOrgStore.setState({ orgs: mockOrgs });
+    draft.value = {
+      currentStep: 0,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [],
+      mappingsByObject: {},
+      transforms: [],
+    };
+    render(<SyncPage />);
+
+    expect(objectsAsked.value).toEqual({ orgId: 'org-1', targetOrgId: 'org-2' });
   });
 
   it('offers full or delta, never the modes no run performs', () => {

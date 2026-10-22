@@ -219,6 +219,14 @@ const MISSING_IN_TARGET = {
   missingInTarget: true,
 };
 
+/** An object whose records the target's user may not create: listed, said so, not to be picked. */
+const NOT_CREATEABLE_IN_TARGET = {
+  apiName: 'Warranty__c',
+  label: 'Warranty',
+  custom: true,
+  notCreateableInTarget: true,
+};
+
 /**
  * From the Autopilot object step to the plan: every listed object picked,
  * Next, and the scan of the selection answered with {@link MOCK_GRAPH} — which
@@ -1661,6 +1669,30 @@ for (const theme of SCANNED_THEMES) {
       await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
       const results = await checkAccessibility(page);
       expectNoViolations(results);
+    });
+
+    test('Organizations with a scratch org past its date, said gone with what to do and no reconnect', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
+      await bridge.seedOrgs([
+        {
+          ...MOCK_ORGS[0],
+          orgType: 'Scratch',
+          status: 'expired',
+          metadata: {
+            apiVersion: '62.0',
+            edition: 'Developer',
+            features: [],
+            expirationDate: '2020-01-31',
+          },
+        },
+        MOCK_ORGS[1],
+      ]);
+      await expect(page.getByTestId(`org-scratch-expired-${MOCK_ORGS[0].id}`)).toBeVisible();
+      await expect(page.getByTestId(`org-reconnect-${MOCK_ORGS[0].id}`)).toHaveCount(0);
+
+      await expectReadable(page, theme);
     });
 
     test('Organizations disconnect asking whether the org’s backups on this machine go with it', async ({
@@ -3744,6 +3776,47 @@ for (const theme of SCANNED_THEMES) {
       });
     });
 
+    test('Forge Review saying, before Execute, an object the target user may not create', async ({
+      page,
+    }) => {
+      await discoverForgeGraph(bridge, page, theme);
+      await page.getByTestId('forge-execute-btn').click();
+      await page.getByTestId('forge-review').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('forge:metadata-diff:request', { timeout: 10_000 });
+      await answerAll(page, 'forge:metadata-diff:request', 'forge:metadata-diff:response', {
+        diffs: [
+          {
+            objectApiName: 'Contact',
+            fieldApiName: '',
+            issue: 'object_not_createable',
+            severity: 'error',
+            details:
+              'Contact is in the target org, but the user the clone writes as may not create its records there: Execute skips it',
+          },
+        ],
+      });
+      await answerGapsRead(bridge, page, [
+        {
+          id: 'object_not_createable|Contact|||',
+          kind: 'object_not_createable',
+          severity: 'blocking',
+          source: 'metadata',
+          objectApiName: 'Contact',
+          rows: 0,
+          decisions: ['exclude_object'],
+        },
+      ]);
+      await page.getByTestId('tab-metadata').click();
+      await expect(page.getByTestId('diff-0')).toContainText('Execute skips it');
+      await expectReadable(page, theme);
+
+      await page.getByTestId('tab-gaps').click();
+      await expect(page.getByTestId('gaps-severity-blocking')).toContainText(
+        'Object the user the clone writes as may not create in the target',
+      );
+      await expectReadable(page, theme);
+    });
+
     test('Forge Review searching its graph, then the controls of the run with a filter refused', async ({
       page,
     }) => {
@@ -5557,11 +5630,12 @@ for (const theme of SCANNED_THEMES) {
       // With an object the target lacks: its row says so, and the count of
       // the objects shown is offered.
       await bridge.respondToNext('autopilot:list-objects', 'autopilot:objects-listed', {
-        objects: [...MOCK_LISTING, MISSING_IN_TARGET],
+        objects: [...MOCK_LISTING, MISSING_IN_TARGET, NOT_CREATEABLE_IN_TARGET],
       });
 
       await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
       await page.getByTestId('object-Shipment__c-missing').waitFor({ state: 'visible' });
+      await page.getByTestId('object-Warranty__c-not-createable').waitFor({ state: 'visible' });
       await page.getByTestId('count-shown-button').waitFor({ state: 'visible' });
       const step2 = await checkAccessibility(page);
       expectNoViolations(step2);
@@ -7869,6 +7943,7 @@ for (const theme of STATE_THEMES) {
       });
       await expect(page.getByTestId('cdc-event-row-6')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('realtime-refused')).toBeVisible();
+      await expect(page.getByTestId('realtime-refused-hint')).toContainText('View All Data');
       await expect(page.getByTestId('cdc-metric-throughput')).toBeVisible();
 
       await expectReadable(page, theme);
@@ -8232,6 +8307,23 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByLabel('When the target already holds the record')).toHaveValue(
         'target_wins',
       );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync first step listing, not selectable, the objects the target user may not create', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme, { currentStep: 0 }, 'sync-step-orgs');
+      await bridge.waitForMessage('sync:describe-global', { timeout: 10_000 });
+      await answerAll(page, 'sync:describe-global', 'sync:describe-global:response', {
+        objects: ['Account', 'Contact'],
+        unwritable: [
+          { objectApiName: 'Case', why: 'notCreateable' },
+          { objectApiName: 'Invoice__c', why: 'notInTarget' },
+        ],
+      });
+      await expect(page.getByTestId('unwritable-objects-note')).toContainText('Case, Invoice__c');
 
       await expectReadable(page, theme);
     });
@@ -8959,12 +9051,16 @@ for (const theme of STATE_THEMES) {
               objects: [{ objectApiName: 'Contact', perRecord: 3 }],
             },
           ],
+          unwritable: [{ objectApiName: 'Case', rows: 120, why: 'notCreateable' }],
+          apiRequests: { verdict: 'near', estimate: 15, remaining: 900, max: 15_000 },
           verdict: 'asks',
         },
       });
       await page.getByTestId('sync-write-check').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('sync-simulation-copied-Account')).toBeVisible();
       await expect(page.getByTestId('sync-write-check-overwrites')).toBeVisible();
+      await expect(page.getByTestId('sync-write-check-unwritable-Case')).toBeVisible();
+      await expect(page.getByTestId('sync-write-check-api')).toBeVisible();
 
       await expectReadable(page, theme);
     });
@@ -9529,6 +9625,13 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('preview-object-Lead')).toContainText('Not read');
       await expect(page.getByTestId('preview-fields-not-found')).toContainText('Loyalty__c');
 
+      await expectReadable(page, theme);
+
+      // Said again where Apply is confirmed.
+      await page.getByTestId('apply-btn').click();
+      await expect(page.getByTestId('confirm-fields-not-found')).toContainText(
+        'field-level security',
+      );
       await expectReadable(page, theme);
     });
 

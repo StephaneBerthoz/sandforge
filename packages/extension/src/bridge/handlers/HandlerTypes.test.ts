@@ -11,6 +11,7 @@ import {
   GUARD_REFUSAL,
   guardBlockedError,
   guardRefusalCode,
+  undeletableAsker,
   type InboundRequest,
   type SyntheticRequestKind,
   type UncorrelatedReason,
@@ -762,5 +763,39 @@ describe('objectsFailureContext', () => {
 
   it('says nothing about a run with no objects', () => {
     expect(objectsFailureContext([])).toEqual({});
+  });
+});
+
+describe('undeletableAsker', () => {
+  const objects = [{ objectApiName: 'Account', records: 12 }];
+  const orgManager = { getOrg: () => ({ alias: 'DEV' }) } as unknown as OrgManager;
+
+  it('asks the window, naming the org as the user knows it, and says it in the log', async () => {
+    const ask = vi.fn(async () => false);
+    const log = vi.fn();
+
+    const answer = await undeletableAsker(
+      {
+        log,
+        orgManager,
+        infraServices: { confirmRemovalLeavingUndeletable: ask } as never,
+      },
+      '00D000000000001AAA',
+      'sync:remove',
+    )(objects);
+
+    expect(answer).toBe(false);
+    expect(ask).toHaveBeenCalledWith({ org: 'DEV', objects });
+    expect(log.mock.calls[0][0]).toContain('sync:remove: the user may not delete Account (12)');
+  });
+
+  it('removes the rest when there is nobody to ask', async () => {
+    expect(
+      await undeletableAsker(
+        { log: vi.fn(), orgManager },
+        '00D000000000001AAA',
+        'forge:undo',
+      )(objects),
+    ).toBe(true);
   });
 });

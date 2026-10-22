@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from '../../theme/orgStyles';
-import { orgTypeLabel } from '../../utils/orgFormatters';
+import { orgTypeLabel, scratchExpiredOn } from '../../utils/orgFormatters';
+import { formatStoredDate, uiLocale } from '../../utils/formatters';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
@@ -48,7 +49,15 @@ export const OrgCard: React.FC<OrgCardProps> = ({
   const { t } = useTranslation();
   const typeStyle = ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT;
   const envLabel = orgTypeLabel(org, t);
-  const canReconnect = onReconnect && (org.status === 'expired' || org.status === 'error');
+  // A scratch org past its date is deleted: said so, with what to do, and no
+  // reconnect is offered, which could never work.
+  const expiredOn = scratchExpiredOn(org);
+  const expiredDate = expiredOn
+    ? (formatStoredDate(`${expiredOn}T00:00:00`, (d) => d.toLocaleDateString(uiLocale())) ??
+      expiredOn)
+    : undefined;
+  const canReconnect =
+    onReconnect && !expiredOn && (org.status === 'expired' || org.status === 'error');
 
   return (
     // A click anywhere on the card selects it, a shortcut for the mouse: the
@@ -99,7 +108,9 @@ export const OrgCard: React.FC<OrgCardProps> = ({
             )}
           />
           <Badge variant={statusBadgeVariant[org.status] ?? 'default'}>
-            {t(`common.orgStatus_${org.status}`)}
+            {expiredDate
+              ? t('org.scratchExpiredBadge', { date: expiredDate })
+              : t(`common.orgStatus_${org.status}`)}
           </Badge>
         </div>
       </div>
@@ -110,6 +121,15 @@ export const OrgCard: React.FC<OrgCardProps> = ({
         <span aria-hidden="true">|</span>
         <span className="truncate">{org.instanceUrl}</span>
       </div>
+
+      {expiredDate && (
+        <p
+          className="mt-1.5 text-[11px] text-text-primary"
+          data-testid={`org-scratch-expired-${org.id}`}
+        >
+          {t('org.scratchExpired', { date: expiredDate })}
+        </p>
+      )}
 
       {/* Row 3: Tags */}
       {org.tags.length > 0 && (

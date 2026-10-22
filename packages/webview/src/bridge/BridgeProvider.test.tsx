@@ -495,6 +495,35 @@ describe('BridgeProvider', () => {
     expect(useOrgStore.getState().selectedOrgId).toBe('1');
   });
 
+  it('leaves a scratch org past its date out of the default selection the run pickers start from', () => {
+    useOrgStore.setState({ selectedOrgId: 'gone' });
+
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-expired-1',
+      type: 'org:list:response',
+      timestamp: Date.now(),
+      payload: {
+        orgs: [
+          {
+            ...createTestOrg('gone'),
+            orgType: 'Scratch',
+            status: 'expired',
+            metadata: { ...createTestOrg('gone').metadata, expirationDate: '2020-01-31' },
+          },
+          createTestOrg('1'),
+        ],
+      },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBe('1');
+  });
+
   it('should clear a stale selection when the selected org is gone from the list', () => {
     // The webview persists selectedOrgId across reloads; if the org vanished
     // from the extension config (reset, removed org, new profile), keeping it

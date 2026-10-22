@@ -136,6 +136,54 @@ describe('gateAutopilotWrite', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a plan past the API requests the target has left today, asking nothing', async () => {
+    // Only Forge's Review compared them: a run into an org whose
+    // integrations had used the day's requests stopped part way through.
+    const confirm = vi.fn();
+    const outcome = await gateAutopilotWrite({
+      plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 1_000]])),
+      storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 4 } },
+      confirmAboveRecords: 2_000,
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(outcome).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
+    expect(outcome.go === false && outcome.message).toContain(
+      'The run takes about 5 API requests, and TARGET has 4 of its 15000 daily requests left',
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('asks when the target would not say what it has left of a daily email limit, saying so', async () => {
+    // Said only in the log: the run went ahead without a question.
+    const confirm = vi.fn(async (_question: WriteConfirmation) => 'confirmed' as const);
+    const outcome = await gateAutopilotWrite({
+      plan: autopilotWritePlan(planOf('Contact'), new Map([['Contact', 20]])),
+      storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 1_400 } },
+      confirmAboveRecords: 2_000,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 40,
+          verdict: 'unread',
+          unread: 'INSUFFICIENT_ACCESS',
+          objects: [],
+        } as never,
+      ],
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(outcome).toMatchObject({ go: true, asked: true });
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      emailsUnread: [{ limit: 'SingleEmail', emails: 40, unread: 'INSUFFICIENT_ACCESS' }],
+      apiRequests: { estimate: 1, remaining: 1_400, max: 15_000 },
+    });
+  });
+
   it('lets a small plan that fits through without a question', async () => {
     const confirm = vi.fn();
     const outcome = await gateAutopilotWrite({

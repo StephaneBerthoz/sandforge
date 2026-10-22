@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { CrudFlsGuard, CRUD_FLS_DENIED, flsViolation } from './CrudFlsGuard';
+import { CrudFlsGuard, CRUD_FLS_DENIED, crudFlsDenials, flsViolation } from './CrudFlsGuard';
 import type { ObjectDescribe } from './describeTypes';
 import type { DescribeFetchFn, CrudOperation } from './CrudFlsGuard';
 
@@ -141,6 +141,43 @@ describe('CrudFlsGuard', () => {
       const result = await guard.checkCrudAndFls('Account', 'insert', ['NonExistentField__c']);
       expect(result.allowed).toBe(true);
     });
+  });
+});
+
+describe('deniedOf', () => {
+  it('answers every object of a run the user may not write as asked, and nothing for the rest', async () => {
+    const describes: Record<string, ObjectDescribe> = {
+      Account: makeDescribe(),
+      Contact: makeDescribe({ name: 'Contact', updateable: false }),
+      Lead: makeDescribe({ name: 'Lead' }),
+    };
+    const guard = new CrudFlsGuard(async (name) => describes[name]);
+
+    const denials = await guard.deniedOf([
+      { objectApiName: 'Account', operation: 'update', fieldNames: ['Name'] },
+      { objectApiName: 'Contact', operation: 'update', fieldNames: ['Name'] },
+      { objectApiName: 'Lead', operation: 'update', fieldNames: ['Name', 'CreatedDate'] },
+    ]);
+
+    expect(denials).toEqual([
+      { objectApiName: 'Contact', operation: 'update', deniedFields: [] },
+      { objectApiName: 'Lead', operation: 'update', deniedFields: ['CreatedDate'] },
+    ]);
+  });
+});
+
+describe('crudFlsDenials', () => {
+  it('says every refusal in one sentence under the code the panels word it by', () => {
+    expect(
+      crudFlsDenials([
+        { objectApiName: 'Contact', operation: 'update', deniedFields: [] },
+        { objectApiName: 'Lead', operation: 'insert', deniedFields: ['Email', 'Phone'] },
+      ]),
+    ).toBe(
+      'CRUD_FLS_DENIED: nothing was written, as the connected user may not write all it would: ' +
+        "User lacks 'update' permission on 'Contact'; fields [Email, Phone] of 'Lead' are not " +
+        'createable.',
+    );
   });
 });
 

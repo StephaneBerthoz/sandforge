@@ -39,6 +39,8 @@ export class MemoryRemovalOrg implements RemovalOrg {
   readonly deletes: Array<{ objectApiName: string; ids: string[] }> = [];
   /** Called before each delete: what a test cancels a removal from. */
   beforeDelete?: () => void;
+  /** Objects whose describe says the session's user may not delete their records. */
+  readonly undeletable = new Set<string>();
 
   /** @param children - Per object, the child relationships its describe lists. */
   constructor(private readonly children: Readonly<Record<string, readonly MemoryChild[]>> = {}) {}
@@ -67,6 +69,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return {
       name: objectApiName,
       label: objectApiName,
+      ...(this.undeletable.has(objectApiName) ? { deletable: false } : {}),
       fields: [],
       childRelationships: (this.children[objectApiName] ?? []).map((child) => ({
         childSObject: child.childSObject,

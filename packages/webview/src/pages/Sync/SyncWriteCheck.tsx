@@ -105,6 +105,25 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                   {storageLine(check.storage)}
                 </p>
               )}
+              {check.apiRequests && (
+                <p
+                  className={
+                    check.apiRequests.verdict === 'fits' ? undefined : 'text-status-warning'
+                  }
+                  data-testid="sync-write-check-api"
+                >
+                  {check.apiRequests.verdict === 'unread'
+                    ? t('sync.writeCheck.apiRequests.unread', {
+                        estimate: formatNumber(check.apiRequests.estimate),
+                        reason: check.apiRequests.unread ?? '',
+                      })
+                    : t(`sync.writeCheck.apiRequests.${check.apiRequests.verdict}`, {
+                        estimate: formatNumber(check.apiRequests.estimate),
+                        remaining: formatNumber(check.apiRequests.remaining ?? 0),
+                        max: formatNumber(check.apiRequests.max ?? 0),
+                      })}
+                </p>
+              )}
               {check.emails.map((email) => (
                 <p
                   key={email.limit}
@@ -135,6 +154,21 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                 <p className="text-text-secondary">
                   {t('sync.writeCheck.emailsUnread', { reason: check.emailsUnread })}
                 </p>
+              )}
+              {(check.unwritable ?? []).map(({ objectApiName, rows, why }) => (
+                <p
+                  key={objectApiName}
+                  className="text-status-warning"
+                  data-testid={`sync-write-check-unwritable-${objectApiName}`}
+                >
+                  {t(`sync.writeCheck.unwritable.${why}`, {
+                    object: objectApiName,
+                    rows: formatNumber(rows),
+                  })}
+                </p>
+              ))}
+              {(check.unwritable ?? []).length > 0 && (
+                <p className="text-text-secondary">{t('sync.writeCheck.unwritable.hint')}</p>
               )}
               {check.aboveRecords !== undefined && (
                 <p className="text-text-secondary">

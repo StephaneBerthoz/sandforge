@@ -853,6 +853,37 @@ describe('OrgHandler', () => {
     });
   });
 
+  describe('an import of orgs the CLI cannot reach', () => {
+    it('names them, with the CLI\'s reason, in place of "holds no connected org yet"', async () => {
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        listOrgs: vi.fn(async (onUnreadable?: (org: SfdxUnreadableOrg) => void) => {
+          onUnreadable?.({
+            username: 'old@acme.example',
+            alias: 'acme-old',
+            orgId: '00D000000000003AAA',
+            reason: 'the CLI reports RefreshTokenAuthError',
+            why: 'notConnected',
+          });
+          return [];
+        }),
+      } as unknown as HandlerDeps['sfdxBridge'];
+
+      await handler.handle(createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
+
+      const errors = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map(([m]) => m as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === 'org:error');
+      expect(errors[0]?.payload).toMatchObject({
+        code: 'SFDX_IMPORT_FAILED',
+        message:
+          'The Salesforce CLI cannot reach these orgs, so they were not imported: acme-old (the ' +
+          'CLI reports RefreshTokenAuthError). Log in to each again with the CLI, or sign in ' +
+          'with OAuth (Web); a scratch org past its date is gone, create a new one.',
+      });
+    });
+  });
+
   describe('org:open-in-browser', () => {
     let open: ReturnType<typeof vi.fn>;
 

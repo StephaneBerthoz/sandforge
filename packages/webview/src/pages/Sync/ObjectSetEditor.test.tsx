@@ -35,6 +35,35 @@ describe('ObjectSetEditor', () => {
     expect(screen.getByTestId('object-set-editor')).toBeDefined();
   });
 
+  it('lists the objects the target takes none of, not selectable, and says why', () => {
+    // Read from the source alone, an object the target user may not create
+    // was offered, and every one of its records refused at the write.
+    render(
+      <ObjectSetEditor
+        entries={[]}
+        availableObjects={['Account']}
+        unwritableObjects={[
+          { objectApiName: 'Case', why: 'notCreateable' },
+          { objectApiName: 'Invoice__c', why: 'notInTarget' },
+        ]}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const options = [...screen.getByTestId('add-object-row').querySelectorAll('option')];
+    const option = (value: string) => options.find((o) => o.value === value);
+    expect(option('Account')?.disabled).toBe(false);
+    expect(option('Case')?.disabled).toBe(true);
+    expect(option('Case')?.textContent).toBe('Case — may not be created in the target org');
+    expect(option('Invoice__c')?.textContent).toBe('Invoice__c — not in the target org');
+    expect(screen.getByTestId('unwritable-objects-note').textContent).toBe(
+      'Not selectable: Case, Invoice__c. The target org has not these objects, or the user ' +
+        'SandForge writes as may neither create nor edit their records there.',
+    );
+  });
+
   it('should show existing entries', () => {
     render(
       <ObjectSetEditor

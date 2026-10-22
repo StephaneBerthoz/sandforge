@@ -21,6 +21,7 @@ let objectsAnswer: {
   data: { objects: RealTimePublishingObject[] } | null;
   loading: boolean;
   error: string | null;
+  errorCode?: string | null;
 };
 const queries: Array<{ type: string; payload?: Record<string, unknown>; skip?: boolean }> = [];
 
@@ -137,6 +138,56 @@ describe('RealTimeSyncPanel', () => {
     );
   });
 
+  it('gives the code of a refused listing its hint: the object the user cannot see', () => {
+    // Passed no code, the banner showed the org's text with no hint at all.
+    objectsAnswer = {
+      data: null,
+      loading: false,
+      error: "INVALID_TYPE: sObject type 'PlatformEventChannelMember' is not supported.",
+      errorCode: 'INVALID_TYPE',
+    };
+    render(<RealTimeSyncPanel {...orgs} />);
+
+    expect(screen.getByTestId('realtime-objects-error').textContent).toContain(
+      'This object does not exist in the org, or your user cannot see it.',
+    );
+  });
+
+  it('names only the permission for a refused object the org lists on the standard channel', () => {
+    // Every refusal was blamed on the Change Data Capture selection, though
+    // the page offers only the objects the org publishes: the 403 is the
+    // subscription's permission.
+    objectsAnswer = {
+      data: {
+        objects: [
+          {
+            objectApiName: 'Case',
+            channel: 'ChangeEvents',
+            inTarget: true,
+            externalIdFields: [],
+            syncConfigs: [],
+          },
+        ],
+      },
+      loading: false,
+      error: null,
+    };
+    useCDCLiveStore.setState({
+      status: 'syncing',
+      refused: [
+        {
+          objectApiName: 'Case',
+          reason: '403::User not allowed to subscribe CDC without required permissions',
+        },
+      ],
+    });
+    render(<RealTimeSyncPanel {...orgs} />);
+
+    const hint = screen.getByTestId('realtime-refused-hint').textContent ?? '';
+    expect(hint).toContain('View All Data, or View All on each object');
+    expect(hint).not.toContain('Setup → Change Data Capture');
+  });
+
   it('lists the objects the org refused, in its words, and how to enable them', () => {
     useCDCLiveStore.setState({
       status: 'syncing',
@@ -153,6 +204,8 @@ describe('RealTimeSyncPanel', () => {
     expect(refused.textContent).toContain(
       'Account: 403::User not allowed to subscribe CDC without required permissions',
     );
+    // Not known to be on the standard channel: both causes, the permission first.
+    expect(refused.textContent).toContain('needs View All Data');
     expect(refused.textContent).toContain('Setup → Change Data Capture');
   });
 

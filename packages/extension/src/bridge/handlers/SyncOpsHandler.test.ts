@@ -2882,6 +2882,59 @@ describe('SyncOpsHandler', () => {
     });
   });
 
+  describe('sync:describe-global asked with the target', () => {
+    it('offers what a read-only source user may read, and shows apart what the target user may not create', async () => {
+      // Read from the source alone, the list held only what the source's
+      // user may create: a read-only user got "No objects configured".
+      const global = (sobjects: Array<[string, boolean, boolean?]>) => ({
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: sobjects.map(([name, createable, updateable]) => ({
+            name,
+            createable,
+            updateable: updateable ?? createable,
+            queryable: true,
+          })),
+        }),
+        limitInfo: undefined,
+      });
+      const source = global([
+        ['Account', false],
+        ['Contact', false],
+        ['Case', true],
+        ['Invoice__c', true],
+        ['UserRecordAccess', false],
+      ]);
+      const target = global([
+        ['Account', true],
+        ['Contact', false, true],
+        ['Case', false],
+        ['UserRecordAccess', false],
+      ]);
+      mockGetConn.mockImplementation(
+        async (orgId: string) => (orgId === 'org-target' ? target : source) as never,
+      );
+
+      await handler.handle(
+        inboundRequest({
+          id: 'req-global-target',
+          type: 'sync:describe-global',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-source', targetOrgId: 'org-target' },
+        }),
+      );
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: string[]; unwritable?: unknown };
+      };
+      expect(response.payload.objects).toEqual(['Account', 'Contact']);
+      expect(response.payload.unwritable).toEqual([
+        { objectApiName: 'Case', why: 'notCreateable' },
+        { objectApiName: 'Invoice__c', why: 'notInTarget' },
+      ]);
+    });
+  });
+
   describe('field types are compared across both orgs before anything is written', () => {
     type DescribedField = {
       name: string;

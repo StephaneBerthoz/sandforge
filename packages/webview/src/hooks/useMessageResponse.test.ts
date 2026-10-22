@@ -510,6 +510,8 @@ describe('useMessageResponse', () => {
       ['AUTOPILOT_WRITE_DECLINED', 'common.refusal.autopilotWriteDeclined'],
       ['AUTOPILOT_CONFIRMATION_UNAVAILABLE', 'common.refusal.autopilotConfirmationUnavailable'],
       ['AUTOPILOT_RUNNING', 'common.refusal.autopilotRunning'],
+      // A seed the user declined at the question its unread storage asks.
+      ['SEED_WRITE_DECLINED', 'common.refusal.seedWriteDeclined'],
     ])(
       'says an Autopilot run its write gate, or a run still writing, stopped (%s) in the interface language',
       (code, key) => {

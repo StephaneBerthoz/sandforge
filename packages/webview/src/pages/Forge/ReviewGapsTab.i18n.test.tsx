@@ -31,6 +31,7 @@ const KINDS: ForgeGapKind[] = [
   'validation_rule',
   'duplicate_rule',
   'api_budget',
+  'object_not_createable',
   'rehearsal_refusal',
 ];
 

@@ -351,6 +351,67 @@ describe('SyncOrchestrator — before the first write', () => {
     expect(target.insert).not.toHaveBeenCalled();
   });
 
+  /** The target's describes, as a user without Create on Contact reads them. */
+  const contactsClosed = async (object: string): Promise<TargetWriteFields> =>
+    object === 'Contact'
+      ? targetWriteFieldsOf({
+          name: 'Contact',
+          createable: false,
+          updateable: false,
+          fields: [{ name: 'LastName', createable: false, type: 'string' }],
+        })
+      : DESCRIBES[object];
+
+  it('holds an object the target user may not create to its gate, and once the user leaves it out writes the rest', async () => {
+    // Nothing checked it: the accounts were written, then every contact was
+    // refused, the simulation having counted them written.
+    const target = targetOrg();
+    const { writeGate, held } = gate({ go: true, asked: true });
+
+    const result = await orchestrator(target, sourceOrg(), {
+      writeGate,
+      describeTargetFields: contactsClosed,
+    }).execute(config());
+
+    expect(held).toEqual([
+      {
+        objects: [{ objectApiName: 'Account', operation: 'insert', rows: 2 }],
+        alreadyCopied: 0,
+        unwritable: [
+          { objectApiName: 'Contact', operation: 'insert', rows: 2, why: 'notCreateable' },
+        ],
+      },
+    ]);
+    expect(target.insert.mock.calls.map(([object]) => object)).toEqual(['Account']);
+    const contacts = result.objectResults.find((o) => o.objectApiName === 'Contact');
+    expect(contacts).toMatchObject({ processed: 0, success: 0, failed: 0, skipped: 2 });
+    expect(contacts?.errors).toEqual([
+      'Object is not createable on target org: the user the run writes as may not create ' +
+        'Contact records there. None of its records were sent. Left out of the run, as ' +
+        'confirmed before it wrote.',
+    ]);
+  });
+
+  it('counts in a simulation every record of an object the target user may not create refused, none written', async () => {
+    const target = targetOrg();
+    const { writeGate, measured } = gate();
+
+    const simulation = await orchestrator(target, sourceOrg(), {
+      writeGate,
+      describeTargetFields: contactsClosed,
+    }).simulate(config());
+
+    expect(measured[0].unwritable).toEqual([
+      { objectApiName: 'Contact', operation: 'insert', rows: 2, why: 'notCreateable' },
+    ]);
+    expect(simulation.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      read: 2,
+      insert: 0,
+      refused: 2,
+      notes: [expect.stringContaining('Object is not createable on target org') as unknown],
+    });
+  });
+
   it('measures a simulation by its gate, asking nobody', async () => {
     const target = targetOrg();
     const { writeGate, held, measured } = gate();

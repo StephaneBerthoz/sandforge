@@ -196,6 +196,33 @@ describe('SchemaScanner', () => {
     expect(target.describe).not.toHaveBeenCalled();
   });
 
+  it('lists what a read-only source user may read, and marks what the target user may not create', async () => {
+    // Listed only when the source's user could create it, a read-only source
+    // user had an empty picker; and an object the target's user could not
+    // create was dropped with the platform's own, with no word.
+    const source = mockConn({
+      globalSObjects: [
+        mockGlobalSObject('ReadOnly__c', { createable: false }),
+        mockGlobalSObject('Closed__c'),
+        mockGlobalSObject('Platform__c', { createable: false }),
+      ],
+    });
+    const target = mockConn({
+      globalSObjects: [
+        mockGlobalSObject('ReadOnly__c'),
+        mockGlobalSObject('Closed__c', { createable: false }),
+        mockGlobalSObject('Platform__c', { createable: false }),
+      ],
+    });
+
+    const listed = await scanner.listObjects(source, target, false);
+
+    expect(listed).toEqual([
+      { apiName: 'ReadOnly__c', label: 'ReadOnly__c', custom: true },
+      { apiName: 'Closed__c', label: 'Closed__c', custom: true, notCreateableInTarget: true },
+    ]);
+  });
+
   it('refuses to scan with nothing selected, before it asks the org anything', async () => {
     // With nothing selected the scan described every object of the org and
     // counted every table, and planned a copy of all of it.

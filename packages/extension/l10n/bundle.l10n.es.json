@@ -150,5 +150,19 @@
   "staging": "de staging",
   "development": "de desarrollo",
   "scratch": "temporal",
-  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: el registro de una ejecución de {0} iniciada el {1} en {2}, cuyos {3} registros creados siguen en esa org, se eliminó para mantener las ejecuciones guardadas en este equipo dentro de su límite. Elimine esos registros con sandforge-cleanup, o desde la org."
+  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: el registro de una ejecución de {0} iniciada el {1} en {2}, cuyos {3} registros creados siguen en esa org, se eliminó para mantener las ejecuciones guardadas en este equipo dentro de su límite. Elimine esos registros con sandforge-cleanup, o desde la org.",
+  "Left out: {0}, {1} records: {2} has no such object, or the user the sync writes as cannot see it.": "Omitido: {0}, {1} registros: {2} no tiene ese objeto, o el usuario con el que escribe la sincronización no puede verlo.",
+  "Left out: {0}, {1} records: the user the sync writes as may not create its records in {2}.": "Omitido: {0}, {1} registros: el usuario con el que escribe la sincronización no puede crear sus registros en {2}.",
+  "Left out: {0}, {1} records: the user the sync writes as may not edit its records in {2}.": "Omitido: {0}, {1} registros: el usuario con el que escribe la sincronización no puede editar sus registros en {2}.",
+  "Left out: {0}, {1} records: {2} did not describe it, so what it takes could not be told.": "Omitido: {0}, {1} registros: {2} no lo describió, así que no se sabe qué acepta.",
+  "Remove the rest": "Quitar el resto",
+  "SandForge: some records of the run cannot be removed": "SandForge: algunos registros de la ejecución no se pueden quitar",
+  "The user SandForge connects as may not delete the records of these objects in {0}, so they stay whatever you choose:": "El usuario con el que se conecta SandForge no puede eliminar los registros de estos objetos en {0}, así que se quedan elija lo que elija:",
+  "Remove the rest removes every other record of the run, and keeps these with the records they hang from. Cancel removes nothing.": "Quitar el resto quita todos los demás registros de la ejecución y conserva estos con los registros de los que dependen. Cancelar no quita nada.",
+  "This seed is about to write {0} records to {1}:": "Este seed va a escribir {0} registros en {1}:",
+  "SandForge: confirm this seed": "SandForge: confirme este seed",
+  "These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Estos registros hacen que los flujos de {0} envíen unos {1} correos individuales. Lo que le queda hoy no se pudo leer ({2}), así que no se sabe si caben.",
+  "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Estos registros hacen que los flujos de {0} envíen unos {1} correos de flujo de trabajo. Lo que le queda hoy no se pudo leer ({2}), así que no se sabe si caben.",
+  "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} solo da sus límites a un usuario con «Ver configuración»: puede que el usuario con el que se conecta SandForge no lo tenga.",
+  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "La ejecución usa unas {0} solicitudes de API, y a {1} le quedan {2} de sus {3} solicitudes diarias: dejaría a la org con menos de una décima parte."
 }

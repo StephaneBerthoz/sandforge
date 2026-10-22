@@ -25,6 +25,32 @@ export function flsViolation(
   );
 }
 
+/**
+ * One object of a run the connected user may not write as the run would: the
+ * whole object when `deniedFields` is empty, else those of its fields.
+ */
+export interface CrudFlsDenial {
+  objectApiName: string;
+  operation: CrudOperation;
+  deniedFields: readonly string[];
+}
+
+/**
+ * Every refusal of a run's check in one sentence, under the guard's code: a
+ * run that checked its objects one at a time, while it wrote, said the first
+ * one it could not write after the ones before it were written, and the next
+ * after the user fixed that one and ran it again.
+ */
+export function crudFlsDenials(denials: readonly CrudFlsDenial[]): string {
+  const parts = denials.map((d) =>
+    d.deniedFields.length > 0
+      ? `fields [${d.deniedFields.join(', ')}] of '${d.objectApiName}' are not ` +
+        `${d.operation === 'insert' ? 'createable' : 'updateable'}`
+      : `User lacks '${d.operation}' permission on '${d.objectApiName}'`,
+  );
+  return `${CRUD_FLS_DENIED}: nothing was written, as the connected user may not write all it would: ${parts.join('; ')}.`;
+}
+
 /** Result of a CRUD/FLS permission check. */
 export interface CrudFlsCheckResult {
   /** Whether the operation is allowed. */
@@ -136,6 +162,28 @@ export class CrudFlsGuard {
     }
 
     return { allowed: true, reason: '', deniedFields: [] };
+  }
+
+  /**
+   * Check every object of a run before its first write, and answer each one
+   * the user may not write as asked: the object, or the fields of it the
+   * check names. Nothing when all of them may be written.
+   */
+  async deniedOf(
+    requests: ReadonlyArray<{
+      objectApiName: string;
+      operation: CrudOperation;
+      fieldNames: string[];
+    }>,
+  ): Promise<CrudFlsDenial[]> {
+    const denials: CrudFlsDenial[] = [];
+    for (const { objectApiName, operation, fieldNames } of requests) {
+      const check = await this.checkCrudAndFls(objectApiName, operation, fieldNames);
+      if (!check.allowed) {
+        denials.push({ objectApiName, operation, deniedFields: check.deniedFields });
+      }
+    }
+    return denials;
   }
 
   /**

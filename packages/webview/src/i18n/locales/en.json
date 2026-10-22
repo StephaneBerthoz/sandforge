@@ -64,6 +64,7 @@
       "autopilotConfirmationUnavailable": "The Autopilot run was stopped before it wrote anything: it needed your confirmation, and none could be asked.",
       "seedStorageExceeded": "The seed was refused before it wrote anything: its records take about {{estimate}} MB of data storage, and {{org}} has {{remaining}} MB left of {{max}} MB. Lower the record counts, pick a lighter template, or free data storage in {{org}}.",
       "seedEmailsExceeded": "The seed was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Lower the record counts, set {{objects}} to 0, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
+      "seedWriteDeclined": "The seed was cancelled before it wrote anything. Nothing was written to the target org.",
       "backupBusy": "A backup or a restore of this org is running: delete its backups once it has ended.",
       "autopilotRunning": "An Autopilot run is still writing to this target org, and nothing more was started: Monitor's Live Operations shows where it is. Start another once it has ended."
     },
@@ -146,6 +147,8 @@
     "title": "Organizations",
     "connect": "Connect Org",
     "disconnect": "Disconnect",
+    "scratchExpiredBadge": "Expired on {{date}}",
+    "scratchExpired": "This scratch org expired on {{date}}: Salesforce deletes a scratch org when it expires, and no reconnect brings it back. Create a new one and import it, then disconnect this one.",
     "disconnectConfirm": "Disconnect {{alias}}? SandForge forgets this org: its alias, tags, colour and safety tier are deleted, and reconnecting starts from defaults.",
     "edit": "Edit Org",
     "noOrgs": "No organizations connected",
@@ -976,6 +979,7 @@
         "PRODUCTION_GUARD_BLOCKED": "Production Guard blocked this clone before any record was written.",
         "CLONE_FAILED": "The clone stopped before it finished.",
         "CLONE_EMAILS_EXCEEDED": "The clone was refused before it wrote anything. {{limit}} these records would make {{org}} send: about {{emails}}, with {{remaining}} of {{max}} left today. Narrow the filters of {{objects}} or leave them out, turn off {{senders}}, or give yourself the permission that keeps them quiet.",
+        "API_BUDGET_EXCEEDED": "The clone was refused before it wrote anything: it takes more API requests than the target org has left today.",
         "INVALID_PAYLOAD": "SandForge refused this request before reading either org. A clone needs a source org, a target org and 1 to 100 objects, and a filter may only select records: no LIMIT, ORDER BY, subquery, semicolon or comment. The SandForge output channel says which part was refused.",
         "PREVIEWED_FOR_OTHER_ORGS": "SandForge refused this run before writing anything: it was not for the orgs its preview was made for. Preview again, then run the clone.",
         "NOT_PREVIEWED": "SandForge refused this run before reading either org: it named no preview, and a clone runs only from the preview it was made from. Preview again, then run the clone.",
@@ -1167,6 +1171,11 @@
     "addObject": "Add Object",
     "removeObject": "Remove Object",
     "noObjects": "No objects configured",
+    "unwritableOption": {
+      "notInTarget": "{{object}} — not in the target org",
+      "notCreateable": "{{object}} — may not be created in the target org"
+    },
+    "unwritableNote": "Not selectable: {{objects}}. The target org has not these objects, or the user SandForge writes as may neither create nor edit their records there.",
     "dataFlow": "Data Flow",
     "totalProcessed": "Total Processed",
     "totalSuccess": "Total Success",
@@ -1241,7 +1250,8 @@
       "applyDeletes": "Apply deletions",
       "sessionError": "Real-time sync: {{message}}",
       "refusedTitle": "The source org refused these objects:",
-      "refusedHint": "An object the source org does not publish change events for is refused. Select it in Setup → Change Data Capture on the source org, then start again.",
+      "refusedHint": "The user SandForge connects to the source as needs View All Data, or View All on the object (View All Users for User), to receive its change events; or the object is not selected for the standard ChangeEvents channel in Setup → Change Data Capture on the source org. Fix either, then start again.",
+      "refusedHintPermission": "The source org publishes change events for these objects: the user SandForge connects to it as needs View All Data, or View All on each object (View All Users for User), to receive them. Give that user the permission, then start again.",
       "outcome": {
         "applied": "Written to the target",
         "failed": "Not written",
@@ -1466,7 +1476,20 @@
       },
       "unread": "The records to write could not be counted ({{reason}}): a run is refused until they can be.",
       "overwrites_one": "Of them, {{count}} may write over a record the target org holds: what it holds is read and kept first, and removing the run puts it back.",
-      "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back."
+      "overwrites_other": "Of them, up to {{count}} may write over records the target org holds: what they hold is read and kept first, and removing the run puts it back.",
+      "unwritable": {
+        "notInTarget": "{{object}} ({{rows}} records): the target org has no such object, or the user the run writes as cannot see it. None of its records can be written.",
+        "notCreateable": "{{object}} ({{rows}} records): the user the run writes as may not create its records in the target org. None of them can be written.",
+        "notUpdateable": "{{object}} ({{rows}} records): the user the run writes as may not edit its records in the target org. None of them can be written.",
+        "unread": "{{object}} ({{rows}} records): the target org did not describe it, so none of its records would be sent.",
+        "hint": "Started from the page, the run asks whether to leave these objects out and writes the rest; a scheduled run and the command line are refused."
+      },
+      "apiRequests": {
+        "fits": "API requests: about {{estimate}}, of the {{remaining}} the target org has left of its {{max}} a day.",
+        "near": "API requests: about {{estimate}}, which would leave the target org less than a tenth of its {{max}} a day ({{remaining}} left).",
+        "exceeds": "API requests: about {{estimate}}, more than the {{remaining}} the target org has left of its {{max}} a day.",
+        "unread": "API requests: about {{estimate}}. What the target org has left today could not be read ({{reason}})."
+      }
     },
     "runControls": {
       "cancelSimulation": "Cancel simulation",
@@ -2020,7 +2043,7 @@
       "empty": "(empty)",
       "notRead": "Not read: {{error}}",
       "noRecords": "No records to mask.",
-      "fieldsNotFound": "Apply masks nothing in {{fields}}: the org has no such field."
+      "fieldsNotFound": "Apply masks nothing in {{fields}}, and their values stay as they are: the org has no such field, or field-level security hides it from the user SandForge connects as. Give that user read and edit access to it, or connect as an administrator."
     },
     "backupDelete": "Delete",
     "backupDeleteConfirm": "Delete this backup? The records' values it holds in clear on this machine are gone for good, and it can no longer be restored.",
@@ -3460,6 +3483,7 @@
       "noDiffs": "No metadata differences detected.",
       "diffsFound_one": "{{count}} difference found between source and target.",
       "diffsFound_other": "{{count}} differences found between source and target.",
+      "objectNotCreateable": "{{object}} is in the target org, but the user the clone writes as may not create its records there: Execute skips it, after the objects written before it. Leave it out in Gaps, or give that user Create on it.",
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions",
@@ -3672,6 +3696,7 @@
         "validation_rule": "Validation rule",
         "duplicate_rule": "Duplicate rule",
         "api_budget": "Daily API request budget",
+        "object_not_createable": "Object the user the clone writes as may not create in the target",
         "rehearsal_refusal": "Refused in the rehearsal",
         "rehearsal_update_refusal": "Update refused in the rehearsal"
       },
@@ -3833,6 +3858,7 @@
       "noResults": "No objects match your search.",
       "selectedCount": "{{count}} of {{total}} objects selected",
       "notInTarget": "Not in the target org",
+      "notCreateableInTarget": "The user SandForge writes as may not create these in the target org",
       "countShown": "Count the records of the objects shown ({{objects}})"
     },
     "step3": {
@@ -5019,6 +5045,10 @@
       "explanation": "The session with this org has expired and could not be renewed.",
       "action": "Reconnect it on the Organizations page (Try Reconnect on its card)."
     },
+    "scratchOrgExpired": {
+      "explanation": "This scratch org is past its expiration date: Salesforce deletes a scratch org when it expires, and no reconnect brings it back.",
+      "action": "Create a new scratch org, import it on the Organizations page, and disconnect the one that expired."
+    },
     "orgTemporarilyUnreachable": {
       "explanation": "This org failed several times in a row, so SandForge waits a moment before calling it again.",
       "action": "Try again in a minute."
@@ -5046,6 +5076,10 @@
     "notCreateable": {
       "explanation": "The target org describes this object but takes no insert of it for the user the clone writes as: a history or system object the platform writes itself, or one that user's profile may not create. Its records were left out.",
       "action": "Give the user the clone writes as the right to create the object in the target org if its records are needed there; otherwise leave the object out of the clone."
+    },
+    "notUpdateable": {
+      "explanation": "The target org describes this object but takes no edit of its records from the user the run writes as: that user's profile may not edit it. None of its records were sent.",
+      "action": "Give the user the run writes as the right to edit the object in the target org, or leave the object out of the run."
     },
     "guardBlocked": {
       "explanation": "Production Guard refused this run before it read anything, for the reason the message gives. Nothing was written.",
@@ -5102,6 +5136,14 @@
     "syncEmailsExceeded": {
       "explanation": "The sync was refused before it wrote anything: its records would make the target org's automation send more emails than it has left today, and each record past them would be refused.",
       "action": "Simulate it to see the figures, then give the running user a bypass that keeps those Flows quiet, write fewer records, or run it again tomorrow."
+    },
+    "syncTargetUnwritable": {
+      "explanation": "The sync was refused before it wrote anything: the target org would take no record of an object it writes. It has not the object, or the user the sync writes as may not see, create or edit it there.",
+      "action": "Leave those objects out of the run, or give the user the sync writes as access to them in the target org. Started from the page, the sync asks whether to leave them out and writes the rest."
+    },
+    "apiBudgetExceeded": {
+      "explanation": "The run was refused before it wrote anything: it takes more API requests than the target org has left today, and would have stopped part way through, its records refused with REQUEST_LIMIT_EXCEEDED.",
+      "action": "Run it once the org has requests to spare — the daily limit is counted over the last 24 hours — or write fewer records."
     },
     "syncWriteDeclined": {
       "explanation": "You cancelled the sync before it wrote anything. Nothing was written to the target org.",

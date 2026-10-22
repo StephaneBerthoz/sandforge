@@ -942,6 +942,9 @@ describe('SeedOpsHandler', () => {
   });
 
   describe('insert path by record count', () => {
+    // The Bulk API paths are shown on Asset: the connections below answer no
+    // duplicate rule, and Account, Contact and Lead, which the standard rules
+    // watch, then go through REST whatever their count (`seedInsert`).
     /** Records above this count are streamed instead of sent as one job. */
     const STREAMING_THRESHOLD = 10_000;
 
@@ -1000,12 +1003,12 @@ describe('SeedOpsHandler', () => {
       const oneJob = vi.spyOn(BulkApiExecutor.prototype, 'executeBulk');
 
       const insert = await captureInsert();
-      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+      const result = await insert('org-1', 'Asset', makeRecords(STREAMING_THRESHOLD + 1), 200);
 
       expect(oneJob).not.toHaveBeenCalled();
       expect(streamed).toHaveBeenCalledOnce();
       const [, objectApiName, operation, , totalRecords] = streamed.mock.calls[0];
-      expect(objectApiName).toBe('Account');
+      expect(objectApiName).toBe('Asset');
       expect(operation).toBe('insert');
       expect(totalRecords).toBe(STREAMING_THRESHOLD + 1);
       expect(result.successIds).toEqual(['001stream']);
@@ -1022,7 +1025,7 @@ describe('SeedOpsHandler', () => {
       } as never);
 
       const insert = await captureInsert();
-      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD), 200);
+      const result = await insert('org-1', 'Asset', makeRecords(STREAMING_THRESHOLD), 200);
 
       expect(streamed).not.toHaveBeenCalled();
       expect(oneJob).toHaveBeenCalledOnce();
@@ -1055,7 +1058,7 @@ describe('SeedOpsHandler', () => {
       });
 
       const insert = await captureInsert();
-      const result = (await insert('org-1', 'Contact', makeRecords(300), 200)) as {
+      const result = (await insert('org-1', 'Asset', makeRecords(300), 200)) as {
         rows?: Array<Record<string, unknown>>;
       };
 
@@ -1127,7 +1130,7 @@ describe('SeedOpsHandler', () => {
       });
 
       const insert = await captureInsert();
-      const result = (await insert('org-1', 'Contact', makeRecords(300), 200)) as {
+      const result = (await insert('org-1', 'Asset', makeRecords(300), 200)) as {
         rows?: unknown[];
       };
 
@@ -1147,7 +1150,7 @@ describe('SeedOpsHandler', () => {
       });
 
       const insert = await captureInsert();
-      const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+      const result = await insert('org-1', 'Asset', makeRecords(STREAMING_THRESHOLD + 1), 200);
 
       expect(result).toEqual({ successIds: [], errors: [], stopped: true });
     });
@@ -1168,7 +1171,7 @@ describe('SeedOpsHandler', () => {
       });
 
       const insert = await captureInsert();
-      const result = await insert('org-1', 'Account', makeRecords(300), 200);
+      const result = await insert('org-1', 'Asset', makeRecords(300), 200);
 
       expect(oneJob.mock.calls[0][0].signal).toBeInstanceOf(AbortSignal);
       expect(result).toEqual({ successIds: [], errors: [], stopped: true });
@@ -1306,7 +1309,7 @@ describe('SeedOpsHandler', () => {
         const { insert, cancel } = await runningSeed({});
         cancel();
 
-        const result = await insert('org-1', 'Account', makeRecords(300), 200);
+        const result = await insert('org-1', 'Asset', makeRecords(300), 200);
 
         expect(oneJob).not.toHaveBeenCalled();
         expect(result).toEqual({ successIds: [], errors: [], stopped: true });
@@ -1326,7 +1329,7 @@ describe('SeedOpsHandler', () => {
         const { insert, cancel } = await runningSeed({});
         cancel();
 
-        const result = await insert('org-1', 'Account', makeRecords(STREAMING_THRESHOLD + 1), 200);
+        const result = await insert('org-1', 'Asset', makeRecords(STREAMING_THRESHOLD + 1), 200);
 
         expect(streamed).not.toHaveBeenCalled();
         expect(result).toEqual({ successIds: [], errors: [], stopped: true });
@@ -2976,7 +2979,7 @@ describe('SeedOpsHandler', () => {
       expect(accounts).toHaveLength(2);
       expect(accounts.some((r) => 'AnnualRevenue' in r)).toBe(false);
       expect(result?.objectResults[0].errors).toEqual([
-        'Written without AnnualRevenue: this org does not have that field.',
+        'Written without AnnualRevenue: this org does not have that field, or field-level security hides it from the user SandForge connects as.',
       ]);
     });
 

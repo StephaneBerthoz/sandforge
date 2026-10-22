@@ -16,7 +16,7 @@ import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { Step1Connect } from './Step1_Connect';
-import { Step2Objects } from './Step2_Objects';
+import { Step2Objects, pickableInTarget } from './Step2_Objects';
 import { Step4Review } from './Step4_Review';
 
 /**
@@ -83,6 +83,8 @@ export interface AutopilotObjectInfo {
   readonly countAsked?: true;
   /** Set when the target does not have the object: shown, and not to be picked. */
   readonly missingInTarget?: true;
+  /** Set when the target's user may not create its records: shown, and not to be picked. */
+  readonly notCreateableInTarget?: true;
 }
 
 /** AutopilotWizard component props. */
@@ -179,7 +181,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
     const data = listMutation.data;
     if (!data) return;
     const store = useAutopilotStore.getState();
-    const listed = new Set(data.objects.filter((o) => !o.missingInTarget).map((o) => o.apiName));
+    const listed = new Set(data.objects.filter(pickableInTarget).map((o) => o.apiName));
     store.setObjectListing(data.objects);
     store.setSelectedObjects(store.selectedObjects.filter((name) => listed.has(name)));
     setCountWanted((wanted) => new Set([...wanted].filter((name) => listed.has(name))));
@@ -264,15 +266,16 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
       ...(objectCounts[o.apiName] !== undefined ? { recordCount: objectCounts[o.apiName] } : {}),
       ...(countWanted.has(o.apiName) ? { countAsked: true as const } : {}),
       ...(o.missingInTarget ? { missingInTarget: true as const } : {}),
+      ...(o.notCreateableInTarget ? { notCreateableInTarget: true as const } : {}),
     })) ?? [];
 
-  const selectable = availableObjects.filter((o) => !o.missingInTarget).length;
+  const selectable = availableObjects.filter(pickableInTarget).length;
   const selectAll = selectable > 0 && selectedObjects.length === selectable;
 
   const handleToggleObject = useCallback((apiName: string) => {
     const store = useAutopilotStore.getState();
     const listed = store.objectListing?.find((o) => o.apiName === apiName);
-    if (listed?.missingInTarget) return;
+    if (listed && !pickableInTarget(listed)) return;
     const picking = !store.selectedObjects.includes(apiName);
     store.toggleObject(apiName);
     if (picking) setCountWanted((wanted) => new Set(wanted).add(apiName));
@@ -280,9 +283,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
 
   const handleToggleAll = useCallback(() => {
     const store = useAutopilotStore.getState();
-    const allNames = (store.objectListing ?? [])
-      .filter((o) => !o.missingInTarget)
-      .map((o) => o.apiName);
+    const allNames = (store.objectListing ?? []).filter(pickableInTarget).map((o) => o.apiName);
     const allSelected = allNames.length > 0 && store.selectedObjects.length === allNames.length;
     store.setSelectedObjects(allSelected ? [] : allNames);
   }, []);

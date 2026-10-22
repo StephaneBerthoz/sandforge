@@ -1,14 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { CRM_STARTER, SALES_CLOUD_STARTER } from '@sandforge/shared';
-import { seedStorageBytes, seedStorageGate } from './seedStorage';
+import { seedRequestsEstimate, seedStorageBytes, seedStorageGate } from './seedStorage';
 
 const KB = 1024;
 const MB = 1024 * KB;
 
-/** An org that says it has `remaining` of `max` MB of data storage left. */
-function limits(max: number, remaining: number) {
+/** An org that says it has `remaining` of `max` MB of data storage left, and its API requests. */
+function limits(max: number, remaining: number, api = { Max: 15_000, Remaining: 15_000 }) {
   return {
-    request: vi.fn(async () => ({ DataStorageMB: { Max: max, Remaining: remaining } })),
+    request: vi.fn(async () => ({
+      DataStorageMB: { Max: max, Remaining: remaining },
+      DailyApiRequests: api,
+    })),
   };
 }
 
@@ -57,7 +60,34 @@ describe('seedStorageGate', () => {
     const gate = await seedStorageGate(limits(5, 5), CRM_STARTER, [], 'my-dev-org');
     expect(gate).toEqual({
       check: { verdict: 'fits', estimateMB: expect.any(Number), maxMB: 5, remainingMB: 5 },
+      api: {
+        verdict: 'fits',
+        estimate: seedRequestsEstimate(CRM_STARTER),
+        max: 15_000,
+        remaining: 15_000,
+      },
     });
+  });
+
+  it('refuses a seed past the API requests the org has left today, read from the same limits', async () => {
+    // Only Forge's Review compared them: a seed into an org whose
+    // integrations had used the day's requests stopped part way through.
+    const transport = limits(5, 5, { Max: 15_000, Remaining: 3 });
+    const gate = await seedStorageGate(transport, CRM_STARTER, [], 'my-dev-org');
+
+    expect(transport.request).toHaveBeenCalledTimes(1);
+    expect(gate.refusedFor).toBe('apiRequests');
+    expect(gate.refusal).toBe(
+      `The run takes about ${seedRequestsEstimate(CRM_STARTER)} API requests, and my-dev-org has ` +
+        '3 of its 15000 daily requests left: it would stop part way through, its records ' +
+        'refused with REQUEST_LIMIT_EXCEEDED. Run it once the org has requests to spare — the ' +
+        'limit is counted over the last 24 hours — or write fewer records. Nothing was written.',
+    );
+  });
+
+  it('counts a REST call per 200 records, and five calls per Bulk API job past them', () => {
+    expect(seedRequestsEstimate(objects(['Account', 150], ['Contact', 600]))).toBe(1 + 5);
+    expect(seedRequestsEstimate(objects(['Contact', 25_000]))).toBe(15);
   });
 
   it('lets a seed through, saying so, when the org will not say what it has left', async () => {

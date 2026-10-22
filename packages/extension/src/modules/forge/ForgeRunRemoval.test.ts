@@ -44,6 +44,8 @@ class FakeOrg implements RemovalOrg {
   readonly fields = new Map<string, string[]>();
   /** Objects a person works with: every object holding rows, unless removed. */
   readonly notWorked = new Set<string>();
+  /** Objects whose describe says the user may not delete their records. */
+  readonly undeletable = new Set<string>();
   /** Ids the org refuses to delete, with the error it answers. */
   readonly refusals = new Map<string, { statusCode: string; message: string }>();
   /** A refusal that depends on what the org holds at the time of the delete. */
@@ -105,6 +107,7 @@ class FakeOrg implements RemovalOrg {
     return {
       name: objectApiName,
       label: objectApiName,
+      ...(this.undeletable.has(objectApiName) ? { deletable: false } : {}),
       fields: (this.fields.get(objectApiName) ?? []).map((name) => ({
         name,
         label: name,
@@ -255,6 +258,63 @@ function options(overrides: Partial<RunRemovalOptions> = {}): RunRemovalOptions 
     ...overrides,
   };
 }
+
+describe('removeRunRecords — an object the user may not delete', () => {
+  it('sends none of its records, says why before and after, and removes the rest', async () => {
+    // Nothing read the describe's `deletable`: the contacts were deleted,
+    // then every account refused, and the result said only what the org said.
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+    const onUndeletable = vi.fn(async () => true);
+
+    const outcome = await removeRunRecords(org, plan, options({ onUndeletable }));
+
+    expect(onUndeletable).toHaveBeenCalledWith([{ objectApiName: 'Account', records: 1 }]);
+    expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
+    expect(outcome.undeletable).toEqual([{ objectApiName: 'Account', records: 1 }]);
+    const accounts = outcome.objects.find((o) => o.objectApiName === 'Account');
+    expect(accounts).toMatchObject({ planned: 1, deleted: 0, refused: 1 });
+    expect(accounts?.reasons).toEqual([
+      'The user SandForge connects as may not delete Account records in this org: the 1 ' +
+        'record(s) of the run stay, and were not sent.',
+    ]);
+  });
+
+  it('stops with nothing removed when the user, asked, chooses not to remove the rest', async () => {
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({ onUndeletable: async () => false }),
+    );
+
+    expect(org.deletes).toEqual([]);
+    expect(outcome).toMatchObject({
+      cancelled: true,
+      stoppedForUndeletable: true,
+      undeletable: [{ objectApiName: 'Account', records: 1 }],
+      objects: [],
+    });
+  });
+
+  it('keeps the parent of records the user may not delete, which stay', async () => {
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Contact');
+
+    const outcome = await removeRunRecords(org, plan, options());
+
+    expect(org.deletes).toEqual([]);
+    expect(outcome.objects.find((o) => o.objectApiName === 'Contact')).toMatchObject({
+      refused: 2,
+    });
+    expect(outcome.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      deleted: 0,
+      keptDependents: 1,
+    });
+  });
+});
 
 describe('removeRunRecords', () => {
   it('deletes the children before their parents, two hundred at a time', async () => {

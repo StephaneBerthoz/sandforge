@@ -9,6 +9,7 @@ import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { isAuthError } from '../common/isAuthError.js';
 import { OrgConnectionError } from './OrgConnectionError.js';
+import { expiredScratchDate } from '@sandforge/shared';
 import { logger } from '../../logger.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
@@ -534,6 +535,19 @@ export async function getJsforceConnection(
         // The org is shown as expired everywhere, its card on Organizations
         // offering Reconnect: a run that met the expiry left it "connected".
         orgManager.updateStatus(orgId, 'expired');
+        // A scratch org past its expiration date is gone: Salesforce deletes
+        // it. "Reconnect" sent the user to an import that leaves such an org
+        // out, and the card stayed as it was.
+        const expiredOn = expiredScratchDate(org, new Date().toISOString().slice(0, 10));
+        if (expiredOn !== undefined) {
+          throw new OrgConnectionError(
+            'SCRATCH_ORG_EXPIRED',
+            orgId,
+            `The scratch org "${org.alias}" expired on ${expiredOn}: Salesforce deletes a scratch ` +
+              'org when it expires, and no reconnect brings it back. Create a new one and import ' +
+              `it. (cause: ${cause})`,
+          );
+        }
         throw new OrgConnectionError(
           'ORG_AUTH_EXPIRED',
           orgId,
