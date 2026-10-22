@@ -253,7 +253,10 @@ describe('AnonymizationEngine', () => {
       // the whole record as it was, its name and phone included.
       const result = String(engine.applyRule('ada.lovelace@mail.test', rule));
       expect(result).toMatch(/^fake-[0-9a-f]{8}@example\.invalid$/);
-      expect(result).not.toContain('ada');
+      // Nothing of the original: 'ada' is no test of it, the eight hex digits
+      // spelling it about once in 700 runs (fake-b3c8ada8 on a CI runner).
+      expect(result).not.toContain('lovelace');
+      expect(result).not.toContain('mail.test');
     });
 
     it('should not encode the original value length in a fake value', () => {
