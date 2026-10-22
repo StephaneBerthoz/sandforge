@@ -15,7 +15,11 @@ import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerType
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { BackupRecordStore, nodeBackupFiles } from './modules/dataops/BackupRecordStore';
-import { nodeSyncRunCreations } from './modules/sync/SyncRunCreations';
+import {
+  createdCount,
+  nodeSyncRunCreations,
+  type SyncRunKept,
+} from './modules/sync/SyncRunCreations';
 import { nodeSeedRunCreations } from './modules/seed/SeedRunCreations';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
@@ -260,10 +264,34 @@ export function activate(context: vscode.ExtensionContext): void {
   // every write — a single backup could put megabytes behind every unrelated
   // settings save and behind activation itself.
   const backupRecordStore = new BackupRecordStore(nodeBackupFiles(context.globalStorageUri.fsPath));
+  // A run whose records are still in its org, dropped by the bound on the
+  // bytes the runs' files take, is said: it left every list without a word.
+  const runDropped =
+    (kind: 'Sync' | 'Seed') =>
+    (run: SyncRunKept): void => {
+      const records = createdCount(run);
+      const org = orgManager.getOrg(run.targetOrgId)?.alias ?? run.targetOrgId;
+      const message = vscode.l10n.t(
+        'SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.',
+        kind,
+        run.startedAt,
+        org,
+        records,
+      );
+      logger.warn(message);
+      void vscode.window.showWarningMessage(message);
+    };
   // What each Sync run creates, kept beside them as the run writes it.
-  const syncRunCreations = nodeSyncRunCreations(context.globalStorageUri.fsPath);
+  const syncRunCreations = nodeSyncRunCreations(
+    context.globalStorageUri.fsPath,
+    undefined,
+    runDropped('Sync'),
+  );
   // And what each Seed run created, kept beside them as the run ends.
-  const seedRunCreations = nodeSeedRunCreations(context.globalStorageUri.fsPath);
+  const seedRunCreations = nodeSeedRunCreations(
+    context.globalStorageUri.fsPath,
+    runDropped('Seed'),
+  );
 
   applyLateServices(handlers, {
     infraServices: {

@@ -43,16 +43,20 @@ export function runExitCode(status: RunStatus, failOnPartial: boolean): number {
 
 /**
  * The exit code of a DataOps restore, from its answer: 1 when it put nothing
- * back, 3 when the org refused some rows or the snapshot held part of the
- * records, whose values then stay as they are.
+ * back, 3 when the org refused some rows, the snapshot held part of the
+ * records, or records of a Sync run's snapshot changed since the run were
+ * held back, whose values then stay as they are.
  */
 export function restoreExitCode(answer: {
   status?: unknown;
   totalFailed?: unknown;
   partial?: unknown;
+  keptChanged?: unknown;
 }): number {
   if (answer.status === 'failure') return FAILED_EXIT;
   if (Number(answer.totalFailed ?? 0) > 0 || answer.partial === true) return PARTIAL_EXIT;
+  // Held back, as removing the run leaves them: exited 0 as a restore of everything.
+  if (answer.keptChanged !== undefined) return PARTIAL_EXIT;
   return DONE_EXIT;
 }
 

@@ -20,7 +20,11 @@
  * run created would keep that record in the org, depending on it.
  */
 
-import type { AuditObjectCounts, SyncRestoreObjectResult } from '@sandforge/shared';
+import type {
+  AuditObjectCounts,
+  SyncRestoreObjectResult,
+  SyncUndeleteObjectResult,
+} from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
@@ -40,7 +44,7 @@ export interface BackupReader {
 
 /** What a restore of a run's records is given. */
 export interface SyncRestoreInput {
-  org: Pick<RemovalOrg, 'query' | 'update' | 'serverTime'>;
+  org: Pick<RemovalOrg, 'query' | 'update' | 'serverTime'> & Partial<Pick<RemovalOrg, 'userId'>>;
   /** What the run wrote over and a removal puts back now (`syncRestorePlan`). */
   plan: readonly SyncRunOverwritten[];
   backups: BackupReader;
@@ -52,6 +56,26 @@ export interface SyncRestoreInput {
   lastWriteAt?: string;
   /** Put back the records changed since the run too. */
   includeChanged: boolean;
+  /**
+   * What earlier removals — the run's own, and those of runs after it that
+   * wrote the same records — left on its records, by id: a record modified
+   * no later than its stamp was not changed since the run, the removal that
+   * dated it having taken back what made it so (`SyncRunRemovalState.removalStamps`).
+   */
+  stamps?: Readonly<Record<string, string>>;
+  /**
+   * The records whose `LastModifiedDate` the restore says back once it has
+   * given them their values from before (`SyncRestoreOutcome.stamps`): those
+   * an earlier run of the same target names too, which would otherwise read
+   * the restore as a change since that run.
+   */
+  stampsFor?: (id: string) => boolean;
+  /**
+   * The encrypted fields the run wrote whose values from before were not
+   * kept, read masked (`SyncRunKept.unkept`): said with each object's
+   * reasons, as left as the run wrote them.
+   */
+  unkept?: ReadonlyArray<{ objectApiName: string; fields: readonly string[] }>;
   /** Stops the restore before its next call to the org. */
   signal?: AbortSignal;
 }
@@ -65,6 +89,14 @@ export interface SyncRestoreOutcome {
   wrote: boolean;
   /** Whether a stop ended it before it was through. */
   cancelled: boolean;
+  /**
+   * Of the records {@link SyncRestoreInput.stampsFor} names, those the restore
+   * left holding their values from before the run, unchanged since it, by
+   * id: the `LastModifiedDate` the org gives each — written back by the
+   * restore's user, or holding them already — for that earlier run's removal
+   * to read as no change since it.
+   */
+  stamps: Record<string, string>;
 }
 
 /** Why records were refused, a few of each: the org repeats a handful of reasons. */
@@ -105,8 +137,30 @@ export function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * The user a session writes as, by the first fifteen characters of its id,
+ * read once, for the stamps of what it writes; undefined when the org does
+ * not say.
+ */
+export function writerOnce(
+  org: Partial<Pick<RemovalOrg, 'userId'>>,
+): () => Promise<string | undefined> {
+  let writer: Promise<string | undefined> | undefined;
+  return () => {
+    writer ??= (async () => {
+      try {
+        const user = await org.userId?.();
+        return typeof user === 'string' && user !== '' ? recordKey(user) : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    return writer;
+  };
+}
+
 /** The org's clock ahead of this machine's, in milliseconds; 0 when the org will not say. */
-async function orgAheadOf(org: Pick<RemovalOrg, 'serverTime'>): Promise<number> {
+export async function orgAheadOf(org: Pick<RemovalOrg, 'serverTime'>): Promise<number> {
   const before = Date.now();
   try {
     const now = Date.parse(await org.serverTime());
@@ -134,10 +188,44 @@ export async function runEndOnOrgClock(
     : Number.NEGATIVE_INFINITY;
 }
 
-/** One record's answer to an update, as jsforce gives it. */
+/** One record's answer to an update, as jsforce gives it: a REST collection names the fields refused. */
 interface UpdateAnswer {
   success?: boolean;
-  errors?: Array<{ statusCode?: string; message?: string } | string>;
+  errors?: Array<{ statusCode?: string; message?: string; fields?: unknown } | string>;
+}
+
+/**
+ * Refusals that name no field and are about one all the same: the field the
+ * record holds the refused value in.
+ */
+const FIELD_OF_CODE: Readonly<Record<string, string>> = {
+  INACTIVE_OWNER_OR_USER: 'OwnerId',
+};
+
+/**
+ * The fields of `sent` a refusal is about, as the org names them in
+ * `errors[].fields` or by its code: the values from before it no longer
+ * takes — a restricted picklist value deactivated since, an owner no longer
+ * active, a lookup to a record deleted since. None when it names no field of
+ * the update, the whole record refused.
+ */
+function refusedFields(answer: UpdateAnswer, sent: Readonly<Record<string, unknown>>): string[] {
+  const named = new Set<string>();
+  for (const error of answer.errors ?? []) {
+    if (typeof error === 'string') continue;
+    if (Array.isArray(error.fields)) {
+      for (const field of error.fields) if (typeof field === 'string') named.add(field);
+    }
+    const byCode = error.statusCode !== undefined ? FIELD_OF_CODE[error.statusCode] : undefined;
+    if (byCode !== undefined && (!Array.isArray(error.fields) || error.fields.length === 0)) {
+      named.add(byCode);
+    }
+  }
+  const lower = new Map(Object.keys(sent).map((field) => [field.toLowerCase(), field]));
+  return [...named].flatMap((field) => {
+    const own = lower.get(field.toLowerCase());
+    return own !== undefined && own !== 'Id' ? [own] : [];
+  });
 }
 
 /** What an update's answer said of each record, by its place. */
@@ -177,6 +265,11 @@ class ObjectRestore {
     };
   }
 
+  /** Records given back their values but for fields the org no longer takes. */
+  without(): void {
+    this.result.restoredWithout = (this.result.restoredWithout ?? 0) + 1;
+  }
+
   reason(words: string): void {
     if (this.said.has(words) || this.said.size >= REASONS_KEPT) return;
     this.said.add(words);
@@ -194,15 +287,29 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
   const { org, plan } = input;
   const objects: SyncRestoreObjectResult[] = [];
   const left: string[] = [];
+  const stamps: Record<string, string> = {};
   let wrote = false;
   let cancelled = false;
-  if (plan.length === 0) return { objects, left, wrote, cancelled };
+  if (plan.length === 0) return { objects, left, wrote, cancelled, stamps };
 
   const runEnd = await runEndOnOrgClock(org, input.lastWriteAt);
+  const stampedBefore = new Map(
+    Object.entries(input.stamps ?? {}).map(([id, date]) => [recordKey(id), Date.parse(date)]),
+  );
+  const stampsFor = input.stampsFor;
+  const writerOf = writerOnce(org);
 
   for (const { objectApiName, backup, ids } of plan) {
     const tally = new ObjectRestore(objectApiName, ids.length);
     objects.push(tally.result);
+    const masked = input.unkept?.find((object) => object.objectApiName === objectApiName);
+    if (masked && masked.fields.length > 0) {
+      tally.reason(
+        `${masked.fields.map((field) => `${objectApiName}.${field}`).join(', ')}: not kept, ` +
+          "encrypted — the run's user cannot view encrypted data, and read their values from " +
+          'before masked; left as the run wrote them',
+      );
+    }
     if (cancelled || input.signal?.aborted) {
       cancelled = true;
       tally.result.notReached = ids.length;
@@ -271,6 +378,10 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
 
     // What each record is given back: the fields that differ.
     const updates: Array<Record<string, unknown> & { Id: string }> = [];
+    /** The records written back whose new date an earlier run of the target reads, by id. */
+    const stamping = new Set<string>();
+    /** When the writes began, by the org's clock, give or take the drift; read only when stamped. */
+    const writesFrom = stampsFor ? Date.now() + (await orgAheadOf(org)) - CLOCK_LEEWAY_MS : 0;
     for (const [key, id] of wanted) {
       const current = now.get(key);
       if (!current) {
@@ -278,7 +389,10 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         continue;
       }
       const modified = Date.parse(String(current.LastModifiedDate ?? ''));
-      if (!(modified <= runEnd) && !input.includeChanged) {
+      // Changed since the run: modified after it, and after what a removal
+      // that took back a later run's write of it left on it.
+      const unchanged = modified <= runEnd || modified <= (stampedBefore.get(key) ?? Number.NaN);
+      if (!unchanged && !input.includeChanged) {
         tally.result.keptChanged++;
         left.push(id);
         continue;
@@ -290,11 +404,45 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       }
       if (Object.keys(back).length === 1) {
         tally.result.restored++;
+        // Holding them already, as last modified by the run — or a run after
+        // it whose removal gave it back its values: no change since either.
+        if (unchanged && stampsFor?.(id) && typeof current.LastModifiedDate === 'string') {
+          stamps[current.Id as string] = current.LastModifiedDate;
+        }
         continue;
       }
       updates.push(back);
+      if (unchanged && stampsFor?.(id)) stamping.add(id);
     }
 
+    /**
+     * The records refused for some of their fields, sent once more without
+     * them, with the fields left out and why. One field the org no longer
+     * takes refused the whole record, and every later removal sent it again
+     * and was refused the same way: the fields put back with it kept the
+     * run's values.
+     */
+    const again: Array<{
+      record: Record<string, unknown> & { Id: string };
+      fields: string[];
+      why: string;
+    }> = [];
+    const refused = (record: { Id: string }, words: string): void => {
+      tally.result.refused++;
+      tally.reason(words);
+      left.push(wanted.get(recordKey(record.Id)) ?? record.Id);
+    };
+    const send = async (
+      batch: ReadonlyArray<Record<string, unknown> & { Id: string }>,
+    ): Promise<UpdateAnswer[]> => {
+      try {
+        wrote = true;
+        return answersOf(await org.update(objectApiName, [...batch]), batch.length);
+      } catch (err: unknown) {
+        const words = extractErrorMessage(err);
+        return batch.map(() => ({ success: false, errors: [words] }));
+      }
+    };
     for (let at = 0; at < updates.length; at += RECORDS_PER_CALL) {
       const batch = updates.slice(at, at + RECORDS_PER_CALL);
       if (input.signal?.aborted) {
@@ -304,14 +452,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         left.push(...rest.map((record) => wanted.get(recordKey(record.Id)) ?? record.Id));
         break;
       }
-      let answers: UpdateAnswer[];
-      try {
-        wrote = true;
-        answers = answersOf(await org.update(objectApiName, batch), batch.length);
-      } catch (err: unknown) {
-        const words = extractErrorMessage(err);
-        answers = batch.map(() => ({ success: false, errors: [words] }));
-      }
+      const answers = await send(batch);
       answers.forEach((answer, place) => {
         const record = batch[place];
         if (answer.success === true) {
@@ -319,17 +460,97 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
           return;
         }
         const refusal = refusalOf(answer);
-        if (refusal.code === 'ENTITY_IS_DELETED') {
+        const fields = refusedFields(answer, record);
+        // A lookup to a record deleted since names its field: the record is there.
+        if (refusal.code === 'ENTITY_IS_DELETED' && fields.length === 0) {
           tally.result.alreadyGone++;
           return;
         }
-        tally.result.refused++;
-        tally.reason(refusal.words);
-        left.push(wanted.get(recordKey(record.Id)) ?? record.Id);
+        const rest = Object.keys(record).filter(
+          (field) => field !== 'Id' && !fields.includes(field),
+        );
+        if (fields.length > 0 && rest.length > 0) {
+          const without: Record<string, unknown> & { Id: string } = { Id: record.Id };
+          for (const field of rest) without[field] = record[field];
+          again.push({ record: without, fields, why: refusal.words });
+          return;
+        }
+        refused(record, refusal.words);
       });
     }
+    for (let at = 0; at < again.length; at += RECORDS_PER_CALL) {
+      const batch = again.slice(at, at + RECORDS_PER_CALL);
+      if (input.signal?.aborted) {
+        cancelled = true;
+        tally.result.notReached = (tally.result.notReached ?? 0) + again.length - at;
+        left.push(
+          ...again.slice(at).map(({ record }) => wanted.get(recordKey(record.Id)) ?? record.Id),
+        );
+        break;
+      }
+      const answers = await send(batch.map(({ record }) => record));
+      answers.forEach((answer, place) => {
+        const { record, fields, why } = batch[place];
+        if (answer.success === true) {
+          // Given back but for those fields, which keep the run's values: the
+          // run settles, and nothing more is sent for them.
+          tally.without();
+          tally.reason(
+            `${fields.map((field) => `${objectApiName}.${field}`).join(', ')}: the value from ` +
+              `before is no longer taken (${why}) — left as the run wrote it`,
+          );
+          return;
+        }
+        refused(record, refusalOf(answer).words);
+      });
+    }
+    Object.assign(stamps, await stampsWritten(org, object, [...stamping], writesFrom, writerOf));
   }
-  return { objects, left, wrote, cancelled };
+  return { objects, left, wrote, cancelled, stamps };
+}
+
+/**
+ * The `LastModifiedDate` the org gives the records a restore wrote back — or
+ * an undelete brought back (`SyncRunUndelete`) — by id, of those its user
+ * last modified since its writes began: a record someone else modified since
+ * keeps their change. Best effort: records that
+ * cannot be read back are left unstamped, and so is every one when the org
+ * does not say who the restore writes as.
+ */
+export async function stampsWritten(
+  org: Pick<RemovalOrg, 'query'>,
+  object: string,
+  ids: readonly string[],
+  from: number,
+  writerOf: () => Promise<string | undefined>,
+): Promise<Record<string, string>> {
+  const stamps: Record<string, string> = {};
+  if (ids.length === 0) return stamps;
+  const user = await writerOf();
+  if (user === undefined) return stamps;
+  for (const list of idLists(ids)) {
+    let rows: Array<Record<string, unknown>>;
+    try {
+      const answer = await org.query(
+        `SELECT Id, LastModifiedDate, LastModifiedById FROM ${object} WHERE Id IN (${list})`,
+      );
+      rows = answer.records as Array<Record<string, unknown>>;
+    } catch {
+      continue;
+    }
+    for (const row of rows) {
+      if (
+        typeof row.Id === 'string' &&
+        typeof row.LastModifiedDate === 'string' &&
+        typeof row.LastModifiedById === 'string' &&
+        recordKey(row.LastModifiedById) === user &&
+        Date.parse(row.LastModifiedDate) >= from
+      ) {
+        stamps[row.Id] = row.LastModifiedDate;
+      }
+    }
+  }
+  return stamps;
 }
 
 /** A stop that came while a restore read the records it puts back. */
@@ -337,25 +558,43 @@ class RestoreStopped extends Error {}
 
 /**
  * What a removal deleted, per object, for the audit trail, with what it gave
- * back counted as updated and what the target refused it as failed, each
- * object once.
+ * back counted as updated, what it brought back from the recycle bin as
+ * created, and what the target refused it as failed, each object once.
  */
 export function withRestoreAudit(
   deleted: readonly AuditObjectCounts[],
   restored: readonly SyncRestoreObjectResult[],
+  undeleted: readonly SyncUndeleteObjectResult[] = [],
 ): AuditObjectCounts[] {
   const merged = deleted.map((object) => ({ ...object }));
-  for (const object of restored) {
-    if (object.restored + object.refused === 0) continue;
+  for (const object of undeleted) {
+    if (object.undeleted + object.refused === 0) continue;
     const entry = merged.find((counts) => counts.objectApiName === object.objectApiName);
     if (entry) {
-      entry.updated += object.restored;
+      entry.created += object.undeleted;
+      entry.failed += object.refused;
+    } else {
+      merged.push({
+        objectApiName: object.objectApiName,
+        created: object.undeleted,
+        updated: 0,
+        deleted: 0,
+        failed: object.refused,
+      });
+    }
+  }
+  for (const object of restored) {
+    const updated = object.restored + (object.restoredWithout ?? 0);
+    if (updated + object.refused === 0) continue;
+    const entry = merged.find((counts) => counts.objectApiName === object.objectApiName);
+    if (entry) {
+      entry.updated += updated;
       entry.failed += object.refused;
     } else {
       merged.push({
         objectApiName: object.objectApiName,
         created: 0,
-        updated: object.restored,
+        updated,
         deleted: 0,
         failed: object.refused,
       });

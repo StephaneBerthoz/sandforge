@@ -1,13 +1,14 @@
 /**
  * The removal tests' org in miniature (`MemoryRemovalOrg`) whose updates are
- * made: each record's fields set, its modified date moved to now, and every
+ * made: each record's fields set, its modified date moved to now, as
+ * modified by the session's user, and every
  * update kept in order — what giving back the values a run wrote over sends.
  * A record a test names in `refuseUpdate` is refused with the answer given.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
 
-import { MemoryRemovalOrg } from './memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from './memoryRemovalOrg.js';
 
 /** See the module's comment. */
 export class MemoryRestoreOrg extends MemoryRemovalOrg {
@@ -15,6 +16,12 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
   readonly updates: Array<{ objectApiName: string; records: Array<Record<string, unknown>> }> = [];
   /** Records whose update the org refuses, with its answer. */
   readonly refuseUpdate = new Map<string, { statusCode: string; message: string }>();
+  /**
+   * Values a field no longer takes, by field: an update that sends one is
+   * refused, naming the field, as a REST collection does — a restricted
+   * picklist value deactivated since.
+   */
+  readonly refuseValue = new Map<string, { value: unknown; statusCode: string; message: string }>();
 
   override async update(
     objectApiName: string,
@@ -26,6 +33,20 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
       const id = String(record.Id);
       const refusal = this.refuseUpdate.get(id);
       if (refusal) return { id, success: false, errors: [refusal] };
+      const fields = [...this.refuseValue].filter(
+        ([field, { value }]) => field in record && record[field] === value,
+      );
+      if (fields.length > 0) {
+        return {
+          id,
+          success: false,
+          errors: fields.map(([field, { statusCode, message }]) => ({
+            statusCode,
+            message,
+            fields: [field],
+          })),
+        };
+      }
       const row = this.all(objectApiName).find((held) => held.Id === id);
       if (!row) {
         return {
@@ -34,7 +55,7 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
           errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
         };
       }
-      Object.assign(row, record, { LastModifiedDate: at });
+      Object.assign(row, record, { LastModifiedDate: at, LastModifiedById: MEMORY_ORG_USER });
       return { id, success: true, errors: [] };
     });
   }

@@ -243,6 +243,24 @@ describe('RestorePanel', () => {
     });
   });
 
+  it('says a Sync run’s backup it lists as partial holds what the run had kept by then', () => {
+    const cut: BackupSummary = {
+      ...backups[0],
+      operationId: 'sync-before-run-2',
+      origin: 'sync',
+      partial: true,
+      totalRecords: 40,
+      objectResults: [{ objectApiName: 'Account', recordCount: 40, truncated: false }],
+    };
+    render(<RestorePanel backups={[cut]} />);
+
+    expect(screen.getByTestId('restore-partial-badge-sync-before-run-2')).toBeTruthy();
+    expect(screen.getByTestId('restore-sync-partial-sync-before-run-2').textContent).toBe(
+      en.dataops.restoreSyncPartial,
+    );
+    expect(screen.queryByTestId('restore-partial-sync-before-run-2')).toBeNull();
+  });
+
   it('says what the last restore wrote, left alone because it already held the backup values, and had refused', () => {
     render(
       <RestorePanel backups={backups} lastRestore={{ written: 3, unchanged: 11_997, failed: 0 }} />,
@@ -279,6 +297,25 @@ describe('RestorePanel', () => {
       fireEvent.click(screen.getByTestId('delete-backup-btn-op-1'));
       fireEvent.click(screen.getByTestId('delete-backup-confirm'));
       expect(onDelete).toHaveBeenCalledWith('op-1');
+    });
+
+    it('says, before deleting the backup a Sync run kept, that removing the run will no longer put its values back', () => {
+      const run: BackupSummary = {
+        ...backups[0],
+        operationId: 'sync-before-run-1',
+        origin: 'sync',
+      };
+      render(
+        <RestorePanel backups={[run]} selectedBackupId="sync-before-run-1" onDelete={vi.fn()} />,
+      );
+
+      fireEvent.click(screen.getByTestId('delete-backup-btn-sync-before-run-1'));
+
+      const question = screen.getByTestId('delete-backup-question').textContent ?? '';
+      expect(question).not.toContain(en.dataops.backupDeleteConfirm);
+      expect(question).toMatch(
+        /^Delete this backup\? It holds what the Sync run of .+ wrote over: removing that run in Sync will no longer put these values back/,
+      );
     });
 
     it('deletes every backup of the org, those it cannot restore included, once asked', () => {

@@ -400,6 +400,12 @@ export interface SeedRunRemovalInfo {
    * until it ends, as a Sync run's is.
    */
   running?: true;
+  /**
+   * Set for a run another window is writing now — the process its file names
+   * is alive — read as one that stopped, it was listed as partial, and its
+   * open Bulk API job aborted. Its removal is refused until it ends.
+   */
+  runningElsewhere?: true;
   /** Records it created, in all. */
   created: number;
   /**

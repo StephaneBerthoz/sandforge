@@ -16,6 +16,10 @@ import { SyncRunRemoval } from './SyncRunRemoval';
  * and not in the list. The note said everything a run created was kept, and
  * a removal of a run stopped during a Bulk API job left its rows in the
  * target without a word.
+ *
+ * A run another window is writing now is listed too, said as such and with
+ * no removal: read as one a closed window left, it was offered a removal
+ * that let what it went on to create stay in the target unoffered.
  */
 export const SyncUnfinishedRuns: React.FC = () => {
   const { t } = useTranslation();
@@ -38,7 +42,15 @@ export const SyncUnfinishedRuns: React.FC = () => {
               date: formatStoredDate(run.startedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
             })}
           </p>
-          {run.inFlight && (
+          {run.runningElsewhere && (
+            <p
+              className="text-[11px] text-text-secondary"
+              data-testid={`sync-unfinished-elsewhere-${run.runId}`}
+            >
+              {t('runRemoval.sync.unfinishedElsewhere')}
+            </p>
+          )}
+          {run.inFlight && !run.runningElsewhere && (
             <p
               className="text-[11px] text-status-warning"
               data-testid={`sync-unfinished-in-flight-${run.runId}`}
@@ -50,7 +62,9 @@ export const SyncUnfinishedRuns: React.FC = () => {
               })}
             </p>
           )}
-          <SyncRunRemoval runId={run.runId} testId={`sync-unfinished-removal-${run.runId}`} />
+          {!run.runningElsewhere && (
+            <SyncRunRemoval runId={run.runId} testId={`sync-unfinished-removal-${run.runId}`} />
+          )}
         </div>
       ))}
     </section>

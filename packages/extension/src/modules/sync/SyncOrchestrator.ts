@@ -712,8 +712,13 @@ export class SyncOrchestrator {
     // objects the run writes after it nor for a later run. Its pair stayed,
     // and a lookup at it went to a record the target no longer held, and was
     // refused.
-    const noteDeleted = (targetIds: readonly string[]): void => {
+    /** Records of the target the run deleted, as the source had deleted them. */
+    let deletedCount = 0;
+    const noteDeleted = (objectApiName: string, targetIds: readonly string[]): void => {
       if (targetIds.length === 0) return;
+      // Kept in the run's file: its removal brings them back from the recycle bin.
+      this.deps.creations?.deleted?.(objectApiName, targetIds);
+      deletedCount += targetIds.length;
       links.noteDeleted(targetIds);
       const forget = idMap?.forget?.bind(idMap);
       if (!forget) return;
@@ -894,7 +899,12 @@ export class SyncOrchestrator {
       };
       // What it wrote over, its values kept first, is the run's to give back.
       const overwritten = recorder?.overwrittenCount?.() ?? 0;
-      if (!recorder || (createdByObject.size === 0 && filesCreated === 0 && overwritten === 0)) {
+      // So is what it deleted, brought back from the recycle bin.
+      const deleted = recorder?.deleted ? deletedCount : 0;
+      if (
+        !recorder ||
+        (createdByObject.size === 0 && filesCreated === 0 && overwritten === 0 && deleted === 0)
+      ) {
         return withFiles;
       }
       return {
@@ -904,6 +914,7 @@ export class SyncOrchestrator {
           objects: [...createdByObject].map(([objectApiName, count]) => ({ objectApiName, count })),
           files: filesCreated,
           ...(overwritten > 0 ? { overwritten } : {}),
+          ...(deleted > 0 ? { deleted } : {}),
         },
       };
     };
@@ -1112,7 +1123,9 @@ export class SyncOrchestrator {
           return stopHere(sortedObjects.slice(index));
         }
         try {
-          deletions = await this.carryDeletions(objectConfig, read.changedSince, noteDeleted);
+          deletions = await this.carryDeletions(objectConfig, read.changedSince, (ids) =>
+            noteDeleted(objectConfig.objectApiName, ids),
+          );
         } catch (err: unknown) {
           if (!(err instanceof WriteCancelledError)) throw err;
           // Stopped between two batches of deletes: those sent are done, the

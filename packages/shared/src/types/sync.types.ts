@@ -339,6 +339,12 @@ export interface SyncRunCreated {
    * read and kept first: what removing the run puts back. Absent when none.
    */
   overwritten?: number;
+  /**
+   * Records of the target the run deleted, as the source had deleted them
+   * (`SyncConfig.propagateDeletes`): what removing the run brings back from
+   * the target's recycle bin while they are there. Absent when none.
+   */
+  deleted?: number;
 }
 
 /**
@@ -370,6 +376,12 @@ export interface SyncRunRemovalInfo {
    * no removal of the run takes them.
    */
   inFlight?: { objectApiName: string; rows: number };
+  /**
+   * Set for a run with no end that another window is writing now — the
+   * process its file names is alive: not one a closed window left. Its
+   * removal is refused until it ends, as one still writing in this window.
+   */
+  runningElsewhere?: true;
   /** Records and files it created, in all. */
   created: number;
   /**
@@ -388,8 +400,47 @@ export interface SyncRunRemovalInfo {
    * that no removal has given their values back. Absent when none.
    */
   putBack?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Records the run wrote over whose values from before are no longer kept —
+   * their backup was deleted from the Restore tab, or reached
+   * `sandforge.backup.maxAgeDays` — and that no removal puts back: left out
+   * of {@link putBack}. Absent when none.
+   */
+  putBackNotKept?: number;
+  /**
+   * When the values {@link putBack} gives back reach `sandforge.backup.maxAgeDays`
+   * and go with their backup, ISO 8601: the first of them. Absent when the
+   * retention keeps them all, or nothing is put back.
+   */
+  putBackKeptUntil?: ISODateString;
+  /** Records of the target it deleted: see {@link SyncRunCreated.deleted}. Absent when none. */
+  deleted?: number;
+  /**
+   * The classic encrypted fields, `Object.Field`, it wrote to records the
+   * target held whose values from before were not kept: the run's user read
+   * them masked. A removal leaves them as the run wrote them. Absent when none.
+   */
+  notKeptEncrypted?: string[];
+  /**
+   * What a removal brings back from the recycle bin now, per object: the
+   * records it deleted that no removal has brought back. Absent when none.
+   */
+  bringBack?: Array<{ objectApiName: string; count: number }>;
   /** What the removals of it did, once one took some. */
   removed?: ForgeUndoMark;
+  /**
+   * The later runs of the same target, not removed, that wrote records this
+   * run still has to take back or give back, newest first: until each is
+   * removed, this run's removal reads those records as changed since it, and
+   * a removal of the later one after it gives them back this run's values.
+   * Absent when none.
+   */
+  writtenAgain?: Array<{
+    runId: string;
+    configName: string;
+    startedAt: ISODateString;
+    records: number;
+  }>;
   /** Why no removal can run now; absent when one can. */
   refusal?: { code: SyncRemovalRefusalCode; message: string };
 }
@@ -426,6 +477,32 @@ export interface SyncRemovalResult {
    * them all back.
    */
   restored?: SyncRestoreObjectResult[];
+  /**
+   * What the removal brought back from the recycle bin, per object, before
+   * anything else: the records the run deleted as the source had deleted
+   * them. Absent when the run deleted none, or a removal before this one
+   * brought them all back.
+   */
+  undeleted?: SyncUndeleteObjectResult[];
+}
+
+/** What a removal of a Sync run brought back of one object whose records the run deleted. */
+export interface SyncUndeleteObjectResult {
+  objectApiName: string;
+  /** Records the removal set out to bring back. */
+  planned: number;
+  /** Records brought back from the recycle bin. */
+  undeleted: number;
+  /** Records in the org already: brought back since by someone else. */
+  alreadyBack: number;
+  /** Records no longer in the recycle bin either: emptied, or purged since. Gone for good. */
+  goneForGood: number;
+  /** Records whose undelete the org refused. */
+  refused: number;
+  /** Records a stop kept the removal from reaching. Absent when none. */
+  notReached?: number;
+  /** Why records were refused, in the org's words, a few of each. */
+  reasons: string[];
 }
 
 /** What a removal of a Sync run put back of one object it wrote over. */
@@ -441,6 +518,14 @@ export interface SyncRestoreObjectResult {
   alreadyGone: number;
   /** Records whose write back the target refused. */
   refused: number;
+  /**
+   * Records given back their values from before but for the fields the
+   * target no longer takes them in — a picklist value deactivated since, an
+   * owner no longer active, a lookup to a record deleted since — which keep
+   * the run's values, named in {@link reasons}. Not counted in
+   * {@link restored}; absent when none.
+   */
+  restoredWithout?: number;
   /**
    * Records whose values from before are no longer kept on this machine —
    * their backup was deleted from the Restore tab of DataOps, or reached

@@ -50,7 +50,7 @@ import { SyncAlreadyCopiedLine } from './SyncWriteCheck';
 import { SyncDeltaLine } from './SyncDeltaLine';
 import { SyncPricebookLine } from './SyncPricebookLine';
 import { SyncFilesLine, SyncFilesSummary } from './SyncFilesLine';
-import { SyncRunRemoval } from './SyncRunRemoval';
+import { SyncRunRemoval } from './syncRemovalParts';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { handleTabListKeyDown } from '../../components/ui/tabListKeys';
 import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';

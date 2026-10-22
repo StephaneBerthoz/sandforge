@@ -324,7 +324,7 @@ describe('SyncRunRemoval', () => {
       putBack: [{ objectApiName: 'Account', count: 3 }],
     };
 
-    it('says what it wrote over, offers its removal, and names what goes back before anything is deleted', () => {
+    it('says what it wrote over, offers to give it back, and names what goes back before anything is written', () => {
       render(<SyncRunRemoval runId="run-1" />);
       answer('sync:removal:info', 'sync:removal:info:response', { info: OVER });
 
@@ -332,10 +332,23 @@ describe('SyncRunRemoval', () => {
       expect(screen.getByTestId('sync-removal-overwritten').textContent).toBe(
         '3 records of DEV-SANDBOX written over, their values from before kept on this machine',
       );
+      // A run that created nothing: what it wrote over is what it gives back.
+      expect(screen.getByRole('heading', { level: 5 }).textContent).toBe(
+        'What this run wrote over',
+      );
+      expect(screen.getByTestId('sync-removal-remove').textContent).toBe(
+        'Give back what this run wrote over',
+      );
       fireEvent.click(screen.getByTestId('sync-removal-remove'));
 
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Give back what this run wrote over in DEV-SANDBOX',
+      );
       expect(screen.getByRole('dialog').textContent).toContain(
-        'First gives the records this run wrote over in DEV-SANDBOX',
+        'Gives the records this run wrote over in DEV-SANDBOX',
+      );
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'It created nothing, and nothing is deleted.',
       );
       expect(screen.getByRole('dialog').textContent).not.toContain('keep their new values');
       expect(screen.getByTestId('sync-removal-put-back-Account').textContent).toBe(
@@ -379,5 +392,194 @@ describe('SyncRunRemoval', () => {
           'left as they are: 1',
       );
     });
+
+    it('says what it gave back but for the fields the org no longer takes, and names them', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: OVER });
+      confirmRemoval();
+
+      answer('sync:remove', 'sync:remove:response', {
+        result: {
+          runId: 'run-1',
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-10-14T09:00:00.000Z',
+          objects: [],
+          restored: [
+            {
+              objectApiName: 'Account',
+              planned: 3,
+              restored: 2,
+              restoredWithout: 1,
+              keptChanged: 0,
+              alreadyGone: 0,
+              refused: 0,
+              notKept: 0,
+              reasons: ['Account.Industry: the value from before is no longer taken'],
+            },
+          ],
+        },
+        operationId: 'req-1',
+      });
+
+      expect(screen.getByTestId('sync-removal-restored-Account').textContent).toContain(
+        "given back but for fields DEV-SANDBOX no longer takes, which keep the run's values: 1",
+      );
+      expect(screen.getByTestId('sync-removal-restored-Account').textContent).toContain(
+        'Account.Industry: the value from before is no longer taken',
+      );
+    });
+
+    it('says until when the values are kept, and that a backup gone gives back none of its records', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: {
+          ...OVER,
+          putBack: [{ objectApiName: 'Account', count: 2 }],
+          putBackNotKept: 1,
+          putBackKeptUntil: '2026-11-13T08:00:00.000Z',
+        },
+      });
+
+      expect(screen.getByTestId('sync-removal-overwritten').textContent).toMatch(
+        /kept on this machine · kept until 2026-11-13 \d\d:\d\d \(sandforge\.backup\.maxAgeDays\)$/,
+      );
+      expect(screen.getByTestId('sync-removal-put-back-not-kept').textContent).toBe(
+        'Values from before no longer kept (past sandforge.backup.maxAgeDays, or deleted from ' +
+          "the Restore tab): 1. Those records keep the run's values.",
+      );
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      expect(screen.getByTestId('sync-removal-confirm-not-kept')).toBeTruthy();
+    });
+
+    it('offers nothing to give back once every backup of it is gone, and says the values are no longer kept', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: { ...OVER, putBack: undefined, putBackNotKept: 3 },
+      });
+
+      expect(screen.getByTestId('sync-removal-overwritten').textContent).toBe(
+        '3 records of DEV-SANDBOX written over, their values from before no longer kept on this machine',
+      );
+      expect(screen.queryByTestId('sync-removal-remove')).toBeNull();
+    });
+  });
+
+  describe('a run whose records a later run wrote again', () => {
+    it('names the later run on the card and in the confirmation: remove it first', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: {
+          ...KEPT,
+          writtenAgain: [
+            {
+              runId: 'run-2',
+              configName: 'Accounts nightly',
+              startedAt: '2026-10-15T08:00:00.000Z',
+              records: 2,
+            },
+          ],
+        },
+      });
+
+      expect(screen.getByTestId('sync-removal-written-again').textContent).toMatch(
+        /^2 records of this run were written again by Accounts nightly on 2026-10-15 \d\d:\d\d: remove that run first, or they read as changed since this one$/,
+      );
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      expect(screen.getByTestId('sync-removal-confirm-written-again').textContent).toContain(
+        'remove that run first',
+      );
+    });
+  });
+
+  describe('a delta run that deleted in the target what the source deleted', () => {
+    const DELETED: SyncRunRemovalInfo = {
+      ...KEPT,
+      created: 0,
+      left: [],
+      deleted: 2,
+      bringBack: [{ objectApiName: 'Contact', count: 2 }],
+    };
+
+    it('says what it deleted, and offers to bring it back from the recycle bin', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: DELETED });
+
+      expect(screen.queryByTestId('sync-removal-created')).toBeNull();
+      expect(screen.getByTestId('sync-removal-deleted').textContent).toBe(
+        '2 records of DEV-SANDBOX deleted by the run, as the source had deleted them: its ' +
+          'removal brings them back from the recycle bin while they are there',
+      );
+      expect(screen.getByTestId('sync-removal-remove').textContent).toBe(
+        'Bring back what this run deleted',
+      );
+      fireEvent.click(screen.getByTestId('sync-removal-remove'));
+      expect(screen.getByRole('dialog').textContent).toContain(
+        'Brings back from the recycle bin of DEV-SANDBOX the records this run deleted',
+      );
+      expect(screen.getByTestId('sync-removal-bring-back-Contact').textContent).toBe(
+        'Contact: 2 records to be brought back from the recycle bin',
+      );
+    });
+
+    it('shows what the removal brought back, and what stays deleted with why', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: DELETED });
+      confirmRemoval();
+
+      answer('sync:remove', 'sync:remove:response', {
+        result: {
+          runId: 'run-1',
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-10-14T09:00:00.000Z',
+          objects: [],
+          undeleted: [
+            {
+              objectApiName: 'Contact',
+              planned: 2,
+              undeleted: 1,
+              alreadyBack: 0,
+              goneForGood: 1,
+              refused: 0,
+              reasons: [],
+            },
+          ],
+        },
+        operationId: 'req-1',
+      });
+
+      expect(screen.queryByTestId('forge-removal-result')).toBeNull();
+      expect(screen.getByTestId('sync-removal-undeleted-Contact').textContent).toBe(
+        'Contact: 1 of 2 brought back from the recycle bin · no longer in the recycle bin, ' +
+          'gone for good: 1',
+      );
+    });
+  });
+
+  it('keeps "keep their new values" off a run whose values an earlier removal gave back', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', {
+      info: { ...KEPT, overwritten: 2 },
+    });
+
+    fireEvent.click(screen.getByTestId('sync-removal-remove'));
+
+    expect(screen.getByRole('dialog').textContent).not.toContain('keep their new values');
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'Nothing it wrote over is given back now',
+    );
+  });
+
+  it('says which encrypted fields it could not keep, read masked', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', {
+      info: { ...KEPT, notKeptEncrypted: ['Contact.Tax__c'] },
+    });
+
+    expect(screen.getByTestId('sync-removal-not-kept-encrypted').textContent).toBe(
+      "Not kept, encrypted: Contact.Tax__c. The run's user cannot view encrypted data, and read " +
+        'their values from before masked: a removal leaves them as the run wrote them.',
+    );
   });
 });

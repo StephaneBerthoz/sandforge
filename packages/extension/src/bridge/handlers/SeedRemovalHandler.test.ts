@@ -377,6 +377,62 @@ describe('SeedRemovalHandler', () => {
       expect(lists()[0].find((run) => run.runId === 'op-job')?.created).toBe(1);
     });
 
+    it('lists a seed another window is writing as running there, aborting none of its jobs and removing nothing', async () => {
+      // The file names this process as the one writing the seed, as the first
+      // window's does; the second window is another process. Its contacts'
+      // job has been open for two hours: past the grace a job just opened gets.
+      const job = fakeId('750', 6);
+      const account = fakeId('001', 8);
+      const recorder = runs.recorder({ runId: 'op-other', targetOrgId: TARGET });
+      recorder.answered('Account', [account]);
+      recorder.sending('Contact', 5000, { job });
+      await vi.waitFor(async () => expect((await runs.get('op-other'))?.inFlight?.job).toBe(job));
+      org.add('Account', { Id: account });
+      let aborted = 0;
+      const asked: string[] = [];
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        bulk2: {
+          job: (_type: string, { id }: { id: string }) => {
+            asked.push(id);
+            return {
+              check: async () => ({
+                state: 'Open',
+                createdDate: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+              }),
+              getSuccessfulResults: async () => [],
+              abort: async () => {
+                aborted++;
+              },
+            };
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      const second = new SeedRemovalHandler(deps, undefined, () => false, {
+        pid: process.pid + 100_000,
+        startedAt: new Date().toISOString(),
+      });
+      second.setRunCreations(runs);
+      second.setRegistry(registry);
+
+      await second.handle(buildMsg('seed:removal:list', {}));
+      await second.handle(buildMsg('seed:remove', { runId: 'op-other' }));
+
+      expect(asked).toEqual([]);
+      expect(aborted).toBe(0);
+      const listed = lists()[0].find((run) => run.runId === 'op-other');
+      expect(listed).toMatchObject({ runningElsewhere: true, refusal: { code: 'RUNNING' } });
+      expect(listed?.unfinished).toBeUndefined();
+      expect(errors()).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            code: 'RUNNING',
+            message: expect.stringContaining('another window'),
+          }),
+        }),
+      ]);
+      expect(org.all('Account').map((row) => row.Id)).toContain(account);
+    });
+
     it('lists no run in a window given nowhere to keep them', async () => {
       const bare = new SeedRemovalHandler(deps);
 

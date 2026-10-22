@@ -14,7 +14,7 @@ const JOB = fakeId('750', 1);
 function orgWithJob(
   state: string,
   rows: Array<Record<string, unknown>> = [],
-  options: { systemModstamp?: string; unreadable?: boolean } = {},
+  options: { systemModstamp?: string; unreadable?: boolean; createdDate?: string } = {},
 ) {
   const asked: string[] = [];
   const abort = vi.fn(async () => undefined);
@@ -28,6 +28,7 @@ function orgWithJob(
             return {
               state,
               ...(options.systemModstamp ? { systemModstamp: options.systemModstamp } : {}),
+              ...(options.createdDate ? { createdDate: options.createdDate } : {}),
             };
           },
           getSuccessfulResults: async () => rows,
@@ -103,6 +104,20 @@ describe('readJobCreated', () => {
 
     expect(await readJobCreated(conn, JOB, false)).toEqual({ state: 'never-closed' });
     expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('never aborts a job opened less than an hour ago: its window may be uploading it still', async () => {
+    const now = Date.parse('2026-10-22T12:00:00.000Z');
+    const opened = orgWithJob('Open', [], { createdDate: '2026-10-22T11:58:00.000+0000' });
+
+    expect(await readJobCreated(opened.conn, JOB, false, () => now)).toEqual({ state: 'running' });
+    expect(opened.abort).not.toHaveBeenCalled();
+
+    const left = orgWithJob('Open', [], { createdDate: '2026-10-22T10:30:00.000+0000' });
+    expect(await readJobCreated(left.conn, JOB, false, () => now)).toEqual({
+      state: 'never-closed',
+    });
+    expect(left.abort).toHaveBeenCalledTimes(1);
   });
 
   it('says why a job could not be read back, rather than reading it as one that wrote nothing', async () => {

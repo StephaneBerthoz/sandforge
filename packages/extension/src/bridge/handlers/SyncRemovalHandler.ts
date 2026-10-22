@@ -43,20 +43,30 @@ import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import {
   createdCount,
+  deletedCount,
+  earlierRunsOf,
   overwrittenCount,
   SYNC_FILE_OBJECTS,
   syncRemovalPlan,
   syncRestorePlan,
+  syncUndeletePlan,
+  writtenAgainBy,
   type SyncRunCreations,
   type SyncRunKept,
 } from '../../modules/sync/SyncRunCreations.js';
 import { removeSyncRun } from '../../modules/sync/SyncRunRemoval.js';
+import {
+  backupMaxAgeDays,
+  putBackKept,
+  type BackupTaken,
+} from '../../modules/dataops/backupRetention.js';
 import { withRestoreAudit, type BackupReader } from '../../modules/sync/SyncRunRestore.js';
 import {
   answerJobsInFlight,
   jobAnsweredLines,
   type IngestJobReading,
 } from '../../modules/sync/inFlightJob.js';
+import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
   listSweep,
@@ -86,6 +96,10 @@ const SWEEP_LIST_TIMEOUT_MS = 120_000;
 
 /** How long reading back the job a run left under way may take: two reads of the job. */
 const JOB_READ_TIMEOUT_MS = 60_000;
+
+/** Why a run another window writes cannot be removed, until it ends. */
+const RUNNING_ELSEWHERE =
+  'The run is still writing in another window: remove it once it has ended there.';
 
 /**
  * The removal of what a Sync run created, and what the page reads before it
@@ -140,13 +154,31 @@ export class SyncRemovalHandler implements DomainHandler {
    * @param deps - Injected handler dependencies.
    * @param history - The sync history: which runs it still lists.
    * @param isRunning - Whether a run is still writing, in this window.
+   * @param self - This window's process, as a run's file names the process
+   *   writing it: a run another one alive writes is still writing too.
    */
   constructor(
     private readonly deps: HandlerDeps,
     private readonly history: Pick<SyncHistoryStore, 'list'>,
     private readonly isRunning: (runId: string) => boolean,
+    private readonly self: RunWriterHost = THIS_HOST,
   ) {
     this.configs = new SyncConfigStore(deps.configStore);
+  }
+
+  /**
+   * Whether another window writes the run now (`writtenElsewhere`): read as
+   * one a closed window left, its open Bulk API job was aborted mid-upload
+   * and its removal let through, which then never offered what it went on
+   * to create.
+   */
+  private elsewhere(run: SyncRunKept): boolean {
+    return !this.isRunning(run.runId) && writtenElsewhere(run, this.self);
+  }
+
+  /** Whether the run is still writing, in this window or in another. */
+  private stillWriting(run: SyncRunKept): boolean {
+    return this.isRunning(run.runId) || writtenElsewhere(run, this.self);
   }
 
   /** Where every run keeps what it created. */
@@ -228,12 +260,26 @@ export class SyncRemovalHandler implements DomainHandler {
     return guardTierOf(org);
   }
 
-  /** What a run kept, as the page reads it, and why no removal can run when none can. */
-  private infoOf(run: SyncRunKept): SyncRunRemovalInfo {
+  /**
+   * What a run kept, as the page reads it, and why no removal can run when
+   * none can; with `runs`, every run kept, the later runs of its target that
+   * wrote its records again.
+   */
+  private infoOf(run: SyncRunKept, runs: readonly SyncRunKept[] = []): SyncRunRemovalInfo {
     const plan = syncRemovalPlan(run);
+    const again = writtenAgainBy(run, runs);
     const left = plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
     const back = syncRestorePlan(run);
+    // What is put back is what the backup store still keeps: the retention
+    // takes a run's backup at its age, whatever the run's file says.
+    const kept = putBackKept(
+      back,
+      (backup) => this.deps.configStore.get<BackupTaken>(`backup:${backup}`),
+      backupMaxAgeDays(this.deps.services),
+    );
     const overwritten = overwrittenCount(run);
+    const deleted = deletedCount(run);
+    const bringBack = syncUndeletePlan(run);
     const info: SyncRunRemovalInfo = {
       runId: run.runId,
       configId: run.configId,
@@ -245,18 +291,41 @@ export class SyncRemovalHandler implements DomainHandler {
       ...(!run.end && run.inFlight
         ? { inFlight: { objectApiName: run.inFlight.objectApiName, rows: run.inFlight.rows } }
         : {}),
+      ...(this.elsewhere(run) ? { runningElsewhere: true as const } : {}),
       created: createdCount(run),
       left,
       ...(overwritten > 0 ? { overwritten } : {}),
-      ...(back.length > 0
+      ...(kept.kept.length > 0
         ? {
-            putBack: back.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
+            putBack: kept.kept.map(({ objectApiName, ids }) => ({
+              objectApiName,
+              count: ids.length,
+            })),
+            ...(kept.keptUntil !== undefined ? { putBackKeptUntil: kept.keptUntil } : {}),
+          }
+        : {}),
+      ...(kept.notKept > 0 ? { putBackNotKept: kept.notKept } : {}),
+      ...(deleted > 0 ? { deleted } : {}),
+      ...(run.unkept
+        ? {
+            notKeptEncrypted: run.unkept.flatMap(({ objectApiName, fields }) =>
+              fields.map((field) => `${objectApiName}.${field}`),
+            ),
+          }
+        : {}),
+      ...(bringBack.length > 0
+        ? {
+            bringBack: bringBack.map(({ objectApiName, ids }) => ({
+              objectApiName,
+              count: ids.length,
+            })),
           }
         : {}),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
+      ...(again.length > 0 ? { writtenAgain: again } : {}),
     };
-    if (plan.length === 0 && back.length === 0) return info;
-    const refusal = this.refusalOf(run, plan, back);
+    if (plan.length === 0 && back.length === 0 && bringBack.length === 0) return info;
+    const refusal = this.refusalOf(run, plan, [...back, ...bringBack]);
     return refusal ? { ...info, refusal } : info;
   }
 
@@ -294,6 +363,7 @@ export class SyncRemovalHandler implements DomainHandler {
     if (this.isRunning(run.runId)) {
       return { code: 'RUNNING', message: 'The run is still writing: remove it once it has ended.' };
     }
+    if (this.elsewhere(run)) return { code: 'RUNNING', message: RUNNING_ELSEWHERE };
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) {
       return {
         code: 'ORG_GONE',
@@ -325,7 +395,7 @@ export class SyncRemovalHandler implements DomainHandler {
    */
   private async withJobAnswered(run: SyncRunKept): Promise<SyncRunKept> {
     const store = this.creations;
-    if (!store || (run.jobs ?? []).length === 0 || this.isRunning(run.runId)) return run;
+    if (!store || (run.jobs ?? []).length === 0 || this.stillWriting(run)) return run;
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) return run;
     const context = `sync:removal of ${run.runId}`;
     try {
@@ -370,8 +440,13 @@ export class SyncRemovalHandler implements DomainHandler {
     if (!parsed) return;
     try {
       const run = await this.runOf(parsed.runId);
+      // The other runs read only for a run with something left to take back:
+      // what the later ones wrote of it again (`writtenAgainBy`).
+      const leftToTake =
+        run !== undefined && (syncRemovalPlan(run).length > 0 || syncRestorePlan(run).length > 0);
+      const runs = leftToTake ? ((await this.creations?.list()) ?? []) : [];
       const response = buildResponse(this.deps, msg, 'sync:removal:info:response', {
-        info: run ? (this.infoOf(run) as unknown as Record<string, unknown>) : null,
+        info: run ? (this.infoOf(run, runs) as unknown as Record<string, unknown>) : null,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -404,10 +479,11 @@ export class SyncRemovalHandler implements DomainHandler {
           !this.isRunning(run.runId) &&
           (createdCount(run) > 0 ||
             overwrittenCount(run) > 0 ||
+            deletedCount(run) > 0 ||
             (!run.end && run.inFlight !== undefined)),
       );
       const response = buildResponse(this.deps, msg, 'sync:removal:list:response', {
-        runs: unlisted.map((run) => this.infoOf(run)) as unknown as Record<string, unknown>[],
+        runs: unlisted.map((run) => this.infoOf(run, runs)) as unknown as Record<string, unknown>[],
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} count=${unlisted.length}`);
@@ -718,8 +794,17 @@ export class SyncRemovalHandler implements DomainHandler {
       this.refuse(msg, 'The run is still writing: remove it once it has ended.', 'RUNNING');
       return;
     }
-    if (syncRemovalPlan(run).length === 0 && syncRestorePlan(run).length === 0) {
-      const removedAt = run.removal?.undo?.removedAt ?? run.removal?.restoredAt;
+    if (this.elsewhere(run)) {
+      this.refuse(msg, RUNNING_ELSEWHERE, 'RUNNING');
+      return;
+    }
+    if (
+      syncRemovalPlan(run).length === 0 &&
+      syncRestorePlan(run).length === 0 &&
+      syncUndeletePlan(run).length === 0
+    ) {
+      const removedAt =
+        run.removal?.undo?.removedAt ?? run.removal?.restoredAt ?? run.removal?.undeletedAt;
       if (removedAt !== undefined) {
         this.refuse(
           msg,
@@ -773,7 +858,9 @@ export class SyncRemovalHandler implements DomainHandler {
   ): Promise<void> {
     const { includeChanged } = asked;
     const plan = syncRemovalPlan(run);
-    const back = syncRestorePlan(run);
+    // What it gives back, and what it brings back from the recycle bin: both
+    // write to records the run did not create, judged as one.
+    const back = [...syncRestorePlan(run), ...syncUndeletePlan(run)];
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const totalBack = back.reduce((sum, object) => sum + object.ids.length, 0);
     const orgId = run.targetOrgId;
@@ -831,7 +918,7 @@ export class SyncRemovalHandler implements DomainHandler {
     const description =
       totalBack > 0
         ? `Removing ${total} record(s) and file(s) a Sync run created, and giving ${totalBack} ` +
-          'record(s) it wrote over their values back'
+          'record(s) it wrote over or deleted their values back'
         : `Removing ${total} record(s) and file(s) a Sync run created`;
     const abortController = new AbortController();
     let settle: (err?: unknown) => void = () => {};
@@ -875,7 +962,11 @@ export class SyncRemovalHandler implements DomainHandler {
             return sweepMade.result.objects.some((object) => object.deleted > 0);
           }
         : undefined;
-      const { result: removed, notes } = await removeSyncRun({
+      const {
+        result: removed,
+        notes,
+        earlierStamped,
+      } = await removeSyncRun({
         run,
         org: removalOrg(conn, 'sync:remove'),
         includeChanged,
@@ -885,6 +976,10 @@ export class SyncRemovalHandler implements DomainHandler {
         links: store.idMap(),
         // What the run wrote over gets back the values it kept of them.
         ...(this.backups ? { backups: this.backups } : {}),
+        // What it gives back of the records an earlier run wrote too is that run's again.
+        earlierRuns: earlierRunsOf(run, await store.list().catch(() => [])),
+        // What it deleted, as the source had deleted them, comes back from the recycle bin.
+        undelete: (ids) => conn.soap.undelete(ids),
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
         signal: abortController.signal,
         onProgress: (settled, of, objectApiName) => {
@@ -897,6 +992,12 @@ export class SyncRemovalHandler implements DomainHandler {
         },
       });
       for (const note of notes) this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
+      for (const { runId, records } of earlierStamped ?? []) {
+        this.deps.log(
+          `[INFO] sync:remove ${operationId}: ${records} record(s) given back hold the values of ` +
+            `the earlier run ${runId} again, stamped on it`,
+        );
+      }
       const result: SyncRemovalResult = sweepMade.result
         ? { ...removed, sweep: sweepMade.result }
         : removed;
@@ -908,7 +1009,11 @@ export class SyncRemovalHandler implements DomainHandler {
         orgId,
         outcome: removalAuditOutcome(result),
         guard: decision,
-        objects: withRestoreAudit(removalAuditObjects(result.objects), result.restored ?? []),
+        objects: withRestoreAudit(
+          removalAuditObjects(result.objects),
+          result.restored ?? [],
+          result.undeleted ?? [],
+        ),
         ...(result.leftBy ? { leftBy: result.leftBy } : {}),
         details: { runId: run.runId },
       });

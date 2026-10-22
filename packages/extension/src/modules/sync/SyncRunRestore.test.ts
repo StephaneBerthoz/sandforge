@@ -96,6 +96,89 @@ describe('restoreOverwrites', () => {
     });
   });
 
+  it('gives a record back the rest of its values when the org no longer takes one of them, and names it', async () => {
+    // The run wrote over an industry and a name; the industry's value from
+    // before has been deactivated in the org since.
+    org.add(
+      'Account',
+      { Id: fakeId('001', 9), Name: 'After 9', Industry: 'Energy' },
+      minutesAgo(10),
+    );
+    org.refuseValue.set('Industry', {
+      value: 'Retired',
+      statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+      message: 'bad value for restricted picklist field: Retired',
+    });
+
+    const outcome = await restoreOverwrites({
+      org,
+      plan: [{ objectApiName: 'Account', backup: BACKUP, ids: [fakeId('001', 9)] }],
+      backups: backups({
+        Account: [{ Id: fakeId('001', 9), Name: 'Before 9', Industry: 'Retired' }],
+      }),
+      lastWriteAt: minutesAgo(10),
+      includeChanged: false,
+    });
+
+    expect(outcome.objects[0]).toMatchObject({
+      planned: 1,
+      restored: 0,
+      restoredWithout: 1,
+      refused: 0,
+      reasons: [
+        'Account.Industry: the value from before is no longer taken ' +
+          '(INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value for restricted picklist field: ' +
+          'Retired) — left as the run wrote it',
+      ],
+    });
+    // Nothing more to send for it: the run can settle.
+    expect(outcome.left).toEqual([]);
+    expect(org.all('Account').find((row) => row.Id === fakeId('001', 9))).toMatchObject({
+      Name: 'Before 9',
+      Industry: 'Energy',
+    });
+  });
+
+  it('reads a lookup to a record deleted since as a field refused, not the record as gone', async () => {
+    const id = fakeId('001', 10);
+    const gone = fakeId('001', 11);
+    org.add('Account', { Id: id, Name: 'After 10', ParentId: null }, minutesAgo(10));
+    org.refuseValue.set('ParentId', {
+      value: gone,
+      statusCode: 'ENTITY_IS_DELETED',
+      message: 'entity is deleted',
+    });
+
+    const outcome = await restoreOverwrites({
+      org,
+      plan: [{ objectApiName: 'Account', backup: BACKUP, ids: [id] }],
+      backups: backups({ Account: [{ Id: id, Name: 'Before 10', ParentId: gone }] }),
+      lastWriteAt: minutesAgo(10),
+      includeChanged: false,
+    });
+
+    expect(outcome.objects[0]).toMatchObject({ alreadyGone: 0, restoredWithout: 1 });
+    expect(org.all('Account').find((row) => row.Id === id)).toMatchObject({ Name: 'Before 10' });
+  });
+
+  it('says which encrypted fields it could not give back, kept by no run that read them masked', async () => {
+    const outcome = await restoreOverwrites({
+      org,
+      plan: PLAN,
+      backups: backups(BEFORE),
+      lastWriteAt: minutesAgo(10),
+      includeChanged: false,
+      unkept: [{ objectApiName: 'Account', fields: ['Tax__c'] }],
+    });
+
+    expect(outcome.objects[0].reasons).toEqual([
+      "Account.Tax__c: not kept, encrypted — the run's user cannot view encrypted data, and " +
+        'read their values from before masked; left as the run wrote them',
+    ]);
+    // Nothing of that field is sent: the rest is given back as it was.
+    expect(org.updates.flatMap(({ records }) => records).some((r) => 'Tax__c' in r)).toBe(false);
+  });
+
   it('leaves a record changed since the run as it is, unless the changed ones are included', async () => {
     org.touch('Account', A2, new Date(Date.now() + 60_000).toISOString());
 

@@ -794,6 +794,41 @@ describe('DataOpsHandler backup record storage', () => {
       expect(harness.files.names()).toEqual(['bk-ancient__Contact.ndjson']);
     });
 
+    it('names the Sync run whose backup it removes, in the log and to whoever listens', async () => {
+      const harness = createHarness({ withStore: false });
+      harness.config.set('backupRetention:since', new Date(Date.now() - 500 * DAY).toISOString());
+      await keep(harness, 'sync-before-run-7', 'org-1', 31 * DAY);
+      harness.config.set('backup:sync-before-run-7', {
+        ...harness.config.get<Record<string, unknown>>('backup:sync-before-run-7'),
+        origin: 'sync',
+        runId: 'run-7',
+      });
+      await keep(harness, 'bk-old', 'org-1', 31 * DAY);
+      const heard: unknown[] = [];
+      harness.handler.setExpiryListener((expired) => heard.push(expired));
+
+      harness.handler.setBackupRecordStore(harness.files.store);
+      await harness.handler.swept();
+
+      expect(heard).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            operationId: 'sync-before-run-7',
+            days: 30,
+            syncRunId: 'run-7',
+          }),
+          expect.objectContaining({ operationId: 'bk-old', days: 30 }),
+        ]),
+      );
+      expect(
+        heard.find((e) => (e as { operationId: string }).operationId === 'bk-old'),
+      ).not.toHaveProperty('syncRunId');
+      expect(vi.mocked(harness.deps.log).mock.calls.map(([line]) => line)).toContain(
+        '[INFO] Removed backup backup:sync-before-run-7: taken more than 30 day(s) ago — the ' +
+          'values the Sync run run-7 wrote over, which removing that run no longer puts back',
+      );
+    });
+
     it('goes by the age the setting gives', async () => {
       const harness = createHarness({ maxAgeDays: 7 });
       harness.config.set('backupRetention:since', new Date(Date.now() - 60 * DAY).toISOString());
@@ -1179,6 +1214,8 @@ describe('DataOpsHandler backup record storage', () => {
           expect(String(answer?.message)).toContain(
             '1 changed or deleted since the Sync run were left as they are unless the restore includes them',
           );
+          // Partial, as its status says: "Rollback completed" read as everything put back.
+          expect(String(answer?.message)).toMatch(/^Rollback partial: 1 records restored;/);
         });
 
         it('restores it too when the restore includes the records changed since the run', async () => {

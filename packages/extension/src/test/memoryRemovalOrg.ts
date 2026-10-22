@@ -31,6 +31,8 @@ export const MEMORY_ORG_USER = '005000000000001AAA';
 export class MemoryRemovalOrg implements RemovalOrg {
   private readonly rows = new Map<string, MemoryRow[]>();
   private readonly bin = new Set<string>();
+  /** The rows in the recycle bin, by key, with their object: what an undelete puts back. */
+  private readonly binned = new Map<string, { objectApiName: string; row: MemoryRow }>();
   /** Records whose delete the org refuses, with its answer. */
   readonly refuse = new Map<string, string>();
   /** Every delete asked, object and ids, in order. */
@@ -148,7 +150,43 @@ export class MemoryRemovalOrg implements RemovalOrg {
     });
   }
 
+  /** Delete a row to the recycle bin, as someone, or a run, did. */
+  trash(objectApiName: string, id: string): void {
+    this.remove(objectApiName, id);
+  }
+
+  /** Empty a row from the recycle bin: gone for good. */
+  purge(id: string): void {
+    this.bin.delete(id.slice(0, 15));
+    this.binned.delete(id.slice(0, 15));
+  }
+
+  /** Take rows out of the recycle bin, as `conn.soap.undelete` does: one answer per id. */
+  async undelete(ids: string[]): Promise<unknown> {
+    return ids.map((id) => {
+      const held = this.binned.get(id.slice(0, 15));
+      if (!held) {
+        return {
+          id,
+          success: false,
+          errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+        };
+      }
+      this.purge(id);
+      // Dated anew, as modified by the session's user: what a removal's stamps read.
+      const row = {
+        ...held.row,
+        LastModifiedDate: new Date().toISOString(),
+        LastModifiedById: MEMORY_ORG_USER,
+      };
+      this.rows.set(held.objectApiName, [...this.all(held.objectApiName), row]);
+      return { id, success: true, errors: [] };
+    });
+  }
+
   private remove(objectApiName: string, id: string): void {
+    const deleted = this.all(objectApiName).find((held) => held.Id === id);
+    if (deleted) this.binned.set(id.slice(0, 15), { objectApiName, row: deleted });
     this.rows.set(
       objectApiName,
       this.all(objectApiName).filter((row) => row.Id !== id),

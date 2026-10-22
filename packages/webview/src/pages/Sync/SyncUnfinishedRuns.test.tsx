@@ -95,6 +95,29 @@ describe('SyncUnfinishedRuns', () => {
     expect(screen.queryByTestId('sync-unfinished-in-flight-run-9')).toBeNull();
   });
 
+  it('says a run another window is writing is running there, and offers no removal of it', () => {
+    render(<SyncUnfinishedRuns />);
+
+    answer('sync:removal:list', 'sync:removal:list:response', {
+      runs: [
+        {
+          ...STOPPED,
+          runningElsewhere: true,
+          inFlight: { objectApiName: 'Contact', rows: 12_000 },
+          refusal: { code: 'RUNNING', message: 'The run is still writing in another window.' },
+        },
+      ],
+    });
+
+    expect(screen.getByTestId('sync-unfinished-elsewhere-run-9').textContent).toBe(
+      'Still writing in another window: what it creates can be removed once it has ended there.',
+    );
+    // Not one a closed window stopped: no call said cut short, no card asked.
+    expect(screen.queryByTestId('sync-unfinished-in-flight-run-9')).toBeNull();
+    expect(screen.queryByTestId('sync-unfinished-removal-run-9')).toBeNull();
+    expect(sent('sync:removal:info')).toBeUndefined();
+  });
+
   it('names the call a run had under way when its window closed, whose rows the list may lack', () => {
     render(<SyncUnfinishedRuns />);
 

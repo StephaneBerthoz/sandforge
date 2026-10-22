@@ -22,6 +22,10 @@ const validateConnection = vi.hoisted(() => vi.fn());
 import { loadOrg } from './sfSession.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { main, parseArgs, snapshotListing, snapshotTaken } from './sandforge-backup.js';
+import { fileConfigStore } from './fileConfigStore.js';
+
+/** One day, in milliseconds. */
+const DAY = 24 * 60 * 60_000;
 
 /** A command line, as `process.argv` hands it over. */
 function argv(...args: string[]): string[] {
@@ -116,6 +120,25 @@ describe('parseArgs', () => {
     const { code, message } = refuse('--org', 'T', '--object', 'Contact', '--rewrite-all');
     expect(code).toBe(2);
     expect(message).toContain('--rewrite-all goes with --restore');
+  });
+
+  it('puts back the records changed since a Sync run only when --include-changed says so, with a restore', () => {
+    expect(parseArgs(argv('--org', 'T', '--restore', 'op-1')).includeChanged).toBe(false);
+    expect(
+      parseArgs(argv('--org', 'T', '--restore', 'op-1', '--include-changed')).includeChanged,
+    ).toBe(true);
+    const { code, message } = refuse('--org', 'T', '--object', 'Contact', '--include-changed');
+    expect(code).toBe(2);
+    expect(message).toContain('--include-changed goes with --restore');
+  });
+
+  it('reads the retention in days, 0 keeping every snapshot, and refuses one that is not a number', () => {
+    expect(parseArgs(argv('--org', 'T', '--list')).maxAgeDays).toBeUndefined();
+    expect(parseArgs(argv('--org', 'T', '--list', '--max-age-days', '0')).maxAgeDays).toBe(0);
+    expect(parseArgs(argv('--org', 'T', '--list', '--max-age-days', '90')).maxAgeDays).toBe(90);
+    const { code, message } = refuse('--org', 'T', '--list', '--max-age-days', '30d');
+    expect(code).toBe(2);
+    expect(message).toContain('Not a number of days: "30d"');
   });
 });
 
@@ -344,6 +367,75 @@ describe('against an org', () => {
         rewriteAll: true,
         message: 'Rollback completed: 3 records restored',
       });
+    });
+  });
+
+  it('says on stderr each snapshot its retention removes, the one of a Sync run named, and keeps them with --max-age-days 0', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      orgOf(contactsOf(1));
+      const kept = fileConfigStore(join(store, 'snapshots.json'));
+      // The retention has been in force here for a year; the run's snapshot is forty days old.
+      kept.set('backupRetention:since', new Date(Date.now() - 365 * DAY).toISOString());
+      const taken = new Date(Date.now() - 40 * DAY).toISOString();
+      kept.set(
+        'backup:sync-before-run-7',
+        {
+          operationId: 'sync-before-run-7',
+          orgId: 'ORG',
+          objects: [{ objectApiName: 'Account', recordCount: 1, truncated: false }],
+          totalRecords: 1,
+          timestamp: taken,
+          origin: 'sync',
+          runId: 'run-7',
+        },
+        'backups',
+      );
+      let err = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        err += String(chunk);
+        return true;
+      });
+
+      await run(store, '--org', 'ORG', '--object', 'Contact', '--max-age-days', '0');
+      expect(err).not.toContain('removed snapshot');
+      expect(
+        fileConfigStore(join(store, 'snapshots.json')).get('backup:sync-before-run-7'),
+      ).toBeDefined();
+
+      await run(store, '--org', 'ORG', '--object', 'Contact');
+      expect(err).toContain(
+        `removed snapshot sync-before-run-7, taken ${taken}: past the retention of 30 day(s) ` +
+          '(--max-age-days, 0 keeps them all). It held what the Sync run run-7 wrote over: ' +
+          'removing that run with sandforge-sync --remove no longer puts those values back',
+      );
+      expect(
+        fileConfigStore(join(store, 'snapshots.json')).get('backup:sync-before-run-7'),
+      ).toBeUndefined();
+    });
+  });
+
+  it('hands --include-changed to the restore, which says it put back the changed records too', async () => {
+    await inStore(async (store) => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(2);
+      orgOf(rows);
+      const backup = await run(store, '--org', 'ORG', '--object', 'Contact');
+      rows[0].Title = 'Changed after the backup';
+
+      const restore = await run(
+        store,
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotOf(backup.posted),
+        '--include-changed',
+        '--yes',
+      );
+
+      expect(
+        restore.posted.find((m) => m.type === 'dataops:rollback:response')?.payload,
+      ).toMatchObject({ includeChanged: true, totalRestored: 1 });
     });
   });
 

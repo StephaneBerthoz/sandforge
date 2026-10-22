@@ -12,7 +12,7 @@ import { SyncPricebookLine } from '../SyncPricebookLine';
 import { ForgeCurrenciesResult } from '../../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../../Forge/PriceCurrenciesResult';
 import { SyncEarlierCopiesNotice } from '../SyncEarlierCopies';
-import { SyncRunRemoval } from '../SyncRunRemoval';
+import { SyncRunRemoval } from '../syncRemovalParts';
 import { SyncWrittenLines, hasWrittenLines } from '../SyncWrittenLines';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 

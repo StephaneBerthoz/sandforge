@@ -39,6 +39,7 @@ import * as z from 'zod';
 import type { ForgeRemovalSpan, ForgeUndoMark } from '@sandforge/shared';
 import { forgeRemovalPlanLeft } from '@sandforge/shared';
 import { SyncIdMap } from './SyncIdMap.js';
+import { THIS_HOST, type RunWriterHost } from './runWriter.js';
 
 /** The directory, under the extension's storage, that the runs' files go in. */
 export const SYNC_RUNS_DIR = 'sync-runs';
@@ -84,16 +85,31 @@ export interface SyncRunCreationsDeps {
   maxBytes?: number;
   /** The hard bound; {@link SYNC_RUNS_HARD_MAX_BYTES} unless a test sets another. */
   hardMaxBytes?: number;
+  /** The process a run's file names as writing it: this one unless a test sets another. */
+  host?: RunWriterHost;
+  /**
+   * Told of a run the hard bound dropped though its removal had not taken it
+   * all back: its records are still in its org, and nothing here names them
+   * any more.
+   */
+  onDropped?: (run: SyncRunKept) => void;
 }
 
 /**
  * The store over Node's file system, under the extension's storage directory,
  * or the directory the command line is told.
+ *
+ * @param onDropped - See {@link SyncRunCreationsDeps.onDropped}.
  */
-export function nodeSyncRunCreations(storagePath: string, runsDir?: string): SyncRunCreations {
+export function nodeSyncRunCreations(
+  storagePath: string,
+  runsDir?: string,
+  onDropped?: (run: SyncRunKept) => void,
+): SyncRunCreations {
   return new SyncRunCreations({
     storagePath,
     ...(runsDir !== undefined ? { runsDir } : {}),
+    ...(onDropped ? { onDropped } : {}),
     readFile: (filePath) => readFile(filePath, 'utf8'),
     writeFile: (filePath, content) => writeFile(filePath, content, 'utf8'),
     appendFile: (filePath, content) => appendFile(filePath, content, 'utf8'),
@@ -157,6 +173,13 @@ const headSchema = z.object({
      * line of its object, whatever line that is.
      */
     answersNameJobs: z.literal(true).optional(),
+    /**
+     * The process writing the run — a window's extension host, a command
+     * line — and when it started (`runWriter`): a run with no end whose
+     * process is alive is being written, in another window than its own too.
+     * Absent from a file written before files named their process.
+     */
+    writer: z.object({ pid: z.number().int().positive(), hostStartedAt: dateSchema }).optional(),
   }),
 });
 
@@ -281,6 +304,38 @@ const overwroteSchema = z.object({
   }),
 });
 
+/**
+ * A line once a call wrote, to records the target held, classic encrypted
+ * fields whose values from before the run's user reads masked: not kept, so
+ * its removal leaves them as the run wrote them, and says why. Field names
+ * alone, each once per object.
+ */
+const unkeptSchema = z.object({
+  unkept: z.object({
+    object: objectSchema,
+    fields: z.array(objectSchema).min(1).max(800),
+    why: z.literal('encrypted'),
+    at: dateSchema,
+  }),
+});
+
+/**
+ * A line once a call deleted records of the target — a delta run's carrying
+ * of what the source deleted (`SyncOrchestrator.carryDeletions`) — naming the
+ * ones it deleted, and when: ids alone. The records can be ones the target
+ * held before any run, tied by the write's key; they go to its recycle bin,
+ * and the run's removal brings them back from it while they are there. Its
+ * file named none of them: the removal reported success, and the records
+ * stayed deleted, unmentioned, until the bin was emptied.
+ */
+const deletedSchema = z.object({
+  deleted: z.object({
+    object: objectSchema,
+    ids: z.array(idSchema).min(1).max(IDS_PER_LINE),
+    at: dateSchema,
+  }),
+});
+
 /** The last line: how the run ended, on this machine's clock. */
 const endSchema = z.object({
   end: z.object({
@@ -311,6 +366,8 @@ const removalSchema = z.object({
   removalLeft: z.array(idSchema).optional(),
   restoreLeft: z.array(idSchema).optional(),
   restoredAt: dateSchema.optional(),
+  undeleteLeft: z.array(idSchema).optional(),
+  undeletedAt: dateSchema.optional(),
 });
 
 /**
@@ -321,7 +378,16 @@ const removalSchema = z.object({
 export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined {
   const parsed = removalSchema.safeParse(raw);
   if (!parsed.success) return undefined;
-  const { undo, removalStamps, removalSpans, removalLeft, restoreLeft, restoredAt } = parsed.data;
+  const {
+    undo,
+    removalStamps,
+    removalSpans,
+    removalLeft,
+    restoreLeft,
+    restoredAt,
+    undeleteLeft,
+    undeletedAt,
+  } = parsed.data;
   return {
     ...(undo ? { undo } : {}),
     ...(removalStamps ? { removalStamps } : {}),
@@ -329,6 +395,8 @@ export function readRemovalState(raw: unknown): SyncRunRemovalState | undefined 
     ...(removalLeft ? { removalLeft } : {}),
     ...(restoreLeft ? { restoreLeft } : {}),
     ...(restoredAt !== undefined ? { restoredAt } : {}),
+    ...(undeleteLeft ? { undeleteLeft } : {}),
+    ...(undeletedAt !== undefined ? { undeletedAt } : {}),
   };
 }
 
@@ -349,6 +417,14 @@ export interface SyncRunRemovalState {
   restoreLeft?: string[];
   /** When the last removal that put a record's values back ended. */
   restoredAt?: string;
+  /**
+   * The records the run deleted that its removals have not brought back from
+   * the recycle bin — refused, not reached; every one before any removal
+   * brought one back.
+   */
+  undeleteLeft?: string[];
+  /** When the last removal that brought records back from the recycle bin ended. */
+  undeletedAt?: string;
 }
 
 /** The run a file names. */
@@ -412,6 +488,18 @@ export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
    * wrote over none.
    */
   overwritten?: SyncRunOverwritten[];
+  /**
+   * The records of the target it deleted, per object in the order it first
+   * deleted some, as the source had deleted them: what its removal brings
+   * back from the recycle bin. Absent when it deleted none.
+   */
+  deleted?: Array<{ objectApiName: string; ids: string[] }>;
+  /**
+   * The encrypted fields it wrote to records the target held whose values
+   * from before were not kept, read masked: per object, each field once.
+   * Absent when none.
+   */
+  unkept?: Array<{ objectApiName: string; fields: string[] }>;
   /** What its removals did, once one ran. */
   removal?: SyncRunRemovalState;
 }
@@ -466,6 +554,10 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   const byObject = new Map<string, string[]>();
   const seen = new Set<string>();
   const overwrites = new OverwritesRead();
+  /** What it deleted, per object, each record once by its first fifteen characters. */
+  const deletedByObject = new Map<string, Map<string, string>>();
+  /** The encrypted fields not kept, per object. */
+  const unkeptByObject = new Map<string, Set<string>>();
   for (const line of text.split('\n')) {
     if (line.trim() === '') continue;
     const value = parseLine(line);
@@ -491,6 +583,23 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     const writing = writingSchema.safeParse(value);
     if (writing.success) {
       wrote(writing.data.writing.at);
+      continue;
+    }
+    const unkept = unkeptSchema.safeParse(value);
+    if (unkept.success) {
+      const { object, fields } = unkept.data.unkept;
+      const ofObject = unkeptByObject.get(object) ?? new Set<string>();
+      for (const field of fields) ofObject.add(field);
+      unkeptByObject.set(object, ofObject);
+      continue;
+    }
+    const deleted = deletedSchema.safeParse(value);
+    if (deleted.success) {
+      const { object, ids, at } = deleted.data.deleted;
+      wrote(at);
+      const ofObject = deletedByObject.get(object) ?? new Map<string, string>();
+      for (const id of ids) if (!ofObject.has(id.slice(0, 15))) ofObject.set(id.slice(0, 15), id);
+      deletedByObject.set(object, ofObject);
       continue;
     }
     const sending = sendingSchema.safeParse(value);
@@ -571,6 +680,22 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       ids.length > 0 ? [{ objectApiName, ids }] : [],
     ),
     ...(overwritten.length > 0 ? { overwritten } : {}),
+    ...(unkeptByObject.size > 0
+      ? {
+          unkept: [...unkeptByObject].map(([objectApiName, fields]) => ({
+            objectApiName,
+            fields: [...fields],
+          })),
+        }
+      : {}),
+    ...(deletedByObject.size > 0
+      ? {
+          deleted: [...deletedByObject].map(([objectApiName, ids]) => ({
+            objectApiName,
+            ids: [...ids.values()],
+          })),
+        }
+      : {}),
   };
 }
 
@@ -691,13 +816,110 @@ export function syncRestorePlan(
   });
 }
 
+/** How many records of the target a run deleted, in all. */
+export function deletedCount(run: Pick<SyncRunKept, 'deleted'>): number {
+  return (run.deleted ?? []).reduce((sum, object) => sum + object.ids.length, 0);
+}
+
 /**
- * A run removed with nothing left behind: nothing more of it to remove, and
- * nothing more of it to put back.
+ * What a removal of a run brings back from the recycle bin, per object in
+ * the order the run first deleted some: the records it deleted, less what
+ * earlier removals brought back or found gone for good.
+ */
+export function syncUndeletePlan(
+  run: Pick<SyncRunKept, 'deleted' | 'removal'>,
+): Array<{ objectApiName: string; ids: string[] }> {
+  const left = run.removal?.undeleteLeft;
+  const keys = left ? new Set(left.map((id) => id.slice(0, 15))) : undefined;
+  return (run.deleted ?? []).flatMap((object) => {
+    const ids = keys ? object.ids.filter((id) => keys.has(id.slice(0, 15))) : [...object.ids];
+    return ids.length > 0 ? [{ objectApiName: object.objectApiName, ids }] : [];
+  });
+}
+
+/**
+ * A run removed with nothing left behind: nothing more of it to remove,
+ * nothing more of it to put back, nothing more to bring back.
  */
 export function settled(run: SyncRunKept): boolean {
   if (syncRemovalPlan(run).length > 0 || syncRestorePlan(run).length > 0) return false;
-  return run.removal?.undo !== undefined || run.removal?.restoredAt !== undefined;
+  if (syncUndeletePlan(run).length > 0) return false;
+  return (
+    run.removal?.undo !== undefined ||
+    run.removal?.restoredAt !== undefined ||
+    run.removal?.undeletedAt !== undefined
+  );
+}
+
+/** The records a run still has to take back or give back, by their first fifteen characters. */
+function namedLeft(run: SyncRunKept): Set<string> {
+  return new Set(
+    [...syncRemovalPlan(run), ...syncRestorePlan(run)].flatMap(({ ids }) =>
+      ids.map((id) => id.slice(0, 15)),
+    ),
+  );
+}
+
+/**
+ * The runs of the same target that `run` came before, by when each started,
+ * and not settled, as `runs` holds them.
+ */
+function sameTarget(run: SyncRunKept, runs: readonly SyncRunKept[]): SyncRunKept[] {
+  return runs.filter(
+    (other) =>
+      other.runId !== run.runId && other.targetOrgId === run.targetOrgId && !settled(other),
+  );
+}
+
+/**
+ * The runs of the same target before `run` that are not settled: what its
+ * removal stamps of the records they name (`SyncRunRemovalInput.earlierRuns`).
+ */
+export function earlierRunsOf(run: SyncRunKept, runs: readonly SyncRunKept[]): SyncRunKept[] {
+  const started = Date.parse(run.startedAt);
+  return sameTarget(run, runs).filter((other) => Date.parse(other.startedAt) < started);
+}
+
+/** A later run that wrote records an earlier one still has to take back or give back. */
+export interface SyncRunWrittenAgain {
+  runId: string;
+  configName: string;
+  startedAt: string;
+  /** How many of the earlier run's records it names. */
+  records: number;
+}
+
+/**
+ * The runs of the same target after `run`, not settled, that name records
+ * `run` still has to take back or give back — created or wrote over them
+ * again — newest first: until each is removed, `run`'s removal reads those
+ * records as changed since it, and its own removal would give them back the
+ * values `run` wrote. Removed first, each stamps them on `run`.
+ */
+export function writtenAgainBy(
+  run: SyncRunKept,
+  runs: readonly SyncRunKept[],
+): SyncRunWrittenAgain[] {
+  const mine = namedLeft(run);
+  if (mine.size === 0) return [];
+  const started = Date.parse(run.startedAt);
+  return sameTarget(run, runs)
+    .filter((other) => Date.parse(other.startedAt) > started)
+    .flatMap((other) => {
+      let records = 0;
+      for (const key of namedLeft(other)) if (mine.has(key)) records++;
+      return records > 0
+        ? [
+            {
+              runId: other.runId,
+              configName: other.configName,
+              startedAt: other.startedAt,
+              records,
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || 0);
 }
 
 /**
@@ -754,6 +976,19 @@ export interface SyncCreationRecorder {
    * those it did not write, none when it wrote them all.
    */
   overwrote?(objectApiName: string, notWritten: readonly string[]): void;
+  /**
+   * A call has just deleted `ids` of `objectApiName`, records of the target
+   * the source had deleted: written at once, dated now. Like what it writes
+   * over, it begins the run's file: a run that only deletes keeps what its
+   * removal brings back.
+   */
+  deleted?(objectApiName: string, ids: readonly string[]): void;
+  /**
+   * A call is about to write `fields` of `objectApiName`, classic encrypted
+   * fields the run's user reads masked, to records the target holds: their
+   * values from before are not kept, written at once, as field names.
+   */
+  unkept?(objectApiName: string, fields: readonly string[]): void;
   /** How many records the run has written over so far, as its lines name them. */
   overwrittenCount?(): number;
   /**
@@ -772,7 +1007,7 @@ export interface SendingCall {
 }
 
 /** What a run's recorder is told of the run when it begins. */
-export type SyncRunStart = Omit<SyncRunHead, 'startedAt' | 'answersNameJobs'> & {
+export type SyncRunStart = Omit<SyncRunHead, 'startedAt' | 'answersNameJobs' | 'writer'> & {
   startedAt?: string;
 };
 
@@ -823,10 +1058,12 @@ export class SyncRunCreations {
     }): Promise<void>;
   } {
     const file = this.runPath(start.runId);
+    const host = this.deps.host ?? THIS_HOST;
     const head: SyncRunHead = {
       ...start,
       startedAt: start.startedAt ?? new Date().toISOString(),
       answersNameJobs: true,
+      writer: { pid: host.pid, hostStartedAt: host.startedAt },
     };
     /** The Bulk API job each object's call under way is, once the org opened it. */
     const jobOf = new Map<string, string>();
@@ -946,6 +1183,29 @@ export class SyncRunCreations {
             },
           });
         }
+      },
+      deleted: (objectApiName, ids) => {
+        if (!objectSchema.safeParse(objectApiName).success) return;
+        const valid = ids.filter((id) => idSchema.safeParse(id).success);
+        const at = new Date().toISOString();
+        for (let from = 0; from < valid.length; from += IDS_PER_LINE) {
+          append({
+            deleted: { object: objectApiName, ids: valid.slice(from, from + IDS_PER_LINE), at },
+          });
+        }
+      },
+      unkept: (objectApiName, fields) => {
+        if (!objectSchema.safeParse(objectApiName).success) return;
+        const valid = fields.filter((field) => objectSchema.safeParse(field).success);
+        if (valid.length === 0) return;
+        append({
+          unkept: {
+            object: objectApiName,
+            fields: valid.slice(0, 800),
+            why: 'encrypted',
+            at: new Date().toISOString(),
+          },
+        });
       },
       overwrittenCount: () => overwrites.count,
       flush: async () => {
@@ -1117,7 +1377,15 @@ export class SyncRunCreations {
     }
     for (const run of runs) {
       if (total <= this.hardMaxBytes) return;
-      if (!settled(run)) await drop(run);
+      if (settled(run)) continue;
+      await drop(run);
+      // Its records are still in its org: dropped without a word, its run left
+      // every list, and nothing led back to them.
+      try {
+        this.deps.onDropped?.(run);
+      } catch {
+        // Told or not, the run is dropped.
+      }
     }
   }
 }

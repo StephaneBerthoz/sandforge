@@ -236,6 +236,78 @@ describe('syncOverwriteKeeper', () => {
 
     expect(statements).toEqual([`SELECT Id, Name FROM Account WHERE Id IN ('${A1}')`]);
   });
+
+  it('keeps no encrypted field the run’s user reads masked, and names it as not kept in the run’s file', async () => {
+    const { statements, query } = target();
+    const { kept, backup, recorder } = keeping();
+    const unkept: Array<{ object: string; fields: string[] }> = [];
+    const describe = async (): Promise<TargetWriteFields> => ({
+      creatable: new Set(['Name', 'Tax__c']),
+      references: new Set(),
+      fields: [
+        { name: 'Name', queryable: true, createable: true, isReference: false, type: 'string' },
+        {
+          name: 'Tax__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'encryptedstring',
+        },
+      ],
+    });
+    const viewsEncrypted = vi.fn(async () => false);
+    const keeper = syncOverwriteKeeper({
+      query,
+      backup,
+      recorder: {
+        ...recorder,
+        unkept: (object, fields) => unkept.push({ object, fields: [...fields] }),
+      },
+      describe,
+      viewsEncrypted,
+    });
+
+    await keeper.before('Account', 'update', [{ Id: A1, Name: 'After', Tax__c: '123-45-6789' }]);
+    await keeper.before('Account', 'update', [{ Id: A2, Tax__c: '987-65-4321' }]);
+
+    // The mask the target answers is never read as the value from before.
+    expect(statements).toEqual([
+      `SELECT Id, Name FROM Account WHERE Id IN ('${A1}')`,
+      `SELECT Id FROM Account WHERE Id IN ('${A2}')`,
+    ]);
+    expect(kept).toEqual([{ objectApiName: 'Account', records: [{ Id: A1, Name: 'Before 1' }] }]);
+    expect(unkept).toEqual([{ object: 'Account', fields: ['Tax__c'] }]);
+    expect(viewsEncrypted).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an encrypted field as any other when the run’s user reads it in clear', async () => {
+    const { statements, query } = target();
+    const { backup, recorder } = keeping();
+    const describe = async (): Promise<TargetWriteFields> => ({
+      creatable: new Set(['Phone']),
+      references: new Set(),
+      fields: [
+        {
+          name: 'Phone',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          type: 'encryptedstring',
+        },
+      ],
+    });
+    const keeper = syncOverwriteKeeper({
+      query,
+      backup,
+      recorder,
+      describe,
+      viewsEncrypted: async () => true,
+    });
+
+    await keeper.before('Account', 'update', [{ Id: A1, Phone: '+44 20 0000 0001' }]);
+
+    expect(statements).toEqual([`SELECT Id, Phone FROM Account WHERE Id IN ('${A1}')`]);
+  });
 });
 
 describe('storeOverwriteBackup', () => {
@@ -271,10 +343,13 @@ describe('storeOverwriteBackup', () => {
     backup.close();
 
     expect(backup.id).toBe('sync-before-run-1-x');
+    // Said again as its first records are kept; the second, within the
+    // second, waits on the throttle, and the end says them all.
     expect(order).toEqual([
       'meta backup:sync-before-run-1-x',
       'begin sync-before-run-1-x Account',
       'append Account 1',
+      'meta backup:sync-before-run-1-x',
       'append Account 1',
       'meta backup:sync-before-run-1-x',
     ]);
@@ -289,6 +364,34 @@ describe('storeOverwriteBackup', () => {
       origin: 'sync',
       runId: 'run:1/x',
     });
+  });
+
+  it('says, partial, what a run cut short had kept: a closed window left it listed as 0 records', async () => {
+    vi.useFakeTimers();
+    try {
+      const meta = new Map<string, { partial: boolean; totalRecords: number }>();
+      const backup = storeOverwriteBackup({
+        runId: 'run-cut',
+        orgId: 'tgt-org',
+        files: { begin: vi.fn(async () => undefined), append: vi.fn(async () => undefined) },
+        meta: {
+          set: (key, value) => meta.set(key, value as { partial: boolean; totalRecords: number }),
+        },
+      });
+      const listed = () => meta.get('backup:sync-before-run-cut');
+
+      await backup.keep('Account', [{ Id: A1, Name: 'Before 1' }]);
+      expect(listed()).toMatchObject({ partial: true, totalRecords: 1 });
+
+      await backup.keep('Account', [{ Id: A2, Name: 'Before 2' }]);
+      // Within the second: put off, then said.
+      expect(listed()).toMatchObject({ partial: true, totalRecords: 1 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(listed()).toMatchObject({ partial: true, totalRecords: 2 });
+      // The window closed here: no `close`, and the listing says what is kept.
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('names a backup the DataOps store can name its files by, whatever the run id', () => {

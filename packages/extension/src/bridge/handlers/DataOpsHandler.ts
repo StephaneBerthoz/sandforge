@@ -114,6 +114,7 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 import { ABORTED_BEFORE_START } from '../../modules/audit/auditTrail.js';
 import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
+import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -260,14 +261,6 @@ const ORPHAN_BACKUP_AGE_MS = 24 * 60 * 60_000;
 
 /** One day, in milliseconds. */
 const DAY_MS = 24 * 60 * 60_000;
-
-/**
- * How many days a backup is kept, when `sandforge.backup.maxAgeDays` says
- * nothing. A backup holds the records' values as the org held them, personal
- * data among them, and was kept until ten newer ones of the same org pushed
- * it out: an org backed up once kept it for good.
- */
-const BACKUP_MAX_AGE_DAYS_DEFAULT = 30;
 
 /**
  * When the retention first ran on this machine. A backup taken before is kept
@@ -461,6 +454,16 @@ interface KeptBackup {
 }
 
 /** A backup's metadata, as `takeBackup` writes it into the config store, older ones included. */
+/** A backup the retention removed (`DataOpsHandler.setExpiryListener`). */
+export interface BackupExpired {
+  operationId: string;
+  /** The retention it reached, in days. */
+  days: number;
+  takenAt?: string;
+  /** Set for the backup of a Sync run: the run whose removal no longer puts its values back. */
+  syncRunId?: string;
+}
+
 interface BackupMeta {
   operationId?: string;
   orgId?: string;
@@ -910,6 +913,12 @@ export class DataOpsHandler implements DomainHandler {
    */
   private syncRuns?: Pick<SyncRunCreations, 'get'>;
 
+  /** Told of each backup the retention removes: see {@link setExpiryListener}. */
+  private expiryListener?: (expired: BackupExpired) => void;
+
+  /** The sweep the store's arrival began: see {@link swept}. */
+  private sweeping?: Promise<void>;
+
   /**
    * The Monitor's Live Operations, which list a backup, a restore and a
    * masking run while each goes, with the Cancel that reaches its registry
@@ -1048,11 +1057,29 @@ export class DataOpsHandler implements DomainHandler {
     this.syncRuns = runs;
   }
 
+  /**
+   * Told of each backup the retention removes, as it removes it: the
+   * command lines say every one on stderr, a Sync run's named, where the
+   * extension's log alone said it.
+   */
+  setExpiryListener(listener: (expired: BackupExpired) => void): void {
+    this.expiryListener = listener;
+  }
+
   setBackupRecordStore(store: BackupRecordStore): void {
     this.backupRecords = store;
     // What a window that stopped in the middle of a backup left behind goes
     // when the next window starts.
-    void this.sweepBackupFiles();
+    this.sweeping = this.sweepBackupFiles();
+  }
+
+  /**
+   * Once the sweep the store's arrival began has ended, the retention with
+   * it: a command line restores, and says what the retention removed, after
+   * it rather than while it runs.
+   */
+  swept(): Promise<void> {
+    return this.sweeping ?? Promise.resolve();
   }
 
   /**
@@ -1903,11 +1930,7 @@ export class DataOpsHandler implements DomainHandler {
    * logged, never reported.
    */
   private async expireBackups(now: number): Promise<void> {
-    const asked = this.deps.services?.getSandforgeSetting?.<unknown>(
-      'backup.maxAgeDays',
-      BACKUP_MAX_AGE_DAYS_DEFAULT,
-    );
-    const days = typeof asked === 'number' && Number.isFinite(asked) ? asked : 0;
+    const days = backupMaxAgeDays(this.deps.services);
     if (days <= 0) return;
     const takenBefore = now - days * DAY_MS;
     try {
@@ -1919,7 +1942,20 @@ export class DataOpsHandler implements DomainHandler {
         if (taken < since) continue;
         if (meta?.orgId !== undefined && this.backupBusy(meta.orgId)) continue;
         await this.removeBackup(key);
-        this.deps.log(`[INFO] Removed backup ${key}: taken more than ${days} day(s) ago`);
+        // A Sync run's is named: what that run wrote over is no longer put
+        // back by its removal, whose card says so from now on.
+        const ofRun =
+          meta?.origin === 'sync'
+            ? ` — the values the Sync run ${meta.runId ?? '(unknown)'} wrote over, which ` +
+              'removing that run no longer puts back'
+            : '';
+        this.deps.log(`[INFO] Removed backup ${key}: taken more than ${days} day(s) ago${ofRun}`);
+        this.expiryListener?.({
+          operationId: key.slice('backup:'.length),
+          days,
+          ...(meta?.timestamp !== undefined ? { takenAt: meta.timestamp } : {}),
+          ...(meta?.origin === 'sync' ? { syncRunId: meta.runId ?? '' } : {}),
+        });
       }
     } catch (err: unknown) {
       this.deps.log(
@@ -2875,9 +2911,13 @@ export class DataOpsHandler implements DomainHandler {
         (cancelled
           ? `Rollback cancelled: ${totalRestored} records restored before the cancel; the rest ` +
             'still hold the values they had, and the same restore puts them back'
-          : totalFailed === 0
-            ? `Rollback completed: ${totalRestored} records restored`
-            : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`) +
+          : totalFailed > 0
+            ? `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`
+            : // Records held back, changed since the Sync run: partial, as its
+              // status says, and not completed.
+              totalKeptChanged > 0
+              ? `Rollback partial: ${totalRestored} records restored`
+              : `Rollback completed: ${totalRestored} records restored`) +
         (totalUnchanged > 0
           ? `; ${totalUnchanged} already held the backup's values and were not written`
           : '') +

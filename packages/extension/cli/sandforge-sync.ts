@@ -67,7 +67,7 @@ import type {
   SyncWriteCheck,
 } from '@sandforge/shared';
 import { guardTierOf, isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
-import type { SyncRestoreObjectResult } from '@sandforge/shared';
+import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
   targetAllowsDeletes,
@@ -87,6 +87,7 @@ import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
 import {
+  earlierRunsOf,
   nodeSyncRunCreations,
   backupIdSchema,
   readRemovalState,
@@ -95,6 +96,7 @@ import {
   SYNC_RUNS_DIR,
   syncRemovalPlan,
   syncRestorePlan,
+  syncUndeletePlan,
   OverwritesRead,
   type SyncCreationRecorder,
   type SyncRunCreations,
@@ -106,6 +108,14 @@ import { storeOverwriteBackup, syncOverwriteKeeper } from '../src/modules/sync/s
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
 import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
+import { writtenElsewhere } from '../src/modules/sync/runWriter.js';
+import { viewsEncryptedDataOnce } from '../src/modules/sync/encryptedFields.js';
+import {
+  BACKUP_MAX_AGE_DAYS_DEFAULT,
+  putBackKept,
+  type BackupTaken,
+  type PutBackKept,
+} from '../src/modules/dataops/backupRetention.js';
 import { loadOrg, makeConn } from './sfSession.js';
 import { refuseProductionTarget, typeTarget, type TypedTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
@@ -248,7 +258,11 @@ Remove what a run created:
                          held before the run, of the fields it wrote, which
                          the run kept first in <dir>/backups (below); one
                          changed since the run stays as it is unless
-                         --include-changed. From its file, a run killed,
+                         --include-changed. First of all, what a delta run
+                         deleted as the source had is brought back from the
+                         target's recycle bin, while it is there. A run
+                         another process still writes is refused, exit 1.
+                         From its file, a run killed,
                          stopped or ended by an error is taken back too: a
                          Bulk API job it had under way, which ran on in the
                          target, is read back by its id first, and its
@@ -1234,6 +1248,11 @@ export function bothRecorders(
       summary.overwrote?.(objectApiName, notWritten);
       file.overwrote?.(objectApiName, notWritten);
     },
+    // Kept in the run's file, which --remove brings them back from.
+    deleted: (objectApiName, ids) => {
+      summary.deleted?.(objectApiName, ids);
+      file.deleted?.(objectApiName, ids);
+    },
     overwrittenCount: () => summary.overwrittenCount?.() ?? file.overwrittenCount?.() ?? 0,
     flush: async () => (await summary.flush()) ?? (await file.flush()),
   };
@@ -1370,21 +1389,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       meta: fileConfigStore(join(backupDir, 'snapshots.json')),
     });
   }
+  /** Every row a statement over the target returns. */
+  const targetRows = async (soql: string): Promise<Array<Record<string, unknown>>> =>
+    (
+      await queryAllPages<Record<string, unknown>>(
+        {
+          query: async (q) => targetConn.query<Record<string, unknown>>(q),
+          queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+        },
+        soql,
+      )
+    ).records;
   const keeper = overwrites
     ? syncOverwriteKeeper({
-        query: async (soql) =>
-          (
-            await queryAllPages<Record<string, unknown>>(
-              {
-                query: async (q) => targetConn.query<Record<string, unknown>>(q),
-                queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
-              },
-              soql,
-            )
-          ).records,
+        query: targetRows,
         backup: overwrites,
         recorder,
         describe: (objectApiName) => describeTargetFields(objectApiName),
+        // An encrypted field the run's user reads masked is not kept.
+        viewsEncrypted: viewsEncryptedDataOnce(targetRows),
       })
     : undefined;
   const writer = new BulkDataWriter({
@@ -2080,10 +2103,34 @@ export function restoredLines(restored: readonly SyncRestoreObjectResult[]): str
         ? `${o.notKept} whose values from before are no longer kept (their backup was deleted, or past its retention)`
         : '',
       (o.notReached ?? 0) > 0 ? `${o.notReached} not reached` : '',
+      (o.restoredWithout ?? 0) > 0
+        ? `${o.restoredWithout} given back but for fields the org no longer takes, which keep the run's values`
+        : '',
     ].filter(Boolean);
     return [
       `  ${o.objectApiName}: ${o.restored} of ${o.planned} given back their values from before ` +
         `the run${left.length > 0 ? `; ${left.join(', ')}` : ''}`,
+      ...o.reasons.map((reason) => `      ${reason}`),
+    ];
+  });
+}
+
+/**
+ * What a removal brought back from the recycle bin of what the run deleted,
+ * as the source had deleted them, per object, and what it left deleted with
+ * why. Exported so it can be tested.
+ */
+export function undeletedLines(undeleted: readonly SyncUndeleteObjectResult[]): string[] {
+  return undeleted.flatMap((o) => {
+    const left = [
+      o.alreadyBack > 0 ? `${o.alreadyBack} back in the org already` : '',
+      o.goneForGood > 0 ? `${o.goneForGood} no longer in the recycle bin, gone for good` : '',
+      o.refused > 0 ? `${o.refused} refused` : '',
+      (o.notReached ?? 0) > 0 ? `${o.notReached} not reached` : '',
+    ].filter(Boolean);
+    return [
+      `  ${o.objectApiName}: ${o.undeleted} of ${o.planned} the run deleted brought back from ` +
+        `the recycle bin${left.length > 0 ? `; ${left.join(', ')}` : ''}`,
       ...o.reasons.map((reason) => `      ${reason}`),
     ];
   });
@@ -2386,6 +2433,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     }
   }
   let run = subject.run;
+  // A run with no end whose process is alive is still being written — by a
+  // window of the extension, or another command line — and not one that
+  // stopped: its open Bulk API job would be aborted mid-upload, and what it
+  // goes on to create would never be offered for removal.
+  if (writtenElsewhere(run)) {
+    process.stderr.write(
+      `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
+        'ended. Nothing was deleted.\n',
+    );
+    process.exit(1);
+  }
 
   const output = (
     status: ForgeUndoStatus,
@@ -2394,6 +2452,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     told: ConfigurationTold = {},
     sweep?: ForgeSweepResult,
     restored?: SyncRestoreObjectResult[],
+    undeleted?: SyncUndeleteObjectResult[],
   ) => {
     if (args.json) {
       process.stdout.write(
@@ -2411,6 +2470,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
               ...told,
               ...(sweep ? { sweep } : {}),
               ...(restored ? { restored } : {}),
+              ...(undeleted ? { undeleted } : {}),
             },
             elapsedMs: Date.now() - t0,
           },
@@ -2424,6 +2484,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // wrote over was given back before either.
     for (const line of sweep ? sweepLines(sweep) : []) say(line);
     for (const line of removalSummaryLines(status, objects)) say(line);
+    for (const line of undeleted ? undeletedLines(undeleted) : []) say(line);
     for (const line of restored ? restoredLines(restored) : []) say(line);
     for (const line of configurationToldLines(subject.configId, told)) say(line);
     say(`\ndone in ${Date.now() - t0}ms`);
@@ -2436,11 +2497,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (
     syncRemovalPlan(run).length === 0 &&
     syncRestorePlan(run).length === 0 &&
+    syncUndeletePlan(run).length === 0 &&
     !jobsUnanswered &&
     !args.sweep &&
     !args.sweepList
   ) {
-    const removedAt = earlier?.undo?.removedAt ?? earlier?.restoredAt;
+    const removedAt = earlier?.undo?.removedAt ?? earlier?.restoredAt ?? earlier?.undeletedAt;
     say(
       removedAt !== undefined
         ? `what the run created was removed already, on ${removedAt}`
@@ -2563,18 +2625,48 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // the backup store it was kept in.
   const back = syncRestorePlan(run);
   let backups: BackupRecordStore | undefined;
+  /** What the backup store still keeps of it: the retention of sandforge-backup takes a run's at its age. */
+  let kept: PutBackKept = { kept: [...back], notKept: 0 };
   if (back.length > 0) {
     const backupDir = defaultBackupStoreOf();
     const refused = openBackupStore(backupDir);
     if (refused !== undefined) say(refused);
-    else backups = new BackupRecordStore(nodeBackupFiles(backupDir));
+    else {
+      backups = new BackupRecordStore(nodeBackupFiles(backupDir));
+      const listed = fileConfigStore(join(backupDir, 'snapshots.json'));
+      kept = putBackKept(
+        back,
+        (backup) => listed.get<BackupTaken>(`backup:${backup}`),
+        BACKUP_MAX_AGE_DAYS_DEFAULT,
+      );
+    }
   }
   say(`sandforge-sync --remove  ${args.summaryPath}  from ${args.target}`);
-  for (const { objectApiName, ids } of back) {
+  for (const { objectApiName, ids } of kept.kept) {
     say(`  ${objectApiName}: ${ids.length} to give back their values from before the run`);
   }
+  // Said before anything is deleted: the summary listed every record the run
+  // wrote over as one to be given back, and the result alone said otherwise.
+  if (kept.notKept > 0) {
+    say(
+      `  values from before no longer kept (past sandforge.backup.maxAgeDays, or deleted): ` +
+        `${kept.notKept} record(s) the run wrote over keep its values`,
+    );
+  }
+  if (kept.keptUntil !== undefined && kept.kept.length > 0) {
+    say(`  values from before kept until ${kept.keptUntil}, at the default retention`);
+  }
+  const bringBack = syncUndeletePlan(run);
+  for (const { objectApiName, ids } of bringBack) {
+    say(
+      `  ${objectApiName}: ${ids.length} the run deleted, as the source had, to bring back ` +
+        'from the recycle bin',
+    );
+  }
   for (const { objectApiName, ids } of plan) say(`  ${objectApiName}: ${ids.length} to remove`);
-  if (plan.length === 0 && back.length === 0) say('nothing left of the run to remove');
+  if (plan.length === 0 && back.length === 0 && bringBack.length === 0) {
+    say('nothing left of the run to remove');
+  }
   if (args.sweep) {
     say(
       "before them, a sweep deletes what the target's automation created during the run, as " +
@@ -2622,14 +2714,21 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       // watermarks and copied files, and which records its runs wrote.
       ...(configs && args.store !== undefined ? { configs, links: nodeSyncIdMap(args.store) } : {}),
       ...(backups ? { backups } : {}),
+      // What it deleted, as the source had deleted them, comes back from the recycle bin.
+      undelete: (ids) => conn.soap.undelete(ids),
+      // The earlier runs of the target kept beside the run's file: what this
+      // removal gives back of the records they wrote too is theirs again.
+      ...(subject.runs ? { earlierRuns: earlierRunsOf(run, await subject.runs.list()) } : {}),
       store: {
         // Kept beside the summary, or beside the run's file, whatever the
-        // removal ended on.
-        updateRemoval: (_runId, change) =>
-          subject.updateRemoval((kept) => {
-            state = change(kept);
-            return state;
-          }),
+        // removal ended on; an earlier run's, beside its own file.
+        updateRemoval: (runId, change) =>
+          runId !== run.runId && subject.runs
+            ? subject.runs.updateRemoval(runId, change)
+            : subject.updateRemoval((kept) => {
+                state = change(kept);
+                return state;
+              }),
       },
     });
   } finally {
@@ -2658,6 +2757,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     },
     sweep,
     outcome.result.restored,
+    outcome.result.undeleted,
   );
   if (outcome.result.status !== 'success' || (sweep && sweep.status !== 'success')) {
     process.exit(RECORDS_LEFT_EXIT);

@@ -13,7 +13,7 @@ import { usePagination } from '../../hooks/usePagination';
 import { formatDuration, formatRelativeTime, formatStoredDate } from '../../utils/formatters';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
-import { SyncUnfinishedRuns } from './SyncUnfinishedRuns';
+import { SyncUnfinishedRuns } from './syncRemovalParts';
 
 /** Row type compatible with DataTable's Record<string, unknown> constraint. */
 type HistoryRow = SyncHistoryEntry & Record<string, unknown>;

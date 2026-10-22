@@ -270,11 +270,22 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 )}
                 {/* Said before the click: a restore of it leaves the rest of
                     each object as it is now. */}
-                {backup.partial && (
+                {backup.partial && backup.origin !== 'sync' && (
                   <BackupPartialNote
                     backup={backup}
                     data-testid={`restore-partial-${backup.operationId}`}
                   />
+                )}
+                {/* A Sync run's is partial while the run writes, and stays so
+                    when it was cut short: what it holds is what it kept by then. */}
+                {backup.partial && backup.origin === 'sync' && (
+                  <p
+                    className="mt-2 text-xs text-status-warning"
+                    role="note"
+                    data-testid={`restore-sync-partial-${backup.operationId}`}
+                  >
+                    {t('dataops.restoreSyncPartial')}
+                  </p>
                 )}
               </CardBody>
             </Card>
@@ -335,7 +346,18 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                   confirming.one === backup.operationId && (
                     <DeleteQuestion
                       id={questionId}
-                      question={t('dataops.backupDeleteConfirm')}
+                      // A Sync run's: its removal gives these values back, and
+                      // once the backup is deleted it no longer can.
+                      question={
+                        backup.origin === 'sync'
+                          ? t('dataops.backupDeleteConfirmSync', {
+                              date:
+                                formatStoredDate(backup.timestamp, (date) =>
+                                  date.toLocaleString(uiLocale()),
+                                ) ?? t('common.dateUnknown'),
+                            })
+                          : t('dataops.backupDeleteConfirm')
+                      }
                       onConfirm={() => {
                         const opener = deleteButtons.current.get(backup.operationId) ?? null;
                         afterDelete.current = { gone: [backup.operationId], place, opener };

@@ -150,6 +150,37 @@ describe('SeedRunHistory', () => {
     expect(useAppStore.getState().currentRoute).toBe('monitor');
   });
 
+  it('says a seed another window is writing is running there, never partial, and offers no removal', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        {
+          ...RUNS[0],
+          runId: 'op-other',
+          runningElsewhere: true,
+          refusal: { code: 'RUNNING', message: 'The seed is still writing in another window.' },
+        },
+        RUNS[1],
+      ],
+    });
+
+    expect(screen.getByTestId('seed-run-history-elsewhere-op-other').textContent).toBe(
+      'running in another window: the seed is still writing there. Remove it once it has ended',
+    );
+    expect(screen.queryByTestId('seed-run-history-unfinished-op-other')).toBeNull();
+    expect(screen.queryByTestId('seed-run-history-toggle-op-other')).toBeNull();
+  });
+
+  it('says how long the seeds are kept: until removed, and the latest twenty once removed', () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', { runs: RUNS });
+
+    expect(screen.getByTestId('seed-run-history').textContent).toContain(
+      'A seed whose records are still in its org stays listed until it is removed; of the seeds ' +
+        'removed, the 20 latest are listed.',
+    );
+  });
+
   it('lists a CSV import and a clone among the seeds, each named by the way that wrote it, and offers their removal', () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', {

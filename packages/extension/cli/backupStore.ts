@@ -12,6 +12,7 @@
  */
 
 import { mkdirSync, statSync } from 'node:fs';
+import type { BackupExpired } from '../src/bridge/handlers/DataOpsHandler.js';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -88,4 +89,57 @@ export function openBackupStore(dir: string, fs: StoreFolderFs = nodeFs): string
   } catch (err: unknown) {
     return `The store ${dir} could not be made: ${err instanceof Error ? err.message : String(err)}`;
   }
+}
+
+/**
+ * The days `--max-age-days` keeps a snapshot, as `sandforge.backup.maxAgeDays`
+ * keeps a backup, or undefined when the line gives none; stops the command,
+ * exit 2, on a value that is not a number of days. The command lines expired
+ * every snapshot past the extension's default of thirty days, with no way to
+ * keep one longer.
+ */
+export function maxAgeDaysOf(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d{1,5}$/.test(value)) {
+    process.stderr.write(`Not a number of days: "${value}"\n`);
+    process.exit(2);
+  }
+  return Number(value);
+}
+
+/**
+ * The settings `DataOpsHandler` reads, as the line of `sandforge-backup` or
+ * `sandforge-dataops` sets them: the cap of records a snapshot reads
+ * (`--max-records`), and the retention (`--max-age-days`); every other one
+ * the extension's default.
+ */
+export function settingsOf(args: {
+  maxRecords?: number;
+  maxAgeDays?: number;
+}): <T>(key: string, fallback: T) => T {
+  return <T>(key: string, fallback: T): T => {
+    if (key === 'backup.maxRecordsPerObject' && args.maxRecords !== undefined) {
+      return args.maxRecords as T;
+    }
+    if (key === 'backup.maxAgeDays' && args.maxAgeDays !== undefined) {
+      return args.maxAgeDays as T;
+    }
+    return fallback;
+  };
+}
+
+/**
+ * A snapshot the retention removed, as the line on stderr says it: the one a
+ * Sync run kept of what it wrote over named, since removing that run no
+ * longer puts those values back.
+ */
+export function expiredLine(expired: BackupExpired): string {
+  const head =
+    `removed snapshot ${expired.operationId}` +
+    `${expired.takenAt !== undefined ? `, taken ${expired.takenAt}` : ''}: ` +
+    `past the retention of ${expired.days} day(s) (--max-age-days, 0 keeps them all)`;
+  return expired.syncRunId !== undefined
+    ? `${head}. It held what the Sync run ${expired.syncRunId || '(unknown)'} wrote over: ` +
+        'removing that run with sandforge-sync --remove no longer puts those values back'
+    : head;
 }

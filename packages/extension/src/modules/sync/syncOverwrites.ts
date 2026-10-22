@@ -29,6 +29,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { OperationOutcome } from './DataSync.js';
 import type { SyncCreationRecorder } from './SyncRunCreations.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
+import { ENCRYPTED_FIELD_TYPE } from './encryptedFields.js';
 
 /** Where the values a run writes over go before it writes: one backup of the DataOps store. */
 export interface OverwriteBackup {
@@ -48,13 +49,21 @@ export interface SyncOverwriteKeeperDeps {
   query: (soql: string) => Promise<Array<Record<string, unknown>>>;
   backup: OverwriteBackup;
   /** The run's recorder: the records written over go into its file by id. */
-  recorder: Pick<SyncCreationRecorder, 'overwriting' | 'overwrote' | 'flush'>;
+  recorder: Pick<SyncCreationRecorder, 'overwriting' | 'overwrote' | 'flush' | 'unkept'>;
   /**
    * What the target says of the object's fields, the describe the write reads
    * too: a field holding a file's content is not read. Absent, every field
    * the call writes is read.
    */
   describe?: (objectApiName: string) => Promise<TargetWriteFields>;
+  /**
+   * Whether the run's user reads classic encrypted fields in clear
+   * (`viewsEncryptedDataOnce`), asked the first time a call writes one.
+   * Without it they read masked, and are not kept: the mask kept as the value
+   * from before was written back by the run's removal, or counted given back.
+   * Absent, they are kept as any field.
+   */
+  viewsEncrypted?: () => Promise<boolean>;
 }
 
 /** See the module's comment. */
@@ -86,6 +95,13 @@ export function overwriteBackupIdOf(runId: string): string {
   return `sync-before-${runId.replace(/[^A-Za-z0-9-]+/g, '-')}`.slice(0, 200);
 }
 
+/**
+ * The least time between two writes of a run's backup metadata as records
+ * are kept: a second. Each write is a whole write of the store VS Code keeps
+ * the metadata in, and a call answers in less.
+ */
+export const BACKUP_META_EVERY_MS = 1_000;
+
 /** What a backup's metadata is kept in: the config store DataOps lists its backups from. */
 export interface BackupMetaStore {
   set<T>(key: string, value: T, category?: string): void;
@@ -105,8 +121,13 @@ export interface BackupRecordFiles {
  * goes by. `origin` and `runId` say it is a Sync run's.
  *
  * The metadata is written before an object's first records, so the store's
- * sweep of files without metadata never takes them, and again once the run
- * ends (`close`), with how many records it holds of each object.
+ * sweep of files without metadata never takes them; again as records are
+ * kept, {@link BACKUP_META_EVERY_MS} at most between two, marked partial,
+ * with how many records it holds so far; and once the run ends (`close`),
+ * whole. It was written only before the first records and at the end: a
+ * window that closed under a run of one object left its backup listed on
+ * the Restore tab as a whole backup of 0 records, which invited its
+ * deletion, and with it what the run's removal gives back.
  */
 export function storeOverwriteBackup(input: {
   runId: string;
@@ -117,11 +138,20 @@ export function storeOverwriteBackup(input: {
   files: BackupRecordFiles;
   meta: BackupMetaStore;
   now?: () => Date;
+  /** The least time between two writes of the metadata as records are kept: {@link BACKUP_META_EVERY_MS}. */
+  everyMs?: number;
 }): OverwriteBackup & { close(): void } {
   const id = overwriteBackupIdOf(input.runId);
   const counts = new Map<string, number>();
+  const every = input.everyMs ?? BACKUP_META_EVERY_MS;
+  const clock = (): number => (input.now?.() ?? new Date()).getTime();
   let timestamp: string | undefined;
-  const writeMeta = (): void => {
+  /** When the metadata was last written as records were kept. */
+  let written = Number.NEGATIVE_INFINITY;
+  /** The write the throttle put off, which says the last records kept within a moment. */
+  let later: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  const writeMeta = (partial: boolean): void => {
     if (timestamp === undefined) return;
     const objects = [...counts].map(([objectApiName, recordCount]) => ({
       objectApiName,
@@ -135,7 +165,7 @@ export function storeOverwriteBackup(input: {
         orgId: input.orgId,
         ...(input.organizationId !== undefined ? { organizationId: input.organizationId } : {}),
         objects,
-        partial: false,
+        partial,
         timestamp,
         totalRecords: objects.reduce((sum, object) => sum + object.recordCount, 0),
         origin: 'sync',
@@ -144,6 +174,30 @@ export function storeOverwriteBackup(input: {
       'backups',
     );
   };
+  /** The records kept so far said, partial: now, or once the throttle allows. */
+  const sayKept = (): void => {
+    if (closed) return;
+    const wait = written + every - clock();
+    if (wait <= 0) {
+      if (later !== undefined) clearTimeout(later);
+      later = undefined;
+      written = clock();
+      writeMeta(true);
+      return;
+    }
+    later ??= setTimeout(() => {
+      later = undefined;
+      if (closed) return;
+      written = clock();
+      try {
+        writeMeta(true);
+      } catch {
+        // Said again by the next records kept, or whole by `close`.
+      }
+    }, wait);
+    // A timer of its own never keeps the host, or a command line, running.
+    later.unref?.();
+  };
   return {
     id,
     keep: async (objectApiName, records) => {
@@ -151,13 +205,19 @@ export function storeOverwriteBackup(input: {
       if (!counts.has(objectApiName)) {
         timestamp ??= (input.now?.() ?? new Date()).toISOString();
         counts.set(objectApiName, 0);
-        writeMeta();
+        writeMeta(true);
         await input.files.begin(id, objectApiName);
       }
       await input.files.append(id, objectApiName, records);
       counts.set(objectApiName, (counts.get(objectApiName) ?? 0) + records.length);
+      sayKept();
     },
-    close: writeMeta,
+    close: () => {
+      closed = true;
+      if (later !== undefined) clearTimeout(later);
+      later = undefined;
+      writeMeta(false);
+    },
   };
 }
 
@@ -253,6 +313,30 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
   >();
   /** Per object, the fields that hold a file's content, read once. */
   const unreadable = new Map<string, Promise<ReadonlySet<string>>>();
+  /** Per object, the encrypted fields the run's user reads masked, read once. */
+  const maskedOf = new Map<string, Promise<ReadonlySet<string>>>();
+  /** Per object, the encrypted fields its file names as not kept already. */
+  const unkeptNamed = new Map<string, Set<string>>();
+
+  const maskedFieldsOf = (objectName: string): Promise<ReadonlySet<string>> => {
+    const describe = deps.describe;
+    const views = deps.viewsEncrypted;
+    if (!describe || !views) return Promise.resolve(new Set());
+    let fields = maskedOf.get(objectName);
+    if (!fields) {
+      fields = describe(objectName).then(
+        async (answer) => {
+          const encrypted = (answer.fields ?? [])
+            .filter((field) => field.type === ENCRYPTED_FIELD_TYPE)
+            .map((field) => field.name);
+          return encrypted.length > 0 && !(await views()) ? new Set(encrypted) : new Set<string>();
+        },
+        () => new Set<string>(),
+      );
+      maskedOf.set(objectName, fields);
+    }
+    return fields;
+  };
 
   const contentFieldsOf = (objectName: string): Promise<ReadonlySet<string>> => {
     const describe = deps.describe;
@@ -283,8 +367,11 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
         assertSoqlIdentifier(objectName);
         assertSoqlIdentifier(keyField);
         const skipped = await contentFieldsOf(objectName);
+        const masked = await maskedFieldsOf(objectName);
         /** The fields the call writes, of every row. */
         const fields = new Set<string>();
+        /** The encrypted fields it writes that the run's user reads masked: not kept. */
+        const maskedWritten = new Set<string>();
         /** One value of each key the rows carry, as the statement names it. */
         const values = new Map<string, unknown>();
         for (const row of rows) {
@@ -294,10 +381,14 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
             if (field === 'Id' || field === keyField || field === 'attributes') continue;
             if (skipped.has(field)) continue;
             if (typeof value === 'object' && value !== null) continue;
+            if (masked.has(field)) {
+              maskedWritten.add(field);
+              continue;
+            }
             fields.add(assertSoqlIdentifier(field));
           }
         }
-        if (values.size === 0 || fields.size === 0) return undefined;
+        if (values.size === 0 || (fields.size === 0 && maskedWritten.size === 0)) return undefined;
 
         // What the target holds under each key, of the fields the call writes.
         const columns = ['Id', ...(byId ? [] : [keyField]), ...fields];
@@ -338,6 +429,21 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
           if (adding.size === 0) continue;
           keeping.set(recordKey(id), values);
           fieldsOf.set(recordKey(id), adding);
+        }
+        // Of a record the target holds, an encrypted field read masked is
+        // not kept, and the run's file says so: its removal leaves it as the
+        // run wrote it, and says why.
+        if (
+          maskedWritten.size > 0 &&
+          reaches.some((id) => id !== undefined && !created.has(recordKey(id)))
+        ) {
+          const named = unkeptNamed.get(objectName) ?? new Set<string>();
+          const fresh = [...maskedWritten].filter((field) => !named.has(field));
+          if (fresh.length > 0) {
+            for (const field of fresh) named.add(field);
+            unkeptNamed.set(objectName, named);
+            deps.recorder.unkept?.(objectName, fresh);
+          }
         }
         if (keeping.size === 0) {
           calls.set(objectName, { reaches, named: [], added: new Map() });

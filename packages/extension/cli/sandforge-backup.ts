@@ -28,7 +28,13 @@
  * pnpm build:shared.
  */
 
-import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
+import {
+  defaultBackupStoreOf,
+  expiredLine,
+  maxAgeDaysOf,
+  openBackupStore,
+  settingsOf,
+} from './backupStore.js';
 import { join } from 'node:path';
 import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg } from './sfSession.js';
@@ -67,6 +73,14 @@ Options:
   --rewrite-all          with --restore: write every row of the snapshot back,
                          the ones the org already holds as the snapshot does
                          included
+  --include-changed      with --restore of the snapshot a Sync run kept: put
+                         back the records changed or deleted since the run too
+  --max-age-days <n>     the retention, as sandforge.backup.maxAgeDays sets it:
+                         snapshots taken more than <n> days ago are removed as
+                         the command starts, each named on stderr — the one a
+                         Sync run kept of what it wrote over too, which removing
+                         that run then no longer puts back; 0 keeps them all
+                         (default: 30)
   --yes                  do not ask before a restore writes. Without it, a
                          command with no terminal to answer the question — a
                          CI step — stops there, exit 2, and writes nothing
@@ -82,7 +96,7 @@ found unchanged; --rewrite-all writes them all. Of the snapshot a Sync run
 kept of what it wrote over, the records changed or deleted since the run —
 read against the run's file in SANDFORGE_JOURNAL_DIR — are left as they are
 and counted, as removing the run with sandforge-sync leaves them unless it
-is told to include them.
+is told to include them; --include-changed includes them here.
 
 A snapshot says its id, which --restore takes, and what it holds short of the
 org: an object stopped at --max-records, or never reached.
@@ -91,8 +105,9 @@ Exit codes: 0 the run finished: the snapshot holds every record of its objects,
 or the restore put back every value; 1 it could not start, or the snapshot or
 the restore failed or was refused; 2 a bad command line, or a question with no
 terminal to answer it (give --yes); 3 the snapshot holds part of an object's
-records, or the restore left values as they are (rows the org refused, or a
-snapshot that holds part of the records).
+records, or the restore left values as they are (rows the org refused, a
+snapshot that holds part of the records, or records of a Sync run's snapshot
+changed since the run, held back without --include-changed).
 `;
 
 /** Everything the command line settled. */
@@ -106,6 +121,10 @@ interface CliArgs {
   maxRecords?: number;
   /** A restore writes every row back, without comparing it with the org's. */
   rewriteAll: boolean;
+  /** A restore of a Sync run's snapshot puts back the records changed since the run too. */
+  includeChanged: boolean;
+  /** The retention, in days, when the line sets one; 0 keeps every snapshot. */
+  maxAgeDays?: number;
   yes: boolean;
   json: boolean;
 }
@@ -115,8 +134,8 @@ const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** What the line reads. */
 const FLAGS: CommandFlags = {
-  switches: ['--list', '--rewrite-all', '--yes', '--json'],
-  values: ['--org', '--object', '--restore', '--store', '--max-records'],
+  switches: ['--list', '--rewrite-all', '--include-changed', '--yes', '--json'],
+  values: ['--org', '--object', '--restore', '--store', '--max-records', '--max-age-days'],
 };
 
 /** Read the command line, or explain why it cannot be read. */
@@ -175,6 +194,12 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--rewrite-all goes with --restore.\n');
     process.exit(2);
   }
+  const includeChanged = args.includes('--include-changed');
+  if (includeChanged && restoreId === undefined) {
+    process.stderr.write('--include-changed goes with --restore.\n');
+    process.exit(2);
+  }
+  const maxAgeDays = maxAgeDaysOf(get('--max-age-days'));
 
   return {
     org,
@@ -184,6 +209,8 @@ export function parseArgs(argv: string[]): CliArgs {
     storeDir: get('--store', defaultBackupStoreOf()) ?? '',
     ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
     rewriteAll,
+    includeChanged,
+    ...(maxAgeDays !== undefined ? { maxAgeDays } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -261,14 +288,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       }),
     },
     configStore,
-    // The one setting a snapshot reads, as the line sets it; every other one
-    // takes the extension's default.
-    services: {
-      getSandforgeSetting: <T>(key: string, fallback: T): T =>
-        key === 'backup.maxRecordsPerObject' && args.maxRecords !== undefined
-          ? (args.maxRecords as T)
-          : fallback,
-    },
+    // The settings a snapshot and the retention read, as the line sets
+    // them; every other one takes the extension's default.
+    services: { getSandforgeSetting: settingsOf(args) },
     infraServices: {
       // A restore refuses to write without the guard, as in the extension.
       productionGuard: commandLineGuard(log, args.org),
@@ -291,9 +313,14 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // with one, and a message with no id settles nothing on the other side.
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   } as never);
+  // Every snapshot the retention removes is said on stderr, the one a Sync
+  // run kept named: a nightly snapshot removed the values a run had written
+  // over, which its removal then could not put back, with one log line.
+  handler.setExpiryListener((expired) => process.stderr.write(`${expiredLine(expired)}\n`));
   // The store takes its own file operations; here, as in the extension, they
-  // are Node's, under the directory given.
+  // are Node's, under the directory given. Its retention runs first, to its end.
   handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
+  await handler.swept();
   // The Sync runs the command line kept: a restore of a run's snapshot reads
   // when the run last wrote, and leaves what changed since as it is.
   handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
@@ -325,6 +352,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         orgId: args.org,
         operationId: args.restoreId,
         ...(args.rewriteAll ? { rewriteAll: true } : {}),
+        ...(args.includeChanged ? { includeChanged: true } : {}),
       },
     } as never);
     // What the restore wrote, refused and found unchanged, as the panel hears it.

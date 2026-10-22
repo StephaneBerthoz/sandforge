@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
@@ -42,6 +42,7 @@ import {
   readRunSummary,
   restoredLines,
   runOfSummary,
+  undeletedLines,
   writeCheckLines,
 } from './sandforge-sync.js';
 
@@ -187,6 +188,44 @@ describe('what a run of sandforge-sync writes over, kept before it writes and gi
     expect(stderr).toContain('what the run created was removed already');
   });
 
+  it('says before it deletes anything that the values of a backup the retention took are no longer kept', async () => {
+    engine.run = async (deps, config) => {
+      const result = await deps.dataSync.sync(config.objects[0], [
+        { Id: SOURCE_ID, Ext__c: 'K-1', Name: 'After' },
+      ]);
+      return {
+        configId: config.id,
+        operationId: 'op-1',
+        status: 'success',
+        objectResults: [result],
+        totalProcessed: 1,
+        totalSuccess: 1,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 10,
+        timestamp: new Date().toISOString(),
+      };
+    };
+    await main(argv('--source', 'SRC', '--target', 'TGT', '--object', 'Account:Ext__c', '--json'));
+    const [name] = readdirSync(runsDir()).filter((file) => file.endsWith('.ndjson'));
+    const runId = name.replace(/\.ndjson$/, '');
+    // A nightly sandforge-backup past the retention removed the run's backup, metadata first.
+    const listing = join(backupsDir(), 'snapshots.json');
+    const snapshots = JSON.parse(readFileSync(listing, 'utf8')) as Record<string, unknown>;
+    delete snapshots[`backup:sync-before-${runId}`];
+    writeFileSync(listing, JSON.stringify(snapshots));
+    target.add('Account', { Id: HELD, Name: 'After', Ext__c: 'K-1' }, new Date().toISOString());
+    stderr = '';
+
+    await main(argv('--remove', runId, '--target', 'TGT', '--json')).catch(() => undefined);
+
+    expect(stderr).not.toContain('Account: 1 to give back');
+    expect(stderr).toContain(
+      'values from before no longer kept (past sandforge.backup.maxAgeDays, or deleted): ' +
+        '1 record(s) the run wrote over keep its values',
+    );
+  });
+
   it('keeps nothing for a run that only inserts', async () => {
     engine.run = async (_deps, config) => ({
       configId: config.id,
@@ -287,6 +326,48 @@ describe('restoredLines', () => {
       '  Account: 1 of 3 given back their values from before the run; 1 left as they are, ' +
         'changed since the run, 1 refused',
       '      FIELD_CUSTOM_VALIDATION_EXCEPTION: Name is locked',
+    ]);
+  });
+
+  it('says what was given back but for the fields the org no longer takes', () => {
+    expect(
+      restoredLines([
+        {
+          objectApiName: 'Account',
+          planned: 2,
+          restored: 1,
+          restoredWithout: 1,
+          keptChanged: 0,
+          alreadyGone: 0,
+          refused: 0,
+          notKept: 0,
+          reasons: ['Account.Industry: the value from before is no longer taken'],
+        },
+      ])[0],
+    ).toBe(
+      '  Account: 1 of 2 given back their values from before the run; 1 given back but for ' +
+        "fields the org no longer takes, which keep the run's values",
+    );
+  });
+});
+
+describe('undeletedLines', () => {
+  it('says per object what the run deleted that was brought back, and what stays deleted', () => {
+    expect(
+      undeletedLines([
+        {
+          objectApiName: 'Contact',
+          planned: 4,
+          undeleted: 2,
+          alreadyBack: 1,
+          goneForGood: 1,
+          refused: 0,
+          reasons: [],
+        },
+      ]),
+    ).toEqual([
+      '  Contact: 2 of 4 the run deleted brought back from the recycle bin; 1 back in the org ' +
+        'already, 1 no longer in the recycle bin, gone for good',
     ]);
   });
 });

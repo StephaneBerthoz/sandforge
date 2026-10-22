@@ -8,11 +8,13 @@ import {
   SYNC_RUNS_DIR,
   SyncRunCreations,
   createdCount,
+  deletedCount,
   overwrittenCount,
   readRunFile,
   settled,
   syncRemovalPlan,
   syncRestorePlan,
+  syncUndeletePlan,
   type SyncRunCreationsDeps,
 } from './SyncRunCreations';
 
@@ -93,10 +95,25 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
     expect(files.get(path.join(DIR, 'run-1.ndjson'))?.split('\n').filter(Boolean)).toHaveLength(2);
     expect(await store.get('run-1')).toEqual({
       ...start('run-1'),
+      writer: { pid: process.pid, hostStartedAt: expect.any(String) },
       lastWrittenAt: expect.any(String),
       firstWrittenAt: expect.any(String),
       lastWriteAt: expect.any(String),
       created: [{ objectApiName: 'Account', ids: [fakeId('001', 1), fakeId('001', 2)] }],
+    });
+  });
+
+  it('names in its first line the process writing the run, which every window reads back', async () => {
+    const { deps } = memoryDisk({ host: { pid: 4242, startedAt: '2026-10-14T07:00:00.000Z' } });
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.flush();
+
+    expect((await store.get('run-1'))?.writer).toEqual({
+      pid: 4242,
+      hostStartedAt: '2026-10-14T07:00:00.000Z',
     });
   });
 
@@ -607,6 +624,26 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
 
       expect((await store.list()).map((run) => run.runId)).toEqual(['new', 'older']);
     });
+
+    it('says which run the hard bound dropped though its records were still in its org', async () => {
+      const { deps } = memoryDisk();
+      const seeding = new SyncRunCreations(deps);
+      await seedRun(seeding, 'oldest', '2026-10-01T00:00:00.000Z', 40, false);
+      await seedRun(seeding, 'older', '2026-10-02T00:00:00.000Z', 40, false);
+      const dropped: Array<{ runId: string; created: number }> = [];
+      const store = new SyncRunCreations({
+        ...deps,
+        maxBytes: 1_000,
+        hardMaxBytes: 1_500,
+        onDropped: (run) => dropped.push({ runId: run.runId, created: createdCount(run) }),
+      });
+
+      const recorder = store.recorder(start('new', '2026-10-14T00:00:00.000Z'));
+      recorder.note('Account', [fakeId('001', 1)]);
+      await recorder.flush();
+
+      expect(dropped).toEqual([{ runId: 'oldest', created: 40 }]);
+    });
   });
 });
 
@@ -754,6 +791,55 @@ describe('SyncRunCreations — what a run wrote over, named as it goes', () => {
     }));
     const twice = (await store.get('run-1')) ?? run;
     expect(syncRestorePlan(twice)).toEqual([]);
+    expect(settled(twice)).toBe(true);
+  });
+});
+
+describe('SyncRunCreations — the encrypted fields a run could not keep', () => {
+  it('reads back, per object and once each, the encrypted fields whose values from before it read masked', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.overwriting?.('Account', 'sync-before-run-1', [fakeId('001', 41)]);
+    recorder.unkept?.('Account', ['Tax__c']);
+    recorder.unkept?.('Account', ['Tax__c', 'Ssn__c', 'not a field!']);
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.unkept).toEqual([
+      { objectApiName: 'Account', fields: ['Tax__c', 'Ssn__c'] },
+    ]);
+  });
+});
+
+describe('SyncRunCreations — what a run deleted, as the source had', () => {
+  const GONE1 = fakeId('003', 31);
+  const GONE2 = fakeId('003', 32);
+
+  it('begins the file of a run that only deletes, reads back what it deleted, and is settled once it is brought back', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    recorder.deleted?.('Contact', [GONE1, GONE2, 'not an id']);
+    await recorder.end({ status: 'success' });
+
+    const run = await store.get('run-1');
+    if (!run) throw new Error('kept no run');
+    expect(run.deleted).toEqual([{ objectApiName: 'Contact', ids: [GONE1, GONE2] }]);
+    expect(deletedCount(run)).toBe(2);
+    expect(syncUndeletePlan(run)).toEqual([{ objectApiName: 'Contact', ids: [GONE1, GONE2] }]);
+    expect(settled(run)).toBe(false);
+
+    await store.updateRemoval('run-1', () => ({ undeleteLeft: [GONE2] }));
+    const once = (await store.get('run-1')) ?? run;
+    expect(syncUndeletePlan(once)).toEqual([{ objectApiName: 'Contact', ids: [GONE2] }]);
+    expect(settled(once)).toBe(false);
+
+    await store.updateRemoval('run-1', () => ({
+      undeleteLeft: [],
+      undeletedAt: '2026-10-14T09:00:00.000Z',
+    }));
+    const twice = (await store.get('run-1')) ?? run;
+    expect(syncUndeletePlan(twice)).toEqual([]);
     expect(settled(twice)).toBe(true);
   });
 });

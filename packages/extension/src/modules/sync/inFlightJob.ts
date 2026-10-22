@@ -15,11 +15,21 @@
  *
  * Read only, but for a job the org never processed: one left open — the
  * window closed before it was closed — is aborted, so that nothing closes it
- * later, and it wrote nothing.
+ * later, and it wrote nothing. Never one opened less than
+ * {@link OPEN_JOB_GRACE_MS} ago: a job stays open for the whole of its
+ * upload, and a second window that listed the run during it aborted the
+ * first window's job, whose records were then never written.
  */
 
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { SyncRunKept } from './SyncRunCreations.js';
+
+/**
+ * How long a job left open is taken for one still being uploaded: an hour.
+ * Its window uploads a job's rows right after the org opens it, and closes
+ * it once they are all sent; a job open longer than this was left so.
+ */
+export const OPEN_JOB_GRACE_MS = 60 * 60_000;
 
 /** A Salesforce id, as every id read back is: they end up in deletes. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -31,7 +41,7 @@ export interface IngestJobReading {
       type: 'ingest',
       options: { id: string },
     ): {
-      check(): Promise<{ state: string; systemModstamp?: string }>;
+      check(): Promise<{ state: string; systemModstamp?: string; createdDate?: string }>;
       getSuccessfulResults(): Promise<ReadonlyArray<Record<string, unknown>>>;
       abort(): Promise<unknown>;
     };
@@ -64,16 +74,23 @@ function createdFlag(value: unknown): boolean | undefined {
  * run's.
  *
  * @param upsert - Whether the job upserts.
+ * @param now - This machine's clock, in epoch milliseconds.
  */
 export async function readJobCreated(
   conn: IngestJobReading,
   jobId: string,
   upsert: boolean,
+  now: () => number = () => Date.now(),
 ): Promise<JobCreatedRead> {
   try {
     const job = conn.bulk2.job('ingest', { id: jobId });
     const info = await job.check();
     if (info.state === 'Open') {
+      // Opened lately: its window may be uploading it still. Read again later.
+      const opened = Date.parse(info.createdDate ?? '');
+      if (Number.isFinite(opened) && now() - opened < OPEN_JOB_GRACE_MS) {
+        return { state: 'running' };
+      }
       // Never closed: the org never processes it, and nothing closes it now.
       await job.abort().catch(() => undefined);
       return { state: 'never-closed' };
@@ -167,7 +184,7 @@ export async function answerJobsInFlight(
   for (const call of run.jobs ?? []) {
     if (call.job === undefined) continue;
     const said = { job: call.job, objectApiName: call.objectApiName };
-    const read = await readJobCreated(conn, call.job, call.upsert === true);
+    const read = await readJobCreated(conn, call.job, call.upsert === true, () => now().getTime());
     if (read.state === 'running' || read.state === 'unread') {
       done.push({ ...said, read, answered: false });
       continue;

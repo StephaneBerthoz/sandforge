@@ -78,6 +78,7 @@ import {
   type SyncRunRemovalState,
 } from '../src/modules/sync/SyncRunCreations.js';
 import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
+import { writtenElsewhere } from '../src/modules/sync/runWriter.js';
 import {
   jobLines,
   removalRefusal,
@@ -1745,6 +1746,17 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     file !== undefined ? await subjectOfRunFile(file, args) : subjectOfSummary(args, say);
   const { earlier } = subject;
   let run = subject.run;
+  // A run with no end whose process is alive is still being written — by a
+  // window of the extension, or another command line — and not one that
+  // stopped: its open Bulk API job would be aborted mid-upload, and what it
+  // goes on to create would never be offered for removal.
+  if (writtenElsewhere(run)) {
+    process.stderr.write(
+      `The run is still writing, in process ${run.writer?.pid ?? '?'}: remove it once it has ` +
+        'ended. Nothing was deleted.\n',
+    );
+    process.exit(1);
+  }
 
   const output = (
     status: ForgeUndoStatus,

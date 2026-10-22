@@ -84,6 +84,15 @@ describe('ForgeRemovalPlanStore', () => {
     expect((await store.get('forge-2'))?.retryOf).toBe('forge-1');
   });
 
+  it('reads back what the sweeps of a run’s removals did, which a read of the plan dropped', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+    const sweep = { sweptAt: '2026-09-21T08:00:00.000Z', deleted: 4, keptChanged: 1, refused: 0 };
+
+    await store.put(plan('forge-1', 1, { sweep }));
+
+    expect((await store.get('forge-1'))?.sweep).toEqual(sweep);
+  });
+
   it('writes through a file beside it renamed over it, so a stopped write leaves the last whole file', async () => {
     const disk = memoryDisk();
     const store = new ForgeRemovalPlanStore(disk.deps);

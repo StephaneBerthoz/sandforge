@@ -20,6 +20,14 @@ describe('the exit codes of the command lines', () => {
     expect(restoreExitCode({ status: 'partial', totalFailed: 2 })).toBe(3);
     expect(restoreExitCode({ status: 'success', totalFailed: 0, partial: true })).toBe(3);
     expect(restoreExitCode({ status: 'failure', totalFailed: 5 })).toBe(1);
+    // Records of a Sync run's snapshot changed since the run, held back: partial.
+    expect(
+      restoreExitCode({
+        status: 'partial',
+        totalFailed: 0,
+        keptChanged: { total: 4, objects: [] },
+      }),
+    ).toBe(3);
   });
 
   it('takes the worst of the codes a step came to: a failure, then an unstable verdict, then a partial one', () => {

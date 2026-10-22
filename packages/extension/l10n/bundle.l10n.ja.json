@@ -149,5 +149,6 @@
   "production": "本番",
   "staging": "ステージング",
   "development": "開発",
-  "scratch": "スクラッチ"
+  "scratch": "スクラッチ",
+  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: {1} に {2} で開始された {0} の実行の記録は、作成した {3} 件のレコードがその組織にまだ残っていますが、このマシンに保持する実行を上限内に収めるために削除されました。これらのレコードは sandforge-cleanup で、または組織から削除してください。"
 }

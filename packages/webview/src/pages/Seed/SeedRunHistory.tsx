@@ -117,7 +117,17 @@ export const SeedRunHistory: React.FC = () => {
                         has not ended. Read as stopped, it was offered a
                         removal that deleted accounts while contacts were
                         still being inserted under them. */}
-                    {run.running ? (
+                    {/* Written by another window now: its process is alive.
+                        Read as one that stopped, it was listed as partial,
+                        and listing it aborted its Bulk API job mid-upload. */}
+                    {run.runningElsewhere ? (
+                      <span
+                        className="text-text-secondary"
+                        data-testid={`seed-run-history-elsewhere-${run.runId}`}
+                      >
+                        {t('seed.removal.historyRunningElsewhere')}
+                      </span>
+                    ) : run.running ? (
                       <>
                         <span
                           className="text-text-secondary"
@@ -156,7 +166,7 @@ export const SeedRunHistory: React.FC = () => {
                       </>
                     )}
                   </div>
-                  {shown && !run.running && (
+                  {shown && !run.running && !run.runningElsewhere && (
                     <Suspense fallback={<div aria-busy="true" />}>
                       <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
                     </Suspense>

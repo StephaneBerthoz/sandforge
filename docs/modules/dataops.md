@@ -56,7 +56,11 @@ Take a snapshot of the objects an Anonymize writes over:
   `sandforge.backup.maxAgeDays` days, 30 unless you set it (0 keeps them),
   removed as SandForge starts and after each backup. A Sync run keeps here,
   listed as a backup of the org it wrote to, the values it wrote over, which
-  removing the run gives back: only their age takes those. A backup taken before
+  removing the run gives back: only their age takes those, and the run's card
+  says until when. `sandforge-backup` and `sandforge-dataops` apply the same
+  retention as they start, `--max-age-days` setting it (0 keeps them all), and
+  name on stderr each snapshot they remove, a Sync run's said as the run's. A
+  backup taken before
   that setting existed is kept until you delete it: the retention counts from
   the first start that had it, so an upgrade never takes a backup away. The Restore tab deletes
   one, or every backup of the org; disconnecting an org asks whether its
@@ -82,8 +86,11 @@ Restore data from a previously saved backup:
   run's removal does, a record changed since the run — modified after its last
   write — or deleted since is left as it is, and counted per object with the
   result, unless **Also restore the records changed or deleted since the run**
-  is ticked. `sandforge-backup --restore` leaves them as they are too; the
-  run's own `sandforge-sync --remove --include-changed` gives them back. A run
+  is ticked. `sandforge-backup --restore` and `sandforge-dataops anonymize
+--restore` leave them as they are too, and end on exit code 3, unless
+  `--include-changed` is given, as the run's own `sandforge-sync --remove
+--include-changed` gives them back. Its delete question says that removing
+  the run will no longer put these values back. A run
   no longer kept on this machine has no known last write: every record of its
   backup reads as changed since
 

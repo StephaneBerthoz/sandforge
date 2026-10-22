@@ -140,21 +140,27 @@ describe('SeedRunCreations', () => {
     expect(await runs.list()).toEqual([]);
   });
 
-  it('keeps the latest runs, the oldest removed with nothing left going first past the bound', async () => {
+  it('never drops a run whose records are still in its org on a count, and keeps the latest removed ones', async () => {
     const runs = new SeedRunCreations(nodeSyncRunCreations(dir, SEED_RUNS_DIR), 2);
     const at = (minute: number) => `2026-10-17T10:0${minute}:00.000Z`;
+    const removed = (runId: string) =>
+      runs.updateRemoval(runId, () => ({
+        undo: { removedAt: at(9), deleted: 3, alreadyGone: 0, kept: 0, refused: 0 },
+      }));
+    // A seed never removed, then more runs than the bound: it stays listed.
     await runs.record(run('op-1', { startedAt: at(1) }));
     await runs.record(run('op-2', { startedAt: at(2) }));
-    // The newer of the two removed whole: it goes before the older one.
-    await runs.updateRemoval('op-2', () => ({
-      undo: { removedAt: at(5), deleted: 3, alreadyGone: 0, kept: 0, refused: 0 },
-    }));
     await runs.record(run('op-3', { startedAt: at(3) }));
+    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-3', 'op-2', 'op-1']);
 
-    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-3', 'op-1']);
-
+    // Three removed whole: the oldest of them goes, never the one left in its org.
+    await removed('op-2');
+    await removed('op-3');
     await runs.record(run('op-4', { startedAt: at(4) }));
-    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-4', 'op-3']);
+    await removed('op-4');
+    await runs.record(run('op-5', { startedAt: at(5) }));
+
+    expect((await runs.list()).map((r) => r.runId)).toEqual(['op-5', 'op-4', 'op-3', 'op-1']);
   });
 
   it('keeps each call before it goes, a job again with its id once opened, so a run cut short during a job names it', async () => {

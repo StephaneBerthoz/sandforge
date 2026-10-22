@@ -149,5 +149,6 @@
   "production": "Produktions",
   "staging": "Staging",
   "development": "Entwicklungs",
-  "scratch": "Scratch"
+  "scratch": "Scratch",
+  "SandForge: the record of a {0} run started {1} in {2}, whose {3} created record(s) are still in that org, was dropped to keep the runs kept on this machine within their bound. Delete those records with sandforge-cleanup, or from the org.": "SandForge: Der Eintrag eines {0}-Laufs, gestartet am {1} in {2}, dessen {3} erstellte Datensätze noch in dieser Org sind, wurde entfernt, um die auf diesem Rechner aufbewahrten Läufe in ihrer Grenze zu halten. Löschen Sie diese Datensätze mit sandforge-cleanup oder in der Org."
 }

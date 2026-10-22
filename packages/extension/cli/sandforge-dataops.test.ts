@@ -670,6 +670,65 @@ describe('sandforge-dataops', () => {
       expect(stdout).toContain('Rollback completed: 20 records restored');
     });
 
+    it('reads --include-changed with a restore alone, and the retention in days', () => {
+      const restore = parseArgs(
+        argv('anonymize', '--org', 'O', '--restore', 'snap-1', '--include-changed'),
+      );
+      expect(restore).toMatchObject({ mode: 'restore', includeChanged: true });
+      expect(
+        parseArgs(argv('anonymize', '--org', 'O', '--restore', 'snap-1', '--max-age-days', '0')),
+      ).toMatchObject({ includeChanged: false, maxAgeDays: 0 });
+      expect(() =>
+        parseArgs(
+          argv(
+            'anonymize',
+            '--org',
+            'O',
+            '--object',
+            'Contact',
+            '--template',
+            't',
+            '--include-changed',
+          ),
+        ),
+      ).toThrow(ExitCalled);
+      expect(stderr).toContain('--include-changed goes with --restore.');
+    });
+
+    it('hands --include-changed to the restore of a snapshot', async () => {
+      orgIs('Developer Edition');
+      const rows = contactsOf(30, 20);
+      orgOf(rows);
+      await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--template',
+        'tpl-gdpr-standard',
+        '--where',
+        "LastName LIKE 'Scoped%'",
+        '--yes',
+      );
+      const snapshotId = /snapshot (\S+): 20 record\(s\)/.exec(stdout)?.[1];
+      stdout = '';
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--restore',
+        snapshotId!,
+        '--include-changed',
+        '--yes',
+        '--json',
+      );
+
+      expect(code).toBeUndefined();
+      expect(stdout).toContain('"includeChanged": true');
+    });
+
     it('refuses --rewrite-all without a restore', () => {
       expect(() =>
         parseArgs(

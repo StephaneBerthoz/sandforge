@@ -33,9 +33,14 @@
  * The panel's CSV imports and clones from another org are kept here too,
  * named by their way (`SeedRunStart.origin`), and taken back the same way.
  *
- * Bounded: the {@link SEED_RUNS_KEPT} latest runs are kept, the oldest run
- * removed with nothing left going first past it, then the oldest; and the
- * files are bounded on bytes as a Sync run's are.
+ * Bounded: of the runs removed with nothing left, the {@link SEED_RUNS_KEPT}
+ * latest are kept, the oldest going first past it; a run whose records are
+ * still in its org is never dropped on a count. The runs of every org and of
+ * every way share the folder: twenty small CSV imports, or a day of Quick
+ * Seeds on scratch orgs, pushed out a template seed of thousands of records
+ * that was never removed, without a word. The files are bounded on bytes as
+ * a Sync run's are, which caps what they take on disk, and a run the hard
+ * bound drops is said (`SyncRunCreationsDeps.onDropped`).
  *
  * A run the command line made is taken back from the summary it printed
  * (`sandforge-seed --remove`), which builds the run the same way
@@ -56,7 +61,7 @@ import {
 } from '../sync/SyncRunCreations.js';
 import type { SyncRemovalStateStore } from '../sync/SyncRunRemoval.js';
 
-/** Runs kept at most; the oldest goes past it, one removed with nothing left first. */
+/** Runs removed with nothing left kept at most; the oldest of them goes past it. */
 export const SEED_RUNS_KEPT = 20;
 
 /** The directory, under the extension's storage, that the runs' files go in. */
@@ -167,9 +172,17 @@ export interface SeedRunRecorder {
   ): Promise<void>;
 }
 
-/** The store over Node's file system, under the extension's storage directory. */
-export function nodeSeedRunCreations(storagePath: string): SeedRunCreations {
-  return new SeedRunCreations(nodeSyncRunCreations(storagePath, SEED_RUNS_DIR));
+/**
+ * The store over Node's file system, under the extension's storage directory.
+ *
+ * @param onDropped - Told of a run the files' hard bound dropped though its
+ *   records are still in its org (`SyncRunCreationsDeps.onDropped`).
+ */
+export function nodeSeedRunCreations(
+  storagePath: string,
+  onDropped?: (run: SyncRunKept) => void,
+): SeedRunCreations {
+  return new SeedRunCreations(nodeSyncRunCreations(storagePath, SEED_RUNS_DIR, onDropped));
 }
 
 /** The Seed runs of the panel and what their removals did: see the module's comment. */
@@ -177,7 +190,8 @@ export class SeedRunCreations implements SyncRemovalStateStore {
   /**
    * @param runs - Where the runs' files are kept: a Sync run's store, under
    *   {@link SEED_RUNS_DIR}.
-   * @param max - Runs kept at most: {@link SEED_RUNS_KEPT} unless a test sets another.
+   * @param max - Runs removed with nothing left kept at most: {@link SEED_RUNS_KEPT}
+   *   unless a test sets another.
    */
   constructor(
     private readonly runs: SyncRunCreations,
@@ -261,7 +275,7 @@ export class SeedRunCreations implements SyncRemovalStateStore {
         });
         const failure = await recorder.flush();
         if (failure !== undefined) throw new Error(failure);
-        await this.keepTheLatest(start.runId);
+        await this.keepTheLatest();
       },
     };
   }
@@ -283,13 +297,15 @@ export class SeedRunCreations implements SyncRemovalStateStore {
     }).end(run);
   }
 
-  /** Drop the runs past the most kept: the oldest settled ones first, then the oldest. */
-  private async keepTheLatest(recorded: string): Promise<void> {
-    const runs = (await this.runs.list()).filter((run) => run.runId !== recorded);
-    let over = runs.length + 1 - this.max;
-    if (over <= 0) return;
-    const oldestFirst = [...runs].reverse();
-    for (const run of [...oldestFirst.filter(settled), ...oldestFirst.filter((r) => !settled(r))]) {
+  /**
+   * Drop the runs removed with nothing left past the most kept, the oldest
+   * first. A run whose records are still in its org is never dropped here:
+   * only the hard bound on bytes of the store drops one, and says so.
+   */
+  private async keepTheLatest(): Promise<void> {
+    const removed = (await this.runs.list()).filter(settled);
+    let over = removed.length - this.max;
+    for (const run of [...removed].reverse()) {
       if (over <= 0) return;
       await this.runs.forget(run.runId);
       over--;

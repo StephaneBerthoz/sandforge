@@ -7803,6 +7803,8 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('cdc-object-checkbox-Case').check();
       await page.getByTestId('cdc-object-checkbox-ListEmailSentResult').check();
       await page.getByTestId('cdc-autosync-toggle-Lead').check();
+      // What a session writes cannot be taken back, and the box says so.
+      await expect(page.getByTestId('cdc-not-removable')).toBeVisible();
       // Neutralized unless unticked, as on a Sync run, with what it covers.
       await expect(page.getByTestId('cdc-contact-points-toggle')).toBeChecked();
       await expect(page.getByTestId('cdc-contact-points-hint')).toBeVisible();
@@ -8424,6 +8426,182 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('sync-removal-sweep')).toContainText('Follow up');
 
       await expectReadable(page, theme);
+    });
+
+    test('Sync run removal of a run that wrote over and deleted records, then what it gave back and brought back', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('sync-run').click();
+      await bridge.respondToNext('sync:execute', 'sync:execute:response', {
+        configId: 'cfg-axe',
+        operationId: 'run-axe-over',
+        status: 'success',
+        objectResults: [
+          {
+            objectApiName: 'Contact',
+            operation: 'upsert',
+            processed: 3,
+            success: 3,
+            failed: 0,
+            skipped: 0,
+            conflictCount: 0,
+            errors: [],
+          },
+        ],
+        totalProcessed: 3,
+        totalSuccess: 3,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 900,
+        timestamp: '2026-10-21T10:00:00.000Z',
+        created: {
+          runId: 'run-axe-over',
+          objects: [],
+          files: 0,
+          overwritten: 3,
+          deleted: 2,
+        },
+      });
+      // Every request answered: a development build mounts the card twice.
+      await bridge.waitForMessage('sync:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', {
+        info: {
+          runId: 'run-axe-over',
+          configId: 'cfg-axe',
+          configName: 'Contacts',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          startedAt: '2026-10-21T09:59:59.000Z',
+          endedAt: '2026-10-21T10:00:00.000Z',
+          created: 0,
+          left: [],
+          overwritten: 3,
+          putBack: [{ objectApiName: 'Contact', count: 2 }],
+          putBackNotKept: 1,
+          putBackKeptUntil: '2026-11-20T10:00:00.000Z',
+          deleted: 2,
+          bringBack: [{ objectApiName: 'Contact', count: 2 }],
+          notKeptEncrypted: ['Contact.Tax__c'],
+          writtenAgain: [
+            {
+              runId: 'run-axe-later',
+              configName: 'Contacts nightly',
+              startedAt: '2026-10-22T02:00:00.000Z',
+              records: 2,
+            },
+          ],
+        },
+      });
+      const removal = page.getByTestId('sync-result-removal');
+      await removal.getByTestId('sync-removal-written-again').waitFor({ timeout: 10_000 });
+      await expect(removal.getByTestId('sync-removal-remove')).toHaveText(
+        'Give back what this run wrote over',
+      );
+      await expect(removal.getByTestId('sync-removal-put-back-not-kept')).toBeVisible();
+      await expect(removal.getByTestId('sync-removal-deleted')).toBeVisible();
+      await expect(removal.getByTestId('sync-removal-not-kept-encrypted')).toBeVisible();
+      await expectReadable(page, theme);
+
+      await removal.getByTestId('sync-removal-remove').click();
+      await expect(page.getByTestId('sync-removal-bring-back-Contact')).toBeVisible();
+      await expect(page.getByTestId('sync-removal-confirm-written-again')).toBeVisible();
+      await expect(page.getByTestId('sync-removal-confirm-not-kept')).toBeVisible();
+      await expectReadable(page, theme);
+
+      await page.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await page.getByTestId('danger-confirm-btn').click();
+      await bridge.waitForMessage('sync:remove', { timeout: 10_000 });
+      await answerAll(page, 'sync:remove', 'sync:remove:response', {
+        result: {
+          runId: 'run-axe-over',
+          status: 'partial',
+          includeChanged: false,
+          finishedAt: '2026-10-21T11:00:00.000Z',
+          objects: [],
+          undeleted: [
+            {
+              objectApiName: 'Contact',
+              planned: 2,
+              undeleted: 1,
+              alreadyBack: 0,
+              goneForGood: 1,
+              refused: 0,
+              reasons: [],
+            },
+          ],
+          restored: [
+            {
+              objectApiName: 'Contact',
+              planned: 2,
+              restored: 1,
+              restoredWithout: 1,
+              keptChanged: 0,
+              alreadyGone: 0,
+              refused: 0,
+              notKept: 0,
+              reasons: [
+                'Contact.LeadSource: the value from before is no longer taken ' +
+                  '(INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST: bad value) — left as the run wrote it',
+              ],
+            },
+          ],
+        },
+        operationId: 'req-axe',
+      });
+      await removal.getByTestId('sync-removal-undeleted-Contact').waitFor({ timeout: 10_000 });
+      await expect(removal.getByTestId('sync-removal-restored-Contact')).toContainText(
+        'no longer takes',
+      );
+      await expectReadable(page, theme);
+    });
+
+    test('Sync History tab listing a run another window is writing beside one a closed window stopped', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme);
+      await page.getByTestId('tab-history').click();
+      await bridge.respondToNext('sync:history:list', 'sync:history:list:response', {
+        entries: [],
+      });
+      const run = {
+        configId: 'cfg-axe',
+        configName: 'Contacts',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        created: 2,
+        left: [{ objectApiName: 'Contact', count: 2 }],
+      };
+      await bridge.waitForMessage('sync:removal:list', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:list', 'sync:removal:list:response', {
+        runs: [
+          {
+            ...run,
+            runId: 'run-axe-elsewhere',
+            startedAt: '2026-10-21T10:00:00.000Z',
+            runningElsewhere: true,
+            refusal: {
+              code: 'RUNNING',
+              message: 'The run is still writing in another window.',
+            },
+          },
+          { ...run, runId: 'run-axe-stopped', startedAt: '2026-10-20T10:00:00.000Z' },
+        ],
+      });
+      await bridge.waitForMessage('sync:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', {
+        info: { ...run, runId: 'run-axe-stopped', startedAt: '2026-10-20T10:00:00.000Z' },
+      });
+      await page.getByTestId('sync-unfinished-elsewhere-run-axe-elsewhere').waitFor({
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId('sync-unfinished-removal-run-axe-elsewhere')).toHaveCount(0);
+      await page
+        .getByTestId('sync-unfinished-removal-run-axe-stopped')
+        .getByTestId('sync-removal-remove')
+        .waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="sync-unfinished-runs"]');
     });
 
     test('Quick Sync results offering to remove what the run created and the way to its history entry, then that entry', async ({
@@ -9536,6 +9714,49 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Restore of a Sync run’s backup cut short, asked whether to delete it', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'sync-before-run-cut',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-02T10:00:00.000Z',
+            totalRecords: 40,
+            totalSize: 0,
+            status: 'completed',
+            partial: true,
+            objectResults: [{ objectApiName: 'Account', recordCount: 40, truncated: false }],
+            origin: 'sync',
+            runId: 'run-cut',
+          },
+        ],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await expect(page.getByTestId('restore-sync-partial-sync-before-run-cut')).toBeVisible();
+      await page
+        .getByTestId('restore-backup-sync-before-run-cut')
+        .getByRole('button')
+        .first()
+        .click();
+      await page.getByTestId('delete-backup-btn-sync-before-run-cut').click();
+      await expect(page.getByTestId('delete-backup-question')).toContainText(
+        'will no longer put these values back',
+      );
+      await expectReadable(page, theme);
+    });
+
     test('DataOps Restore of a Sync run’s backup that left what changed since the run as it is', async ({
       page,
     }) => {
@@ -10003,6 +10224,35 @@ for (const theme of STATE_THEMES) {
       });
       await page.getByTestId('seed-removal-remove').waitFor({ timeout: 10_000 });
       await page.getByTestId('seed-run-history-unfinished-op-axe-2').waitFor({ timeout: 10_000 });
+
+      await expectReadable(page, theme, '[data-testid="seed-run-history"]');
+    });
+
+    test('Seed earlier seeds, one another window is writing', async ({ page }) => {
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('seed:removal:list', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', {
+        runs: [
+          {
+            runId: 'op-axe-other',
+            targetOrgId: 'org-src-1',
+            startedAt: '2026-10-02T09:59:00.000Z',
+            endedAt: '2026-10-02T10:00:00.000Z',
+            runningElsewhere: true,
+            created: 40,
+            left: [{ objectApiName: 'Contact', count: 40 }],
+            refusal: {
+              code: 'RUNNING',
+              message: 'The seed is still writing in another window.',
+            },
+          },
+        ],
+      });
+      await page.getByTestId('seed-run-history-elsewhere-op-axe-other').waitFor({
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId('seed-run-history-toggle-op-axe-other')).toHaveCount(0);
 
       await expectReadable(page, theme, '[data-testid="seed-run-history"]');
     });

@@ -48,6 +48,7 @@ import {
   jobAnsweredLines,
   type IngestJobReading,
 } from '../../modules/sync/inFlightJob.js';
+import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type { SeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
 import { seedSweepInput } from '../../modules/seed/seedRunSweep.js';
 import {
@@ -83,6 +84,10 @@ const JOB_READ_TIMEOUT_MS = 60_000;
 
 /** Why a run still writing cannot be removed, until it ends. */
 const SEED_STILL_WRITING = 'The seed is still writing: remove it once it has ended.';
+
+/** Why a run another window writes cannot be removed, until it ends. */
+const SEED_WRITING_ELSEWHERE =
+  'The seed is still writing in another window: remove it once it has ended there.';
 
 /**
  * The removal of what a Seed run created, from the run's results or the list
@@ -136,13 +141,25 @@ export class SeedRemovalHandler implements DomainHandler {
    * @param deps - Injected handler dependencies.
    * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
    * @param isRunning - Whether a run is still writing, in this window.
+   * @param self - This window's process, as a run's file names the process
+   *   writing it: a run another one alive writes is still writing too.
    */
   constructor(
     private readonly deps: HandlerDeps,
     externalBrowser?: ExternalBrowserAdapter,
     private readonly isRunning: (runId: string) => boolean = () => false,
+    private readonly self: RunWriterHost = THIS_HOST,
   ) {
     this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
+  }
+
+  /**
+   * Whether another window writes the run now (`writtenElsewhere`): listed as
+   * a seed that stopped, its open Bulk API job was aborted mid-upload by the
+   * listing, and its removal let through.
+   */
+  private elsewhere(run: SyncRunKept): boolean {
+    return !this.isRunning(run.runId) && writtenElsewhere(run, this.self);
   }
 
   /** Where the Seed runs keep what they created. */
@@ -215,7 +232,9 @@ export class SeedRemovalHandler implements DomainHandler {
         ? {}
         : this.isRunning(run.runId)
           ? { running: true as const }
-          : { unfinished: true as const }),
+          : this.elsewhere(run)
+            ? { runningElsewhere: true as const }
+            : { unfinished: true as const }),
       created: createdCount(run),
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
@@ -233,6 +252,7 @@ export class SeedRemovalHandler implements DomainHandler {
     if (this.isRunning(run.runId)) {
       return { code: 'RUNNING', message: SEED_STILL_WRITING };
     }
+    if (this.elsewhere(run)) return { code: 'RUNNING', message: SEED_WRITING_ELSEWHERE };
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) {
       return {
         code: 'ORG_GONE',
@@ -267,7 +287,8 @@ export class SeedRemovalHandler implements DomainHandler {
    */
   private async withJobAnswered(run: SyncRunKept): Promise<SyncRunKept> {
     const store = this.creations;
-    if (!store || (run.jobs ?? []).length === 0 || this.isRunning(run.runId)) return run;
+    if (!store || (run.jobs ?? []).length === 0) return run;
+    if (this.isRunning(run.runId) || this.elsewhere(run)) return run;
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) return run;
     const context = `seed:removal of ${run.runId}`;
     try {
@@ -649,6 +670,10 @@ export class SeedRemovalHandler implements DomainHandler {
     // are inserted under them. Sync refuses its runs the same way.
     if (this.isRunning(run.runId)) {
       this.refuse(msg, SEED_STILL_WRITING, 'RUNNING');
+      return;
+    }
+    if (this.elsewhere(run)) {
+      this.refuse(msg, SEED_WRITING_ELSEWHERE, 'RUNNING');
       return;
     }
     if (!this.deps.orgManager.getOrg(run.targetOrgId)) {

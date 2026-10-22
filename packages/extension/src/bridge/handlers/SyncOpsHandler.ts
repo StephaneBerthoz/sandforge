@@ -117,6 +117,7 @@ import {
   syncOverwriteKeeper,
   type BackupRecordFiles,
 } from '../../modules/sync/syncOverwrites.js';
+import { viewsEncryptedDataOnce } from '../../modules/sync/encryptedFields.js';
 import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
@@ -2018,22 +2019,25 @@ export class SyncOpsHandler implements DomainHandler {
     try {
       const readers = await this.readersFor(config, abortController.signal);
       const { sourceConn, targetConn } = readers;
+      const targetRows = async (soql: string): Promise<Array<Record<string, unknown>>> =>
+        (
+          await queryAllPages<Record<string, unknown>>(
+            {
+              query: async (q) => targetConn.query<Record<string, unknown>>(q),
+              queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
+            },
+            soql,
+          )
+        ).records;
       const keeper =
         creations && overwrites
           ? syncOverwriteKeeper({
-              query: async (soql) =>
-                (
-                  await queryAllPages<Record<string, unknown>>(
-                    {
-                      query: async (q) => targetConn.query<Record<string, unknown>>(q),
-                      queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),
-                    },
-                    soql,
-                  )
-                ).records,
+              query: targetRows,
               backup: overwrites,
               recorder: creations,
               describe: readers.describeTargetFields,
+              // An encrypted field the run's user reads masked is not kept.
+              viewsEncrypted: viewsEncryptedDataOnce(targetRows),
             })
           : undefined;
 

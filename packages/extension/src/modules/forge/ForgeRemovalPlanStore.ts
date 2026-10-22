@@ -74,6 +74,17 @@ const planSchema = z.object({
     .array(z.object({ first: dateSchema, last: dateSchema, userId: idSchema }))
     .optional(),
   removalLeft: z.array(idSchema).optional(),
+  // What the sweeps of its removals did: dropped with every read of a kept
+  // plan, as a key the schema does not name is, a run removed from its plan
+  // lost what its sweeps had done.
+  sweep: z
+    .object({
+      sweptAt: dateSchema,
+      deleted: z.number().int().nonnegative(),
+      keptChanged: z.number().int().nonnegative(),
+      refused: z.number().int().nonnegative(),
+    })
+    .optional(),
   inJournal: z
     .object({
       journalId: z.string().min(1).max(200),

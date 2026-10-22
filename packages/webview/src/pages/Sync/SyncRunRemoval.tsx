@@ -7,6 +7,7 @@ import type {
   SyncRemovalResult,
   SyncRestoreObjectResult,
   SyncRunRemovalInfo,
+  SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -124,6 +125,7 @@ const SyncRestoredResult: React.FC<{ restored: SyncRestoreObjectResult[]; org: s
       [object.refused, 'runRemoval.sync.restoredRefused'],
       [object.notKept, 'runRemoval.sync.restoredNotKept'],
       [object.notReached ?? 0, 'runRemoval.sync.restoredNotReached'],
+      [object.restoredWithout ?? 0, 'runRemoval.sync.restoredWithout'],
     ].flatMap(([count, key]) =>
       (count as number) > 0 ? [t(key as string, { n: formatNumber(count as number), org })] : [],
     );
@@ -162,6 +164,142 @@ const SyncRestoredResult: React.FC<{ restored: SyncRestoreObjectResult[]; org: s
     </section>
   );
 };
+
+/**
+ * What a removal brought back from the recycle bin of what the run deleted,
+ * as the source had deleted them, per object: the records back in the
+ * target, and those it left deleted, with why — gone for good, refused, not
+ * reached.
+ */
+const SyncUndeletedResult: React.FC<{ undeleted: SyncUndeleteObjectResult[]; org: string }> = ({
+  undeleted,
+  org,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const left = (object: SyncUndeleteObjectResult): string[] =>
+    [
+      [object.alreadyBack, 'runRemoval.sync.undeletedAlreadyBack'],
+      [object.goneForGood, 'runRemoval.sync.undeletedGone'],
+      [object.refused, 'runRemoval.sync.restoredRefused'],
+      [object.notReached ?? 0, 'runRemoval.sync.restoredNotReached'],
+    ].flatMap(([count, key]) =>
+      (count as number) > 0 ? [t(key as string, { n: formatNumber(count as number), org })] : [],
+    );
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="sync-removal-undeleted"
+      className="flex flex-col gap-1 mt-1.5 text-[11px]"
+    >
+      <h4 id={headingId} className="text-[11px] font-semibold text-text-primary">
+        {t('runRemoval.sync.undeletedTitle', { org })}
+      </h4>
+      <ul className="flex flex-col gap-1">
+        {undeleted.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`sync-removal-undeleted-${object.objectApiName}`}
+            className="text-text-secondary"
+          >
+            {t('runRemoval.sync.undeleted', {
+              object: object.objectApiName,
+              undeleted: formatNumber(object.undeleted),
+              planned: formatNumber(object.planned),
+            })}
+            {left(object).length > 0 && ` · ${left(object).join(' · ')}`}
+            {object.reasons.length > 0 && (
+              <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
+                {object.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/**
+ * The later runs of the same target that wrote the run's records again: until
+ * each is removed, this run's removal reads those records as changed since
+ * it, and removed after it, the later one gives them back this run's values.
+ */
+const SyncWrittenAgain: React.FC<{
+  writtenAgain: NonNullable<SyncRunRemovalInfo['writtenAgain']>;
+  testId: string;
+}> = ({ writtenAgain, testId }) => {
+  const { t } = useTranslation();
+  return (
+    <ul className="flex flex-col gap-0.5" data-testid={testId}>
+      {writtenAgain.map((later) => (
+        <li key={later.runId} className="text-[11px] text-text-primary">
+          {t('runRemoval.sync.writtenAgain', {
+            count: later.records,
+            formatted: formatNumber(later.records),
+            config: later.configName,
+            date: formatStoredDate(later.startedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
+          })}
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+/**
+ * What the card is about, by what the run left to take back: a run that
+ * created nothing and only wrote over records gives them back, and one that
+ * only deleted brings them back; the card, its button and its confirmation
+ * said "What this run created" for every run.
+ */
+type RemovalKind = 'created' | 'overwritten' | 'deleted';
+
+/** The words of the card, its button and its confirmation, by {@link RemovalKind}. */
+const KIND_KEYS: Record<RemovalKind, { title: string; remove: string; removeTitle: string }> = {
+  created: {
+    title: 'runRemoval.sync.title',
+    remove: 'runRemoval.sync.remove',
+    removeTitle: 'runRemoval.sync.removeTitle',
+  },
+  overwritten: {
+    title: 'runRemoval.sync.titleOverwritten',
+    remove: 'runRemoval.sync.removeOverwritten',
+    removeTitle: 'runRemoval.sync.removeTitleOverwritten',
+  },
+  deleted: {
+    title: 'runRemoval.sync.titleDeleted',
+    remove: 'runRemoval.sync.removeDeleted',
+    removeTitle: 'runRemoval.sync.removeTitleDeleted',
+  },
+};
+
+/** What the card is about: see {@link RemovalKind}. */
+function kindOf(kept: SyncRunRemovalInfo): RemovalKind {
+  if (kept.created > 0) return 'created';
+  if ((kept.overwritten ?? 0) > 0) return 'overwritten';
+  if ((kept.deleted ?? 0) > 0) return 'deleted';
+  return 'created';
+}
+
+/**
+ * The confirmation's account of what the removal does, as the run left it:
+ * what it gives back first when it gives some back; that the records it
+ * updated keep their new values only for a run that kept none of them,
+ * written before runs kept what they wrote over. A run whose values an
+ * earlier removal had all given back said it too.
+ */
+function descriptionKey(kept: SyncRunRemovalInfo, kind: RemovalKind): string {
+  if ((kept.putBack ?? []).length > 0) {
+    return kind === 'overwritten'
+      ? 'runRemoval.sync.removeDescriptionPutBackOnly'
+      : 'runRemoval.sync.removeDescriptionPutBack';
+  }
+  if (kind === 'deleted') return 'runRemoval.sync.removeDescriptionDeleted';
+  if (kept.overwritten === undefined) return 'runRemoval.sync.removeDescription';
+  return 'runRemoval.sync.removeDescriptionCreated';
+}
 
 /** Props for {@link SyncRunRemoval}. */
 export interface SyncRunRemovalProps {
@@ -239,7 +377,15 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
 
   /** What the run wrote over that a removal gives back now, per object. */
   const putBack = kept.putBack ?? [];
-  const offered = kept.left.length > 0 || putBack.length > 0;
+  /** What the run deleted that a removal brings back from the recycle bin now, per object. */
+  const bringBack = kept.bringBack ?? [];
+  const offered = kept.left.length > 0 || putBack.length > 0 || bringBack.length > 0;
+  const kind = kindOf(kept);
+  const words = KIND_KEYS[kind];
+  const keptUntil =
+    kept.putBackKeptUntil !== undefined
+      ? (formatStoredDate(kept.putBackKeptUntil, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
+      : undefined;
   let action: React.ReactNode = null;
   if (offered && kept.refusal) {
     action = (
@@ -266,7 +412,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         data-testid="sync-removal-remove"
         className="self-start text-[11px]"
       >
-        {kept.removed ? t('runRemoval.sync.removeLeft') : t('runRemoval.sync.remove')}
+        {kept.removed ? t('runRemoval.sync.removeLeft') : t(words.remove)}
       </Button>
     );
   }
@@ -285,10 +431,10 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
     <section
       className="flex flex-col gap-2 rounded-sm border border-subtle bg-surface-1 p-2"
       data-testid={testId ?? 'sync-removal'}
-      aria-label={t('runRemoval.sync.title')}
+      aria-label={t(words.title)}
     >
-      <h5 className="text-xs font-semibold text-text-primary">{t('runRemoval.sync.title')}</h5>
-      {(kept.created > 0 || (kept.overwritten ?? 0) === 0) && (
+      <h5 className="text-xs font-semibold text-text-primary">{t(words.title)}</h5>
+      {kind === 'created' && (
         <p className="text-[11px] text-text-secondary" data-testid="sync-removal-created">
           {t('runRemoval.sync.created', {
             count: kept.created,
@@ -299,12 +445,40 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       )}
       {(kept.overwritten ?? 0) > 0 && (
         <p className="text-[11px] text-text-secondary" data-testid="sync-removal-overwritten">
-          {t('runRemoval.sync.overwritten', {
-            count: kept.overwritten ?? 0,
-            formatted: formatNumber(kept.overwritten ?? 0),
+          {t(
+            putBack.length > 0 || (kept.putBackNotKept ?? 0) === 0
+              ? 'runRemoval.sync.overwritten'
+              : 'runRemoval.sync.overwrittenNotKept',
+            {
+              count: kept.overwritten ?? 0,
+              formatted: formatNumber(kept.overwritten ?? 0),
+              org,
+            },
+          )}
+          {keptUntil !== undefined && ` · ${t('runRemoval.sync.keptUntil', { date: keptUntil })}`}
+        </p>
+      )}
+      {(kept.putBackNotKept ?? 0) > 0 && (
+        <p className="text-[11px] text-text-primary" data-testid="sync-removal-put-back-not-kept">
+          {t('runRemoval.sync.putBackNotKept', { n: formatNumber(kept.putBackNotKept ?? 0) })}
+        </p>
+      )}
+      {(kept.deleted ?? 0) > 0 && (
+        <p className="text-[11px] text-text-secondary" data-testid="sync-removal-deleted">
+          {t('runRemoval.sync.deleted', {
+            count: kept.deleted ?? 0,
+            formatted: formatNumber(kept.deleted ?? 0),
             org,
           })}
         </p>
+      )}
+      {kept.notKeptEncrypted && kept.notKeptEncrypted.length > 0 && (
+        <p className="text-[11px] text-text-primary" data-testid="sync-removal-not-kept-encrypted">
+          {t('runRemoval.sync.notKeptEncrypted', { fields: kept.notKeptEncrypted.join(', ') })}
+        </p>
+      )}
+      {kept.writtenAgain && offered && (
+        <SyncWrittenAgain writtenAgain={kept.writtenAgain} testId="sync-removal-written-again" />
       )}
       {kept.removed && removedOn !== undefined && (
         <ForgeRunRemovalMark mark={kept.removed} date={removedOn} />
@@ -344,9 +518,12 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       )}
       {result && (
         <>
-          {(result.objects.length > 0 || result.sweep || !result.restored) && (
+          {(result.objects.length > 0 ||
+            result.sweep ||
+            (!result.restored && !result.undeleted)) && (
             <ForgeRunRemovalResult result={result} org={org} />
           )}
+          {result.undeleted && <SyncUndeletedResult undeleted={result.undeleted} org={org} />}
           {result.restored && <SyncRestoredResult restored={result.restored} org={org} />}
           {result.readWhole && result.readWhole.length > 0 && (
             <p className="text-[11px] text-text-secondary" data-testid="sync-removal-read-whole">
@@ -374,14 +551,46 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
         open={confirming}
         onClose={() => setConfirming(false)}
         onConfirm={confirmRemoval}
-        title={t('runRemoval.sync.removeTitle', { org })}
-        description={
-          putBack.length > 0
-            ? t('runRemoval.sync.removeDescriptionPutBack', { org })
-            : t('runRemoval.sync.removeDescription', { org })
-        }
+        title={t(words.removeTitle, { org })}
+        description={t(descriptionKey(kept, kind), { org })}
         confirmText={org}
       >
+        {bringBack.length > 0 && (
+          <>
+            {/* Said by the description of a run that only deleted. */}
+            {kind !== 'deleted' && (
+              <p data-testid="sync-removal-bring-back-note">
+                {t('runRemoval.sync.removeBringBack', { org })}
+              </p>
+            )}
+            <ul className="flex flex-col gap-0.5" data-testid="sync-removal-bring-back">
+              {bringBack.map((object) => (
+                <li
+                  key={object.objectApiName}
+                  data-testid={`sync-removal-bring-back-${object.objectApiName}`}
+                  className="font-mono"
+                >
+                  {t('runRemoval.sync.bringBack', {
+                    count: object.count,
+                    formatted: formatNumber(object.count),
+                    object: object.objectApiName,
+                  })}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {kept.writtenAgain && (
+          <SyncWrittenAgain
+            writtenAgain={kept.writtenAgain}
+            testId="sync-removal-confirm-written-again"
+          />
+        )}
+        {(kept.putBackNotKept ?? 0) > 0 && (
+          <p data-testid="sync-removal-confirm-not-kept">
+            {t('runRemoval.sync.putBackNotKept', { n: formatNumber(kept.putBackNotKept ?? 0) })}
+          </p>
+        )}
         {putBack.length > 0 && (
           <ul className="flex flex-col gap-0.5" data-testid="sync-removal-put-back">
             {putBack.map((object) => (

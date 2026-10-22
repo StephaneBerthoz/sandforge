@@ -476,6 +476,30 @@ describe('SyncOrchestrator — delta runs', () => {
       expect(orgs.calls.slice(2)).toEqual(['stamp', 'read', 'recycle bin']);
     });
 
+    it("name what they deleted in the run's file and its result, for its removal to bring back", async () => {
+      await deletedAfterFirstRun();
+      const deleted: Array<{ objectApiName: string; ids: string[] }> = [];
+      const creations = {
+        runId: 'run-2',
+        note: vi.fn(),
+        flush: vi.fn(async () => undefined),
+        deleted: (objectApiName: string, ids: readonly string[]) => {
+          deleted.push({ objectApiName, ids: [...ids] });
+        },
+      };
+
+      const result = await orchestrator({ creations }).execute(
+        deltaConfig({ propagateDeletes: true }),
+      );
+
+      const [gone] = deleted;
+      expect(deleted).toHaveLength(1);
+      expect(gone.objectApiName).toBe('Account');
+      expect(gone.ids).toHaveLength(1);
+      expect(orgs.target.has(gone.ids[0])).toBe(false);
+      expect(result.created).toMatchObject({ runId: 'run-2', deleted: 1 });
+    });
+
     it('keep a target record whose key a live source record still holds', async () => {
       await deletedAfterFirstRun();
       orgs.source.push({

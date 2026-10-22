@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import '../../../i18n';
 import type { BaseMessage, QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 
@@ -271,7 +271,7 @@ describe('QuickSyncPreviewStep', () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
-  it('offers to remove what the run created, as the Sync tab does, and says a second run inserts again', () => {
+  it('offers to remove what the run created, as the Sync tab does, and says a second run inserts again', async () => {
     // Quick Sync inserts every record: a wrong pick, or a run started twice,
     // was taken back from the History tab alone, which nothing here named.
     mockPostMessage.mockClear();
@@ -285,8 +285,12 @@ describe('QuickSyncPreviewStep', () => {
     };
     render(<QuickSyncPreviewStep {...defaultProps} result={created} />);
 
-    const asked = sentAll('sync:removal:info');
-    expect(asked.map((message) => message.payload)).toEqual([{ runId: 'run-quick' }]);
+    // The removal card is a chunk of its own: it asks once it is drawn.
+    await waitFor(() =>
+      expect(sentAll('sync:removal:info').map((message) => message.payload)).toEqual([
+        { runId: 'run-quick' },
+      ]),
+    );
     answer('sync:removal:info', 'sync:removal:info:response', {
       info: {
         runId: 'run-quick',

@@ -382,6 +382,75 @@ describe('SyncRemovalHandler', () => {
       ]);
     });
 
+    it('is neither aborted nor removable from a second window while the window writing it is alive', async () => {
+      // The run's file names this process as the one writing it, as the
+      // first window's does; the second window is another process. It has
+      // created two accounts, and its contacts' job is open, uploading.
+      const live = creations.recorder({
+        runId: 'run-live',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      });
+      live.note('Account', [A1, A2]);
+      live.sending?.('Contact', 3, { upsert: true });
+      live.sending?.('Contact', 3, { job: JOB, upsert: true });
+      await live.flush();
+      let aborted = 0;
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        bulk2: {
+          job: (_type: string, { id }: { id: string }) => {
+            asked.push(id);
+            return {
+              // Open for two hours: past the grace a job just opened is given.
+              check: async () => ({
+                state: 'Open',
+                createdDate: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+              }),
+              getSuccessfulResults: async () => [],
+              abort: async () => {
+                aborted++;
+              },
+            };
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+      const second = new SyncRemovalHandler(deps, { list: () => history }, () => false, {
+        pid: process.pid + 100_000,
+        startedAt: new Date().toISOString(),
+      });
+      second.setRunCreations(creations);
+      second.setRegistry(registry);
+
+      await second.handle(buildMsg('sync:removal:list'));
+      await second.handle(buildMsg('sync:removal:info', { runId: 'run-live' }));
+      await second.handle(buildMsg('sync:remove', { runId: 'run-live' }));
+
+      // No job of a run the live process writes is read back, nor aborted.
+      expect(asked).toEqual([]);
+      expect(aborted).toBe(0);
+      expect(org.all('Account').map((row) => row.Id)).toEqual([A1, A2]);
+      const [response] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      expect(response.payload.runs.find((run) => run.runId === 'run-live')).toMatchObject({
+        runningElsewhere: true,
+        refusal: { code: 'RUNNING' },
+      });
+      expect(info()).toMatchObject({ runningElsewhere: true, refusal: { code: 'RUNNING' } });
+      expect(errors()).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            code: 'RUNNING',
+            message: expect.stringContaining('another window'),
+          }),
+        }),
+      ]);
+      expect(answer()).toBeUndefined();
+    });
+
     it('asks nothing of the org for a run this window is still writing', async () => {
       running.add('run-job');
 
@@ -592,6 +661,7 @@ describe('SyncRemovalHandler', () => {
   describe('a run that wrote over records of the target', () => {
     const HELD = fakeId('001', 7);
     const BACKUP = 'sync-before-run-over';
+    const TAKEN = new Date(Date.now() - 12 * 60_000).toISOString();
     let target: MemoryRestoreOrg;
 
     beforeEach(async () => {
@@ -600,6 +670,8 @@ describe('SyncRemovalHandler', () => {
       const backups = new BackupRecordStore(nodeBackupFiles(dir));
       await backups.begin(BACKUP, 'Account');
       await backups.append(BACKUP, 'Account', [{ Id: HELD, Name: 'Before' }]);
+      // Listed by its metadata, as the run keeps it: what the retention removes.
+      store.set(`backup:${BACKUP}`, { operationId: BACKUP, timestamp: TAKEN }, 'backups');
       handler.setBackupRecordStore(backups);
       const recorder = creations.recorder({
         runId: 'run-over',
@@ -640,6 +712,26 @@ describe('SyncRemovalHandler', () => {
       expect(response.payload.runs.map((run) => run.runId)).toContain('run-over');
     });
 
+    it('says until when the values are kept, and offers nothing to put back once their backup is gone', async () => {
+      // The extension's settings, `sandforge.backup.maxAgeDays` at its default.
+      deps.services = {
+        getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+      } as unknown as HandlerDeps['services'];
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-over' }));
+      expect(info()?.putBackKeptUntil).toBe(
+        new Date(Date.parse(TAKEN) + 30 * 24 * 60 * 60_000).toISOString(),
+      );
+
+      // The retention took the backup, its metadata with it.
+      store.delete(`backup:${BACKUP}`);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-over' }));
+
+      expect(info()).toMatchObject({ overwritten: 1, putBackNotKept: 1 });
+      expect(info()?.putBack).toBeUndefined();
+      expect(info()?.putBackKeptUntil).toBeUndefined();
+    });
+
     it('gives the record its values back, records it updated in the audit trail, and is not offered again', async () => {
       await handler.handle(buildMsg('sync:remove', { runId: 'run-over' }));
 
@@ -666,6 +758,174 @@ describe('SyncRemovalHandler', () => {
       expect(info()?.putBack).toBeUndefined();
       await handler.handle(buildMsg('sync:remove', { runId: 'run-over' }));
       expect(errors()[0]?.payload.code).toBe('ALREADY_REMOVED');
+    });
+  });
+
+  describe('two upsert runs of a configuration that wrote the same records', () => {
+    const HELD = fakeId('001', 8);
+    const COPY = fakeId('001', 9);
+    let target: MemoryRestoreOrg;
+    const now = Date.now();
+    const minutesAgo = (minutes: number): string => new Date(now - minutes * 60_000).toISOString();
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    beforeEach(async () => {
+      // The first run wrote over an account the target held and created a
+      // copy of another; the second, of the same keys, wrote over both: its
+      // keeper kept what the first had written.
+      const backups = new BackupRecordStore(nodeBackupFiles(dir));
+      await backups.begin('sync-before-first', 'Account');
+      await backups.append('sync-before-first', 'Account', [{ Id: HELD, Name: 'v0' }]);
+      await backups.begin('sync-before-second', 'Account');
+      await backups.append('sync-before-second', 'Account', [
+        { Id: HELD, Name: 'v1' },
+        { Id: COPY, Name: 'c1' },
+      ]);
+      for (const id of ['sync-before-first', 'sync-before-second']) {
+        store.set(`backup:${id}`, { operationId: id, timestamp: minutesAgo(30) }, 'backups');
+      }
+      handler.setBackupRecordStore(backups);
+      // Each run's lines dated when it wrote them.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.parse(minutesAgo(30)));
+      const first = creations.recorder({
+        runId: 'run-first',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: minutesAgo(31),
+      });
+      first.overwriting?.('Account', 'sync-before-first', [HELD]);
+      first.overwrote?.('Account', []);
+      first.note('Account', [COPY]);
+      await first.end({ status: 'success' });
+      vi.setSystemTime(Date.parse(minutesAgo(10)));
+      const second = creations.recorder({
+        runId: 'run-second',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: minutesAgo(11),
+      });
+      second.overwriting?.('Account', 'sync-before-second', [HELD, COPY]);
+      second.overwrote?.('Account', []);
+      await second.end({ status: 'success' });
+      vi.useRealTimers();
+      // The second run wrote a new name over the account, and the copy's
+      // name again as it was: the org dated both by its write all the same.
+      target = new MemoryRestoreOrg();
+      target.add('Account', { Id: HELD, Name: 'v2' }, minutesAgo(10));
+      target.add('Account', { Id: COPY, Name: 'c1' }, minutesAgo(10));
+      vi.mocked(removalOrg).mockReturnValue(target);
+    });
+
+    it('names, on the earlier run, the later one that wrote its records again', async () => {
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-first' }));
+
+      expect(info()?.writtenAgain).toEqual([
+        { runId: 'run-second', configName: 'Accounts', startedAt: expect.any(String), records: 2 },
+      ]);
+    });
+
+    it('takes both back newest first, each settled with nothing kept as changed since it', async () => {
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-second' }));
+      expect(answer()).toMatchObject({
+        status: 'success',
+        restored: [{ objectApiName: 'Account', planned: 2, restored: 2, keptChanged: 0 }],
+      });
+      // When it ran, and as whom, kept on the earlier run too: what the
+      // target posted under the records it gave back is a removal's doing.
+      expect((await creations.get('run-first'))?.removal?.removalSpans).toEqual([
+        { first: expect.any(String), last: expect.any(String), userId: expect.any(String) },
+      ]);
+
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-first' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [{ objectApiName: 'Account', planned: 1, deleted: 1, keptChanged: 0 }],
+        restored: [{ objectApiName: 'Account', planned: 1, restored: 1, keptChanged: 0 }],
+      });
+      expect(target.all('Account')).toEqual([expect.objectContaining({ Id: HELD, Name: 'v0' })]);
+      for (const runId of ['run-first', 'run-second']) {
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        await handler.handle(buildMsg('sync:remove', { runId }));
+        expect(errors()[0]?.payload.code).toBe('ALREADY_REMOVED');
+      }
+    });
+  });
+
+  describe('a delta run that deleted in the target what the source deleted', () => {
+    const C1 = fakeId('003', 21);
+    const C2 = fakeId('003', 22);
+
+    beforeEach(async () => {
+      const recorder = creations.recorder({
+        runId: 'run-deleted',
+        configId: 'cfg-1',
+        configName: 'Accounts',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+      });
+      recorder.deleted?.('Contact', [C1, C2]);
+      await recorder.end({ status: 'success' });
+      // Contacts the target held before any run, tied by the write's key.
+      for (const id of [C1, C2]) {
+        org.add('Contact', { Id: id }, new Date(Date.now() - 400 * 24 * 60 * 60_000).toISOString());
+        org.trash('Contact', id);
+      }
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        soap: { undelete: (ids: string[]) => org.undelete(ids) },
+      } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+    });
+
+    it('says what it deleted, and brings it back from the recycle bin with its removal', async () => {
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-deleted' }));
+      expect(info()).toMatchObject({
+        created: 0,
+        deleted: 2,
+        bringBack: [{ objectApiName: 'Contact', count: 2 }],
+      });
+      expect(info()?.refusal).toBeUndefined();
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-deleted' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        undeleted: [{ objectApiName: 'Contact', planned: 2, undeleted: 2, goneForGood: 0 }],
+      });
+      expect(org.all('Contact').map((row) => row.Id)).toEqual([C1, C2]);
+      expect(trail()).toEqual([
+        expect.objectContaining({
+          objects: [expect.objectContaining({ objectApiName: 'Contact', created: 2 })],
+        }),
+      ]);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-deleted' }));
+      expect(errors()[0]?.payload.code).toBe('ALREADY_REMOVED');
+    });
+
+    it('counts one emptied from the recycle bin since as gone for good, and settles', async () => {
+      org.purge(C2);
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'run-deleted' }));
+
+      expect(answer()).toMatchObject({
+        status: 'partial',
+        undeleted: [{ objectApiName: 'Contact', undeleted: 1, goneForGood: 1 }],
+      });
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-deleted' }));
+      expect(info()?.bringBack).toBeUndefined();
     });
   });
 
