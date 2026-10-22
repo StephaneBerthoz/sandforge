@@ -2646,6 +2646,8 @@
       "takeBack1630Desc": "Was CSV-Upload und Von Org klonen anlegen, steht unter Frühere Seeds und lässt sich entfernen, und ein Lauf, dessen Fenster während eines Bulk-Jobs geschlossen wurde, entfernt die Datensätze dieses Jobs trotzdem. Sync setzt jetzt die Nachschlagefelder zwischen Objekten, die aufeinander verweisen, das Entfernen kann bereinigen, was die Automatisierung der Ziel-Org angelegt hat, und jede Seite lädt schlanker.",
       "undoOverwrites1640": "Aktualisierungen lassen sich zurücknehmen",
       "undoOverwrites1640Desc": "Was eine Sync-Aktualisierung in der Ziel-Org überschreibt, wird zuerst gesichert, und das Entfernen des Laufs gibt den Datensätzen ihre vorherigen Werte zurück. Ein Sync-Lauf über die Befehlszeile lässt sich auch nach einem Abbruch entfernen, und jede Seite öffnet sich unter 900 kB.",
+      "beforeWrites1650": "Vor dem Schreiben gewarnt",
+      "beforeWrites1650Desc": "Was der Org oder Ihrem Benutzer fehlt – ein ausgeblendetes Feld, ein Objekt, das Sie nicht anlegen oder löschen dürfen, die API-Anfragen des Tages –, wird gesagt, bevor ein Lauf schreibt. Die Befehlszeilenwerkzeuge verweigern die Produktion, halten bei einer unbekannten Option an und teilen dieselben Exit-Codes, und Objekte, die für eine Abfrage zu breit sind, werden vollständig kopiert.",
       "exactResume1530": "Genau dort fortsetzen, wo der Lauf anhielt",
       "exactResume1530Desc": "Ein fortgesetzter Forge-Lauf kopiert jetzt die noch fehlenden Dateien, gibt keinen Status zweimal zurück und wird nicht mehr abgelehnt, wenn sich eine leere Tabelle inzwischen geändert hat. Das Entfernen eines großen Laufs liest sein Journal seitenweise.",
       "undoSync1520": "Zurücknehmen, was ein Sync-Lauf erstellt hat",

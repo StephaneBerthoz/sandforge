@@ -5,6 +5,37 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.65.0] - 2026-10-22
+
+What a run would be refused is said before it writes, the command-line tools refuse production and stop on what they cannot read, and a run stays safe to take back across windows and runs.
+
+### Added
+
+- **Command line**: one table of exit codes for every tool, refused, partial and failed told apart, with `--fail-on-partial` and `--fail-on-drift`; a Seed run keeps a run file and can be removed after a kill; SIGTERM stops a run as Ctrl-C does.
+- **API requests**: Seed, Sync, Autopilot, CSV Upload and Clone from Org compare the run with what the org has left for the day before writing.
+- **CSV Upload**: its limits are said as the file is read; columns map through one list.
+- **Seed Configure**: long field lists can be filtered, or narrowed to the required fields.
+- **DataOps Restore**: restoring a Sync run's backup leaves the records changed or deleted since unless you include them; `--include-changed` on the command line.
+
+### Changed
+
+- **Command line**: refuses to write to a production org, and the cleanup refuses to delete there; an unknown flag, or a flag given a value it does not take, stops the command before any org call; a question with no terminal to answer it ends the command; the CI guide authenticates with an SFDX auth URL or a JWT.
+- **Wide objects**: read in column groups, so Forge, Frozen, Sync, DataOps backup and Clone from Org copy objects too wide for one query.
+- **Seed**: writes a large object slice by slice; at most 1,000,000 records per object.
+- **Pages**: fetch what they need before their first paint; a part that fails to load says so with Reload panel, inside that part.
+- **Reports, Help**: keep their tab, filters and open section when hidden.
+- **Monitor**: no longer dims its panels while it reads.
+- **Autopilot**: says when it copies only the first records of a large object.
+
+### Fixed
+
+- **Permissions**: a field hidden by field-level security is named as such, and the objects the target user cannot create, edit or delete are said before the run writes; an expired scratch org says so.
+- **Sync**: a second VS Code window no longer stops or removes a run another window is writing; the earlier of two runs over the same records can be removed after the later one; a delta run's deletions are brought back when it is removed.
+- **Forge**: removing a resumed run part by part leaves no parent record behind.
+- **Panels in another language than English**: keep the launcher's import or sign-in and What's New.
+- **Organizations**: the import from the Salesforce CLI names each org it could not reach.
+- **Command line**: `sandforge-compare --validate` fails the pipeline when the check-only deployment fails; `sandforge-cleanup --since` selects from the date given.
+
 ## [1.64.0] - 2026-10-22
 
 What a Sync update writes over can now be taken back, a Sync run from the command line can be removed even when it was killed, and every page opens under 900 kB.

@@ -2646,6 +2646,8 @@
       "takeBack1630Desc": "O que o Upload CSV e o Clonar de Org criam aparece em Seeds anteriores e pode ser removido, e uma execução cuja janela foi fechada durante um job Bulk ainda remove os registros desse job. O Sync agora define as pesquisas entre objetos que apontam um para o outro, a remoção pode limpar o que a automação do destino criou, e cada página carrega mais leve.",
       "undoOverwrites1640": "Atualizações podem ser desfeitas",
       "undoOverwrites1640Desc": "O que uma atualização do Sync sobrescreve no destino é guardado antes, e remover a execução devolve aos registros os valores anteriores. Uma execução do Sync pela linha de comando pode ser removida mesmo se foi interrompida, e cada página abre abaixo de 900 kB.",
+      "beforeWrites1650": "Avisado antes de gravar",
+      "beforeWrites1650Desc": "O que falta à org ou ao seu usuário — um campo oculto, um objeto que você não pode criar nem excluir, as solicitações de API do dia — é dito antes que uma execução grave. As ferramentas de linha de comando recusam a produção, param diante de uma opção que não conhecem e compartilham os mesmos códigos de saída, e objetos largos demais para uma consulta são copiados inteiros.",
       "exactResume1530": "Retomar exatamente de onde parou",
       "exactResume1530Desc": "Uma execução do Forge retomada agora copia os arquivos que faltam, nunca devolve um status duas vezes e não é mais recusada quando uma tabela vazia mudou nesse meio-tempo. Remover uma execução grande lê seu diário página por página.",
       "undoSync1520": "Desfazer o que uma execução do Sync criou",

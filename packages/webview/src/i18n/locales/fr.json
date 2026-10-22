@@ -2646,6 +2646,8 @@
       "takeBack1630Desc": "Ce que créent l'Import CSV et Cloner depuis une org figure dans les Seeds précédents et peut être retiré, et un run dont la fenêtre s'est fermée pendant un job Bulk retire encore les enregistrements de ce job. Sync renseigne désormais les références entre objets qui pointent l'un vers l'autre, sa suppression peut balayer ce que l'automatisation de la cible a créé, et chaque page se charge plus légère.",
       "undoOverwrites1640": "Les mises à jour peuvent être annulées",
       "undoOverwrites1640Desc": "Ce qu'une mise à jour Sync écrase dans la cible est d'abord conservé, et la suppression du run rend aux enregistrements leurs valeurs d'avant. Un run Sync lancé en ligne de commande peut être retiré même s'il a été interrompu, et chaque page s'ouvre sous 900 ko.",
+      "beforeWrites1650": "Prévenu avant d'écrire",
+      "beforeWrites1650Desc": "Ce qui manque à l'org ou à votre utilisateur — un champ masqué, un objet que vous ne pouvez ni créer ni supprimer, les requêtes d'API du jour — est dit avant qu'un run n'écrive. Les outils en ligne de commande refusent la production, s'arrêtent sur une option qu'ils ne connaissent pas et partagent les mêmes codes de sortie, et les objets trop larges pour une requête sont copiés en entier.",
       "exactResume1530": "Reprendre exactement là où le run s'est arrêté",
       "exactResume1530Desc": "Un run Forge repris copie désormais les fichiers restants, ne rend jamais un statut deux fois et n'est plus refusé quand une table vide a changé entre-temps. La suppression d'un gros run lit son journal page par page.",
       "undoSync1520": "Défaire ce qu'un run Sync a créé",

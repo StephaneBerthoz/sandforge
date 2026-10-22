@@ -2646,6 +2646,8 @@
       "takeBack1630Desc": "What CSV Upload and Clone from Org create is listed in Earlier seeds and can be removed, and a run whose window closed during a Bulk job still removes that job's records. Sync now sets the lookups between objects that point at each other, its removal can sweep what the target's automation created, and every page loads lighter.",
       "undoOverwrites1640": "Updates can be taken back",
       "undoOverwrites1640Desc": "What a Sync update writes over in the target is kept first, and removing the run gives the records their values back. A Sync run from the command line can be removed even when it was killed part way, and every page opens under 900 kB.",
+      "beforeWrites1650": "Told before it writes",
+      "beforeWrites1650Desc": "What the org or your user lacks — a hidden field, an object you may not create or delete, the day's API requests — is said before a run writes. The command-line tools refuse production, stop on a flag they do not know and share one set of exit codes, and objects too wide for one query are copied whole.",
       "exactResume1530": "Resume exactly where it stopped",
       "exactResume1530Desc": "A resumed Forge run now copies the files left to copy, never gives a status back twice, and is no longer refused when an empty table changed meanwhile. Removing a large run reads its journal page by page.",
       "undoSync1520": "Take back what a Sync run created",
