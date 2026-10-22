@@ -45,8 +45,8 @@ export const ForgeViewToggle: React.FC<ForgeViewToggleProps> = ({ view }) => {
 
   return (
     <div className="flex rounded-md border border-subtle overflow-hidden">
-      {button('graph', <LayoutGrid size={14} className="inline mr-1" />, t('forge.graphView'))}
-      {button('table', <List size={14} className="inline mr-1" />, t('forge.tableView'))}
+      {button('graph', <LayoutGrid size={14} className="inline mr-1" />, t('forgeRun.graphView'))}
+      {button('table', <List size={14} className="inline mr-1" />, t('forgeRun.tableView'))}
     </div>
   );
 };

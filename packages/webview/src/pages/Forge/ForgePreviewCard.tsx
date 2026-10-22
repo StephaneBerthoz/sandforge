@@ -98,8 +98,8 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
    * hundred.
    */
   const recordsValue = buckets.cloneRecordsUnknown
-    ? t('forge.preview.recordsNotCounted')
-    : t(oneRecord ? 'forge.preview.recordsInSourceTables' : 'common.recordCountFormatted', {
+    ? t('forgeRun.preview.recordsNotCounted')
+    : t(oneRecord ? 'forgeRun.preview.recordsInSourceTables' : 'common.recordCountFormatted', {
         count: buckets.cloneRecords,
         formatted: buckets.cloneRecords.toLocaleString(uiLocale()),
       });
@@ -136,21 +136,21 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
       className="rounded-lg border border-subtle bg-surface-1 p-3 space-y-3"
     >
       <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-        <span>{t('forge.preview.title', 'What will happen on Execute')}</span>
+        <span>{t('forgeRun.preview.title', 'What will happen on Execute')}</span>
         {truncated && (
           <span
             data-testid="forge-preview-truncated"
             className="ml-auto text-[10px] text-status-warning flex items-center gap-1"
           >
             <AlertTriangle size={11} />
-            {t('forge.preview.truncatedAction')}
+            {t('forgeRun.preview.truncatedAction')}
           </span>
         )}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {tile(
           <Database size={13} className="text-status-success" />,
-          t('forge.preview.willClone', 'Will clone'),
+          t('forgeRun.preview.willClone', 'Will clone'),
           `${t('common.objectCount', { count: buckets.cloneObjects.length })} · ${recordsValue}`,
           buckets.cloneObjects,
           'border-status-success/30 bg-status-success/5',
@@ -158,7 +158,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         )}
         {tile(
           <Link2 size={13} className="text-status-info" />,
-          t('forge.preview.willMap', 'Will map'),
+          t('forgeRun.preview.willMap', 'Will map'),
           buckets.mappedObjects.length,
           buckets.mappedObjects,
           'border-status-info/30 bg-status-info/5',
@@ -166,7 +166,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         )}
         {tile(
           <EyeOff size={13} className="text-text-secondary" />,
-          t('forge.preview.skippedExcluded', 'Skipped (excluded)'),
+          t('forgeRun.preview.skippedExcluded', 'Skipped (excluded)'),
           buckets.skippedExcluded.length,
           buckets.skippedExcluded,
           'border-subtle bg-surface-2',
@@ -174,7 +174,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
         )}
         {tile(
           <EyeOff size={13} className="text-status-warning" />,
-          t('forge.preview.skippedEmpty', 'Skipped (empty)'),
+          t('forgeRun.preview.skippedEmpty', 'Skipped (empty)'),
           buckets.skippedOutOfScope.length,
           buckets.skippedOutOfScope,
           'border-status-warning/30 bg-status-warning/5',
@@ -183,12 +183,12 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
       </div>
       {buckets.cloneRecordsUnknown && (
         <p data-testid="forge-preview-not-counted" className="text-xs text-text-secondary">
-          {t('forge.preview.countsComeWithDiscovery')}
+          {t('forgeRun.preview.countsComeWithDiscovery')}
         </p>
       )}
       {oneRecord && !buckets.cloneRecordsUnknown && (
         <p data-testid="forge-preview-source-tables" className="text-xs text-text-secondary">
-          {t('forge.preview.readsWhatTheRecordReaches')}
+          {t('forgeRun.preview.readsWhatTheRecordReaches')}
         </p>
       )}
       {plan && ((!buckets.cloneRecordsUnknown && !oneRecord) || cycleCount > 0) && (
@@ -215,7 +215,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
               className="flex items-center gap-1.5 text-status-warning"
             >
               <AlertTriangle size={11} />
-              {t('forge.preview.cycleCount', { count: cycleCount })}
+              {t('forgeRun.preview.cycleCount', { count: cycleCount })}
             </span>
           )}
         </div>

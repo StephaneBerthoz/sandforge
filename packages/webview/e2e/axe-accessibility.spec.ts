@@ -9527,6 +9527,63 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('DataOps Restore of a Sync run’s backup that left what changed since the run as it is', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'dataops', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('dataops-page').waitFor({ timeout: 10_000 });
+      await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+      await answerAll(page, 'backup:list', 'backup:list:result', {
+        backups: [
+          {
+            operationId: 'sync-before-run-1',
+            orgId: MOCK_ORGS[0].id,
+            timestamp: '2026-10-02T10:00:00.000Z',
+            totalRecords: 3,
+            totalSize: 0,
+            status: 'completed',
+            objectResults: [{ objectApiName: 'Account', recordCount: 3, truncated: false }],
+            origin: 'sync',
+          },
+        ],
+      });
+      await answerAll(
+        page,
+        'dataops:anonymization-templates',
+        'dataops:anonymization-templates:response',
+        { templates: [] },
+      );
+      await page.getByTestId('page-tab-restore').click();
+      await page
+        .getByTestId('restore-backup-sync-before-run-1')
+        .getByRole('button')
+        .first()
+        .click();
+      const includeChanged = page.getByTestId('restore-include-changed-sync-before-run-1');
+      await expect(includeChanged).not.toBeChecked();
+      await expect(
+        page.getByLabel('Also restore the records changed or deleted since the run'),
+      ).toBeVisible();
+      await page.getByTestId('restore-btn-sync-before-run-1').click();
+      const restore = await bridge.waitForMessage('dataops:rollback', { timeout: 10_000 });
+      expect(restore.payload).not.toHaveProperty('includeChanged');
+      await answerAll(page, 'dataops:rollback', 'dataops:rollback:response', {
+        operationId: 'sync-before-run-1',
+        status: 'partial',
+        message: 'Rollback completed: 2 records restored',
+        totalRestored: 2,
+        totalFailed: 0,
+        totalUnchanged: 0,
+        keptChanged: { total: 1, objects: [{ objectApiName: 'Account', count: 1 }] },
+        errors: [],
+      });
+      await expect(page.getByTestId('restore-kept-changed')).toContainText(
+        'Left as they are, changed or deleted since the Sync run: Account 1.',
+      );
+      await expectReadable(page, theme);
+    });
+
     test('Monitor reading again, its Refresh holding the keyboard while it reads', async ({
       page,
     }) => {
@@ -9542,6 +9599,20 @@ for (const theme of STATE_THEMES) {
         lastUpdated: '2026-03-13T11:05:00Z',
       });
       await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+      /** The texts axe leaves incomplete because something is drawn over them. */
+      const overlapped = async (): Promise<string[]> =>
+        (await checkAccessibility(page)).incomplete
+          .filter((rule) => rule.id === 'color-contrast')
+          .flatMap((rule) => rule.nodes)
+          .filter((node) =>
+            node.any.some(
+              (check) => (check.data as { messageKey?: string } | null)?.messageKey === 'bgOverlap',
+            ),
+          )
+          .map((node) => node.html.slice(0, 120))
+          .sort();
+      // The health gauge's labels sit on its drawing, read or not.
+      const settled = await overlapped();
       const refresh = page.getByTestId('refresh-btn');
       const asked = (await bridge.getMessages('monitor:refresh')).length;
       await refresh.focus();
@@ -9552,8 +9623,17 @@ for (const theme of STATE_THEMES) {
 
       await expect(refresh).toBeFocused();
       await expect(refresh).toHaveAttribute('aria-disabled', 'true');
-      // The header the button sits in: the panels below read again with it.
-      await expectReadable(page, theme, '[data-testid="monitor-page"] > div:first-child');
+      // The panels read again under a bar along their top edge, drawn as they
+      // were: a veil laid over them halved the contrast of every word, which
+      // axe can only leave incomplete, overlapped, and the checker below
+      // measures from what lies under a text, not over it.
+      await expect(page.getByTestId('panel-overlay').first()).toBeVisible();
+      await expect(page.getByTestId('kpi-row').locator('xpath=..')).toHaveAttribute(
+        'aria-busy',
+        'true',
+      );
+      expect(await overlapped()).toEqual(settled);
+      await expectReadable(page, theme);
     });
 
     test('DataOps Anonymize saying what a restore of the latest backup brings back', async ({

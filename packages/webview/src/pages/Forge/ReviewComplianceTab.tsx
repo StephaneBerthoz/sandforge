@@ -30,9 +30,9 @@ const FRAMEWORK_LABELS: Record<Exclude<(typeof FRAMEWORKS)[number], 'none'>, str
  * itself, upper-cased — "PARTIAL" — in every language.
  */
 const STATUS_KEYS: Record<ComplianceReport['overallStatus'], string> = {
-  pass: 'forge.review.compliancePass',
-  partial: 'forge.review.compliancePartial',
-  fail: 'forge.review.complianceFail',
+  pass: 'forgeRun.review.compliancePass',
+  partial: 'forgeRun.review.compliancePartial',
+  fail: 'forgeRun.review.complianceFail',
 };
 
 /**
@@ -90,7 +90,7 @@ export const ReviewComplianceTab: React.FC = () => {
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">
       <label className="flex items-center gap-2 text-xs text-text-secondary">
-        {t('forge.review.framework', 'Framework')}:
+        {t('forgeRun.review.framework', 'Framework')}:
         <select
           data-testid="framework-select"
           value={framework}
@@ -99,7 +99,7 @@ export const ReviewComplianceTab: React.FC = () => {
         >
           {FRAMEWORKS.map((f) => (
             <option key={f} value={f}>
-              {f === 'none' ? t('forge.review.frameworkNone') : FRAMEWORK_LABELS[f]}
+              {f === 'none' ? t('forgeRun.review.frameworkNone') : FRAMEWORK_LABELS[f]}
             </option>
           ))}
         </select>
@@ -108,7 +108,7 @@ export const ReviewComplianceTab: React.FC = () => {
       {framework === 'none' && (
         <p data-testid="no-compliance" className="text-xs text-text-secondary py-4">
           {t(
-            'forge.review.noCompliance',
+            'forgeRun.review.noCompliance',
             'No compliance framework selected. Select one to generate a report.',
           )}
         </p>
@@ -116,7 +116,7 @@ export const ReviewComplianceTab: React.FC = () => {
 
       {loading && (
         <p data-testid="compliance-loading" className="text-xs text-text-secondary py-4">
-          {t('forge.review.complianceLoading', 'Analyzing compliance...')}
+          {t('forgeRun.review.complianceLoading', 'Analyzing compliance...')}
         </p>
       )}
 
@@ -124,7 +124,7 @@ export const ReviewComplianceTab: React.FC = () => {
         <div data-testid="compliance-error" className="flex flex-col gap-2 py-2">
           <ErrorBanner
             data-testid="compliance-error-message"
-            message={t('forge.review.complianceError', { error })}
+            message={t('forgeRun.review.complianceError', { error })}
           />
           <Button
             variant="secondary"
@@ -142,7 +142,7 @@ export const ReviewComplianceTab: React.FC = () => {
           soon as a framework is selected. */}
       {framework !== 'none' && !loading && !error && !report && (
         <p data-testid="compliance-waiting" className="text-xs text-text-secondary py-4">
-          {t('forge.review.complianceWaiting')}
+          {t('forgeRun.review.complianceWaiting')}
         </p>
       )}
 
@@ -150,7 +150,7 @@ export const ReviewComplianceTab: React.FC = () => {
         <div data-testid="compliance-report" className="rounded-lg border border-subtle p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text-primary">
-              {t('forge.review.complianceStatus', 'Status')}
+              {t('forgeRun.review.complianceStatus', 'Status')}
             </span>
             <span
               data-testid="compliance-status"
@@ -168,8 +168,8 @@ export const ReviewComplianceTab: React.FC = () => {
           <div className="text-[10px] text-text-secondary space-y-0.5">
             {/* English whatever the language, and "1 fields anonymized". */}
             <p>{t('forge.piiWarning', { count: report.piiFieldsDetected })}</p>
-            <p>{t('forge.review.fieldsAnonymized', { count: report.piiFieldsAnonymized })}</p>
-            <p>{t('forge.review.fieldsScanned', { count: report.totalFieldsScanned })}</p>
+            <p>{t('forgeRun.review.fieldsAnonymized', { count: report.piiFieldsAnonymized })}</p>
+            <p>{t('forgeRun.review.fieldsScanned', { count: report.totalFieldsScanned })}</p>
           </div>
         </div>
       )}

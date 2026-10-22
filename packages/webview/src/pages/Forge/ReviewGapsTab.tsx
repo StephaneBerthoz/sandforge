@@ -46,10 +46,10 @@ const SEVERITY_STYLES: Readonly<Record<ForgeGapSeverity, string>> = {
 
 /** Detail entries the tab says in its own words, or uses for a decision. */
 const DETAIL_KEYS: Readonly<Record<string, string>> = {
-  allowedValues: 'forge.gaps.detail.allowedValues',
-  allowed: 'forge.gaps.detail.allowedValues',
-  targetRecordTypes: 'forge.gaps.detail.targetRecordTypes',
-  mapTo: 'forge.gaps.detail.targetRecordTypes',
+  allowedValues: 'forgeRun.gaps.detail.allowedValues',
+  allowed: 'forgeRun.gaps.detail.allowedValues',
+  targetRecordTypes: 'forgeRun.gaps.detail.targetRecordTypes',
+  mapTo: 'forgeRun.gaps.detail.targetRecordTypes',
 };
 
 /**
@@ -72,19 +72,19 @@ export function useUndecidedBlockingGaps(): number {
 /** What a gap's `value` is, as the tab says it. */
 function valueLabel(t: TFunction, gap: ForgeGap): string | null {
   if (gap.value === undefined) return null;
-  if (isValueKind(gap.kind)) return t('forge.gaps.value', { value: gap.value });
+  if (isValueKind(gap.kind)) return t('forgeRun.gaps.value', { value: gap.value });
   switch (gap.kind) {
     case 'rehearsal_refusal':
     case 'rehearsal_update_refusal':
-      return t('forge.gaps.statusCode', { code: gap.value });
+      return t('forgeRun.gaps.statusCode', { code: gap.value });
     case 'validation_rule':
     case 'duplicate_rule':
-      return t('forge.gaps.rule', { name: gap.value });
+      return t('forgeRun.gaps.rule', { name: gap.value });
     case 'record_type_unmapped':
     case 'record_type_unavailable':
-      return t('forge.gaps.sourceRecordType', { name: gap.value });
+      return t('forgeRun.gaps.sourceRecordType', { name: gap.value });
     default:
-      return t('forge.gaps.value', { value: gap.value });
+      return t('forgeRun.gaps.value', { value: gap.value });
   }
 }
 
@@ -97,27 +97,27 @@ function detailText(value: string | number | boolean | string[]): string {
 function choiceLabel(t: TFunction, gap: ForgeGap, choice: ForgeGapChoice): string {
   switch (choice.kind) {
     case 'map_value':
-      return t('forge.gaps.chosen.mapValue', { to: choice.to });
+      return t('forgeRun.gaps.chosen.mapValue', { to: choice.to });
     case 'leave_empty':
       return t(
         aboutAValue(gap)
-          ? 'forge.gaps.chosen.leaveEmptyValue'
-          : 'forge.gaps.chosen.leaveEmptyField',
+          ? 'forgeRun.gaps.chosen.leaveEmptyValue'
+          : 'forgeRun.gaps.chosen.leaveEmptyField',
       );
     case 'set_default':
-      return t('forge.gaps.chosen.setDefault', { value: String(choice.value) });
+      return t('forgeRun.gaps.chosen.setDefault', { value: String(choice.value) });
     case 'truncate':
-      return t('forge.gaps.chosen.truncate');
+      return t('forgeRun.gaps.chosen.truncate');
     case 'map_record_type':
       return choice.to === null
-        ? t('forge.gaps.chosen.mapRecordTypeDefault')
-        : t('forge.gaps.chosen.mapRecordType', { to: choice.to });
+        ? t('forgeRun.gaps.chosen.mapRecordTypeDefault')
+        : t('forgeRun.gaps.chosen.mapRecordType', { to: choice.to });
     case 'exclude_object':
-      return t('forge.gaps.chosen.excludeObject', { object: gap.objectApiName });
+      return t('forgeRun.gaps.chosen.excludeObject', { object: gap.objectApiName });
     case 'skip_rows':
-      return t('forge.gaps.chosen.skipRows');
+      return t('forgeRun.gaps.chosen.skipRows');
     case 'ignore':
-      return t('forge.gaps.chosen.ignore');
+      return t('forgeRun.gaps.chosen.ignore');
   }
 }
 
@@ -125,7 +125,7 @@ function choiceLabel(t: TFunction, gap: ForgeGap, choice: ForgeGapChoice): strin
 function gapIdLabel(t: TFunction, gapId: string): string {
   // An id is `kind|object|field|record type|value` (`forgeGapId`).
   const [kind = '', ...rest] = gapId.split('|');
-  const named = i18nKindKnown(kind) ? t(`forge.gaps.kind.${kind}`) : kind;
+  const named = i18nKindKnown(kind) ? t(`forgeRun.gaps.kind.${kind}`) : kind;
   return [named, ...rest.filter((part) => part !== '')].join(' · ');
 }
 
@@ -134,29 +134,29 @@ function keptLabel(t: TFunction, kept: ForgeKeptDecision): string {
   switch (kept.kind) {
     case 'picklist': {
       const { object, field, recordType, from, to } = kept.entry;
-      const scope = recordType ? t('forge.gaps.kept.scope', { name: recordType }) : '';
+      const scope = recordType ? t('forgeRun.gaps.kept.scope', { name: recordType }) : '';
       return to === null
-        ? t('forge.gaps.kept.picklistEmpty', { object, field, scope, from })
-        : t('forge.gaps.kept.picklist', { object, field, scope, from, to });
+        ? t('forgeRun.gaps.kept.picklistEmpty', { object, field, scope, from })
+        : t('forgeRun.gaps.kept.picklist', { object, field, scope, from, to });
     }
     case 'record_type': {
       const { object, from, to } = kept.entry;
       return to === null
-        ? t('forge.gaps.kept.recordTypeDefault', { object, from })
-        : t('forge.gaps.kept.recordType', { object, from, to });
+        ? t('forgeRun.gaps.kept.recordTypeDefault', { object, from })
+        : t('forgeRun.gaps.kept.recordType', { object, from, to });
     }
     case 'default':
-      return t('forge.gaps.kept.default', { ...kept.entry, value: String(kept.entry.value) });
+      return t('forgeRun.gaps.kept.default', { ...kept.entry, value: String(kept.entry.value) });
     case 'truncate':
-      return t('forge.gaps.kept.truncate', { ...kept.entry });
+      return t('forgeRun.gaps.kept.truncate', { ...kept.entry });
     case 'field_excluded':
-      return t('forge.gaps.kept.fieldExcluded', { ...kept.entry });
+      return t('forgeRun.gaps.kept.fieldExcluded', { ...kept.entry });
     case 'object_excluded':
-      return t('forge.gaps.kept.objectExcluded', { object: kept.object });
+      return t('forgeRun.gaps.kept.objectExcluded', { object: kept.object });
     case 'skipped_rows':
-      return t('forge.gaps.kept.skippedRows', { gap: gapIdLabel(t, kept.entry.gapId) });
+      return t('forgeRun.gaps.kept.skippedRows', { gap: gapIdLabel(t, kept.entry.gapId) });
     case 'ignored':
-      return t('forge.gaps.kept.ignored', { gap: gapIdLabel(t, kept.gapId) });
+      return t('forgeRun.gaps.kept.ignored', { gap: gapIdLabel(t, kept.gapId) });
   }
 }
 
@@ -237,7 +237,7 @@ const GapItem: React.FC<GapItemProps> = ({
 
   const subject = [
     gap.field ? `${gap.objectApiName}.${gap.field}` : gap.objectApiName,
-    gap.recordType ? t('forge.gaps.recordType', { name: gap.recordType }) : null,
+    gap.recordType ? t('forgeRun.gaps.recordType', { name: gap.recordType }) : null,
     valueLabel(t, gap),
   ].filter((part): part is string => part !== null);
 
@@ -253,10 +253,10 @@ const GapItem: React.FC<GapItemProps> = ({
       className="flex flex-col gap-1 rounded-sm border border-subtle bg-surface-2 p-2 text-xs"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-medium text-text-primary">{t(`forge.gaps.kind.${gap.kind}`)}</span>
+        <span className="font-medium text-text-primary">{t(`forgeRun.gaps.kind.${gap.kind}`)}</span>
         {gap.rows > 0 && (
           <span data-testid="gap-rows" className="shrink-0 text-text-secondary">
-            {t('forge.gaps.rows', { count: gap.rows })}
+            {t('forgeRun.gaps.rows', { count: gap.rows })}
           </span>
         )}
       </div>
@@ -290,30 +290,30 @@ const GapItem: React.FC<GapItemProps> = ({
         {...(onReadAgain ? { onReadAgain, readingAgain } : {})}
       />
       <p data-testid="gap-source" className="text-text-secondary">
-        {t(`forge.gaps.source.${gap.source}`)}
+        {t(`forgeRun.gaps.source.${gap.source}`)}
       </p>
       {chosen ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p data-testid="gap-decided" className="font-medium text-text-primary">
-            {t('forge.gaps.decided', { decision: decidedText })}
+            {t('forgeRun.gaps.decided', { decision: decidedText })}
           </p>
           <Button
             ref={undoRef}
             variant="ghost"
             size="sm"
             data-testid="gap-undo"
-            aria-label={t('forge.gaps.undoLabel', { decision: decidedText })}
+            aria-label={t('forgeRun.gaps.undoLabel', { decision: decidedText })}
             onClick={() => choose(null)}
           >
-            {t('forge.gaps.undo')}
+            {t('forgeRun.gaps.undo')}
           </Button>
         </div>
       ) : (
         <>
           {gap.defaultDecision && (
             <p data-testid="gap-default" className="text-text-secondary">
-              {t('forge.gaps.byDefault', {
-                decision: t(`forge.gaps.decision.${gap.defaultDecision}`),
+              {t('forgeRun.gaps.byDefault', {
+                decision: t(`forgeRun.gaps.decision.${gap.defaultDecision}`),
               })}
             </p>
           )}
@@ -322,7 +322,7 @@ const GapItem: React.FC<GapItemProps> = ({
               ref={controlsRef}
               role="group"
               tabIndex={-1}
-              aria-label={t('forge.gaps.decisionsLabel')}
+              aria-label={t('forgeRun.gaps.decisionsLabel')}
               data-testid="gap-decisions"
               className="flex flex-wrap items-end gap-2 outline-hidden"
             >
@@ -380,7 +380,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
       return (
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-map`} className="text-text-secondary">
-            {t('forge.gaps.mapValueLabel')}
+            {t('forgeRun.gaps.mapValueLabel')}
           </label>
           <select
             id={`${idPrefix}-map`}
@@ -391,7 +391,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
             }}
             className={selectClass}
           >
-            <option value="">{t('forge.gaps.mapValuePlaceholder')}</option>
+            <option value="">{t('forgeRun.gaps.mapValuePlaceholder')}</option>
             {allowed.map((value) => (
               <option key={value} value={value}>
                 {value}
@@ -404,7 +404,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
       return (
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-rt`} className="text-text-secondary">
-            {t('forge.gaps.recordTypeLabel')}
+            {t('forgeRun.gaps.recordTypeLabel')}
           </label>
           <select
             id={`${idPrefix}-rt`}
@@ -417,8 +417,8 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
             }}
             className={selectClass}
           >
-            <option value="">{t('forge.gaps.recordTypePlaceholder')}</option>
-            <option value={DEFAULT_RECORD_TYPE}>{t('forge.gaps.recordTypeDefault')}</option>
+            <option value="">{t('forgeRun.gaps.recordTypePlaceholder')}</option>
+            <option value={DEFAULT_RECORD_TYPE}>{t('forgeRun.gaps.recordTypeDefault')}</option>
             {recordTypes.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -438,7 +438,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
         >
           <div className="flex flex-col gap-0.5">
             <label htmlFor={`${idPrefix}-default`} className="text-text-secondary">
-              {t('forge.gaps.defaultLabel')}
+              {t('forgeRun.gaps.defaultLabel')}
             </label>
             <input
               id={`${idPrefix}-default`}
@@ -457,7 +457,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
             data-testid="gap-set-default"
             disabled={defaultValue.trim() === ''}
           >
-            {t('forge.gaps.defaultSet')}
+            {t('forgeRun.gaps.defaultSet')}
           </Button>
         </form>
       );
@@ -469,7 +469,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
           data-testid="gap-leave-empty"
           onClick={() => choose({ kind: 'leave_empty' })}
         >
-          {t(aboutAValue(gap) ? 'forge.gaps.leaveEmptyValue' : 'forge.gaps.leaveEmptyField')}
+          {t(aboutAValue(gap) ? 'forgeRun.gaps.leaveEmptyValue' : 'forgeRun.gaps.leaveEmptyField')}
         </Button>
       );
     case 'truncate':
@@ -480,7 +480,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
           data-testid="gap-truncate"
           onClick={() => choose({ kind: 'truncate' })}
         >
-          {t('forge.gaps.truncate')}
+          {t('forgeRun.gaps.truncate')}
         </Button>
       );
     case 'exclude_object':
@@ -491,7 +491,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
           data-testid="gap-exclude-object"
           onClick={() => choose({ kind: 'exclude_object' })}
         >
-          {t('forge.gaps.excludeObject', { object: gap.objectApiName })}
+          {t('forgeRun.gaps.excludeObject', { object: gap.objectApiName })}
         </Button>
       );
     case 'ignore':
@@ -502,7 +502,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
           data-testid="gap-ignore"
           onClick={() => choose({ kind: 'ignore' })}
         >
-          {t('forge.gaps.ignore')}
+          {t('forgeRun.gaps.ignore')}
         </Button>
       );
     case 'skip_rows':
@@ -513,7 +513,7 @@ const DecisionControl: React.FC<DecisionControlProps> = ({
           data-testid="gap-skip-rows"
           onClick={() => choose({ kind: 'skip_rows' })}
         >
-          {t('forge.gaps.skipRows')}
+          {t('forgeRun.gaps.skipRows')}
         </Button>
       );
   }
@@ -561,7 +561,7 @@ export const ReviewGapsTab: React.FC<{
   );
   /** A part a read could not read, in the words the line of Review's read gives it. */
   const partLabel = (part: string): string => {
-    const key = `forge.review.gapsRead.part.${part}`;
+    const key = `forgeRun.review.gapsRead.part.${part}`;
     return i18n.exists(key) ? t(key) : part;
   };
   const answeringNoGap = useMemo(() => decisionsAnsweringNoGap(config, shown), [config, shown]);
@@ -587,19 +587,19 @@ export const ReviewGapsTab: React.FC<{
     <div data-testid="review-gaps-tab" className="flex flex-col gap-3 text-xs">
       {shown.length === 0 && read.length === 0 && (
         <p data-testid="gaps-not-read" className="text-text-secondary">
-          {t('forge.gaps.notRead')}
+          {t('forgeRun.gaps.notRead')}
         </p>
       )}
       {read.length > 0 && (
         <p data-testid="gaps-read" className="text-text-secondary">
-          {t('forge.gaps.readBy', {
-            sources: read.map((source) => t(`forge.gaps.readName.${source}`)).join(', '),
+          {t('forgeRun.gaps.readBy', {
+            sources: read.map((source) => t(`forgeRun.gaps.readName.${source}`)).join(', '),
           })}
         </p>
       )}
       {shown.length === 0 && read.length > 0 && (
         <p data-testid="gaps-none" className="text-text-primary">
-          {t('forge.gaps.none')}
+          {t('forgeRun.gaps.none')}
         </p>
       )}
       {unread.length > 0 && (
@@ -607,8 +607,8 @@ export const ReviewGapsTab: React.FC<{
           {/* A part can be unread more than once: the fields of two objects. */}
           {unread.map(({ source, part, reason }, index) => (
             <li key={`${source}-${part}-${String(index)}`}>
-              {t('forge.gaps.unread', {
-                read: t(`forge.gaps.readName.${source}`),
+              {t('forgeRun.gaps.unread', {
+                read: t(`forgeRun.gaps.readName.${source}`),
                 part: partLabel(part),
                 reason,
               })}
@@ -634,7 +634,7 @@ export const ReviewGapsTab: React.FC<{
                 SEVERITY_STYLES[severity],
               )}
             >
-              {t(`forge.gaps.severity.${severity}`)} ({ofSeverity.length})
+              {t(`forgeRun.gaps.severity.${severity}`)} ({ofSeverity.length})
             </h3>
             {objects.map((object) => (
               <div
@@ -675,9 +675,9 @@ export const ReviewGapsTab: React.FC<{
             tabIndex={-1}
             className="font-semibold text-text-primary outline-hidden"
           >
-            {t('forge.gaps.kept.title')}
+            {t('forgeRun.gaps.kept.title')}
           </h3>
-          <p className="text-text-secondary">{t('forge.gaps.kept.hint')}</p>
+          <p className="text-text-secondary">{t('forgeRun.gaps.kept.hint')}</p>
           <ul className="flex flex-col gap-1">
             {answeringNoGap.map((kept) => {
               const label = keptLabel(t, kept);
@@ -692,10 +692,10 @@ export const ReviewGapsTab: React.FC<{
                     variant="ghost"
                     size="sm"
                     data-testid="gaps-kept-undo"
-                    aria-label={t('forge.gaps.undoLabel', { decision: label })}
+                    aria-label={t('forgeRun.gaps.undoLabel', { decision: label })}
                     onClick={() => undoDecision(kept)}
                   >
-                    {t('forge.gaps.undo')}
+                    {t('forgeRun.gaps.undo')}
                   </Button>
                 </li>
               );

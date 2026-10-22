@@ -984,7 +984,7 @@ describe('ForgeResults', () => {
       expect(mockUpsertTemplate.mock.calls[0][0].name).toBe('Energy accounts');
       expect(screen.queryByTestId('forge-save-template-form')).toBeNull();
       expect(screen.getByTestId('forge-save-template-saved').textContent).toBe(
-        i18n.t('forge.savedTemplate.saved', { name: 'Energy accounts' }),
+        i18n.t('forgeRun.savedTemplate.saved', { name: 'Energy accounts' }),
       );
       // The form and the field that had focus are gone; focus goes back to the button.
       expect(screen.getByTestId('forge-save-template')).toBe(document.activeElement);
@@ -1011,7 +1011,7 @@ describe('ForgeResults', () => {
       expect(name.getAttribute('aria-invalid')).toBe('true');
       expect(name.getAttribute('aria-describedby')).toBe('forge-save-template-name-error');
       expect(screen.getByRole('alert').textContent).toBe(
-        i18n.t('forge.savedTemplate.nameRequired'),
+        i18n.t('forgeRun.savedTemplate.nameRequired'),
       );
     });
 
@@ -1071,13 +1071,13 @@ describe('ForgeResults', () => {
       render(<ForgeResults />);
 
       expect(screen.getByTestId('forge-results-simulation').textContent).toContain(
-        i18n.t('forge.simulation.done'),
+        i18n.t('forgeRun.simulation.done'),
       );
       expect(screen.getByTestId('forge-results-simulation-gaps').textContent).toBe(
         'Gaps found against the target: 1',
       );
-      expect(screen.getByText(i18n.t('forge.simulation.wouldInsert'))).toBeDefined();
-      expect(screen.queryByText(i18n.t('forge.inserted'))).toBeNull();
+      expect(screen.getByText(i18n.t('forgeRun.simulation.wouldInsert'))).toBeDefined();
+      expect(screen.queryByText(i18n.t('forgeRun.inserted'))).toBeNull();
     });
 
     it('offers no retry, a simulation having written nothing to retry against', () => {
@@ -2036,10 +2036,10 @@ describe('ForgeResults', () => {
       render(<ForgeResults />);
 
       expect(statusBadges()).toEqual([
-        fr.forge.nodeStatus.done,
-        fr.forge.nodeStatus.skipped,
-        fr.forge.nodeStatus.done,
-        fr.forge.nodeStatus.error,
+        fr.forgeRun.nodeStatus.done,
+        fr.forgeRun.nodeStatus.skipped,
+        fr.forgeRun.nodeStatus.done,
+        fr.forgeRun.nodeStatus.error,
       ]);
       await act(async () => {
         fireEvent.click(screen.getByTestId('forge-copy-report'));
@@ -2712,12 +2712,14 @@ describe('ForgeResults', () => {
 
       const notes = screen.getByTestId('forge-notes-panel');
       expect(objectsIn(notes, 'forge-notes-row')).toEqual(['InsurancePolicy', 'Contact']);
-      expect(within(notes).getByRole('heading').textContent).toBe(i18n.t('forge.notesPanel.title'));
+      expect(within(notes).getByRole('heading').textContent).toBe(
+        i18n.t('forgeRun.notesPanel.title'),
+      );
       expect(notes.getAttribute('aria-labelledby')).toBe(
         within(notes).getByRole('heading').getAttribute('id'),
       );
       expect(within(notes).getByTestId('forge-notes-hint').textContent).toBe(
-        i18n.t('forge.notesPanel.hint'),
+        i18n.t('forgeRun.notesPanel.hint'),
       );
       // Open: each note says what it is about without a click.
       expect(notes.textContent).toContain('OriginalPolicyId → InsurancePolicy (2 records)');

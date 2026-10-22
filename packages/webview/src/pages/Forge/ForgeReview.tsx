@@ -287,32 +287,32 @@ export const ForgeReview: React.FC = () => {
     label: string;
     badge?: number;
   }> = [
-    { id: 'plan', label: t('forge.review.planTab', 'Plan') },
+    { id: 'plan', label: t('forgeRun.review.planTab', 'Plan') },
     // Always open: anonymization is turned on there. Disabled with a count of
     // personal fields and no word why, it sent the user back to the form to
     // discover the graph again.
     {
       id: 'anonymization',
-      label: t('forge.review.anonymizationTab', 'Anonymization'),
+      label: t('forgeRun.review.anonymizationTab', 'Anonymization'),
       badge: piiFieldCount,
     },
-    { id: 'compliance', label: t('forge.review.complianceTab', 'Compliance') },
+    { id: 'compliance', label: t('forgeRun.review.complianceTab', 'Compliance') },
     {
       id: 'metadata',
-      label: t('forge.review.metadataTab', 'Metadata'),
+      label: t('forgeRun.review.metadataTab', 'Metadata'),
       badge: metadataDiffs.length > 0 ? metadataDiffs.length : undefined,
     },
     {
       id: 'automation',
-      label: t('forge.review.automationTab'),
+      label: t('forgeRun.review.automationTab'),
       badge: firedAtInsert > 0 ? firedAtInsert : undefined,
     },
     {
       id: 'gaps',
-      label: t('forge.review.gapsTab'),
+      label: t('forgeRun.review.gapsTab'),
       badge: undecidedBlocking > 0 ? undecidedBlocking : undefined,
     },
-    { id: 'controls', label: t('forge.review.controlsTab') },
+    { id: 'controls', label: t('forgeRun.review.controlsTab') },
   ];
 
   return (
@@ -374,7 +374,7 @@ export const ForgeReview: React.FC = () => {
           <div
             data-testid="review-tabs"
             role="tablist"
-            aria-label={t('forge.review.tabs', 'Review tabs')}
+            aria-label={t('forgeRun.review.tabs', 'Review tabs')}
             className="flex flex-wrap border-b border-subtle"
           >
             {tabs.map((tab) => (
@@ -461,7 +461,7 @@ export const ForgeReview: React.FC = () => {
           onClick={() => setPhase('discovery')}
           className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
         >
-          {t('forge.review.back', '\u2190 Back to Discovery')}
+          {t('forgeRun.review.back', '\u2190 Back to Discovery')}
         </button>
         <div className="flex items-center gap-3">
           {/* The platform's own verdict on a sample of the rows, every write
@@ -473,7 +473,7 @@ export const ForgeReview: React.FC = () => {
               data-testid="forge-files-execute-hint"
               className="text-xs text-text-secondary"
             >
-              {t('forge.files.asIsNeeded')}
+              {t('forgeRun.files.asIsNeeded')}
             </p>
           )}
           {/* A simulation reads and checks every record as Execute's run
@@ -486,12 +486,12 @@ export const ForgeReview: React.FC = () => {
             aria-describedby={filesBlocked ? 'forge-files-execute-hint' : undefined}
             className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('forge.simulation.action')}
+            {t('forgeRun.simulation.action')}
           </button>
           {undecidedBlocking > 0 && (
             <div className="flex items-center gap-2" data-testid="forge-gaps-undecided">
               <p id="forge-gaps-execute-hint" className="text-xs text-text-primary">
-                {t('forge.review.undecidedGaps', { count: undecidedBlocking })}
+                {t('forgeRun.review.undecidedGaps', { count: undecidedBlocking })}
               </p>
               <Button
                 variant="secondary"
@@ -499,7 +499,7 @@ export const ForgeReview: React.FC = () => {
                 onClick={decideOnGaps}
                 data-testid="forge-gaps-decide"
               >
-                {t('forge.review.decideOnGaps')}
+                {t('forgeRun.review.decideOnGaps')}
               </Button>
             </div>
           )}
@@ -517,15 +517,15 @@ export const ForgeReview: React.FC = () => {
             }
             className="px-6 py-2 text-sm font-semibold bg-hue-forge text-(--sf-bg-primary) rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('forge.executeForge', 'Execute Forge')}
+            {t('forgeRun.executeForge', 'Execute Forge')}
           </button>
         </div>
       </div>
       <Dialog
         open={askingAboutGaps}
         onClose={() => setAskingAboutGaps(false)}
-        title={t('forge.review.undecidedGaps', { count: undecidedBlocking })}
-        description={t('forge.review.undecidedGapsQuestion')}
+        title={t('forgeRun.review.undecidedGaps', { count: undecidedBlocking })}
+        description={t('forgeRun.review.undecidedGapsQuestion')}
         footer={
           <>
             <Button
@@ -534,7 +534,7 @@ export const ForgeReview: React.FC = () => {
               onClick={decideOnGaps}
               data-testid="forge-gaps-ask-decide"
             >
-              {t('forge.review.decideOnGaps')}
+              {t('forgeRun.review.decideOnGaps')}
             </Button>
             <Button
               variant="primary"
@@ -542,7 +542,7 @@ export const ForgeReview: React.FC = () => {
               onClick={executeAnyway}
               data-testid="forge-gaps-ask-execute"
             >
-              {t('forge.review.executeAnyway')}
+              {t('forgeRun.review.executeAnyway')}
             </Button>
           </>
         }

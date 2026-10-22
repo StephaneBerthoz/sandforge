@@ -59,6 +59,10 @@ const NOT_CATALOGUE_KEYS = new Map([
     'styles/testing/vscodeThemes.ts',
     "VS Code theme colour ids — `list.hoverBackground`, `notifications.border`. They collide with the catalogue's `list` and `notifications` sections by coincidence.",
   ],
+  [
+    'components/ui/InfoTooltip.tsx',
+    'The ids a tooltip had before it was renamed — `help.seed.selectObjects` — which a dismissal kept in webview state still names. They were keys once; the tooltips render the keys their callers pass.',
+  ],
 ]);
 
 /**
@@ -270,7 +274,7 @@ const UNION_BACKED = [
     from: { file: 'packages/shared/src/types/compare.types.ts', union: 'CompareRiskReason' },
   },
   {
-    prefix: 'forge.nodeStatus.',
+    prefix: 'forgeRun.nodeStatus.',
     from: { file: 'packages/shared/src/types/forge.types.ts', union: 'ForgeNodeStatus' },
   },
   {

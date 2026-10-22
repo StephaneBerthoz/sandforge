@@ -16,6 +16,7 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { ForgeAbortedError } from '../../modules/forge/ForgeExecutor.js';
 import { ForgeRemovalPlanStore } from '../../modules/forge/ForgeRemovalPlanStore.js';
+import { ForgeRunJournal } from '../../modules/forge/ForgeRunJournal.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import { keepPartialSummary } from '../../modules/forge/interruptedRun.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -1477,6 +1478,188 @@ describe('forge:undo', () => {
       await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
 
       expect(entryOf('run-killed')?.removalStamps).toBeUndefined();
+    });
+
+    describe('once the history dropped a part', () => {
+      let plans: ForgeRemovalPlanStore;
+      let files: Map<string, string>;
+
+      beforeEach(() => {
+        const disk = new Map<string, string>();
+        plans = new ForgeRemovalPlanStore({
+          storagePath: '/extension-storage',
+          readFile: async (path) => {
+            const content = disk.get(path);
+            if (content === undefined) throw new Error(`ENOENT: ${path}`);
+            return content;
+          },
+          writeFile: async (path, content) => void disk.set(path, content),
+          rename: async (from, to) => {
+            disk.set(to, disk.get(from) ?? '');
+            disk.delete(from);
+          },
+          mkdir: async () => undefined,
+        });
+        files = new Map();
+        const journal = new ForgeRunJournal({
+          storagePath: '/extension-storage',
+          appendFile: async (filePath, content) =>
+            void files.set(filePath, (files.get(filePath) ?? '') + content),
+          readLines: (filePath) =>
+            (async function* lines(): AsyncGenerator<string> {
+              for (const line of (files.get(filePath) ?? '').split('\n')) yield line;
+            })(),
+          mkdir: async () => {},
+          rm: async (filePath) => void files.delete(filePath),
+          listFiles: async (dirPath) =>
+            [...files.keys()]
+              .filter((filePath) => filePath.startsWith(`${dirPath}/`))
+              .map((filePath) => filePath.slice(dirPath.length + 1)),
+          openRunFile: (filePath) => ({
+            size: () => Buffer.byteLength(files.get(filePath) ?? ''),
+            append: (text) => void files.set(filePath, (files.get(filePath) ?? '') + text),
+            read: (offset, length) =>
+              Buffer.from(files.get(filePath) ?? '').subarray(offset, offset + length),
+            close: () => {},
+          }),
+        });
+        handler.setForgeOrchestrator(
+          {
+            execute: vi.fn(),
+            on: vi.fn().mockReturnValue(vi.fn()),
+            abort: vi.fn(),
+          } as unknown as ForgeOrchestrator,
+          { removalPlans: plans, runJournal: journal },
+        );
+      });
+
+      /** Keep the plans of the runs the history lists now, and let the history keep `kept` alone. */
+      async function historyKeeps(...kept: string[]): Promise<void> {
+        for (const entry of history()) await plans.put(forgeRemovalPlanOf(entry)!);
+        store.set(
+          'forge:history',
+          history().filter((e) => kept.includes(e.forgeId)),
+          'forge',
+        );
+      }
+
+      /** The killed part's plan removed, once the resumed part's removal ran. */
+      async function killedRemovedFromItsPlan(): Promise<void> {
+        vi.mocked(deps.broker.postToWebview).mockClear();
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'run-killed' }));
+
+        expect(errors()).toEqual([]);
+        expect(answer()).toMatchObject({
+          status: 'success',
+          objects: [
+            { objectApiName: 'Opportunity', deleted: 1, keptChanged: 0 },
+            { objectApiName: 'Contact', deleted: 1, keptChanged: 0 },
+          ],
+        });
+        expect(org.rows.get('Opportunity')).toEqual([]);
+      }
+
+      it("keeps on the plan of the killed part what the resumed part's removal left on its opportunity, and the plan's removal takes it", async () => {
+        await historyKeeps('run-resumed');
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        const restamped = org.rows.get('Opportunity')?.[0].LastModifiedDate;
+        expect((await plans.get('run-killed'))?.removalStamps).toEqual({
+          [OPPORTUNITY]: restamped,
+        });
+        await killedRemovedFromItsPlan();
+      });
+
+      it('finds the killed part through the plan kept of the resumed one, once the history dropped both', async () => {
+        await historyKeeps();
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect((await plans.get('run-killed'))?.removalStamps).toEqual({
+          [OPPORTUNITY]: org.rows.get('Opportunity')?.[0].LastModifiedDate,
+        });
+        await killedRemovedFromItsPlan();
+      });
+
+      it('finds through the journal of its line a part whose plan was kept before plans named the run it resumed', async () => {
+        // Three parts written through one journal: the killed one, a resume
+        // cancelled after one contact, and the resume of that one, cancelled
+        // after the role. The history keeps the last; the plans of the other
+        // two were kept before plans named the run each resumed.
+        const journal = 'run-killed';
+        const runs = (handler as unknown as { runJournal: ForgeRunJournal }).runJournal;
+        await runs.begin(journal, TARGET_ORG, new Date('2026-09-20T10:00:00.000Z'));
+        for (const [n, forgeId] of ['run-killed', 'run-middle', 'run-resumed'].entries()) {
+          if (n > 0) await runs.resuming(journal);
+          const part = runs.open(journal);
+          part.beginPart(new Date(Date.parse('2026-09-20T10:00:00.000Z') + n * 60_000));
+          part.close();
+          await runs.stop(journal, 'cancelled', forgeId);
+        }
+        const CONTACT_B = id('003', 6);
+        org.rows.get('Contact')?.push({
+          Id: CONTACT_B,
+          LastModifiedDate: DURING_RUN,
+          CreatedDate: DURING_RUN,
+        });
+        const middle: ForgeExecutionResult = {
+          ...runEntry(),
+          forgeId: 'run-middle',
+          status: 'partial',
+          cancelled: true,
+          timestamp: '2026-09-20T10:05:30.000Z',
+          idRemapCount: 3,
+          idRemapTable: {
+            [src('003', 5)]: CONTACT,
+            [src('006', 5)]: OPPORTUNITY,
+            [src('003', 6)]: CONTACT_B,
+          },
+          idRemapExisting: [src('003', 5), src('006', 5)],
+          idRemapCreated: [{ objectApiName: 'Contact', sourceIds: [src('003', 6)] }],
+          writtenBetween: { first: '2026-09-20T10:05:10.000Z', last: '2026-09-20T10:05:20.000Z' },
+          retryOf: 'run-killed',
+          resumed: true,
+          journalId: journal,
+          journalPart: 1,
+        };
+        store.set(
+          'forge:history',
+          history().map((e) =>
+            e.forgeId === 'run-resumed'
+              ? {
+                  ...e,
+                  status: 'partial' as const,
+                  cancelled: true as const,
+                  retryOf: 'run-middle',
+                  journalId: journal,
+                  journalPart: 2,
+                }
+              : e,
+          ),
+          'forge',
+        );
+        await plans.put(forgeRemovalPlanOf(entryOf('run-killed')!)!);
+        // Kept before plans named the run they resumed.
+        const keptBefore = { ...forgeRemovalPlanOf(middle)! };
+        delete keptBefore.retryOf;
+        await plans.put(keptBefore);
+        store.set(
+          'forge:history',
+          history().filter((e) => e.forgeId === 'run-resumed'),
+          'forge',
+        );
+
+        await handler.handle(buildMsg('forge:undo', { forgeId: 'run-resumed' }));
+
+        expect(answer()).toMatchObject({ status: 'success' });
+        expect((await plans.get('run-killed'))?.removalStamps).toEqual({
+          [OPPORTUNITY]: org.rows.get('Opportunity')?.[0].LastModifiedDate,
+        });
+        await killedRemovedFromItsPlan();
+      });
     });
   });
 

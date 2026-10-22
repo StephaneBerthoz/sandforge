@@ -396,6 +396,8 @@ export class ExtensionHandlers {
   setSyncRunCreations(store: SyncRunCreations): void {
     this.syncHandler.setRunCreations(store);
     this.syncRemovalHandler.setRunCreations(store);
+    // A restore of a Sync run's backup reads when the run last wrote.
+    this.dataOpsHandler.setSyncRuns(store);
   }
 
   /**

@@ -184,13 +184,13 @@ describe('ReviewComplianceTab', () => {
       render(<ReviewComplianceTab />);
       const options = [...screen.getByTestId('framework-select').querySelectorAll('option')];
       expect(options.map((option) => option.textContent)).toEqual([
-        fr.forge.review.frameworkNone,
+        fr.forgeRun.review.frameworkNone,
         'GDPR',
         'CCPA',
         'HIPAA',
         'PCI-DSS',
       ]);
-      expect(fr.forge.review.frameworkNone).toBe('Aucun');
+      expect(fr.forgeRun.review.frameworkNone).toBe('Aucun');
     } finally {
       await i18n.changeLanguage('en');
     }
@@ -208,7 +208,7 @@ describe('ReviewComplianceTab', () => {
       });
 
       expect(screen.getByTestId('compliance-status').textContent).toBe(
-        fr.forge.review.complianceFail,
+        fr.forgeRun.review.complianceFail,
       );
       expect(screen.getByTestId('compliance-report').textContent).not.toMatch(/\bfail\b/i);
     } finally {

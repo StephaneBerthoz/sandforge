@@ -224,14 +224,14 @@ describe('ForgePage — a run that stops on an error', () => {
 
     const notice = screen.getByTestId('forge-execution-error');
     expect(notice.getAttribute('role')).toBe('status');
-    expect(notice.textContent).toContain(i18n.t('forge.runCancelled'));
+    expect(notice.textContent).toContain(i18n.t('forgeRun.runCancelled'));
     expect(notice.textContent).not.toContain('aborted by user request');
 
     fireEvent.click(screen.getByTestId('forge-execution-see-stopped'));
 
     const results = await screen.findByTestId('forge-results');
     expect(within(results).getByTestId('forge-results-stopped-message').textContent).toBe(
-      i18n.t('forge.runCancelled'),
+      i18n.t('forgeRun.runCancelled'),
     );
     expect(within(results).getByTestId('forge-results-stopped').dataset.cancelled).toBe('true');
     expect(within(results).getByTestId('forge-results-removal')).toBeTruthy();

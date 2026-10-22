@@ -1335,6 +1335,46 @@ describe('DataOpsPage', () => {
       });
     });
 
+    describe('the backup a Sync run kept of what it wrote over', () => {
+      beforeEach(() => {
+        mockBackupsQueryState = {
+          ...mockBackupsQueryState,
+          data: {
+            backups: [{ ...loadedBackups.backups[0], operationId: 'op-1', origin: 'sync' }],
+          },
+        };
+      });
+
+      it('asks the restore to include the records changed since the run once the box says so', () => {
+        selectBackup();
+
+        fireEvent.click(screen.getByTestId('restore-include-changed-op-1'));
+        fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+
+        expect(mockRollbackMutate).toHaveBeenCalledWith({
+          orgId: 'org-1',
+          operationId: 'op-1',
+          includeChanged: true,
+        });
+      });
+
+      it('lists what the restore left as it is, changed since the run, from its answer', () => {
+        mockRollbackMutationState = {
+          ...mockRollbackMutationState,
+          data: {
+            status: 'partial',
+            totalRestored: 1,
+            totalFailed: 0,
+            totalUnchanged: 0,
+            keptChanged: { total: 1, objects: [{ objectApiName: 'Account', count: 1 }] },
+          },
+        };
+        selectBackup();
+
+        expect(screen.getByTestId('restore-kept-changed').textContent).toContain('Account 1');
+      });
+    });
+
     it('says what the restore wrote and what it found unchanged, from its answer', () => {
       mockRollbackMutationState = {
         ...mockRollbackMutationState,

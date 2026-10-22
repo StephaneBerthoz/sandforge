@@ -931,6 +931,14 @@ export interface ForgeRemovalPlan {
   /** When the target dated the run's writes, when it could tell. */
   writtenBetween?: ForgeWrittenBetween;
   /**
+   * The run this one retried or resumed, by its `forgeId`
+   * (`ForgeExecutionResult.retryOf`): what ties the parts of one run together
+   * once the history has dropped them, for the removal of one part to keep
+   * on the others what it changed of their records. Absent from plans kept
+   * before plans named it.
+   */
+  retryOf?: string;
+  /**
    * The records the run created, per object, by their target ids, in the
    * order a removal takes them (`forgeRunCreatedRecords`).
    */

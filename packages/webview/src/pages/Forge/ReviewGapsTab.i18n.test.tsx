@@ -67,22 +67,24 @@ describe('ReviewGapsTab — translated labels', () => {
     useForgeStore.getState().setGaps('rehearsal', [GAP]);
     render(<ReviewGapsTab />);
 
-    expect(screen.getByText('forge.gaps.kind.picklist_value_refused')).toBeTruthy();
-    expect(screen.getByTestId('gap-source').textContent).toBe('forge.gaps.source.rehearsal');
-    expect(screen.getByText('forge.gaps.severity.blocking (1)')).toBeTruthy();
-    expect(screen.getByTestId('gap-leave-empty').textContent).toBe('forge.gaps.leaveEmptyValue');
-    expect(screen.getByTestId('gap-exclude-object').textContent).toBe('forge.gaps.excludeObject');
-    expect(screen.getByTestId('gap-ignore').textContent).toBe('forge.gaps.ignore');
+    expect(screen.getByText('forgeRun.gaps.kind.picklist_value_refused')).toBeTruthy();
+    expect(screen.getByTestId('gap-source').textContent).toBe('forgeRun.gaps.source.rehearsal');
+    expect(screen.getByText('forgeRun.gaps.severity.blocking (1)')).toBeTruthy();
+    expect(screen.getByTestId('gap-leave-empty').textContent).toBe('forgeRun.gaps.leaveEmptyValue');
+    expect(screen.getByTestId('gap-exclude-object').textContent).toBe(
+      'forgeRun.gaps.excludeObject',
+    );
+    expect(screen.getByTestId('gap-ignore').textContent).toBe('forgeRun.gaps.ignore');
   });
 
   it('backs every kind, severity, source, read and decision with an entry in the reference locale', () => {
-    for (const kind of KINDS) expect(typeof en.forge.gaps.kind[kind]).toBe('string');
+    for (const kind of KINDS) expect(typeof en.forgeRun.gaps.kind[kind]).toBe('string');
     for (const severity of ['blocking', 'warning', 'info'] as const) {
-      expect(typeof en.forge.gaps.severity[severity]).toBe('string');
+      expect(typeof en.forgeRun.gaps.severity[severity]).toBe('string');
     }
     for (const source of ['metadata', 'simulation', 'rehearsal'] as const) {
-      expect(typeof en.forge.gaps.source[source]).toBe('string');
-      expect(typeof en.forge.gaps.readName[source]).toBe('string');
+      expect(typeof en.forgeRun.gaps.source[source]).toBe('string');
+      expect(typeof en.forgeRun.gaps.readName[source]).toBe('string');
     }
     for (const decision of [
       'map_value',
@@ -94,7 +96,7 @@ describe('ReviewGapsTab — translated labels', () => {
       'skip_rows',
       'ignore',
     ] as const) {
-      expect(typeof en.forge.gaps.decision[decision]).toBe('string');
+      expect(typeof en.forgeRun.gaps.decision[decision]).toBe('string');
     }
   });
 });

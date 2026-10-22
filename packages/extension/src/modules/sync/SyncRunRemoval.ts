@@ -298,7 +298,9 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
  * kind, or, for a run kept before its writes were all dated, its last
  * creation or its end. A record it wrote over modified later was changed since.
  */
-function writtenUntil(run: SyncRunKept): string | undefined {
+export function writtenUntil(
+  run: Pick<SyncRunKept, 'lastWriteAt' | 'lastWrittenAt' | 'end'>,
+): string | undefined {
   return run.lastWriteAt ?? run.lastWrittenAt ?? run.end?.at;
 }
 

@@ -31,13 +31,13 @@ const METHODS: AnonymizationMethod[] = [
 
 /** i18n keys for each PII category label. */
 const CATEGORY_LABEL_KEYS: Record<ForgeAnonymizationCategory, string> = {
-  email: 'forge.anonCategory.email',
-  phone: 'forge.anonCategory.phone',
-  name: 'forge.anonCategory.name',
-  address: 'forge.anonCategory.address',
-  ssn_id: 'forge.anonCategory.ssn_id',
-  financial: 'forge.anonCategory.financial',
-  other: 'forge.anonCategory.other',
+  email: 'forgeRun.anonCategory.email',
+  phone: 'forgeRun.anonCategory.phone',
+  name: 'forgeRun.anonCategory.name',
+  address: 'forgeRun.anonCategory.address',
+  ssn_id: 'forgeRun.anonCategory.ssn_id',
+  financial: 'forgeRun.anonCategory.financial',
+  other: 'forgeRun.anonCategory.other',
 };
 
 /**
@@ -66,11 +66,11 @@ export const ReviewAnonymizationTab: React.FC = () => {
           checked={anonymizePII}
           onChange={(e) => setAnonymizePII(e.target.checked)}
         />
-        <span>{t('forge.review.anonymizeTheseFields', { count: piiFieldCount })}</span>
+        <span>{t('forgeRun.review.anonymizeTheseFields', { count: piiFieldCount })}</span>
       </label>
       {!anonymizePII && (
         <p className="text-xs text-text-secondary" data-testid="anonymization-off">
-          {t('forge.review.anonymizationOff')}
+          {t('forgeRun.review.anonymizationOff')}
         </p>
       )}
       {anonymizePII && (
@@ -120,7 +120,7 @@ const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
   return (
     <>
       <p className="text-xs text-text-secondary">
-        {t('forge.review.anonymizationDesc', {
+        {t('forgeRun.review.anonymizationDesc', {
           defaultValue:
             '{{count}} PII fields detected. Configure anonymization method per category.',
           count: piiFieldCount,
@@ -135,7 +135,7 @@ const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
           htmlFor="anonymization-preset"
           className="text-xs font-medium text-text-primary shrink-0"
         >
-          {t('forge.review.preset', 'Preset')}
+          {t('forgeRun.review.preset', 'Preset')}
         </label>
         <select
           id="anonymization-preset"
@@ -144,7 +144,7 @@ const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
           onChange={handlePresetChange}
           className="flex-1 bg-surface-3 text-text-primary text-xs rounded-sm px-2 py-1 border border-subtle"
         >
-          <option value="">{t('forge.review.presetCustom', 'Custom (no preset)')}</option>
+          <option value="">{t('forgeRun.review.presetCustom', 'Custom (no preset)')}</option>
           {FORGE_ANONYMIZATION_PRESETS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -167,10 +167,10 @@ const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
           <thead>
             <tr className="border-b border-subtle bg-surface-2">
               <th className="text-left px-3 py-2 text-text-secondary font-medium">
-                {t('forge.review.category', 'Category')}
+                {t('forgeRun.review.category', 'Category')}
               </th>
               <th className="text-left px-3 py-2 text-text-secondary font-medium">
-                {t('forge.review.method', 'Method')}
+                {t('forgeRun.review.method', 'Method')}
               </th>
             </tr>
           </thead>
@@ -196,7 +196,7 @@ const ReviewAnonymizationMethods: React.FC<ReviewAnonymizationMethodsProps> = ({
                   >
                     {METHODS.map((m) => (
                       <option key={m} value={m}>
-                        {t(`forge.anonMethod.${m}`)}
+                        {t(`forgeRun.anonMethod.${m}`)}
                       </option>
                     ))}
                   </select>

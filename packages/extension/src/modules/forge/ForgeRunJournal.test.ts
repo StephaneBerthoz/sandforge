@@ -181,6 +181,28 @@ describe("a run's journal", () => {
     expect(await journal.read('run')).toBeUndefined();
   });
 
+  it('names the run each ended part of the journal was kept as, and none of a journal that is gone', async () => {
+    const { deps, files } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run', RESUME);
+    await journal.stop('run', 'cancelled', 'forge-first');
+    await journal.resuming('run');
+    const store = journal.open('run');
+    store.beginPart(STARTED);
+    store.setMapping('created', '001000000000003AAA', '001000000000103AAA', 'Account');
+    store.close();
+    // The part under way has no end yet: it names no run.
+    expect(await journal.partsOf('run')).toEqual(['forge-first']);
+
+    await journal.stop('run', 'interrupted', 'run-1');
+    // A line a closed window cut short is passed over.
+    files.set(journal.pathOf('run'), `${files.get(journal.pathOf('run'))}{"end":{"stat`);
+    expect(await journal.partsOf('run')).toEqual(['forge-first', 'run-1']);
+
+    await journal.end('run');
+    expect(await journal.partsOf('run')).toEqual([]);
+  });
+
   it('gives what the last part created and linked to by source id, as a history entry keeps it', async () => {
     const { deps } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

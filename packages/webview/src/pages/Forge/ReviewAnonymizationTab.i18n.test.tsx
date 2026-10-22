@@ -60,7 +60,7 @@ describe('ReviewAnonymizationTab — translated labels', () => {
     render(<ReviewAnonymizationTab />);
     for (const cat of CATEGORIES) {
       const cells = screen.getByTestId(`anon-row-${cat}`).querySelectorAll('td');
-      expect(cells[0]?.textContent).toBe(`forge.anonCategory.${cat}`);
+      expect(cells[0]?.textContent).toBe(`forgeRun.anonCategory.${cat}`);
     }
   });
 
@@ -70,16 +70,16 @@ describe('ReviewAnonymizationTab — translated labels', () => {
     expect(options.length).toBe(METHODS.length);
     for (const [i, method] of METHODS.entries()) {
       expect(options[i]?.value).toBe(method);
-      expect(options[i]?.textContent).toBe(`forge.anonMethod.${method}`);
+      expect(options[i]?.textContent).toBe(`forgeRun.anonMethod.${method}`);
     }
   });
 
   it('backs every rendered key with an entry in the reference locale', () => {
     for (const cat of CATEGORIES) {
-      expect(typeof en.forge.anonCategory[cat]).toBe('string');
+      expect(typeof en.forgeRun.anonCategory[cat]).toBe('string');
     }
     for (const method of METHODS) {
-      expect(typeof en.forge.anonMethod[method]).toBe('string');
+      expect(typeof en.forgeRun.anonMethod[method]).toBe('string');
     }
   });
 });

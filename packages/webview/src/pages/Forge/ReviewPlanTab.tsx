@@ -56,7 +56,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
         data-testid="plan-loading"
         className="flex items-center justify-center py-8 text-text-secondary text-sm"
       >
-        {t('forge.review.planLoading', 'Generating execution plan...')}
+        {t('forgeRun.review.planLoading', 'Generating execution plan...')}
       </div>
     );
   }
@@ -80,7 +80,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
             <span>~{plan.estimatedDurationSeconds.toFixed(0)}s</span>
           </>
         ) : (
-          <span>{t('forge.preview.recordsNotCounted')}</span>
+          <span>{t('forgeRun.preview.recordsNotCounted')}</span>
         )}
       </div>
 
@@ -93,7 +93,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text-primary">
-              {t('forge.review.wave', 'Wave')} {wave.order + 1}
+              {t('forgeRun.review.wave', 'Wave')} {wave.order + 1}
             </span>
             {counted(wave.objectApiNames) && (
               <span className="text-[10px] text-text-secondary">
@@ -119,7 +119,7 @@ export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) =>
       {plan.cycleResolutions.length > 0 && (
         <div data-testid="cycle-resolutions" className="mt-2">
           <h4 className="text-xs font-semibold text-status-warning mb-1">
-            {t('forge.review.cycles', 'Cycle Resolutions')}
+            {t('forgeRun.review.cycles', 'Cycle Resolutions')}
           </h4>
           {plan.cycleResolutions.map((cycle, idx) => (
             <div key={`cycle-${idx}`} className="text-[10px] text-text-secondary mb-1">

@@ -172,7 +172,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
               type="button"
               data-testid="progress-node-select"
               onClick={handleClick}
-              aria-label={t('forge.node.showDetails', { object: objectApiName })}
+              aria-label={t('forgeRun.node.showDetails', { object: objectApiName })}
               aria-describedby={describedBy}
               className="text-xs font-semibold text-text-primary truncate hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-(--sf-accent) rounded-xs"
             >
@@ -200,7 +200,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
           )}
           <StatusIcon status={status} />
           <span id={`${idBase}-status`} className="sr-only">
-            {t(`forge.nodeStatus.${status}`)}
+            {t(`forgeRun.nodeStatus.${status}`)}
           </span>
         </div>
       </div>
@@ -218,13 +218,13 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
         <div id={`${idBase}-counts`}>
           <div className="mt-1 flex items-center gap-2 text-[10px] text-text-secondary">
             <span>
-              {t('forge.node.records', { records: recordCount.toLocaleString(uiLocale()) })}
+              {t('forgeRun.node.records', { records: recordCount.toLocaleString(uiLocale()) })}
             </span>
             <span>~{estimatedSizeMB.toFixed(1)} MB</span>
           </div>
           <div className="mt-0.5 text-[10px] text-text-secondary">
             <span>
-              {t('forge.node.fieldsCloneable', {
+              {t('forgeRun.node.fieldsCloneable', {
                 total: fieldCount,
                 cloneable: createableFieldCount,
               })}
@@ -237,7 +237,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
           className="mt-1 text-[10px] text-text-secondary"
           data-testid="node-counts-unknown"
         >
-          {t('forge.node.notMeasured')}
+          {t('forgeRun.node.notMeasured')}
         </div>
       )}
 
@@ -262,7 +262,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
           data-testid="node-stopped"
           className="mt-2 text-[10px] font-medium text-status-warning"
         >
-          {t('forge.node.stopped')}
+          {t('forgeRun.node.stopped')}
         </div>
       )}
 
@@ -289,7 +289,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressFlowNode>> = ({ data }) =>
             <span aria-hidden="true">{errorCount}</span>
             {/* A bare figure beside an icon is no word for a screen reader. */}
             <span id={`${idBase}-errors`} className="sr-only">
-              {t('forge.node.errors', { count: errorCount })}
+              {t('forgeRun.node.errors', { count: errorCount })}
             </span>
           </span>
         )}

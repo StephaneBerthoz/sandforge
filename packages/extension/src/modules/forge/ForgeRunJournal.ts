@@ -601,6 +601,43 @@ export class ForgeRunJournal {
     return undefined;
   }
 
+  /**
+   * The runs the parts of the journal `journalId` were kept in the history
+   * as, by `forgeId`, as the end of each part names it: the parts of one run,
+   * which are removed apart, and which a removal of one finds here when the
+   * history has dropped the entries that tied them (`retryOf`). None when
+   * the journal is gone, or is not that run's.
+   *
+   * Only a part's end is parsed: `stopAt` writes it as `{"end":…}`, and the
+   * lines of records — most of a journal of a run past the bound — are
+   * passed over unread.
+   */
+  async partsOf(journalId: string): Promise<string[]> {
+    const named = new Set<string>();
+    let head: z.infer<typeof headSchema>['run'] | undefined;
+    for await (const line of this.deps.readLines(this.filePath(journalId))) {
+      if (line.trim() === '') continue;
+      if (!head) {
+        try {
+          const parsed = headSchema.safeParse(JSON.parse(line));
+          if (!parsed.success || parsed.data.run.journalId !== journalId) return [];
+          head = parsed.data.run;
+        } catch {
+          return [];
+        }
+        continue;
+      }
+      if (!line.startsWith('{"end":')) continue;
+      try {
+        const end = endSchema.safeParse(JSON.parse(line));
+        if (end.success) named.add(end.data.end.forgeId);
+      } catch {
+        // The last line of a window that closed mid-write: the others stand.
+      }
+    }
+    return [...named];
+  }
+
   /** Drop the journal of a run that ended: the run history holds what it created. */
   async end(journalId: string): Promise<void> {
     const filePath = this.filePath(journalId);

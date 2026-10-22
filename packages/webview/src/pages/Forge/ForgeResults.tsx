@@ -334,7 +334,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** What the page says of the reads that failed, next to the rate; empty when none did. */
   const readFailedNote =
-    failedReads.length > 0 ? t('forge.readFailed', { objects: failedReads.join(', ') }) : '';
+    failedReads.length > 0 ? t('forgeRun.readFailed', { objects: failedReads.join(', ') }) : '';
 
   // An object the run could not read makes no rate a success: the rate counts
   // the records read, and the clone is short of that object's.
@@ -442,10 +442,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** What the retry button says it does, and the hint under it. */
   const [retryLabel, retryHint] = stoppedBeforeItsEnd
-    ? ['forge.retryStopped', 'forge.retryStoppedHint']
+    ? ['forgeRun.retryStopped', 'forgeRun.retryStoppedHint']
     : onlySkippedWhole
-      ? ['forge.retrySkipped', 'forge.retrySkippedHint']
-      : ['forge.retryFailed', 'forge.retryFailedHint'];
+      ? ['forgeRun.retrySkipped', 'forgeRun.retrySkippedHint']
+      : ['forgeRun.retryFailed', 'forgeRun.retryFailedHint'];
 
   /*
    * A row refused for a required field left empty is the refusal the run's
@@ -472,7 +472,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       sortField === 'recordCount'
         ? (row.records ?? -1)
         : sortField === 'status'
-          ? t(`forge.nodeStatus.${row.status}`)
+          ? t(`forgeRun.nodeStatus.${row.status}`)
           : row.objectApiName;
     const { compare } = collator();
     return [...filtered].sort((a, b) => {
@@ -490,7 +490,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** What the page says of the empty tables it does not list; empty when there were none. */
   const emptyTablesNote =
-    emptyTables > 0 ? t('forge.emptyTablesLeftOut', { count: emptyTables }) : '';
+    emptyTables > 0 ? t('forgeRun.emptyTablesLeftOut', { count: emptyTables }) : '';
 
   /** Handle sort column click. */
   const handleSort = useCallback((field: SortField) => {
@@ -597,8 +597,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     await navigator.clipboard.writeText(json);
     addNotification({
       level: 'success',
-      title: t('forge.exportJson'),
-      message: t('forge.exportJson'),
+      title: t('forgeRun.exportJson'),
+      message: t('forgeRun.exportJson'),
       autoDismissMs: 3000,
     });
   }, [result, addNotification, t]);
@@ -841,8 +841,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <div className="flex flex-1 flex-col gap-1">
             <p data-testid="forge-results-stopped-message">
               {stoppedByCancel
-                ? t('forge.runCancelled')
-                : t('forge.runStoppedOn', { message: stoppedOn })}
+                ? t('forgeRun.runCancelled')
+                : t('forgeRun.runStoppedOn', { message: stoppedOn })}
             </p>
             {stoppedHint && <ErrorExplanation hint={stoppedHint} />}
           </div>
@@ -858,9 +858,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           <Info size={14} className="mt-0.5 shrink-0 text-hue-forge" />
           <div className="flex flex-1 flex-col gap-1">
-            <p>{t('forge.simulation.done')}</p>
+            <p>{t('forgeRun.simulation.done')}</p>
             <p data-testid="forge-results-simulation-gaps">
-              {t('forge.simulation.gapsFound', { gaps: result?.gaps?.length ?? 0 })}
+              {t('forgeRun.simulation.gapsFound', { gaps: result?.gaps?.length ?? 0 })}
             </p>
           </div>
           <Button
@@ -869,7 +869,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             onClick={reviewSimulation}
             data-testid="forge-results-simulation-review"
           >
-            {t('forge.backToReview')}
+            {t('forgeRun.backToReview')}
           </Button>
         </div>
       )}
@@ -884,17 +884,17 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           >
             {/* The copy is named by its object's label, else by its API name. */}
             {targetOrgName
-              ? t('forge.idMapping.openRoot', {
+              ? t('forgeRun.idMapping.openRoot', {
                   object: rootCopy.label ?? rootCopy.objectApiName,
                   org: targetOrgName,
                 })
-              : t('forge.idMapping.openRootInTarget', {
+              : t('forgeRun.idMapping.openRootInTarget', {
                   object: rootCopy.label ?? rootCopy.objectApiName,
                 })}
           </Button>
           {openFailure && (
             <span role="status" className="text-xs text-status-error">
-              {t('forge.idMapping.openFailed', { message: openFailure })}
+              {t('forgeRun.idMapping.openFailed', { message: openFailure })}
             </span>
           )}
         </div>
@@ -911,37 +911,49 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       >
         <KPICard
           icon="check"
-          label={t(simulation ? 'forge.simulation.wouldInsert' : 'forge.inserted')}
+          label={t(simulation ? 'forgeRun.simulation.wouldInsert' : 'forgeRun.inserted')}
           value={inserted}
           variant="success"
         />
         {/* Shown only when the target held some: a card reading zero on every
             ordinary run would be noise. */}
         {linked > 0 && (
-          <KPICard icon="link" label={t('forge.linkedExisting')} value={linked} variant="success" />
+          <KPICard
+            icon="link"
+            label={t('forgeRun.linkedExisting')}
+            value={linked}
+            variant="success"
+          />
         )}
         <KPICard
           icon="debug-step-over"
-          label={t('forge.objectsSkipped')}
+          label={t('forgeRun.objectsSkipped')}
           value={skippedObjects}
           variant="warning"
         />
-        <KPICard icon="arrow-swap" label={t('forge.idRemaps')} value={idRemaps} variant="default" />
+        <KPICard
+          icon="arrow-swap"
+          label={t('forgeRun.idRemaps')}
+          value={idRemaps}
+          variant="default"
+        />
         <KPICard
           icon="trophy"
-          label={t('forge.successRate')}
+          label={t('forgeRun.successRate')}
           value={`${String(successRate)}%`}
           variant={successRateVariant}
         />
         <KPICard
           icon="shield"
-          label={t('forge.anonymizedFields')}
+          label={t('forgeRun.anonymizedFields')}
           value={anonymizedFieldCount}
           variant="default"
         />
         <KPICard
           icon="zap"
-          label={t(apiCalls === undefined ? 'forge.apiCallsEstimated' : 'forge.apiCallsConsumed')}
+          label={t(
+            apiCalls === undefined ? 'forgeRun.apiCallsEstimated' : 'forgeRun.apiCallsConsumed',
+          )}
           value={apiCalls ?? estimatedApiCalls ?? '—'}
           variant="default"
         />
@@ -964,14 +976,15 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {result && (
         <div className="flex items-center gap-4 text-sm text-text-secondary">
           <span data-testid="forge-results-duration">
-            {t('forge.executionDuration')}:{' '}
+            {t('forgeRun.executionDuration')}:{' '}
             <strong className="text-text-primary">
               {formatElapsed(Math.round(result.duration / 1000))}
             </strong>
           </span>
           <span data-testid="forge-results-timestamp">
             {/* When it stopped, for a run that did not complete. */}
-            {t(stoppedBeforeItsEnd ? 'forge.executionStoppedAt' : 'forge.executionTimestamp')}:{' '}
+            {t(stoppedBeforeItsEnd ? 'forgeRun.executionStoppedAt' : 'forgeRun.executionTimestamp')}
+            :{' '}
             <strong className="text-text-primary">
               {/* A stored time that is not a date read "Invalid Date". */}
               {formatStoredDate(result.timestamp, (date) => date.toLocaleString(uiLocale())) ??
@@ -986,7 +999,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         <div className="flex items-center gap-2 mb-2">
           <select
             data-testid="forge-results-status-filter"
-            aria-label={t('forge.statusFilterLabel')}
+            aria-label={t('forgeRun.statusFilterLabel')}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className={cn(
@@ -996,11 +1009,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               'border border-(--sf-border-input)',
             )}
           >
-            <option value="all">{t('forge.filterByStatus')}</option>
-            <option value="done">{t('forge.done')}</option>
-            <option value="error">{t('forge.failed')}</option>
-            <option value="skipped">{t('forge.skipped')}</option>
-            <option value="stopped">{t('forge.stoppedObjects')}</option>
+            <option value="all">{t('forgeRun.filterByStatus')}</option>
+            <option value="done">{t('forgeRun.done')}</option>
+            <option value="error">{t('forgeRun.failed')}</option>
+            <option value="skipped">{t('forgeRun.skipped')}</option>
+            <option value="stopped">{t('forgeRun.stoppedObjects')}</option>
           </select>
         </div>
         <div className="overflow-x-auto rounded-lg border border-subtle bg-surface-1">
@@ -1026,7 +1039,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
                     onClick={() => handleSort('objectApiName')}
                   >
-                    {t('forge.object')}
+                    {t('forgeRun.object')}
                     {sortField === 'objectApiName' &&
                       (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
                   </button>
@@ -1047,7 +1060,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
                     onClick={() => handleSort('recordCount')}
                   >
-                    {t('forge.records')}
+                    {t('forgeRun.records')}
                     {sortField === 'recordCount' &&
                       (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
                   </button>
@@ -1068,12 +1081,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                     className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
                     onClick={() => handleSort('status')}
                   >
-                    {t('forge.status')}
+                    {t('forgeRun.status')}
                     {sortField === 'status' &&
                       (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
                   </button>
                 </th>
-                <th className="px-4 py-2 font-medium">{t('forge.errors')}</th>
+                <th className="px-4 py-2 font-medium">{t('forgeRun.errors')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1096,7 +1109,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                         statusBadgeStyles[row.status] ?? 'bg-surface-2 text-text-secondary',
                       )}
                     >
-                      {t(`forge.nodeStatus.${row.status}`)}
+                      {t(`forgeRun.nodeStatus.${row.status}`)}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-text-secondary">
@@ -1122,12 +1135,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           className="rounded-lg border border-subtle bg-surface-1 p-3"
         >
           <h3 className="text-sm font-semibold text-text-primary mb-2">
-            {t('forge.idMapping.title')}
+            {t('forgeRun.idMapping.title')}
           </h3>
           <p className="text-xs text-text-secondary">
             {result.journalGone
               ? t('forge.history.journalGone')
-              : t('forge.idMapping.inJournal', {
+              : t('forgeRun.idMapping.inJournal', {
                   count: idRemaps,
                   formatted: formatNumber(idRemaps),
                 })}
@@ -1144,19 +1157,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           className="rounded-lg border border-subtle bg-surface-1 p-3"
         >
           <h3 className="text-sm font-semibold text-text-primary mb-2">
-            {t('forge.idMapping.title')}
+            {t('forgeRun.idMapping.title')}
           </h3>
           <p className="text-xs text-text-secondary mb-2">
-            {t('forge.idMapping.subtitle', { count: idRemapRows.length })}
+            {t('forgeRun.idMapping.subtitle', { count: idRemapRows.length })}
             {existingSourceIds.size > 0 &&
-              ` ${t('forge.idMapping.existingNote', { count: existingSourceIds.size })}`}
-            {created.size > 0 && ` ${t('forge.idMapping.openNote')}`}
+              ` ${t('forgeRun.idMapping.existingNote', { count: existingSourceIds.size })}`}
+            {created.size > 0 && ` ${t('forgeRun.idMapping.openNote')}`}
           </p>
           {idRemapRows.length > ID_REMAP_VIRTUALIZE_THRESHOLD ? (
             <div data-testid="forge-id-mapping-virtual">
               <div className="flex text-xs text-left text-text-secondary">
-                <span className="w-1/2 py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</span>
-                <span className="w-1/2 py-1 font-medium">{t('forge.idMapping.targetId')}</span>
+                <span className="w-1/2 py-1 pr-3 font-medium">
+                  {t('forgeRun.idMapping.sourceId')}
+                </span>
+                <span className="w-1/2 py-1 font-medium">{t('forgeRun.idMapping.targetId')}</span>
               </div>
               <VirtualList
                 items={idRemapRows}
@@ -1181,8 +1196,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               <table className="w-full text-xs" data-testid="forge-id-mapping-table">
                 <thead>
                   <tr className="text-left text-text-secondary">
-                    <th className="py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</th>
-                    <th className="py-1 font-medium">{t('forge.idMapping.targetId')}</th>
+                    <th className="py-1 pr-3 font-medium">{t('forgeRun.idMapping.sourceId')}</th>
+                    <th className="py-1 font-medium">{t('forgeRun.idMapping.targetId')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1211,7 +1226,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             data-testid="forge-id-mapping-open-status"
             className="mt-1 text-xs text-status-error"
           >
-            {openFailure ? t('forge.idMapping.openFailed', { message: openFailure }) : ''}
+            {openFailure ? t('forgeRun.idMapping.openFailed', { message: openFailure }) : ''}
           </p>
         </div>
       )}
@@ -1226,16 +1241,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           role="status"
           data-testid="forge-results-existing"
         >
-          <p className="font-medium text-text-primary">{t('forge.existingRecords.title')}</p>
-          <p className="mt-0.5">{t('forge.existingRecords.hint')}</p>
+          <p className="font-medium text-text-primary">{t('forgeRun.existingRecords.title')}</p>
+          <p className="mt-0.5">{t('forgeRun.existingRecords.hint')}</p>
           <ul className="mt-1 space-y-0.5">
             {existingRecords.map((e) => (
               <li key={e.objectApiName} data-testid="forge-results-existing-row">
                 <span className="font-mono text-text-primary">{e.objectApiName}</span>
-                {e.linked > 0 && ` — ${t('forge.existingRecords.linked', { count: e.linked })}`}
+                {e.linked > 0 && ` — ${t('forgeRun.existingRecords.linked', { count: e.linked })}`}
                 {e.unidentified > 0 && (
                   <span className="text-status-warning">
-                    {` — ${t('forge.existingRecords.unidentified', { count: e.unidentified })}`}
+                    {` — ${t('forgeRun.existingRecords.unidentified', { count: e.unidentified })}`}
                   </span>
                 )}
               </li>
@@ -1256,7 +1271,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           role="status"
           data-testid="forge-results-file-content"
         >
-          <p>{t('forge.fileContentLeftOut')}</p>
+          <p>{t('forgeRun.fileContentLeftOut')}</p>
           <ul className="mt-1 space-y-0.5">
             {result.fileContentFieldsLeftOut.map(({ objectApiName, fields }) => (
               <li key={objectApiName} data-testid="forge-results-file-content-row">
@@ -1332,7 +1347,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           role="status"
           data-testid="forge-results-truncated"
         >
-          {t('forge.truncatedRead', { objects: result.truncatedObjects.join(', ') })}
+          {t('forgeRun.truncatedRead', { objects: result.truncatedObjects.join(', ') })}
         </div>
       )}
       {/* So is a read stopped at Records per object: the count shown for the
@@ -1344,7 +1359,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           role="status"
           data-testid="forge-results-capped"
         >
-          {t('forge.cappedRead', {
+          {t('forgeRun.cappedRead', {
             limit: result.cappedObjects.perObject,
             objects: result.cappedObjects.objects.join(', '),
           })}
@@ -1370,7 +1385,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               className={cn('transition-transform', showLogs && 'rotate-90')}
             />
             <FileText size={14} />
-            {showLogs ? t('forge.hideLogs') : t('forge.showLogs')}
+            {showLogs ? t('forgeRun.hideLogs') : t('forgeRun.showLogs')}
             <span className="text-text-secondary">({String(logs.length)})</span>
           </button>
           {showLogs && (
@@ -1398,7 +1413,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           onClick={handleCopyReport}
           data-testid="forge-copy-report"
         >
-          {t('forge.copyReport')}
+          {t('forgeRun.copyReport')}
         </Button>
         <Button
           variant="secondary"
@@ -1407,7 +1422,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           onClick={handleExportJson}
           data-testid="forge-export-json"
         >
-          {t('forge.exportJson')}
+          {t('forgeRun.exportJson')}
         </Button>
         {/* Saved by the host as files, beside the clipboard copies above. */}
         {result?.remapInJournal && !result.journalGone && !simulated && (
@@ -1420,7 +1435,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             disabled={idsExport.loading}
             data-testid="forge-save-id-map-journal"
           >
-            {t('forge.saveIdMapCsv')}
+            {t('forgeRun.saveIdMapCsv')}
           </Button>
         )}
         {idMap.length > 0 && (
@@ -1432,7 +1447,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             disabled={saving}
             data-testid="forge-save-id-map"
           >
-            {t('forge.saveIdMapCsv')}
+            {t('forgeRun.saveIdMapCsv')}
           </Button>
         )}
         <Button
@@ -1443,7 +1458,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           disabled={saving}
           data-testid="forge-save-results-csv"
         >
-          {t('forge.saveResultsCsv')}
+          {t('forgeRun.saveResultsCsv')}
         </Button>
         <Button
           variant="secondary"
@@ -1453,7 +1468,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           disabled={saving || !result}
           data-testid="forge-save-result-json"
         >
-          {t('forge.saveResultJson')}
+          {t('forgeRun.saveResultJson')}
         </Button>
         {resumeOffered && (
           <Button
@@ -1464,7 +1479,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             aria-describedby="forge-resume-hint"
             data-testid="forge-resume"
           >
-            {t('forge.resumeRun')}
+            {t('forgeRun.resumeRun')}
           </Button>
         )}
         {retryOffered && result && (
@@ -1488,7 +1503,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             aria-describedby="forge-retry-parents-hint"
             data-testid="forge-retry-parents"
           >
-            {t('forge.retryWithParents')}
+            {t('forgeRun.retryWithParents')}
           </Button>
         )}
         <Button
@@ -1498,7 +1513,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           onClick={handleForgeAgain}
           data-testid="forge-again"
         >
-          {t('forge.forgeAgain')}
+          {t('forgeRun.forgeAgain')}
         </Button>
       </m.div>
       {/* The run saved as a template, with the form Review saves one with. */}
@@ -1515,7 +1530,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           className="text-xs text-text-secondary"
           data-testid="forge-resume-hint"
         >
-          {t('forge.resumeRunHint')}
+          {t('forgeRun.resumeRunHint')}
         </p>
       )}
       {/* What the retry writes, and what it does not write twice: a clone run
@@ -1535,7 +1550,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           className="text-xs text-text-secondary"
           data-testid="forge-retry-parents-hint"
         >
-          {t('forge.retryWithParentsHint')}
+          {t('forgeRun.retryWithParentsHint')}
         </p>
       )}
       {/* What the run created read back once the target has settled: a
@@ -1565,7 +1580,7 @@ const ExistingBadge: React.FC = () => {
       data-testid="forge-id-mapping-existing"
       className="ml-2 inline-block rounded-full bg-surface-2 px-1.5 font-sans text-text-secondary"
     >
-      {t('forge.idMapping.existingBadge')}
+      {t('forgeRun.idMapping.existingBadge')}
     </span>
   );
 };
@@ -1589,7 +1604,7 @@ const TargetId: React.FC<{
     <button
       type="button"
       onClick={() => onOpen(id)}
-      aria-label={t('forge.idMapping.openRecord', { object, id })}
+      aria-label={t('forgeRun.idMapping.openRecord', { object, id })}
       data-testid="forge-id-mapping-open"
       className="inline-flex items-center gap-1 font-mono text-text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
     >
@@ -1601,9 +1616,9 @@ const TargetId: React.FC<{
 
 /** Stage label colour and i18n key. */
 const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls: string }> = {
-  insert: { labelKey: 'forge.stage.insert', cls: 'bg-status-error/10 text-status-error' },
-  query: { labelKey: 'forge.stage.query', cls: 'bg-hue-orange/10 text-hue-orange' },
-  scope: { labelKey: 'forge.stage.scope', cls: 'bg-status-warning/10 text-status-warning' },
+  insert: { labelKey: 'forgeRun.stage.insert', cls: 'bg-status-error/10 text-status-error' },
+  query: { labelKey: 'forgeRun.stage.query', cls: 'bg-hue-orange/10 text-hue-orange' },
+  scope: { labelKey: 'forgeRun.stage.scope', cls: 'bg-status-warning/10 text-status-warning' },
 };
 
 /**
@@ -1649,7 +1664,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
       <div className="flex items-center gap-2 px-4 py-3 border-b border-status-error/20">
         <AlertTriangle size={16} className="text-status-error" />
         <h3 className="text-sm font-semibold text-text-primary">
-          {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
+          {t('forgeRun.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
         <span className="text-xs text-text-secondary ml-auto tabular-nums">
           {t('common.objectCount', { count: objectCount })} ·{' '}
@@ -1772,11 +1787,11 @@ const ForgeNotesPanel: React.FC<{ notes: readonly ForgeExecutionError[] }> = ({ 
       <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
         <Info size={16} className="text-status-info" />
         <h3 id="forge-notes-title" className="text-sm font-semibold text-text-primary">
-          {t('forge.notesPanel.title')}
+          {t('forgeRun.notesPanel.title')}
         </h3>
       </div>
       <p className="px-4 pt-2 text-xs text-text-secondary" data-testid="forge-notes-hint">
-        {t('forge.notesPanel.hint')}
+        {t('forgeRun.notesPanel.hint')}
       </p>
       <ul>
         {notes.map((note, index) => (

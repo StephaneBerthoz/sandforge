@@ -7,7 +7,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { formatStoredDate, uiLocale } from '../../utils/formatters';
+import { formatNumber, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { BackupPartialNote } from './BackupPanel';
 
 /** What the last restore did, as its answer counts it. */
@@ -18,6 +18,15 @@ export interface RestoreCounts {
   unchanged: number;
   /** Rows the org refused. */
   failed: number;
+  /**
+   * Of a Sync run's backup, the records changed or deleted since the run,
+   * which the restore left as they are, per object; `runNotKept` when the run
+   * is no longer kept and every record read as changed since.
+   */
+  keptChanged?: {
+    objects: ReadonlyArray<{ objectApiName: string; count: number }>;
+    runNotKept?: boolean;
+  };
 }
 
 /** RestorePanel component props. */
@@ -34,6 +43,12 @@ export interface RestorePanelProps {
    */
   rewriteAll?: boolean;
   onRewriteAllChange?: (rewriteAll: boolean) => void;
+  /**
+   * Of a Sync run's backup, restore the records changed or deleted since the
+   * run too, rather than leave them as they are, as removing the run does.
+   */
+  includeChanged?: boolean;
+  onIncludeChangedChange?: (includeChanged: boolean) => void;
   /** What the last restore wrote, left alone and had refused. */
   lastRestore?: RestoreCounts;
   /** Delete one backup from this machine, once asked to confirm. */
@@ -58,6 +73,8 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
   restoreProgress,
   rewriteAll = false,
   onRewriteAllChange,
+  includeChanged = false,
+  onIncludeChangedChange,
   lastRestore,
   onDelete,
   onDeleteAll,
@@ -177,6 +194,20 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         </p>
       )}
 
+      {/* What a restore of a Sync run's backup left as it is, changed since
+          the run: listed, as the run's removal lists it, with how to put it
+          back too. */}
+      {lastRestore?.keptChanged && !isRestoring && (
+        <p className="text-xs text-text-secondary" role="status" data-testid="restore-kept-changed">
+          {lastRestore.keptChanged.runNotKept && `${t('dataops.restoreRunNotKept')} `}
+          {t('dataops.restoreKeptChanged', {
+            objects: lastRestore.keptChanged.objects
+              .map((o) => `${o.objectApiName} ${formatNumber(o.count)}`)
+              .join(', '),
+          })}
+        </p>
+      )}
+
       {restorableBackups.length === 0 && !isRestoring && (
         <EmptyState
           icon="📦"
@@ -252,6 +283,22 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 never announce (axe, nested-interactive). */}
             {isSelected && (onRestore || onDelete) && (
               <div className="mt-2 flex flex-col items-end gap-2">
+                {/* A Sync run's backup is restored as removing the run gives
+                    its values back: a record changed or deleted since the run
+                    is left as it is unless this says otherwise. */}
+                {backup.origin === 'sync' && onRestore && onIncludeChangedChange && (
+                  <label className="flex items-start gap-2 self-start text-xs text-text-secondary">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={includeChanged}
+                      disabled={isRestoring}
+                      onChange={(e) => onIncludeChangedChange(e.target.checked)}
+                      data-testid={`restore-include-changed-${backup.operationId}`}
+                    />
+                    <span>{t('dataops.restoreIncludeChanged')}</span>
+                  </label>
+                )}
                 <div className="flex justify-end gap-2">
                   {onDelete && (
                     <Button

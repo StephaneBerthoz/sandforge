@@ -180,6 +180,7 @@ export function forgeRemovalPlanOf(entry: ForgeExecutionResult): ForgeRemovalPla
     status: entry.status,
     ...(entry.cancelled ? { cancelled: true as const } : {}),
     ...(entry.writtenBetween ? { writtenBetween: { ...entry.writtenBetween } } : {}),
+    ...(entry.retryOf !== undefined ? { retryOf: entry.retryOf } : {}),
     objects,
     ...(inJournal ? { inJournal } : {}),
     linked: forgeRunLinkedKeptCount(entry),

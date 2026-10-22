@@ -29,9 +29,9 @@ interface VerifyAnswer {
 
 /** What each verdict says, in the words of its heading. */
 const VERDICT_KEYS: Record<ForgeVerificationVerdict, string> = {
-  verified: 'forge.verify.verdictVerified',
-  partial: 'forge.verify.verdictPartial',
-  unstable: 'forge.verify.verdictUnstable',
+  verified: 'forgeRun.verify.verdictVerified',
+  partial: 'forgeRun.verify.verdictPartial',
+  unstable: 'forgeRun.verify.verdictUnstable',
 };
 
 /** The colour each verdict is said in. */
@@ -53,45 +53,47 @@ function counted(
 
 /** What became of one object's records, in reading order: there, not there, changed, its lookups. */
 function objectParts(t: TFunction, object: ForgeVerificationObject): string[] {
-  if (object.error !== undefined) return [t('forge.verify.objectUnread', { reason: object.error })];
+  if (object.error !== undefined)
+    return [t('forgeRun.verify.objectUnread', { reason: object.error })];
   const parts = [
-    t('forge.verify.present', {
+    t('forgeRun.verify.present', {
       present: formatNumber(object.present),
       expected: formatNumber(object.expected),
     }),
   ];
-  if (object.deleted > 0) parts.push(counted(t, 'forge.verify.deleted', object.deleted));
-  if (object.notVisible > 0) parts.push(counted(t, 'forge.verify.notVisible', object.notVisible));
-  if (object.changed > 0) parts.push(counted(t, 'forge.verify.changed', object.changed));
+  if (object.deleted > 0) parts.push(counted(t, 'forgeRun.verify.deleted', object.deleted));
+  if (object.notVisible > 0)
+    parts.push(counted(t, 'forgeRun.verify.notVisible', object.notVisible));
+  if (object.changed > 0) parts.push(counted(t, 'forgeRun.verify.changed', object.changed));
   // More records of the object than the run wrote, by its user in its window.
   const more = object.moreInTheWindow ?? 0;
-  if (more > 0) parts.push(counted(t, 'forge.verify.moreInTheWindow', more));
+  if (more > 0) parts.push(counted(t, 'forgeRun.verify.moreInTheWindow', more));
   // The lookups the target explains: counted apart, never as broken.
   const leftEmpty = object.linksLeftEmptyByFilter ?? 0;
   const byAutomation = object.linksSetByAutomation ?? 0;
   if (object.linksUnchecked !== undefined) {
-    parts.push(t('forge.verify.linksUnchecked', { reason: object.linksUnchecked }));
+    parts.push(t('forgeRun.verify.linksUnchecked', { reason: object.linksUnchecked }));
   } else if (object.linksChecked === 0) {
-    parts.push(t('forge.verify.noLinks'));
+    parts.push(t('forgeRun.verify.noLinks'));
   } else if (object.linksBroken === 0 && leftEmpty + byAutomation === 0) {
-    parts.push(counted(t, 'forge.verify.linksHold', object.linksChecked));
+    parts.push(counted(t, 'forgeRun.verify.linksHold', object.linksChecked));
   } else if (object.linksBroken === 0) {
     parts.push(
-      counted(t, 'forge.verify.linksHoldSome', object.linksChecked - leftEmpty - byAutomation, {
+      counted(t, 'forgeRun.verify.linksHoldSome', object.linksChecked - leftEmpty - byAutomation, {
         checked: formatNumber(object.linksChecked),
       }),
     );
   } else {
     parts.push(
-      counted(t, 'forge.verify.linksBroken', object.linksBroken, {
+      counted(t, 'forgeRun.verify.linksBroken', object.linksBroken, {
         checked: formatNumber(object.linksChecked),
       }),
     );
   }
   if (object.linksUnchecked === undefined) {
-    if (leftEmpty > 0) parts.push(counted(t, 'forge.verify.linksLeftEmptyByFilter', leftEmpty));
+    if (leftEmpty > 0) parts.push(counted(t, 'forgeRun.verify.linksLeftEmptyByFilter', leftEmpty));
     if (byAutomation > 0) {
-      parts.push(counted(t, 'forge.verify.linksSetByAutomation', byAutomation));
+      parts.push(counted(t, 'forgeRun.verify.linksSetByAutomation', byAutomation));
     }
   }
   return parts;
@@ -112,9 +114,12 @@ function linkLine(t: TFunction, link: ForgeVerificationLink): string {
     found: link.found ?? '',
     expected: link.expected,
   };
-  if (link.cause === 'lookup-filter') return t('forge.verify.linkLeftEmptyByFilter', values);
-  if (link.cause === 'automation') return t('forge.verify.linkSetByAutomation', values);
-  return t(link.found === null ? 'forge.verify.linkEmpty' : 'forge.verify.linkElsewhere', values);
+  if (link.cause === 'lookup-filter') return t('forgeRun.verify.linkLeftEmptyByFilter', values);
+  if (link.cause === 'automation') return t('forgeRun.verify.linkSetByAutomation', values);
+  return t(
+    link.found === null ? 'forgeRun.verify.linkEmpty' : 'forgeRun.verify.linkElsewhere',
+    values,
+  );
 }
 
 /** Props for {@link ForgeVerificationView}. */
@@ -147,12 +152,12 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
       >
         {t(
           verification.verdict === 'verified' && explainsAny(verification)
-            ? 'forge.verify.verdictVerifiedExplained'
+            ? 'forgeRun.verify.verdictVerifiedExplained'
             : VERDICT_KEYS[verification.verdict],
         )}
       </h4>
       <p className="text-text-secondary">
-        {counted(t, 'forge.verify.readings', verification.attempts, {
+        {counted(t, 'forgeRun.verify.readings', verification.attempts, {
           date:
             formatStoredDate(verification.verifiedAt, 'yyyy-MM-dd HH:mm') ??
             t('common.dateUnknown'),
@@ -176,7 +181,9 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
                   <li key={`${link.recordId}:${link.field}`}>{linkLine(t, link)}</li>
                 ))}
                 {object.recycleBinUnread !== undefined && (
-                  <li>{t('forge.verify.recycleBinUnread', { reason: object.recycleBinUnread })}</li>
+                  <li>
+                    {t('forgeRun.verify.recycleBinUnread', { reason: object.recycleBinUnread })}
+                  </li>
                 )}
               </ul>
             )}
@@ -185,11 +192,11 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
       </ul>
       {changedCount > 0 && (
         <div data-testid="forge-verification-changed" className="text-text-secondary">
-          <p>{counted(t, 'forge.verify.changedTitle', changedCount)}</p>
+          <p>{counted(t, 'forgeRun.verify.changedTitle', changedCount)}</p>
           <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
             {changed.map((change) => (
               <li key={change.recordId}>
-                {t('forge.verify.changedRecord', {
+                {t('forgeRun.verify.changedRecord', {
                   object: change.objectApiName,
                   record: change.recordId,
                   date: change.modifiedAt,
@@ -201,7 +208,7 @@ export const ForgeVerificationView: React.FC<ForgeVerificationViewProps> = ({ ve
       )}
       {verification.linksUnchecked !== undefined && (
         <p data-testid="forge-verification-links-unchecked" className="text-status-warning">
-          {t('forge.verify.linksUncheckedRun', { reason: verification.linksUnchecked })}
+          {t('forgeRun.verify.linksUncheckedRun', { reason: verification.linksUnchecked })}
         </p>
       )}
     </section>
@@ -248,10 +255,10 @@ export const ForgeResultsVerify: React.FC<ForgeResultsVerifyProps> = ({ run }) =
         data-testid="forge-results-verify-run"
         className="self-start"
       >
-        {verification ? t('forge.verify.again') : t('forge.verify.action')}
+        {verification ? t('forgeRun.verify.again') : t('forgeRun.verify.action')}
       </Button>
       <p id={hintId} className="text-xs text-text-secondary">
-        {t('forge.verify.hint')}
+        {t('forgeRun.verify.hint')}
       </p>
       {verify.loading && (
         <p
@@ -259,7 +266,7 @@ export const ForgeResultsVerify: React.FC<ForgeResultsVerifyProps> = ({ run }) =
           data-testid="forge-results-verifying"
           className="text-xs text-text-secondary"
         >
-          {t('forge.verify.verifying')}
+          {t('forgeRun.verify.verifying')}
         </p>
       )}
       {verify.error && (

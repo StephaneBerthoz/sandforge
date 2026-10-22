@@ -12,7 +12,8 @@
  */
 
 import type { OrgSession } from './RecordRemoval.js';
-import { isRecordId, readRecordsById } from './RecordRemoval.js';
+import { RECORDS_PER_CALL, idLists, isRecordId, readRecordsById } from './RecordRemoval.js';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /**
@@ -113,6 +114,75 @@ export async function rowsToRestore(
     );
   });
   return { write, unchanged: rows.length - write.length };
+}
+
+/** What reading the records of a Sync run's backup in the org needs: a query, the recycle bin's included. */
+export interface ChangedSinceRead {
+  query(soql: string, options?: { scanAll?: boolean }): Promise<{ records: unknown[] }>;
+}
+
+/**
+ * Of the records `ids` a Sync run wrote over, those changed since the run,
+ * by their first fifteen characters: modified, by the org's clock, after the
+ * run's last write (`runEnd`, `runEndOnOrgClock`), or deleted since — in the
+ * recycle bin. A restore of the run's backup leaves them as they are unless
+ * it includes the changed ones, as removing the run does (`SyncRunRestore`):
+ * the change, or the delete, is someone's, and the run's values went with
+ * it. A record the org shows neither way — out of the user's sight — is not
+ * one of them, and goes to the org as before, which says what became of it.
+ */
+export async function changedSinceRun(
+  conn: ChangedSinceRead,
+  objectApiName: string,
+  ids: readonly string[],
+  runEnd: number,
+): Promise<Set<string>> {
+  const object = assertSoqlIdentifier(objectApiName);
+  const changed = new Set<string>();
+  const named = ids.filter(isRecordId);
+  for (let at = 0; at < named.length; at += RECORDS_PER_CALL) {
+    const batch = named.slice(at, at + RECORDS_PER_CALL);
+    const [list] = idLists(batch, batch.length);
+    const held = new Set<string>();
+    const answer = await conn.query(
+      `SELECT Id, LastModifiedDate FROM ${object} WHERE Id IN (${list})`,
+    );
+    for (const row of answer.records as Array<Record<string, unknown>>) {
+      if (typeof row.Id !== 'string') continue;
+      held.add(keyOf(row.Id));
+      const modified = Date.parse(String(row.LastModifiedDate ?? ''));
+      if (!(modified <= runEnd)) changed.add(keyOf(row.Id));
+    }
+    const missing = batch.filter((id) => !held.has(keyOf(id)));
+    if (missing.length === 0) continue;
+    const [gone] = idLists(missing, missing.length);
+    const deleted = await conn.query(
+      `SELECT Id FROM ${object} WHERE Id IN (${gone}) AND IsDeleted = true`,
+      { scanAll: true },
+    );
+    for (const row of deleted.records as Array<Record<string, unknown>>) {
+      if (typeof row.Id === 'string') changed.add(keyOf(row.Id));
+    }
+  }
+  return changed;
+}
+
+/**
+ * The rows of `rows` whose record is not one of `left` (by its first fifteen
+ * characters), read again from `rows` each time they are gone through.
+ */
+export function withoutRecords<T extends Record<string, unknown>>(
+  rows: AsyncIterable<readonly T[]>,
+  left: ReadonlySet<string>,
+): AsyncIterable<T[]> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for await (const batch of rows) {
+        const kept = batch.filter((row) => !(isRecordId(row.Id) && left.has(keyOf(row.Id))));
+        if (kept.length > 0) yield kept;
+      }
+    },
+  };
 }
 
 /** A backup's rows of one object, merged by record, and how many lines they were read from. */

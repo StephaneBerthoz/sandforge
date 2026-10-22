@@ -4,9 +4,9 @@ import type { ForgePicklistRefusal, ForgePicklistValuesChanged } from '@sandforg
 
 /** Why the target would have refused the values, in the user's words. */
 const REASON_KEYS: Record<ForgePicklistRefusal, string> = {
-  'not-in-target': 'forge.picklists.notInTarget',
-  'record-type': 'forge.picklists.recordType',
-  'controlling-value': 'forge.picklists.controllingValue',
+  'not-in-target': 'forgeRun.picklists.notInTarget',
+  'record-type': 'forgeRun.picklists.recordType',
+  'controlling-value': 'forgeRun.picklists.controllingValue',
 };
 
 /** Props for {@link ForgePicklistsResult}. */
@@ -32,9 +32,9 @@ export const ForgePicklistsResult: React.FC<ForgePicklistsResultProps> = ({ chan
       className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
     >
       <h3 id={headingId} className="font-medium text-text-primary">
-        {t('forge.picklists.title')}
+        {t('forgeRun.picklists.title')}
       </h3>
-      <p className="mt-0.5">{t('forge.picklists.hint')}</p>
+      <p className="mt-0.5">{t('forgeRun.picklists.hint')}</p>
       <ul className="mt-1 space-y-0.5">
         {changes.map((change) => {
           const recordType = change.recordType ?? '';
@@ -51,18 +51,18 @@ export const ForgePicklistsResult: React.FC<ForgePicklistsResultProps> = ({ chan
               data-testid="forge-results-picklists-row"
             >
               <span className="font-mono text-text-primary">{`${change.objectApiName}.${change.field}`}</span>
-              {` — ${t('forge.picklists.rows', { count: change.rows })}: `}
+              {` — ${t('forgeRun.picklists.rows', { count: change.rows })}: `}
               <span className="font-mono">{change.values.join(', ')}</span>
               {` — ${t(REASON_KEYS[change.reason], {
                 recordType,
                 field: change.controllingField ?? '',
               })}, `}
               {change.replacedBy === undefined
-                ? t('forge.picklists.leftOut')
+                ? t('forgeRun.picklists.leftOut')
                 : t(
                     change.replacement === 'first'
-                      ? 'forge.picklists.replacedFirst'
-                      : 'forge.picklists.replacedDefault',
+                      ? 'forgeRun.picklists.replacedFirst'
+                      : 'forgeRun.picklists.replacedDefault',
                     { value: change.replacedBy, recordType },
                   )}
             </li>

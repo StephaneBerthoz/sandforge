@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { mergedById, rowsToRestore, sameValue } from './restoreDiff.js';
+import {
+  changedSinceRun,
+  mergedById,
+  rowsToRestore,
+  sameValue,
+  withoutRecords,
+} from './restoreDiff.js';
 
 /** A fake contact id, the length of a real one. */
 const contactId = (n: number): string => `003${String(n).padStart(12, '0')}AAA`;
@@ -173,5 +179,89 @@ describe('mergedById', () => {
     expect(await passOf(merged.batches)).toEqual([
       [{ Name: 'No id' }, { Id: 'not-an-id', Name: 'Odd' }],
     ]);
+  });
+});
+
+describe('changedSinceRun', () => {
+  const RUN_END = Date.parse('2026-10-20T10:00:00.000Z');
+
+  /** An org holding contacts with when each was last modified, and those in its recycle bin. */
+  function orgSince(held: Record<string, string>, binned: string[] = []) {
+    const query = vi.fn(async (soql: string, options?: { scanAll?: boolean }) => {
+      const asked = new Set(
+        (/Id IN \((.*)\)/.exec(soql)?.[1] ?? '').split(', ').map((quoted) => quoted.slice(1, -1)),
+      );
+      if (soql.endsWith('AND IsDeleted = true')) {
+        const records = options?.scanAll ? binned.filter((id) => asked.has(id)) : [];
+        return { records: records.map((Id) => ({ Id })) };
+      }
+      return {
+        records: Object.entries(held)
+          .filter(([id]) => asked.has(id))
+          .map(([Id, LastModifiedDate]) => ({ Id, LastModifiedDate })),
+      };
+    });
+    return { query };
+  }
+
+  it('names the records modified after the run ended and those deleted since, by their first fifteen characters', async () => {
+    const org = orgSince(
+      {
+        [contactId(1)]: '2026-10-20T09:59:00.000+0000',
+        [contactId(2)]: '2026-10-20T10:00:01.000+0000',
+      },
+      [contactId(3)],
+    );
+
+    const changed = await changedSinceRun(
+      org,
+      'Contact',
+      [contactId(1), contactId(2), contactId(3), contactId(4)],
+      RUN_END,
+    );
+
+    expect([...changed]).toEqual([contactId(2).slice(0, 15), contactId(3).slice(0, 15)]);
+    // Only the records the read did not find are looked for in the bin.
+    expect(org.query.mock.calls[1]?.[0]).toContain(`'${contactId(3)}', '${contactId(4)}'`);
+    expect(org.query.mock.calls[1]?.[0]).not.toContain(contactId(1));
+  });
+
+  it('reads every record the org holds as changed since a run whose end is unknown', async () => {
+    const org = orgSince({ [contactId(1)]: '2020-01-01T00:00:00.000+0000' });
+
+    const changed = await changedSinceRun(org, 'Contact', [contactId(1)], Number.NEGATIVE_INFINITY);
+
+    expect([...changed]).toEqual([contactId(1).slice(0, 15)]);
+  });
+
+  it('reads two hundred records a query', async () => {
+    const ids = Array.from({ length: 250 }, (_, n) => contactId(n + 1));
+    const org = orgSince(Object.fromEntries(ids.map((id) => [id, '2026-10-20T09:00:00.000+0000'])));
+
+    expect(await changedSinceRun(org, 'Contact', ids, RUN_END)).toEqual(new Set());
+    expect(org.query).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('withoutRecords', () => {
+  it('leaves out the rows of the records named, each time the rows are gone through', async () => {
+    const rows = {
+      async *[Symbol.asyncIterator]() {
+        yield [{ Id: contactId(1) }, { Id: contactId(2) }];
+        yield [{ Id: contactId(3).slice(0, 15) }];
+      },
+    };
+    const left = withoutRecords(
+      rows,
+      new Set([contactId(2).slice(0, 15), contactId(3).slice(0, 15)]),
+    );
+    const pass = async (): Promise<unknown[][]> => {
+      const batches: unknown[][] = [];
+      for await (const batch of left) batches.push(batch);
+      return batches;
+    };
+
+    expect(await pass()).toEqual([[{ Id: contactId(1) }]]);
+    expect(await pass()).toEqual([[{ Id: contactId(1) }]]);
   });
 });

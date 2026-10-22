@@ -70,7 +70,7 @@ describe('ForgeResults — translated stage badges', () => {
     const rows = screen.getAllByTestId('forge-errors-row');
     expect(rows.length).toBe(STAGES.length);
     for (const [i, stage] of STAGES.entries()) {
-      expect(rows[i]?.textContent).toContain(`forge.stage.${stage}`);
+      expect(rows[i]?.textContent).toContain(`forgeRun.stage.${stage}`);
     }
   });
 
@@ -89,7 +89,7 @@ describe('ForgeResults — translated stage badges', () => {
 
   it('backs every rendered key with an entry in the reference locale', () => {
     for (const stage of STAGES) {
-      expect(typeof en.forge.stage[stage]).toBe('string');
+      expect(typeof en.forgeRun.stage[stage]).toBe('string');
     }
   });
 
@@ -111,16 +111,16 @@ describe('ForgeResults — translated stage badges', () => {
     try {
       render(<ForgeResults />);
       const notes = screen.getByTestId('forge-notes-panel');
-      expect(within(notes).getByRole('heading').textContent).toBe('forge.notesPanel.title');
+      expect(within(notes).getByRole('heading').textContent).toBe('forgeRun.notesPanel.title');
       expect(within(notes).getByTestId('forge-notes-hint').textContent).toBe(
-        'forge.notesPanel.hint',
+        'forgeRun.notesPanel.hint',
       );
       expect(within(notes).getByTestId('error-hint').textContent).toContain(
         'errors.lookupOutsideClone.explanation',
       );
       expect(screen.getAllByTestId('forge-errors-row')).toHaveLength(STAGES.length);
-      expect(typeof en.forge.notesPanel.title).toBe('string');
-      expect(typeof en.forge.notesPanel.hint).toBe('string');
+      expect(typeof en.forgeRun.notesPanel.title).toBe('string');
+      expect(typeof en.forgeRun.notesPanel.hint).toBe('string');
     } finally {
       errors.pop();
     }

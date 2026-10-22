@@ -67,7 +67,15 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import type { BackupRecord, BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import type { AnonymizationEngine } from '../../modules/dataops/AnonymizationEngine.js';
 import { scanDataQuality } from '../../modules/dataops/DataQualityScanner.js';
-import { mergedById, rowsToRestore } from '../../modules/dataops/restoreDiff.js';
+import {
+  changedSinceRun,
+  mergedById,
+  rowsToRestore,
+  withoutRecords,
+} from '../../modules/dataops/restoreDiff.js';
+import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import { writtenUntil } from '../../modules/sync/SyncRunRemoval.js';
+import { runEndOnOrgClock } from '../../modules/sync/SyncRunRestore.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
@@ -895,6 +903,14 @@ export class DataOpsHandler implements DomainHandler {
   private backupRecords?: BackupRecordStore;
 
   /**
+   * The Sync runs kept on this machine (`SyncRunCreations`): when the run a
+   * Sync backup belongs to last wrote, which a restore of the backup holds
+   * each record to. Absent, every record of such a backup reads as changed
+   * since its run.
+   */
+  private syncRuns?: Pick<SyncRunCreations, 'get'>;
+
+  /**
    * The Monitor's Live Operations, which list a backup, a restore and a
    * masking run while each goes, with the Cancel that reaches its registry
    * entry. They were registered in the registry alone: the docs and the
@@ -1025,6 +1041,11 @@ export class DataOpsHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /** Inject the Sync runs kept on this machine, which a restore of a Sync run's backup reads. */
+  setSyncRuns(runs: Pick<SyncRunCreations, 'get'>): void {
+    this.syncRuns = runs;
   }
 
   setBackupRecordStore(store: BackupRecordStore): void {
@@ -2547,6 +2568,34 @@ export class DataOpsHandler implements DomainHandler {
       const restoreErrors: Array<{ objectApiName: string; message: string }> = [];
       /** Per object, the rows read of the backup: fewer than it lists are said. */
       const rowsRead = new Map<string, number>();
+      // A Sync run's backup holds what the run wrote over. Restored whole from
+      // here, it wrote the values from before the run over a record someone
+      // changed since, which removing the run in Sync leaves as it is unless
+      // asked: the same check holds here, against when the run last wrote,
+      // read from the run kept on this machine — a run no longer kept reads
+      // every record as changed since.
+      const heldToRun = backupMeta.origin === 'sync' && payload.includeChanged !== true;
+      let runEnd = Number.NEGATIVE_INFINITY;
+      let runNotKept = false;
+      if (heldToRun) {
+        const kept =
+          backupMeta.runId !== undefined
+            ? await this.syncRuns?.get(backupMeta.runId).catch((err: unknown) => {
+                this.deps.log(
+                  `[WARN] Rollback: the Sync run of backup ${payload.operationId} could not be read — ${extractErrorMessage(err)}`,
+                );
+                return undefined;
+              })
+            : undefined;
+        const lastWriteAt = kept ? writtenUntil(kept) : undefined;
+        runNotKept = lastWriteAt === undefined;
+        runEnd = await runEndOnOrgClock(
+          { serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp },
+          lastWriteAt,
+        );
+      }
+      /** Per object, the records left as they are, changed since the Sync run. */
+      const keptChanged: Array<{ objectApiName: string; count: number }> = [];
       for (let i = 0; i < backupMeta.objects.length; i++) {
         if (stop.signal.aborted) {
           cancelled = true;
@@ -2563,11 +2612,35 @@ export class DataOpsHandler implements DomainHandler {
         const kept = await this.backupBatches(payload.operationId, obj.objectApiName);
         const merged =
           backupMeta.origin === 'sync' ? mergedById(kept, RESTORE_BATCH_SIZE) : undefined;
-        const batches = merged?.batches ?? kept;
+        let batches = merged?.batches ?? kept;
         let first: BackupRecord | undefined;
         for await (const batch of batches) {
           first = batch[0];
           if (first !== undefined) break;
+        }
+        // The records changed, or deleted, since the Sync run are left as
+        // they are, before anything is brought back from the recycle bin or
+        // written; listed with the result.
+        if (heldToRun && first !== undefined) {
+          const ids: string[] = [];
+          for await (const batch of batches) {
+            for (const row of batch) if (typeof row.Id === 'string') ids.push(row.Id);
+          }
+          const changed = await changedSinceRun(
+            {
+              query: async (soql, options) => {
+                const answer = await conn.query<Record<string, unknown>>(soql, options);
+                return { records: answer.records };
+              },
+            },
+            safeObj,
+            ids,
+            runEnd,
+          );
+          if (changed.size > 0) {
+            keptChanged.push({ objectApiName: safeObj, count: changed.size });
+            batches = withoutRecords(batches, changed);
+          }
         }
 
         if (first === undefined) {
@@ -2749,8 +2822,14 @@ export class DataOpsHandler implements DomainHandler {
         live.progress(percentage, i + 1, backupMeta.objects.length, step);
       }
 
+      const totalKeptChanged = keptChanged.reduce((sum, object) => sum + object.count, 0);
+      const ran = dmlStatus(totalRestored, totalFailed);
+      // Records left holding the run's values make a restore partial, as they
+      // make the run's removal in Sync.
       const status =
-        cancelled && totalFailed === 0 ? 'partial' : dmlStatus(totalRestored, totalFailed);
+        (cancelled && totalFailed === 0) || (totalKeptChanged > 0 && ran === 'success')
+          ? 'partial'
+          : ran;
       if (run) {
         unrecorded = false;
         // Stopped by the user: cancelled once it wrote or had a row refused,
@@ -2801,6 +2880,13 @@ export class DataOpsHandler implements DomainHandler {
             : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`) +
         (totalUnchanged > 0
           ? `; ${totalUnchanged} already held the backup's values and were not written`
+          : '') +
+        (totalKeptChanged > 0
+          ? `; ${totalKeptChanged} changed or deleted since the Sync run were left as they are ` +
+            (runNotKept
+              ? '(the run is no longer kept here, so every record reads as changed since it) '
+              : '') +
+            'unless the restore includes them'
           : '');
       const message =
         shortfall === ''
@@ -2815,6 +2901,16 @@ export class DataOpsHandler implements DomainHandler {
         totalFailed,
         totalUnchanged,
         ...(payload.rewriteAll === true ? { rewriteAll: true } : {}),
+        ...(payload.includeChanged === true ? { includeChanged: true } : {}),
+        ...(totalKeptChanged > 0
+          ? {
+              keptChanged: {
+                total: totalKeptChanged,
+                objects: keptChanged,
+                ...(runNotKept ? { runNotKept: true } : {}),
+              },
+            }
+          : {}),
         errors: restoreErrors,
         ...(shortfall !== '' ? { partial: true } : {}),
         ...(cancelled ? { cancelled: true } : {}),
@@ -2824,7 +2920,7 @@ export class DataOpsHandler implements DomainHandler {
       // The DataOps page reads only the error and notification channels: a
       // `partial` left in the response alone is as invisible as the count that
       // was dropped.
-      if (totalFailed > 0 || shortfall !== '' || cancelled) {
+      if (totalFailed > 0 || shortfall !== '' || cancelled || totalKeptChanged > 0) {
         sendNotification(
           this.deps,
           status === 'failure' ? 'error' : 'warning',

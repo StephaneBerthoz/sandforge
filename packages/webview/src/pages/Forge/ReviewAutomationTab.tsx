@@ -25,9 +25,9 @@ import { BypassAssistant, ReadAgainButton, type BypassTarget } from './BypassAss
 
 /** The heading of each write, as the tab says it. */
 const WRITE_KEYS: Readonly<Record<ForgeAutomationWrite, string>> = {
-  insert: 'forge.review.automation.onInsert',
-  update: 'forge.review.automation.onUpdate',
-  delete: 'forge.review.automation.onDelete',
+  insert: 'forgeRun.review.automation.onInsert',
+  update: 'forgeRun.review.automation.onUpdate',
+  delete: 'forgeRun.review.automation.onDelete',
 };
 
 /** When a flow or a trigger runs, for a save and for a delete. */
@@ -35,9 +35,9 @@ const WHEN_KEYS: Readonly<
   Record<'save' | 'delete', Readonly<Record<ForgeAutomationFired['when'], string>>>
 > = {
   save: {
-    before: 'forge.review.automation.beforeSave',
-    after: 'forge.review.automation.afterSave',
-    beforeAndAfter: 'forge.review.automation.beforeAndAfterSave',
+    before: 'forgeRun.review.automation.beforeSave',
+    after: 'forgeRun.review.automation.afterSave',
+    beforeAndAfter: 'forgeRun.review.automation.beforeAndAfterSave',
   },
   delete: {
     before: 'orgAutomation.beforeDelete',
@@ -56,23 +56,23 @@ const KIND_KEYS: Readonly<Record<ForgeAutomationFired['kind'], string>> = {
 
 /** What a message action sends. */
 const MESSAGE_KEYS: Readonly<Record<ForgeMessageAction['kind'], string>> = {
-  email: 'forge.review.automation.messageEmail',
-  notification: 'forge.review.automation.messageNotification',
-  outbound: 'forge.review.automation.messageOutbound',
-  sms: 'forge.review.automation.messageSms',
+  email: 'forgeRun.review.automation.messageEmail',
+  notification: 'forgeRun.review.automation.messageNotification',
+  outbound: 'forgeRun.review.automation.messageOutbound',
+  sms: 'forgeRun.review.automation.messageSms',
 };
 
 /** What could not be read, part by part. */
 const UNREAD_KEYS: Readonly<Record<ForgeTargetAutomationUnread['part'], string>> = {
   flows: 'orgAutomation.unreadFlows',
   triggers: 'orgAutomation.unreadTriggers',
-  conditions: 'forge.review.automation.unreadConditions',
+  conditions: 'forgeRun.review.automation.unreadConditions',
   processes: 'orgAutomation.unreadProcesses',
   workflowRules: 'orgAutomation.unreadWorkflowRules',
-  definitions: 'forge.review.automation.unreadDefinitions',
-  assignmentRules: 'forge.review.automation.unreadAssignmentRules',
-  duplicateRules: 'forge.review.automation.unreadDuplicateRules',
-  userPermissions: 'forge.review.automation.unreadUserPermissions',
+  definitions: 'forgeRun.review.automation.unreadDefinitions',
+  assignmentRules: 'forgeRun.review.automation.unreadAssignmentRules',
+  duplicateRules: 'forgeRun.review.automation.unreadDuplicateRules',
+  userPermissions: 'forgeRun.review.automation.unreadUserPermissions',
   permissionSets: 'orgAutomation.unreadPermissionSets',
 };
 
@@ -161,7 +161,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
     return (
       <div data-testid="review-automation-tab" className="py-4">
         <p data-testid="automation-loading" className="text-xs text-text-secondary text-center">
-          {t('forge.review.automation.loading')}
+          {t('forgeRun.review.automation.loading')}
         </p>
       </div>
     );
@@ -185,10 +185,10 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
     <div data-testid="review-automation-tab" className="flex flex-col gap-2 text-xs">
       <p data-testid="automation-summary" className="text-text-secondary">
         {objects.length > 0
-          ? t('forge.review.automation.intro')
+          ? t('forgeRun.review.automation.intro')
           : blind
-            ? t('forge.review.automation.nothingSeen')
-            : t('forge.review.automation.none', { count: written })}
+            ? t('forgeRun.review.automation.nothingSeen')
+            : t('forgeRun.review.automation.none', { count: written })}
       </p>
       {toAssign.length > 0 && (
         <div
@@ -213,7 +213,10 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
           data-testid="automation-bypass-held"
           className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
         >
-          {t('forge.review.automation.bypassHeld', { count: held.length, names: held.join(', ') })}
+          {t('forgeRun.review.automation.bypassHeld', {
+            count: held.length,
+            names: held.join(', '),
+          })}
         </p>
       )}
       {objects.map((object) => (
@@ -253,14 +256,14 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
       <RemovalRisks automation={automation} leftOut={leftOut} blind={blind} />
       {automation.conditionsNotRead > 0 && (
         <p data-testid="automation-not-read" className="text-text-secondary">
-          {t('forge.review.automation.notRead', {
+          {t('forgeRun.review.automation.notRead', {
             count: automation.conditionsNotRead,
             bound: automation.conditionsBound,
           })}
           {notReadOn.length > 0 && (
             <>
               {' '}
-              {t('forge.review.automation.notReadOn', {
+              {t('forgeRun.review.automation.notReadOn', {
                 objects: notReadOn
                   .map(({ objectApiName, flows }) => `${objectApiName} (${formatNumber(flows)})`)
                   .join(', '),
@@ -271,7 +274,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
       )}
       {definitionsNotRead > 0 && (
         <p data-testid="automation-definitions-not-read" className="text-text-secondary">
-          {t('forge.review.automation.notReadDefinitions', {
+          {t('forgeRun.review.automation.notReadDefinitions', {
             count: definitionsNotRead,
             bound: automation.definitionsBound ?? 0,
           })}
@@ -288,7 +291,7 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p data-testid="automation-cost" className="text-text-secondary">
-          {t('forge.review.automation.cost', { count: automation.requests })}
+          {t('forgeRun.review.automation.cost', { count: automation.requests })}
         </p>
         {readAgain}
       </div>
@@ -298,10 +301,10 @@ export const ReviewAutomationTab: React.FC<ReviewAutomationTabProps> = ({
 
 /** What may refuse a removal of the run's records, by its kind. */
 const REMOVAL_RISK_KEYS: Readonly<Record<ForgeRemovalRisk['kind'], string>> = {
-  flow: 'forge.review.automation.removalFlow',
-  trigger: 'forge.review.automation.removalTrigger',
-  packageTrigger: 'forge.review.automation.removalPackageTrigger',
-  lock: 'forge.review.automation.removalLock',
+  flow: 'forgeRun.review.automation.removalFlow',
+  trigger: 'forgeRun.review.automation.removalTrigger',
+  packageTrigger: 'forgeRun.review.automation.removalPackageTrigger',
+  lock: 'forgeRun.review.automation.removalLock',
 };
 
 /**
@@ -321,7 +324,7 @@ const RemovalRisks: React.FC<{
   if (risks.length === 0) {
     return blind ? null : (
       <p data-testid="automation-removal-none" className="text-text-secondary">
-        {t('forge.review.automation.removalNone')}
+        {t('forgeRun.review.automation.removalNone')}
       </p>
     );
   }
@@ -330,7 +333,7 @@ const RemovalRisks: React.FC<{
       data-testid="automation-removal"
       className="rounded-sm border border-subtle bg-surface-2 p-2 text-text-primary"
     >
-      <p className="font-medium">{t('forge.review.automation.removalRisks')}</p>
+      <p className="font-medium">{t('forgeRun.review.automation.removalRisks')}</p>
       <ul className="ml-3 flex list-disc flex-col gap-0.5">
         {risks.map((risk) => (
           <li key={`${risk.objectApiName}-${risk.kind}-${risk.name ?? ''}`}>
@@ -370,15 +373,15 @@ const ObjectRules: React.FC<{ object: ForgeTargetObjectAutomation }> = ({ object
   // as one more thing the last write fires.
   return (
     <div data-testid={`automation-${object.objectApiName}-rules`} className="mt-1">
-      <p className="font-medium text-text-secondary">{t('forge.review.automation.rules')}</p>
+      <p className="font-medium text-text-secondary">{t('forgeRun.review.automation.rules')}</p>
       <ul className="ml-3 flex list-disc flex-col gap-0.5">
         {assignment.map((rule) => (
           <li key={`assignment-${rule.name}`} className="text-text-primary">
-            {t('forge.review.automation.assignmentRule', { name: rule.name })}
+            {t('forgeRun.review.automation.assignmentRule', { name: rule.name })}
             <span className="block text-text-secondary">
               {applyAssignmentRules
-                ? t('forge.review.automation.assignmentApplied')
-                : t('forge.review.automation.assignmentNotApplied')}
+                ? t('forgeRun.review.automation.assignmentApplied')
+                : t('forgeRun.review.automation.assignmentNotApplied')}
             </span>
             {hasConfig && (
               <label className="mt-0.5 flex items-start gap-2">
@@ -389,19 +392,19 @@ const ObjectRules: React.FC<{ object: ForgeTargetObjectAutomation }> = ({ object
                   onChange={(e) => setApply(e.target.checked)}
                   className="mt-0.5"
                 />
-                <span>{t('forge.review.automation.assignmentApply')}</span>
+                <span>{t('forgeRun.review.automation.assignmentApply')}</span>
               </label>
             )}
           </li>
         ))}
         {duplicates.length > 0 && (
           <li className="text-text-primary">
-            {t('forge.review.automation.duplicateRules', {
+            {t('forgeRun.review.automation.duplicateRules', {
               count: duplicates.length,
               names: duplicates.map((rule) => rule.name).join(', '),
             })}
             <span className="block text-text-secondary">
-              {t('forge.review.automation.duplicateNote')}
+              {t('forgeRun.review.automation.duplicateNote')}
             </span>
           </li>
         )}
@@ -428,17 +431,23 @@ const PathLine: React.FC<{ path: ForgeFlowPath }> = ({ path }) => {
   const { t } = useTranslation();
   let text: string;
   if (path.kind === 'async') {
-    text = t('forge.review.automation.pathAsync');
+    text = t('forgeRun.review.automation.pathAsync');
   } else if (path.offset === undefined || path.unit === undefined) {
-    text = t('forge.review.automation.pathScheduled');
+    text = t('forgeRun.review.automation.pathScheduled');
   } else {
     const duration = durationOf(path.offset, path.unit);
     text =
       path.field === undefined
-        ? t('forge.review.automation.pathScheduledAfterSave', { duration })
+        ? t('forgeRun.review.automation.pathScheduledAfterSave', { duration })
         : path.offset < 0
-          ? t('forge.review.automation.pathScheduledBeforeField', { duration, field: path.field })
-          : t('forge.review.automation.pathScheduledAfterField', { duration, field: path.field });
+          ? t('forgeRun.review.automation.pathScheduledBeforeField', {
+              duration,
+              field: path.field,
+            })
+          : t('forgeRun.review.automation.pathScheduledAfterField', {
+              duration,
+              field: path.field,
+            });
   }
   return <span className="block text-text-secondary">{text}</span>;
 };
@@ -474,7 +483,7 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
         <>
           {' '}
           <Badge variant="warning" data-testid="automation-sends-messages">
-            {t('forge.review.automation.sendsMessages')}
+            {t('forgeRun.review.automation.sendsMessages')}
           </Badge>
         </>
       )}
@@ -488,7 +497,7 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
       ))}
       {startBypass.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.notFor', {
+          {t('forgeRun.review.automation.notFor', {
             count: startBypass.length,
             names: startBypass.map((p) => p.name).join(', '),
           })}
@@ -496,7 +505,7 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
       )}
       {decisionBypass.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.notForDecision', {
+          {t('forgeRun.review.automation.notForDecision', {
             count: decisionBypass.length,
             names: decisionBypass.map((p) => p.name).join(', '),
           })}
@@ -512,18 +521,18 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
             {t(
               s.where === 'decision'
                 ? s.value === undefined
-                  ? 'forge.review.automation.switchDecisionTrue'
-                  : 'forge.review.automation.switchDecisionValue'
+                  ? 'forgeRun.review.automation.switchDecisionTrue'
+                  : 'forgeRun.review.automation.switchDecisionValue'
                 : s.value === undefined
-                  ? 'forge.review.automation.switchStartTrue'
-                  : 'forge.review.automation.switchStartValue',
+                  ? 'forgeRun.review.automation.switchStartTrue'
+                  : 'forgeRun.review.automation.switchStartValue',
               { reference: s.reference, value: s.value },
             )}
           </span>
         ))}
       {heldNames.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.heldBy', {
+          {t('forgeRun.review.automation.heldBy', {
             count: heldNames.length,
             names: heldNames.join(', '),
           })}
@@ -531,23 +540,25 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
       )}
       {notHeldNames.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.notHeldBy', {
+          {t('forgeRun.review.automation.notHeldBy', {
             count: notHeldNames.length,
             names: notHeldNames.join(', '),
           })}
         </span>
       )}
       {entry.keptQuiet && (
-        <span className="block text-text-secondary">{t('forge.review.automation.keptQuiet')}</span>
+        <span className="block text-text-secondary">
+          {t('forgeRun.review.automation.keptQuiet')}
+        </span>
       )}
       {named.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.named', { count: named.length, names: named.join(', ') })}
+          {t('forgeRun.review.automation.named', { count: named.length, names: named.join(', ') })}
         </span>
       )}
       {tested.length > 0 && (
         <span className="block text-text-secondary">
-          {t('forge.review.automation.decisionsTest', {
+          {t('forgeRun.review.automation.decisionsTest', {
             count: tested.length,
             names: tested.join(', '),
           })}
@@ -557,8 +568,8 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
         <span className="block text-text-secondary">
           {t(
             isFlow
-              ? 'forge.review.automation.conditionNotRead'
-              : 'forge.review.automation.definitionNotRead',
+              ? 'forgeRun.review.automation.conditionNotRead'
+              : 'forgeRun.review.automation.definitionNotRead',
           )}
         </span>
       )}
@@ -566,8 +577,8 @@ const FiredEntry: React.FC<{ entry: ForgeAutomationFired; write: ForgeAutomation
         <span className="block text-text-secondary">
           {t(
             isFlow
-              ? 'forge.review.automation.conditionUnreadable'
-              : 'forge.review.automation.definitionUnreadable',
+              ? 'forgeRun.review.automation.conditionUnreadable'
+              : 'forgeRun.review.automation.definitionUnreadable',
           )}
         </span>
       )}

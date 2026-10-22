@@ -35,6 +35,8 @@ import { loadOrg } from './sfSession.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
+import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
+import { journalDirOf } from './sandforge-clone.js';
 import { commandLineGuard } from './commandLineGuard.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
@@ -70,7 +72,11 @@ A restore never deletes: it upserts on Id, so it overwrites the fields of
 records that are there, after bringing back from the recycle bin the ones
 deleted since the snapshot. It reads the org's values first and writes only
 the rows where one of them differs from the snapshot, and says how many it
-found unchanged; --rewrite-all writes them all.
+found unchanged; --rewrite-all writes them all. Of the snapshot a Sync run
+kept of what it wrote over, the records changed or deleted since the run —
+read against the run's file in SANDFORGE_JOURNAL_DIR — are left as they are
+and counted, as removing the run with sandforge-sync leaves them unless it
+is told to include them.
 
 Exit codes: 0 the run finished, 1 it could not start, or the snapshot or the
 restore failed or was refused, 2 a bad command line.
@@ -292,6 +298,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The store takes its own file operations; here, as in the extension, they
   // are Node's, under the directory given.
   handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
+  // The Sync runs the command line kept: a restore of a run's snapshot reads
+  // when the run last wrote, and leaves what changed since as it is.
+  handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
 
   if (args.restoreId) {
     const meta = configStore.get(`backup:${args.restoreId}`);

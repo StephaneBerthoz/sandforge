@@ -331,7 +331,7 @@ describe('ForgeTableView', () => {
         />,
       );
       expect(screen.getByTestId('forge-table-status-Account').textContent).toBe(
-        fr.forge.nodeStatus.error,
+        fr.forgeRun.nodeStatus.error,
       );
     } finally {
       await i18n.changeLanguage('en');

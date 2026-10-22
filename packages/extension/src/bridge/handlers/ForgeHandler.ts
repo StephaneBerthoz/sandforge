@@ -751,32 +751,56 @@ interface OtherParts {
   close: () => void;
 }
 
+/** A run as the line of runs it belongs to reads it: from its history entry, or the plan kept of it. */
+interface RunInLine {
+  forgeId: string;
+  /** The run it retried or resumed. */
+  retryOf?: string;
+  /** The journal it was written through, which a part resuming it goes on in. */
+  journalId?: string;
+}
+
 /**
- * The entries of `history` in the line of runs of `forgeId` — the runs it
- * retried or resumed, those that retried or resumed it, and so on both ways
- * (`retryOf`) — itself left out: the parts of one run, each kept, and
- * removed, apart.
+ * The runs in the line of `forgeId`, itself among them, by `forgeId`: those
+ * it retried or resumed, those that retried or resumed it, and so on both
+ * ways (`retryOf`); those written through one journal, which a resume goes on
+ * in; and the parts the line's journals name (`journalParts`, by journal):
+ * the parts of one run, each kept, and removed, apart. `runs` holds the
+ * history's entries and the plans kept of runs it dropped, whose links a
+ * plan kept before plans named them lacks.
  */
-function otherPartsInItsLine(
+function runsInItsLine(
   forgeId: string,
-  history: readonly ForgeExecutionResult[],
-): ForgeExecutionResult[] {
+  runs: readonly RunInLine[],
+  journalParts: ReadonlyMap<string, readonly string[]>,
+): { inLine: Set<string>; journals: Set<string> } {
   const inLine = new Set([forgeId]);
+  const journals = new Set<string>();
   for (let grew = true; grew;) {
     grew = false;
-    for (const entry of history) {
-      const linked = entry.retryOf;
-      if (linked === undefined) continue;
-      if (inLine.has(entry.forgeId) && !inLine.has(linked)) {
-        inLine.add(linked);
-        grew = true;
-      } else if (inLine.has(linked) && !inLine.has(entry.forgeId)) {
-        inLine.add(entry.forgeId);
+    const take = (id: string): void => {
+      if (inLine.has(id)) return;
+      inLine.add(id);
+      grew = true;
+    };
+    for (const run of runs) {
+      if (run.journalId !== undefined && inLine.has(run.forgeId) && !journals.has(run.journalId)) {
+        journals.add(run.journalId);
         grew = true;
       }
     }
+    for (const journalId of journals) {
+      for (const part of journalParts.get(journalId) ?? []) take(part);
+    }
+    for (const run of runs) {
+      if (run.journalId !== undefined && journals.has(run.journalId)) take(run.forgeId);
+      const linked = run.retryOf;
+      if (linked === undefined) continue;
+      if (inLine.has(run.forgeId)) take(linked);
+      else if (inLine.has(linked)) take(run.forgeId);
+    }
   }
-  return history.filter((entry) => entry.forgeId !== forgeId && inLine.has(entry.forgeId));
+  return { inLine, journals };
 }
 
 /** The rows of a run a call may have written before its answer was lost. */
@@ -5003,12 +5027,16 @@ export class ForgeHandler implements DomainHandler {
 
   /**
    * The run's other parts, as the removal of one of them reads them: the
-   * runs in its line (`retryOf`, both ways) — the part it resumed, the part a
+   * runs in its line (`runsInItsLine`) — the part it resumed, the part a
    * resume took it up with, a retry — that wrote to the same org and have
-   * records left, and that no removal is taking now. Each with its records,
-   * read from its journal a page at a time when its entry keeps no ids, its
-   * span as its own removal dates it, and what its earlier removals stamped.
-   * A part whose journal cannot be read is left out: its own removal says so.
+   * records left, and that no removal is taking now. Each from its history
+   * entry, or from the plan kept of it once the history dropped it: a part
+   * found in the history alone left the plan of a dropped one unstamped, and
+   * its removal kept as changed since the run the parent the other part's
+   * removal had restamped. Each with its records, read from its journal a
+   * page at a time when its entry keeps no ids, its span as its own removal
+   * dates it, and what its earlier removals stamped. A part whose journal
+   * cannot be read is left out: its own removal says so.
    */
   private async otherPartsOf(
     forgeId: string,
@@ -5017,47 +5045,183 @@ export class ForgeHandler implements DomainHandler {
   ): Promise<OtherParts> {
     const closes: Array<() => void> = [];
     const parts: OtherPart[] = [];
-    for (const other of otherPartsInItsLine(forgeId, this.loadHistory())) {
-      if (other.targetOrgId !== targetOrgId || !other.idRemapCreated) continue;
-      if (this.removing.has(other.forgeId) || forgeRunCountsLeft(other).length === 0) continue;
-      const inJournal =
-        other.remapInJournal && other.journalId && other.journalPart !== undefined
-          ? { journalId: other.journalId, part: other.journalPart }
-          : undefined;
-      let plan: ForgeRunObjectRecords[] | RunRecords;
-      if (inJournal) {
-        const read = await this.journalRecordsOf(inJournal, other.undo);
-        if ('gone' in read) continue;
-        plan = read.records;
-        closes.push(read.close);
-      } else {
-        plan = forgeRunRecordsLeft(other);
-      }
-      const span =
-        other.writtenBetween ??
-        (await this.datedByItsJournal(
-          { journalId: other.journalId, part: other.journalPart },
-          conn,
-        ));
-      const removalStamps = {
-        ...other.removalStamps,
-        ...(inJournal
-          ? await this.runJournal?.stampsOf(inJournal.journalId, inJournal.part).catch(() => ({}))
-          : {}),
-      };
-      parts.push({
-        forgeId: other.forgeId,
-        ...(inJournal ? { inJournal } : {}),
-        alongside: {
-          plan,
-          span: span
-            ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-            : { runDurationMs: other.duration, runRecordedAt: new Date(other.timestamp) },
-          ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
-        },
-      });
+    const history = this.loadHistory();
+    const listed = new Set(history.map((entry) => entry.forgeId));
+    const plans = (await this.keptRemovalPlans()).filter((plan) => !listed.has(plan.forgeId));
+    for (const other of await this.runLineOf(forgeId, history, plans)) {
+      const entry = history.find((e) => e.forgeId === other);
+      const part = entry
+        ? await this.otherPartFromEntry(entry, targetOrgId, conn)
+        : await this.otherPartFromPlan(
+            plans.find((plan) => plan.forgeId === other),
+            targetOrgId,
+            conn,
+          );
+      if (!part) continue;
+      if (part.close) closes.push(part.close);
+      parts.push(part.part);
     }
     return { parts, close: () => closes.forEach((close) => close()) };
+  }
+
+  /**
+   * The runs in the line of `forgeId`, itself left out: linked on the history
+   * entries and on the plans kept of runs the history dropped, and named by
+   * the journals of the line's runs, read one at a time as the line reaches
+   * them — what ties a plan kept before plans named the run it resumed.
+   */
+  private async runLineOf(
+    forgeId: string,
+    history: readonly ForgeExecutionResult[],
+    plans: readonly ForgeRemovalPlan[],
+  ): Promise<string[]> {
+    const runs: RunInLine[] = [
+      ...history.map((entry) => ({
+        forgeId: entry.forgeId,
+        ...(entry.retryOf !== undefined ? { retryOf: entry.retryOf } : {}),
+        ...(entry.journalId !== undefined ? { journalId: entry.journalId } : {}),
+      })),
+      ...plans.map((plan) => ({
+        forgeId: plan.forgeId,
+        ...(plan.retryOf !== undefined ? { retryOf: plan.retryOf } : {}),
+        ...(plan.inJournal ? { journalId: plan.inJournal.journalId } : {}),
+      })),
+    ];
+    const journal = this.runJournal;
+    const journalParts = new Map<string, string[]>();
+    for (;;) {
+      const { inLine, journals } = runsInItsLine(forgeId, runs, journalParts);
+      const unread = journal ? [...journals].filter((id) => !journalParts.has(id)) : [];
+      if (!journal || unread.length === 0) {
+        return [...inLine].filter((id) => id !== forgeId);
+      }
+      for (const journalId of unread) {
+        journalParts.set(
+          journalId,
+          await journal.partsOf(journalId).catch((err: unknown) => {
+            logger.warn(`Forge run journal parts not read: ${extractErrorMessage(err)}`);
+            return [];
+          }),
+        );
+      }
+    }
+  }
+
+  /** The plans kept of past runs; none when the store cannot be read. */
+  private async keptRemovalPlans(): Promise<ForgeRemovalPlan[]> {
+    try {
+      return (await this.removalPlans?.list()) ?? [];
+    } catch (err: unknown) {
+      logger.warn(`Forge removal plans could not be read: ${extractErrorMessage(err)}`);
+      return [];
+    }
+  }
+
+  /** Another part of the run, from its history entry: see {@link otherPartsOf}. */
+  private async otherPartFromEntry(
+    other: ForgeExecutionResult,
+    targetOrgId: string,
+    conn: JournalDatesTarget,
+  ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
+    if (other.targetOrgId !== targetOrgId || !other.idRemapCreated) return undefined;
+    if (this.removing.has(other.forgeId) || forgeRunCountsLeft(other).length === 0) {
+      return undefined;
+    }
+    const inJournal =
+      other.remapInJournal && other.journalId && other.journalPart !== undefined
+        ? { journalId: other.journalId, part: other.journalPart }
+        : undefined;
+    let plan: ForgeRunObjectRecords[] | RunRecords;
+    let close: (() => void) | undefined;
+    if (inJournal) {
+      const read = await this.journalRecordsOf(inJournal, other.undo);
+      if ('gone' in read) return undefined;
+      plan = read.records;
+      close = read.close;
+    } else {
+      plan = forgeRunRecordsLeft(other);
+    }
+    const span =
+      other.writtenBetween ??
+      (await this.datedByItsJournal({ journalId: other.journalId, part: other.journalPart }, conn));
+    return {
+      part: {
+        forgeId: other.forgeId,
+        ...(inJournal ? { inJournal } : {}),
+        alongside: await this.alongside(plan, span, other, other.removalStamps, inJournal),
+      },
+      ...(close ? { close } : {}),
+    };
+  }
+
+  /**
+   * Another part of the run, from the plan kept of it once the history
+   * dropped it, as that plan's own removal reads it: see {@link otherPartsOf}.
+   */
+  private async otherPartFromPlan(
+    kept: ForgeRemovalPlan | undefined,
+    targetOrgId: string,
+    conn: JournalDatesTarget,
+  ): Promise<{ part: OtherPart; close?: () => void } | undefined> {
+    if (!kept || kept.targetOrgId !== targetOrgId) return undefined;
+    if (this.removing.has(kept.forgeId) || forgeRemovalPlanCountsLeft(kept).length === 0) {
+      return undefined;
+    }
+    const inJournal = kept.inJournal
+      ? { journalId: kept.inJournal.journalId, part: kept.inJournal.part }
+      : undefined;
+    let plan: ForgeRunObjectRecords[] | RunRecords;
+    let close: (() => void) | undefined;
+    if (inJournal) {
+      const read = await this.journalRecordsOf(inJournal, kept.undo);
+      if ('gone' in read) return undefined;
+      plan = read.records;
+      close = read.close;
+    } else {
+      plan = forgeRemovalPlanLeft(kept);
+    }
+    const span =
+      kept.writtenBetween ??
+      (await this.datedByItsJournal(
+        { journalId: inJournal?.journalId, part: inJournal?.part },
+        conn,
+      ));
+    return {
+      part: {
+        forgeId: kept.forgeId,
+        ...(inJournal ? { inJournal } : {}),
+        alongside: await this.alongside(plan, span, kept, kept.removalStamps, inJournal),
+      },
+      ...(close ? { close } : {}),
+    };
+  }
+
+  /**
+   * What a removal of one part reads of another: its records, its span — or,
+   * for a part its target did not date, how long it took and when it was
+   * recorded — and what its earlier removals stamped, on it and beside its
+   * journal.
+   */
+  private async alongside(
+    plan: ForgeRunObjectRecords[] | RunRecords,
+    span: ForgeWrittenBetween | undefined,
+    run: Pick<ForgeRemovalPlan, 'duration' | 'timestamp'>,
+    stamped: Record<string, string> | undefined,
+    inJournal: { journalId: string; part: number } | undefined,
+  ): Promise<RunPartAlongside> {
+    const removalStamps = {
+      ...stamped,
+      ...(inJournal
+        ? await this.runJournal?.stampsOf(inJournal.journalId, inJournal.part).catch(() => ({}))
+        : {}),
+    };
+    return {
+      plan,
+      span: span
+        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+        : { runDurationMs: run.duration, runRecordedAt: new Date(run.timestamp) },
+      ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
+    };
   }
 
   /**

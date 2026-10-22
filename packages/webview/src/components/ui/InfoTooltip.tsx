@@ -6,16 +6,32 @@ import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 
 /**
- * Read the list of dismissed tooltip IDs from the persisted webview state.
- * Returns an empty array on parse failure.
+ * Tooltip ids that were renamed, each with the id it has now. The webview
+ * state keeps a dismissal under the id the tooltip had when it was closed:
+ * the Seed steps' tooltips moved from `help.seed.*` to `seed.stepHelp.*`
+ * with their text, and one closed before showed once more under its new id.
+ */
+const RENAMED_TOOLTIP_IDS: ReadonlyMap<string, string> = new Map([
+  ['help.seed.selectObjects', 'seed.stepHelp.selectObjects'],
+  ['help.seed.configureFields', 'seed.stepHelp.configureFields'],
+  ['help.seed.execute', 'seed.stepHelp.execute'],
+]);
+
+/**
+ * Read the list of dismissed tooltip IDs from the persisted webview state,
+ * each under the id its tooltip has now. Returns an empty array on parse
+ * failure.
  */
 function getDismissedIds(): string[] {
   try {
     const raw = getPersistedItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed as string[];
-    return [];
+    if (!Array.isArray(parsed)) return [];
+    const ids = parsed
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => RENAMED_TOOLTIP_IDS.get(id) ?? id);
+    return [...new Set(ids)];
   } catch {
     return [];
   }

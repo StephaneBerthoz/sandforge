@@ -298,6 +298,27 @@ export function englishLoaders(source) {
 }
 
 /**
+ * The loaders of the English catalogue's namespaces wherever the bundler put
+ * them among what the panel bundle imports up front: in the bundle, or in a
+ * chunk of their own once a part loaded on demand imports them too, as the
+ * Forge steps do (`withEnglish`). Each chunk as a specifier from the
+ * bundle's folder, as {@link englishLoaders} reads one from the bundle.
+ *
+ * @param entry - The panel bundle, e.g. `assets/index.js`.
+ * @param read - Reads a path relative to `webview-dist`; undefined when absent.
+ */
+export function bundleEnglishLoaders(entry, read) {
+  const loaders = new Map();
+  for (const file of staticBundleFiles(entry, read)) {
+    for (const [namespace, specifier] of englishLoaders(read(file) ?? '')) {
+      const path = posix.normalize(posix.join(posix.dirname(file), specifier));
+      loaders.set(namespace, `./${posix.relative(posix.dirname(entry), path)}`);
+    }
+  }
+  return loaders;
+}
+
+/**
  * What a panel parses before a route's page paints: what every panel parses
  * up front, the page's chunk and the chunks it imports up front, and the
  * chunks of the English the route names, as posix paths relative to
@@ -306,7 +327,7 @@ export function englishLoaders(source) {
  *
  * @param entry - The panel bundle, e.g. `assets/index.js`.
  * @param route - From {@link panelRoutes}.
- * @param loaders - From {@link englishLoaders}.
+ * @param loaders - From {@link bundleEnglishLoaders}.
  * @param read - Reads a path relative to `webview-dist`; undefined when absent.
  */
 export function routeFirstPaint(entry, route, loaders, read) {
@@ -498,7 +519,7 @@ function main() {
 
     // The namespaces every panel starts with have no chunk of their own: a
     // panel holds them from the start and asks for none of them.
-    const loaders = englishLoaders(readBuilt(panelBundle));
+    const loaders = bundleEnglishLoaders(panelBundle, readBuilt);
     for (const namespace of shell.filter((n) => loaders.has(n))) {
       note(
         `${panelBundle} has a loader for the English of "${namespace}", which every panel ` +

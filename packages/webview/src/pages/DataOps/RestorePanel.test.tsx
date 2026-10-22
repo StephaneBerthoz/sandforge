@@ -426,5 +426,75 @@ describe('RestorePanel', () => {
       expect(screen.queryByTestId('restore-sync-badge-op-1')).toBeNull();
       expect(screen.queryByTestId('restore-sync-op-1')).toBeNull();
     });
+
+    it('offers, once it is selected, to restore the records changed since the run too', () => {
+      const onIncludeChangedChange = vi.fn();
+      const { rerender } = render(
+        <RestorePanel
+          backups={[kept, backups[0]]}
+          selectedBackupId="sync-before-run-1"
+          onRestore={vi.fn()}
+          onIncludeChangedChange={onIncludeChangedChange}
+        />,
+      );
+
+      const box = screen.getByTestId('restore-include-changed-sync-before-run-1');
+      expect((box as HTMLInputElement).checked).toBe(false);
+      expect(screen.getByLabelText(en.dataops.restoreIncludeChanged)).toBe(box);
+      fireEvent.click(box);
+      expect(onIncludeChangedChange).toHaveBeenCalledWith(true);
+
+      // A DataOps backup has no run to be held to.
+      rerender(
+        <RestorePanel
+          backups={[kept, backups[0]]}
+          selectedBackupId="op-1"
+          onRestore={vi.fn()}
+          onIncludeChangedChange={onIncludeChangedChange}
+        />,
+      );
+      expect(screen.queryByTestId('restore-include-changed-op-1')).toBeNull();
+    });
+
+    it('lists what the last restore left as it is, changed since the run, per object', () => {
+      render(
+        <RestorePanel
+          backups={[kept]}
+          lastRestore={{
+            written: 1,
+            unchanged: 0,
+            failed: 0,
+            keptChanged: {
+              objects: [
+                { objectApiName: 'Account', count: 1 },
+                { objectApiName: 'Contact', count: 1200 },
+              ],
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-kept-changed').textContent).toBe(
+        en.dataops.restoreKeptChanged.replace('{{objects}}', 'Account 1, Contact 1,200'),
+      );
+    });
+
+    it('says why every record read as changed since a run no longer kept', () => {
+      render(
+        <RestorePanel
+          backups={[kept]}
+          lastRestore={{
+            written: 0,
+            unchanged: 0,
+            failed: 0,
+            keptChanged: { objects: [{ objectApiName: 'Account', count: 2 }], runNotKept: true },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('restore-kept-changed').textContent).toContain(
+        en.dataops.restoreRunNotKept,
+      );
+    });
   });
 });

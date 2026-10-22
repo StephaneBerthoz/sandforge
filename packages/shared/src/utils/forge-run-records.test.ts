@@ -251,6 +251,13 @@ describe('forgeRemovalPlanOf', () => {
     ]);
   });
 
+  it('names the run a part retried or resumed, which ties the parts of one run once the history drops them', () => {
+    expect(forgeRemovalPlanOf(historyEntry({ retryOf: 'forge-6', resumed: true }))?.retryOf).toBe(
+      'forge-6',
+    );
+    expect(forgeRemovalPlanOf(historyEntry())).not.toHaveProperty('retryOf');
+  });
+
   it('keeps no plan of a run that created nothing, or names no org', () => {
     expect(forgeRemovalPlanOf(historyEntry({ idRemapCreated: [] }))).toBeUndefined();
     expect(forgeRemovalPlanOf(historyEntry({ targetOrgId: undefined }))).toBeUndefined();

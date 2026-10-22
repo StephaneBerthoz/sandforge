@@ -75,7 +75,7 @@ const ForgeExecutionRow = memo(function ForgeExecutionRow({
         {/* Drawn with a dashed outline on the graph. */}
         {!node.included && (
           <span className="ml-1.5 text-[10px] font-normal text-text-secondary">
-            {t('forge.executionTable.leftOut')}
+            {t('forgeRun.executionTable.leftOut')}
           </span>
         )}
       </th>
@@ -88,7 +88,7 @@ const ForgeExecutionRow = memo(function ForgeExecutionRow({
           )}
         >
           <StatusIcon status={node.status} />
-          {t(`forge.nodeStatus.${node.status}`)}
+          {t(`forgeRun.nodeStatus.${node.status}`)}
         </span>
       </td>
       <td className="px-3 py-1.5">
@@ -116,7 +116,7 @@ const ForgeExecutionRow = memo(function ForgeExecutionRow({
             {node.recordCount.toLocaleString(uiLocale())}
           </td>
           <td className="px-3 py-1.5 tabular-nums text-text-secondary whitespace-nowrap">
-            {t('forge.node.fieldsCloneable', {
+            {t('forgeRun.node.fieldsCloneable', {
               total: node.fieldCount,
               cloneable: node.createableFieldCount,
             })}
@@ -128,7 +128,7 @@ const ForgeExecutionRow = memo(function ForgeExecutionRow({
           data-testid={`forge-execution-records-${objectApiName}`}
           className="px-3 py-1.5 text-xs text-text-secondary"
         >
-          {t('forge.node.notMeasured')}
+          {t('forgeRun.node.notMeasured')}
         </td>
       )}
       <td className="px-3 py-1.5 tabular-nums text-text-secondary">
@@ -163,7 +163,7 @@ export const ForgeExecutionTable = memo(function ForgeExecutionTable({
     <div
       data-testid="forge-execution-table"
       role="region"
-      aria-label={t('forge.executionTable.label')}
+      aria-label={t('forgeRun.executionTable.label')}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a table of hundreds of rows scrolls, and none of its cells is a control to reach it by: the region takes the focus itself, so the keyboard can scroll it (axe scrollable-region-focusable).
       tabIndex={0}
       className={cn(
@@ -175,16 +175,16 @@ export const ForgeExecutionTable = memo(function ForgeExecutionTable({
         <thead className="sticky top-0 bg-surface-1 border-b border-subtle">
           <tr>
             <th scope="col" className={header}>
-              {t('forge.object')}
+              {t('forgeRun.object')}
             </th>
             <th scope="col" className={header}>
-              {t('forge.status')}
+              {t('forgeRun.status')}
             </th>
             <th scope="col" className={header}>
               {t('common.progress')}
             </th>
             <th scope="col" className={header}>
-              {t('forge.records')}
+              {t('forgeRun.records')}
             </th>
             <th scope="col" className={header}>
               {t('forge.fields')}
@@ -193,7 +193,7 @@ export const ForgeExecutionTable = memo(function ForgeExecutionTable({
               PII
             </th>
             <th scope="col" className={header}>
-              {t('forge.errors')}
+              {t('forgeRun.errors')}
             </th>
           </tr>
         </thead>

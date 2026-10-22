@@ -49,6 +49,7 @@ const planSchema = z.object({
   status: z.enum(['success', 'partial', 'failure']),
   cancelled: z.literal(true).optional(),
   writtenBetween: z.object({ first: dateSchema, last: dateSchema }).optional(),
+  retryOf: z.string().min(1).max(200).optional(),
   objects: z.array(
     z.object({
       objectApiName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),

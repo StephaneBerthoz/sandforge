@@ -202,7 +202,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           data-testid="node-status-badge"
           className={cn('rounded-full px-2 py-0.5 text-xs font-medium', statusColors[node.status])}
         >
-          {t(`forge.nodeStatus.${node.status}`)}
+          {t(`forgeRun.nodeStatus.${node.status}`)}
         </span>
       </m.div>
 
@@ -218,12 +218,12 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
 
       {/* Include toggle */}
       <m.div variants={slideUp} className="flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">{t('forge.includeNode')}</span>
+        <span className="text-sm font-medium text-text-primary">{t('forgeRun.includeNode')}</span>
         <button
           type="button"
           data-testid="node-include-toggle"
           role="switch"
-          aria-label={t('forge.includeNode')}
+          aria-label={t('forgeRun.includeNode')}
           aria-checked={node.included}
           onClick={onToggleIncluded}
           className={cn(
@@ -245,7 +245,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
         <m.div variants={slideUp} className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium text-status-warning">
             <Shield size={14} />
-            <span>{t('forge.piiFields')}</span>
+            <span>{t('forgeRun.piiFields')}</span>
           </div>
           <ul className="flex flex-col gap-1" data-testid="pii-fields-list">
             {node.piiFields.map((field) => (
@@ -255,7 +255,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
               >
                 <span className="text-text-primary">{field}</span>
                 <label className="flex items-center gap-1.5 cursor-pointer">
-                  <span className="text-xs text-text-secondary">{t('forge.anonymize')}</span>
+                  <span className="text-xs text-text-secondary">{t('forgeRun.anonymize')}</span>
                   <input
                     type="checkbox"
                     data-testid={`anonymize-toggle-${field}`}
@@ -279,8 +279,8 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             <CheckCircle size={14} className="text-status-success" />
             <span data-testid="anonymization-preview-title">
               {preview.some((row) => row.anonymized)
-                ? t('forge.anonymizationPreview')
-                : t('forge.contactPointsPreview')}
+                ? t('forgeRun.anonymizationPreview')
+                : t('forgeRun.contactPointsPreview')}
             </span>
           </div>
           <div
@@ -290,9 +290,9 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             <table className="w-full">
               <thead>
                 <tr className="text-text-secondary">
-                  <th className="text-left pb-1">{t('forge.fieldName')}</th>
-                  <th className="text-left pb-1">{t('forge.before')}</th>
-                  <th className="text-left pb-1">{t('forge.after')}</th>
+                  <th className="text-left pb-1">{t('forgeRun.fieldName')}</th>
+                  <th className="text-left pb-1">{t('forgeRun.before')}</th>
+                  <th className="text-left pb-1">{t('forgeRun.after')}</th>
                 </tr>
               </thead>
               <tbody>

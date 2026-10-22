@@ -1102,6 +1102,157 @@ describe('DataOpsHandler backup record storage', () => {
 
         expect(upsert.mock.calls.flatMap(([batch]) => batch)).toHaveLength(3);
       });
+
+      describe('held to when the run last wrote, as removing the run in Sync is', () => {
+        const RUN_LAST_WRITE = '2026-10-20T10:00:00.000Z';
+        const BEFORE = '2026-10-20T09:59:00.000+0000';
+        const AFTER = '2026-10-20T11:30:00.000+0000';
+
+        /**
+         * The org the run wrote to: each contact with the run's name and when
+         * it was last modified, those deleted since in its recycle bin, and a
+         * clock in step with this machine's.
+         */
+        function orgSinceTheRun(rows: Record<string, string>, deletedIds: string[] = []) {
+          const upsert = vi.fn(async (batch: Array<Record<string, unknown>>) =>
+            batch.map((r) => ({ success: true, id: r.Id })),
+          );
+          const undelete = vi.fn(async (ids: string[]) => ids.map((id) => ({ id, success: true })));
+          const query = vi.fn(async (soql: string) => {
+            const asked = /Id IN \(([^)]*)\)/.exec(soql)?.[1] ?? '';
+            const named = (id: string): boolean => asked.includes(`'${id}'`);
+            if (soql.includes('IsDeleted = true')) {
+              return { records: deletedIds.filter(named).map((Id) => ({ Id })), done: true };
+            }
+            const records = Object.entries(rows)
+              .filter(([id]) => named(id))
+              .map(([Id, LastModifiedDate]) => ({
+                Id,
+                Name: 'Written by the run',
+                LastModifiedDate,
+              }));
+            return { records, totalSize: records.length, done: true };
+          });
+          vi.mocked(getJsforceConnection).mockResolvedValue({
+            query,
+            describe: vi.fn().mockResolvedValue(contactDescribe),
+            sobject: vi.fn(() => ({ upsert })),
+            soap: {
+              undelete,
+              getServerTimestamp: vi.fn(async () => ({ timestamp: new Date().toISOString() })),
+            },
+          } as never);
+          return { upsert, undelete };
+        }
+
+        /** The run the backup is of, as the Sync runs kept on this machine hold it; none when `kept` is false. */
+        function runsKeep(harness: Harness, kept = true): void {
+          harness.handler.setSyncRuns({
+            get: async (runId: string) =>
+              kept && runId === 'run-1'
+                ? ({ runId, lastWriteAt: RUN_LAST_WRITE, created: [] } as never)
+                : undefined,
+          });
+        }
+
+        const answerOf = (harness: Harness) =>
+          postedOf(harness.deps, 'dataops:rollback:response')[0]?.payload;
+
+        it('leaves as it is a record changed since the run, and lists it, as the run’s removal does', async () => {
+          const harness = createHarness();
+          await keptByTheRun(harness);
+          runsKeep(harness);
+          const { upsert } = orgSinceTheRun({ [C1]: AFTER, [C2]: BEFORE });
+
+          await harness.handler.handle(rollbackMsg(BACKUP));
+
+          expect(upsert.mock.calls.map(([batch]) => batch)).toEqual([
+            [{ Id: C2, Name: 'Before 2' }],
+          ]);
+          const answer = answerOf(harness);
+          expect(answer).toMatchObject({
+            status: 'partial',
+            totalRestored: 1,
+            keptChanged: { total: 1, objects: [{ objectApiName: 'Contact', count: 1 }] },
+          });
+          expect(answer?.keptChanged).not.toHaveProperty('runNotKept');
+          expect(String(answer?.message)).toContain(
+            '1 changed or deleted since the Sync run were left as they are unless the restore includes them',
+          );
+        });
+
+        it('restores it too when the restore includes the records changed since the run', async () => {
+          const harness = createHarness();
+          await keptByTheRun(harness);
+          runsKeep(harness);
+          const { upsert } = orgSinceTheRun({ [C1]: AFTER, [C2]: BEFORE });
+
+          await harness.handler.handle(
+            inboundRequest({
+              id: 'rb-include',
+              type: 'dataops:rollback',
+              timestamp: Date.now(),
+              payload: { orgId: 'org-1', operationId: BACKUP, includeChanged: true },
+            } as BaseMessage),
+          );
+
+          expect(upsert.mock.calls.flatMap(([batch]) => batch)).toEqual([
+            { Id: C1, Name: 'Before 1' },
+            { Id: C2, Name: 'Before 2' },
+          ]);
+          expect(answerOf(harness)).toMatchObject({ status: 'success', includeChanged: true });
+          expect(answerOf(harness)).not.toHaveProperty('keptChanged');
+        });
+
+        it('leaves in the recycle bin a record deleted since the run, rather than bring it back', async () => {
+          const harness = createHarness();
+          await keptByTheRun(harness);
+          runsKeep(harness);
+          const { upsert, undelete } = orgSinceTheRun({ [C1]: BEFORE }, [C2]);
+
+          await harness.handler.handle(rollbackMsg(BACKUP));
+
+          expect(undelete).not.toHaveBeenCalled();
+          expect(upsert.mock.calls.flatMap(([batch]) => batch)).toEqual([
+            { Id: C1, Name: 'Before 1' },
+          ]);
+          expect(answerOf(harness)).toMatchObject({ keptChanged: { total: 1 } });
+        });
+
+        it('reads every record as changed since a run no longer kept here, and says why', async () => {
+          const harness = createHarness();
+          await keptByTheRun(harness);
+          runsKeep(harness, false);
+          const { upsert } = orgSinceTheRun({ [C1]: BEFORE, [C2]: BEFORE });
+
+          await harness.handler.handle(rollbackMsg(BACKUP));
+
+          expect(upsert).not.toHaveBeenCalled();
+          expect(answerOf(harness)).toMatchObject({
+            keptChanged: { total: 2, runNotKept: true },
+          });
+          expect(String(answerOf(harness)?.message)).toContain('the run is no longer kept here');
+        });
+
+        it('holds a DataOps backup to nothing of the kind', async () => {
+          const harness = createHarness();
+          await keptByTheRun(harness);
+          keepMeta(harness.config, BACKUP, [
+            { objectApiName: 'Contact', recordCount: 3, truncated: false },
+          ]);
+          runsKeep(harness);
+          const { upsert } = orgSinceTheRun({ [C1]: AFTER, [C2]: AFTER });
+
+          await harness.handler.handle(rollbackMsg(BACKUP));
+
+          // Its lines as they come, less the one the org holds already.
+          expect(upsert.mock.calls.flatMap(([batch]) => batch)).toEqual([
+            { Id: C1, Name: 'Before 1' },
+            { Id: C2, Name: 'Before 2' },
+          ]);
+          expect(answerOf(harness)).not.toHaveProperty('keptChanged');
+        });
+      });
     });
 
     it('says so when an object’s records are no longer on disk', async () => {

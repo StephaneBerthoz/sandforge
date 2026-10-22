@@ -32,28 +32,30 @@ export const ForgeDecisionsResult: React.FC<ForgeDecisionsResultProps> = ({
       className="rounded-sm border border-subtle px-4 py-2 text-xs text-text-secondary"
     >
       <h3 id={headingId} className="font-medium text-text-primary">
-        {t('forge.decisionsApplied.title')}
+        {t('forgeRun.decisionsApplied.title')}
       </h3>
       <p className="mt-0.5">
-        {t(simulated ? 'forge.decisionsApplied.hintSimulated' : 'forge.decisionsApplied.hint')}
+        {t(
+          simulated ? 'forgeRun.decisionsApplied.hintSimulated' : 'forgeRun.decisionsApplied.hint',
+        )}
       </p>
       <table className="mt-1 w-full text-left">
         <thead>
           <tr className="text-text-secondary">
             <th scope="col" className="py-0.5 pr-2 font-medium">
-              {t('forge.decisionsApplied.decision')}
+              {t('forgeRun.decisionsApplied.decision')}
             </th>
             <th scope="col" className="py-0.5 pr-2 font-medium">
-              {t('forge.decisionsApplied.object')}
+              {t('forgeRun.decisionsApplied.object')}
             </th>
             <th scope="col" className="py-0.5 pr-2 font-medium">
-              {t('forge.decisionsApplied.field')}
+              {t('forgeRun.decisionsApplied.field')}
             </th>
             <th scope="col" className="py-0.5 pr-2 font-medium">
-              {t('forge.decisionsApplied.values')}
+              {t('forgeRun.decisionsApplied.values')}
             </th>
             <th scope="col" className="py-0.5 text-right font-medium">
-              {t('forge.decisionsApplied.rows')}
+              {t('forgeRun.decisionsApplied.rows')}
             </th>
           </tr>
         </thead>
@@ -78,12 +80,12 @@ export const ForgeDecisionsResult: React.FC<ForgeDecisionsResultProps> = ({
                 data-testid="forge-results-decision"
                 className="text-text-primary"
               >
-                <td className="py-0.5 pr-2">{t(`forge.gaps.decision.${decision.kind}`)}</td>
+                <td className="py-0.5 pr-2">{t(`forgeRun.gaps.decision.${decision.kind}`)}</td>
                 <td className="py-0.5 pr-2 font-mono">{decision.objectApiName}</td>
                 <td className="py-0.5 pr-2 font-mono">
                   {decision.field ?? ''}
                   {decision.recordType !== undefined
-                    ? t('forge.gaps.kept.scope', { name: decision.recordType })
+                    ? t('forgeRun.gaps.kept.scope', { name: decision.recordType })
                     : ''}
                 </td>
                 <td className="py-0.5 pr-2 font-mono">{values}</td>

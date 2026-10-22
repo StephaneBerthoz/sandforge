@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   PAGES_THAT_VALIDATE,
   PAGE_FIRST_PAINT_BUDGET,
+  bundleEnglishLoaders,
   bundleFiles,
   chunkImports,
   collectRequested,
@@ -270,6 +271,26 @@ test('it reads the loaders of the English namespaces, and no route for one', () 
     [
       ['forge', './chunks/forge-a1.js'],
       ['a11y', './chunks/a11y-b2.js'],
+    ],
+  );
+});
+
+test('it reads the loaders where the bundler put them, a chunk the bundle imports up front included', () => {
+  // Imported by a step Forge loads on demand too, the loaders left the bundle
+  // for a chunk of their own: read from the bundle alone, no page had English.
+  const built = new Map([
+    ['assets/index.js', 'import{t as e}from"./chunks/englishNamespaces-a1.js";'],
+    [
+      'assets/chunks/englishNamespaces-a1.js',
+      'const n={forge:()=>import("./forge-b2.js"),forgeRun:()=>import("./forgeRun-c3.js")};',
+    ],
+    ['assets/chunks/StepLoadedLater.js', 'x={sync:()=>import("./sync-d4.js")};'],
+  ]);
+  assert.deepEqual(
+    [...bundleEnglishLoaders('assets/index.js', (path) => built.get(path))],
+    [
+      ['forge', './chunks/forge-b2.js'],
+      ['forgeRun', './chunks/forgeRun-c3.js'],
     ],
   );
 });

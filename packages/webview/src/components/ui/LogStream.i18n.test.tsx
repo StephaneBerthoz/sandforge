@@ -15,9 +15,13 @@ vi.mock('react-i18next', () => ({
 describe('LogStream — translated chrome', () => {
   it('resolves the filter tab labels through i18n', () => {
     render(<LogStream entries={[]} />);
-    expect(screen.getByTestId('logstream-filter-all').textContent).toBe('forge.logFilterAll');
-    expect(screen.getByTestId('logstream-filter-error').textContent).toBe('forge.logFilterErrors');
-    expect(screen.getByTestId('logstream-filter-warn').textContent).toBe('forge.logFilterWarnings');
+    expect(screen.getByTestId('logstream-filter-all').textContent).toBe('forgeRun.logFilterAll');
+    expect(screen.getByTestId('logstream-filter-error').textContent).toBe(
+      'forgeRun.logFilterErrors',
+    );
+    expect(screen.getByTestId('logstream-filter-warn').textContent).toBe(
+      'forgeRun.logFilterWarnings',
+    );
   });
 
   it('resolves the empty-state line through i18n', () => {
@@ -26,9 +30,9 @@ describe('LogStream — translated chrome', () => {
   });
 
   it('backs every rendered key with an entry in the reference locale', () => {
-    expect(en.forge.logFilterAll).toBe('All');
-    expect(en.forge.logFilterErrors).toBe('Errors');
-    expect(en.forge.logFilterWarnings).toBe('Warnings');
+    expect(en.forgeRun.logFilterAll).toBe('All');
+    expect(en.forgeRun.logFilterErrors).toBe('Errors');
+    expect(en.forgeRun.logFilterWarnings).toBe('Warnings');
     expect(en.common.noLogEntries).toBe('No log entries');
   });
 });

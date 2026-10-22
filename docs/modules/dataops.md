@@ -78,7 +78,14 @@ Restore data from a previously saved backup:
 - The backup a Sync run kept of the records it wrote over is listed here too,
   marked as the run's and saying that removing the run in Sync puts the values
   back as well. Restored from here, a record the run's calls kept in more than
-  one line is written once, each field as the run first found it
+  one line is written once, each field as the run first found it; and, as the
+  run's removal does, a record changed since the run — modified after its last
+  write — or deleted since is left as it is, and counted per object with the
+  result, unless **Also restore the records changed or deleted since the run**
+  is ticked. `sandforge-backup --restore` leaves them as they are too; the
+  run's own `sandforge-sync --remove --include-changed` gives them back. A run
+  no longer kept on this machine has no known last write: every record of its
+  backup reads as changed since
 
 What a restore does, in order:
 

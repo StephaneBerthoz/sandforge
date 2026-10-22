@@ -41,7 +41,6 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'forge',
-    'list',
     'moduleSummary',
     'orgAutomation',
     'runRemoval',

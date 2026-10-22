@@ -120,7 +120,7 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
           onClick={() => setOpen((was) => !was)}
           data-testid={openerTestId}
         >
-          {t('forge.saveTemplate')}
+          {t('forgeRun.saveTemplate')}
         </Button>
       </div>
       {open && (
@@ -133,9 +133,9 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
           className="flex flex-col gap-2 rounded-lg border border-forge/30 bg-surface-1 p-3"
         >
           <p id={`${idPrefix}-title`} className="text-sm font-semibold text-text-primary">
-            {t('forge.savedTemplate.formTitle')}
+            {t('forgeRun.savedTemplate.formTitle')}
           </p>
-          <p className="text-xs text-text-secondary">{t('forge.savedTemplate.saveHint')}</p>
+          <p className="text-xs text-text-secondary">{t('forgeRun.savedTemplate.saveHint')}</p>
           <label htmlFor={`${idPrefix}-name`} className="text-xs text-text-primary">
             {t('forge.templateName')}
           </label>
@@ -165,7 +165,7 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
               data-testid={`${idPrefix}-name-error`}
               className="text-xs text-status-error"
             >
-              {t('forge.savedTemplate.nameRequired')}
+              {t('forgeRun.savedTemplate.nameRequired')}
             </p>
           )}
           <label htmlFor={`${idPrefix}-desc`} className="text-xs text-text-primary">
@@ -212,7 +212,7 @@ export const ForgeSaveTemplate: React.FC<ForgeSaveTemplateProps> = ({
         </form>
       )}
       <p role="status" data-testid={`${idPrefix}-saved`} className="text-xs text-text-primary">
-        {saver.saved ? t('forge.savedTemplate.saved', { name: saver.saved.name }) : ''}
+        {saver.saved ? t('forgeRun.savedTemplate.saved', { name: saver.saved.name }) : ''}
       </p>
     </div>
   );

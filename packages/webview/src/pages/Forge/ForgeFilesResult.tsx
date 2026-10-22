@@ -5,15 +5,15 @@ import { formatFileSize } from '../../utils/formatters';
 
 /** What a user calls the files of each object. */
 const OBJECT_LABEL_KEYS: Record<ForgeFileObject, string> = {
-  ContentDocument: 'forge.files.result.salesforceFiles',
-  Attachment: 'forge.files.result.attachments',
+  ContentDocument: 'forgeRun.files.result.salesforceFiles',
+  Attachment: 'forgeRun.files.result.attachments',
 };
 
 /** Why a file was left out, in the user's words. */
 const REASON_KEYS: Record<ForgeFileLeftOutReason, string> = {
-  'too-large': 'forge.files.result.tooLarge',
-  external: 'forge.files.result.external',
-  'record-not-created': 'forge.files.result.recordNotCreated',
+  'too-large': 'forgeRun.files.result.tooLarge',
+  external: 'forgeRun.files.result.external',
+  'record-not-created': 'forgeRun.files.result.recordNotCreated',
 };
 
 /** Props for {@link ForgeFilesResult}. */
@@ -46,7 +46,7 @@ export const ForgeFilesResult: React.FC<ForgeFilesResultProps> = ({ files }) => 
           <li key={entry.objectApiName} data-testid={`forge-results-files-${entry.objectApiName}`}>
             <span className="text-text-primary">{t(OBJECT_LABEL_KEYS[entry.objectApiName])}</span>
             {' — '}
-            {t('forge.files.result.copied', {
+            {t('forgeRun.files.result.copied', {
               count: entry.copied,
               planned: entry.planned,
               size: formatFileSize(entry.plannedBytes),
@@ -54,20 +54,20 @@ export const ForgeFilesResult: React.FC<ForgeFilesResultProps> = ({ files }) => 
             {entry.failed > 0 && (
               <span className="text-status-error">
                 {' — '}
-                {t('forge.files.result.failed', { count: entry.failed })}
+                {t('forgeRun.files.result.failed', { count: entry.failed })}
               </span>
             )}
           </li>
         ))}
-        {files.objects.length === 0 && <li>{t('forge.files.result.none')}</li>}
+        {files.objects.length === 0 && <li>{t('forgeRun.files.result.none')}</li>}
       </ul>
       {files.links > 0 && (
-        <p className="mt-0.5">{t('forge.files.result.links', { count: files.links })}</p>
+        <p className="mt-0.5">{t('forgeRun.files.result.links', { count: files.links })}</p>
       )}
       {files.leftOut.length > 0 && (
         <>
           <p className="mt-1 font-medium text-text-primary">
-            {t('forge.files.result.leftOut', { count: files.leftOut.length })}
+            {t('forgeRun.files.result.leftOut', { count: files.leftOut.length })}
           </p>
           <ul className="mt-0.5 space-y-0.5" data-testid="forge-results-files-left-out">
             {files.leftOut.map((file) => (

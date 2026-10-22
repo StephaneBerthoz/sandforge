@@ -29,7 +29,7 @@ import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { BackupPanel } from './BackupPanel';
-import { RestorePanel } from './RestorePanel';
+import { RestorePanel, type RestoreCounts } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
 import { QualityPanel } from './QualityPanel';
 import { CompliancePanel } from './CompliancePanel';
@@ -65,6 +65,25 @@ function readSnapshot(
 /** What Backup read whatever the templates masked, kept for an org that lists none. */
 const DEFAULT_BACKUP_OBJECTS = ['Account', 'Contact'];
 
+/**
+ * What a restore of a Sync run's backup left as it is, changed since the run,
+ * as its answer says it (`DataOpsRollbackResponse.keptChanged`); undefined
+ * when it left nothing, or the answer does not say it in that shape.
+ */
+function keptChangedOf(value: unknown): RestoreCounts['keptChanged'] {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { objects, runNotKept } = value as { objects?: unknown; runNotKept?: unknown };
+  if (!Array.isArray(objects)) return undefined;
+  const counted = objects.flatMap((object: unknown) => {
+    const { objectApiName, count } = (object ?? {}) as { objectApiName?: unknown; count?: unknown };
+    return typeof objectApiName === 'string' && typeof count === 'number' && count > 0
+      ? [{ objectApiName, count }]
+      : [];
+  });
+  if (counted.length === 0) return undefined;
+  return { objects: counted, ...(runNotKept === true ? { runNotKept: true } : {}) };
+}
+
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -87,6 +106,8 @@ export const DataOpsPage: React.FC = () => {
   const [selectedBackupId, setSelectedBackupId] = useState<string>('');
   /** A restore writes every row back rather than the rows that changed since the backup. */
   const [rewriteAll, setRewriteAll] = useState(false);
+  /** A restore of a Sync run's backup writes the records changed since the run too. */
+  const [includeChanged, setIncludeChanged] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
 
   // Local UI state
@@ -399,16 +420,19 @@ export const DataOpsPage: React.FC = () => {
       orgId: currentOrg.id,
       operationId,
       ...(rewriteAll ? { rewriteAll: true } : {}),
+      ...(includeChanged ? { includeChanged: true } : {}),
     });
   };
   /** What the last restore wrote, left alone and had refused, from its answer. */
   const restored = rollbackMutation.data;
+  const keptChanged = keptChangedOf(restored?.keptChanged);
   const lastRestore =
     restored && typeof restored.totalRestored === 'number'
       ? {
           written: restored.totalRestored,
           unchanged: typeof restored.totalUnchanged === 'number' ? restored.totalUnchanged : 0,
           failed: typeof restored.totalFailed === 'number' ? restored.totalFailed : 0,
+          ...(keptChanged ? { keptChanged } : {}),
         }
       : undefined;
 
@@ -673,13 +697,19 @@ export const DataOpsPage: React.FC = () => {
             <RestorePanel
               backups={backups}
               selectedBackupId={selectedBackupId}
-              onSelectBackup={setSelectedBackupId}
+              onSelectBackup={(operationId) => {
+                // The choice is made of one backup: another starts without it.
+                if (operationId !== selectedBackupId) setIncludeChanged(false);
+                setSelectedBackupId(operationId);
+              }}
               onRestore={handleRestore}
               // Nothing disabled the button while the upserts ran, so a second
               // click started a second restore over the first one.
               isRestoring={rollbackMutation.loading}
               rewriteAll={rewriteAll}
               onRewriteAllChange={setRewriteAll}
+              includeChanged={includeChanged}
+              onIncludeChangedChange={setIncludeChanged}
               lastRestore={lastRestore}
               onDelete={(operationId) => handleDeleteBackups([operationId])}
               onDeleteAll={() => handleDeleteBackups()}

@@ -67,14 +67,14 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
     // graph's pane was resized under React Flow as each letter was typed.
     <div data-testid="review-graph-search" className="relative flex flex-col gap-1 text-xs">
       <label htmlFor={`${id}-query`} className="text-text-secondary">
-        {t('forge.review.graphSearch.label')}
+        {t('forgeRun.review.graphSearch.label')}
       </label>
       <input
         id={`${id}-query`}
         data-testid="review-graph-search-input"
         type="search"
         value={query}
-        placeholder={t('forge.review.graphSearch.placeholder')}
+        placeholder={t('forgeRun.review.graphSearch.placeholder')}
         aria-describedby={`${id}-count`}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={(e) => {
@@ -97,8 +97,8 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
         {query.trim() === ''
           ? ''
           : matches.length === 0
-            ? t('forge.review.graphSearch.none')
-            : t('forge.review.graphSearch.matches', { count: matches.length })}
+            ? t('forgeRun.review.graphSearch.none')
+            : t('forgeRun.review.graphSearch.matches', { count: matches.length })}
       </p>
       {matches.length > 0 && (
         <ul
@@ -121,36 +121,40 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
               >
                 <span className="font-medium text-text-primary">{name}</span>
                 <span className="text-text-secondary">
-                  {t(included ? 'forge.review.graphSearch.inRun' : 'forge.review.graphSearch.out')}
+                  {t(
+                    included
+                      ? 'forgeRun.review.graphSearch.inRun'
+                      : 'forgeRun.review.graphSearch.out',
+                  )}
                 </span>
                 {onShow && (
                   <Button
                     variant="ghost"
                     size="sm"
                     data-testid="review-graph-show"
-                    aria-label={t('forge.review.graphSearch.showLabel', { object: name })}
+                    aria-label={t('forgeRun.review.graphSearch.showLabel', { object: name })}
                     onClick={() => onShow(name)}
                   >
-                    {t('forge.review.graphSearch.show')}
+                    {t('forgeRun.review.graphSearch.show')}
                   </Button>
                 )}
                 {included &&
                   (root ? (
                     <span className="text-text-secondary">
-                      {t('forge.review.graphSearch.rootKept')}
+                      {t('forgeRun.review.graphSearch.rootKept')}
                     </span>
                   ) : (
                     <Button
                       variant="secondary"
                       size="sm"
                       data-testid="review-graph-leave-out-branch"
-                      aria-label={t('forge.review.graphSearch.leaveOutLabel', {
+                      aria-label={t('forgeRun.review.graphSearch.leaveOutLabel', {
                         object: name,
                         count: others,
                       })}
                       onClick={() => leaveOut(name)}
                     >
-                      {t('forge.review.graphSearch.leaveOut')}
+                      {t('forgeRun.review.graphSearch.leaveOut')}
                     </Button>
                   ))}
               </li>
@@ -158,7 +162,7 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
           })}
           {matches.length > MATCHES_LISTED && (
             <li className="text-text-secondary">
-              {t('forge.review.graphSearch.more', { count: matches.length - MATCHES_LISTED })}
+              {t('forgeRun.review.graphSearch.more', { count: matches.length - MATCHES_LISTED })}
             </li>
           )}
         </ul>
@@ -166,7 +170,7 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
       <div className="flex min-h-6 flex-wrap items-center gap-2">
         <p role="status" data-testid="review-graph-left-out" className="text-text-primary">
           {leftOut.length > 0
-            ? t('forge.review.graphSearch.leftOut', { objects: leftOut.join(', ') })
+            ? t('forgeRun.review.graphSearch.leftOut', { objects: leftOut.join(', ') })
             : ''}
         </p>
         {leftOut.length > 0 && (
@@ -179,7 +183,7 @@ export const ReviewGraphSearch: React.FC<ReviewGraphSearchProps> = ({
               setLeftOut([]);
             }}
           >
-            {t('forge.review.graphSearch.putBack')}
+            {t('forgeRun.review.graphSearch.putBack')}
           </Button>
         )}
       </div>

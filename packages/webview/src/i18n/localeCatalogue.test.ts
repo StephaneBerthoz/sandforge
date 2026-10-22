@@ -538,8 +538,8 @@ describe('where the app explains the Forge flow, Clone directly and the Graph/Ta
     const catalogue = load(locale);
     const help = label(catalogue, 'help.forgeContent');
     expect(help).toContain(label(catalogue, 'forge.direct.action'));
-    expect(help).toContain(label(catalogue, 'forge.graphView'));
-    expect(help).toContain(label(catalogue, 'forge.tableView'));
+    expect(help).toContain(label(catalogue, 'forgeRun.graphView'));
+    expect(help).toContain(label(catalogue, 'forgeRun.tableView'));
     expect(help).toContain('sandforge.forge.graphView');
   });
 
@@ -557,8 +557,8 @@ describe('where the app explains the Forge flow, Clone directly and the Graph/Ta
       'utf8',
     );
     expect(body).toContain(label(catalogue, 'forge.direct.action'));
-    expect(body).toContain(label(catalogue, 'forge.graphView'));
-    expect(body).toContain(label(catalogue, 'forge.tableView'));
+    expect(body).toContain(label(catalogue, 'forgeRun.graphView'));
+    expect(body).toContain(label(catalogue, 'forgeRun.tableView'));
     expect(body).toContain('sandforge.forge.graphView');
   });
 });
@@ -906,8 +906,8 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
       const catalogue = load(locale);
       for (const key of [
         'seed.results.openRecord',
-        'forge.idMapping.openRoot',
-        'forge.idMapping.openRootInTarget',
+        'forgeRun.idMapping.openRoot',
+        'forgeRun.idMapping.openRootInTarget',
       ]) {
         expect({ key, value: text(catalogue, key) }).toEqual({
           key,

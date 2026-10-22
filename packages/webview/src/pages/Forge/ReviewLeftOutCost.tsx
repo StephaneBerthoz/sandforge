@@ -6,9 +6,9 @@ import type { ForgeGraph, ForgeLeftOutCost } from '@sandforge/shared';
 
 /** The sentence each cost is said in. */
 const COST_KEYS: Record<ForgeLeftOutCost['kind'], string> = {
-  lookup: 'forge.preview.leftOutLookup',
-  status: 'forge.preview.leftOutStatus',
-  sellingModel: 'forge.preview.leftOutSellingModel',
+  lookup: 'forgeRun.preview.leftOutLookup',
+  status: 'forgeRun.preview.leftOutStatus',
+  sellingModel: 'forgeRun.preview.leftOutSellingModel',
 };
 
 /** Props for {@link ReviewLeftOutCost}. */
@@ -39,7 +39,7 @@ export const ReviewLeftOutCost: React.FC<ReviewLeftOutCostProps> = ({ graph }) =
     >
       <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-warning" />
       <div className="flex flex-col gap-1">
-        <p className="font-medium">{t('forge.preview.leftOutCost')}</p>
+        <p className="font-medium">{t('forgeRun.preview.leftOutCost')}</p>
         <ul className="flex flex-col gap-0.5">
           {costs.map((cost) => (
             <li

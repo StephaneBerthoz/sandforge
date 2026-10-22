@@ -85,6 +85,36 @@ describe('InfoTooltip', () => {
     expect(isDismissed('other.id')).toBe(false);
   });
 
+  it('keeps hidden a Seed step tooltip dismissed under the id it had before it moved to seed.stepHelp', () => {
+    mockPersistedState.store[STORAGE_KEY] = JSON.stringify([
+      'help.seed.selectObjects',
+      'help.seed.configureFields',
+      'help.seed.execute',
+    ]);
+
+    for (const step of ['selectObjects', 'configureFields', 'execute']) {
+      const { unmount } = render(<InfoTooltip id={`seed.stepHelp.${step}`} content="Step help" />);
+      expect(screen.queryByTestId(`info-tooltip-seed.stepHelp.${step}`)).toBeNull();
+      unmount();
+    }
+    expect(isDismissed('seed.stepHelp.execute')).toBe(true);
+  });
+
+  it('keeps a dismissal under its old id once another tooltip is dismissed, under the new id alone', () => {
+    mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['help.seed.execute']);
+    render(<InfoTooltip id="test.later" content="Later" />);
+    fireEvent.mouseEnter(screen.getByTestId('info-tooltip-test.later').closest('span')!);
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    fireEvent.click(screen.getByTestId('tooltip-dismiss'));
+
+    expect(JSON.parse(mockPersistedState.store[STORAGE_KEY] ?? '[]')).toEqual([
+      'seed.stepHelp.execute',
+      'test.later',
+    ]);
+  });
+
   it('should handle corrupted persisted state gracefully', () => {
     mockPersistedState.store[STORAGE_KEY] = 'not-valid-json';
     render(<InfoTooltip id="test.corrupt" content="Still works" />);

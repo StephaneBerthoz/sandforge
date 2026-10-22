@@ -116,6 +116,24 @@ async function orgAheadOf(org: Pick<RemovalOrg, 'serverTime'>): Promise<number> 
   }
 }
 
+/**
+ * When a run last wrote, `lastWriteAt` on this machine's clock, read on the
+ * org's, a little later for the drift of one clock from the other, in epoch
+ * milliseconds: a record the org dates modified after it was changed since
+ * the run. Minus infinity when the run's last write is unknown: every record
+ * reads as changed since. What a restore of the values a run wrote over —
+ * its removal's, or DataOps' of the run's backup — holds each record to.
+ */
+export async function runEndOnOrgClock(
+  org: Pick<RemovalOrg, 'serverTime'>,
+  lastWriteAt: string | undefined,
+): Promise<number> {
+  const lastWrite = Date.parse(lastWriteAt ?? '');
+  return Number.isFinite(lastWrite)
+    ? lastWrite + (await orgAheadOf(org)) + CLOCK_LEEWAY_MS
+    : Number.NEGATIVE_INFINITY;
+}
+
 /** One record's answer to an update, as jsforce gives it. */
 interface UpdateAnswer {
   success?: boolean;
@@ -180,12 +198,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
   let cancelled = false;
   if (plan.length === 0) return { objects, left, wrote, cancelled };
 
-  // The run's last write on the org's clock, a little later for the drift of
-  // one clock from the other: a record modified after it was changed since.
-  const lastWrite = Date.parse(input.lastWriteAt ?? '');
-  const runEnd = Number.isFinite(lastWrite)
-    ? lastWrite + (await orgAheadOf(org)) + CLOCK_LEEWAY_MS
-    : Number.NEGATIVE_INFINITY;
+  const runEnd = await runEndOnOrgClock(org, input.lastWriteAt);
 
   for (const { objectApiName, backup, ids } of plan) {
     const tally = new ObjectRestore(objectApiName, ids.length);

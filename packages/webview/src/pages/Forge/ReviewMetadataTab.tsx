@@ -49,7 +49,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
     return (
       <div data-testid="review-metadata-tab" className="py-4">
         <p data-testid="metadata-loading" className="text-xs text-text-secondary text-center">
-          {t('forge.review.diffsLoading', 'Comparing metadata schemas...')}
+          {t('forgeRun.review.diffsLoading', 'Comparing metadata schemas...')}
         </p>
       </div>
     );
@@ -59,7 +59,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
     return (
       <div data-testid="review-metadata-tab" className="py-4">
         <p data-testid="no-diffs" className="text-xs text-text-secondary text-center">
-          {t('forge.review.noDiffs', 'No metadata differences detected.')}
+          {t('forgeRun.review.noDiffs', 'No metadata differences detected.')}
         </p>
       </div>
     );
@@ -68,7 +68,7 @@ export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
   return (
     <div data-testid="review-metadata-tab" className="flex flex-col gap-2">
       <p className="text-xs text-text-secondary">
-        {t('forge.review.diffsFound', {
+        {t('forgeRun.review.diffsFound', {
           defaultValue: '{{count}} differences found between source and target.',
           count: diffs.length,
         })}

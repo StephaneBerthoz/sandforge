@@ -730,7 +730,7 @@ describe('ReviewAutomationTab', () => {
       />,
     );
     expect(screen.getByTestId('automation-summary').textContent).toBe(
-      ja.forge.review.automation.intro,
+      ja.forgeRun.review.automation.intro,
     );
     expect(screen.getByTestId('automation-bypass').textContent).toBe(
       'ターゲット組織でこの実行が書き込みに使うユーザーにカスタム権限 Case_BypassFlow を割り当てると、開始条件でそれを除外しているフローは起動しなくなります。',

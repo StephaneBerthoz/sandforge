@@ -84,25 +84,25 @@ export const ReviewControlsTab: React.FC = () => {
   const apply = (next: ForgeConfig, key: ForgeControlKey): boolean => {
     if (controlRefused(next, key)) {
       setSaid('');
-      setRefused(t(`forge.controls.refused.${key}`));
+      setRefused(t(`forgeRun.controls.refused.${key}`));
       return false;
     }
     setRefused('');
     updateConfig(() => next);
-    setSaid(t('forge.controls.kept'));
+    setSaid(t('forgeRun.controls.kept'));
     return true;
   };
 
   return (
     <div data-testid="review-controls-tab" className="flex flex-col gap-4 text-xs">
-      <p className="text-text-secondary">{t('forge.controls.hint')}</p>
+      <p className="text-text-secondary">{t('forgeRun.controls.hint')}</p>
       <section aria-labelledby={`${objectId}-title`} className="flex flex-col gap-2">
         <h3 id={`${objectId}-title`} className="font-semibold text-text-primary">
-          {t('forge.controls.objectTitle')}
+          {t('forgeRun.controls.objectTitle')}
         </h3>
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${objectId}-object`} className="text-text-secondary">
-            {t('forge.controls.object')}
+            {t('forgeRun.controls.object')}
           </label>
           <select
             id={`${objectId}-object`}
@@ -111,7 +111,7 @@ export const ReviewControlsTab: React.FC = () => {
             onChange={(e) => setObject(e.target.value)}
             className={INPUT_CLASS}
           >
-            <option value="">{t('forge.controls.objectPlaceholder')}</option>
+            <option value="">{t('forgeRun.controls.objectPlaceholder')}</option>
             {objects.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -154,12 +154,12 @@ const ObjectControls: React.FC<ControlProps & { object: string }> = ({ object, c
     <div data-testid={`controls-object-${object}`} className="flex flex-col gap-3">
       {fields.loading && (
         <p role="status" data-testid="controls-fields-reading" className="text-text-secondary">
-          {t('forge.controls.fields.reading', { object })}
+          {t('forgeRun.controls.fields.reading', { object })}
         </p>
       )}
       {fields.error && (
         <p role="alert" data-testid="controls-fields-error" className="text-status-error">
-          {t('forge.controls.fields.error', { object, error: fields.error })}
+          {t('forgeRun.controls.fields.error', { object, error: fields.error })}
         </p>
       )}
       <FieldsLeftOut
@@ -200,15 +200,15 @@ const FieldsLeftOut: React.FC<
   return (
     <fieldset data-testid="controls-fields" className="flex flex-col gap-1">
       <legend className="font-medium text-text-primary">
-        {t('forge.controls.fields.legend', { object })}{' '}
+        {t('forgeRun.controls.fields.legend', { object })}{' '}
         <span className="font-normal text-text-secondary">
-          {t('forge.controls.fields.count', { count: leftOut.length })}
+          {t('forgeRun.controls.fields.count', { count: leftOut.length })}
         </span>
       </legend>
       {names.length > 0 && (
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-field-search`} className="text-text-secondary">
-            {t('forge.controls.fields.search')}
+            {t('forgeRun.controls.fields.search')}
           </label>
           <input
             id={`${idPrefix}-field-search`}
@@ -221,7 +221,7 @@ const FieldsLeftOut: React.FC<
         </div>
       )}
       {names.length > 0 && shown.length === 0 && (
-        <p className="text-text-secondary">{t('forge.controls.fields.none')}</p>
+        <p className="text-text-secondary">{t('forgeRun.controls.fields.none')}</p>
       )}
       <ul className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
         {shown.map((name) => {
@@ -286,10 +286,10 @@ const ObjectFilter: React.FC<ControlProps & { object: string; idPrefix: string }
       }}
     >
       <label htmlFor={`${idPrefix}-filter`} className="font-medium text-text-primary">
-        {t('forge.controls.filter.label', { object })}
+        {t('forgeRun.controls.filter.label', { object })}
       </label>
       <p id={hintId} className="text-text-secondary">
-        {t(fromQuery ? 'forge.controls.filter.fromQuery' : 'forge.controls.filter.hint')}
+        {t(fromQuery ? 'forgeRun.controls.filter.fromQuery' : 'forgeRun.controls.filter.hint')}
       </p>
       <textarea
         id={`${idPrefix}-filter`}
@@ -313,13 +313,13 @@ const ObjectFilter: React.FC<ControlProps & { object: string; idPrefix: string }
           data-testid="controls-filter-refused"
           className="text-status-error"
         >
-          {t('forge.controls.filter.refused')}
+          {t('forgeRun.controls.filter.refused')}
         </p>
       )}
       {!fromQuery && (
         <div className="flex items-center gap-2">
           <Button type="submit" variant="secondary" size="sm" data-testid="controls-filter-apply">
-            {t('forge.controls.filter.apply')}
+            {t('forgeRun.controls.filter.apply')}
           </Button>
           {current !== '' && (
             <Button
@@ -333,7 +333,7 @@ const ObjectFilter: React.FC<ControlProps & { object: string; idPrefix: string }
                 apply(withObjectFilter(config, object, null), 'objectSoqlFilters');
               }}
             >
-              {t('forge.controls.filter.clear')}
+              {t('forgeRun.controls.filter.clear')}
             </Button>
           )}
         </div>
@@ -363,11 +363,13 @@ const FieldRenames: React.FC<
 
   return (
     <fieldset data-testid="controls-renames" className="flex flex-col gap-1">
-      <legend className="font-medium text-text-primary">{t('forge.controls.rename.legend')}</legend>
+      <legend className="font-medium text-text-primary">
+        {t('forgeRun.controls.rename.legend')}
+      </legend>
       {Object.keys(renames).length > 0 && (
         <ul className="flex flex-col gap-0.5">
           {Object.entries(renames).map(([source, target]) => {
-            const item = t('forge.controls.rename.item', { from: source, to: target });
+            const item = t('forgeRun.controls.rename.item', { from: source, to: target });
             return (
               <li
                 key={source}
@@ -378,12 +380,12 @@ const FieldRenames: React.FC<
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label={t('forge.controls.removeLabel', { what: item })}
+                  aria-label={t('forgeRun.controls.removeLabel', { what: item })}
                   onClick={() =>
                     apply(withFieldRename(config, object, source, null), 'fieldMappings')
                   }
                 >
-                  {t('forge.controls.remove')}
+                  {t('forgeRun.controls.remove')}
                 </Button>
               </li>
             );
@@ -403,7 +405,7 @@ const FieldRenames: React.FC<
       >
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-rename-from`} className="text-text-secondary">
-            {t('forge.controls.rename.from')}
+            {t('forgeRun.controls.rename.from')}
           </label>
           <select
             id={`${idPrefix}-rename-from`}
@@ -412,7 +414,7 @@ const FieldRenames: React.FC<
             onChange={(e) => setFrom(e.target.value)}
             className={INPUT_CLASS}
           >
-            <option value="">{t('forge.controls.pick')}</option>
+            <option value="">{t('forgeRun.controls.pick')}</option>
             {sources.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -422,7 +424,7 @@ const FieldRenames: React.FC<
         </div>
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-rename-to`} className="text-text-secondary">
-            {t('forge.controls.rename.to')}
+            {t('forgeRun.controls.rename.to')}
           </label>
           <select
             id={`${idPrefix}-rename-to`}
@@ -431,7 +433,7 @@ const FieldRenames: React.FC<
             onChange={(e) => setTo(e.target.value)}
             className={INPUT_CLASS}
           >
-            <option value="">{t('forge.controls.pick')}</option>
+            <option value="">{t('forgeRun.controls.pick')}</option>
             {targets.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -446,7 +448,7 @@ const FieldRenames: React.FC<
           data-testid="controls-rename-add"
           disabled={from === '' || to === ''}
         >
-          {t('forge.controls.rename.add')}
+          {t('forgeRun.controls.rename.add')}
         </Button>
       </form>
     </fieldset>
@@ -468,11 +470,11 @@ const RunControls: React.FC<ControlProps> = ({ config, apply }) => {
   return (
     <section aria-labelledby={`${id}-title`} className="flex flex-col gap-3">
       <h3 id={`${id}-title`} className="font-semibold text-text-primary">
-        {t('forge.controls.runTitle')}
+        {t('forgeRun.controls.runTitle')}
       </h3>
       <div data-testid="controls-cap" className="flex flex-col gap-1">
         <label htmlFor={`${id}-cap`} className="font-medium text-text-primary">
-          {t('forge.controls.cap.label')}
+          {t('forgeRun.controls.cap.label')}
         </label>
         <select
           id={`${id}-cap`}
@@ -486,7 +488,7 @@ const RunControls: React.FC<ControlProps> = ({ config, apply }) => {
           }
           className={cn(INPUT_CLASS, 'w-48')}
         >
-          <option value="">{t('forge.controls.cap.none')}</option>
+          <option value="">{t('forgeRun.controls.cap.none')}</option>
           {caps.map((cap) => (
             <option key={cap} value={String(cap)}>
               {cap.toLocaleString(uiLocale())}
@@ -526,27 +528,29 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
 
   return (
     <fieldset data-testid="controls-owners" className="flex flex-col gap-1">
-      <legend className="font-medium text-text-primary">{t('forge.controls.owners.legend')}</legend>
-      <p className="text-text-secondary">{t('forge.controls.owners.hint')}</p>
+      <legend className="font-medium text-text-primary">
+        {t('forgeRun.controls.owners.legend')}
+      </legend>
+      <p className="text-text-secondary">{t('forgeRun.controls.owners.hint')}</p>
       {users.loading && (
         <p role="status" data-testid="controls-users-reading" className="text-text-secondary">
-          {t('forge.controls.owners.reading')}
+          {t('forgeRun.controls.owners.reading')}
         </p>
       )}
       {users.error && (
         <p role="alert" data-testid="controls-users-error" className="text-status-error">
-          {t('forge.controls.owners.error', { error: users.error })}
+          {t('forgeRun.controls.owners.error', { error: users.error })}
         </p>
       )}
       {listed?.truncated && (
         <p data-testid="controls-users-truncated" className="text-status-warning">
-          {t('forge.controls.owners.truncated', { listed: listed.users.length })}
+          {t('forgeRun.controls.owners.truncated', { listed: listed.users.length })}
         </p>
       )}
       {owners.length > 0 && (
         <ul className="flex flex-col gap-0.5">
           {owners.map(([from, to]) => {
-            const item = t('forge.controls.owners.item', {
+            const item = t('forgeRun.controls.owners.item', {
               source: from,
               target: nameOf.has(to) ? `${nameOf.get(to)} (${to})` : to,
             });
@@ -560,10 +564,10 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label={t('forge.controls.removeLabel', { what: item })}
+                  aria-label={t('forgeRun.controls.removeLabel', { what: item })}
                   onClick={() => apply(withOwnerMapping(config, from, null), 'ownerMappings')}
                 >
-                  {t('forge.controls.remove')}
+                  {t('forgeRun.controls.remove')}
                 </Button>
               </li>
             );
@@ -583,7 +587,7 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
       >
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-owner-source`} className="text-text-secondary">
-            {t('forge.controls.owners.source')}
+            {t('forgeRun.controls.owners.source')}
           </label>
           <input
             id={`${idPrefix}-owner-source`}
@@ -597,7 +601,7 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
         </div>
         <div className="flex flex-col gap-0.5">
           <label htmlFor={`${idPrefix}-owner-target`} className="text-text-secondary">
-            {t('forge.controls.owners.target')}
+            {t('forgeRun.controls.owners.target')}
           </label>
           <select
             id={`${idPrefix}-owner-target`}
@@ -606,7 +610,7 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
             onChange={(e) => setTarget(e.target.value)}
             className={INPUT_CLASS}
           >
-            <option value="">{t('forge.controls.pick')}</option>
+            <option value="">{t('forgeRun.controls.pick')}</option>
             {(listed?.users ?? []).map((user) => (
               <option key={user.id} value={user.id}>
                 {user.username ? `${user.name} — ${user.username}` : user.name}
@@ -621,7 +625,7 @@ const OwnerMappings: React.FC<ControlProps & { idPrefix: string }> = ({
           data-testid="controls-owner-add"
           disabled={source.trim() === '' || target === ''}
         >
-          {t('forge.controls.owners.add')}
+          {t('forgeRun.controls.owners.add')}
         </Button>
       </form>
     </fieldset>

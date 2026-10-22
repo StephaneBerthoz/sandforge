@@ -50,11 +50,11 @@ type ShownStatus = 'forging' | 'paused' | 'finishing' | 'stopping' | 'stopped';
 
 /** Maps the shown status to the i18n key. */
 const STATUS_KEYS: Record<ShownStatus, string> = {
-  forging: 'forge.forging',
-  paused: 'forge.paused',
-  finishing: 'forge.finishing',
-  stopping: 'forge.stopping',
-  stopped: 'forge.stopped',
+  forging: 'forgeRun.forging',
+  paused: 'forgeRun.paused',
+  finishing: 'forgeRun.finishing',
+  stopping: 'forgeRun.stopping',
+  stopped: 'forgeRun.stopped',
 };
 
 /**
@@ -245,7 +245,7 @@ export const ForgeExecution: React.FC = () => {
   const handleAbortConfirm = useCallback(() => {
     setShowAbortConfirm(false);
     requestStop();
-    addLog(forgeLogEntry('warn', t('forge.aborted')));
+    addLog(forgeLogEntry('warn', t('forgeRun.aborted')));
     // Routed through the broker: the envelope is mandatory since 1.5.0. The
     // stop names the run on screen by its request: one that named nothing
     // stopped every Forge operation of the window, the discovery of another
@@ -287,13 +287,13 @@ export const ForgeExecution: React.FC = () => {
           <div className="flex flex-1 flex-col gap-1">
             <p data-testid="forge-execution-error-message">
               {runError.cancelled
-                ? t('forge.runCancelled')
-                : t('forge.runStoppedOn', { message: runError.message })}
+                ? t('forgeRun.runCancelled')
+                : t('forgeRun.runStoppedOn', { message: runError.message })}
             </p>
             {runErrorHint && <ErrorExplanation hint={runErrorHint} />}
             {runError.stoppedRun && (
               <p data-testid="forge-execution-error-written">
-                {t('forge.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}
+                {t('forgeRun.runStoppedWrote', { count: runError.stoppedRun.createdCount ?? 0 })}
               </p>
             )}
           </div>
@@ -305,7 +305,7 @@ export const ForgeExecution: React.FC = () => {
               onClick={showStoppedRun}
               icon={<FileText size={12} />}
             >
-              {t('forge.seeStoppedRun')}
+              {t('forgeRun.seeStoppedRun')}
             </Button>
           ) : (
             <Button
@@ -315,7 +315,7 @@ export const ForgeExecution: React.FC = () => {
               onClick={reviewAgain}
               icon={<ArrowLeft size={12} />}
             >
-              {t('forge.backToReview')}
+              {t('forgeRun.backToReview')}
             </Button>
           )}
         </m.div>
@@ -330,7 +330,7 @@ export const ForgeExecution: React.FC = () => {
           className="flex items-start gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-secondary"
         >
           <FastForward size={14} className="mt-0.5 shrink-0 text-hue-forge" />
-          {t('forge.direct.reviewSkipped')}
+          {t('forgeRun.direct.reviewSkipped')}
         </p>
       )}
 
@@ -342,7 +342,7 @@ export const ForgeExecution: React.FC = () => {
           className="flex items-start gap-2 rounded-md border border-subtle bg-surface-1 px-3 py-2 text-xs text-text-secondary"
         >
           <FlaskConical size={14} className="mt-0.5 shrink-0 text-hue-forge" />
-          {t('forge.simulation.running')}
+          {t('forgeRun.simulation.running')}
         </p>
       )}
 
@@ -355,15 +355,15 @@ export const ForgeExecution: React.FC = () => {
           </span>
           <span className="flex items-center gap-3 text-text-secondary tabular-nums">
             <span data-testid="forge-execution-timer">
-              {t('forge.elapsed')}: {formatElapsed(elapsed)}
+              {t('forgeRun.elapsed')}: {formatElapsed(elapsed)}
             </span>
             {/* Measured on the objects, it has nothing left to count once they
                 have all settled — it read 0:00 while the run went on — and no
                 time is left to a run that stopped, or is stopping. */}
             {!finishing && !stopped && !stopping && (
               <span data-testid="forge-execution-eta" className="text-hue-forge">
-                {t('forge.eta')}:{' '}
-                {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
+                {t('forgeRun.eta')}:{' '}
+                {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forgeRun.etaCalculating')}
               </span>
             )}
           </span>
@@ -377,12 +377,12 @@ export const ForgeExecution: React.FC = () => {
         </div>
         {finishing && (
           <p className="text-xs text-text-secondary" data-testid="forge-execution-finishing">
-            {t('forge.finishingNote')}
+            {t('forgeRun.finishingNote')}
           </p>
         )}
         {stopping && !stopUnanswered && (
           <p className="text-xs text-text-secondary" data-testid="forge-execution-stopping">
-            {t('forge.stoppingNote')}
+            {t('forgeRun.stoppingNote')}
           </p>
         )}
         {/* The run lands in the recent runs if it answers later: the input
@@ -393,7 +393,7 @@ export const ForgeExecution: React.FC = () => {
             className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
           >
             <AlertTriangle size={14} className="mt-0.5 shrink-0 text-status-warning" />
-            <p className="flex-1">{t('forge.stopUnanswered')}</p>
+            <p className="flex-1">{t('forgeRun.stopUnanswered')}</p>
             <Button
               variant="secondary"
               size="sm"
@@ -401,7 +401,7 @@ export const ForgeExecution: React.FC = () => {
               onClick={leaveStoppingRun}
               icon={<ArrowLeft size={12} />}
             >
-              {t('forge.backToStart')}
+              {t('forgeRun.backToStart')}
             </Button>
           </div>
         )}
@@ -410,11 +410,11 @@ export const ForgeExecution: React.FC = () => {
             stopped
               ? ''
               : stopUnanswered
-                ? t('forge.stopUnanswered')
+                ? t('forgeRun.stopUnanswered')
                 : stopping
-                  ? t('forge.stoppingNote')
+                  ? t('forgeRun.stoppingNote')
                   : finishing
-                    ? t('forge.finishingNote')
+                    ? t('forgeRun.finishingNote')
                     : t('a11y.progressAnnouncement', {
                         name: t('nav.forge'),
                         percent: kpis.progress,
@@ -469,7 +469,7 @@ export const ForgeExecution: React.FC = () => {
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
-                  {t('forge.logFilterAll')}
+                  {t('forgeRun.logFilterAll')}
                 </button>
                 <button
                   type="button"
@@ -483,7 +483,7 @@ export const ForgeExecution: React.FC = () => {
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
-                  {t('forge.logFilterErrors')}
+                  {t('forgeRun.logFilterErrors')}
                 </button>
                 <button
                   type="button"
@@ -497,7 +497,7 @@ export const ForgeExecution: React.FC = () => {
                       : 'text-text-secondary hover:text-text-primary',
                   )}
                 >
-                  {t('forge.logFilterWarnings')}
+                  {t('forgeRun.logFilterWarnings')}
                 </button>
               </div>
               <LogStream
@@ -528,16 +528,26 @@ export const ForgeExecution: React.FC = () => {
             kpis.stopped > 0 ? 'lg:grid-cols-6' : 'lg:grid-cols-5',
           )}
         >
-          <KPICard icon="check" label={t('forge.done')} value={kpis.done} variant="success" />
-          <KPICard icon="sync" label={t('forge.running')} value={kpis.running} variant="default" />
-          <KPICard icon="clock" label={t('forge.queued')} value={kpis.queued} variant="warning" />
-          <KPICard icon="error" label={t('forge.failed')} value={kpis.failed} variant="error" />
+          <KPICard icon="check" label={t('forgeRun.done')} value={kpis.done} variant="success" />
+          <KPICard
+            icon="sync"
+            label={t('forgeRun.running')}
+            value={kpis.running}
+            variant="default"
+          />
+          <KPICard
+            icon="clock"
+            label={t('forgeRun.queued')}
+            value={kpis.queued}
+            variant="warning"
+          />
+          <KPICard icon="error" label={t('forgeRun.failed')} value={kpis.failed} variant="error" />
           {/* Only a cancel stops a node while it is written: a tile reading
               zero on every other run would be noise. */}
           {kpis.stopped > 0 && (
             <KPICard
               icon="debug-stop"
-              label={t('forge.stoppedObjects')}
+              label={t('forgeRun.stoppedObjects')}
               value={kpis.stopped}
               variant="warning"
             />
@@ -547,7 +557,9 @@ export const ForgeExecution: React.FC = () => {
               whole run, said to be one. */}
           <KPICard
             icon="zap"
-            label={t(apiCallsSoFar === null ? 'forge.apiCallsEstimated' : 'forge.apiCallsSoFar')}
+            label={t(
+              apiCallsSoFar === null ? 'forgeRun.apiCallsEstimated' : 'forgeRun.apiCallsSoFar',
+            )}
             value={apiCallsSoFar ?? kpis.apiCalls ?? '—'}
             variant="default"
           />
@@ -566,7 +578,7 @@ export const ForgeExecution: React.FC = () => {
               disabled={stopping}
               data-testid="forge-pause-button"
             >
-              {isPaused ? t('forge.resume') : t('forge.pause')}
+              {isPaused ? t('forgeRun.resume') : t('forgeRun.pause')}
             </Button>
             <Button
               variant="danger"
@@ -576,7 +588,7 @@ export const ForgeExecution: React.FC = () => {
               disabled={stopping}
               data-testid="forge-abort-button"
             >
-              {t('forge.abort')}
+              {t('forgeRun.abort')}
             </Button>
           </div>
         )}
@@ -586,8 +598,8 @@ export const ForgeExecution: React.FC = () => {
         open={showAbortConfirm}
         onClose={() => setShowAbortConfirm(false)}
         onConfirm={handleAbortConfirm}
-        title={t('forge.abort')}
-        description={t('forge.abortConfirm')}
+        title={t('forgeRun.abort')}
+        description={t('forgeRun.abortConfirm')}
         // Stopping writes nothing: a question, not a word to type.
         confirmLabel={t('common.stopRun')}
         dismissLabel={t('common.keepRunning')}

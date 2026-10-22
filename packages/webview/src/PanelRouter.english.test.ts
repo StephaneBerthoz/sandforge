@@ -10,7 +10,7 @@
  * The keys are read from the source, as the bundler reads it. Every key the
  * webview renders is written as a literal somewhere
  * (scripts/i18n-key-literals.test.mjs holds the code to that): a whole key,
- * the head of a family the code completes (`` t(`forge.gaps.kind.${kind}`) ``),
+ * the head of a family the code completes (`` t(`forgeRun.gaps.kind.${kind}`) ``),
  * or a namespace a tail-first builder appends to (`formatRelativeTimeI18n`).
  * Some are written in `@sandforge/shared` — the error catalogue's `errors.*`,
  * the templates' names — and reach a page through the function it imports
@@ -261,7 +261,9 @@ interface CatalogueGraph {
 
 /**
  * The files `entry` reaches: its static value imports, and with
- * `followDynamic` the modules it loads on demand too.
+ * `followDynamic` the modules it loads on demand too — but for those it
+ * loads with English of their own (`withEnglish`), which are parts of their
+ * own ({@link nestedParts}).
  */
 function reach(entry: string, followDynamic: boolean): CatalogueGraph {
   const files = new Set<string>();
@@ -273,7 +275,12 @@ function reach(entry: string, followDynamic: boolean): CatalogueGraph {
     files.add(file);
     const imports = importsOf(file);
     const specs = followDynamic
-      ? [...imports.static, ...imports.dynamic.map(({ spec }) => spec)]
+      ? [
+          ...imports.static,
+          ...imports.dynamic
+            .filter(({ node }) => declaredNamespaces(node) === null)
+            .map(({ spec }) => spec),
+        ]
       : imports.static;
     for (const spec of specs) {
       const next = resolveLocal(spec, file);
@@ -337,6 +344,15 @@ function lazyParts(graph: CatalogueGraph): LazyPart[] {
   return parts;
 }
 
+/**
+ * The parts a part loads on demand with English of their own: the steps of
+ * Forge past its input, which load `forgeRun` as they come, where the page
+ * loads its input's `forge`.
+ */
+function nestedParts(part: LazyPart): LazyPart[] {
+  return lazyParts(reach(part.file, true)).filter((nested) => nested.declared !== null);
+}
+
 const sorted = (values: Iterable<string>): string[] => [...values].sort();
 
 describe('the English a panel loads', () => {
@@ -348,7 +364,7 @@ describe('the English a panel loads', () => {
 
   it('reads a key written whole, as the head of a family, and through the tail-first builder', () => {
     const read = (text: string): string[] => sorted(namespacesIn(parse('probe.tsx', text)));
-    expect(read("t('forge.gaps.notRead')")).toEqual(['forge']);
+    expect(read("t('forgeRun.gaps.notRead')")).toEqual(['forgeRun']);
     expect(read("<Trans i18nKey='common.typeToConfirm' />")).toEqual(['common']);
     expect(read('t(`sync.history.status_${status}`)')).toEqual(['sync']);
     expect(read("formatRelativeTimeI18n(ts, t, 'home')")).toEqual(['home']);
@@ -397,6 +413,39 @@ describe('the English a panel loads', () => {
   });
 
   /*
+   * Forge's English was parsed whole before its input painted: 46 kB, three
+   * quarters of it the review's, the execution's and the results' words. The
+   * steps past the input load those as they come (`forgeRun`), each beyond
+   * the shell's and its page's namespaces, which are in when it renders.
+   */
+  it('loads each step a page loads on demand with the English it renders beyond its page’s', () => {
+    const offenders = parts.flatMap((part) =>
+      nestedParts(part).flatMap((nested) => {
+        const loaded = new Set([...shellNamespaces, ...(part.declared ?? [])]);
+        const renders = sorted(
+          [...namespacesOf(reach(nested.file, true))].filter((n) => !loaded.has(n)),
+        );
+        const declared = sorted(nested.declared ?? []);
+        return declared.join() === renders.join()
+          ? []
+          : [
+              `${label(nested.file)} (loaded by ${label(nested.from)}) renders ` +
+                `${renders.join(', ') || 'nothing'} beyond its page's, and loads ${declared.join(', ')}`,
+            ];
+      }),
+    );
+    const forge = parts.find((part) => label(part.file) === 'pages/Forge/ForgePage.tsx');
+    // Positive control: the four steps are read as parts of their own.
+    expect(sorted(nestedParts(forge!).map((nested) => label(nested.file)))).toEqual([
+      'pages/Forge/ForgeDiscovery.tsx',
+      'pages/Forge/ForgeExecution.tsx',
+      'pages/Forge/ForgeResults.tsx',
+      'pages/Forge/ForgeReview.tsx',
+    ]);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
    * A key spelled outside its namespace brings the whole namespace: the hook
    * every query goes through put Seed's 20 kB on ten pages for three words,
    * Home parsed Onboarding's 34 kB for a banner, and the removal and currency
@@ -408,7 +457,8 @@ describe('the English a panel loads', () => {
     const notLoaded: Record<string, string[]> = {
       'pages/Home/HomePage.tsx': ['forge', 'onboarding', 'org', 'seed', 'sidePanel'],
       'pages/OrgManager/OrgManagerPage.tsx': ['monitor', 'seed', 'sidePanel'],
-      'pages/Forge/ForgePage.tsx': ['frozen', 'org', 'seed', 'sync'],
+      // The steps past its input bring their own words (forgeRun) as they come.
+      'pages/Forge/ForgePage.tsx': ['forgeRun', 'frozen', 'org', 'seed', 'sync'],
       'pages/Frozen/FrozenPage.tsx': ['forge', 'org', 'seed'],
       'pages/Monitor/MonitorPage.tsx': ['org', 'reports', 'seed', 'sidePanel', 'sync'],
       'pages/Compare/ComparePage.tsx': ['org', 'seed', 'sidePanel'],

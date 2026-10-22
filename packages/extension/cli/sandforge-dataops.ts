@@ -36,6 +36,8 @@ import { fileConfigStore } from './fileConfigStore.js';
 import { DataOpsHandler } from '../src/bridge/handlers/DataOpsHandler.js';
 import { anonymizationTemplateSavePayloadSchema } from '../src/bridge/validatePayload.js';
 import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/BackupRecordStore.js';
+import { nodeSyncRunCreations } from '../src/modules/sync/SyncRunCreations.js';
+import { journalDirOf } from './sandforge-clone.js';
 import { ProductionGuard } from '../src/core/precheck/ProductionGuard.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
@@ -615,6 +617,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     nextId: () => `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   } as never);
   handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(args.storeDir)));
+  // The Sync runs the command line kept: a restore of a run's snapshot reads
+  // when the run last wrote, and leaves what changed since as it is.
+  handler.setSyncRuns(nodeSyncRunCreations(journalDirOf()));
 
   /**
    * Send a request as the panel does, and take what answers it as the

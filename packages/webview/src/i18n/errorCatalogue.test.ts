@@ -282,19 +282,21 @@ describe('what the hints say, in English', () => {
    * field" without saying where.
    */
   it('sends a Forge user to Review’s tabs for what the panel can do, never to a command-line flag', () => {
-    const gaps = `Review → ${en.forge.review.gapsTab}`;
-    expect(errors.inactiveUser.forge.action).toContain(`Review → ${en.forge.review.controlsTab}`);
-    expect(errors.inactiveUser.forge.action).toContain(en.forge.controls.owners.legend);
+    const gaps = `Review → ${en.forgeRun.review.gapsTab}`;
+    expect(errors.inactiveUser.forge.action).toContain(
+      `Review → ${en.forgeRun.review.controlsTab}`,
+    );
+    expect(errors.inactiveUser.forge.action).toContain(en.forgeRun.controls.owners.legend);
     expect(errors.inactiveUser.forge.action).not.toContain('--owner-map');
     expect(errors.inactiveUser.forge.explanation).not.toContain('command line');
-    expect(errors.malformedId.forge.action).toContain(`Review → ${en.forge.review.controlsTab}`);
+    expect(errors.malformedId.forge.action).toContain(`Review → ${en.forgeRun.review.controlsTab}`);
     expect(errors.malformedId.forge.action).not.toMatch(/--exclude|--map/);
     expect(errors.recordTypeHeldBack.forge.action).toContain(gaps);
     expect(errors.recordTypeHeldBack.forge.action).toContain(
-      `Review → ${en.forge.review.controlsTab}`,
+      `Review → ${en.forgeRun.review.controlsTab}`,
     );
     expect(errors.recordTypeUnavailable.forge.action).toContain(
-      `Review → ${en.forge.review.controlsTab}`,
+      `Review → ${en.forgeRun.review.controlsTab}`,
     );
   });
 

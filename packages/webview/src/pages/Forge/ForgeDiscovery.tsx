@@ -250,13 +250,13 @@ export const ForgeDiscovery: React.FC = () => {
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
         <Loader2 size={32} className="animate-spin text-hue-forge" aria-hidden="true" />
-        <p>{t('forge.discovery')}</p>
+        <p>{t('forgeRun.discovery')}</p>
         {/* The wait can run for minutes: its counters are said, at most one
             sentence every few seconds, as a run's progress is. */}
         <ProgressAnnouncer
           message={
             discoveryProgress
-              ? t('forge.discoveryProgress', {
+              ? t('forgeRun.discoveryProgress', {
                   discovered: discoveryProgress.discoveredCount,
                   queued: discoveryProgress.queueRemaining,
                 })
@@ -266,7 +266,7 @@ export const ForgeDiscovery: React.FC = () => {
         />
         {directRunPending && (
           <p data-testid="forge-discovery-direct" className="text-xs text-text-secondary">
-            {t('forge.direct.discovering')}
+            {t('forgeRun.direct.discovering')}
           </p>
         )}
         {discoveryProgress && (
@@ -274,7 +274,7 @@ export const ForgeDiscovery: React.FC = () => {
             data-testid="forge-discovery-progress"
             className="text-xs tabular-nums text-text-secondary"
           >
-            {t('forge.discoveryProgress', {
+            {t('forgeRun.discoveryProgress', {
               discovered: discoveryProgress.discoveredCount,
               queued: discoveryProgress.queueRemaining,
             })}
@@ -321,7 +321,7 @@ export const ForgeDiscovery: React.FC = () => {
               onClick={handleRetry}
               icon={<RotateCcw size={14} />}
             >
-              {t('forge.retryDiscovery')}
+              {t('forgeRun.retryDiscovery')}
             </Button>
           )}
         </div>
@@ -360,7 +360,7 @@ export const ForgeDiscovery: React.FC = () => {
               onClick={handleRetry}
               icon={<RotateCcw size={12} />}
             >
-              {t('forge.retryDiscovery')}
+              {t('forgeRun.retryDiscovery')}
             </Button>
           )}
         </m.div>
@@ -381,7 +381,7 @@ export const ForgeDiscovery: React.FC = () => {
             data-testid="forge-node-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('forge.searchNodes')}
+            placeholder={t('forgeRun.searchNodes')}
             className={cn(
               'w-full pl-8 pr-3 py-1.5 rounded-md text-xs',
               'bg-(--sf-bg-input)',
@@ -428,7 +428,7 @@ export const ForgeDiscovery: React.FC = () => {
                 data-testid="forge-select-node-empty"
                 className="flex h-full items-center justify-center p-4 text-sm text-text-secondary"
               >
-                {t('forge.selectNode')}
+                {t('forgeRun.selectNode')}
               </div>
             )
           }
@@ -451,7 +451,7 @@ export const ForgeDiscovery: React.FC = () => {
         <div className="flex items-center gap-1.5 text-sm">
           <Database size={14} className="text-text-secondary" />
           <span className="text-text-secondary">
-            {t(oneRecord ? 'forge.recordsInSourceTables' : 'forge.records')}:
+            {t(oneRecord ? 'forgeRun.recordsInSourceTables' : 'forgeRun.records')}:
           </span>
           <span className="font-medium text-text-primary" data-testid="stat-records">
             {stats.recordCount}
@@ -462,7 +462,7 @@ export const ForgeDiscovery: React.FC = () => {
             clone of one case's graph. */}
         {oneRecord ? (
           <p className="text-xs text-text-secondary" data-testid="stat-source-tables">
-            {t('forge.preview.readsWhatTheRecordReaches')}
+            {t('forgeRun.preview.readsWhatTheRecordReaches')}
           </p>
         ) : (
           <>
@@ -475,7 +475,7 @@ export const ForgeDiscovery: React.FC = () => {
             </div>
             <div className="flex items-center gap-1.5 text-sm">
               <Clock size={14} className="text-text-secondary" />
-              <span className="text-text-secondary">{t('forge.estDuration')}:</span>
+              <span className="text-text-secondary">{t('forgeRun.estDuration')}:</span>
               <span className="font-medium text-text-primary" data-testid="stat-duration">
                 {stats.estDuration}
               </span>
@@ -503,7 +503,7 @@ export const ForgeDiscovery: React.FC = () => {
             onClick={() => setNodesIncluded(listedNodeNames, true)}
             icon={<CheckSquare size={14} />}
           >
-            {t('forge.selectAll')}
+            {t('forgeRun.selectAll')}
           </Button>
           <Button
             data-testid="forge-deselect-all"
@@ -512,7 +512,7 @@ export const ForgeDiscovery: React.FC = () => {
             onClick={() => setNodesIncluded(listedNodeNames, false)}
             icon={<XSquare size={14} />}
           >
-            {t('forge.deselectAll')}
+            {t('forgeRun.deselectAll')}
           </Button>
         </div>
         <Button
@@ -521,7 +521,7 @@ export const ForgeDiscovery: React.FC = () => {
           onClick={handleExecute}
           icon={<Play size={14} />}
         >
-          {t('forge.reviewAndExecute')}
+          {t('forgeRun.reviewAndExecute')}
         </Button>
       </m.div>
     </m.div>

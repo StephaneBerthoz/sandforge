@@ -7,12 +7,12 @@ import { useForgeRunGateStore } from './runGate';
 
 /** The sentence each stop is said in. */
 const STOP_KEYS: Record<ForgeRunGateCode, string> = {
-  PRODUCTION_TARGET: 'forge.gate.productionTarget',
-  AUTOMATION_DECLINED: 'forge.gate.automationDeclined',
-  READ_DECLINED: 'forge.gate.readDeclined',
-  WRITE_DECLINED: 'forge.gate.writeDeclined',
-  STORAGE_EXCEEDED: 'forge.gate.storageExceeded',
-  CONFIRMATION_UNAVAILABLE: 'forge.gate.confirmationUnavailable',
+  PRODUCTION_TARGET: 'forgeRun.gate.productionTarget',
+  AUTOMATION_DECLINED: 'forgeRun.gate.automationDeclined',
+  READ_DECLINED: 'forgeRun.gate.readDeclined',
+  WRITE_DECLINED: 'forgeRun.gate.writeDeclined',
+  STORAGE_EXCEEDED: 'forgeRun.gate.storageExceeded',
+  CONFIRMATION_UNAVAILABLE: 'forgeRun.gate.confirmationUnavailable',
 };
 
 /** A stop the user chose, at one of the run's questions, rather than one the extension made. */

@@ -76,6 +76,14 @@ describe('ForgeRemovalPlanStore', () => {
     expect(disk.files.has(FILE)).toBe(true);
   });
 
+  it('keeps the run a plan retried or resumed, which ties the parts of one run once the history drops them', async () => {
+    const store = new ForgeRemovalPlanStore(memoryDisk().deps);
+
+    await store.put(plan('forge-2', 1, { retryOf: 'forge-1' }));
+
+    expect((await store.get('forge-2'))?.retryOf).toBe('forge-1');
+  });
+
   it('writes through a file beside it renamed over it, so a stopped write leaves the last whole file', async () => {
     const disk = memoryDisk();
     const store = new ForgeRemovalPlanStore(disk.deps);

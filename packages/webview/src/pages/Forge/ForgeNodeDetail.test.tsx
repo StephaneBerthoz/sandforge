@@ -64,7 +64,9 @@ describe('ForgeNodeDetail', () => {
           onToggleAnonymize={vi.fn()}
         />,
       );
-      expect(screen.getByTestId('node-status-badge').textContent).toBe(ja.forge.nodeStatus.skipped);
+      expect(screen.getByTestId('node-status-badge').textContent).toBe(
+        ja.forgeRun.nodeStatus.skipped,
+      );
     } finally {
       await i18n.changeLanguage('en');
     }

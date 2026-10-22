@@ -360,6 +360,12 @@ export interface DataOpsRollbackRequest extends BaseMessage {
      * values first and writes only the rows where one differs.
      */
     rewriteAll?: boolean;
+    /**
+     * Of a Sync run's backup, restore the records changed or deleted since
+     * the run too. Absent, they are left as they are, as removing the run in
+     * Sync leaves them.
+     */
+    includeChanged?: boolean;
   };
 }
 
@@ -424,6 +430,21 @@ export interface DataOpsRollbackResponse extends BaseMessage {
     totalUnchanged?: number;
     /** The restore was asked to write every row back, without comparing. */
     rewriteAll?: boolean;
+    /** Of a Sync run's backup, the restore was asked to include the records changed since the run. */
+    includeChanged?: boolean;
+    /**
+     * Of a Sync run's backup, the records changed or deleted since the run —
+     * modified after its last write, or in the recycle bin — which the
+     * restore left as they are, as removing the run in Sync does, per object.
+     * `runNotKept` when the run is no longer kept on this machine: when it
+     * last wrote is unknown, and every record read as changed since.
+     * Absent when none was left.
+     */
+    keptChanged?: {
+      total: number;
+      objects: Array<{ objectApiName: string; count: number }>;
+      runNotKept?: true;
+    };
     /**
      * The backup held only part of some object — it stopped at the cap, its
      * read failed, or its file is no longer all there — and the restore left

@@ -41,9 +41,9 @@ export interface LogStreamProps {
 }
 
 const FILTER_TABS: { key: LogFilter; labelKey: string; testId: string }[] = [
-  { key: 'all', labelKey: 'forge.logFilterAll', testId: 'logstream-filter-all' },
-  { key: 'error', labelKey: 'forge.logFilterErrors', testId: 'logstream-filter-error' },
-  { key: 'warn', labelKey: 'forge.logFilterWarnings', testId: 'logstream-filter-warn' },
+  { key: 'all', labelKey: 'forgeRun.logFilterAll', testId: 'logstream-filter-all' },
+  { key: 'error', labelKey: 'forgeRun.logFilterErrors', testId: 'logstream-filter-error' },
+  { key: 'warn', labelKey: 'forgeRun.logFilterWarnings', testId: 'logstream-filter-warn' },
 ];
 
 const levelColorClasses: Record<LogEntry['level'], string> = {
@@ -187,10 +187,10 @@ export const LogStream: React.FC<LogStreamProps> = ({
               await navigator.clipboard.writeText(text);
             }}
             className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
-            title={t('forge.copyAllLogs')}
+            title={t('forgeRun.copyAllLogs')}
           >
             <Copy size={10} />
-            {t('forge.copyAllLogs')}
+            {t('forgeRun.copyAllLogs')}
           </button>
           {/* Hidden when nobody can save: a control that cannot do its job is
               the failure this whole change removes. */}
@@ -210,10 +210,10 @@ export const LogStream: React.FC<LogStreamProps> = ({
                 onExport?.(`forge-logs-${new Date().toISOString().slice(0, 10)}.log`, text);
               }}
               className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary transition-colors rounded-sm hover:bg-surface-2"
-              title={t('forge.exportLogs')}
+              title={t('forgeRun.exportLogs')}
             >
               <Download size={10} />
-              {t('forge.exportLogs')}
+              {t('forgeRun.exportLogs')}
             </button>
           )}
         </div>

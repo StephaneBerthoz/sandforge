@@ -10,36 +10,36 @@ function statusLine(
 ): string | null {
   if (status === 'running') {
     if (progress?.phase === 'confirming') {
-      return t('forge.rehearsal.confirming', { count: progress.calls ?? 0 });
+      return t('forgeRun.rehearsal.confirming', { count: progress.calls ?? 0 });
     }
     if (progress?.phase === 'rehearsing') {
-      return t('forge.rehearsal.rehearsing', {
+      return t('forgeRun.rehearsal.rehearsing', {
         call: progress.call ?? 0,
         calls: progress.calls ?? 0,
       });
     }
     return progress?.objectApiName
-      ? t('forge.rehearsal.readingObject', { object: progress.objectApiName })
-      : t('forge.rehearsal.reading');
+      ? t('forgeRun.rehearsal.readingObject', { object: progress.objectApiName })
+      : t('forgeRun.rehearsal.reading');
   }
   if (status === 'done' && result) {
-    if (result.rows === 0) return t('forge.rehearsal.nothing');
+    if (result.rows === 0) return t('forgeRun.rehearsal.nothing');
     // A row the target refused for a record it holds, which the run links
     // to: counted apart, never among the refused.
     const linked = result.linked ?? 0;
-    const judged = t('forge.rehearsal.done', {
+    const judged = t('forgeRun.rehearsal.done', {
       judged: result.judged,
       passed: result.passed,
       refused: result.judged - result.passed - linked,
       notJudged: result.notJudged,
       calls: result.calls,
     });
-    const done = linked > 0 ? `${judged} ${t('forge.rehearsal.linked', { linked })}` : judged;
+    const done = linked > 0 ? `${judged} ${t('forgeRun.rehearsal.linked', { linked })}` : judged;
     // The updates the run makes after its inserts, apart: only the command
     // line said those it could not rehearse, and the panel's line read as
     // the verdict on every write of the run.
     return result.updates > 0
-      ? `${done} ${t('forge.rehearsal.updates', {
+      ? `${done} ${t('forgeRun.rehearsal.updates', {
           judged: result.updatesJudged,
           passed: result.updatesPassed,
           refused: result.updatesJudged - result.updatesPassed,
@@ -48,8 +48,8 @@ function statusLine(
         })}`
       : done;
   }
-  if (status === 'declined') return t('forge.rehearsal.declined');
-  if (status === 'error') return t('forge.rehearsal.error', { error: error ?? '' });
+  if (status === 'declined') return t('forgeRun.rehearsal.declined');
+  if (status === 'error') return t('forgeRun.rehearsal.error', { error: error ?? '' });
   return null;
 }
 
@@ -85,13 +85,13 @@ export const ForgeRehearseAction: React.FC = () => {
         disabled={!graph || !config || running}
         aria-busy={running}
         aria-describedby="forge-rehearse-hint forge-rehearse-status"
-        title={t('forge.rehearsal.hint')}
+        title={t('forgeRun.rehearsal.hint')}
         className="px-4 py-2 text-sm font-semibold rounded-lg border border-forge text-hue-forge transition-colors hover:bg-forge/10 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {t('forge.rehearsal.action')}
+        {t('forgeRun.rehearsal.action')}
       </button>
       <span id="forge-rehearse-hint" className="sr-only">
-        {t('forge.rehearsal.hint')}
+        {t('forgeRun.rehearsal.hint')}
       </span>
     </div>
   );

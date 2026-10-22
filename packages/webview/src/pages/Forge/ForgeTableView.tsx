@@ -126,7 +126,7 @@ const ForgeTableRow = memo(function ForgeTableRow({
             statusColors[node.status],
           )}
         >
-          {t(`forge.nodeStatus.${node.status}`)}
+          {t(`forgeRun.nodeStatus.${node.status}`)}
         </span>
       </td>
       <td className="px-3 py-2 text-text-secondary">
@@ -189,7 +189,7 @@ export const ForgeTableView = memo(function ForgeTableView({
     // A status sorts by the word the column shows, in the panel's language:
     // by its code, "Échoué" sorted where "error" did.
     const valueOf = (node: ForgeGraphNode): string | number =>
-      sortField === 'status' ? t(`forge.nodeStatus.${node.status}`) : node[sortField];
+      sortField === 'status' ? t(`forgeRun.nodeStatus.${node.status}`) : node[sortField];
     const { compare } = collator();
     return [...filtered].sort((a, b) => {
       const aVal = valueOf(a);
@@ -245,7 +245,7 @@ export const ForgeTableView = memo(function ForgeTableView({
           className,
         )}
       >
-        {t('forge.noMatchingNodes')}
+        {t('forgeRun.noMatchingNodes')}
       </div>
     );
   }
@@ -256,10 +256,10 @@ export const ForgeTableView = memo(function ForgeTableView({
         <thead className="sticky top-0 bg-surface-1 border-b border-subtle">
           <tr>
             <th className="w-8 px-3 py-2" />
-            {renderHeader('objectApiName', t('forge.object'))}
-            {renderHeader('recordCount', t('forge.records'))}
+            {renderHeader('objectApiName', t('forgeRun.object'))}
+            {renderHeader('recordCount', t('forgeRun.records'))}
             {renderHeader('fieldCount', t('forge.fields'))}
-            {renderHeader('status', t('forge.status'))}
+            {renderHeader('status', t('forgeRun.status'))}
             <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">PII</th>
           </tr>
         </thead>
