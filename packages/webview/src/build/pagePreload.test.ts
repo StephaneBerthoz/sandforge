@@ -48,6 +48,22 @@ describe('pagePreloadManifest', () => {
   ];
   const ids = (route: { module: string }): string[] => [`/src${route.module.slice(1)}.tsx`];
 
+  it('finds a page whose id the bundler and the path module write with different slashes, as on Windows', () => {
+    const windows = [
+      chunk('assets/index.js', [], ['D:/a/sandforge/src/main.tsx']),
+      chunk('assets/chunks/HomePage.js', [], ['D:/a/sandforge/src/pages/Home/HomePage.tsx']),
+    ];
+
+    const { manifest, unplaced } = pagePreloadManifest(
+      [{ route: 'home', module: './pages/Home/HomePage', english: [] }],
+      windows,
+      () => ['D:\\a\\sandforge\\src\\pages\\Home\\HomePage.tsx'],
+    );
+
+    expect(unplaced).toEqual([]);
+    expect(manifest).toEqual({ home: ['assets/chunks/HomePage.js'] });
+  });
+
   it("lists what the panel bundle imports up front, the page's chunk and its imports, and its English", () => {
     const { manifest, unplaced } = pagePreloadManifest(
       [{ route: 'forge', module: './pages/Forge/ForgePage', english: ['forge', 'common'] }],

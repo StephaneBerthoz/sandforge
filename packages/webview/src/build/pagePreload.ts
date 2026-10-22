@@ -70,8 +70,12 @@ export function pagePreloadManifest(
   pageModuleIds: (route: PageRoute) => readonly string[],
 ): { manifest: Record<string, string[]>; unplaced: string[] } {
   const byFile = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+  // Read with forward slashes on both sides: on Windows `path.resolve` gives
+  // the page `D:\a\…\HomePage.tsx` and the bundler holds `D:/a/…/HomePage.tsx`,
+  // and the build stopped, no chunk holding any page.
+  const slashed = (id: string): string => id.split('\\').join('/');
   const holding = (id: string): BuiltChunk | undefined =>
-    chunks.find((chunk) => chunk.moduleIds.includes(id));
+    chunks.find((chunk) => chunk.moduleIds.some((held) => slashed(held) === slashed(id)));
   const closure = (fileName: string, into: Set<string>): void => {
     if (into.has(fileName)) return;
     into.add(fileName);
