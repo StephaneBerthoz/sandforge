@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FieldRuleType, SeedRecordTypeOption } from '@sandforge/shared';
 import {
@@ -11,6 +11,7 @@ import type { SelectOption } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Accordion } from '../../components/ui/Accordion';
+import { VirtualList } from '../../components/ui/VirtualList';
 import { cn } from '../../theme';
 
 /** Field configuration for the UI. */
@@ -117,23 +118,186 @@ export function categorizeObject(apiName: string): 'standard' | 'custom' | 'mana
   return 'custom';
 }
 
-/** Render a single object's expandable field config panel. */
-const ObjectPanel: React.FC<{
-  obj: ObjectFieldConfig;
-  expandedObject: string;
-  setExpandedObject: (name: string) => void;
+/** Props of one field's row. */
+interface FieldRowProps {
+  objectApiName: string;
+  /** The field's configuration: the same object until it changes. */
+  field: FieldConfig;
   onChangeRule: Step3ConfigureFieldsProps['onChangeRule'];
   onChangeConfig: Step3ConfigureFieldsProps['onChangeConfig'];
-  ruleOptions: { value: string; label: string }[];
-}> = ({ obj, expandedObject, setExpandedObject, onChangeRule, onChangeConfig, ruleOptions }) => {
+  ruleOptions: SelectOption[];
+}
+
+/**
+ * One field's rule and what the rule takes. Drawn again only when its own
+ * configuration changes: a character typed in one field's value drew every
+ * row of the object again, about 16 000 elements for an 800-field Account.
+ */
+const FieldRow = React.memo(function FieldRow({
+  objectApiName,
+  field,
+  onChangeRule,
+  onChangeConfig,
+  ruleOptions,
+}: FieldRowProps) {
   const { t } = useTranslation();
+  // The field's name sits beside its controls, in no label: each is
+  // named after it, or every row read "combo box" and nothing more.
+  const rule = ruleOptions.find((o) => o.value === field.ruleType)?.label ?? '';
+  const valueLabel = t('a11y.fieldRuleValueFor', { rule, field: field.label });
   return (
-    <div key={obj.objectApiName} className="border border-(--sf-border) rounded-sm">
+    <div
+      className={cn('flex items-center gap-2 p-2 rounded-sm text-xs', 'bg-surface-2')}
+      data-testid={`field-${objectApiName}-${field.fieldApiName}`}
+    >
+      <div className="w-32 truncate">
+        <span className="text-(--sf-text-primary)">{field.label}</span>
+        {field.required && <span className="text-status-error ml-0.5">*</span>}
+      </div>
+      <span className="w-16 text-(--sf-text-secondary) truncate">{field.type}</span>
+      <Select
+        aria-label={t('a11y.fieldRuleFor', { field: field.label })}
+        options={ruleOptionsFor(field, ruleOptions)}
+        value={field.ruleType}
+        onChange={(e) =>
+          onChangeRule(objectApiName, field.fieldApiName, e.target.value as FieldRuleType)
+        }
+        className="flex-1"
+      />
+
+      {/* Contextual config inputs */}
+      {field.ruleType === 'static' && (
+        <Input
+          aria-label={valueLabel}
+          placeholder={t('seed.fieldRules.static')}
+          value={String(field.config['staticValue'] ?? '')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'staticValue', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+      {field.ruleType === 'faker' && (
+        <Select
+          aria-label={valueLabel}
+          {...fakerMethodSelection(field.config['fakerMethod'])}
+          placeholder={t('seed.fieldRules.faker')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'fakerMethod', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+      {field.ruleType === 'sequence' && (
+        <Input
+          aria-label={valueLabel}
+          placeholder={t('seed.sequencePattern', 'PREFIX-{n}')}
+          value={String(field.config['sequencePrefix'] ?? '')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'sequencePrefix', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+      {field.ruleType === 'regex' && (
+        <Input
+          aria-label={valueLabel}
+          placeholder={t('seed.regexPlaceholder', '[A-Z]{3}-\\d{4}')}
+          value={String(field.config['regexPattern'] ?? '')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'regexPattern', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+      {field.ruleType === 'ai_generate' && (
+        <Input
+          aria-label={valueLabel}
+          placeholder={t('seed.aiPromptPlaceholder', 'Generate...')}
+          value={String(field.config['aiPrompt'] ?? '')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'aiPrompt', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+      {field.ruleType === 'from_csv' && (
+        <Input
+          aria-label={valueLabel}
+          placeholder={t('seed.csvColumnPlaceholder', 'column_name')}
+          value={String(field.config['csvColumn'] ?? '')}
+          onChange={(e) =>
+            onChangeConfig(objectApiName, field.fieldApiName, 'csvColumn', e.target.value)
+          }
+          className="w-32"
+        />
+      )}
+    </div>
+  );
+});
+
+/** An object with more fields than this offers a filter on them. */
+const FIELD_FILTER_FROM = 10;
+
+/** Past this many fields shown, the rows are drawn as they scroll into view. */
+const VIRTUAL_ROWS_FROM = 100;
+
+/** The height of a field's row, as the scrolled list lays it out. */
+const FIELD_ROW_HEIGHT = 44;
+
+/** Render a single object's expandable field config panel. */
+const ObjectPanel = React.memo(function ObjectPanel({
+  obj,
+  expanded,
+  onToggle,
+  onChangeRule,
+  onChangeConfig,
+  ruleOptions,
+}: {
+  obj: ObjectFieldConfig;
+  expanded: boolean;
+  onToggle: (objectApiName: string) => void;
+  onChangeRule: Step3ConfigureFieldsProps['onChangeRule'];
+  onChangeConfig: Step3ConfigureFieldsProps['onChangeConfig'];
+  ruleOptions: SelectOption[];
+}) {
+  const { t } = useTranslation();
+  const filterId = useId();
+  /*
+   * The fields an admin wants among hundreds: an 800-field Account listed
+   * them all, with a search for objects only, past twenty of them, and
+   * finding the three to set meant scrolling past every other.
+   */
+  const [fieldFilter, setFieldFilter] = useState('');
+  const [requiredOnly, setRequiredOnly] = useState(false);
+  const offersFilter = obj.fields.length > FIELD_FILTER_FROM;
+  const filtering = fieldFilter.trim() !== '' || requiredOnly;
+  const shownFields = useMemo(() => {
+    const needle = fieldFilter.trim().toLowerCase();
+    return obj.fields.filter(
+      (field) =>
+        (!requiredOnly || field.required) &&
+        (needle === '' ||
+          field.label.toLowerCase().includes(needle) ||
+          field.fieldApiName.toLowerCase().includes(needle)),
+    );
+  }, [obj.fields, fieldFilter, requiredOnly]);
+
+  const row = (field: FieldConfig): React.ReactNode => (
+    <FieldRow
+      objectApiName={obj.objectApiName}
+      field={field}
+      onChangeRule={onChangeRule}
+      onChangeConfig={onChangeConfig}
+      ruleOptions={ruleOptions}
+    />
+  );
+
+  return (
+    <div className="border border-(--sf-border) rounded-sm">
       <button
         className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-(--sf-text-primary) hover:bg-(--sf-bg-hover)"
-        onClick={() =>
-          setExpandedObject(expandedObject === obj.objectApiName ? '' : obj.objectApiName)
-        }
+        onClick={() => onToggle(obj.objectApiName)}
         data-testid={`obj-header-${obj.objectApiName}`}
       >
         <span className="flex items-center gap-2">
@@ -142,144 +306,77 @@ const ObjectPanel: React.FC<{
         <Badge variant="default">{t('common.fieldCount', { count: obj.fields.length })}</Badge>
       </button>
 
-      {expandedObject === obj.objectApiName && (
+      {expanded && (
         <div className="flex flex-col gap-2 px-3 pb-3">
-          {/* Field rows */}
-          {obj.fields.map((field) => {
-            // The field's name sits beside its controls, in no label: each is
-            // named after it, or every row read "combo box" and nothing more.
-            const rule = ruleOptions.find((o) => o.value === field.ruleType)?.label ?? '';
-            const valueLabel = t('a11y.fieldRuleValueFor', { rule, field: field.label });
-            return (
-              <div
-                key={field.fieldApiName}
-                className={cn('flex items-center gap-2 p-2 rounded-sm text-xs', 'bg-surface-2')}
-                data-testid={`field-${obj.objectApiName}-${field.fieldApiName}`}
-              >
-                <div className="w-32 truncate">
-                  <span className="text-(--sf-text-primary)">{field.label}</span>
-                  {field.required && <span className="text-status-error ml-0.5">*</span>}
-                </div>
-                <span className="w-16 text-(--sf-text-secondary) truncate">{field.type}</span>
-                <Select
-                  aria-label={t('a11y.fieldRuleFor', { field: field.label })}
-                  options={ruleOptionsFor(field, ruleOptions)}
-                  value={field.ruleType}
-                  onChange={(e) =>
-                    onChangeRule(
-                      obj.objectApiName,
-                      field.fieldApiName,
-                      e.target.value as FieldRuleType,
-                    )
-                  }
-                  className="flex-1"
+          {offersFilter && (
+            <div
+              className="flex flex-wrap items-end gap-3 pt-1"
+              data-testid={`field-filter-${obj.objectApiName}`}
+            >
+              <div className="min-w-48 flex-1">
+                {/* Named by its label: a placeholder alone would name it, and
+                    go as soon as a letter is typed. */}
+                <Input
+                  id={filterId}
+                  label={t('seed.configure.filterFields', { object: obj.objectLabel })}
+                  type="search"
+                  value={fieldFilter}
+                  onChange={(e) => setFieldFilter(e.target.value)}
+                  placeholder={t('seed.configure.filterFieldsPlaceholder')}
+                  data-testid={`field-filter-input-${obj.objectApiName}`}
                 />
-
-                {/* Contextual config inputs */}
-                {field.ruleType === 'static' && (
-                  <Input
-                    aria-label={valueLabel}
-                    placeholder={t('seed.fieldRules.static')}
-                    value={String(field.config['staticValue'] ?? '')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'staticValue',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
-                {field.ruleType === 'faker' && (
-                  <Select
-                    aria-label={valueLabel}
-                    {...fakerMethodSelection(field.config['fakerMethod'])}
-                    placeholder={t('seed.fieldRules.faker')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'fakerMethod',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
-                {field.ruleType === 'sequence' && (
-                  <Input
-                    aria-label={valueLabel}
-                    placeholder={t('seed.sequencePattern', 'PREFIX-{n}')}
-                    value={String(field.config['sequencePrefix'] ?? '')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'sequencePrefix',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
-                {field.ruleType === 'regex' && (
-                  <Input
-                    aria-label={valueLabel}
-                    placeholder={t('seed.regexPlaceholder', '[A-Z]{3}-\\d{4}')}
-                    value={String(field.config['regexPattern'] ?? '')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'regexPattern',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
-                {field.ruleType === 'ai_generate' && (
-                  <Input
-                    aria-label={valueLabel}
-                    placeholder={t('seed.aiPromptPlaceholder', 'Generate...')}
-                    value={String(field.config['aiPrompt'] ?? '')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'aiPrompt',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
-                {field.ruleType === 'from_csv' && (
-                  <Input
-                    aria-label={valueLabel}
-                    placeholder={t('seed.csvColumnPlaceholder', 'column_name')}
-                    value={String(field.config['csvColumn'] ?? '')}
-                    onChange={(e) =>
-                      onChangeConfig(
-                        obj.objectApiName,
-                        field.fieldApiName,
-                        'csvColumn',
-                        e.target.value,
-                      )
-                    }
-                    className="w-32"
-                  />
-                )}
               </div>
-            );
-          })}
+              <label className="flex items-center gap-1.5 text-xs text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={requiredOnly}
+                  onChange={(e) => setRequiredOnly(e.target.checked)}
+                  data-testid={`field-filter-required-${obj.objectApiName}`}
+                />
+                {t('seed.configure.requiredOnly')}
+              </label>
+              <span
+                className="text-xs text-text-secondary"
+                role="status"
+                data-testid={`field-filter-count-${obj.objectApiName}`}
+              >
+                {filtering
+                  ? t('seed.configure.fieldsShown', {
+                      shown: shownFields.length,
+                      total: obj.fields.length,
+                    })
+                  : ''}
+              </span>
+            </div>
+          )}
+
+          {/* Field rows: past a hundred, drawn as they scroll into view */}
+          {shownFields.length === 0 ? (
+            <p
+              className="text-xs text-text-secondary"
+              data-testid={`field-filter-none-${obj.objectApiName}`}
+            >
+              {t('seed.configure.noFieldMatches')}
+            </p>
+          ) : shownFields.length > VIRTUAL_ROWS_FROM ? (
+            <VirtualList
+              items={shownFields}
+              keyExtractor={(field) => field.fieldApiName}
+              renderItem={(field) => row(field)}
+              estimatedItemHeight={FIELD_ROW_HEIGHT}
+              maxHeight="480px"
+              overscan={8}
+            />
+          ) : (
+            shownFields.map((field) => (
+              <React.Fragment key={field.fieldApiName}>{row(field)}</React.Fragment>
+            ))
+          )}
         </div>
       )}
     </div>
   );
-};
+});
 
 /** Step 3 -- Configure field generation rules per object. */
 export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
@@ -293,10 +390,16 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
   );
   const [searchFilter, setSearchFilter] = React.useState('');
 
-  const ruleOptions = RULE_TYPE_OPTIONS.map((r) => ({
-    value: r.value,
-    label: t(r.labelKey),
-  }));
+  const ruleOptions = useMemo(
+    () => RULE_TYPE_OPTIONS.map((r) => ({ value: r.value, label: t(r.labelKey) })),
+    [t],
+  );
+  /** Open an object's fields, or close them when they are the ones open. */
+  const toggleObject = useCallback(
+    (objectApiName: string) =>
+      setExpandedObject((open) => (open === objectApiName ? '' : objectApiName)),
+    [],
+  );
 
   const useGroupedView = objectConfigs.length > GROUPING_THRESHOLD;
 
@@ -326,18 +429,19 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
     return groups;
   }, [filteredConfigs, useGroupedView]);
 
-  /** Shared props for ObjectPanel. */
-  const panelProps = {
-    expandedObject,
-    setExpandedObject,
-    onChangeRule,
-    onChangeConfig,
-    ruleOptions,
-  };
-
   /** Render a flat list of object panels. */
   const renderFlatList = (configs: ObjectFieldConfig[]) =>
-    configs.map((obj) => <ObjectPanel key={obj.objectApiName} obj={obj} {...panelProps} />);
+    configs.map((obj) => (
+      <ObjectPanel
+        key={obj.objectApiName}
+        obj={obj}
+        expanded={expandedObject === obj.objectApiName}
+        onToggle={toggleObject}
+        onChangeRule={onChangeRule}
+        onChangeConfig={onChangeConfig}
+        ruleOptions={ruleOptions}
+      />
+    ));
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-configure-fields">

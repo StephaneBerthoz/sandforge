@@ -8,6 +8,7 @@ import { formatNumber } from '../../utils/formatters';
 import { cn } from '../../theme';
 import type { StorageObjectEntry } from '@sandforge/shared';
 import { StorageDonut } from './monitorCharts';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 
 /**
  * One identity hue per donut slice, as the slice's fill and as the dot on its
@@ -129,12 +130,17 @@ export const StorageBreakdownPanel: React.FC = () => {
           in words. Recharts 3 makes a chart a tab stop for its keyboard
           tooltips (`accessibilityLayer`): inside this hidden block that stop
           was a control no reader could name, as axe said. */}
-      <div className="h-48" data-testid="storage-donut-chart" aria-hidden="true">
-        {/* The box keeps its height while Recharts loads. */}
-        <Suspense fallback={null}>
-          <StorageDonut data={chartData} fills={SLICE_FILLS} />
-        </Suspense>
-      </div>
+      {/* Outside the hidden block: a donut whose chunk cannot be read is said
+          in its place, with a button no hidden block may hold, and the rest of
+          Monitor, its Stop buttons with it, stays up. */}
+      <PartBoundary className="h-48" data-testid="storage-donut-failed">
+        <div className="h-48" data-testid="storage-donut-chart" aria-hidden="true">
+          {/* The box keeps its height while Recharts loads. */}
+          <Suspense fallback={null}>
+            <StorageDonut data={chartData} fills={SLICE_FILLS} />
+          </Suspense>
+        </div>
+      </PartBoundary>
 
       {/* Table */}
       <div className="flex flex-col gap-1 mt-3" data-testid="storage-table">

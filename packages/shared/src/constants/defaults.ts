@@ -202,6 +202,20 @@ export const AUDIT_TRAIL_LIMIT = 2_000;
  */
 export const AUTOPILOT_COUNTS_PER_REQUEST = 50;
 
+/**
+ * Rows one CSV import takes, at most: the host refuses a larger request (it
+ * holds every row in memory and writes them through the REST API). Shared so
+ * the page says so as soon as the file is read, not after it was mapped.
+ */
+export const CSV_IMPORT_MAX_ROWS = 50_000;
+
+/**
+ * Mapped columns one CSV import takes, at most. Only the mapped columns are
+ * sent, so a wide export imports once the columns past this are left
+ * unmapped.
+ */
+export const CSV_IMPORT_MAX_COLUMNS = 500;
+
 /** Module names */
 export const MODULE_NAMES = [
   'seed',

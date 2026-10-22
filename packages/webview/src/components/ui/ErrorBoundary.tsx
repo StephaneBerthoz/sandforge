@@ -2,6 +2,8 @@ import React from 'react';
 import { Flame, RefreshCw, AlertTriangle, Copy } from 'lucide-react';
 import i18n from '../../i18n';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
+import { reloadPanel } from '../../bridge/reloadPanel';
+import { isChunkLoadError, withoutFileUrls } from '../../utils/chunkLoadError';
 
 /** Props for the ErrorBoundary component. */
 export interface ErrorBoundaryProps {
@@ -22,6 +24,12 @@ interface ErrorBoundaryState {
  * Error boundary that catches unhandled React errors and renders a recovery
  * UI instead of a white screen. Mounted at each root and, in a panel, around
  * the routed page (keyed on the route) so a page crash leaves navigation up.
+ *
+ * A page whose file could not be fetched is told apart from one that broke:
+ * React keeps a page loaded on demand failed once its file failed, so Recover
+ * drew the same failure again, under Chromium's untranslated "Failed to fetch
+ * dynamically imported module" and a URL spelling the user's home folder.
+ * That page is offered the one way back, a new document (Reload panel).
  */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -67,15 +75,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   private handleCopyError = (): void => {
     const { error, errorInfo } = this.state;
-    const text = [
-      `Error: ${error?.message ?? 'Unknown error'}`,
-      '',
-      'Stack:',
-      error?.stack ?? 'No stack trace',
-      '',
-      'Component Stack:',
-      errorInfo?.componentStack ?? 'No component stack',
-    ].join('\n');
+    // The URLs of a webview's files spell the user's home folder: each is cut
+    // to the file it names before it reaches a bug report.
+    const text = withoutFileUrls(
+      [
+        `Error: ${error?.message ?? 'Unknown error'}`,
+        '',
+        'Stack:',
+        error?.stack ?? 'No stack trace',
+        '',
+        'Component Stack:',
+        errorInfo?.componentStack ?? 'No component stack',
+      ].join('\n'),
+    );
 
     void navigator.clipboard.writeText(text).then(() => {
       this.setState({ copied: true });
@@ -93,6 +105,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     }
 
     const { error, copied } = this.state;
+    const notLoaded = isChunkLoadError(error);
 
     return (
       <div
@@ -115,26 +128,33 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             className="text-lg font-semibold mb-2"
             style={{ color: 'var(--sf-text-primary, #F2F2F2)' }}
           >
-            {i18n.t('errorBoundary.title', 'Something went wrong')}
+            {notLoaded
+              ? i18n.t('errorBoundary.notLoadedTitle')
+              : i18n.t('errorBoundary.title', 'Something went wrong')}
           </h2>
           <p className="text-sm mb-6" style={{ color: 'var(--sf-text-secondary, #A3A3A3)' }}>
-            {i18n.t(
-              'errorBoundary.description',
-              'SandForge encountered an unexpected error. You can try recovering or copy the error details for a bug report.',
-            )}
+            {notLoaded
+              ? i18n.t('errorBoundary.notLoadedDescription')
+              : i18n.t(
+                  'errorBoundary.description',
+                  'SandForge encountered an unexpected error. You can try recovering or copy the error details for a bug report.',
+                )}
           </p>
 
-          {/* Error message */}
-          <div
-            className="text-left text-xs font-mono p-3 rounded-lg mb-6 overflow-auto max-h-32 text-status-error"
-            style={{
-              background: 'var(--sf-bg-input, #262635)',
-              border: '1px solid var(--sf-border, rgba(255,255,255,0.10))',
-            }}
-            data-testid="error-message"
-          >
-            {error?.message ?? 'Unknown error'}
-          </div>
+          {/* Error message. A file that could not be fetched is said in words
+              above: the browser's own message is English and holds its URL. */}
+          {!notLoaded && (
+            <div
+              className="text-left text-xs font-mono p-3 rounded-lg mb-6 overflow-auto max-h-32 text-status-error"
+              style={{
+                background: 'var(--sf-bg-input, #262635)',
+                border: '1px solid var(--sf-border, rgba(255,255,255,0.10))',
+              }}
+              data-testid="error-message"
+            >
+              {error?.message ?? 'Unknown error'}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 justify-center">
@@ -144,11 +164,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                 background: 'var(--sf-button-bg, #0e639c)',
                 color: 'var(--sf-button-fg, #fff)',
               }}
-              onClick={this.handleReload}
-              data-testid="error-recover-btn"
+              onClick={notLoaded ? reloadPanel : this.handleReload}
+              data-testid={notLoaded ? 'error-reload-panel-btn' : 'error-recover-btn'}
             >
               <RefreshCw className="w-4 h-4" />
-              {i18n.t('errorBoundary.recover', 'Recover')}
+              {notLoaded
+                ? i18n.t('errorBoundary.reloadPanel')
+                : i18n.t('errorBoundary.recover', 'Recover')}
             </button>
             <button
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors"

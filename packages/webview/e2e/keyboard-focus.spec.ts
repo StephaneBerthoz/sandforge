@@ -759,3 +759,143 @@ test.describe('Keyboard and screen reader — the Forge flow', () => {
     }
   });
 });
+
+test.describe('Keyboard and screen reader — the other ways to seed', () => {
+  /*
+   * Each way is drawn in place of the gallery, the card pressed with it, and
+   * Back draws the gallery in place of the way: the focus fell to <body> each
+   * time, the next Tab started over at the skip link, and nothing was said.
+   */
+  for (const way of [
+    { name: 'Generate', mode: 'generate', step: 'seed-step-content' },
+    { name: 'Import CSV', mode: 'csv', step: 'csv-step-content' },
+    { name: 'Clone from Org', mode: 'clone', step: 'clone-step-content' },
+  ]) {
+    test(`${way.name} takes the keyboard on its step, and Back gives it to its card`, async ({
+      page,
+    }) => {
+      await openSeedGallery(page);
+      await pressWithKeyboard(page, `mode-card-${way.mode}`);
+
+      const step = page.getByTestId(way.step);
+      await expect(step).toBeFocused({ timeout: 10_000 });
+      await expect(step).toHaveAttribute('role', 'group');
+      await expect(step).toHaveAttribute('aria-label', /\S/);
+
+      await pressWithKeyboard(page, 'back-to-modes');
+      await expect(page.getByTestId(`mode-card-${way.mode}`)).toBeFocused({ timeout: 10_000 });
+    });
+  }
+
+  test('Generate opened again, its wizard kept, takes the keyboard on its step again', async ({
+    page,
+  }) => {
+    await openSeedGallery(page);
+    await pressWithKeyboard(page, 'mode-card-generate');
+    await expect(page.getByTestId('seed-step-content')).toBeFocused({ timeout: 10_000 });
+    await pressWithKeyboard(page, 'back-to-modes');
+    await expect(page.getByTestId('mode-card-generate')).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('seed-step-content')).toBeFocused({ timeout: 10_000 });
+  });
+});
+
+test.describe('Keyboard and screen reader — Reports', () => {
+  test('View run on an audit entry hands the focus to the lineage tab it opens', async ({
+    page,
+  }) => {
+    // The button went with the audit tab it was on: the focus fell to <body>.
+    const bridge = await openModule(page, 'reports');
+    await page.getByTestId('reports-page').waitFor({ timeout: 10_000 });
+    await bridge.waitForMessage('reports:audit', { timeout: 10_000 });
+    await answerAll(page, 'reports:audit', 'reports:audit:response', {
+      entries: [
+        {
+          id: 'audit-forge',
+          action: 'forge_execute',
+          module: 'forge',
+          orgId: '00D000000000001AAA',
+          orgAlias: QA_SANDBOX.alias,
+          operationId: 'op-2',
+          outcome: 'success',
+          objects: [{ objectApiName: 'Account', created: 3, updated: 0, deleted: 0, failed: 0 }],
+          details: {},
+          timestamp: '2026-09-12T10:00:00.000Z',
+        },
+      ],
+      total: 1,
+      offset: 0,
+      facets: {
+        modules: ['forge'],
+        orgs: [{ orgId: '00D000000000001AAA', orgAlias: QA_SANDBOX.alias }],
+      },
+    });
+    await answerAll(page, 'reports:lineage', 'reports:lineage:response', {
+      lineage: null,
+      runs: [
+        {
+          operationId: 'op-2',
+          generatedAt: '2026-09-12T10:00:00.000Z',
+          action: 'forge_execute',
+          targetLabel: QA_SANDBOX.alias,
+        },
+      ],
+    });
+    await page.getByRole('tab', { name: 'Audit Trail' }).click();
+
+    await pressWithKeyboard(page, 'audit-view-run-audit-forge');
+
+    const lineageTab = page.getByRole('tab', { name: 'Data Lineage' });
+    await expect(lineageTab).toBeFocused();
+    await expect(lineageTab).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+test.describe('Keyboard and screen reader — the overlays', () => {
+  /*
+   * Each overlay's content comes in a chunk of its own. A chunk that takes a
+   * moment, as on a remote window, used to leave the focus on the empty
+   * dialog the trap had focused: "Welcome wizard, dialog", and nothing of the
+   * first step, until the user went looking.
+   */
+  for (const overlay of [
+    {
+      name: "What's New",
+      chunk: '**/src/pages/Welcome/WhatsNewPage.tsx*',
+      open: { type: 'whats-new:show', payload: { version: '1.0.0' } },
+      content: 'whats-new-page',
+    },
+    {
+      name: 'the welcome tour',
+      chunk: '**/src/pages/Welcome/WelcomePage.tsx*',
+      open: { type: 'onboarding:show', payload: {} },
+      content: 'welcome-page',
+    },
+  ]) {
+    test(`${overlay.name} whose chunk arrives late puts the focus on its first control, not on the empty dialog`, async ({
+      page,
+    }) => {
+      await page.route(overlay.chunk, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        await route.continue();
+      });
+      const bridge = await openModule(page, 'home');
+      await page.getByTestId('home-page').waitFor({ timeout: 10_000 });
+      await bridge.stream([overlay.open]);
+
+      const content = page.getByTestId(overlay.content);
+      await content.waitFor({ state: 'visible', timeout: 10_000 });
+      await expect
+        .poll(() =>
+          page.evaluate((testId) => {
+            const active = document.activeElement;
+            const inside = document.querySelector(`[data-testid="${testId}"]`);
+            return active !== null && inside !== null && inside.contains(active);
+          }, overlay.content),
+        )
+        .toBe(true);
+      await expect(page.getByRole('dialog')).not.toBeFocused();
+    });
+  }
+});

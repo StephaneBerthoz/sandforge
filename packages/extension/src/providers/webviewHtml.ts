@@ -39,6 +39,19 @@ export interface WebviewHtmlAssets {
    * language setting. Omitted unless it is a well-formed language tag.
    */
   editorLanguage?: string;
+  /**
+   * Resolved URIs of the chunks the page needs before it paints, linked as
+   * `<link rel="modulepreload">` on the scripts' nonce: the webview fetches
+   * them all as the shell is read, where it found each chunk's imports only
+   * once that chunk had been fetched and parsed, one round after another.
+   * Fetched, not run: each runs when the bundle imports it, in its order.
+   */
+  preloadUris?: readonly { toString(): string }[];
+}
+
+/** `value` safe inside a double-quoted HTML attribute. */
+function attribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 /**
@@ -85,9 +98,23 @@ export function generateNonce(): string {
  * policy names no other script source.
  */
 export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
-  const { cspSource, scriptUri, styleUri, moduleScript, title, moduleId, lang, editorLanguage } =
-    assets;
+  const {
+    cspSource,
+    scriptUri,
+    styleUri,
+    moduleScript,
+    title,
+    moduleId,
+    lang,
+    editorLanguage,
+    preloadUris = [],
+  } = assets;
   const nonce = generateNonce();
+  const preloads = preloadUris
+    .map(
+      (uri) => `\n  <link rel="modulepreload" nonce="${nonce}" href="${attribute(String(uri))}">`,
+    )
+    .join('');
   // Whitelisted, never interpolated raw: the value originates in a
   // hand-editable config store and lands inside an HTML attribute.
   const htmlLang = isSupportedLocaleCode(lang) ? lang : 'en';
@@ -102,7 +129,7 @@ export function buildWebviewHtml(assets: WebviewHtmlAssets): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${cspSource}; img-src ${cspSource} data:;">
-  <link href="${String(styleUri)}" rel="stylesheet">
+  <link href="${String(styleUri)}" rel="stylesheet">${preloads}
   <title>${title}</title>
 </head>
 <body>

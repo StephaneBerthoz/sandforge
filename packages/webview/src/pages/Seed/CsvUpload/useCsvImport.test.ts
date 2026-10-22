@@ -4,6 +4,9 @@ import '../../../i18n/index';
 import { useCsvImport } from './useCsvImport';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
 import type { TFunction } from 'i18next';
+import Papa from 'papaparse';
+import i18n from '../../../i18n/index';
+import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 
 /* -------------------------------------------------------------------------- */
 /* Mocks                                                                       */
@@ -269,5 +272,123 @@ describe('useCsvImport', () => {
 
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe('common.refusal.guardMissing');
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* What one import takes                                               */
+  /* ------------------------------------------------------------------ */
+
+  /** The page's words, in English. */
+  const tEnglish = i18n.t.bind(i18n) as unknown as TFunction;
+
+  /** Read a file of `text` as the drop zone hands it over. */
+  async function readFile(
+    result: { current: ReturnType<typeof useCsvImport> },
+    text: string,
+  ): Promise<void> {
+    await act(async () => {
+      result.current.handleFileSelected(new File([text], 'export.csv', { type: 'text/csv' }));
+      await new Promise((r) => setTimeout(r, 50));
+    });
+  }
+
+  /** Describe the target as the extension answers: one text field per name. */
+  function describe(rerender: () => void, names: readonly string[]): void {
+    mockMutationState = {
+      ...mockMutationState,
+      data: { fields: names.map((name) => ({ apiName: name, label: name, type: 'string' })) },
+    };
+    act(() => {
+      rerender();
+    });
+    mockMutationState = { ...mockMutationState, data: null };
+  }
+
+  it('refuses a file past the rows one import takes as it is read, in words, and keeps none of it', async () => {
+    // The host refused it only at Validate, once every column had been
+    // mapped, as "Invalid payload — records: Too big".
+    const { result } = renderHook(() => useCsvImport(tEnglish));
+    const rows = Array.from({ length: CSV_IMPORT_MAX_ROWS + 1 }, (_, i) => `Acme ${i}`);
+
+    await readFile(result, ['Name', ...rows].join('\n'));
+
+    expect(result.current.error).toBe(
+      'This file holds 50,001 rows; CSV Upload takes 50,000 at a time. Split it into files of 50,000 rows or fewer, and upload each.',
+    );
+    expect(result.current.headers).toEqual([]);
+    expect(result.current.parsedRows).toEqual([]);
+    expect(result.current.previewRows).toEqual([]);
+  });
+
+  it('takes a file of exactly the rows one import takes, parsed once, its preview the first ten rows', async () => {
+    const { result } = renderHook(() => useCsvImport(tEnglish));
+    const rows = Array.from({ length: CSV_IMPORT_MAX_ROWS }, (_, i) => `Acme ${i}`);
+    vi.mocked(Papa.parse).mockClear();
+
+    await readFile(result, ['Name', ...rows].join('\n'));
+
+    // Parsed twice, the second time whole: once is enough for the preview.
+    expect(Papa.parse).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+    expect(result.current.parsedRows).toHaveLength(CSV_IMPORT_MAX_ROWS);
+    expect(result.current.previewRows.map((row) => row.Name)).toEqual(rows.slice(0, 10));
+  });
+
+  it('sends only the mapped columns, and each row only their cells', async () => {
+    // Every cell of every column went out twice, the unmapped ones too, and
+    // every column counted against the host's cap of mapped columns.
+    const { result, rerender } = renderHook(() => useCsvImport(tEnglish));
+    await readFile(result, 'Name,Legacy Id,Phone\nAcme,L-1,555\nGlobex,L-2,556');
+    act(() => {
+      result.current.handleObjectSelected('org-1', 'Account');
+    });
+    describe(rerender, ['Name', 'Phone']);
+    mockMutate.mockClear();
+
+    act(() => {
+      result.current.handleValidate();
+    });
+
+    const payload = mockMutate.mock.calls[0][0] as {
+      records: Record<string, string>[];
+      columnMappings: Array<{ csvHeader: string }>;
+    };
+    expect(payload.columnMappings.map((mapping) => mapping.csvHeader)).toEqual(['Name', 'Phone']);
+    expect(payload.records).toEqual([
+      { Name: 'Acme', Phone: '555' },
+      { Name: 'Globex', Phone: '556' },
+    ]);
+  });
+
+  it('refuses more mapped columns than one import takes, in words, and sends nothing', async () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tEnglish));
+    const headers = Array.from({ length: CSV_IMPORT_MAX_COLUMNS + 1 }, (_, i) => `Field${i}`);
+    await readFile(result, `${headers.join(',')}\n${headers.map(() => 'x').join(',')}`);
+    act(() => {
+      result.current.handleObjectSelected('org-1', 'Account');
+    });
+    describe(rerender, headers);
+    expect(result.current.columnsOverLimit).toBe(1);
+    mockMutate.mockClear();
+
+    act(() => {
+      result.current.handleValidate();
+    });
+
+    expect(mockMutate).not.toHaveBeenCalled();
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe(
+      '501 columns are mapped; CSV Upload takes 500 at a time. Leave the columns you do not need unmapped, or split the file by columns.',
+    );
+
+    // One left unmapped, and the import goes.
+    act(() => {
+      result.current.handleMappingChange('Field0', '');
+    });
+    expect(result.current.columnsOverLimit).toBe(0);
+    act(() => {
+      result.current.handleValidate();
+    });
+    expect(mockMutate).toHaveBeenCalledOnce();
   });
 });

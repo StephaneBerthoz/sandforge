@@ -6951,7 +6951,11 @@ async function postedMessage(
  * object it names. The wizard describes one object per request and asks again
  * for any object whose answer it dropped, so this runs until each is on screen.
  */
-async function answerSeedDescribes(page: Page, answered: Set<string>): Promise<void> {
+async function answerSeedDescribes(
+  page: Page,
+  answered: Set<string>,
+  describes: Record<string, Record<string, unknown>> = SEED_DESCRIBES,
+): Promise<void> {
   const requests = await page.evaluate(() => {
     const posted = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
     return posted
@@ -6969,7 +6973,7 @@ async function answerSeedDescribes(page: Page, answered: Set<string>): Promise<v
       type: 'seed:describe-object:response',
       id: `resp-${request.id}`,
       correlationId: request.id,
-      payload: SEED_DESCRIBES[request.objectApiName],
+      payload: describes[request.objectApiName],
     });
   }
 }
@@ -7000,7 +7004,12 @@ async function openSeedRelations(bridge: MockBridge, page: Page, theme: StateThe
  * Open the Seed wizard's configure step with Account and Contact selected,
  * both described.
  */
-async function openSeedConfigure(bridge: MockBridge, page: Page, theme: StateTheme): Promise<void> {
+async function openSeedConfigure(
+  bridge: MockBridge,
+  page: Page,
+  theme: StateTheme,
+  describes: Record<string, Record<string, unknown>> = SEED_DESCRIBES,
+): Promise<void> {
   await openPanel(bridge, page, 'seed', theme);
   await bridge.seedOrgs(MOCK_ORGS);
   await page.getByTestId('mode-card-generate').click();
@@ -7018,11 +7027,11 @@ async function openSeedConfigure(bridge: MockBridge, page: Page, theme: StateThe
   // Two objects skip the configure step; the link on the next one leads back.
   await page.getByTestId('adaptive-customize-link').click();
   const answered = new Set<string>();
-  for (const objectApiName of Object.keys(SEED_DESCRIBES)) {
+  for (const objectApiName of Object.keys(describes)) {
     await expect
       .poll(
         async () => {
-          await answerSeedDescribes(page, answered);
+          await answerSeedDescribes(page, answered, describes);
           return page.getByTestId(`obj-header-${objectApiName}`).count();
         },
         { timeout: 10_000 },
@@ -11388,6 +11397,241 @@ for (const theme of STATE_THEMES) {
       await expect(lineage.locator('.react-flow__edge-text')).toHaveCount(3, { timeout: 10_000 });
 
       await expectReadable(page, theme, '[data-testid="lineage-graph"]');
+    });
+
+    /*
+     * A file of the panel that could not be fetched, as a remote window that
+     * reconnects or a reinstall leaves it: Chromium's own failure of the
+     * dynamic import, on the module the dev server serves for that part.
+     */
+    test('A page whose file could not be fetched: said in words, no URL, Reload panel', async ({
+      page,
+    }) => {
+      await page.route('**/src/pages/Forge/ForgePage.tsx*', (route) => route.abort());
+      await openPanel(bridge, page, 'forge', theme);
+      const boundary = page.getByTestId('error-boundary');
+      await expect(boundary).toBeVisible({ timeout: 10_000 });
+      await expect(boundary.getByRole('heading')).toHaveText('Part of this panel did not load');
+      // Recover drew the same failure again, under Chromium's English and a
+      // URL spelling the user's home folder.
+      await expect(boundary).not.toContainText('dynamically imported');
+      await expect(boundary).not.toContainText('ForgePage');
+      await expect(page.getByTestId('error-recover-btn')).toHaveCount(0);
+
+      await expectReadable(page, theme);
+      await page.getByTestId('error-reload-panel-btn').click();
+      const reload = await bridge.waitForMessage('panel:reload');
+      expect(reload.payload).toEqual({ moduleId: 'forge' });
+    });
+
+    test('Monitor whose storage donut could not be fetched: the failure in its place, Live Operations and its Stop up', async ({
+      page,
+    }) => {
+      await page.route('**/src/pages/Monitor/StorageDonut.tsx*', (route) => route.abort());
+      await openPanel(bridge, page, 'monitor', theme);
+      await bridge.seedOrgs([DEV_SANDBOX, QA_SANDBOX]);
+      await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+      await answerAll(page, 'monitor:refresh', 'monitor:data', {
+        healthScore: 85,
+        healthReport: null,
+        jobs: [],
+        limits: [],
+        trends: {},
+        lastUpdated: '2026-03-13T11:05:00Z',
+      });
+      await page.getByTestId('monitor-page').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'monitor:live-operations', 'monitor:live-operations:response', {
+        operations: [
+          {
+            operationId: 'op-forge',
+            module: 'forge',
+            description: 'forge run',
+            status: 'running',
+            percentage: 60,
+            processedRecords: 120,
+            totalRecords: 0,
+            currentStep: 'Inserting Contact',
+            startedAt: '2026-03-13T11:00:00Z',
+            elapsedMs: 5000,
+            recordsPerSecond: 24,
+          },
+        ],
+      });
+      await bridge.waitForMessage('monitor:storage', { timeout: 10_000 });
+      await answerAll(page, 'monitor:storage', 'monitor:storage:response', {
+        success: true,
+        totalRecords: 81100,
+        objectCount: 216,
+        objects: [
+          { objectName: 'ObjectPermissions', label: 'Object Permissions', recordCount: 37000 },
+          { objectName: 'LoginHistory', label: 'Login History', recordCount: 7200 },
+        ],
+      });
+
+      // The page's boundary caught it: a chart hidden from readers replaced the
+      // whole page, the Stop of a running clone with it.
+      const failed = page.getByTestId('storage-donut-failed');
+      await expect(failed).toBeVisible({ timeout: 10_000 });
+      await expect(failed).toContainText('This part did not load');
+      await expect(page.getByTestId('error-boundary')).toHaveCount(0);
+      await expect(page.getByTestId('cancel-op-forge')).toBeVisible();
+      await expect(page.getByTestId('storage-row-LoginHistory')).toBeVisible();
+
+      await failed.scrollIntoViewIfNeeded();
+      await expectReadable(page, theme);
+      await page.getByTestId('storage-donut-failed-reload').click();
+      expect((await bridge.waitForMessage('panel:reload')).payload).toEqual({
+        moduleId: 'monitor',
+      });
+    });
+
+    test('The welcome tour whose file could not be fetched: closed, the page up, a toast to reload', async ({
+      page,
+    }) => {
+      await page.route('**/src/pages/Welcome/WelcomePage.tsx*', (route) => route.abort());
+      await openPanel(bridge, page, 'home', theme);
+      await page.getByTestId('home-page').waitFor({ timeout: 10_000 });
+      await bridge.stream([{ type: 'onboarding:show', payload: {} }]);
+
+      // It reached the root boundary, which took down the page, and whose
+      // Recover threw again on every press, the tour still open in the store.
+      const action = page.getByTestId('toast-action-panel-reload');
+      await expect(action).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('floating-toasts')).toContainText(
+        'Part of this panel did not load',
+      );
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByTestId('error-boundary')).toHaveCount(0);
+      await expect(page.getByTestId('home-page')).toBeVisible();
+
+      await expectReadable(page, theme);
+      await action.click();
+      expect((await bridge.waitForMessage('panel:reload')).payload).toEqual({ moduleId: 'home' });
+    });
+
+    test('A page whose chunk takes its time: a spinner once the wait is past a moment', async ({
+      page,
+    }) => {
+      // The panel stayed empty for as long as the chunks took, as each round
+      // of fetches is a network round trip on a remote workspace.
+      await page.route('**/src/pages/Home/HomePage.tsx*', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await route.continue();
+      });
+      await openPanel(bridge, page, 'home', theme);
+      const loading = page.getByTestId('panel-loading');
+      await expect(loading.getByRole('status', { name: 'Loading...' })).toBeVisible({
+        timeout: 2500,
+      });
+
+      await expectReadable(page, theme);
+    });
+
+    test('CSV file past the rows one import takes, refused in words as it is read', async ({
+      page,
+    }) => {
+      await openCsvImport(bridge, page, theme);
+      const rows = Array.from({ length: 50_001 }, (_, i) => `Acme ${i}`);
+      await page.getByTestId('file-input').setInputFiles({
+        name: 'accounts.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(['Name', ...rows].join('\n')),
+      });
+
+      // Refused at Validate, once mapped, as "Invalid payload — records: Too big".
+      await expect(page.getByTestId('csv-error')).toContainText(
+        'This file holds 50,001 rows; CSV Upload takes 50,000 at a time.',
+        { timeout: 10_000 },
+      );
+      await expect(page.getByTestId('csv-preview')).toHaveCount(0);
+      await expect(page.getByTestId('csv-next-button')).toBeDisabled();
+
+      await expectReadable(page, theme);
+    });
+
+    test('CSV map step: one list of fields for every column, and more columns mapped than one import takes', async ({
+      page,
+    }) => {
+      await openCsvImport(bridge, page, theme);
+      const headers = Array.from({ length: 501 }, (_, i) => `Field${i}__c`);
+      await page.getByTestId('file-input').setInputFiles({
+        name: 'wide.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(`${headers.join(',')}\n${headers.map(() => 'x').join(',')}\n`),
+      });
+      await page.getByTestId('csv-preview').waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByTestId('csv-object-selector').selectOption('Account');
+      await bridge.waitForMessage('seed:describe-object', { timeout: 10_000 });
+      await answerAll(page, 'seed:describe-object', 'seed:describe-object:response', {
+        fields: headers.map((apiName, i) => ({
+          apiName,
+          label: `Field ${i}`,
+          type: 'string',
+          required: false,
+          defaultValue: null,
+          unique: false,
+          externalId: false,
+          maxLength: 255,
+        })),
+      });
+      await expect(page.getByTestId('csv-next-button')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('csv-next-button').click();
+      await page.getByTestId('csv-step-map').waitFor({ state: 'visible', timeout: 10_000 });
+
+      // A select of every field for each column: 501 × 502 options.
+      expect(await page.locator('[data-testid="csv-step-map"] option').count()).toBe(501);
+      await expect(page.getByTestId('csv-too-many-columns')).toContainText(
+        '501 columns are mapped; CSV Upload takes 500 at a time.',
+      );
+      await expect(page.getByTestId('csv-next-button')).toBeDisabled();
+      await expectReadable(page, theme);
+
+      // One column left unmapped, and the import goes on.
+      await page.getByRole('combobox', { name: 'Salesforce field for Field0__c' }).fill('');
+      await expect(page.getByTestId('csv-too-many-columns')).toHaveCount(0);
+      await expect(page.getByTestId('csv-next-button')).toBeEnabled();
+    });
+
+    test('Seed configure step on an Account of 150 fields, found by a filter', async ({ page }) => {
+      const account = SEED_DESCRIBES.Account as { fields: Record<string, unknown>[] };
+      const wide = {
+        ...SEED_DESCRIBES,
+        Account: {
+          ...SEED_DESCRIBES.Account,
+          fields: [
+            ...account.fields,
+            ...Array.from({ length: 146 }, (_, i) => ({
+              fieldApiName: `Region${i}__c`,
+              label: `Region ${i}`,
+              type: 'string',
+              required: i % 10 === 0,
+              picklistValues: [],
+              referenceTo: [],
+              length: 80,
+            })),
+          ],
+        },
+      };
+      await openSeedConfigure(bridge, page, theme, wide);
+      const fields = page.getByTestId('step-configure-fields');
+      await fields.getByTestId('field-filter-Account').waitFor({ timeout: 10_000 });
+      // Past a hundred, the rows are drawn as they scroll into view.
+      await expect(fields.getByTestId('virtual-list')).toBeVisible();
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
+
+      await page.getByLabel('Find a field of Account').fill('region 12');
+      await expect(page.getByTestId('field-filter-count-Account')).toHaveText(
+        /^11 of \d+ fields shown$/,
+      );
+      await page.getByLabel('Required only').check();
+      await expect(page.getByTestId('field-filter-count-Account')).toHaveText(
+        /^1 of \d+ fields shown$/,
+      );
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
+
+      await page.getByLabel('Find a field of Account').fill('nothing like it');
+      await expect(page.getByTestId('field-filter-none-Account')).toBeVisible();
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
     });
   });
 }

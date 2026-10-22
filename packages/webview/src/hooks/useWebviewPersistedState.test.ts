@@ -96,4 +96,28 @@ describe('useWebviewPersistedState', () => {
     expect(mockState.keyA).toBe(10);
     expect(mockState.keyB).toBe(20);
   });
+
+  it('takes a function of the current value, each update in one handler starting from the last', () => {
+    const { result } = renderHook(() => useWebviewPersistedState('limit', 50));
+
+    act(() => {
+      result.current[1]((limit) => limit + 50);
+      result.current[1]((limit) => limit + 50);
+    });
+
+    expect(result.current[0]).toBe(150);
+    expect(mockState.limit).toBe(150);
+  });
+
+  it('starts an update from the value restored, as a page rebuilt from its shell finds it', () => {
+    mockState = { open: 'sync' };
+    const { result } = renderHook(() => useWebviewPersistedState<string | null>('open', null));
+
+    act(() => {
+      result.current[1]((open) => (open === 'sync' ? null : 'sync'));
+    });
+
+    expect(result.current[0]).toBeNull();
+    expect(mockState.open).toBeNull();
+  });
 });

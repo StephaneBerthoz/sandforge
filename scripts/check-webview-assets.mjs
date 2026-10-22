@@ -47,6 +47,11 @@
  *    PAGE_FIRST_PAINT_BUDGET, and holds zod only on a page that checks
  *    something against a schema before it paints (PAGES_THAT_VALIDATE). Forge
  *    parsed 1.4 MB before its first step, Home zod for a record id;
+ *  - the list of what each page needs before it paints, which the build
+ *    writes (`assets/preload.json`) and the panel's shell links for the
+ *    webview to fetch at once, names for each route exactly the files this
+ *    reading of the build finds: a file it leaves out is fetched one round
+ *    later, and one it names in excess is fetched for nothing;
  *  - with `--vsix`, every one of those paths is in `sandforge.vsix` too. The
  *    VSIX is what a user installs, and `.vscodeignore` can drop a file the
  *    build produced. It is a flag rather than "check it if it is there"
@@ -368,6 +373,51 @@ export function shellEnglishOutsideBase(paths, base, read, sentinels, shell) {
     );
 }
 
+/** Where the build writes what each page needs before it paints. */
+export const PAGE_PRELOAD_LIST = 'assets/preload.json';
+
+/**
+ * How the build's list of what each page needs before it paints differs from
+ * what a reading of the build finds: a route it leaves out, a route it names
+ * that the panel has not, a file missing for a route or named in excess.
+ *
+ * @param list - The list as the build wrote it, parsed; anything else is a gap.
+ * @param expected - For each route, the files it needs, the panel bundle aside.
+ * @returns One sentence per gap.
+ */
+export function preloadGaps(list, expected) {
+  if (!list || typeof list !== 'object' || Array.isArray(list)) {
+    return [`${PAGE_PRELOAD_LIST} is not a list by route`];
+  }
+  const gaps = [];
+  for (const [route, files] of expected) {
+    const listed = list[route];
+    if (!Array.isArray(listed)) {
+      gaps.push(`${PAGE_PRELOAD_LIST} lists nothing for the "${route}" page`);
+      continue;
+    }
+    const missing = files.filter((file) => !listed.includes(file));
+    const extra = listed.filter((file) => !files.includes(file));
+    if (missing.length > 0) {
+      gaps.push(
+        `${PAGE_PRELOAD_LIST} leaves out ${missing.length} file(s) the "${route}" page needs ` +
+          `before it paints, fetched one round later: ${missing.slice(0, 3).join(', ')}`,
+      );
+    }
+    if (extra.length > 0) {
+      gaps.push(
+        `${PAGE_PRELOAD_LIST} names ${extra.length} file(s) the "${route}" page does not need ` +
+          `before it paints: ${extra.slice(0, 3).join(', ')}`,
+      );
+    }
+  }
+  for (const route of Object.keys(list)) {
+    if (!expected.has(route))
+      gaps.push(`${PAGE_PRELOAD_LIST} lists "${route}", no route of the panel`);
+  }
+  return gaps;
+}
+
 /** Paths the extension asks for, each with the files that ask for it. */
 export function collectRequested(sources) {
   const byPath = new Map();
@@ -591,9 +641,30 @@ function main() {
         note(`PAGES_THAT_VALIDATE names "${route}", which is no route of the panel`);
       }
     }
+
+    // 6. The build's list of what each page needs before it paints, which the
+    // shell links, is what this reading finds.
+    const preloadText = readBuilt(PAGE_PRELOAD_LIST);
+    if (preloadText !== undefined) {
+      let list;
+      try {
+        list = JSON.parse(preloadText);
+      } catch {
+        list = undefined;
+      }
+      const expected = new Map(
+        routes.map((route) => [
+          route.route,
+          routeFirstPaint(panelBundle, route, loaders, readBuilt)
+            .files.filter((file) => file !== panelBundle)
+            .sort(),
+        ]),
+      );
+      for (const gap of preloadGaps(list, expected)) note(gap);
+    }
   }
 
-  // 6. The VSIX carries them too, for a caller that just packaged one.
+  // 7. The VSIX carries them too, for a caller that just packaged one.
   const checkVsix = process.argv.includes('--vsix');
   if (checkVsix) {
     if (!existsSync(join(repoRoot, VSIX))) {

@@ -1,7 +1,7 @@
 import React from 'react';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
 
 /** Hoisted mock of the VS Code webview API used by ErrorBoundary. */
@@ -99,6 +99,70 @@ describe('ErrorBoundary', () => {
         }),
       }),
     );
+  });
+
+  describe('a page whose file could not be fetched', () => {
+    const CHUNK_URL =
+      'https://file+.vscode-resource.vscode-cdn.net/home/someone/.vscode-server/extensions/sandforge/webview-dist/assets/chunks/ForgeReview-Dm32KBlM.js';
+
+    /** A page loaded on demand whose file the browser could not fetch, as React gets it. */
+    const NotFetched = React.lazy(() =>
+      Promise.reject(new TypeError(`Failed to fetch dynamically imported module: ${CHUNK_URL}`)),
+    );
+
+    afterEach(() => {
+      delete window.__SANDFORGE_MODULE__;
+    });
+
+    it('says so in words, with no URL, and offers to reload the panel instead of Recover', async () => {
+      // Recover drew the same failure again: React keeps a page loaded on
+      // demand failed once its file failed, and never fetches it again.
+      window.__SANDFORGE_MODULE__ = 'forge';
+      render(
+        <ErrorBoundary>
+          <React.Suspense fallback={null}>
+            <NotFetched />
+          </React.Suspense>
+        </ErrorBoundary>,
+      );
+      const boundary = await screen.findByTestId('error-boundary');
+
+      expect(boundary).toHaveTextContent('Part of this panel did not load');
+      expect(boundary.textContent).not.toContain('vscode-resource');
+      expect(boundary.textContent).not.toContain('someone');
+      expect(boundary.textContent).not.toContain('dynamically imported');
+      expect(screen.queryByTestId('error-message')).toBeNull();
+      expect(screen.queryByTestId('error-recover-btn')).toBeNull();
+
+      vscodeApiMock.postMessage.mockClear();
+      fireEvent.click(screen.getByTestId('error-reload-panel-btn'));
+      expect(vscodeApiMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            type: 'panel:reload',
+            payload: { moduleId: 'forge' },
+          }),
+        }),
+      );
+    });
+
+    it("copies the error with each URL cut to its file, so the user's home folder stays out of the report", async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(
+        <ErrorBoundary>
+          <React.Suspense fallback={null}>
+            <NotFetched />
+          </React.Suspense>
+        </ErrorBoundary>,
+      );
+      fireEvent.click(await screen.findByTestId('error-copy-btn'));
+
+      const copied = writeText.mock.calls[0][0] as string;
+      expect(copied).toContain('…/ForgeReview-Dm32KBlM.js');
+      expect(copied).not.toContain('someone');
+      expect(copied).not.toContain('vscode-resource');
+    });
   });
 
   it('clears the pending copy feedback timeout when unmounted', async () => {

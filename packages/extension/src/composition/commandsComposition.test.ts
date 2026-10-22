@@ -87,6 +87,23 @@ function createDeps(options: {
   return { deps, panel, panelManager, onboardingService, context };
 }
 
+/** What a panel's page sends once React has mounted it: its route, enveloped. */
+const PAGE_MOUNTED = {
+  protocolVersion: 1,
+  payload: {
+    type: 'panel:route',
+    id: 'route-1',
+    timestamp: 0,
+    payload: { moduleId: 'home', route: 'home', overlay: false },
+  },
+};
+
+/** The language request a page sends while its bundle loads, before React renders. */
+const LANGUAGE_REQUEST = {
+  protocolVersion: 1,
+  payload: { type: 'i18n:locale', id: 'locale-1', timestamp: 0, payload: { lng: 'fr' } },
+};
+
 function invokeFirstModuleCommand(): void {
   const callback = registeredCommands.get(MODULE_COMMANDS[0].command);
   expect(callback).toBeDefined();
@@ -107,7 +124,7 @@ describe("commandsComposition What's New delivery", () => {
     registerModuleCommands(deps);
 
     invokeFirstModuleCommand();
-    panel.fireIncomingMessage({ type: 'webview:ready' });
+    panel.fireIncomingMessage(PAGE_MOUNTED);
 
     // The walkthrough VS Code opens on install is the first-run script: the
     // wizard covered the page it had sent the user to, every session.
@@ -127,7 +144,7 @@ describe("commandsComposition What's New delivery", () => {
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
   });
 
-  it("new panel: neither posts What's New nor marks the version seen before the first incoming message", () => {
+  it("new panel: neither posts What's New nor marks the version seen before the page has mounted", () => {
     const { deps, panel, onboardingService, context } = createDeps({
       panelAlreadyOpen: false,
       shouldShowWhatsNew: true,
@@ -144,7 +161,7 @@ describe("commandsComposition What's New delivery", () => {
     expect(context.subscriptions).toContain(panel.listenerDisposable);
   });
 
-  it("new panel: posts What's New exactly once on the first incoming message, then marks the version seen", () => {
+  it("new panel: posts What's New exactly once when the page says it has mounted, then marks the version seen", () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
       shouldShowWhatsNew: true,
@@ -152,7 +169,7 @@ describe("commandsComposition What's New delivery", () => {
     registerModuleCommands(deps);
     invokeFirstModuleCommand();
 
-    panel.fireIncomingMessage({ type: 'webview:ready' });
+    panel.fireIncomingMessage(PAGE_MOUNTED);
 
     // Targeted to the triggering panel — not broadcast to every open panel.
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
@@ -166,12 +183,12 @@ describe("commandsComposition What's New delivery", () => {
 
     // One-shot: the listener disposed itself, so later messages do not re-post.
     expect(panel.listenerDisposable.dispose).toHaveBeenCalledTimes(1);
-    panel.fireIncomingMessage({ type: 'webview:ready' });
+    panel.fireIncomingMessage(PAGE_MOUNTED);
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledTimes(1);
   });
 
-  it('new panel: closing the panel before its first message disposes the readiness listener', () => {
+  it('new panel: closing the panel before its page has mounted disposes the readiness listener', () => {
     const { deps, panel, onboardingService } = createDeps({
       panelAlreadyOpen: false,
       shouldShowWhatsNew: true,
@@ -223,7 +240,7 @@ describe("commandsComposition What's New delivery", () => {
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
     expect(onboardingService.markVersionSeen).not.toHaveBeenCalled();
 
-    panel.fireIncomingMessage({ type: 'org:list' });
+    panel.fireIncomingMessage(PAGE_MOUNTED);
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
     expect(onboardingService.markVersionSeen).toHaveBeenCalledWith('2.0.0');
   });
@@ -249,13 +266,53 @@ describe("commandsComposition What's New delivery", () => {
 
     openOrgs?.({ orgAction: 'import-cli' });
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
-    panel.fireIncomingMessage({ type: 'org:list' });
+    panel.fireIncomingMessage(PAGE_MOUNTED);
 
     expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
     expect(panel.webview.postMessage.mock.calls[0][0]).toMatchObject({
       type: 'navigation:intent',
       payload: { route: 'orgs', orgAction: 'import-cli' },
     });
+  });
+
+  it("new panel on an editor in another language: the language request sent before React renders posts neither the import nor What's New", () => {
+    const { deps, panel, onboardingService } = createDeps({
+      panelAlreadyOpen: false,
+      shouldShowWhatsNew: true,
+    });
+    registerModuleCommands(deps);
+    const openOrgs = registeredCommands.get('sandforge.openOrgs');
+
+    openOrgs?.({ orgAction: 'import-cli' });
+    // Posted on this message, both reached a page whose bridge had no listener
+    // for them yet: Organizations opened without starting the import, and the
+    // version was recorded as seen with What's New never shown.
+    panel.fireIncomingMessage(LANGUAGE_REQUEST);
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+    expect(onboardingService.markVersionSeen).not.toHaveBeenCalled();
+    expect(panel.listenerDisposable.dispose).not.toHaveBeenCalled();
+
+    panel.fireIncomingMessage(PAGE_MOUNTED);
+    const types = panel.webview.postMessage.mock.calls.map(
+      (call) => (call[0] as { type: string }).type,
+    );
+    expect(types).toEqual(['navigation:intent', 'whats-new:show']);
+    expect(onboardingService.markVersionSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it('new panel: a message that is not an envelope, or an envelope of another type, is not taken for the page mounting', () => {
+    const { deps, panel } = createDeps({ panelAlreadyOpen: false });
+    registerModuleCommands(deps);
+    const openOrgs = registeredCommands.get('sandforge.openOrgs');
+
+    openOrgs?.({ orgAction: 'login-web' });
+    panel.fireIncomingMessage({ type: 'panel:route' });
+    panel.fireIncomingMessage(null);
+    panel.fireIncomingMessage({ protocolVersion: 1, payload: { type: 'org:list', id: 'x' } });
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+
+    panel.fireIncomingMessage(PAGE_MOUNTED);
+    expect(panel.webview.postMessage).toHaveBeenCalledTimes(1);
   });
 
   it('hands an open panel its intent at once, and every later command its own', () => {

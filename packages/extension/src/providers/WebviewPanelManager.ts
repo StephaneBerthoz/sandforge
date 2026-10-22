@@ -1,9 +1,10 @@
 import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
 import type { MessageBroker } from '../bridge/MessageBroker';
-import { panelRoutePayloadSchema } from '../bridge/validatePayload';
+import { panelReloadPayloadSchema, panelRoutePayloadSchema } from '../bridge/validatePayload';
 import { isRebuiltWhenHidden } from '../composition/moduleCommands';
 import { buildWebviewHtml } from './webviewHtml';
+import { parsePagePreload } from './pagePreload';
 
 /**
  * What a released panel holds while hidden: a page with no script, which
@@ -72,6 +73,8 @@ export class WebviewPanelManager {
   private readonly released = new Set<string>();
   /** What the page of each module's panel shows, as it last said; absent, its own module. */
   private readonly pagesShown = new Map<string, PageShown>();
+  /** The module of each open panel, by viewType: the panel a `panel:reload` names. */
+  private readonly modules = new Map<string, string>();
   /**
    * Per-panel disposables (view-state + dispose listeners + broker
    * registration, registered when the panel was opened). Cleared when the
@@ -81,6 +84,10 @@ export class WebviewPanelManager {
   private panelSubscriptions = new Map<string, vscode.Disposable[]>();
   /** Reads a module panel's title in the panels' language: see {@link setTitleOf}. */
   private titleOf?: (moduleId: string) => Promise<string | undefined>;
+  /** Reads a file of the extension's own: see {@link setFileReader}. */
+  private readFile?: (uri: unknown) => string | undefined;
+  /** The files each page needs before it paints, read once from the build. */
+  private pagePreload?: ReadonlyMap<string, readonly string[]>;
 
   /**
    * @param broker - MessageBroker for webview communication
@@ -151,6 +158,7 @@ export class WebviewPanelManager {
     }
 
     this.panels.set(config.viewType, panel);
+    if (config.moduleId) this.modules.set(config.viewType, config.moduleId);
     // Keep the broker registration disposable with the panel's other
     // subscriptions so the broker drops the panel when it closes — otherwise
     // MessageBroker.panels accumulates dead panels across open/close cycles.
@@ -186,6 +194,7 @@ export class WebviewPanelManager {
       this.panels.delete(config.viewType);
       this.visiblePanels.delete(config.viewType);
       this.released.delete(config.viewType);
+      this.modules.delete(config.viewType);
       if (config.moduleId) this.pagesShown.delete(config.moduleId);
       // Release the paired view-state listener along with the panel itself.
       for (const sub of this.panelSubscriptions.get(config.viewType) ?? []) {
@@ -210,6 +219,33 @@ export class WebviewPanelManager {
     this.titleOf = titleOf;
   }
 
+  /**
+   * Read the extension's own files with `read`: the build's list of the files
+   * each page needs before it paints (`webview-dist/assets/preload.json`),
+   * which the shell links for the webview to fetch at once. Without a reader,
+   * or with a list that cannot be read, the shell links none of them.
+   */
+  setFileReader(read: (uri: unknown) => string | undefined): void {
+    this.readFile = read;
+    this.pagePreload = undefined;
+  }
+
+  /** The files of `webview-dist` the page of `moduleId` needs before it paints. */
+  private preloadOf(moduleId: string): readonly string[] {
+    if (!this.readFile || !this.extensionUri || !this.uriJoinPath) return [];
+    if (!this.pagePreload) {
+      const joinPath = this.uriJoinPath;
+      let text: string | undefined;
+      try {
+        text = this.readFile(joinPath(this.extensionUri, 'webview-dist', 'assets', 'preload.json'));
+      } catch {
+        text = undefined;
+      }
+      this.pagePreload = parsePagePreload(text);
+    }
+    return this.pagePreload.get(moduleId) ?? [];
+  }
+
   /** Give a module's panel its title in the panels' language, while it is still the one open. */
   private retitle(config: PanelConfig, panel: vscode.WebviewPanel): void {
     const { moduleId } = config;
@@ -230,6 +266,7 @@ export class WebviewPanelManager {
       panel.dispose();
       this.panels.delete(viewType);
       this.visiblePanels.delete(viewType);
+      this.modules.delete(viewType);
     }
   }
 
@@ -272,6 +309,7 @@ export class WebviewPanelManager {
     this.visiblePanels.clear();
     this.released.clear();
     this.pagesShown.clear();
+    this.modules.clear();
   }
 
   /**
@@ -284,6 +322,29 @@ export class WebviewPanelManager {
     if (!parsed.success) return;
     const { moduleId, route, overlay } = parsed.data;
     this.pagesShown.set(moduleId, { route, overlay });
+  }
+
+  /**
+   * Set the shell of the panel whose page asks for it again (`panel:reload`,
+   * routed here by `ExtensionHandlers`): a part of the page could not be
+   * loaded, and React keeps a part whose file failed to load failed for as
+   * long as the document lives, so the page's own Recover drew the same
+   * failure again. The new document fetches every file afresh: the shell's
+   * nonce is new, so VS Code loads it even though nothing else changed. A
+   * payload of another shape, or a module with no panel open, is ignored.
+   */
+  reloadPage(message: BaseMessage): void {
+    const parsed = panelReloadPayloadSchema.safeParse((message as { payload?: unknown }).payload);
+    if (!parsed.success || !this.extensionUri || !this.uriJoinPath) return;
+    const { moduleId } = parsed.data;
+    for (const [viewType, panelModule] of this.modules) {
+      const panel = this.panels.get(viewType);
+      if (panelModule !== moduleId || !panel) continue;
+      this.released.delete(viewType);
+      this.pagesShown.delete(moduleId);
+      panel.webview.html = this.buildHtml(panel.webview, moduleId);
+      return;
+    }
   }
 
   /**
@@ -330,6 +391,13 @@ export class WebviewPanelManager {
       // two openPanel calls and each shell must announce the current one.
       lang: this.languageGetter?.(),
       editorLanguage: this.editorLanguageGetter?.(),
+      // The page's chunks, fetched as the shell is read rather than one round
+      // of imports after another once index.js runs.
+      preloadUris: this.preloadOf(moduleId).map((file) =>
+        webview.asWebviewUri(
+          joinPath(this.extensionUri, 'webview-dist', ...file.split('/')) as vscode.Uri,
+        ),
+      ),
     });
   }
 }

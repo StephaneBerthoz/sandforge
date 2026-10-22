@@ -18,6 +18,23 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+/*
+ * The panel's webview state, which VS Code keeps while it sets the panel's
+ * shell again: the Help panel is released while hidden and rebuilt as it is
+ * shown, a new page that reads this state as it mounts.
+ */
+const webviewState = vi.hoisted(() => ({ value: undefined as unknown }));
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: () => undefined,
+    getState: () => webviewState.value,
+    setState: (state: unknown) => {
+      webviewState.value = state;
+    },
+  };
+  return { useVSCodeApi: () => api, getVscodeApi: () => api };
+});
+
 const mockNavigate = vi.fn();
 const mockSetShowWelcome = vi.fn();
 interface MockAppState {
@@ -39,6 +56,24 @@ describe('HelpPage', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockSetShowWelcome.mockClear();
+    webviewState.value = undefined;
+  });
+
+  it('opens on the section and the search it showed before its panel was hidden and rebuilt', () => {
+    // Both were plain state: an article read beside the code closed, and the
+    // search emptied, each time another tab of the editor group was looked at.
+    const first = render(<HelpPage />);
+    fireEvent.click(screen.getByTestId('help-section-faq').querySelector('button') as HTMLElement);
+    fireEvent.change(screen.getByTestId('help-search'), { target: { value: 'help.faq' } });
+    first.unmount();
+
+    render(<HelpPage />);
+
+    expect((screen.getByTestId('help-search') as HTMLInputElement).value).toBe('help.faq');
+    expect(
+      screen.getByTestId('help-section-faq').querySelector('button')?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(screen.queryByTestId('help-section-getting-started')).toBeNull();
   });
 
   it('should render the help page', () => {

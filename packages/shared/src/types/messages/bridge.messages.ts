@@ -60,6 +60,17 @@ export interface PanelRouteMessage extends BaseMessage {
   payload: { moduleId: string; route: string; overlay: boolean };
 }
 
+/**
+ * Sent by a panel's page when part of it could not be loaded: the extension
+ * sets the panel's shell again, a new document that fetches every file
+ * afresh. React keeps a part whose file failed to load failed for as long as
+ * the document lives, so nothing short of a new one brings it back.
+ */
+export interface PanelReloadRequest extends BaseMessage {
+  type: 'panel:reload';
+  payload: { moduleId: string };
+}
+
 /** What a page opened from the launcher's first card starts: an import from the CLI, or a browser sign-in. */
 export type OrgPageAction = 'import-cli' | 'login-web';
 

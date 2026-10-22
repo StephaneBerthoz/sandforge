@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import { MessageBroker } from './bridge/MessageBroker';
 import type { FixSuggestion } from './bridge/MessageBroker';
 import { MessageRouter } from './bridge/MessageRouter';
@@ -381,6 +382,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // Editor display language, for the `auto` language setting.
     () => vscode.env.language,
   );
+  // The build's list of what each page needs before it paints, read once as
+  // the first panel opens: its shell links those files for the webview to
+  // fetch at once.
+  panelManager.setFileReader((uri) => readFileSync((uri as vscode.Uri).fsPath, 'utf8'));
   // Each panel's tab is titled as the navigation names its module, in the
   // panels' language.
   panelManager.setTitleOf((moduleId) =>
@@ -397,6 +402,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // What each panel's page shows: Help and Reports are released while hidden
   // only when their page shows nothing else.
   handlers.setPanelRouteListener((message) => panelManager.notePageShown(message));
+  // A page that could not load a part of itself is given its shell again.
+  handlers.setPanelReloadListener((message) => panelManager.reloadPage(message));
 
   // 9b. Background-operation lifecycle -> stateSync + native notifications
   wireBackgroundNotifications({ backgroundRegistry, stateSync, panelManager });

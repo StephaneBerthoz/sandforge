@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo, useState } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
@@ -24,8 +24,10 @@ import type { AnalyticsSummary } from './AnalyticsDashboard';
 import { AuditTrailViewer } from './AuditTrailViewer';
 import type { AuditExportFormat, AuditFilter } from './AuditTrailViewer';
 import { AnalyticsDashboard, LineageGraph } from './reportsPanels';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 import { uiLocale } from '../../utils/formatters';
 import { useHeldFailure } from '../../hooks/useHeldFailure';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
@@ -159,8 +161,17 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   lineageLoading = false,
 }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('executions');
-  const [selectedReportId, setSelectedReportId] = useState<string | undefined>();
+  /*
+   * Kept in the panel's webview state: the Reports panel is released while
+   * hidden and rebuilt from its shell when shown, and a tab picked or a report
+   * opened went back to the Executions list each time the user looked at
+   * another tab of the editor group.
+   */
+  const [activeTab, setActiveTab] = useWebviewPersistedState('reportsTab', 'executions');
+  const [selectedReportId, setSelectedReportId] = useWebviewPersistedState<string | undefined>(
+    'reportsSelected',
+    undefined,
+  );
 
   const handleSelectReport = (id: string): void => {
     setSelectedReportId(id);
@@ -177,10 +188,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     [lineageRuns],
   );
 
-  /** Open the graph of the run an audit entry records, on the lineage tab. */
+  /**
+   * Open the graph of the run an audit entry records, on the lineage tab. The
+   * View run pressed goes with the audit tab, and its focus fell to the
+   * panel's top: the lineage tab takes it, and says where the keyboard is.
+   */
   const handleOpenRun = (operationId: string): void => {
     onSelectLineageRun?.(operationId);
     setActiveTab('lineage');
+    document.getElementById('tab-lineage')?.focus();
   };
 
   const reportCount = reports?.length ?? 0;
@@ -364,13 +380,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                       reading={reportsLoading}
                     />
                   ) : hasAnalytics ? (
-                    <Suspense fallback={<Loading testId="reports-analytics-loading" />}>
-                      <AnalyticsDashboard
-                        summary={analyticsSummary}
-                        operationsOverTime={operationsOverTime}
-                        errorTimeSeries={errorTimeSeries}
-                      />
-                    </Suspense>
+                    <PartBoundary data-testid="reports-analytics-failed">
+                      <Suspense fallback={<Loading testId="reports-analytics-loading" />}>
+                        <AnalyticsDashboard
+                          summary={analyticsSummary}
+                          operationsOverTime={operationsOverTime}
+                          errorTimeSeries={errorTimeSeries}
+                        />
+                      </Suspense>
+                    </PartBoundary>
                   ) : (
                     <Loading testId="reports-analytics-loading" />
                   ))}
@@ -438,9 +456,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                           onChange={(e) => onSelectLineageRun(e.target.value)}
                         />
                       )}
-                      <Suspense fallback={<Loading testId="reports-lineage-loading" />}>
-                        <LineageGraph lineage={lineageData} />
-                      </Suspense>
+                      <PartBoundary data-testid="reports-lineage-failed">
+                        <Suspense fallback={<Loading testId="reports-lineage-loading" />}>
+                          <LineageGraph lineage={lineageData} />
+                        </Suspense>
+                      </PartBoundary>
                     </div>
                   ))}
               </div>

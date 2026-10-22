@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ForgePage } from './ForgePage';
@@ -108,12 +108,32 @@ vi.mock('../../components/graph/lazyGraph', async () => ({
  * The steps past the input come in chunks of their own (forgeSteps.test.tsx);
  * here they are drawn at once, as the page draws them once loaded.
  */
-vi.mock('./forgeSteps', async () => ({
-  ForgeDiscovery: (await import('./ForgeDiscovery')).ForgeDiscovery,
-  ForgeReview: (await import('./ForgeReview')).ForgeReview,
-  ForgeExecution: (await import('./ForgeExecution')).ForgeExecution,
-  ForgeResults: (await import('./ForgeResults')).ForgeResults,
-}));
+/** The step whose chunk could not be fetched, as on a remote window that dropped. */
+let mockUnreadableStep: string | null = null;
+const mockPreloadStepsAfter = vi.fn();
+vi.mock('./forgeSteps', async () => {
+  const { ForgeExecution } = await import('./ForgeExecution');
+  const { ForgeReview } = await import('./ForgeReview');
+  const unreadable = (step: string): void => {
+    if (mockUnreadableStep !== step) return;
+    throw new TypeError(
+      `Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/${step}-a1.js`,
+    );
+  };
+  return {
+    ForgeDiscovery: (await import('./ForgeDiscovery')).ForgeDiscovery,
+    ForgeReview: () => {
+      unreadable('ForgeReview');
+      return <ForgeReview />;
+    },
+    ForgeExecution: () => {
+      unreadable('ForgeExecution');
+      return <ForgeExecution />;
+    },
+    ForgeResults: (await import('./ForgeResults')).ForgeResults,
+    preloadStepsAfter: (phase: string) => mockPreloadStepsAfter(phase),
+  };
+});
 
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ className }: { className?: string }) => (
@@ -218,6 +238,47 @@ describe('ForgePage', () => {
     mockPhase = 'results';
     render(<ForgePage />);
     expect(await screen.findByTestId('forge-results')).toBeDefined();
+  });
+
+  describe('a step whose chunk could not be fetched', () => {
+    afterEach(() => {
+      mockUnreadableStep = null;
+    });
+
+    it("says so in the step's place, that the run goes on and where to stop it, the page header up", () => {
+      // The execution step's chunk is asked for once the run has started:
+      // the page's boundary replaced the whole page, and the run went on
+      // writing behind it with neither its progress nor its Abort.
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockUnreadableStep = 'ForgeExecution';
+      mockPhase = 'execution';
+      render(<ForgePage />);
+
+      const failed = screen.getByTestId('forge-step-failed');
+      expect(failed.textContent).toContain('This part did not load');
+      expect(failed.textContent).toContain('stop it from Monitor, under Live Operations');
+      expect(screen.getByTestId('forge-page')).toBeDefined();
+      expect(screen.getByTestId('forge-step-failed-reload')).toBeDefined();
+    });
+
+    it('says nothing of a run on a step before it has started', () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockUnreadableStep = 'ForgeReview';
+      mockPhase = 'review';
+      render(<ForgePage />);
+
+      const failed = screen.getByTestId('forge-step-failed');
+      expect(failed.textContent).toContain('This part did not load');
+      expect(failed.textContent).not.toContain('Live Operations');
+    });
+  });
+
+  it('fetches the steps the run can reach next while each step is shown', () => {
+    mockPreloadStepsAfter.mockClear();
+    mockPhase = 'review';
+    render(<ForgePage />);
+
+    expect(mockPreloadStepsAfter).toHaveBeenCalledWith('review');
   });
 
   describe('a stopped run, told to a screen reader', () => {

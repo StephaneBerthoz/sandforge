@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { readFileSync } from 'fs';
+import { pagePreloadManifest, pageRoutes, type BuiltChunk } from './src/build/pagePreload.ts';
 
 const pkg = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
@@ -88,6 +89,47 @@ export function englishCatalogue(): Plugin {
 }
 
 /**
+ * The panel's routes, each a page loaded the first time it is shown. Spelled
+ * in segments: src/knipGate.test.ts takes a quoted source path here for a
+ * build entry.
+ */
+const PANEL_ROUTER = path.resolve(import.meta.dirname, 'src', 'PanelRouter.tsx');
+
+/** Where the extension reads what each page needs before it paints. */
+const PAGE_PRELOAD_FILE = 'assets/preload.json';
+
+/**
+ * What each page needs before it paints, by route, written beside the panel
+ * bundle (src/build/pagePreload.ts). The extension links those files in the
+ * panel's shell, where the webview fetches them all at once instead of one
+ * round of imports after another.
+ */
+export function pagePreload(): Plugin {
+  return {
+    name: 'sandforge-page-preload',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      this.addWatchFile(PANEL_ROUTER);
+      const routes = pageRoutes(readFileSync(PANEL_ROUTER, 'utf-8'));
+      if (routes.length === 0) this.error(`no page() route read from ${PANEL_ROUTER}`);
+      const chunks: BuiltChunk[] = Object.values(bundle).flatMap((output) =>
+        output.type === 'chunk' ? [output] : [],
+      );
+      const { manifest, unplaced } = pagePreloadManifest(routes, chunks, (route) => {
+        const file = path.resolve(path.dirname(PANEL_ROUTER), route.module);
+        return [`${file}.tsx`, `${file}.ts`];
+      });
+      if (unplaced.length > 0) this.error(`no chunk holds ${unplaced.join(', ')}`);
+      this.emitFile({
+        type: 'asset',
+        fileName: PAGE_PRELOAD_FILE,
+        source: `${JSON.stringify(manifest, null, 1)}\n`,
+      });
+    },
+  };
+}
+
+/**
  * zod as the webview imports it: through src/zodJitless.ts, which turns zod's
  * compiler off before any importer builds a schema. The module that turns it
  * off is the module importers get zod from, so no entry has to load zod
@@ -115,7 +157,7 @@ export const ZOD_WITHOUT_EVAL = {
 export default defineConfig(({ mode }) => {
   const isSidepanel = mode === 'sidepanel';
   return {
-    plugins: [react(), englishCatalogue()],
+    plugins: [react(), englishCatalogue(), ...(isSidepanel ? [] : [pagePreload()])],
     build: {
       outDir: 'dist',
       /* Default pass empties dist; the sidepanel pass must keep index.js */

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import './i18n';
+import i18n from './i18n';
 import { withEnglish } from './i18n/englishNamespaces';
 import { BridgeProvider } from './bridge/BridgeProvider';
 import { MotionProvider } from './motion/MotionProvider';
@@ -18,6 +18,9 @@ import { useKonamiCode } from './hooks/useKonamiCode';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
 import { useAppStore } from './stores/useAppStore';
+import { useNotificationStore } from './stores/useNotificationStore';
+import { reloadPanel } from './bridge/reloadPanel';
+import { sendBridgeMessage } from './bridge/sendBridgeMessage';
 
 /*
  * The overlays a panel shows now and then — the welcome wizard on a first
@@ -49,6 +52,60 @@ const MojitoOverlay = lazy(
   ),
 );
 
+/** Props for OverlayBoundary. */
+interface OverlayBoundaryProps {
+  /** Closes the overlay: an overlay left open would throw again on every render. */
+  onFailed: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * Catches an overlay that fails, which renders outside the page's boundary:
+ * its failure reached the root boundary, which took down the bridge and the
+ * page, and whose Recover threw again on every press, the overlay still open
+ * in the store. The overlay is closed instead, the page left as it was, and
+ * a toast says what did not load and offers the way back.
+ */
+class OverlayBoundary extends React.Component<OverlayBoundaryProps, { failed: boolean }> {
+  constructor(props: OverlayBoundaryProps) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    try {
+      sendBridgeMessage('error:boundary', {
+        message: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack ?? undefined,
+      });
+    } catch {
+      // Nothing to report to outside a webview.
+    }
+    useNotificationStore.getState().addNotification({
+      level: 'error',
+      title: i18n.t('errorBoundary.notLoadedTitle'),
+      message: i18n.t('errorBoundary.notLoadedDescription'),
+      actions: [
+        {
+          label: i18n.t('errorBoundary.reloadPanel'),
+          command: 'panel-reload',
+          onAction: reloadPanel,
+        },
+      ],
+    });
+    this.props.onFailed();
+  }
+
+  override render(): React.ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 /** Props for PanelApp. */
 export interface PanelAppProps {
   moduleId: string;
@@ -64,7 +121,11 @@ interface OverlayDialogProps {
 
 /**
  * Full-panel modal overlay. Rendered only while open, so the focus trap moves
- * focus in when it appears and hands it back when it goes.
+ * focus in when it appears and hands it back when it goes. Its content comes
+ * in a chunk of its own: the Suspense that waits for it sits outside the
+ * dialog, so the dialog and its trap mount with the content in them. Inside,
+ * the trap mounted on an empty dialog, found nothing to focus and focused the
+ * dialog itself, and nothing moved the focus when the content arrived.
  */
 const OverlayDialog: React.FC<OverlayDialogProps> = ({ label, onEscape, children }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -168,6 +229,7 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
    * the command posted into the void in production.
    */
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const handleEasterEggClose = useCallback((): void => setShowEasterEgg(false), []);
   const logoClickCount = useRef(0);
   const logoClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -243,26 +305,35 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
       </main>
       <CommandPalette />
       {showWelcome && (
-        <OverlayDialog
-          label={t('a11y.welcomeWizard', 'Welcome wizard')}
-          onEscape={handleWelcomeEscape}
-        >
+        <OverlayBoundary onFailed={handleWelcomeComplete}>
           <Suspense fallback={null}>
-            <WelcomePage ref={welcomeRef} onComplete={handleWelcomeComplete} />
+            <OverlayDialog
+              label={t('a11y.welcomeWizard', 'Welcome wizard')}
+              onEscape={handleWelcomeEscape}
+            >
+              <WelcomePage ref={welcomeRef} onComplete={handleWelcomeComplete} />
+            </OverlayDialog>
           </Suspense>
-        </OverlayDialog>
+        </OverlayBoundary>
       )}
       {showWhatsNew && (
-        <OverlayDialog label={t('a11y.whatsNew', "What's new")} onEscape={handleWhatsNewDismiss}>
+        <OverlayBoundary onFailed={handleWhatsNewDismiss}>
           <Suspense fallback={null}>
-            <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
+            <OverlayDialog
+              label={t('a11y.whatsNew', "What's new")}
+              onEscape={handleWhatsNewDismiss}
+            >
+              <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
+            </OverlayDialog>
           </Suspense>
-        </OverlayDialog>
+        </OverlayBoundary>
       )}
       {showEasterEgg && (
-        <Suspense fallback={null}>
-          <MojitoOverlay onClose={() => setShowEasterEgg(false)} />
-        </Suspense>
+        <OverlayBoundary onFailed={handleEasterEggClose}>
+          <Suspense fallback={null}>
+            <MojitoOverlay onClose={handleEasterEggClose} />
+          </Suspense>
+        </OverlayBoundary>
       )}
       <FloatingToasts />
     </>

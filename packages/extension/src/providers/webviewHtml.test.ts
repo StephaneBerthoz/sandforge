@@ -115,6 +115,32 @@ describe('buildWebviewHtml', () => {
     );
   });
 
+  it("links the page's chunks for the webview to fetch at once, on the scripts' nonce", () => {
+    // Found one round of imports after another once index.js ran: Forge's
+    // first paint waited on four rounds of fetches, a network round trip
+    // each on a remote workspace.
+    const html = build({
+      preloadUris: [
+        { toString: () => 'vscode-webview://test/assets/chunks/ForgePage-a1.js' },
+        { toString: () => 'vscode-webview://test/assets/chunks/Button-b2.js?x=1&y="2"' },
+      ],
+    });
+    const nonce = /script-src 'nonce-([^']+)'/.exec(html)?.[1];
+
+    expect(html).toContain(
+      `<link rel="modulepreload" nonce="${nonce}" href="vscode-webview://test/assets/chunks/ForgePage-a1.js">`,
+    );
+    expect(html).toContain(
+      'href="vscode-webview://test/assets/chunks/Button-b2.js?x=1&amp;y=&quot;2&quot;"',
+    );
+    // In the head, ahead of the scripts that import them.
+    expect(html.indexOf('modulepreload')).toBeLessThan(html.indexOf('</head>'));
+  });
+
+  it('links no chunk when none is given', () => {
+    expect(build()).not.toContain('modulepreload');
+  });
+
   it('renders title, stylesheet link and root container', () => {
     const html = build({ title: 'SandForge Sidebar', moduleId: 'sidepanel' });
     expect(html).toContain('<title>SandForge Sidebar</title>');

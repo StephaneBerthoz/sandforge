@@ -1,5 +1,6 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { withEnglish, type EnglishNamespace } from './i18n/englishNamespaces';
+import { Spinner } from './components/ui/Spinner';
 
 /**
  * A page loaded the first time its route is shown, with the namespaces of the
@@ -129,6 +130,33 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ai: page(() => import('./pages/AI/AIPage'), 'AIPage', ['ai', 'errors']),
 };
 
+/** How long a page's chunk is waited for before the wait is shown. */
+const PAGE_WAIT_SHOWN_AFTER_MS = 300;
+
+/**
+ * What a page shows while its chunk loads: nothing at first, then a spinner.
+ * From a local disk the wait is a few milliseconds, too short for anything
+ * to be worth drawing; on a remote workspace each round of fetches is a
+ * network round trip, and the panel stayed empty with no sign that it was
+ * loading.
+ */
+const PageLoading: React.FC = () => {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShown(true), PAGE_WAIT_SHOWN_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <div
+      className="h-full flex items-center justify-center"
+      aria-busy="true"
+      data-testid="panel-loading"
+    >
+      {shown && <Spinner size="lg" />}
+    </div>
+  );
+};
+
 /** Props for PanelRouter. */
 export interface PanelRouterProps {
   moduleId: string;
@@ -150,9 +178,7 @@ export const PanelRouter: React.FC<PanelRouterProps> = ({ moduleId }) => {
   }
 
   return (
-    // The chunk is read from the extension's own folder: the wait is a few
-    // milliseconds, too short for a message to be worth reading.
-    <Suspense fallback={<div className="h-full" aria-busy="true" data-testid="panel-loading" />}>
+    <Suspense fallback={<PageLoading />}>
       <Component />
     </Suspense>
   );

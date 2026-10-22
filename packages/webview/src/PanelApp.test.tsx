@@ -3,6 +3,7 @@ import { forwardRef, useImperativeHandle } from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PanelApp } from './PanelApp';
 import { useAppStore } from './stores/useAppStore';
+import { useNotificationStore } from './stores/useNotificationStore';
 
 const mockPostMessage = vi.fn();
 
@@ -72,14 +73,17 @@ vi.mock('./pages/Welcome/WelcomePage', () => ({
 }));
 
 vi.mock('./pages/Welcome/WhatsNewPage', () => ({
-  WhatsNewPage: ({ version, onDismiss }: { version: string; onDismiss: () => void }) => (
-    <>
-      <button data-testid="whats-new-page-stub" onClick={onDismiss}>
-        whats-new {version}
-      </button>
-      <button data-testid="whats-new-page-last">changelog</button>
-    </>
-  ),
+  WhatsNewPage: ({ version, onDismiss }: { version: string; onDismiss: () => void }) => {
+    if (version === 'broken') throw new Error('overlay render failed');
+    return (
+      <>
+        <button data-testid="whats-new-page-stub" onClick={onDismiss}>
+          whats-new {version}
+        </button>
+        <button data-testid="whats-new-page-last">changelog</button>
+      </>
+    );
+  },
 }));
 
 vi.mock('./components/EasterEgg/MojitoOverlay', () => ({
@@ -305,6 +309,32 @@ describe('PanelApp', () => {
 
     fireEvent.keyDown(first, { key: 'Escape' });
     expect(useAppStore.getState().showWhatsNew).toBe(false);
+  });
+
+  it('closes an overlay that fails, keeps the page and the bridge up, and says what did not load', () => {
+    // It rendered outside the page's boundary: the root boundary took down
+    // the bridge and the page, and its Recover threw again on every press,
+    // What's New still open in the store.
+    const reportedError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    useNotificationStore.setState({ notifications: [] });
+    useAppStore.setState({ showWhatsNew: true, whatsNewVersion: 'broken' });
+    render(<PanelApp moduleId="monitor" />);
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(useAppStore.getState().showWhatsNew).toBe(false);
+    expect(screen.queryByTestId('error-boundary')).toBeNull();
+    expect(screen.getByTestId('bridge')).toBeDefined();
+    expect(screen.getByTestId('panel-router').textContent).toBe('monitor');
+    const [toast] = useNotificationStore.getState().notifications;
+    expect(toast).toMatchObject({ level: 'error', title: 'Part of this panel did not load' });
+    expect(toast.actions?.[0].label).toBe('Reload panel');
+
+    mockPostMessage.mockClear();
+    toast.actions?.[0].onAction?.();
+    expect(mockPostMessage.mock.calls.map((call) => call[0].payload.type)).toContain(
+      'panel:reload',
+    );
+    reportedError.mockRestore();
   });
 
   it('should not clobber the panel module with the store default on mount', () => {

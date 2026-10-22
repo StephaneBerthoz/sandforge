@@ -40,7 +40,41 @@ const sampleData: TrendDataPoint[] = [
   { timestamp: Date.now(), value: 150 },
 ];
 
+/** The area chart's chunk could not be fetched, as on a remote window that dropped. */
+const areaUnreadable = vi.hoisted(() => ({ value: false }));
+vi.mock('./TrendArea', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./TrendArea')>();
+  return {
+    ...actual,
+    TrendArea: (props: React.ComponentProps<typeof actual.TrendArea>) => {
+      if (areaUnreadable.value) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/TrendArea-a1.js',
+        );
+      }
+      return <actual.TrendArea {...props} />;
+    },
+  };
+});
+
 describe('TrendChart', () => {
+  it('keeps a chart whose chunk could not be fetched to its box, the period buttons up', async () => {
+    // The page's boundary caught it: the whole Monitor page, its Stop
+    // buttons with it, went with a chart.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    areaUnreadable.value = true;
+    try {
+      render(<TrendChart data={sampleData} />);
+
+      const failed = await screen.findByTestId('trend-chart-failed');
+      expect(failed.textContent).toContain('This part did not load');
+      expect(screen.getByTestId('trend-chart-container').contains(failed)).toBe(true);
+      expect(screen.getByTestId('trend-period-7d')).toBeDefined();
+    } finally {
+      areaUnreadable.value = false;
+    }
+  });
+
   it('should render the chart container', () => {
     render(<TrendChart data={sampleData} />);
     expect(screen.getByTestId('trend-chart')).toBeDefined();

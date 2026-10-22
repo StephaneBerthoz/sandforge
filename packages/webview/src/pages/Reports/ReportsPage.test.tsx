@@ -31,6 +31,23 @@ vi.mock('recharts', () => ({
   CartesianGrid: () => <div />,
 }));
 
+/** The Analytics tab's chunk could not be fetched, as on a remote window that dropped. */
+const analyticsUnreadable = vi.hoisted(() => ({ value: false }));
+vi.mock('./AnalyticsDashboard', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./AnalyticsDashboard')>();
+  return {
+    ...actual,
+    AnalyticsDashboard: (props: React.ComponentProps<typeof actual.AnalyticsDashboard>) => {
+      if (analyticsUnreadable.value) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/AnalyticsDashboard-a1.js',
+        );
+      }
+      return <actual.AnalyticsDashboard {...props} />;
+    },
+  };
+});
+
 /*
  * No bridge-hook mocks: the page is presentational, and ReportsContainer is
  * what talks to the host. The page sending anything itself is what the
@@ -139,6 +156,24 @@ describe('ReportsPage', () => {
     fireEvent.click(screen.getByText('Analytics'));
     // The charts come in a chunk of their own, the first time the tab opens.
     expect(await screen.findByTestId('analytics-dashboard')).toBeDefined();
+  });
+
+  it('keeps an Analytics tab whose chunk could not be fetched to its tab, and the other tabs work', () => {
+    // The page's boundary caught it: the Executions tab went with it.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    analyticsUnreadable.value = true;
+    try {
+      render(<ReportsPage reports={reports} analyticsSummary={summary} />);
+      fireEvent.click(screen.getByText('Analytics'));
+
+      expect(screen.getByTestId('reports-analytics-failed').textContent).toContain(
+        'This part did not load',
+      );
+      fireEvent.click(screen.getByText('Executions'));
+      expect(screen.getByTestId('execution-report-view')).toBeDefined();
+    } finally {
+      analyticsUnreadable.value = false;
+    }
   });
 
   it('should switch to audit tab', () => {

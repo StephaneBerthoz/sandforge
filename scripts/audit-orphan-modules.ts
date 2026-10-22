@@ -110,6 +110,8 @@ const SRC_ROOTS = ['packages/extension/src', 'packages/shared/src', 'packages/we
  * `resolve.alias` puts where `src/i18n/index.ts` imports `./locales/en.json`:
  * the sidebar's, and the panel shell's. `src/zodJitless.ts` likewise: the
  * alias puts it where any module imports `zod`, so no module names it.
+ * `src/build/pagePreload.ts` is the build's own plugin, which `vite.config.ts`
+ * imports to write `assets/preload.json`: reached by the build, not shipped.
  *
  * Deliberately excluded: `packages/extension/cli/*` and
  * `packages/extension/tools/*` (dev/CI utilities run through `tsx`, excluded
@@ -124,6 +126,7 @@ const ENTRIES = [
   'packages/webview/src/i18n/sidepanelCatalogue.ts',
   'packages/webview/src/i18n/panelCatalogue.ts',
   'packages/webview/src/zodJitless.ts',
+  'packages/webview/src/build/pagePreload.ts',
 ];
 
 /** Extensions tried, in order, when a specifier carries none. */

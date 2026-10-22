@@ -168,6 +168,33 @@ describe('ExtensionHandlers — workbench:reload handler', () => {
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
   });
 
+  it('hands a page’s request for its shell to the panel manager, once it is set, and answers nothing', () => {
+    const panel = {
+      webview: {
+        onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+        postMessage: vi.fn(),
+      },
+    };
+    broker.registerPanel(panel as never);
+    const fromPanel = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+    const reloadMessage = (id: string): unknown => ({
+      protocolVersion: PROTOCOL_VERSION,
+      payload: { id, type: 'panel:reload', timestamp: Date.now(), payload: { moduleId: 'forge' } },
+    });
+
+    fromPanel(reloadMessage('reload-early'));
+    const listener = vi.fn();
+    handlers.setPanelReloadListener(listener);
+    fromPanel(reloadMessage('reload-1'));
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toMatchObject({
+      type: 'panel:reload',
+      payload: { moduleId: 'forge' },
+    });
+    expect(panel.webview.postMessage).not.toHaveBeenCalled();
+  });
+
   describe('workbench:open-setting', () => {
     /** Send one enveloped message from a registered panel. */
     function fromPanel(payload: unknown): void {

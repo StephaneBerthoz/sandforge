@@ -9,7 +9,10 @@ import { Select } from '../../../components/ui/Select';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
 import { FileDropZone } from '../../../components/ui/FileDropZone';
+import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 import { orgOptionLabel } from '../../../utils/orgFormatters';
+import { formatNumber } from '../../../utils/formatters';
+import { CSV_IMPORT_MAX_COLUMNS } from '@sandforge/shared';
 import { CsvPreview } from './CsvPreview';
 import { CsvColumnMapper } from './CsvColumnMapper';
 import { CsvValidationPanel } from './CsvValidationPanel';
@@ -122,7 +125,9 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
           !!csv.file && !!csv.targetOrgId && !!csv.targetObjectApiName && csv.headers.length > 0
         );
       case 'map':
-        return csv.columnMappings.some((m) => m.sfFieldApiName !== '');
+        return (
+          csv.columnMappings.some((m) => m.sfFieldApiName !== '') && csv.columnsOverLimit === 0
+        );
       case 'validate':
         return false; // Proceed via CsvValidationPanel
       case 'execute':
@@ -177,8 +182,23 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
         })}
       </nav>
 
-      {/* Step content */}
-      <div className="flex-1" data-testid="csv-step-content">
+      {/* What stopped the import: a file past what one import takes, refused
+          as it is read, or a check or a write that failed. Said nowhere: a
+          failed check left its step empty. */}
+      {csv.error && (
+        <ErrorBanner message={csv.error} code={null} module="seed" data-testid="csv-error" />
+      )}
+
+      {/* Step content. Named after the step it shows, and focusable: the Seed
+          page hands it the keyboard when the import opens, in place of the
+          card that opened it, as the other wizards' steps take it. */}
+      <div
+        className="flex-1"
+        role="group"
+        aria-label={t(CSV_STEPS[currentIndex].labelKey)}
+        tabIndex={-1}
+        data-testid="csv-step-content"
+      >
         {/* STEP 1: Upload */}
         {csv.step === 'upload' && (
           <div className="flex flex-col gap-3" data-testid="csv-step-upload">
@@ -234,12 +254,26 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                 <Skeleton variant="rect" height="200px" />
               </div>
             ) : (
-              <CsvColumnMapper
-                headers={csv.headers}
-                columnMappings={csv.columnMappings}
-                describeFields={csv.describeFields}
-                onMappingChange={csv.handleMappingChange}
-              />
+              <>
+                {/* Only the mapped columns are sent, so a wide export goes
+                    once enough of them are left unmapped. */}
+                {csv.columnsOverLimit > 0 && (
+                  <ErrorBanner
+                    message={t('seed.csv.wizard.tooManyColumns', {
+                      columns: formatNumber(CSV_IMPORT_MAX_COLUMNS + csv.columnsOverLimit),
+                      max: formatNumber(CSV_IMPORT_MAX_COLUMNS),
+                    })}
+                    className="mb-3"
+                    data-testid="csv-too-many-columns"
+                  />
+                )}
+                <CsvColumnMapper
+                  headers={csv.headers}
+                  columnMappings={csv.columnMappings}
+                  describeFields={csv.describeFields}
+                  onMappingChange={csv.handleMappingChange}
+                />
+              </>
             )}
           </div>
         )}

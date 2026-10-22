@@ -763,7 +763,9 @@
         "title": "Map CSV Columns to Salesforce Fields",
         "mapped": "{{count}} of {{total}} columns mapped",
         "unmapped": "Unmapped",
-        "incompatible": "Type incompatible"
+        "incompatible": "Type incompatible",
+        "fieldFor": "Salesforce field for {{column}}",
+        "howTo": "Type a field's label or API name, or pick it from the list. A column left empty is not imported."
       },
       "preview": {
         "title": "CSV Data Preview",
@@ -807,7 +809,9 @@
         "failed_one": "{{count}} record failed",
         "failed_other": "{{count}} records failed",
         "cancelled_one": "Cancelled: {{count}} record imported before the stop stays in the org",
-        "cancelled_other": "Cancelled: {{count}} records imported before the stop stay in the org"
+        "cancelled_other": "Cancelled: {{count}} records imported before the stop stay in the org",
+        "tooManyRows": "This file holds {{rows}} rows; CSV Upload takes {{max}} at a time. Split it into files of {{max}} rows or fewer, and upload each.",
+        "tooManyColumns": "{{columns}} columns are mapped; CSV Upload takes {{max}} at a time. Leave the columns you do not need unmapped, or split the file by columns."
       }
     },
     "modeSelect": {
@@ -1070,6 +1074,13 @@
       "selectObjects": "Choose which Salesforce objects to populate with data",
       "configureFields": "Customize how each field is generated — rules, ranges, and patterns",
       "execute": "Review and run the data generation. Results appear here when complete"
+    },
+    "configure": {
+      "filterFields": "Find a field of {{object}}",
+      "filterFieldsPlaceholder": "Label or API name",
+      "requiredOnly": "Required only",
+      "fieldsShown": "{{shown}} of {{total}} fields shown",
+      "noFieldMatches": "No field matches this filter."
     }
   },
   "sync": {
@@ -4520,7 +4531,13 @@
     "description": "SandForge encountered an unexpected error. You can try recovering or copy the error details for a bug report.",
     "recover": "Recover",
     "copyError": "Copy Error",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "notLoadedTitle": "Part of this panel did not load",
+    "notLoadedDescription": "SandForge could not read one of its files, as can happen while a remote window reconnects or after the extension is reinstalled. Reloading the panel reads them again and starts its page afresh; a run already started goes on.",
+    "reloadPanel": "Reload panel",
+    "partNotLoaded": "This part did not load: SandForge could not read its file. Reloading the panel reads it again.",
+    "partFailed": "This part stopped with an error. Reloading the panel starts it again.",
+    "runGoesOn": "The run goes on in the extension: follow it or stop it from Monitor, under Live Operations."
   },
   "config": {
     "categories": {

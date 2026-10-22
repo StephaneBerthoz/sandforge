@@ -1,5 +1,7 @@
 import {
   AUTOPILOT_COUNTS_PER_REQUEST,
+  CSV_IMPORT_MAX_COLUMNS,
+  CSV_IMPORT_MAX_ROWS,
   SYNC_CONFLICT_STRATEGIES,
   isFileBodiedObject,
   syncConfigSchema,
@@ -610,9 +612,6 @@ export const seedCreatePersonaPayloadSchema = z.object({
 /** Max cell/field value length accepted in clone/csv payloads. */
 const MAX_FIELD_VALUE_LENGTH = 131_072; // SF long-text-area cap
 
-/** Max rows accepted in a single CSV import (bounds memory + API usage). */
-const MAX_CSV_ROWS = 50_000;
-
 export const seedCloneObjectPayloadSchema = z
   .object({
     objectApiName: sfApiNameSchema,
@@ -665,8 +664,10 @@ export const seedCsvPayloadSchema = z.object({
   records: z
     .array(z.record(z.string(), z.string().max(MAX_FIELD_VALUE_LENGTH)))
     .min(1)
-    .max(MAX_CSV_ROWS),
-  columnMappings: z.array(csvColumnMappingPayloadSchema).min(1).max(500),
+    // Rows held in memory and written through the REST API: the page refuses
+    // a larger file as it reads it, by the same numbers.
+    .max(CSV_IMPORT_MAX_ROWS),
+  columnMappings: z.array(csvColumnMappingPayloadSchema).min(1).max(CSV_IMPORT_MAX_COLUMNS),
   externalIdField: sfApiNameSchema.optional(),
 });
 
@@ -1482,6 +1483,11 @@ export const panelRoutePayloadSchema = z.object({
   moduleId: z.string().min(1).max(64),
   route: z.string().min(1).max(64),
   overlay: z.boolean(),
+});
+
+/** Which panel's page asks for its shell again (`panel:reload`): its module. */
+export const panelReloadPayloadSchema = z.object({
+  moduleId: z.string().min(1).max(64),
 });
 
 // ── automation:* (pipeline / operation / marketplace) payload schemas ──────

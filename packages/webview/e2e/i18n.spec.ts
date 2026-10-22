@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'path';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'url';
 
 import { MockBridge } from './helpers';
@@ -190,6 +191,88 @@ test.describe('i18n — language pushed by the extension', () => {
     await expect(page.getByTestId('quick-actions-tile').getByRole('heading')).toHaveText(
       FR.quickActions,
     );
+  });
+});
+
+/**
+ * The extension's own test for "the page has mounted", read from its source
+ * (free of any `vscode` import) and rebuilt in the page, so the host played
+ * here posts on the very message the extension posts on. Pulled in with
+ * `createRequire` for the reason navigation.spec.ts gives.
+ */
+const { isPageMountedMessage } = createRequire(import.meta.url)(
+  '../../extension/src/composition/moduleIntent',
+) as { isPageMountedMessage: (raw: unknown) => boolean };
+
+/**
+ * Play the extension opening a new panel from a command: what the command
+ * queued (the launcher's start, What's New) is posted once the page sends the
+ * message the extension waits for, a moment later, as a message crossing from
+ * the extension does.
+ */
+async function hostPostsOnceMounted(
+  page: Page,
+  queued: readonly Record<string, unknown>[],
+): Promise<void> {
+  await page.addInitScript(
+    ({ readySource, messages }) => {
+      const isReady = new Function(`return (${readySource})`)() as (raw: unknown) => boolean;
+      const w = window as unknown as Record<string, unknown>;
+      const acquire = w.acquireVsCodeApi as () => { postMessage: (msg: unknown) => void };
+      let pending: readonly unknown[] | undefined = messages;
+      w.acquireVsCodeApi = () => {
+        const api = acquire();
+        const post = api.postMessage;
+        api.postMessage = (msg: unknown) => {
+          post(msg);
+          if (pending === undefined || !isReady(msg)) return;
+          const toSend = pending;
+          pending = undefined;
+          setTimeout(() => {
+            for (const data of toSend) {
+              window.dispatchEvent(new MessageEvent('message', { data, origin: '' }));
+            }
+          }, 0);
+        };
+        return api;
+      };
+    },
+    { readySource: isPageMountedMessage.toString(), messages: queued },
+  );
+}
+
+test.describe('i18n — a new panel on an editor in French', () => {
+  test.use({ locale: 'fr-FR' });
+
+  test("starts the import the launcher opened Organizations for, and shows What's New", async ({
+    page,
+  }) => {
+    // The language request leaves while the i18n module loads, before React
+    // has rendered: posted on it, both messages reached a page with no
+    // listener yet, and the import never started.
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await hostPostsOnceMounted(page, [
+      {
+        type: 'navigation:intent',
+        id: 'intent-1',
+        timestamp: 0,
+        payload: { route: 'orgs', orgAction: 'import-cli' },
+      },
+      { type: 'whats-new:show', id: 'whatsnew-1', timestamp: 0, payload: { version: '1.0.0' } },
+    ]);
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>;
+      w.__SANDFORGE_MODULE__ = 'orgs';
+      w.__SANDFORGE_EDITOR_LANGUAGE__ = 'fr';
+    });
+    await page.goto('/');
+    const request = await bridge.waitForMessage('i18n:locale', { timeout: 10_000 });
+    expect((request.payload as { lng?: string }).lng).toBe('fr');
+
+    const connect = await bridge.waitForMessage('org:connect', { timeout: 10_000 });
+    expect((connect.payload as { authMethod?: string }).authMethod).toBe('sfdx_import');
+    await expect(page.getByTestId('whats-new-page')).toBeVisible();
   });
 });
 

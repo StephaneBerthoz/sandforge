@@ -15,6 +15,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 
 /** The module and org a trail is narrowed to. */
 export interface AuditFilter {
@@ -149,7 +150,8 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
   className,
 }) => {
   const { t } = useTranslation();
-  const [actionFilter, setActionFilter] = useState<string>('');
+  // Kept with the filters the extension reads, across the panel's rebuild.
+  const [actionFilter, setActionFilter] = useWebviewPersistedState('reportsAuditAction', '');
   const [localFilter, setLocalFilter] = useState<AuditFilter>({});
   const activeFilter = useMemo<AuditFilter>(
     () => (onFilterChange ? (filter ?? {}) : localFilter),

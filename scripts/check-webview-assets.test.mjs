@@ -30,6 +30,7 @@ import {
   namespacesHeld,
   panelRoutes,
   panelShellNamespaces,
+  preloadGaps,
   requestedAssets,
   routeFirstPaint,
   shellEnglishOutsideBase,
@@ -118,7 +119,11 @@ test('the providers on disk still use a shape it reads', () => {
     ['SidebarViewProvider.ts', 'WebviewPanelManager.ts'],
     'the webview-dist paths moved out of the two providers the gate reads',
   );
-  assert.deepEqual(found.get('WebviewPanelManager.ts'), ['assets/index.js', 'assets/style.css']);
+  assert.deepEqual(found.get('WebviewPanelManager.ts'), [
+    'assets/index.js',
+    'assets/preload.json',
+    'assets/style.css',
+  ]);
   assert.deepEqual(found.get('SidebarViewProvider.ts'), [
     'assets/sidepanel.css',
     'assets/sidepanel.js',
@@ -372,4 +377,34 @@ test('the English catalogue gives most of its namespaces a sentence to be found 
   for (const namespace of ['forge', 'onboarding', 'errors', 'sync', 'seed', 'dataops']) {
     assert.ok(sentinels.has(namespace), `no sentence finds "${namespace}"`);
   }
+});
+
+test("it finds where the build's preload list and its own reading of the build differ", () => {
+  const expected = new Map([
+    ['forge', ['assets/chunks/ForgePage.js', 'assets/chunks/react.js']],
+    ['home', ['assets/chunks/HomePage.js']],
+  ]);
+
+  assert.deepEqual(
+    preloadGaps(
+      {
+        forge: ['assets/chunks/ForgePage.js', 'assets/chunks/react.js'],
+        home: ['assets/chunks/HomePage.js'],
+      },
+      expected,
+    ),
+    [],
+  );
+  const gaps = preloadGaps(
+    { forge: ['assets/chunks/ForgePage.js', 'assets/chunks/Old.js'], ghost: [] },
+    expected,
+  );
+  assert.equal(gaps.length, 4);
+  assert.match(gaps[0], /leaves out 1 file\(s\) the "forge" page needs .*react\.js/);
+  assert.match(gaps[1], /names 1 file\(s\) the "forge" page does not need .*Old\.js/);
+  assert.match(gaps[2], /lists nothing for the "home" page/);
+  assert.match(gaps[3], /lists "ghost", no route of the panel/);
+  assert.deepEqual(preloadGaps(['assets/index.js'], expected), [
+    'assets/preload.json is not a list by route',
+  ]);
 });

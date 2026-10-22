@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
 import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
+import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { WRITE_RUN_TIMEOUT_MS } from '../../../hooks/writeRunTimeout';
+import { formatNumber } from '../../../utils/formatters';
 
 /** Step in the CSV import wizard. */
 export type CsvImportStep = 'upload' | 'map' | 'validate' | 'execute';
@@ -37,6 +39,11 @@ export interface CsvImportState {
   previewRows: Record<string, string>[];
   /** Column mappings between CSV headers and Salesforce fields. */
   columnMappings: CsvColumnMapping[];
+  /**
+   * How many columns are mapped past what one import takes, or 0: the map
+   * step says so, and its Next waits until some are left unmapped.
+   */
+  columnsOverLimit: number;
   /** Target org ID. */
   targetOrgId: string;
   /** Target Salesforce object API name. */
@@ -123,6 +130,29 @@ function autoMapColumns(headers: string[], fields: SeedFieldInfo[]): CsvColumnMa
   });
 }
 
+/** The mappings of the columns mapped to a field: the only ones an import sends. */
+function mappedColumns(mappings: readonly CsvColumnMapping[]): CsvColumnMapping[] {
+  return mappings.filter((mapping) => mapping.sfFieldApiName !== '');
+}
+
+/**
+ * Each row with only the mapped columns: an import of an 800-column export
+ * sent every cell of every column twice, the unmapped ones too.
+ */
+function mappedCells(
+  rows: readonly Record<string, string>[],
+  mappings: readonly CsvColumnMapping[],
+): Record<string, string>[] {
+  const headers = mappings.map((mapping) => mapping.csvHeader);
+  return rows.map((row) => {
+    const cells: Record<string, string> = {};
+    for (const header of headers) {
+      if (header in row) cells[header] = row[header];
+    }
+    return cells;
+  });
+}
+
 /**
  * Hook managing the complete CSV import lifecycle: file selection,
  * parsing with Papaparse, column auto-mapping, validation, and execution.
@@ -157,37 +187,49 @@ export function useCsvImport(t: TFunction): CsvImportState {
     runOutlivesWait: true,
   });
 
-  const handleFileSelected = useCallback((selectedFile: File) => {
-    setFile(selectedFile);
+  const handleFileSelected = useCallback(
+    (selectedFile: File) => {
+      setFile(selectedFile);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rawText = reader.result as string;
-      const cleanText = rawText.replace(/^\uFEFF/, '');
+      const reader = new FileReader();
+      reader.onload = () => {
+        const rawText = reader.result as string;
+        const cleanText = rawText.replace(/^\uFEFF/, '');
 
-      // Parse preview (first 10 rows)
-      const previewResult = Papa.parse<Record<string, string>>(cleanText, {
-        header: true,
-        dynamicTyping: false,
-        skipEmptyLines: true,
-        preview: 10,
-      });
+        // Parsed once: the preview is the first rows of the whole parse. The
+        // file was parsed twice, the second time whole.
+        const result = Papa.parse<Record<string, string>>(cleanText, {
+          header: true,
+          dynamicTyping: false,
+          skipEmptyLines: true,
+        });
 
-      if (previewResult.meta.fields) {
-        setHeaders(previewResult.meta.fields);
-      }
-      setPreviewRows(previewResult.data);
-
-      // Parse all rows
-      const fullResult = Papa.parse<Record<string, string>>(cleanText, {
-        header: true,
-        dynamicTyping: false,
-        skipEmptyLines: true,
-      });
-      setParsedRows(fullResult.data);
-    };
-    reader.readAsText(selectedFile);
-  }, []);
+        /*
+         * A file past what one import takes is refused as it is read, in words.
+         * The host refused it only at Validate, once every column had been
+         * mapped, as "Invalid payload — records: Too big".
+         */
+        if (result.data.length > CSV_IMPORT_MAX_ROWS) {
+          setHeaders([]);
+          setPreviewRows([]);
+          setParsedRows([]);
+          setError(
+            t('seed.csv.wizard.tooManyRows', {
+              rows: formatNumber(result.data.length),
+              max: formatNumber(CSV_IMPORT_MAX_ROWS),
+            }),
+          );
+          return;
+        }
+        setError(null);
+        setHeaders(result.meta.fields ?? []);
+        setPreviewRows(result.data.slice(0, 10));
+        setParsedRows(result.data);
+      };
+      reader.readAsText(selectedFile);
+    },
+    [t],
+  );
 
   const handleObjectSelected = useCallback(
     (orgId: string, objectApiName: string) => {
@@ -257,30 +299,49 @@ export function useCsvImport(t: TFunction): CsvImportState {
     [describeFields],
   );
 
+  const mapped = useMemo(() => mappedColumns(columnMappings), [columnMappings]);
+  const columnsOverLimit = Math.max(0, mapped.length - CSV_IMPORT_MAX_COLUMNS);
+
+  /**
+   * What the extension is sent to check or write: the mapped columns, and
+   * each row's cells of those columns. Undefined, with the refusal said, when
+   * more columns are mapped than one import takes.
+   */
+  const importPayload = useCallback((): Record<string, unknown> | undefined => {
+    if (mapped.length > CSV_IMPORT_MAX_COLUMNS) {
+      setExecutionStatus('error');
+      setError(
+        t('seed.csv.wizard.tooManyColumns', {
+          columns: formatNumber(mapped.length),
+          max: formatNumber(CSV_IMPORT_MAX_COLUMNS),
+        }),
+      );
+      return undefined;
+    }
+    return {
+      orgId: targetOrgId,
+      objectApiName: targetObjectApiName,
+      records: mappedCells(parsedRows, mapped),
+      columnMappings: mapped,
+    } as unknown as Record<string, unknown>;
+  }, [mapped, parsedRows, targetOrgId, targetObjectApiName, t]);
+
   const handleValidate = useCallback(() => {
-    setExecutionStatus('validating');
     setValidationResult(null);
     setError(null);
-
-    validateMutation.mutate({
-      orgId: targetOrgId,
-      objectApiName: targetObjectApiName,
-      records: parsedRows as unknown as Record<string, unknown>[],
-      columnMappings: columnMappings as unknown as Record<string, unknown>[],
-    } as unknown as Record<string, unknown>);
-  }, [targetOrgId, targetObjectApiName, parsedRows, columnMappings, validateMutation]);
+    const payload = importPayload();
+    if (!payload) return;
+    setExecutionStatus('validating');
+    validateMutation.mutate(payload);
+  }, [importPayload, validateMutation]);
 
   const handleExecute = useCallback(() => {
-    setExecutionStatus('executing');
     setError(null);
-
-    executeMutation.mutate({
-      orgId: targetOrgId,
-      objectApiName: targetObjectApiName,
-      records: parsedRows as unknown as Record<string, unknown>[],
-      columnMappings: columnMappings as unknown as Record<string, unknown>[],
-    } as unknown as Record<string, unknown>);
-  }, [targetOrgId, targetObjectApiName, parsedRows, columnMappings, executeMutation]);
+    const payload = importPayload();
+    if (!payload) return;
+    setExecutionStatus('executing');
+    executeMutation.mutate(payload);
+  }, [importPayload, executeMutation]);
 
   const reset = useCallback(() => {
     setFile(null);
@@ -307,6 +368,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     parsedRows,
     previewRows,
     columnMappings,
+    columnsOverLimit,
     targetOrgId,
     targetObjectApiName,
     describeFields,

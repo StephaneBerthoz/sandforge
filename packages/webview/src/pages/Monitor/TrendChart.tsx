@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import { dateTimeFormat, formatStoredDate, uiLocale } from '../../utils/formatters';
 import { TrendArea } from './monitorCharts';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 
 /** Single data point for the trend chart. */
 export interface TrendDataPoint {
@@ -113,11 +114,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
         ))}
       </div>
 
-      {/* Chart area: its box keeps its height while Recharts loads. */}
+      {/* Chart area: its box keeps its height while Recharts loads. A chart
+          whose chunk cannot be read is said in the box, and the rest of
+          Monitor, its Stop buttons with it, stays up. */}
       <div className="w-full h-48" data-testid="trend-chart-container">
-        <Suspense fallback={null}>
-          <TrendArea data={filteredData} period={period} />
-        </Suspense>
+        <PartBoundary className="h-full w-full" data-testid="trend-chart-failed">
+          <Suspense fallback={null}>
+            <TrendArea data={filteredData} period={period} />
+          </Suspense>
+        </PartBoundary>
       </div>
     </div>
   );

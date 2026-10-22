@@ -560,6 +560,8 @@ const SettingsMessages = [
   msg('panel:visibility'),
   // What a panel's page shows, so a panel rebuilt when hidden is released only at rest.
   msg('panel:route'),
+  // A page part of which could not be loaded asks for its shell again.
+  msg('panel:reload'),
   // What the page a command opened should start (the launcher's first card).
   msg('navigation:intent'),
   msg('workbench:reload'),

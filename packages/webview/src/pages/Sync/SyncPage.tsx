@@ -35,6 +35,7 @@ import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
 import { SyncSchedulePanel } from './syncPanels';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 import { RealTimeSyncPanel } from './RealTimeSyncPanel';
 import { ConflictListPanel } from './ConflictListPanel';
 import { ConflictResolutionPanel } from './ConflictResolutionPanel';
@@ -441,16 +442,18 @@ export const SyncPage: React.FC = () => {
           which runs from the execute step of the Sync tab, as the wizard's
           own run does. */}
         {activeTab === 'schedules' && (
-          <Suspense fallback={<SkeletonTable rows={3} columns={5} />}>
-            <SyncSchedulePanel
-              onRunConfig={(configId, label) => {
-                setQuickSyncActive(false);
-                setActiveTab('sync');
-                handleRunSavedConfig(configId, label);
-              }}
-              runDisabled={busy}
-            />
-          </Suspense>
+          <PartBoundary data-testid="sync-schedules-failed">
+            <Suspense fallback={<SkeletonTable rows={3} columns={5} />}>
+              <SyncSchedulePanel
+                onRunConfig={(configId, label) => {
+                  setQuickSyncActive(false);
+                  setActiveTab('sync');
+                  handleRunSavedConfig(configId, label);
+                }}
+                runDisabled={busy}
+              />
+            </Suspense>
+          </PartBoundary>
         )}
 
         {/* Conflicts tab */}

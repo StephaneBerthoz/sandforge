@@ -763,7 +763,9 @@
         "title": "Mapear columnas CSV a campos de Salesforce",
         "mapped": "{{count}} de {{total}} columnas mapeadas",
         "unmapped": "Sin mapear",
-        "incompatible": "Tipo incompatible"
+        "incompatible": "Tipo incompatible",
+        "fieldFor": "Campo de Salesforce para {{column}}",
+        "howTo": "Escriba la etiqueta o el nombre de API de un campo, o elíjalo de la lista. Una columna que se deja vacía no se importa."
       },
       "preview": {
         "title": "Vista previa de datos CSV",
@@ -807,7 +809,9 @@
         "failed_one": "{{count}} registro fallido",
         "failed_other": "{{count}} registros fallidos",
         "cancelled_one": "Cancelado: {{count}} registro importado antes de la detención permanece en la org",
-        "cancelled_other": "Cancelado: {{count}} registros importados antes de la detención permanecen en la org"
+        "cancelled_other": "Cancelado: {{count}} registros importados antes de la detención permanecen en la org",
+        "tooManyRows": "Este archivo contiene {{rows}} filas; Subir CSV admite {{max}} a la vez. Divídalo en archivos de {{max}} filas como máximo y suba cada uno.",
+        "tooManyColumns": "Hay {{columns}} columnas mapeadas; Subir CSV admite {{max}} a la vez. Deje sin mapear las columnas que no necesite o divida el archivo por columnas."
       }
     },
     "modeSelect": {
@@ -1070,6 +1074,13 @@
       "selectObjects": "Elija qué objetos de Salesforce poblar con datos",
       "configureFields": "Personalice cómo se genera cada campo — reglas, rangos y patrones",
       "execute": "Revise y ejecute la generación de datos. Los resultados aparecen aquí al completar"
+    },
+    "configure": {
+      "filterFields": "Buscar un campo de {{object}}",
+      "filterFieldsPlaceholder": "Etiqueta o nombre de API",
+      "requiredOnly": "Solo obligatorios",
+      "fieldsShown": "{{shown}} de {{total}} campos mostrados",
+      "noFieldMatches": "Ningún campo coincide con este filtro."
     }
   },
   "sync": {
@@ -4520,7 +4531,13 @@
     "description": "SandForge encontró un error inesperado. Puede intentar recuperarse o copiar los detalles del error para un informe de error.",
     "recover": "Recuperar",
     "copyError": "Copiar error",
-    "copied": "¡Copiado!"
+    "copied": "¡Copiado!",
+    "notLoadedTitle": "Una parte de este panel no se cargó",
+    "notLoadedDescription": "SandForge no pudo leer uno de sus archivos, como puede ocurrir mientras una ventana remota se reconecta o tras reinstalar la extensión. Recargar el panel los vuelve a leer y reinicia su página; una ejecución ya iniciada continúa.",
+    "reloadPanel": "Recargar panel",
+    "partNotLoaded": "Esta parte no se cargó: SandForge no pudo leer su archivo. Recargar el panel lo vuelve a leer.",
+    "partFailed": "Esta parte se detuvo con un error. Recargar el panel la reinicia.",
+    "runGoesOn": "La ejecución continúa en la extensión: sígala o deténgala desde Monitor, en Operaciones en vivo."
   },
   "config": {
     "categories": {

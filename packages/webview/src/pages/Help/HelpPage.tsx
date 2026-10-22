@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../stores/useAppStore';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 
 /** Accordion section definition. */
 interface HelpSection {
@@ -138,8 +139,17 @@ const SF_DOC_LINKS: SfDocLink[] = [
 export const HelpPage: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useAppStore((s) => s.navigate);
-  const [openSection, setOpenSection] = useState<string | null>('getting-started');
-  const [searchQuery, setSearchQuery] = useState('');
+  /*
+   * Kept in the panel's webview state: the Help panel is released while hidden
+   * and rebuilt from its shell when shown, and an article being read beside
+   * the code closed, and the search emptied, each time the user looked at
+   * another tab of the editor group.
+   */
+  const [openSection, setOpenSection] = useWebviewPersistedState<string | null>(
+    'helpOpenSection',
+    'getting-started',
+  );
+  const [searchQuery, setSearchQuery] = useWebviewPersistedState('helpSearch', '');
 
   const toggleSection = (id: string): void => {
     setOpenSection((prev) => (prev === id ? null : id));

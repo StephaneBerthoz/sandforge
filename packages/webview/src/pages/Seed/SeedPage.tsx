@@ -34,6 +34,13 @@ function modeForIntent(intent: NavigationIntent | null): SeedMode {
   return intent?.seedMode === 'clone' ? 'clone' : 'start';
 }
 
+/** The step of each way to seed, which takes the keyboard as the way opens. */
+const STEP_CONTENT_OF_MODE: Record<Exclude<SeedMode, 'start'>, string> = {
+  generate: 'seed-step-content',
+  csv: 'csv-step-content',
+  clone: 'clone-step-content',
+};
+
 /** What a flow shows while its chunk loads: a few milliseconds from the extension's own folder. */
 const FLOW_LOADING = <div aria-busy="true" data-testid="seed-flow-loading" />;
 
@@ -119,6 +126,24 @@ export const SeedPage: React.FC = () => {
     );
   }, [quickSeedPhase]);
   const backToStart = useCallback(() => setSeedMode('start'), []);
+  /*
+   * A way to seed is drawn in place of the start, and the card pressed went
+   * with it; Back draws the start in place of the way, and went with it too.
+   * The focus fell to the panel's top each time: the next Tab started over at
+   * the skip link, and nothing was said of what was shown. A way opened takes
+   * the keyboard on its step, named after it, once its chunk has drawn it;
+   * Back gives it to the card of the way left. Only from nowhere: a control
+   * the user moved to meanwhile keeps it.
+   */
+  const modeShown = useRef(seedMode);
+  useEffect(() => {
+    const before = modeShown.current;
+    modeShown.current = seedMode;
+    const page = pageRef.current;
+    if (before === seedMode || !page) return undefined;
+    const target = seedMode === 'start' ? `mode-card-${before}` : STEP_CONTENT_OF_MODE[seedMode];
+    return focusWhenDrawn(page, () => page.querySelector<HTMLElement>(`[data-testid="${target}"]`));
+  }, [seedMode]);
   /**
    * Whether the CSV import or the clone is running: its way back is hidden
    * meanwhile. Leaving stopped nothing — the run went on writing — and lost

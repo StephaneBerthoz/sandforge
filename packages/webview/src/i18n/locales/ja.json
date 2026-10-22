@@ -713,7 +713,9 @@
         "title": "CSV 列を Salesforce 項目にマッピング",
         "mapped": "{{total}}列中{{count}}列がマッピング済み",
         "unmapped": "未マッピング",
-        "incompatible": "型の不一致"
+        "incompatible": "型の不一致",
+        "fieldFor": "{{column}} の Salesforce 項目",
+        "howTo": "項目の表示ラベルまたは API 参照名を入力するか、一覧から選択してください。空のままの列はインポートされません。"
       },
       "preview": {
         "title": "CSV データプレビュー",
@@ -752,7 +754,9 @@
         "executing": "レコードをインポート中...",
         "inserted_other": "{{count}}件のレコードが挿入されました",
         "failed_other": "{{count}}件のレコードが失敗しました",
-        "cancelled_other": "キャンセル済み: 停止前にインポートされた {{count}} 件のレコードは組織に残ります"
+        "cancelled_other": "キャンセル済み: 停止前にインポートされた {{count}} 件のレコードは組織に残ります",
+        "tooManyRows": "このファイルには {{rows}} 行あります。CSV アップロードで一度に取り込めるのは {{max}} 行までです。{{max}} 行以下のファイルに分割して、それぞれアップロードしてください。",
+        "tooManyColumns": "{{columns}} 列がマッピングされています。CSV アップロードで一度に取り込めるのは {{max}} 列までです。不要な列をマッピングしないままにするか、ファイルを列で分割してください。"
       }
     },
     "modeSelect": {
@@ -1004,6 +1008,13 @@
       "selectObjects": "データを投入する Salesforce オブジェクトを選択",
       "configureFields": "各項目の生成方法をカスタマイズ — ルール、範囲、パターン",
       "execute": "データ生成を確認して実行。完了すると結果がここに表示されます"
+    },
+    "configure": {
+      "filterFields": "{{object}} の項目を検索",
+      "filterFieldsPlaceholder": "表示ラベルまたは API 参照名",
+      "requiredOnly": "必須項目のみ",
+      "fieldsShown": "{{total}} 項目中 {{shown}} 項目を表示",
+      "noFieldMatches": "このフィルターに一致する項目はありません。"
     }
   },
   "sync": {
@@ -4244,7 +4255,13 @@
     "description": "SandForge で予期しないエラーが発生しました。回復を試みるか、エラー詳細をコピーしてバグレポートにご利用ください。",
     "recover": "回復",
     "copyError": "エラーをコピー",
-    "copied": "コピーしました！"
+    "copied": "コピーしました！",
+    "notLoadedTitle": "このパネルの一部を読み込めませんでした",
+    "notLoadedDescription": "SandForge がファイルの一つを読み取れませんでした。リモートウィンドウの再接続中や、拡張機能の再インストール後に起こることがあります。パネルを再読み込みするとファイルを読み直し、ページを最初から開きます。開始済みの実行は続きます。",
+    "reloadPanel": "パネルを再読み込み",
+    "partNotLoaded": "この部分を読み込めませんでした。SandForge がファイルを読み取れませんでした。パネルを再読み込みすると読み直します。",
+    "partFailed": "この部分はエラーで停止しました。パネルを再読み込みすると最初から開きます。",
+    "runGoesOn": "実行は拡張機能で続いています。モニターのライブオペレーションで確認または停止できます。"
   },
   "config": {
     "categories": {

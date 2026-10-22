@@ -57,6 +57,7 @@ vi.mock('./forgeSteps', async () => ({
   ForgeReview: (await import('./ForgeReview')).ForgeReview,
   ForgeExecution: (await import('./ForgeExecution')).ForgeExecution,
   ForgeResults: (await import('./ForgeResults')).ForgeResults,
+  preloadStepsAfter: () => undefined,
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({

@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { intentMessageFor, moduleIntentSchema } from './moduleIntent';
+import { intentMessageFor, isPageMountedMessage, moduleIntentSchema } from './moduleIntent';
+
+describe('isPageMountedMessage', () => {
+  it("takes the page's enveloped route for its mounting, and nothing else", () => {
+    expect(
+      isPageMountedMessage({ protocolVersion: 1, payload: { type: 'panel:route', id: 'r' } }),
+    ).toBe(true);
+    expect(
+      isPageMountedMessage({ protocolVersion: 1, payload: { type: 'i18n:locale', id: 'l' } }),
+    ).toBe(false);
+    expect(isPageMountedMessage({ type: 'panel:route' })).toBe(false);
+    expect(isPageMountedMessage({ payload: null })).toBe(false);
+    expect(isPageMountedMessage(null)).toBe(false);
+    expect(isPageMountedMessage('panel:route')).toBe(false);
+  });
+
+  it('is self-contained, so a browser test can rebuild it from its source', () => {
+    const rebuilt = new Function(`return (${isPageMountedMessage.toString()})`)() as (
+      raw: unknown,
+    ) => boolean;
+    expect(rebuilt({ payload: { type: 'panel:route' } })).toBe(true);
+    expect(rebuilt({ payload: { type: 'org:list' } })).toBe(false);
+  });
+});
 
 describe('intentMessageFor', () => {
   it('hands the page the start it was asked for, named after the page', () => {

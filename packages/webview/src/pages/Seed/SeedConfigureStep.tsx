@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { FieldRuleType } from '@sandforge/shared';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
@@ -40,6 +40,16 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
   const { t } = useTranslation();
   const selectedObjects = useSeedWizardStore((s) => s.selectedObjects);
   const recordTypeChoices = useSeedWizardStore((s) => s.recordTypeChoices);
+  // Each account's fields as the run sends them for the record types chosen,
+  // worked out again only when one of these changes: mapped anew at every
+  // draw, it handed every object and field row a new list to draw again.
+  const objectConfigs = useMemo(
+    () =>
+      fieldConfigs
+        .filter((c) => selectedObjects.includes(c.objectApiName))
+        .map((c) => fieldsForAccountKind(c, recordTypeChoices[c.objectApiName] ?? [])),
+    [fieldConfigs, selectedObjects, recordTypeChoices],
+  );
 
   return (
     <div className="flex flex-col gap-(--sf-space-3)" data-testid="seed-step-configure-content">
@@ -56,9 +66,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
       {/* Each account's fields as the run sends them for the record types
           chosen above: a person account's or a business account's. */}
       <Step3ConfigureFields
-        objectConfigs={fieldConfigs
-          .filter((c) => selectedObjects.includes(c.objectApiName))
-          .map((c) => fieldsForAccountKind(c, recordTypeChoices[c.objectApiName] ?? []))}
+        objectConfigs={objectConfigs}
         onChangeRule={onChangeRule}
         onChangeConfig={onChangeConfig}
       />

@@ -22,6 +22,7 @@ import { useForgeForm } from './useForgeForm';
 import { useForgeTemplates } from './useForgeTemplates';
 import { ForgeSoqlNotices } from './ForgeSoqlNotices';
 import { ForgeAIPanel, ForgeHistoryPanel, ForgeTemplatePanel } from './forgeInputPanels';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
@@ -318,15 +319,17 @@ export const ForgeInput: React.FC = () => {
                   forceMount
                   className={form.inputMode !== 'template' ? 'hidden' : ''}
                 >
-                  <Suspense fallback={null}>
-                    <ForgeTemplatePanel
-                      manager={templates}
-                      selectedTemplate={form.selectedTemplate}
-                      onSelectTemplate={form.setSelectedTemplate}
-                      onApplyTemplate={form.applyTemplate}
-                      orgs={form.orgs}
-                    />
-                  </Suspense>
+                  <PartBoundary data-testid="forge-templates-failed">
+                    <Suspense fallback={null}>
+                      <ForgeTemplatePanel
+                        manager={templates}
+                        selectedTemplate={form.selectedTemplate}
+                        onSelectTemplate={form.setSelectedTemplate}
+                        onApplyTemplate={form.applyTemplate}
+                        orgs={form.orgs}
+                      />
+                    </Suspense>
+                  </PartBoundary>
                   {/* The root record a built-in template clones from. A saved
                       template carries its own input, so it asks for nothing. */}
                   {templateNeedsRoot && (
@@ -382,14 +385,16 @@ export const ForgeInput: React.FC = () => {
 
                 {/* AI tab */}
                 <Tabs.Content value="ai">
-                  <Suspense fallback={null}>
-                    <ForgeAIPanel
-                      ai={form.ai}
-                      aiAvailable={aiAvailable}
-                      sourceOrgId={form.sourceOrgId}
-                      onOpenSettings={() => navigate('settings')}
-                    />
-                  </Suspense>
+                  <PartBoundary data-testid="forge-ai-failed">
+                    <Suspense fallback={null}>
+                      <ForgeAIPanel
+                        ai={form.ai}
+                        aiAvailable={aiAvailable}
+                        sourceOrgId={form.sourceOrgId}
+                        onOpenSettings={() => navigate('settings')}
+                      />
+                    </Suspense>
+                  </PartBoundary>
                   {/* The draft is run as a SOQL query, so it carries the SOQL
                       tab's verdicts too. */}
                   <ForgeSoqlNotices
@@ -634,16 +639,21 @@ export const ForgeInput: React.FC = () => {
             </button>
           )}
 
-          {/* Past runs — refill the form from a run the extension kept */}
-          <Suspense fallback={null}>
-            <ForgeHistoryPanel
-              entries={form.runHistory}
-              olderRuns={form.olderRuns}
-              error={form.historyError}
-              onReuseConfig={form.applyHistoryConfig}
-              onHistoryChanged={form.refreshHistory}
-            />
-          </Suspense>
+          {/* Past runs — refill the form from a run the extension kept. Its
+              panel, like the template's and the AI's, comes in a chunk of its
+              own: one that cannot be read is said in its place, and the input
+              stays up. */}
+          <PartBoundary data-testid="forge-history-failed">
+            <Suspense fallback={null}>
+              <ForgeHistoryPanel
+                entries={form.runHistory}
+                olderRuns={form.olderRuns}
+                error={form.historyError}
+                onReuseConfig={form.applyHistoryConfig}
+                onHistoryChanged={form.refreshHistory}
+              />
+            </Suspense>
+          </PartBoundary>
         </div>
 
         {/* ---- RIGHT: Live Preview panel ---- */}

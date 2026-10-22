@@ -22,29 +22,53 @@ import { withEnglish } from '../../i18n/englishNamespaces';
  */
 
 /** Discovery: the graph read from the source, drawn as it grows. */
-export const ForgeDiscovery = lazy(() =>
+const loadDiscovery = () =>
   withEnglish(() => import('./ForgeDiscovery'), ['forgeRun'])().then((module) => ({
     default: module.ForgeDiscovery,
-  })),
-);
+  }));
 
 /** Review: the plan, the gaps, the automation and the controls before a run. */
-export const ForgeReview = lazy(() =>
+const loadReview = () =>
   withEnglish(() => import('./ForgeReview'), ['forgeRun'])().then((module) => ({
     default: module.ForgeReview,
-  })),
-);
+  }));
 
 /** Execution: the run, written as it goes. */
-export const ForgeExecution = lazy(() =>
+const loadExecution = () =>
   withEnglish(() => import('./ForgeExecution'), ['forgeRun'])().then((module) => ({
     default: module.ForgeExecution,
-  })),
-);
+  }));
 
 /** Results: what the run wrote, and what it left. */
-export const ForgeResults = lazy(() =>
+const loadResults = () =>
   withEnglish(() => import('./ForgeResults'), ['forgeRun', 'list'])().then((module) => ({
     default: module.ForgeResults,
-  })),
-);
+  }));
+
+export const ForgeDiscovery = lazy(loadDiscovery);
+export const ForgeReview = lazy(loadReview);
+export const ForgeExecution = lazy(loadExecution);
+export const ForgeResults = lazy(loadResults);
+
+/**
+ * The steps a run can reach from each one, fetched while it is shown.
+ *
+ * The execution step's chunk used to be asked for only once the run had
+ * started, after the review had played its exit: one more round trip at the
+ * start of every run, and on a remote window that dropped meanwhile a run
+ * writing behind a screen that never loaded. Fetched while the review is read,
+ * it is in the module map by the time Execute is pressed.
+ */
+const NEXT_STEPS: Readonly<Record<string, readonly (() => Promise<unknown>)[]>> = {
+  discovery: [loadReview],
+  review: [loadExecution, loadResults],
+};
+
+/**
+ * Fetch the chunks of the steps a run can reach from `phase`, and their
+ * English, without drawing them. A fetch that fails is left to the step's own
+ * loader, which says so in its place when the run gets there.
+ */
+export function preloadStepsAfter(phase: string): void {
+  for (const load of NEXT_STEPS[phase] ?? []) void load().catch(() => undefined);
+}

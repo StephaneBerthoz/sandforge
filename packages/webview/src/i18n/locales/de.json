@@ -763,7 +763,9 @@
         "title": "CSV-Spalten zu Salesforce-Feldern zuordnen",
         "mapped": "{{count}} von {{total}} Spalten zugeordnet",
         "unmapped": "Nicht zugeordnet",
-        "incompatible": "Typ inkompatibel"
+        "incompatible": "Typ inkompatibel",
+        "fieldFor": "Salesforce-Feld für {{column}}",
+        "howTo": "Geben Sie die Bezeichnung oder den API-Namen eines Felds ein oder wählen Sie es aus der Liste. Eine leer gelassene Spalte wird nicht importiert."
       },
       "preview": {
         "title": "CSV-Datenvorschau",
@@ -807,7 +809,9 @@
         "failed_one": "{{count}} Datensatz fehlgeschlagen",
         "failed_other": "{{count}} Datensätze fehlgeschlagen",
         "cancelled_one": "Abgebrochen: {{count}} vor dem Stopp importierter Datensatz bleibt in der Org",
-        "cancelled_other": "Abgebrochen: {{count}} vor dem Stopp importierte Datensätze bleiben in der Org"
+        "cancelled_other": "Abgebrochen: {{count}} vor dem Stopp importierte Datensätze bleiben in der Org",
+        "tooManyRows": "Diese Datei enthält {{rows}} Zeilen; der CSV-Upload nimmt {{max}} auf einmal. Teilen Sie sie in Dateien mit höchstens {{max}} Zeilen auf und laden Sie jede hoch.",
+        "tooManyColumns": "{{columns}} Spalten sind zugeordnet; der CSV-Upload nimmt {{max}} auf einmal. Lassen Sie die nicht benötigten Spalten unzugeordnet oder teilen Sie die Datei nach Spalten auf."
       }
     },
     "modeSelect": {
@@ -1070,6 +1074,13 @@
       "selectObjects": "Wählen Sie, welche Salesforce-Objekte mit Daten gefüllt werden sollen",
       "configureFields": "Passen Sie an, wie jedes Feld generiert wird — Regeln, Bereiche und Muster",
       "execute": "Überprüfen Sie die Datengenerierung und führen Sie sie aus. Die Ergebnisse erscheinen hier nach Abschluss"
+    },
+    "configure": {
+      "filterFields": "Ein Feld von {{object}} finden",
+      "filterFieldsPlaceholder": "Bezeichnung oder API-Name",
+      "requiredOnly": "Nur Pflichtfelder",
+      "fieldsShown": "{{shown}} von {{total}} Feldern angezeigt",
+      "noFieldMatches": "Kein Feld entspricht diesem Filter."
     }
   },
   "sync": {
@@ -4520,7 +4531,13 @@
     "description": "SandForge ist auf einen unerwarteten Fehler gestoßen. Sie können versuchen, die Anwendung wiederherzustellen, oder die Fehlerdetails für einen Fehlerbericht kopieren.",
     "recover": "Wiederherstellen",
     "copyError": "Fehler kopieren",
-    "copied": "Kopiert!"
+    "copied": "Kopiert!",
+    "notLoadedTitle": "Ein Teil dieses Panels wurde nicht geladen",
+    "notLoadedDescription": "SandForge konnte eine seiner Dateien nicht lesen, etwa während sich ein Remote-Fenster neu verbindet oder nach einer Neuinstallation der Erweiterung. Ein Neuladen des Panels liest sie erneut und startet seine Seite neu; ein bereits gestarteter Lauf geht weiter.",
+    "reloadPanel": "Panel neu laden",
+    "partNotLoaded": "Dieser Teil wurde nicht geladen: SandForge konnte seine Datei nicht lesen. Ein Neuladen des Panels liest sie erneut.",
+    "partFailed": "Dieser Teil wurde mit einem Fehler beendet. Ein Neuladen des Panels startet ihn neu.",
+    "runGoesOn": "Der Lauf geht in der Erweiterung weiter: Verfolgen oder stoppen Sie ihn im Monitor unter Live-Operationen."
   },
   "config": {
     "categories": {

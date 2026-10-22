@@ -605,6 +605,124 @@ describe('WebviewPanelManager', () => {
     });
   });
 
+  describe('a page that could not load a part of itself', () => {
+    const extensionUri = { toString: () => 'file:///ext' };
+    const joinPath: UriJoinPath = (_base: unknown, ...segments: string[]) => ({
+      toString: () => `file:///ext/${segments.join('/')}`,
+    });
+    let reloading: WebviewPanelManager;
+
+    beforeEach(() => {
+      reloading = new WebviewPanelManager(
+        broker,
+        factory as WebviewPanelFactory,
+        extensionUri,
+        joinPath,
+      );
+    });
+
+    /** The page's request for its shell, as `ExtensionHandlers` hands it over. */
+    const reloadAsked = (payload: unknown): void => {
+      reloading.reloadPage({
+        id: 'reload-1',
+        type: 'panel:reload',
+        timestamp: 1,
+        payload,
+      } as BaseMessage);
+    };
+
+    it("sets the shell of the module's panel again, a new document with a new nonce", () => {
+      // React keeps a part whose file failed to load failed for as long as the
+      // document lives: the page's Recover drew the same failure again, and
+      // only closing the tab, and the Forge graph with it, got out of it.
+      reloading.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+      const forge = lastCreatedPanel;
+      reloading.openPanel({ viewType: 'sandforge.sync', title: 'Sync', moduleId: 'sync' });
+      const sync = lastCreatedPanel;
+      const forgeShell = forge.webview.html;
+      const syncShell = sync.webview.html;
+
+      reloadAsked({ moduleId: 'forge' });
+
+      expect(forge.webview.html).not.toBe(forgeShell);
+      expect(forge.webview.html).toContain('window.__SANDFORGE_MODULE__="forge"');
+      expect(forge.webview.html).toMatch(
+        /<script nonce="[^"]+" type="module" src="[^"]*index\.js"/,
+      );
+      expect(sync.webview.html).toBe(syncShell);
+    });
+
+    it('ignores a module with no panel open, a closed one, and a payload of another shape', () => {
+      reloading.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+      const forge = lastCreatedPanel;
+      const shell = forge.webview.html;
+
+      reloadAsked({ moduleId: 'monitor' });
+      reloadAsked({ moduleId: 7 });
+      reloadAsked(undefined);
+      expect(forge.webview.html).toBe(shell);
+
+      reloading.closePanel('sandforge.forge');
+      reloadAsked({ moduleId: 'forge' });
+      expect(forge.webview.html).toBe(shell);
+    });
+  });
+
+  describe("the page's chunks, linked in its shell", () => {
+    const extensionUri = { toString: () => 'file:///ext' };
+    const joinPath: UriJoinPath = (_base: unknown, ...segments: string[]) => ({
+      toString: () => `file:///ext/${segments.join('/')}`,
+    });
+    const LIST = JSON.stringify({
+      forge: ['assets/chunks/ForgePage-a1.js', 'assets/chunks/Button-b2.js'],
+      home: ['assets/chunks/HomePage-c3.js'],
+    });
+    const manager = (): WebviewPanelManager =>
+      new WebviewPanelManager(broker, factory as WebviewPanelFactory, extensionUri, joinPath);
+
+    it("links the files the build lists for the panel's page, read once from webview-dist", () => {
+      const reads: string[] = [];
+      const preloading = manager();
+      preloading.setFileReader((uri) => {
+        reads.push(String(uri));
+        return LIST;
+      });
+
+      preloading.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+      const forge = lastCreatedPanel.webview.html;
+      preloading.openPanel({ viewType: 'sandforge.home', title: 'Home', moduleId: 'home' });
+      const home = lastCreatedPanel.webview.html;
+
+      expect(reads).toEqual(['file:///ext/webview-dist/assets/preload.json']);
+      expect(forge).toContain('rel="modulepreload" nonce="');
+      expect(forge).toContain(
+        'href="vscode-webview://test/file:///ext/webview-dist/assets/chunks/ForgePage-a1.js"',
+      );
+      expect(forge).toContain('webview-dist/assets/chunks/Button-b2.js');
+      expect(forge).not.toContain('HomePage-c3.js');
+      expect(home).toContain('webview-dist/assets/chunks/HomePage-c3.js');
+    });
+
+    it('links nothing without a reader, for a list it cannot read, or for a module the list leaves out', () => {
+      const bare = manager();
+      bare.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+      expect(lastCreatedPanel.webview.html).not.toContain('modulepreload');
+
+      const unreadable = manager();
+      unreadable.setFileReader(() => {
+        throw new Error('ENOENT');
+      });
+      unreadable.openPanel({ viewType: 'sandforge.forge', title: 'Forge', moduleId: 'forge' });
+      expect(lastCreatedPanel.webview.html).not.toContain('modulepreload');
+      expect(lastCreatedPanel.webview.html).toContain('window.__SANDFORGE_MODULE__="forge"');
+
+      const listed = manager();
+      listed.setFileReader(() => LIST);
+      listed.openPanel({ viewType: 'sandforge.sync', title: 'Sync', moduleId: 'sync' });
+      expect(lastCreatedPanel.webview.html).not.toContain('modulepreload');
+    });
+  });
+
   describe('closePanel removes from visiblePanels', () => {
     it('should remove from visible set on close', () => {
       manager.openPanel({ viewType: 'test', title: 'Test' });

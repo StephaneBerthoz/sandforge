@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as z from 'zod';
 import type { BaseMessage } from '@sandforge/shared';
+import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import {
   validatePayload,
@@ -22,6 +23,7 @@ import {
   pipelineApprovalPayloadSchema,
   pipelineRunPayloadSchema,
   savedPipelineSchema,
+  seedCsvPayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
@@ -570,5 +572,33 @@ describe('pipelineApprovalPayloadSchema', () => {
       false,
     );
     expect(pipelineApprovalPayloadSchema.safeParse({ ...answer, stepId: '' }).success).toBe(false);
+  });
+});
+
+describe('seedCsvPayloadSchema', () => {
+  /** An import of `rows` rows over `columns` mapped columns. */
+  const csvImport = (rows: number, columns: number): Record<string, unknown> => ({
+    orgId: 'org-1',
+    objectApiName: 'Account',
+    records: Array.from({ length: rows }, () => ({ Name: 'Acme' })),
+    columnMappings: Array.from({ length: columns }, (_, i) => ({
+      csvHeader: `Column ${i}`,
+      sfFieldApiName: `Field${i}__c`,
+      sfFieldType: 'string',
+      sfFieldLength: 80,
+    })),
+  });
+
+  it('takes as many rows and mapped columns as the page lets through, and refuses one more of either', () => {
+    // The page refuses a larger file as it reads it, by these same numbers:
+    // the host refused it only once it had been mapped column by column.
+    expect(seedCsvPayloadSchema.safeParse(csvImport(CSV_IMPORT_MAX_ROWS, 1)).success).toBe(true);
+    expect(seedCsvPayloadSchema.safeParse(csvImport(CSV_IMPORT_MAX_ROWS + 1, 1)).success).toBe(
+      false,
+    );
+    expect(seedCsvPayloadSchema.safeParse(csvImport(1, CSV_IMPORT_MAX_COLUMNS)).success).toBe(true);
+    expect(seedCsvPayloadSchema.safeParse(csvImport(1, CSV_IMPORT_MAX_COLUMNS + 1)).success).toBe(
+      false,
+    );
   });
 });

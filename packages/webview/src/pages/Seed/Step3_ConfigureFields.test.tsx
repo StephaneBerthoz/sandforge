@@ -1,6 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { useCallback, useState } from 'react';
 import '../../i18n';
+import type { FieldConfig } from './Step3_ConfigureFields';
+
+/** How many times a component of the step asked for its words: once a draw. */
+const draws = vi.hoisted(() => ({ count: 0 }));
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: (...args: Parameters<typeof actual.useTranslation>) => {
+      draws.count += 1;
+      return actual.useTranslation(...args);
+    },
+  };
+});
 import { SUPPORTED_FAKER_METHODS } from '@sandforge/shared';
 import { Step3ConfigureFields, categorizeObject } from './Step3_ConfigureFields';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -461,5 +476,141 @@ describe('categorizeObject', () => {
   it('should categorize managed package objects', () => {
     expect(categorizeObject('ns__ManagedObj__c')).toBe('managed');
     expect(categorizeObject('copado__Deployment__c')).toBe('managed');
+  });
+
+  describe('an object of hundreds of fields', () => {
+    /** An Account with `count` text fields, every third one required. */
+    const wide = (count: number): ObjectFieldConfig[] => [
+      {
+        objectApiName: 'Account',
+        objectLabel: 'Account',
+        fields: Array.from({ length: count }, (_, i): FieldConfig => ({
+          fieldApiName: i === 0 ? 'Name' : `Field${i}__c`,
+          label: i === 0 ? 'Account Name' : `Field ${i}`,
+          type: 'String',
+          required: i % 3 === 0,
+          ruleType: 'static',
+          config: {},
+        })),
+      },
+    ];
+
+    it('finds a field by its label or its API name, and says how many are shown', () => {
+      // The only search found objects, past twenty of them: the three fields
+      // an admin wanted sat among 800 rows to scroll past.
+      render(
+        <Step3ConfigureFields
+          objectConfigs={wide(40)}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+        />,
+      );
+      const filter = screen.getByRole('searchbox', { name: 'Find a field of Account' });
+
+      fireEvent.change(filter, { target: { value: 'account name' } });
+      expect(screen.getByTestId('field-Account-Name')).toBeDefined();
+      expect(screen.queryByTestId('field-Account-Field1__c')).toBeNull();
+      expect(screen.getByTestId('field-filter-count-Account').textContent).toBe(
+        '1 of 40 fields shown',
+      );
+
+      fireEvent.change(filter, { target: { value: 'field12__C' } });
+      expect(screen.getByTestId('field-Account-Field12__c')).toBeDefined();
+      expect(screen.queryByTestId('field-Account-Name')).toBeNull();
+
+      fireEvent.change(filter, { target: { value: 'nothing like it' } });
+      expect(screen.getByTestId('field-filter-none-Account').textContent).toBe(
+        'No field matches this filter.',
+      );
+    });
+
+    it('shows the required fields only, when asked', () => {
+      render(
+        <Step3ConfigureFields
+          objectConfigs={wide(40)}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText('Required only'));
+
+      const rows = screen.getAllByTestId(/^field-Account-/);
+      expect(rows).toHaveLength(14);
+      expect(screen.queryByTestId('field-Account-Field1__c')).toBeNull();
+    });
+
+    it('offers no filter on an object of ten fields or fewer', () => {
+      render(
+        <Step3ConfigureFields
+          objectConfigs={wide(10)}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByTestId('field-filter-Account')).toBeNull();
+      expect(screen.getAllByTestId(/^field-Account-/)).toHaveLength(10);
+    });
+
+    it('draws the rows of an 800-field object as they scroll into view, not all at once', () => {
+      // Every row was drawn as the object opened: about 16 000 elements.
+      render(
+        <Step3ConfigureFields
+          objectConfigs={wide(800)}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByTestId('virtual-list')).toBeDefined();
+      expect(screen.queryAllByTestId(/^field-Account-/).length).toBeLessThan(100);
+    });
+
+    it('draws again only the row whose value is typed in', () => {
+      const changeRule = vi.fn();
+      const Harness = () => {
+        const [objects, setObjects] = useState(wide(60));
+        // Kept from draw to draw, as the wizard's own handler is.
+        const change = useCallback(
+          (objectApiName: string, fieldApiName: string, key: string, value: string) =>
+            setObjects((previous) =>
+              previous.map((obj) =>
+                obj.objectApiName !== objectApiName
+                  ? obj
+                  : {
+                      ...obj,
+                      fields: obj.fields.map((f) =>
+                        f.fieldApiName === fieldApiName
+                          ? { ...f, config: { ...f.config, [key]: value } }
+                          : f,
+                      ),
+                    },
+              ),
+            ),
+          [],
+        );
+        return (
+          <Step3ConfigureFields
+            objectConfigs={objects}
+            onChangeRule={changeRule}
+            onChangeConfig={change}
+          />
+        );
+      };
+      render(<Harness />);
+      draws.count = 0;
+
+      fireEvent.change(screen.getByLabelText('Static Value for Field 7'), {
+        target: { value: 'A' },
+      });
+
+      // The step, the object, and the one row: every row of the object was
+      // drawn again at each character.
+      expect(draws.count).toBeLessThanOrEqual(3);
+      expect((screen.getByLabelText('Static Value for Field 7') as HTMLInputElement).value).toBe(
+        'A',
+      );
+    });
   });
 });

@@ -8,10 +8,17 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ForgeInput } from './ForgeInput';
-import { ForgeDiscovery, ForgeExecution, ForgeResults, ForgeReview } from './forgeSteps';
+import {
+  ForgeDiscovery,
+  ForgeExecution,
+  ForgeResults,
+  ForgeReview,
+  preloadStepsAfter,
+} from './forgeSteps';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 
 /** Forge phase variants for AnimatePresence transitions. */
 const variants = pageTransition(1);
@@ -74,6 +81,11 @@ export const ForgePage: React.FC = () => {
   // Said once: coming back to the page must not repeat the stop.
   useEffect(() => () => setStoppedAt(null), [setStoppedAt]);
 
+  // The steps the run can reach next are fetched while this one is read.
+  useEffect(() => {
+    preloadStepsAfter(phase);
+  }, [phase]);
+
   /*
    * Each phase is drawn in place of the last, and the button that moved on —
    * Discover, Review & Execute, Execute, Back — goes with it: the keyboard is
@@ -131,13 +143,21 @@ export const ForgePage: React.FC = () => {
           <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
             {phase === 'input' && <ForgeInput />}
             {/* A step past the input comes in a chunk of its own, read from
-                the extension's folder in a few milliseconds. */}
-            <Suspense fallback={<div aria-busy="true" data-testid="forge-step-loading" />}>
-              {phase === 'discovery' && <ForgeDiscovery />}
-              {phase === 'review' && <ForgeReview />}
-              {phase === 'execution' && <ForgeExecution />}
-              {phase === 'results' && <ForgeResults />}
-            </Suspense>
+                the extension's folder in a few milliseconds. One that cannot
+                be read is said in its place: the execution step's chunk is
+                asked for once the run has started, and the run goes on
+                writing whether or not its screen loads. */}
+            <PartBoundary
+              note={phase === 'execution' ? t('errorBoundary.runGoesOn') : undefined}
+              data-testid="forge-step-failed"
+            >
+              <Suspense fallback={<div aria-busy="true" data-testid="forge-step-loading" />}>
+                {phase === 'discovery' && <ForgeDiscovery />}
+                {phase === 'review' && <ForgeReview />}
+                {phase === 'execution' && <ForgeExecution />}
+                {phase === 'results' && <ForgeResults />}
+              </Suspense>
+            </PartBoundary>
           </m.div>
         </AnimatePresence>
       </div>

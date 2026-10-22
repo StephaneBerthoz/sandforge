@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import '../../i18n';
 import type { ForgeGraph } from '@sandforge/shared';
 
 /**
@@ -9,14 +10,24 @@ import type { ForgeGraph } from '@sandforge/shared';
  */
 const evaluated = vi.hoisted(() => new Set<string>());
 
+/** The graph's chunk could not be fetched, as on a remote window that dropped. */
+const graphUnreadable = vi.hoisted(() => ({ value: false }));
+
 vi.mock('./LiveGraph', () => {
   evaluated.add('LiveGraph');
   return {
-    LiveGraph: ({ graph, className }: { graph: ForgeGraph; className?: string }) => (
-      <div data-testid="live-graph" className={className}>
-        {graph.nodes.length}
-      </div>
-    ),
+    LiveGraph: ({ graph, className }: { graph: ForgeGraph; className?: string }) => {
+      if (graphUnreadable.value) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/LiveGraph-a1.js',
+        );
+      }
+      return (
+        <div data-testid="live-graph" className={className}>
+          {graph.nodes.length}
+        </div>
+      );
+    },
   };
 });
 
@@ -37,5 +48,24 @@ describe('the live graph, loaded with the first graph drawn', () => {
     expect(graph.className).toBe('h-full');
     expect(graph.textContent).toBe('0');
     expect([...evaluated]).toEqual(['LiveGraph']);
+  });
+
+  it('says a graph whose chunk could not be fetched in its box, and leaves the step around it up', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    graphUnreadable.value = true;
+    try {
+      render(
+        <div data-testid="step">
+          <LiveGraph graph={GRAPH} className="h-full" />
+        </div>,
+      );
+
+      const failed = await screen.findByTestId('live-graph-failed');
+      expect(failed.textContent).toContain('This part did not load');
+      expect(failed.className).toContain('h-full');
+      expect(screen.getByTestId('step').contains(failed)).toBe(true);
+    } finally {
+      graphUnreadable.value = false;
+    }
   });
 });

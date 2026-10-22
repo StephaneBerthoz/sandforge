@@ -165,9 +165,21 @@ const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unkno
  * The Schedules tab comes in a chunk of its own (syncPanels.test.tsx); here it
  * is drawn at once, as the page draws it once loaded.
  */
-vi.mock('./syncPanels', async () => ({
-  SyncSchedulePanel: (await import('./SyncSchedulePanel')).SyncSchedulePanel,
-}));
+const schedulesUnreadable = vi.hoisted(() => ({ value: false }));
+vi.mock('./syncPanels', async () => {
+  const { SyncSchedulePanel } = await import('./SyncSchedulePanel');
+  return {
+    SyncSchedulePanel: (props: React.ComponentProps<typeof SyncSchedulePanel>) => {
+      // The tab's chunk could not be fetched, as on a remote window that dropped.
+      if (schedulesUnreadable.value) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/SyncSchedulePanel-a1.js',
+        );
+      }
+      return <SyncSchedulePanel {...props} />;
+    },
+  };
+});
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
@@ -2051,5 +2063,24 @@ describe('SyncPage Run now on a saved configuration', () => {
     fireEvent.click(screen.getByTestId('tab-schedules'));
 
     expect(screen.getByTestId('run-saved-config-cfg-saved')).toHaveProperty('disabled', true);
+  });
+
+  it('keeps a Schedules tab whose chunk could not be fetched to its tab, and the Sync tab works', () => {
+    // The page's boundary caught it: the wizard and its draft went with it.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    schedulesUnreadable.value = true;
+    try {
+      render(<SyncPage />);
+      fireEvent.click(screen.getByTestId('tab-schedules'));
+
+      expect(screen.getByTestId('sync-schedules-failed').textContent).toContain(
+        'This part did not load',
+      );
+      fireEvent.click(screen.getByTestId('tab-sync'));
+      expect(screen.queryByTestId('sync-schedules-failed')).toBeNull();
+      expect(screen.getByTestId('tab-sync').getAttribute('aria-selected')).toBe('true');
+    } finally {
+      schedulesUnreadable.value = false;
+    }
   });
 });

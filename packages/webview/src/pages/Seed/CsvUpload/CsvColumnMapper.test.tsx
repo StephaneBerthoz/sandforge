@@ -1,8 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { useCallback, useState } from 'react';
 import '../../../i18n/index';
 import { CsvColumnMapper } from './CsvColumnMapper';
 import type { CsvColumnMapping, SeedFieldInfo } from '@sandforge/shared';
+
+/** How many times a component of the mapper asked for its words: once a draw. */
+const draws = vi.hoisted(() => ({ count: 0 }));
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: (...args: Parameters<typeof actual.useTranslation>) => {
+      draws.count += 1;
+      return actual.useTranslation(...args);
+    },
+  };
+});
 
 const mockFields: SeedFieldInfo[] = [
   {
@@ -48,7 +62,7 @@ const mockHeaders = ['name', 'email', 'phone'];
 describe('CsvColumnMapper', () => {
   const onMappingChange = vi.fn();
 
-  it('should render all headers with Select dropdowns', () => {
+  it('should render all headers with a field box each', () => {
     render(
       <CsvColumnMapper
         headers={mockHeaders}
@@ -63,7 +77,7 @@ describe('CsvColumnMapper', () => {
     expect(screen.getByTestId('mapping-row-phone')).toBeDefined();
   });
 
-  it('should pre-select auto-mapped fields in dropdowns', () => {
+  it('should fill in the auto-mapped fields, and name each box after its column', () => {
     render(
       <CsvColumnMapper
         headers={mockHeaders}
@@ -72,13 +86,16 @@ describe('CsvColumnMapper', () => {
         onMappingChange={onMappingChange}
       />,
     );
-    const nameSelect = screen.getByTestId('mapping-select-name') as HTMLSelectElement;
-    expect(nameSelect.value).toBe('Name');
-    const emailSelect = screen.getByTestId('mapping-select-email') as HTMLSelectElement;
-    expect(emailSelect.value).toBe('');
+    const nameBox = screen.getByTestId('mapping-select-name') as HTMLInputElement;
+    expect(nameBox.value).toBe('Name');
+    expect(screen.getByTestId('mapping-field-name').textContent).toBe('Account Name · string');
+    const emailBox = screen.getByTestId('mapping-select-email') as HTMLInputElement;
+    expect(emailBox.value).toBe('');
+    expect(screen.getByRole('combobox', { name: 'Salesforce field for email' })).toBe(emailBox);
   });
 
-  it('should call onMappingChange when a selection changes', () => {
+  it('should call onMappingChange when a field is picked from the list', () => {
+    onMappingChange.mockClear();
     render(
       <CsvColumnMapper
         headers={mockHeaders}
@@ -87,9 +104,116 @@ describe('CsvColumnMapper', () => {
         onMappingChange={onMappingChange}
       />,
     );
-    const emailSelect = screen.getByTestId('mapping-select-email');
-    fireEvent.change(emailSelect, { target: { value: 'Email__c' } });
+    const emailBox = screen.getByTestId('mapping-select-email');
+    fireEvent.change(emailBox, { target: { value: 'Email__c' } });
     expect(onMappingChange).toHaveBeenCalledWith('email', 'Email__c');
+  });
+
+  it('maps a field typed by its label, case aside, as the box is left', () => {
+    onMappingChange.mockClear();
+    render(
+      <CsvColumnMapper
+        headers={mockHeaders}
+        columnMappings={mockMappings}
+        describeFields={mockFields}
+        onMappingChange={onMappingChange}
+      />,
+    );
+    const emailBox = screen.getByTestId('mapping-select-email') as HTMLInputElement;
+    fireEvent.change(emailBox, { target: { value: 'email' } });
+    expect(onMappingChange).not.toHaveBeenCalled();
+
+    fireEvent.blur(emailBox);
+
+    expect(onMappingChange).toHaveBeenCalledWith('email', 'Email__c');
+    expect(emailBox.value).toBe('Email__c');
+  });
+
+  it('takes back a name that is no field, and leaves a column emptied unmapped', () => {
+    onMappingChange.mockClear();
+    render(
+      <CsvColumnMapper
+        headers={mockHeaders}
+        columnMappings={mockMappings}
+        describeFields={mockFields}
+        onMappingChange={onMappingChange}
+      />,
+    );
+    const nameBox = screen.getByTestId('mapping-select-name') as HTMLInputElement;
+    fireEvent.change(nameBox, { target: { value: 'Nowhere__c' } });
+    fireEvent.blur(nameBox);
+    expect(nameBox.value).toBe('Name');
+    expect(onMappingChange).not.toHaveBeenCalled();
+
+    fireEvent.change(nameBox, { target: { value: '' } });
+    expect(onMappingChange).toHaveBeenCalledWith('name', '');
+  });
+
+  it('lists the fields once for every column, not once a column', () => {
+    // 300 columns onto an 800-field object drew 300 selects of 801 options:
+    // 240 000 options, drawn again at every change.
+    const fields: SeedFieldInfo[] = Array.from({ length: 800 }, (_, i) => ({
+      ...mockFields[0],
+      apiName: `Field${i}__c`,
+      label: `Field ${i}`,
+    }));
+    const headers = Array.from({ length: 300 }, (_, i) => `Column ${i}`);
+    const mappings = headers.map((csvHeader, i) => ({
+      csvHeader,
+      sfFieldApiName: `Field${i}__c`,
+      sfFieldType: 'string',
+      sfFieldLength: 255,
+    }));
+    const { container } = render(
+      <CsvColumnMapper
+        headers={headers}
+        columnMappings={mappings}
+        describeFields={fields}
+        onMappingChange={onMappingChange}
+      />,
+    );
+
+    expect(container.querySelectorAll('option')).toHaveLength(800);
+    expect(container.querySelectorAll('[data-testid^="mapping-row-"]')).toHaveLength(300);
+  });
+
+  it('draws again only the row whose mapping changed', () => {
+    const headers = Array.from({ length: 50 }, (_, i) => `Column ${i}`);
+    const Harness = () => {
+      const [mappings, setMappings] = useState<CsvColumnMapping[]>(
+        headers.map((csvHeader) => ({
+          csvHeader,
+          sfFieldApiName: '',
+          sfFieldType: '',
+          sfFieldLength: null,
+        })),
+      );
+      // Kept from draw to draw, as the import's own handler is.
+      const change = useCallback(
+        (csvHeader: string, sfFieldApiName: string) =>
+          setMappings((previous) =>
+            previous.map((m) => (m.csvHeader === csvHeader ? { ...m, sfFieldApiName } : m)),
+          ),
+        [],
+      );
+      return (
+        <CsvColumnMapper
+          headers={headers}
+          columnMappings={mappings}
+          describeFields={mockFields}
+          onMappingChange={change}
+        />
+      );
+    };
+    render(<Harness />);
+    draws.count = 0;
+
+    fireEvent.change(screen.getByTestId('mapping-select-Column 7'), { target: { value: 'Phone' } });
+
+    // The mapper, and the one row (twice, as it takes the new mapping into
+    // its box): all fifty rows were drawn again, every option with them.
+    expect(draws.count).toBeLessThanOrEqual(3);
+    expect((screen.getByTestId('mapping-select-Column 7') as HTMLInputElement).value).toBe('Phone');
   });
 
   it('should show mapped count summary badge', () => {

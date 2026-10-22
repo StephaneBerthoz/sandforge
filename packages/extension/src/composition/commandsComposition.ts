@@ -5,7 +5,7 @@ import type { OrgManager } from '../core/connection/OrgManager';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { OnboardingService } from '../core/onboarding/OnboardingService';
 import { MODULE_COMMANDS } from './moduleCommands';
-import { intentMessageFor } from './moduleIntent';
+import { intentMessageFor, isPageMountedMessage } from './moduleIntent';
 import { panelTitle } from './panelTitles';
 
 /** Inputs required to register the module-open commands. */
@@ -108,11 +108,16 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
         } else {
           // New panel: posting now would race the bundle parse — the message
           // would be lost while markVersionSeen still recorded it as shown
-          // (what's-new never appears). Arm a one-shot listener: the FIRST
-          // incoming webview message proves the bundle is up, then post
-          // exactly once and mark seen. The listener is also released if the
-          // panel closes before ever posting — no orphan disposable left behind.
-          const readyListener = panel.webview.onDidReceiveMessage(() => {
+          // (what's-new never appears). Arm a one-shot listener that posts
+          // exactly once, and marks seen, when the page says it has mounted.
+          // Any first message used to count: on an editor in another language
+          // than English, the first one is the language request i18n sends
+          // while its module loads, before React has rendered, so the intent
+          // and What's New reached a page with no listener for them yet, and
+          // the version was recorded as shown all the same. The listener is
+          // also released if the panel closes before ever posting.
+          const readyListener = panel.webview.onDidReceiveMessage((raw: unknown) => {
+            if (!isPageMountedMessage(raw)) return;
             readyListener.dispose();
             post();
           });

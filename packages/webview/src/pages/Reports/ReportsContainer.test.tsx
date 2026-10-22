@@ -4,11 +4,19 @@ import type { BaseMessage } from '@sandforge/shared';
 import '../../i18n';
 
 const mockPostMessage = vi.fn();
+/*
+ * The panel's webview state, which VS Code keeps while it sets the panel's
+ * shell again: the Reports panel is released while hidden and rebuilt as it
+ * is shown, a new page that reads this state as it mounts.
+ */
+const webviewState = vi.hoisted(() => ({ value: undefined as unknown }));
 vi.mock('../../hooks/useVSCodeApi', () => {
   const api = {
     postMessage: (...args: unknown[]) => mockPostMessage(...args),
-    getState: () => undefined,
-    setState: () => undefined,
+    getState: () => webviewState.value,
+    setState: (state: unknown) => {
+      webviewState.value = state;
+    },
   };
   return { getVscodeApi: () => api, useVSCodeApi: () => api };
 });
@@ -121,6 +129,34 @@ describe('ReportsContainer', () => {
     for (const key of Object.keys(refetches)) delete refetches[key];
     queryCalls.length = 0;
     mockPostMessage.mockClear();
+    webviewState.value = undefined;
+  });
+
+  it('comes back on the tab and the audit filters it showed before its panel was hidden and rebuilt', () => {
+    // All plain state: an admin reading the trail filtered on one org's
+    // deletions looked at a code tab, came back, and landed on Executions
+    // with no filter.
+    answer('reports:list', { reports: [report('r-1')], summary: undefined });
+    answer('reports:audit', { entries: [entry], total: 1, offset: 0, facets });
+    const first = render(<ReportsContainer />);
+    fireEvent.click(screen.getByText('Audit Trail'));
+    fireEvent.change(screen.getByTestId('org-filter'), {
+      target: { value: '00D000000000001AAA' },
+    });
+    fireEvent.change(screen.getByTestId('action-filter'), { target: { value: 'sync_execute' } });
+    first.unmount();
+    queryCalls.length = 0;
+
+    render(<ReportsContainer />);
+
+    expect(screen.getByRole('tab', { name: 'Audit Trail' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(lastPayload('reports:audit')).toMatchObject({ orgId: '00D000000000001AAA' });
+    expect((screen.getByTestId('org-filter') as HTMLSelectElement).value).toBe(
+      '00D000000000001AAA',
+    );
+    expect((screen.getByTestId('action-filter') as HTMLSelectElement).value).toBe('sync_execute');
   });
 
   it('says each tab is loading while nothing has answered, not that it is coming', () => {

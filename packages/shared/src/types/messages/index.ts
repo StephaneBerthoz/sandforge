@@ -55,6 +55,7 @@ import type {
   BridgeReloadBannerMessage,
   PanelVisibilityMessage,
   PanelRouteMessage,
+  PanelReloadRequest,
   NavigationIntentMessage,
   WorkbenchReloadRequest,
   WorkbenchOpenSettingRequest,
@@ -729,6 +730,7 @@ export type WebViewToExtensionMessage =
   // Bridge control
   | WorkbenchReloadRequest
   | PanelRouteMessage
+  | PanelReloadRequest
   | WorkbenchOpenSettingRequest
   | ErrorBoundaryReport
   // Realtime (CDC)

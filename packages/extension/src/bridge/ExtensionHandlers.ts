@@ -137,6 +137,8 @@ export class ExtensionHandlers {
   private readonly executeCommand: CommandExecutor;
   /** Told of each `panel:route`: see {@link setPanelRouteListener}. */
   private panelRouteListener: ((msg: BaseMessage) => void) | undefined;
+  /** Told of each `panel:reload`: see {@link setPanelReloadListener}. */
+  private panelReloadListener: ((msg: BaseMessage) => void) | undefined;
   private idCounter = 0;
 
   // Domain handlers
@@ -419,6 +421,15 @@ export class ExtensionHandlers {
    */
   setPanelRouteListener(listener: (msg: BaseMessage) => void): void {
     this.panelRouteListener = listener;
+  }
+
+  /**
+   * Hand each `panel:reload` to `listener`: the panel manager, which sets the
+   * shell of the page that could not load a part of itself again. Before one
+   * is set, the message is dropped.
+   */
+  setPanelReloadListener(listener: (msg: BaseMessage) => void): void {
+    this.panelReloadListener = listener;
   }
 
   /** Inject the AI assistant service, or `undefined` to take it away. */
@@ -972,6 +983,13 @@ export class ExtensionHandlers {
     // and Reports pages while hidden only when they show nothing else.
     router.route('panel:route', (msg: BaseMessage) => {
       this.panelRouteListener?.(msg);
+    });
+
+    // A page part of which could not be loaded (a chunk fetched while a remote
+    // window reconnected, or replaced by a reinstall), for the panel manager:
+    // only a new document fetches it again.
+    router.route('panel:reload', (msg: BaseMessage) => {
+      this.panelReloadListener?.(msg);
     });
 
     // Bridge protocol-mismatch reload. Triggered by the

@@ -5,6 +5,19 @@ import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { SeedConfigureStep } from './SeedConfigureStep';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 
+/** The object lists the field rules were drawn with, one a draw. */
+const drawnWith = vi.hoisted(() => [] as unknown[]);
+vi.mock('./Step3_ConfigureFields', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./Step3_ConfigureFields')>();
+  return {
+    ...actual,
+    Step3ConfigureFields: (props: React.ComponentProps<typeof actual.Step3ConfigureFields>) => {
+      drawnWith.push(props.objectConfigs);
+      return <actual.Step3ConfigureFields {...props} />;
+    },
+  };
+});
+
 const fieldConfigs: ObjectFieldConfig[] = [
   {
     objectApiName: 'Account',
@@ -51,6 +64,28 @@ describe('SeedConfigureStep', () => {
     // heading names the list, not the twelfth field in it.
     renderStep();
     expect(screen.getByTestId('batch-Account').getAttribute('aria-label')).toContain('Account');
+  });
+
+  it('hands the field rules the same object list while the fields and the choices stay the same', () => {
+    // Mapped anew at every draw, a batch size typed handed every object and
+    // field row a new list, and each was drawn again.
+    const props = {
+      fieldConfigs,
+      onChangeRule: vi.fn(),
+      onChangeConfig: vi.fn(),
+      onChangeBatchSize: vi.fn(),
+    };
+    const { rerender } = render(
+      <SeedConfigureStep {...props} volumes={{ Account: { count: 100, batchSize: 200 } }} />,
+    );
+    drawnWith.length = 0;
+
+    rerender(<SeedConfigureStep {...props} volumes={{ Account: { count: 100, batchSize: 50 } }} />);
+
+    expect(drawnWith).toHaveLength(1);
+    expect(drawnWith[0]).toEqual([fieldConfigs[0]]);
+    rerender(<SeedConfigureStep {...props} volumes={{ Account: { count: 100, batchSize: 75 } }} />);
+    expect(drawnWith[1]).toBe(drawnWith[0]);
   });
 
   it('puts the relation editor where relations were announced as coming soon', () => {

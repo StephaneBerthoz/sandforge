@@ -38,3 +38,26 @@ export function intentMessageFor(
     payload: { route: moduleId, ...intent.data },
   };
 }
+
+/**
+ * Whether a message from a new panel's page says React has mounted it, so a
+ * start or What's New posted now reaches a listener: the enveloped
+ * `panel:route` the panel sends from an effect of its first commit, the
+ * commit in which the bridge's listeners for `navigation:intent` and
+ * `whats-new:show` subscribe. A message sent earlier proves only that the
+ * bundle is parsing: on an editor in another language than English, the
+ * language request leaves while the i18n module loads, before the first
+ * render. Self-contained and free of any `vscode` import, so the panel's
+ * browser tests post on the very test the extension makes.
+ *
+ * @param raw - A message as `onDidReceiveMessage` hands it, envelope included.
+ */
+export function isPageMountedMessage(raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const payload = (raw as { payload?: unknown }).payload;
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === 'panel:route'
+  );
+}

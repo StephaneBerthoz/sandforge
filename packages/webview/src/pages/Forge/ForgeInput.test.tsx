@@ -18,11 +18,23 @@ const stableApi = {
  * The input step's other panels come in chunks of their own
  * (forgeInputPanels.test.tsx); here they are drawn at once.
  */
-vi.mock('./forgeInputPanels', async () => ({
-  ForgeHistoryPanel: (await import('./ForgeHistoryPanel')).ForgeHistoryPanel,
-  ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
-  ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
-}));
+const historyUnreadable = vi.hoisted(() => ({ value: false }));
+vi.mock('./forgeInputPanels', async () => {
+  const { ForgeHistoryPanel } = await import('./ForgeHistoryPanel');
+  return {
+    ForgeHistoryPanel: (props: React.ComponentProps<typeof ForgeHistoryPanel>) => {
+      // The panel's chunk could not be fetched, as on a remote window that dropped.
+      if (historyUnreadable.value) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://file+.vscode-resource.vscode-cdn.net/x/assets/chunks/ForgeHistoryPanel-a1.js',
+        );
+      }
+      return <ForgeHistoryPanel {...props} />;
+    },
+    ForgeTemplatePanel: (await import('./ForgeTemplatePanel')).ForgeTemplatePanel,
+    ForgeAIPanel: (await import('./ForgeAIPanel')).ForgeAIPanel,
+  };
+});
 
 vi.mock('../../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => stableApi,
@@ -187,6 +199,22 @@ describe('ForgeInput', () => {
 
   afterEach(() => {
     useAppStore.setState({ aiAvailable: false });
+  });
+
+  it('keeps a history panel whose chunk could not be fetched to its place, and the input up', () => {
+    // The page's boundary caught it: the whole input step went with it.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    historyUnreadable.value = true;
+    try {
+      render(<ForgeInput />);
+
+      expect(screen.getByTestId('forge-history-failed').textContent).toContain(
+        'This part did not load',
+      );
+      expect(screen.getAllByRole('tab').length).toBeGreaterThan(0);
+    } finally {
+      historyUnreadable.value = false;
+    }
   });
 
   it('should render 4 tabs', () => {

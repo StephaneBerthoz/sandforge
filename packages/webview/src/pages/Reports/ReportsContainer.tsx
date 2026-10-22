@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AuditAction,
@@ -17,6 +17,7 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useFileSave } from '../../hooks/useFileSave';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 
 /** What `reports:list:response` carries. */
 interface ReportsPayload {
@@ -74,8 +75,17 @@ export const ReportsContainer: React.FC = () => {
   });
   const { save } = useFileSave();
 
-  const [auditFilter, setAuditFilter] = useState<AuditFilter>({});
-  const [auditLimit, setAuditLimit] = useState(AUDIT_PAGE_SIZE);
+  // Kept in the panel's webview state, as the page's tab is: the panel is
+  // rebuilt from its shell each time it is shown again, and an audit read
+  // filtered on one org's deletions came back unfiltered.
+  const [auditFilter, setAuditFilter] = useWebviewPersistedState<AuditFilter>(
+    'reportsAuditFilter',
+    {},
+  );
+  const [auditLimit, setAuditLimit] = useWebviewPersistedState(
+    'reportsAuditLimit',
+    AUDIT_PAGE_SIZE,
+  );
   // A new filter or limit is a new payload, which the hook sends again.
   const audit = useBridgeQuery<AuditPayload>('reports:audit', {
     ...auditFilter,
@@ -123,7 +133,10 @@ export const ReportsContainer: React.FC = () => {
     });
   }, [exportError, addNotification, t]);
 
-  const [lineageRun, setLineageRun] = useState<string | undefined>();
+  const [lineageRun, setLineageRun] = useWebviewPersistedState<string | undefined>(
+    'reportsLineageRun',
+    undefined,
+  );
   const lineage = useBridgeQuery<LineagePayload>(
     'reports:lineage',
     lineageRun !== undefined ? { operationId: lineageRun } : undefined,
