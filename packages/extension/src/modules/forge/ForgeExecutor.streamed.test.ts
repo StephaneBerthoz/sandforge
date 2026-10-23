@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { forgeRunCreatedRecords } from '@sandforge/shared';
+import { forgeGapId, forgeRunCreatedRecords } from '@sandforge/shared';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
@@ -1671,6 +1671,56 @@ describe('a run of whole tables read page by page', () => {
       expect(paged.recordTypeScans).toEqual([]);
     });
 
+    it('holds nothing back for a closed record type only past the most rows the run reads, judged on the rows it reads', async () => {
+      // Twelve accounts, the last three of a record type closed to the user:
+      // read to nine, the run reads none of them. Judged on the whole table,
+      // the nine open accounts were held back with them.
+      const { schema, graph, recordTypes } = closedRecordType();
+      const paged = await runOver(
+        schema,
+        graph,
+        { maxRecordsPerObject: 9, stream: { pageSize: 4 } },
+        { recordTypes },
+      );
+
+      expect(Object.keys(paged.written()['Account'] ?? {})).toHaveLength(9);
+      expect(paged.summary.errors.filter((e) => e.objectApiName === 'Account')).toEqual([]);
+      expect(vi.mocked(paged.deps.queryRecords).mock.calls.map(([, soql]) => soql)).toContain(
+        'SELECT RecordTypeId FROM Account ORDER BY Id LIMIT 9',
+      );
+
+      // Read to ten, the run reads one of the closed type: held back whole, as before.
+      const ten = await runOver(
+        schema,
+        graph,
+        { maxRecordsPerObject: 10, stream: { pageSize: 4 } },
+        { recordTypes },
+      );
+      expect(ten.written()['Account']).toBeUndefined();
+      expect(ten.insertCalls.filter((call) => call.object === 'Account')).toEqual([]);
+      expect(ten.summary.errors).toContainEqual(
+        expect.objectContaining({ objectApiName: 'Account', stage: 'scope', failedCount: 10 }),
+      );
+    });
+
+    it('keeps the count of the whole table when the read of the rows the run reads stops short', async () => {
+      const { schema, graph, recordTypes } = closedRecordType();
+      const orgs = fakeOrgs(schema, { recordTypes });
+      const answer = orgs.deps.queryRecords;
+      orgs.deps.queryRecords = vi.fn(
+        async (org: string, soql: string, onTruncated?: () => void) => {
+          if (soql.startsWith('SELECT RecordTypeId FROM')) onTruncated?.();
+          return answer(org, soql, onTruncated);
+        },
+      );
+      await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        maxRecordsPerObject: 9,
+        stream: { pageSize: 4 },
+      });
+
+      expect(orgs.insertCalls.filter((call) => call.object === 'Account')).toEqual([]);
+    });
+
     it('counts the record types under the run filter and after the checkpoint of the run it resumes', async () => {
       const { schema, graph, recordTypes } = closedRecordType();
       const paged = await runOver(
@@ -1824,5 +1874,124 @@ describe('a run of whole tables, with owners the target may not have', () => {
 
     expect(asked).toEqual([]);
     expect(owners).toEqual([undefined, undefined, undefined]);
+  });
+});
+
+describe('the fields a run leaves out of its rows', () => {
+  /** Accounts and the contacts under them, each contact with a description, an email and its manager. */
+  function described(): { schema: Schema; graph: ForgeGraph } {
+    const { schema, graph } = accountFamily();
+    const contact = schema['Contact'];
+    if (!contact) throw new Error('no contacts');
+    return {
+      schema: {
+        ...schema,
+        Contact: {
+          fields: [...contact.fields, text('Description', 'textarea'), text('Email', 'email')],
+          rows: contact.rows.map((row, n) => ({
+            ...row,
+            Description: `Notes on contact ${n}`,
+            Email: `person${n}@example.com`,
+          })),
+        },
+      },
+      graph,
+    };
+  }
+
+  /** Every statement the run sent the source, through a whole read or its cursor. */
+  function statementsOf(orgs: ReturnType<typeof fakeOrgs>): string[] {
+    const whole = vi
+      .mocked(orgs.deps.queryRecords)
+      .mock.calls.filter(([org]) => org === 'src')
+      .map(([, soql]) => soql);
+    const paged = orgs.deps.queryPages
+      ? vi
+          .mocked(orgs.deps.queryPages)
+          .mock.calls.filter(([org]) => org === 'src')
+          .map(([, soql]) => soql)
+      : [];
+    return [...whole, ...paged];
+  }
+
+  it.each([
+    ['of whole tables, page by page', { stream: { pageSize: 3 } }],
+    ['from a record', { rootRecordId: sourceId('Account', 0), rootObjectApiName: 'Account' }],
+  ] as Array<[string, ExecuteOptions]>)(
+    'reads none of them from the source in a run %s, the lookups among them all the same',
+    async (_name, options) => {
+      // Left out of the rows for the personal data they hold, a description and
+      // an email were read from the source all the same, and held with the
+      // rows until the write dropped them.
+      const { schema, graph } = described();
+      const orgs = fakeOrgs(schema);
+      if (orgs.deps.queryPages) vi.spyOn(orgs.deps, 'queryPages');
+      const summary = await orgs.executor.execute(graph, 'src', 'tgt', () => {}, {
+        ...options,
+        fieldExclusions: { Contact: ['Description', 'Email', 'ReportsToId'] },
+      });
+
+      const contactReads = statementsOf(orgs).filter((soql) => / FROM Contact\b/.test(soql));
+      expect(contactReads.length).toBeGreaterThan(0);
+      for (const soql of contactReads) {
+        const select = soql.slice(0, soql.indexOf(' FROM '));
+        expect(select).not.toMatch(/\bDescription\b|\bEmail\b/);
+        expect(select).toMatch(/\bReportsToId\b/);
+        expect(select).toMatch(/\bAccountId\b/);
+      }
+      expect(summary.successCount).toBeGreaterThan(0);
+      for (const row of Object.values(orgs.written()['Contact'] ?? {})) {
+        expect(row).not.toHaveProperty('Description');
+        expect(row).not.toHaveProperty('Email');
+        expect(row).not.toHaveProperty('ReportsToId');
+      }
+    },
+  );
+});
+
+describe('the rows held back on an object without record types', () => {
+  it('holds back the rows a gap naming its master names, and lists the decision with what the run applied', async () => {
+    // Found live on a Developer Edition pair: on such an object the master
+    // record type is read for its restricted dependent picklists and named
+    // Master, its gaps with it, and "Hold back these rows" held back none of
+    // them, writing them with the value left out.
+    const schema: Schema = {
+      Contact: {
+        fields: [text('LastName'), text('LeadSource', 'picklist')],
+        rows: Array.from({ length: 5 }, (_, n) => ({
+          Id: sourceId('Contact', n),
+          LastName: `Contact ${n}`,
+          LeadSource: n < 2 ? 'Fax' : 'Web',
+        })),
+      },
+    };
+    const graph = graphOf([node('Contact', 5)], []);
+    const { summary, written } = await runOver(schema, graph, {
+      stream: { pageSize: 2 },
+      decisions: {
+        skippedRows: [
+          {
+            object: 'Contact',
+            gapId: forgeGapId('picklist_value_refused', 'Contact', 'LeadSource', 'Master', 'Fax'),
+          },
+        ],
+      },
+    });
+
+    expect(Object.values(written()['Contact'] ?? {}).map((row) => row['LeadSource'])).toEqual([
+      'Web',
+      'Web',
+      'Web',
+    ]);
+    expect(summary.decisionsApplied).toEqual([
+      {
+        kind: 'skip_rows',
+        objectApiName: 'Contact',
+        field: 'LeadSource',
+        recordType: 'Master',
+        from: 'Fax',
+        rows: 2,
+      },
+    ]);
   });
 });

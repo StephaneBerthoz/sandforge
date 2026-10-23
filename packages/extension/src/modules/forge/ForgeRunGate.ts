@@ -32,6 +32,7 @@ import {
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import type {
+  ForgeConfig,
   ForgeEmailLimit,
   ForgeEmailsPerInsert,
   ForgeFiredOnRemovalStep,
@@ -270,6 +271,112 @@ export function writePlanOf(objects: ForgeWriteBoundary['objects']): WritePlan {
     totalRows: measured.reduce((sum, object) => sum + object.rows, 0),
     storageBytes: measured.reduce((sum, object) => sum + object.storageBytes, 0),
     ...(writtenBefore > 0 || heldBack.length > 0 ? { leftOut: { writtenBefore, heldBack } } : {}),
+  };
+}
+
+/**
+ * What tells one case from another for the volume a run writes: the orgs and
+ * the input — the record, the query, the template, the prompt — and nothing
+ * the user may change between a simulation and the run of it.
+ *
+ * The objects discovery found are left out, where the audit entry's case
+ * holds them (`forgeCaseKey`), and so are the depth, the caps and the
+ * filters: a clone whose dry run said 37 records wrote 34 216, a parent added
+ * to its graph having widened what was read of its children. Held to the
+ * same objects, the run that wrote them would have had no simulation to be
+ * compared with.
+ */
+export function forgeVolumeCaseKey(
+  config: Pick<
+    ForgeConfig,
+    | 'sourceOrgId'
+    | 'targetOrgId'
+    | 'inputMode'
+    | 'recordId'
+    | 'soqlQuery'
+    | 'templateId'
+    | 'aiPrompt'
+  >,
+): string {
+  return JSON.stringify([
+    config.sourceOrgId,
+    config.targetOrgId,
+    config.inputMode,
+    config.recordId ?? null,
+    config.soqlQuery ?? null,
+    config.templateId ?? null,
+    config.aiPrompt ?? null,
+  ]);
+}
+
+/** What a simulation counted to write, as its gate measured it: see {@link LastSimulations}. */
+export interface SimulatedWrite {
+  /** When the simulation ended, in epoch milliseconds. */
+  at: number;
+  total: number;
+  /** Per object it would write, the most first. */
+  objects: Array<{ objectApiName: string; rows: number }>;
+}
+
+/** The cases whose last simulation is kept: the oldest go first. */
+const SIMULATED_CASES_KEPT = 16;
+
+/**
+ * The last simulation of each case this window ran ({@link forgeVolumeCaseKey}),
+ * for the gate of the run that follows: what it counted to write, measured
+ * as that gate measures the run's rows (`writePlanOf`). Bounded: a case not
+ * simulated again drops out once {@link SIMULATED_CASES_KEPT} others were.
+ */
+export class LastSimulations {
+  private readonly kept = new Map<string, SimulatedWrite>();
+
+  /** A simulation of the case `key` ended at `at`, having counted `plan`. */
+  note(key: string, plan: Pick<WritePlan, 'objects' | 'totalRows'>, at: number = Date.now()): void {
+    this.kept.delete(key);
+    this.kept.set(key, {
+      at,
+      total: plan.totalRows,
+      objects: plan.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+    });
+    for (const oldest of this.kept.keys()) {
+      if (this.kept.size <= SIMULATED_CASES_KEPT) break;
+      this.kept.delete(oldest);
+    }
+  }
+
+  /** The last simulation of the case `key`, when this window ran one. */
+  of(key: string): SimulatedWrite | undefined {
+    return this.kept.get(key);
+  }
+}
+
+/** Records past a simulation's total past which a run is asked about, whatever its volume. */
+const RECORDS_PAST_THE_SIMULATION = 500;
+
+/**
+ * Whether `total` is far past what the simulation of its case counted: more
+ * than twice its total, or more than {@link RECORDS_PAST_THE_SIMULATION}
+ * records more. Fewer records than it counted never are: a decision taken on
+ * its gaps — an object left out, rows held back — writes fewer.
+ */
+export function farPastTheSimulation(total: number, simulated: number): boolean {
+  return total > 2 * simulated || total - simulated > RECORDS_PAST_THE_SIMULATION;
+}
+
+/**
+ * What a run's question says of the last simulation of its case: what it
+ * counted, how long before, and whether the run is far past it.
+ */
+export function confirmationSimulatedOf(
+  simulated: SimulatedWrite,
+  total: number,
+  now: number = Date.now(),
+): NonNullable<WriteConfirmation['simulated']> {
+  return {
+    minutesBefore: Math.max(1, Math.ceil((now - simulated.at) / 60_000)),
+    total: simulated.total,
+    objects: simulated.objects.map(({ objectApiName, rows }) => ({ objectApiName, rows })),
+    ...(farPastTheSimulation(total, simulated.total) ? { farAbove: true as const } : {}),
   };
 }
 
@@ -721,6 +828,16 @@ export function overEmailOf(check: EmailCheck): NonNullable<WriteConfirmation['e
     objects: check.objects.map(({ objectApiName, perRecord }) => ({ objectApiName, perRecord })),
     ...(check.alertsCounted ? { alertsCounted: true as const } : {}),
   };
+}
+
+/**
+ * A limit the emails are counted against that the target did not say what it
+ * has left of, as a run's question names it.
+ */
+export function unreadEmailOf(
+  check: EmailCheck,
+): NonNullable<WriteConfirmation['emailsUnread']>[number] {
+  return { limit: check.limit, emails: check.emails, unread: check.unread ?? '' };
 }
 
 /** How each daily email limit is said. */

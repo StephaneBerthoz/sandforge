@@ -118,15 +118,19 @@ import {
   automationUnreadOf,
   bypassesToAssign,
   confirmationStorageOf,
+  confirmationSimulatedOf,
   countedEmailChecksOf,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
+  forgeVolumeCaseKey,
   isForgeRunGateError,
+  LastSimulations,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
   overEmailOf,
   pricesForLinesOf,
+  unreadEmailOf,
   READ_CEILING_PER_OBJECT,
   runBypassesOf,
   updateStepsOf,
@@ -138,6 +142,8 @@ import {
   writePlanOf,
   type DataStorage,
   type EmailLimit,
+  type SimulatedWrite,
+  type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
 import { recordWriteRun, type WriteRun } from '../../modules/audit/auditTrail.js';
 import {
@@ -1166,6 +1172,8 @@ export class ForgeHandler implements DomainHandler {
 
   /** The simulations and rehearsals ended lately, for the entry of the run that follows them. */
   private readonly trials = new RecentTrials();
+  /** The last simulation of each case this window ran: what it counted to write. */
+  private readonly simulations = new LastSimulations();
   /** The runs whose records are being verified, by `forgeId`: one verification at a time each. */
   private readonly verifying = new Set<string>();
 
@@ -1786,6 +1794,8 @@ export class ForgeHandler implements DomainHandler {
     // What each entry this run records says of how it was set up and let
     // through, beside what it wrote: filled in as the run meets its gate.
     const caseKey = forgeCaseKey(graph, config);
+    /** The case whose last simulation the run's gate measures it against. */
+    const volumeCase = forgeVolumeCaseKey(config);
     const audit = new ForgeRunAudit(config, {
       reviewSkipped: reviewSkipped === true,
       ...this.trials.before(caseKey),
@@ -2157,6 +2167,8 @@ export class ForgeHandler implements DomainHandler {
     let stoppedBeforeStart = false;
     /** The emails the target's flows send per record inserted, read before the run. */
     let emailsPerInsert: ForgeEmailsPerInsert[] = [];
+    /** Of a simulation, what it would write, kept for the run of its case that follows once it ends. */
+    let simulatedPlan: WritePlan | undefined;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2380,6 +2392,10 @@ export class ForgeHandler implements DomainHandler {
             lookup,
             emailsPerInsert,
             mayBeInTarget,
+            ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
+            onSimulated: (plan) => {
+              simulatedPlan = plan;
+            },
             onConfirmed: () => {
               guardDecision = strongerDecision(guardDecision, 'confirmed');
               audit.confirm('volume');
@@ -2438,8 +2454,10 @@ export class ForgeHandler implements DomainHandler {
         });
         this.addToHistory(result, config);
       } else {
-        // The run that follows, of the same case, says it was simulated first.
+        // The run that follows, of the same case, says it was simulated first,
+        // and its gate says how far it is from what the simulation counted.
         this.trials.note('simulation', caseKey);
+        if (simulatedPlan) this.simulations.note(volumeCase, simulatedPlan);
       }
       // What the run came to, in the output channel as on the page: a run
       // that ended left "Forge execute started" there and nothing else, and a
@@ -3191,11 +3209,19 @@ export class ForgeHandler implements DomainHandler {
      * only once the user says so, each may then be there twice.
      */
     mayBeInTarget?: readonly InFlightObjectRows[];
+    /** What the last simulation of the run's case counted to write, when this window ran one. */
+    simulated?: SimulatedWrite;
+    /** Told, on a simulation, what it would write, measured as the run's rows are. */
+    onSimulated?: (plan: WritePlan) => void;
     onConfirmed: () => void;
   }): (boundary: ForgeWriteBoundary) => Promise<void> {
     return async (boundary) => {
-      // The panel runs no dry run, and one writes nothing to hold back.
-      if (boundary.dryRun) return;
+      // A simulation writes nothing to hold back: what it would write is kept
+      // for the run of its case that follows.
+      if (boundary.dryRun) {
+        run.onSimulated?.(writePlanOf(boundary.objects));
+        return;
+      }
       const plan = writePlanOf(boundary.objects);
       if (plan.totalRows === 0) return;
       run.lookup.requests++;
@@ -3237,6 +3263,10 @@ export class ForgeHandler implements DomainHandler {
       // record whose flow fails in the save is refused; the user is asked. A
       // Developer Edition's email alerts count against its single emails too.
       const overEmails: NonNullable<WriteConfirmation['emails']> = [];
+      // A limit the target would not say what it has left of is asked about,
+      // as storage it would not say is: dropped, it was said nowhere, and the
+      // records whose flows fail past it were refused one by one.
+      const unreadEmails: NonNullable<WriteConfirmation['emailsUnread']> = [];
       if (run.emailsPerInsert.length > 0) {
         run.lookup.requests++;
         for (const check of countedEmailChecksOf(
@@ -3245,6 +3275,12 @@ export class ForgeHandler implements DomainHandler {
           await this.readTargetEmailLimits(run.targetOrgId),
         )) {
           if (check.verdict === 'exceeds') overEmails.push(overEmailOf(check));
+          else if (check.verdict === 'unread') unreadEmails.push(unreadEmailOf(check));
+        }
+        if (unreadEmails.length > 0) {
+          logger.warn('Forge write gate: a daily email limit of the target could not be read', {
+            limits: unreadEmails.map(({ limit, emails }) => ({ limit, emails })),
+          });
         }
         if (overEmails.length > 0) {
           logger.warn('Forge write gate: the records take the target past a daily email limit', {
@@ -3257,11 +3293,25 @@ export class ForgeHandler implements DomainHandler {
         }
       }
       const uncertain = (run.mayBeInTarget ?? []).filter(({ rows }) => rows > 0);
+      // What the last simulation of the case counted, beside what the run
+      // is about to write: far past it, the run is asked about whatever its
+      // volume. A clone whose dry run said 37 records wrote 34 216.
+      const simulated = run.simulated
+        ? confirmationSimulatedOf(run.simulated, plan.totalRows)
+        : undefined;
+      if (simulated?.farAbove) {
+        logger.warn('Forge write gate: far more records than the last simulation of the case', {
+          records: plan.totalRows,
+          simulated: simulated.total,
+        });
+      }
       if (
         aboveRecords === undefined &&
         storage.verdict === 'fits' &&
         overEmails.length === 0 &&
-        uncertain.length === 0
+        unreadEmails.length === 0 &&
+        uncertain.length === 0 &&
+        simulated?.farAbove !== true
       ) {
         return;
       }
@@ -3277,11 +3327,13 @@ export class ForgeHandler implements DomainHandler {
         ...(plan.leftOut ? { leftOut: plan.leftOut } : {}),
         ...(boundary.objects.some((object) => object.counted) ? { counted: true as const } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
+        ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
         ...pricesForLinesOf(plan),
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }
           : {}),
         ...(boundary.capped ? { capped: boundary.capped } : {}),
+        ...(simulated ? { simulated } : {}),
       });
       if (answer === 'confirmed') {
         run.onConfirmed();

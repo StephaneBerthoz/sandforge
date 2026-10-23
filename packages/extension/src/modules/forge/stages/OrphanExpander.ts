@@ -57,6 +57,7 @@ import {
   type RecordTypeMapping,
 } from '../../sync/RecordTypeMapper.js';
 import { intersect, targetFieldSetsOf, type TargetFieldSets } from './RecordCleaner.js';
+import { fieldsToSelect } from './ScopeResolver.js';
 import {
   checkRowPicklists,
   recordTypeValuesOf,
@@ -510,7 +511,8 @@ export class OrphanExpander {
     // A field holding a file's content reads as its file's address: the
     // parent is copied without it, as every record of the run is.
     const fields = withoutFileContent ? withoutFileContent(objectName, described) : described;
-    const queryFields = fields.filter((f) => f.queryable).map((f) => f.name);
+    // Nor are the fields the user left out of the object's rows read: see `fieldsToSelect`.
+    const queryFields = fieldsToSelect(fields, input.fieldExclusions?.[objectName]);
     if (queryFields.length === 0) queryFields.push('Id');
     const soql = `SELECT ${queryFields.join(', ')} FROM ${objectName} WHERE Id = '${sanitizeSoqlValue(sourceRecordId)}'`;
     const records = await this.deps.queryRecords(sourceOrgId, soql);

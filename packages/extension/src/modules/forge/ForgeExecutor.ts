@@ -55,6 +55,7 @@ import {
   CATALOG_READ_ORDER,
   catalogBeyond,
   catalogWriteEdges,
+  fieldsToSelect,
   followsToItsParent,
   ordersTheWrite,
   PRODUCT_OBJECT,
@@ -4355,9 +4356,12 @@ export class ForgeExecutor {
    *
    * Counted only when the target has a record type closed to the user and
    * `RecordTypeId` is written at all; none then. Undefined when the count
-   * could not be read: the pages are judged one by one, as before. The count
-   * covers the table under the filter, past the most rows the run reads too:
-   * a closed record type only past it holds the object back all the same.
+   * could not be read: the pages are judged one by one, as before. Of a table
+   * that holds more rows than the run reads of it, a closed record type the
+   * count finds is looked for again in the rows the run reads, their record
+   * types read in the order of their ids (`SELECT RecordTypeId … ORDER BY Id
+   * LIMIT …`): one only past them holds nothing back. Where that read stops
+   * short, the count of the whole table stands.
    */
   private recordTypesOfTable(
     state: ExecutionState,
@@ -4402,33 +4406,100 @@ export class ForgeExecutor {
         ...(resumed && SALESFORCE_ID.test(resumed.lastId) ? [`Id > '${resumed.lastId}'`] : []),
       ];
       const where = terms.length > 0 ? ` WHERE ${terms.join(' AND ')}` : '';
+      const from = `FROM ${assertSoqlIdentifier(object)}${where}`;
       const answered = await this.deps.queryRecords(
         sourceOrgId,
-        `SELECT RecordTypeId, COUNT(Id) n FROM ${assertSoqlIdentifier(object)}${where} GROUP BY RecordTypeId`,
+        `SELECT RecordTypeId, COUNT(Id) n ${from} GROUP BY RecordTypeId`,
       );
       const rows = answered.reduce(
         (sum, row) => sum + (typeof row['n'] === 'number' && row['n'] > 0 ? row['n'] : 0),
         0,
       );
-      // Each record type as the rows of it will be sent.
-      const asSent = new Map<string, number>();
-      for (const [sourceType, count] of parseRecordTypeCounts(answered)) {
-        if (config.recordTypeDecisions.get(sourceType)?.to === null) continue;
-        let sentType: unknown = sourceType;
-        if (state.recordTypeMapper && config.recordTypeMappings) {
-          sentType = state.recordTypeMapper.apply(
-            [{ RecordTypeId: sourceType }],
-            config.recordTypeMappings,
-          )[0]?.['RecordTypeId'];
+      const closed = unavailableRecordTypeUses(
+        object,
+        this.recordTypesAsSent(state, parseRecordTypeCounts(answered)),
+        target.recordTypes,
+      );
+      // The table holds more rows than the run reads, and a closed record type
+      // among them: judged on the rows the run reads, in the order of their
+      // ids, as it reads them (`inIdOrder`). Judged on the whole table, a
+      // closed type only past the most rows the run reads held back the rows
+      // it reads, none of that type.
+      const bound = this.readBound(state, node);
+      const left = bound === undefined ? undefined : Math.max(0, bound - (resumed?.read ?? 0));
+      if (closed.length > 0 && left !== undefined && rows > left) {
+        const read = await this.recordTypesOfTheRowsRead(state, from, left);
+        if (read) {
+          return {
+            closed: unavailableRecordTypeUses(
+              object,
+              this.recordTypesAsSent(state, read.counts),
+              target.recordTypes,
+            ),
+            rows: read.rows,
+            target,
+          };
         }
-        if (typeof sentType !== 'string') continue;
-        asSent.set(sentType, (asSent.get(sentType) ?? 0) + count);
       }
-      return {
-        closed: unavailableRecordTypeUses(object, asSent, target.recordTypes),
-        rows,
-        target,
-      };
+      return { closed, rows, target };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Each record type as the rows of it will be sent, with its rows: a
+   * decision that sends a type to the object's default leaves it out, the
+   * record type mapping translates it. See `recordTypesOfTable`.
+   */
+  private recordTypesAsSent(
+    state: ExecutionState,
+    counts: Iterable<[string, number]>,
+  ): Map<string, number> {
+    const { config } = state;
+    const asSent = new Map<string, number>();
+    for (const [sourceType, count] of counts) {
+      if (config.recordTypeDecisions.get(sourceType)?.to === null) continue;
+      let sentType: unknown = sourceType;
+      if (state.recordTypeMapper && config.recordTypeMappings) {
+        sentType = state.recordTypeMapper.apply(
+          [{ RecordTypeId: sourceType }],
+          config.recordTypeMappings,
+        )[0]?.['RecordTypeId'];
+      }
+      if (typeof sentType !== 'string') continue;
+      asSent.set(sentType, (asSent.get(sentType) ?? 0) + count);
+    }
+    return asSent;
+  }
+
+  /**
+   * The record types of the first `limit` rows of a table read page by page,
+   * in the order of their ids, as the run reads them: `from` is the
+   * statement's `FROM … WHERE …`, its filter and checkpoint. Undefined when
+   * the read stopped short of them, or failed: the table's count stands.
+   */
+  private async recordTypesOfTheRowsRead(
+    state: ExecutionState,
+    from: string,
+    limit: number,
+  ): Promise<{ counts: Map<string, number>; rows: number } | undefined> {
+    let truncated = false;
+    try {
+      const read = await this.deps.queryRecords(
+        state.sourceOrgId,
+        `SELECT RecordTypeId ${from} ORDER BY Id LIMIT ${limit}`,
+        () => {
+          truncated = true;
+        },
+      );
+      if (truncated) return undefined;
+      const counts = new Map<string, number>();
+      for (const row of read) {
+        const type = row['RecordTypeId'];
+        if (typeof type === 'string' && type !== '') counts.set(type, (counts.get(type) ?? 0) + 1);
+      }
+      return { counts, rows: read.length };
     } catch {
       return undefined;
     }
@@ -6241,6 +6312,7 @@ export class ForgeExecutor {
       rootObjectApiName: state.config.rootObjectApiName,
       rootRecordId: state.config.rootRecordId,
       extraWhere: state.config.objectSoqlFilters?.[node.objectApiName],
+      fieldsLeftOut: state.config.fieldExclusions[node.objectApiName],
       readObjects: state.readObjects,
       catalog: CATALOG_OBJECTS,
       under: new Set([parent]),
@@ -6404,7 +6476,7 @@ export class ForgeExecutor {
       state.askedForRowsThatNeedThem.set(parent, asked);
       const again = await this.fieldsReadAgain(state, node);
       if (!again) continue;
-      const selectFields = again.fields.filter((f) => f.queryable).map((f) => f.name);
+      const selectFields = fieldsToSelect(again.fields, config.fieldExclusions[parent]);
       const fresh = await this.readMore(
         state,
         node,
@@ -6781,7 +6853,7 @@ export class ForgeExecutor {
     const asked = state.askedForRowsThatNeedThem.get(parent) ?? new Set<string>();
     for (const id of wanted.ids) asked.add(id);
     state.askedForRowsThatNeedThem.set(parent, asked);
-    const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+    const selectFields = fieldsToSelect(fields, config.fieldExclusions[parent]);
     const statements = new ScopedSoqlBuilder().buildById({
       objectApiName: parent,
       selectFields: selectFields.length > 0 ? selectFields : ['Id'],
@@ -7006,6 +7078,7 @@ export class ForgeExecutor {
         rootObjectApiName: config.rootObjectApiName,
         rootRecordId: config.rootRecordId,
         extraWhere: config.objectSoqlFilters?.[node.objectApiName],
+        fieldsLeftOut: config.fieldExclusions[node.objectApiName],
         maxRecordsPerObject: cursor ? this.pagedLimit(state, cursor) : config.maxRecordsPerObject,
         ...(cursor
           ? { inIdOrder: cursor.resumeAfter !== undefined ? { afterId: cursor.resumeAfter } : {} }
@@ -8560,6 +8633,7 @@ export class ForgeExecutor {
           rootObjectApiName: config.rootObjectApiName,
           rootRecordId: config.rootRecordId,
           extraWhere,
+          fieldsLeftOut: config.fieldExclusions[objectApiName],
           readObjects: state.readObjects,
           catalog: CATALOG_OBJECTS,
         });
@@ -8577,7 +8651,7 @@ export class ForgeExecutor {
       }
       // Read by the ids named since its read, then, while the rows read name
       // more of their own object — a category's parent — by those, up the tree.
-      const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+      const selectFields = fieldsToSelect(fields, config.fieldExclusions[objectApiName]);
       const asked = new Set<string>();
       for (let level = 0; level < CATALOG_TREE_LEVELS; level++) {
         if (this.isAborted) {
@@ -8668,7 +8742,7 @@ export class ForgeExecutor {
       const extraWhere = config.objectSoqlFilters?.[objectApiName];
       const statements: string[] = [];
       if (named.size > 0) {
-        const selectFields = fields.filter((f) => f.queryable).map((f) => f.name);
+        const selectFields = fieldsToSelect(fields, config.fieldExclusions[objectApiName]);
         statements.push(
           ...new ScopedSoqlBuilder().buildById({
             objectApiName,
@@ -8688,6 +8762,7 @@ export class ForgeExecutor {
           rootObjectApiName: config.rootObjectApiName,
           rootRecordId: config.rootRecordId,
           extraWhere,
+          fieldsLeftOut: config.fieldExclusions[objectApiName],
           readObjects: state.readObjects,
           catalog: CATALOG_OBJECTS,
           under,
@@ -8973,7 +9048,7 @@ export class ForgeExecutor {
       // takes, and not one standard price was read.
       const statements = new ScopedSoqlBuilder().buildJoining({
         objectApiName: node.objectApiName,
-        selectFields: fieldInfos.filter((f) => f.queryable).map((f) => f.name),
+        selectFields: fieldsToSelect(fieldInfos, state.config.fieldExclusions[node.objectApiName]),
         split: { field: PRICEBOOK_ENTRY_PRODUCT_FIELD, ids: productIds },
         whole: { field: PRICEBOOK_ENTRY_BOOK_FIELD, ids: new Set([standardId]) },
       });
@@ -9067,7 +9142,10 @@ export class ForgeExecutor {
       try {
         const statements = new ScopedSoqlBuilder().buildJoining({
           objectApiName: node.objectApiName,
-          selectFields: fieldInfos.filter((f) => f.queryable).map((f) => f.name),
+          selectFields: fieldsToSelect(
+            fieldInfos,
+            state.config.fieldExclusions[node.objectApiName],
+          ),
           split: {
             field: PRICEBOOK_ENTRY_PRODUCT_FIELD,
             ids: new Set(asked.map(({ product }) => product).filter((id) => id !== '')),

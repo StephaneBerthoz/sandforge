@@ -767,6 +767,65 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     ]);
   });
 
+  it('sets beside each object what the last simulation of the clone counted, and says when the run is far past it', () => {
+    // Run for real, a clone whose dry run said 37 records wrote 34 216: a
+    // parent added to its graph had widened what was read of its children.
+    expect(
+      runQuestionDetail({
+        ...write,
+        simulated: {
+          minutesBefore: 12,
+          total: 37,
+          objects: [
+            { objectApiName: 'Contact', rows: 36 },
+            { objectApiName: 'Account', rows: 1 },
+          ],
+          farAbove: true,
+        },
+      }).split('\n'),
+    ).toEqual([
+      'This clone is about to write 2401 records to DEV:',
+      '• Contact: 2400 (simulated: 36)',
+      '• Account: 1 (simulated: 1)',
+      'The last simulation of this clone, 12 minutes ago, counted 37 records to write.',
+      'This clone writes far more than that: what it reads may have widened since, by a deeper discovery, a parent added to its graph, a cap raised or a filter taken off. Simulate it again to see where the records come from.',
+      'That is more than 2000 records, past which the sandforge.safety.confirmAboveRecords setting asks.',
+      'They take about 4.69 MB of data storage; DEV has 150 MB left of 200 MB.',
+      'The records have been read, and nothing has been written yet.',
+    ]);
+    // An object the simulation wrote none of reads 0; near what it counted, nothing more is said.
+    const near = runQuestionDetail({
+      ...write,
+      simulated: {
+        minutesBefore: 3,
+        total: 2400,
+        objects: [{ objectApiName: 'Contact', rows: 2400 }],
+      },
+    }).split('\n');
+    expect(near).toContain('• Account: 1 (simulated: 0)');
+    expect(near).toContain(
+      'The last simulation of this clone, 3 minutes ago, counted 2400 records to write.',
+    );
+    expect(near.join('\n')).not.toContain('far more');
+    expect(runQuestionDetail(write)).not.toContain('simulat');
+  });
+
+  it('says the daily email limits it could not read, and that the limits need View Setup', () => {
+    const lines = runQuestionDetail({
+      ...write,
+      emailsUnread: [
+        { limit: 'SingleEmail', emails: 10, unread: "the org's limits list no SingleEmail" },
+      ],
+    }).split('\n');
+
+    expect(lines).toContain(
+      "These records make the flows of DEV send about 10 single emails. What it has left today could not be read (the org's limits list no SingleEmail), so whether they fit is not known.",
+    );
+    expect(lines).toContain(
+      'DEV gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.',
+    );
+  });
+
   it('says the prices it counts in that the clone may read as it writes them', () => {
     const lines = runQuestionDetail({ ...write, pricesForLines: 4 }).split('\n');
 

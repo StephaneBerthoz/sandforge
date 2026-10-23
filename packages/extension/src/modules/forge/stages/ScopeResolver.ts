@@ -21,6 +21,7 @@ import {
 } from '@sandforge/shared';
 import type { FieldInfo } from '../ForgeExecutor.js';
 import { assertSoqlIdentifier } from '../../../core/common/soqlValidator.js';
+import { NATURAL_KEYS } from '../../../core/common/platformRecords.js';
 import type { RecordScopeCache } from '../RecordScopeCache.js';
 import { UNSCOPED_NO_PARENT_REASON, type ScopedSoqlBuilder } from '../ScopedSoqlBuilder.js';
 
@@ -503,6 +504,57 @@ export function catalogWriteEdges(
     }));
 }
 
+/**
+ * The fields a run reads of a row for its own work besides writing it, kept
+ * in the read of an object whose rows leave them out (`fieldExclusions`): the
+ * id; the name reference data is matched by; the currency a row's amounts are
+ * converted from; what tells a person account from a business one; the flag
+ * that keeps the active one of two prices of a product; the status an order
+ * or a contract is given back past Draft, and an invitee's answer; the fields
+ * a record the platform holds once is matched by (`NATURAL_KEYS`).
+ */
+const READ_FOR_THE_RUN: ReadonlySet<string> = new Set([
+  'Id',
+  'Name',
+  'CurrencyIsoCode',
+  'IsPersonAccount',
+  'IsActive',
+  'Status',
+  'IsWhat',
+  'IsInvitee',
+  'Response',
+  'RespondedDate',
+  ...Object.values(NATURAL_KEYS).flat(),
+]);
+
+/**
+ * The fields a read of an object selects: every field it can query, but those
+ * its rows leave out (`fieldExclusions`), which the run would read only to
+ * drop before the write. A lookup is read all the same — the records it names
+ * are what the scope walks to, and what a row that cannot be written without
+ * them waits for — and so is a field the run reads for its own work
+ * ({@link READ_FOR_THE_RUN}).
+ *
+ * The exclusions were applied as the rows were written, and every read
+ * selected every field: a field left out for the personal data it holds was
+ * read from the source all the same, and held with the rows until the write.
+ *
+ * @param leftOut - The fields the object's rows leave out, by API name.
+ */
+export function fieldsToSelect(
+  fields: readonly FieldInfo[],
+  leftOut: readonly string[] | undefined,
+): string[] {
+  const dropped = new Set(leftOut ?? []);
+  return fields
+    .filter(
+      (field) =>
+        field.queryable &&
+        (!dropped.has(field.name) || field.isReference || READ_FOR_THE_RUN.has(field.name)),
+    )
+    .map((field) => field.name);
+}
+
 /** Inputs for {@link buildNodeQuery}. */
 export interface NodeQueryInput {
   /** The graph node about to be queried. */
@@ -523,6 +575,11 @@ export interface NodeQueryInput {
   extraWhere?: string;
   /** Per-object hard cap appended as `LIMIT N` when > 0. */
   maxRecordsPerObject?: number;
+  /**
+   * The fields the node's rows leave out (`ExecuteOptions.fieldExclusions`),
+   * left out of what it selects: see {@link fieldsToSelect}.
+   */
+  fieldsLeftOut?: readonly string[];
   /**
    * Objects the run reads or maps (scoped mode): only a required lookup at
    * one of them narrows a read. See `ScopedSoqlBuildOpts.readObjects`.
@@ -589,7 +646,7 @@ export type NodeQueryResult = NodeQuery | { kind: 'skip'; reason: string };
  * Appends `LIMIT N` when a positive per-object cap is configured.
  */
 export function buildNodeQuery(input: NodeQueryInput): NodeQueryResult {
-  const queryFields = input.fieldInfos.filter((f) => f.queryable).map((f) => f.name);
+  const queryFields = fieldsToSelect(input.fieldInfos, input.fieldsLeftOut);
   if (queryFields.length === 0) {
     queryFields.push('Id');
   }

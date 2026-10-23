@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type {
+  ForgeAdminChange,
+  ForgeAdminChangeGroup,
   ForgeConfig,
   ForgeGap,
   ForgeGapDecisionKind,
@@ -9,7 +11,7 @@ import type {
   ForgeGapSeverity,
   ForgeGapSource,
 } from '@sandforge/shared';
-import { gapAssignments } from '@sandforge/shared';
+import { adminChangesOf, gapAssignments } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -185,6 +187,142 @@ const KINDS: ReadonlySet<string> = new Set<ForgeGapKind>([
 function i18nKindKnown(kind: string): kind is ForgeGapKind {
   return KINDS.has(kind);
 }
+
+/** One change to the target's metadata, as the list for its admin says it. */
+function adminStep(t: TFunction, change: ForgeAdminChange, recordType: string | undefined): string {
+  const named = {
+    object: change.objectApiName,
+    field: change.field ?? '',
+    value: change.value ?? '',
+    recordType: recordType ?? '',
+    controllingField: change.controllingField ?? '',
+    length: change.length ?? 0,
+  };
+  switch (change.change) {
+    case 'add_picklist_value':
+      return recordType
+        ? t('forgeRun.gaps.admin.step.addPicklistValueForRecordType', named)
+        : t('forgeRun.gaps.admin.step.addPicklistValue', named);
+    case 'select_picklist_value':
+      return t('forgeRun.gaps.admin.step.selectPicklistValue', named);
+    case 'allow_dependent_value':
+      return t('forgeRun.gaps.admin.step.allowDependentValue', named);
+    case 'make_field_optional':
+      return t('forgeRun.gaps.admin.step.makeFieldOptional', named);
+    case 'lengthen_field':
+      // A read that did not measure the longest value says to lengthen it alone.
+      return change.length !== undefined
+        ? t('forgeRun.gaps.admin.step.lengthenField', named)
+        : t('forgeRun.gaps.admin.step.lengthenFieldLonger', named);
+    case 'widen_number':
+      return t('forgeRun.gaps.admin.step.widenNumber', named);
+    case 'create_record_type':
+      return t('forgeRun.gaps.admin.step.createRecordType', named);
+    case 'open_record_type':
+      return t('forgeRun.gaps.admin.step.openRecordType', named);
+    case 'activate_currency':
+      return t('forgeRun.gaps.admin.step.activateCurrency', named);
+    case 'loosen_lookup_filter':
+      return t('forgeRun.gaps.admin.step.loosenLookupFilter', named);
+    case 'deactivate_validation_rule':
+      return t('forgeRun.gaps.admin.step.deactivateValidationRule', named);
+    case 'deactivate_duplicate_rule':
+      return t('forgeRun.gaps.admin.step.deactivateDuplicateRule', named);
+    case 'grant_create':
+      return t('forgeRun.gaps.admin.step.grantCreate', named);
+  }
+}
+
+/**
+ * The list for the target's admin, as it is copied: a heading, then each
+ * object — and record type — with the changes to make there, each with the
+ * rows it touches when a read counted them.
+ */
+function adminListText(t: TFunction, groups: readonly ForgeAdminChangeGroup[]): string {
+  const lines = [t('forgeRun.gaps.admin.heading')];
+  for (const { objectApiName, recordType, changes } of groups) {
+    lines.push(
+      '',
+      recordType
+        ? t('forgeRun.gaps.admin.objectRecordType', { object: objectApiName, name: recordType })
+        : objectApiName,
+    );
+    for (const change of changes) {
+      const rows = change.rows > 0 ? ` (${t('forgeRun.gaps.rows', { count: change.rows })})` : '';
+      lines.push(`- ${adminStep(t, change, recordType)}${rows}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * What the target's metadata would need for the rows to go in as they are,
+ * from the gaps the tab lists — a picklist value to add to a record type, a
+ * rule to turn off — for whoever administers the target, with a button that
+ * copies it. Shown, never made: the run changes nothing of the target's
+ * metadata, and the user is seldom the one who may. Nothing when no gap asks
+ * a change of it.
+ */
+const AdminChanges: React.FC<{ gaps: readonly ForgeGap[] }> = ({ gaps }) => {
+  const { t } = useTranslation();
+  const groups = useMemo(() => adminChangesOf(gaps), [gaps]);
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+  const text = useMemo(() => adminListText(t, groups), [t, groups]);
+  const copy = useCallback(() => {
+    const clipboard: Clipboard | undefined = navigator.clipboard;
+    if (!clipboard) return;
+    void clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        if (resetTimer.current) clearTimeout(resetTimer.current);
+        resetTimer.current = setTimeout(() => setCopied(false), 2000);
+      },
+      () => {
+        // Refused by the host: no copy is claimed that never happened.
+      },
+    );
+  }, [text]);
+  if (groups.length === 0) return null;
+  const count = groups.reduce((sum, group) => sum + group.changes.length, 0);
+  return (
+    <section
+      data-testid="gaps-admin"
+      aria-labelledby="gaps-admin-title"
+      className="flex flex-col gap-1 border-t border-subtle pt-2"
+    >
+      <h3 id="gaps-admin-title" className="font-semibold text-text-primary">
+        {t('forgeRun.gaps.admin.title')}
+      </h3>
+      <p className="text-text-secondary">{t('forgeRun.gaps.admin.hint')}</p>
+      <details data-testid="gaps-admin-list">
+        <summary className="cursor-pointer text-text-primary">
+          {t('forgeRun.gaps.admin.show', { count })}
+        </summary>
+        <pre
+          data-testid="gaps-admin-text"
+          className="mt-1 whitespace-pre-wrap break-words rounded-sm bg-surface-1 p-1.5 font-mono text-text-primary"
+        >
+          {text}
+        </pre>
+      </details>
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" size="sm" data-testid="gaps-admin-copy" onClick={copy}>
+          {t('forgeRun.gaps.admin.copy')}
+        </Button>
+        <span role="status" data-testid="gaps-admin-copied" className="text-text-secondary">
+          {copied ? t('forgeRun.gaps.admin.copied') : ''}
+        </span>
+      </div>
+    </section>
+  );
+};
 
 /** Props of {@link GapItem}. */
 interface GapItemProps {
@@ -664,6 +802,7 @@ export const ReviewGapsTab: React.FC<{
           </section>
         );
       })}
+      <AdminChanges gaps={shown} />
       {answeringNoGap.length > 0 && (
         <section
           data-testid="gaps-kept-decisions"

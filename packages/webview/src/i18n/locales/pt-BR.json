@@ -3783,7 +3783,34 @@
         "ignored": "{{gap}}: deixado como está",
         "skippedRows": "{{gap}}: linhas não gravadas"
       },
-      "skipRows": "Não gravar estas linhas"
+      "skipRows": "Não gravar estas linhas",
+      "admin": {
+        "title": "Para o administrador do destino",
+        "hint": "O que os metadados do destino precisariam permitir para que estas linhas entrem como estão. O SandForge não muda nada disso: copie a lista para quem administra a org de destino.",
+        "show_one": "Mostrar a alteração",
+        "show_other": "Mostrar as {{count}} alterações",
+        "copy": "Copiar para o administrador do destino",
+        "copied": "Copiado",
+        "heading": "Alterações a fazer na Configuração da org de destino para que os registros que o SandForge clona entrem como estão:",
+        "objectRecordType": "{{object}}, tipo de registro {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}}: adicionar ou ativar o valor “{{value}}” (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}} > Valores).",
+          "addPicklistValueForRecordType": "{{field}}: adicionar ou ativar o valor “{{value}}” e depois selecioná-lo para o tipo de registro {{recordType}} (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}} > Valores, depois Tipos de registro > {{recordType}}).",
+          "selectPicklistValue": "{{field}}: adicionar “{{value}}” aos valores que o tipo de registro {{recordType}} permite (Configuração > Gerenciador de objetos > {{object}} > Tipos de registro > {{recordType}} > {{field}} > Editar).",
+          "allowDependentValue": "{{field}}: permitir “{{value}}” sob os valores de {{controllingField}} com que ele vem (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{controllingField}} > Dependências de campo).",
+          "makeFieldOptional": "{{field}}: torná-lo opcional, ou dar a ele um valor padrão (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
+          "lengthenField": "{{field}}: dar a ele um comprimento de {{length}} caracteres ou mais (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
+          "lengthenFieldLonger": "{{field}}: aumentar o comprimento, para que caiba o valor mais longo das linhas (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
+          "widenNumber": "{{field}}: dar a ele mais dígitos antes da vírgula decimal (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
+          "createRecordType": "Criar o tipo de registro {{value}} (Configuração > Gerenciador de objetos > {{object}} > Tipos de registro > Novo).",
+          "openRecordType": "Tornar o tipo de registro {{recordType}} disponível para o usuário com que o SandForge grava (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}}).",
+          "activateCurrency": "Ativar a moeda {{value}} (Configuração > Configurações da empresa > Gerenciar moedas).",
+          "loosenLookupFilter": "{{field}}: tornar o filtro de pesquisa opcional, ou fazê-lo aceitar os registros que a clonagem indica (Configuração > Gerenciador de objetos > {{object}} > Campos e relacionamentos > {{field}}).",
+          "deactivateValidationRule": "Desativar a regra de validação {{value}}, ou dar ao usuário com que o SandForge grava a permissão personalizada que a ignora (Configuração > Gerenciador de objetos > {{object}} > Regras de validação).",
+          "deactivateDuplicateRule": "Desativar a regra de duplicidade {{value}}, ou fazê-la permitir o registro na criação (Configuração > Regras de duplicidade).",
+          "grantCreate": "Dar ao usuário com que o SandForge grava a permissão de criação em {{object}} (Configuração > o perfil dele ou um conjunto de permissões > Configurações de objeto > {{object}})."
+        }
+      }
     },
     "controls": {
       "hint": "O que é ajustado aqui vai com a execução: a simulação, a execução, uma nova tentativa e um modelo salvo na revisão o levam. As contagens do plano foram lidas antes.",

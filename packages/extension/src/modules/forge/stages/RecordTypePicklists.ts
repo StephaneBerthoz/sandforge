@@ -345,6 +345,12 @@ export interface RecordTypeReadInput {
  */
 export const MASTER_RECORD_TYPE_ID = '012000000000000AAA';
 
+/**
+ * The name the master record type goes by on an object without record types:
+ * a gap found on its rows, and a decision taken on that gap, name it so.
+ */
+export const MASTER_RECORD_TYPE_NAME = 'Master';
+
 /** The key of {@link RecordTypePicklistReads.forRows}'s answer for rows without a record type. */
 const WITHOUT_RECORD_TYPE = '';
 
@@ -441,7 +447,7 @@ export class RecordTypePicklistReads {
         ),
       );
       if (fields.size > 0) {
-        const master = { targetId: MASTER_RECORD_TYPE_ID, developerName: 'Master' };
+        const master = { targetId: MASTER_RECORD_TYPE_ID, developerName: MASTER_RECORD_TYPE_NAME };
         const answer = await this.readFor(read, input.objectApiName, master.targetId);
         this.keep(
           byRecordType,

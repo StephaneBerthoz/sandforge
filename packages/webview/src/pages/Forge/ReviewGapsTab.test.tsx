@@ -498,6 +498,75 @@ describe('ReviewGapsTab', () => {
     });
   });
 
+  describe("the list for the target's admin", () => {
+    /** A picklist value the target's field does not hold, for the record type its rows go in with. */
+    const NOT_IN_TARGET: ForgeGap = {
+      id: forgeGapId('picklist_value_refused', 'Case', 'Origin', 'Claim', 'Fax'),
+      kind: 'picklist_value_refused',
+      severity: 'warning',
+      source: 'simulation',
+      objectApiName: 'Case',
+      field: 'Origin',
+      recordType: 'Claim',
+      value: 'Fax',
+      rows: 2,
+      detail: { reason: 'not-in-target' },
+      decisions: ['map_value', 'ignore'],
+    };
+
+    it('lists, by object and record type, what the target would need changed, and copies it', async () => {
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      useForgeStore.getState().setGaps('metadata', [REQUIRED]);
+      useForgeStore.getState().setGaps('simulation', [NOT_IN_TARGET, TOO_LONG, UNMAPPED]);
+      render(<ReviewGapsTab />);
+
+      const admin = screen.getByTestId('gaps-admin');
+      expect(within(admin).getByRole('heading', { level: 3 }).textContent).toBe(
+        "For the target's admin",
+      );
+      expect(within(admin).getByTestId('gaps-admin-list').textContent).toContain(
+        'Show the 4 changes',
+      );
+      const expected = [
+        'Changes to make in the Setup of the target org for the records SandForge clones to go in as they are:',
+        '',
+        'Account',
+        '- Region__c: make it optional, or give it a default value (Setup > Object Manager > Account > Fields & Relationships > Region__c).',
+        '',
+        'Case',
+        '- Create record type Old_RT (Setup > Object Manager > Case > Record Types > New). (5 rows)',
+        '',
+        'Case, record type Claim',
+        '- Origin: add or activate the value “Fax”, then select it for record type Claim (Setup > Object Manager > Case > Fields & Relationships > Origin > Values, then Record Types > Claim). (2 rows)',
+        '',
+        'Contact',
+        // No longest value measured: the field is said to be lengthened, to no number.
+        '- Description: make it longer, to hold the longest value the rows carry (Setup > Object Manager > Contact > Fields & Relationships > Description). (3 rows)',
+      ].join('\n');
+      expect(within(admin).getByTestId('gaps-admin-text').textContent).toBe(expected);
+
+      await act(async () => {
+        fireEvent.click(within(admin).getByTestId('gaps-admin-copy'));
+        await Promise.resolve();
+      });
+      expect(writeText).toHaveBeenCalledWith(expected);
+      expect(within(admin).getByTestId('gaps-admin-copied').textContent).toBe('Copied');
+    });
+
+    it('is absent when no gap asks a change of the target, or its object is left out', () => {
+      useForgeStore.getState().setGaps('simulation', [TOO_LONG]);
+      const { unmount } = render(<ReviewGapsTab />);
+      // A text longer than its field asks the field be lengthened.
+      expect(screen.getByTestId('gaps-admin')).toBeTruthy();
+      unmount();
+
+      act(() => useForgeStore.getState().toggleNodeIncluded('Contact'));
+      render(<ReviewGapsTab />);
+      expect(screen.queryByTestId('gaps-admin')).toBeNull();
+    });
+  });
+
   it('offers to save the run as a template from Review', () => {
     render(<ReviewGapsTab />);
     expect(screen.getByTestId('review-save-template-open')).toBeTruthy();

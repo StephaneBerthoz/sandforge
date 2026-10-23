@@ -6,6 +6,7 @@ import {
   RunDecisions,
   recordTypeDecisionMappings,
   runDecisionsOf,
+  whySkippedRowsIgnored,
   withRecordTypeDecisions,
 } from './RunDecisions.js';
 
@@ -63,6 +64,25 @@ describe('RunDecisions.applyToRow', () => {
       { Origin: 'Fax' },
     ]);
     expect(tally.list()[0]?.rows).toBe(1);
+  });
+
+  it('maps a value for the rows of an object without record types when the mapping names its master', () => {
+    // A gap found on such rows names their record type Master: a mapping
+    // taken on it matched no row, which the run knows no record type of.
+    const decisions = new RunDecisions({
+      picklistValueMappings: [
+        { object: 'Invoice__c', field: 'Stage__c', recordType: 'Master', from: 'Late', to: 'Open' },
+      ],
+    });
+    const tally = new DecisionTally();
+    const row: Record<string, unknown> = { Stage__c: 'Late' };
+
+    decisions.applyToRow('Invoice__c', row, undefined, tally);
+
+    expect(row).toEqual({ Stage__c: 'Open' });
+    expect(tally.list()).toEqual([
+      expect.objectContaining({ kind: 'map_value', recordType: 'Master', rows: 1 }),
+    ]);
   });
 
   it('leaves the field out of a row whose value is mapped to nothing', () => {
@@ -161,6 +181,67 @@ describe('RunDecisions.holdsBack', () => {
     expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), 'Support', tally)).toBe(true);
     expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), 'Billing', tally)).toBe(false);
     expect(decisions.holdsBack('Case', row({ Origin: 'Fax' }), undefined, tally)).toBe(false);
+  });
+
+  it('holds back the rows of an object without record types for a gap that names its master', () => {
+    // Read for its restricted dependent picklists, such an object's master
+    // record type is named Master, and its gaps with it; a row of it goes in
+    // with no record type the run can name. Held back by name alone, none was.
+    const decisions = new RunDecisions({
+      skippedRows: [
+        {
+          object: 'Invoice__c',
+          gapId: forgeGapId('picklist_value_refused', 'Invoice__c', 'Stage__c', 'Master', 'Late'),
+        },
+      ],
+    });
+    const tally = new DecisionTally();
+    const invoice =
+      (values: Record<string, unknown>) =>
+      (field: string): unknown =>
+        values[field];
+
+    expect(decisions.holdsBack('Invoice__c', invoice({ Stage__c: 'Late' }), undefined, tally)).toBe(
+      true,
+    );
+    expect(decisions.holdsBack('Invoice__c', invoice({ Stage__c: 'Open' }), undefined, tally)).toBe(
+      false,
+    );
+    // A row known to go in with another record type is not the master's.
+    expect(decisions.holdsBack('Invoice__c', invoice({ Stage__c: 'Late' }), 'Retail', tally)).toBe(
+      false,
+    );
+    expect(tally.list()).toEqual([
+      {
+        kind: 'skip_rows',
+        objectApiName: 'Invoice__c',
+        field: 'Stage__c',
+        recordType: 'Master',
+        from: 'Late',
+        rows: 1,
+      },
+    ]);
+  });
+
+  it('says why it holds back nothing for a decision whose gap does not name its rows', () => {
+    const entry = (object: string, gapId: string) => ({ object, gapId });
+    expect(whySkippedRowsIgnored(entry('Case', refused('Fax')))).toBeUndefined();
+    expect(
+      whySkippedRowsIgnored(
+        entry('Case', forgeGapId('dependent_value_invalid', 'Case', 'Origin', undefined, 'Fax')),
+      ),
+    ).toBe(
+      'a dependent_value_invalid gap does not offer it: its rows are not exactly those holding its value',
+    );
+    expect(whySkippedRowsIgnored(entry('Lead', refused('Fax')))).toBe(
+      'the gap is of Case, not of Lead',
+    );
+    expect(
+      whySkippedRowsIgnored(
+        entry('Case', forgeGapId('currency_inactive', 'Case', undefined, undefined, 'USD')),
+      ),
+    ).toBe('the gap names no field and value whose rows to hold back');
+    expect(whySkippedRowsIgnored(entry('Case', 'not a gap'))).toBe('not the id of a gap');
   });
 
   it('holds back nothing for a gap of another object, or of a kind whose rows its value does not name', () => {

@@ -29,8 +29,10 @@ import type {
   ForgeGapKind,
   ForgePicklistValueMapping,
   ForgeRecordTypeMapping,
+  ForgeSkippedRows,
 } from '@sandforge/shared';
 import { forgeGapParts } from '@sandforge/shared';
+import { MASTER_RECORD_TYPE_NAME } from './RecordTypePicklists.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
 import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
 
@@ -84,6 +86,60 @@ interface SkippedValue {
   readonly field: string;
   readonly recordType?: string;
   readonly value: string;
+}
+
+/**
+ * What a decision to hold back rows comes to: the rows it holds back, or why
+ * it holds back none — its gap id is no gap's, names another object, names
+ * no field and value, or is of a kind whose rows are not exactly those
+ * holding its value ({@link SKIPPABLE_GAP_KINDS}).
+ */
+function skippedValueOf(entry: ForgeSkippedRows): { held: SkippedValue } | { ignored: string } {
+  const gap = forgeGapParts(entry.gapId);
+  if (!gap) return { ignored: 'not the id of a gap' };
+  if (gap.objectApiName !== entry.object) {
+    return { ignored: `the gap is of ${gap.objectApiName}, not of ${entry.object}` };
+  }
+  if (gap.field === undefined || gap.value === undefined) {
+    return { ignored: 'the gap names no field and value whose rows to hold back' };
+  }
+  if (!SKIPPABLE_GAP_KINDS.has(gap.kind as ForgeGapKind)) {
+    return {
+      ignored: `a ${gap.kind} gap does not offer it: its rows are not exactly those holding its value`,
+    };
+  }
+  return {
+    held: {
+      field: gap.field,
+      ...(gap.recordType !== undefined ? { recordType: gap.recordType } : {}),
+      value: gap.value,
+    },
+  };
+}
+
+/**
+ * Why a run holds back none of the rows a decision to hold them back names,
+ * or undefined when it holds them back. A command line's choices listed such
+ * a decision among those it holds, with nothing to tell it did nothing.
+ */
+export function whySkippedRowsIgnored(entry: ForgeSkippedRows): string | undefined {
+  const outcome = skippedValueOf(entry);
+  return 'ignored' in outcome ? outcome.ignored : undefined;
+}
+
+/**
+ * Whether a decision scoped to the target record type `scoped` holds for a
+ * row going in with `recordType`. A row of an object without record types
+ * goes in with its master, which the run knows by no name of the row's: a
+ * decision taken on a gap found on such rows names it
+ * {@link MASTER_RECORD_TYPE_NAME}, and it holds for them.
+ *
+ * Matched by the row's name alone, "Hold back these rows" on a gap of an
+ * object without record types held back none of them, and wrote them with
+ * the value left out.
+ */
+function holdsForRecordType(scoped: string | undefined, recordType: string | undefined): boolean {
+  return scoped === undefined || scoped === (recordType ?? MASTER_RECORD_TYPE_NAME);
 }
 
 /** Whether a row leaves a field empty: absent, null, or an empty text. */
@@ -156,17 +212,12 @@ export class RunDecisions {
     // A gap of a kind whose rows are not exactly those holding its value holds
     // nothing back, nor one whose id says nothing of a field and a value: the
     // rows it would take are not the ones anybody chose.
-    for (const { object, gapId } of decisions?.skippedRows ?? []) {
-      const gap = forgeGapParts(gapId);
-      if (!gap || gap.objectApiName !== object || gap.field === undefined) continue;
-      if (gap.value === undefined || !SKIPPABLE_GAP_KINDS.has(gap.kind as ForgeGapKind)) continue;
-      const list = this.skipped.get(object) ?? [];
-      list.push({
-        field: gap.field,
-        ...(gap.recordType !== undefined ? { recordType: gap.recordType } : {}),
-        value: gap.value,
-      });
-      this.skipped.set(object, list);
+    for (const entry of decisions?.skippedRows ?? []) {
+      const outcome = skippedValueOf(entry);
+      if (!('held' in outcome)) continue;
+      const list = this.skipped.get(entry.object) ?? [];
+      list.push(outcome.held);
+      this.skipped.set(entry.object, list);
     }
   }
 
@@ -179,7 +230,9 @@ export class RunDecisions {
    * Whether a decision holds back a row of `objectApiName`: it holds the value
    * a skipped gap names in its field — one selection of a multi-select among
    * others too, as a mapping reads it — and goes in with the record type the
-   * gap names, when it names one. Counted once, under the first that holds it.
+   * gap names, when it names one: the master of an object without record
+   * types for a row the run knows no record type of. Counted once, under the
+   * first that holds it.
    *
    * @param valueOf - The row's value of a field, by the name the target gives
    *   the field: a gap names it so.
@@ -193,7 +246,7 @@ export class RunDecisions {
     tally: DecisionTally,
   ): boolean {
     for (const skip of this.skipped.get(objectApiName) ?? []) {
-      if (skip.recordType !== undefined && skip.recordType !== recordType) continue;
+      if (!holdsForRecordType(skip.recordType, recordType)) continue;
       const value = valueOf(skip.field);
       if (typeof value !== 'string' || !value.split(';').includes(skip.value)) continue;
       tally.add({
@@ -220,8 +273,9 @@ export class RunDecisions {
    * target still refuses is caught there as any other.
    *
    * A mapping scoped to a record type holds for the rows that go in with it,
-   * by its DeveloperName; one with none, for every row. A multi-select value
-   * is mapped one selection at a time.
+   * by its DeveloperName — the master of an object without record types for
+   * a row the run knows no record type of; one with none, for every row. A
+   * multi-select value is mapped one selection at a time.
    *
    * @param recordType - The DeveloperName of the target record type the row
    *   goes in with, when the run knows it.
@@ -234,7 +288,7 @@ export class RunDecisions {
     tally: DecisionTally,
   ): void {
     for (const mapping of this.picklists.get(objectApiName) ?? []) {
-      if (mapping.recordType !== undefined && mapping.recordType !== recordType) continue;
+      if (!holdsForRecordType(mapping.recordType, recordType)) continue;
       const value = row[mapping.field];
       if (typeof value !== 'string' || value === '') continue;
       const parts = value.split(';');

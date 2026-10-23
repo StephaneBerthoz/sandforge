@@ -1704,6 +1704,175 @@ describe('forge:execute, the gate before the first write', () => {
       );
     });
 
+    it('asks before rows whose flows send emails against a daily limit the target did not say it has left of', async () => {
+      // Execute and Clone directly dropped such a limit: said nowhere, while
+      // an Autopilot run of the same rows asked about it.
+      limits = { DataStorageMB: { Max: 200, Remaining: 150 } };
+      const sending: ForgeTargetAutomation = {
+        ...FIRES,
+        objects: [
+          {
+            ...FIRES.objects[0],
+            triggers: [],
+            flows: [
+              {
+                ...FIRES.objects[0].flows[0],
+                messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+              },
+            ],
+          },
+        ],
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+        targetAutomation: readerOf(sending),
+      });
+
+      await execute();
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+      expect(questions[1]).toEqual(
+        expect.objectContaining({
+          total: 11,
+          emailsUnread: [
+            { limit: 'SingleEmail', emails: 10, unread: "the org's limits list no SingleEmail" },
+          ],
+        }),
+      );
+      expect(questions[1]).not.toHaveProperty('aboveRecords');
+      expect(questions[1]).not.toHaveProperty('emails');
+      expect(calls).toContain('written');
+    });
+
+    it('asks nothing of emails when the target says it has enough of them left', async () => {
+      limits = {
+        DataStorageMB: { Max: 200, Remaining: 150 },
+        SingleEmail: { Max: 15, Remaining: 15 },
+      };
+      const sending: ForgeTargetAutomation = {
+        ...FIRES,
+        objects: [
+          {
+            ...FIRES.objects[0],
+            triggers: [],
+            flows: [
+              {
+                ...FIRES.objects[0].flows[0],
+                messages: [{ kind: 'email', name: 'Send welcome', limit: 'SingleEmail' }],
+              },
+            ],
+          },
+        ],
+      };
+      handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+        targetAutomation: readerOf(sending),
+      });
+
+      await execute();
+
+      expect(questions.map((q) => q.stage)).toEqual(['automation']);
+      expect(calls).toContain('written');
+    });
+
+    describe('beside the last simulation of the same case', () => {
+      /** Review's Simulate of `config`, its gate handed `boundary`. */
+      async function simulateHanding(
+        orchestrator: ReturnType<typeof orchestratorHanding>,
+        boundary: ForgeWriteBoundary,
+        config: ForgeConfig = CONFIG,
+      ): Promise<void> {
+        orchestrator.execute.mockImplementationOnce(async (_graph, _config, options) => {
+          await options?.beforeWrite?.({ ...boundary, dryRun: true });
+          return { ...RESULT, createdCount: 0, idRemapCount: 0, dryRun: true as const };
+        });
+        await handler.handle(
+          inboundRequest({
+            id: 'wv-simulate',
+            type: 'forge:execute',
+            timestamp: Date.now(),
+            payload: { graph: graphOf(), config: { ...config, dryRun: true } },
+          } as BaseMessage),
+        );
+      }
+
+      it('asks, whatever the volume, before a run far past what the simulation counted, with the gap per object', async () => {
+        // A clone whose dry run said 37 records wrote 34 216 into a sandbox:
+        // a parent added to its graph widened what was read of its children.
+        const orchestrator = orchestratorHanding(boundaryOf(40));
+        handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+        await simulateHanding(orchestrator, boundaryOf(5));
+        expect(questions).toEqual([]);
+
+        await execute();
+
+        expect(questions).toEqual([
+          expect.objectContaining({
+            stage: 'write',
+            total: 41,
+            objects: [
+              { objectApiName: 'Contact', rows: 40 },
+              { objectApiName: 'Account', rows: 1 },
+            ],
+            simulated: {
+              minutesBefore: 1,
+              total: 6,
+              objects: [
+                { objectApiName: 'Contact', rows: 5 },
+                { objectApiName: 'Account', rows: 1 },
+              ],
+              farAbove: true,
+            },
+          }),
+        ]);
+        expect(questions[0]).not.toHaveProperty('aboveRecords');
+        expect(calls).toContain('written');
+      });
+
+      it('asks nothing of a run near what the simulation counted', async () => {
+        const orchestrator = orchestratorHanding(boundaryOf(6));
+        handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+        await simulateHanding(orchestrator, boundaryOf(5));
+
+        await execute();
+
+        expect(questions).toEqual([]);
+        expect(calls).toContain('written');
+      });
+
+      it('says what the simulation counted when the run is asked about for its volume', async () => {
+        settings['safety.confirmAboveRecords'] = 3;
+        const orchestrator = orchestratorHanding(boundaryOf(6));
+        handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+        await simulateHanding(orchestrator, boundaryOf(5));
+
+        await execute();
+
+        expect(questions).toEqual([
+          expect.objectContaining({
+            aboveRecords: 3,
+            simulated: expect.objectContaining({ total: 6 }),
+          }),
+        ]);
+        const [asked] = questions;
+        expect(asked?.stage === 'write' ? asked.simulated : undefined).not.toHaveProperty(
+          'farAbove',
+        );
+      });
+
+      it('measures a run against no simulation of another record', async () => {
+        const orchestrator = orchestratorHanding(boundaryOf(40));
+        handler.setForgeOrchestrator(orchestrator, { targetAutomation: readerOf(QUIET) });
+        await simulateHanding(orchestrator, boundaryOf(5), {
+          ...CONFIG,
+          recordId: '001000000000456',
+        });
+
+        await execute();
+
+        expect(questions).toEqual([]);
+        expect(calls).toContain('written');
+      });
+    });
+
     it('refuses rows that take more data storage than the target has left, without asking', async () => {
       limits = { DataStorageMB: { Max: 200, Remaining: 1 } };
       handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(999)), {

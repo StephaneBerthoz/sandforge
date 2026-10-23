@@ -5224,6 +5224,33 @@ test('anchor: a lookup filter is a metadata warning and a rehearsal refusal, nev
   );
 });
 
+/*
+ * Read on the trap Developer Edition: for a Case record type given no value
+ * of a restricted picklist, its layouts' record type mappings listed none of
+ * the object's picklists, while the UI API's picklist values for that record
+ * type answered the field's values, which the org then refused on write. No
+ * read before the write tells that record type; the rehearsal's refusal does.
+ */
+test('the Forge reference leaves a record type that takes no value of a restricted picklist to the rehearsal', () => {
+  const reference = read('docs', 'forge-reference.md');
+  const start = reference.indexOf('## Gaps and their decisions');
+  const end = reference.indexOf('\n## ', start + 1);
+  assert.ok(
+    start !== -1 && end !== -1,
+    'docs/forge-reference.md has no "## Gaps and their decisions"',
+  );
+  assert.match(
+    reference.slice(start, end),
+    /record type that accepts no value of a restricted picklist is found neither by the read of the target's metadata nor by a simulation[^\n]*Only a rehearsal finds it/,
+    'the Gaps section no longer says that only a rehearsal finds a record type given no value of a restricted picklist',
+  );
+  assert.match(
+    read(...FORGE_SRC, 'rehearsal', 'rehearsalGaps.ts'),
+    /'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',\s*\{\s*kind: 'picklist_value_refused'/,
+    'the rehearsal no longer maps a restricted picklist refusal to its gap — re-point this gate',
+  );
+});
+
 test('the Forge guide sends the rows a lookup filter refuses to the rehearsal', () => {
   const guide = read('docs', 'forge-quickstart.md');
   const start = guide.indexOf('## Simulate a run');

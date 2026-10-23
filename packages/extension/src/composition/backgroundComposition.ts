@@ -393,9 +393,23 @@ function writeQuestion(question: WriteConfirmation): string[] {
               question.org,
             ),
   ];
-  // Names and counts alone: nothing in them to translate.
+  // Names and counts alone: nothing in them to translate — save, once the
+  // case was simulated, what the simulation counted of each object.
+  const { simulated } = question;
+  const simulatedRows = new Map(
+    (simulated?.objects ?? []).map(({ objectApiName, rows }) => [objectApiName, rows]),
+  );
   for (const { objectApiName, rows } of question.objects.slice(0, LISTED_IN_A_QUESTION)) {
-    lines.push(`• ${objectApiName}: ${rows}`);
+    lines.push(
+      simulated
+        ? vscode.l10n.t(
+            '• {0}: {1} (simulated: {2})',
+            objectApiName,
+            rows,
+            simulatedRows.get(objectApiName) ?? 0,
+          )
+        : `• ${objectApiName}: ${rows}`,
+    );
   }
   const rest = question.objects.slice(LISTED_IN_A_QUESTION);
   if (rest.length > 0) {
@@ -406,6 +420,25 @@ function writeQuestion(question: WriteConfirmation): string[] {
         rest.reduce((sum, object) => sum + object.rows, 0),
       ),
     );
+  }
+  // What the last simulation of the case counted: a clone whose dry run said
+  // 37 records wrote 34 216, a parent added to its graph having widened what
+  // was read of its children, and nothing set the two side by side.
+  if (simulated) {
+    lines.push(
+      vscode.l10n.t(
+        'The last simulation of this clone, {0} minutes ago, counted {1} records to write.',
+        simulated.minutesBefore,
+        simulated.total,
+      ),
+    );
+    if (simulated.farAbove) {
+      lines.push(
+        vscode.l10n.t(
+          'This clone writes far more than that: what it reads may have widened since, by a deeper discovery, a parent added to its graph, a cap raised or a filter taken off. Simulate it again to see where the records come from.',
+        ),
+      );
+    }
   }
   const { leftOut } = question;
   if (leftOut && leftOut.writtenBefore > 0) {

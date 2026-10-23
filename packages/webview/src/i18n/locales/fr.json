@@ -3783,7 +3783,34 @@
         "ignored": "{{gap}} : laissé tel quel",
         "skippedRows": "{{gap}} : lignes non écrites"
       },
-      "skipRows": "Ne pas écrire ces lignes"
+      "skipRows": "Ne pas écrire ces lignes",
+      "admin": {
+        "title": "Pour l'administrateur de la cible",
+        "hint": "Ce que les métadonnées de la cible devraient permettre pour que ces lignes passent telles quelles. SandForge n'en change rien : copiez la liste pour la personne qui administre l'org cible.",
+        "show_one": "Afficher la modification",
+        "show_other": "Afficher les {{count}} modifications",
+        "copy": "Copier pour l'administrateur de la cible",
+        "copied": "Copié",
+        "heading": "Modifications à faire dans la Configuration de l'org cible pour que les enregistrements que SandForge clone passent tels quels :",
+        "objectRecordType": "{{object}}, type d'enregistrement {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}} : ajouter ou activer la valeur « {{value}} » (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}} > Valeurs).",
+          "addPicklistValueForRecordType": "{{field}} : ajouter ou activer la valeur « {{value}} », puis la sélectionner pour le type d'enregistrement {{recordType}} (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}} > Valeurs, puis Types d'enregistrement > {{recordType}}).",
+          "selectPicklistValue": "{{field}} : ajouter « {{value}} » aux valeurs que le type d'enregistrement {{recordType}} autorise (Configuration > Gestionnaire d'objets > {{object}} > Types d'enregistrement > {{recordType}} > {{field}} > Modifier).",
+          "allowDependentValue": "{{field}} : autoriser « {{value}} » sous les valeurs de {{controllingField}} qui l'accompagnent (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{controllingField}} > Dépendances de champ).",
+          "makeFieldOptional": "{{field}} : le rendre facultatif, ou lui donner une valeur par défaut (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
+          "lengthenField": "{{field}} : lui donner une longueur d'au moins {{length}} caractères (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
+          "lengthenFieldLonger": "{{field}} : l'allonger, pour qu'il contienne la plus longue valeur des lignes (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
+          "widenNumber": "{{field}} : lui donner plus de chiffres avant la virgule (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
+          "createRecordType": "Créer le type d'enregistrement {{value}} (Configuration > Gestionnaire d'objets > {{object}} > Types d'enregistrement > Nouveau).",
+          "openRecordType": "Rendre le type d'enregistrement {{recordType}} disponible pour l'utilisateur sous lequel SandForge écrit (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}}).",
+          "activateCurrency": "Activer la devise {{value}} (Configuration > Paramètres de la société > Gérer les devises).",
+          "loosenLookupFilter": "{{field}} : rendre son filtre de recherche facultatif, ou lui faire accepter les enregistrements que le clonage désigne (Configuration > Gestionnaire d'objets > {{object}} > Champs et relations > {{field}}).",
+          "deactivateValidationRule": "Désactiver la règle de validation {{value}}, ou donner à l'utilisateur sous lequel SandForge écrit l'autorisation personnalisée qui la contourne (Configuration > Gestionnaire d'objets > {{object}} > Règles de validation).",
+          "deactivateDuplicateRule": "Désactiver la règle de doublons {{value}}, ou lui faire autoriser l'enregistrement à la création (Configuration > Règles de doublons).",
+          "grantCreate": "Donner à l'utilisateur sous lequel SandForge écrit le droit de création sur {{object}} (Configuration > son profil ou un ensemble d'autorisations > Paramètres d'objet > {{object}})."
+        }
+      }
     },
     "controls": {
       "hint": "Ce qui est réglé ici part avec l'exécution : la simulation, l'exécution, une reprise et un modèle enregistré depuis la revue l'emportent. Les comptes du plan ont été lus avant.",

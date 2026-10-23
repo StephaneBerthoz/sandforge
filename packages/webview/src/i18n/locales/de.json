@@ -3783,7 +3783,34 @@
         "ignored": "{{gap}}: so gelassen",
         "skippedRows": "{{gap}}: Zeilen zurückgehalten"
       },
-      "skipRows": "Diese Zeilen zurückhalten"
+      "skipRows": "Diese Zeilen zurückhalten",
+      "admin": {
+        "title": "Für den Administrator des Ziels",
+        "hint": "Was die Metadaten des Ziels zulassen müssten, damit diese Zeilen so übernommen werden, wie sie sind. SandForge ändert nichts davon: Kopieren Sie die Liste für die Person, die die Ziel-Org verwaltet.",
+        "show_one": "Die Änderung anzeigen",
+        "show_other": "Die {{count}} Änderungen anzeigen",
+        "copy": "Für den Administrator des Ziels kopieren",
+        "copied": "Kopiert",
+        "heading": "Änderungen im Setup der Ziel-Org, damit die Datensätze, die SandForge klont, so übernommen werden, wie sie sind:",
+        "objectRecordType": "{{object}}, Datensatztyp {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}}: den Wert „{{value}}“ hinzufügen oder aktivieren (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}} > Werte).",
+          "addPicklistValueForRecordType": "{{field}}: den Wert „{{value}}“ hinzufügen oder aktivieren und dann für den Datensatztyp {{recordType}} auswählen (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}} > Werte, dann Datensatztypen > {{recordType}}).",
+          "selectPicklistValue": "{{field}}: „{{value}}“ zu den Werten hinzufügen, die der Datensatztyp {{recordType}} zulässt (Setup > Objekt-Manager > {{object}} > Datensatztypen > {{recordType}} > {{field}} > Bearbeiten).",
+          "allowDependentValue": "{{field}}: „{{value}}“ unter den Werten von {{controllingField}} zulassen, mit denen er vorkommt (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{controllingField}} > Feldabhängigkeiten).",
+          "makeFieldOptional": "{{field}}: optional machen oder einen Standardwert geben (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
+          "lengthenField": "{{field}}: auf mindestens {{length}} Zeichen verlängern (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
+          "lengthenFieldLonger": "{{field}}: so verlängern, dass es den längsten Wert der Zeilen aufnimmt (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
+          "widenNumber": "{{field}}: mehr Stellen vor dem Dezimalzeichen geben (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
+          "createRecordType": "Den Datensatztyp {{value}} anlegen (Setup > Objekt-Manager > {{object}} > Datensatztypen > Neu).",
+          "openRecordType": "Den Datensatztyp {{recordType}} für den Benutzer verfügbar machen, mit dem SandForge schreibt (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}}).",
+          "activateCurrency": "Die Währung {{value}} aktivieren (Setup > Unternehmenseinstellungen > Währungen verwalten).",
+          "loosenLookupFilter": "{{field}}: den Nachschlagefilter optional machen oder die Datensätze zulassen, die der Klon angibt (Setup > Objekt-Manager > {{object}} > Felder und Beziehungen > {{field}}).",
+          "deactivateValidationRule": "Die Validierungsregel {{value}} deaktivieren oder dem Benutzer, mit dem SandForge schreibt, die benutzerdefinierte Berechtigung geben, die sie umgeht (Setup > Objekt-Manager > {{object}} > Validierungsregeln).",
+          "deactivateDuplicateRule": "Die Duplikatregel {{value}} deaktivieren oder den Datensatz beim Erstellen zulassen (Setup > Duplikatregeln).",
+          "grantCreate": "Dem Benutzer, mit dem SandForge schreibt, das Erstellrecht für {{object}} geben (Setup > sein Profil oder ein Berechtigungssatz > Objekteinstellungen > {{object}})."
+        }
+      }
     },
     "controls": {
       "hint": "Was hier eingestellt wird, gehört zum Lauf: Simulation, Ausführung, eine Wiederholung und eine aus der Prüfung gespeicherte Vorlage nehmen es mit. Die Zahlen des Plans wurden vorher gelesen.",

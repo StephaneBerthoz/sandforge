@@ -3560,7 +3560,33 @@
         "ignored": "{{gap}}: そのまま",
         "skippedRows": "{{gap}}: 行を書き込まない"
       },
-      "skipRows": "これらの行を書き込まない"
+      "skipRows": "これらの行を書き込まない",
+      "admin": {
+        "title": "ターゲット組織の管理者向け",
+        "hint": "これらの行をそのまま書き込むために、ターゲット組織のメタデータで必要な変更です。SandForge はどれも変更しません。ターゲット組織を管理する人のためにリストをコピーしてください。",
+        "show_other": "{{count}} 件の変更を表示",
+        "copy": "ターゲット組織の管理者向けにコピー",
+        "copied": "コピーしました",
+        "heading": "SandForge がクローンするレコードをそのまま書き込むために、ターゲット組織の設定で行う変更:",
+        "objectRecordType": "{{object}}、レコードタイプ {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}}: 値「{{value}}」を追加または有効化する (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}} > 値)。",
+          "addPicklistValueForRecordType": "{{field}}: 値「{{value}}」を追加または有効化し、レコードタイプ {{recordType}} で選択する (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}} > 値、次にレコードタイプ > {{recordType}})。",
+          "selectPicklistValue": "{{field}}: レコードタイプ {{recordType}} で許可される値に「{{value}}」を追加する (設定 > オブジェクトマネージャー > {{object}} > レコードタイプ > {{recordType}} > {{field}} > 編集)。",
+          "allowDependentValue": "{{field}}: 一緒に使われる {{controllingField}} の値の下で「{{value}}」を許可する (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{controllingField}} > 項目の連動関係)。",
+          "makeFieldOptional": "{{field}}: 任意にするか、デフォルト値を設定する (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
+          "lengthenField": "{{field}}: 長さを {{length}} 文字以上にする (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
+          "lengthenFieldLonger": "{{field}}: 行の最も長い値が収まるように長さを増やす (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
+          "widenNumber": "{{field}}: 小数点の前の桁数を増やす (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
+          "createRecordType": "レコードタイプ {{value}} を作成する (設定 > オブジェクトマネージャー > {{object}} > レコードタイプ > 新規)。",
+          "openRecordType": "SandForge が書き込むユーザーがレコードタイプ {{recordType}} を使用できるようにする (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。",
+          "activateCurrency": "通貨 {{value}} を有効化する (設定 > 会社の設定 > 通貨の管理)。",
+          "loosenLookupFilter": "{{field}}: ルックアップ検索条件を任意にするか、クローンが指すレコードを受け付けるようにする (設定 > オブジェクトマネージャー > {{object}} > 項目とリレーション > {{field}})。",
+          "deactivateValidationRule": "入力規則 {{value}} を無効にするか、SandForge が書き込むユーザーにそれを回避するカスタム権限を付与する (設定 > オブジェクトマネージャー > {{object}} > 入力規則)。",
+          "deactivateDuplicateRule": "重複ルール {{value}} を無効にするか、作成時にレコードを許可するよう設定する (設定 > 重複ルール)。",
+          "grantCreate": "SandForge が書き込むユーザーに {{object}} の作成権限を付与する (設定 > そのユーザーのプロファイルまたは権限セット > オブジェクト設定 > {{object}})。"
+        }
+      }
     },
     "controls": {
       "hint": "ここで設定した内容は実行に引き継がれます。シミュレーション、実行、再試行、レビューから保存したテンプレートに含まれます。計画の件数はそれより前に読み取られたものです。",

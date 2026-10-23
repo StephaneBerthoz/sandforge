@@ -3783,7 +3783,34 @@
         "ignored": "{{gap}}: left as it is",
         "skippedRows": "{{gap}}: rows held back"
       },
-      "skipRows": "Hold back these rows"
+      "skipRows": "Hold back these rows",
+      "admin": {
+        "title": "For the target's admin",
+        "hint": "What the target's metadata would need for these rows to go in as they are. SandForge changes none of it: copy the list for whoever administers the target org.",
+        "show_one": "Show the change",
+        "show_other": "Show the {{count}} changes",
+        "copy": "Copy for the target's admin",
+        "copied": "Copied",
+        "heading": "Changes to make in the Setup of the target org for the records SandForge clones to go in as they are:",
+        "objectRecordType": "{{object}}, record type {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}}: add or activate the value “{{value}}” (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}} > Values).",
+          "addPicklistValueForRecordType": "{{field}}: add or activate the value “{{value}}”, then select it for record type {{recordType}} (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}} > Values, then Record Types > {{recordType}}).",
+          "selectPicklistValue": "{{field}}: add “{{value}}” to the values record type {{recordType}} allows (Setup > Object Manager > {{object}} > Record Types > {{recordType}} > {{field}} > Edit).",
+          "allowDependentValue": "{{field}}: allow “{{value}}” under the values of {{controllingField}} it comes with (Setup > Object Manager > {{object}} > Fields & Relationships > {{controllingField}} > Field Dependencies).",
+          "makeFieldOptional": "{{field}}: make it optional, or give it a default value (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
+          "lengthenField": "{{field}}: make it hold {{length}} characters or more (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
+          "lengthenFieldLonger": "{{field}}: make it longer, to hold the longest value the rows carry (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
+          "widenNumber": "{{field}}: give it more digits before the decimal point (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
+          "createRecordType": "Create record type {{value}} (Setup > Object Manager > {{object}} > Record Types > New).",
+          "openRecordType": "Make record type {{recordType}} available to the user SandForge writes as (Setup > their profile or a permission set > Object Settings > {{object}}).",
+          "activateCurrency": "Activate the currency {{value}} (Setup > Company Settings > Manage Currencies).",
+          "loosenLookupFilter": "{{field}}: make its lookup filter optional, or let it take the records the clone names (Setup > Object Manager > {{object}} > Fields & Relationships > {{field}}).",
+          "deactivateValidationRule": "Turn off validation rule {{value}}, or give the user SandForge writes as the custom permission that bypasses it (Setup > Object Manager > {{object}} > Validation Rules).",
+          "deactivateDuplicateRule": "Turn off duplicate rule {{value}}, or set it to allow the record on create (Setup > Duplicate Rules).",
+          "grantCreate": "Give the user SandForge writes as Create on {{object}} (Setup > their profile or a permission set > Object Settings > {{object}})."
+        }
+      }
     },
     "controls": {
       "hint": "What is set here goes with the run: Simulate, Execute, a retry and a template saved from Review carry it. The plan's counts were read before it.",

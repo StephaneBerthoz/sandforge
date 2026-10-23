@@ -235,6 +235,12 @@ export {
   mergeGaps,
 } from './utils/forge-gaps.js';
 export type { ForgeGapAssignment, ForgeGapParts } from './utils/forge-gaps.js';
+export { adminChangesOf } from './utils/forge-admin-changes.js';
+export type {
+  ForgeAdminChange,
+  ForgeAdminChangeGroup,
+  ForgeAdminChangeKind,
+} from './utils/forge-admin-changes.js';
 export {
   assignPermsetCommand,
   automationByWrite,

@@ -77,7 +77,11 @@ describe('ReviewGapsTab accessible names', () => {
 
   it('groups each gap’s decisions under a name', () => {
     render(<ReviewGapsTab />);
-    for (const group of screen.getAllByRole('group')) {
+    // The disclosure of the list for the target's admin is a group of its
+    // own, named by its summary.
+    const decisions = screen.getAllByRole('group').filter((group) => group.tagName !== 'DETAILS');
+    expect(decisions.length).toBeGreaterThan(0);
+    for (const group of decisions) {
       expect(accessibleName(group)).toBe('Decisions on this gap');
     }
   });

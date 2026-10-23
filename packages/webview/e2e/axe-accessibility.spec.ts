@@ -3750,6 +3750,16 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, listed, '[data-testid="review-gaps-tab"]'),
       ).toBeGreaterThan(10);
+      // The list for the target's admin, opened: each step in a block of its own.
+      await page.getByTestId('gaps-admin-list').locator('summary').click();
+      await expect(page.getByTestId('gaps-admin-text')).toContainText(
+        'Turn off validation rule Phone_Format',
+      );
+      const admin = await checkAccessibility(page);
+      expectNoViolations(admin);
+      expect(await contrastMeasuredIn(page, admin, '[data-testid="gaps-admin"]')).toBeGreaterThan(
+        2,
+      );
 
       const refused = page.getByTestId(`gap-${FORGE_GAPS[0].id}`);
       await refused.getByTestId('gap-map-value').selectOption('Customer');

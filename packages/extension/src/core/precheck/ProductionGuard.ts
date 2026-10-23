@@ -306,6 +306,25 @@ export interface WriteConfirmation {
     emails: number;
     unread: string;
   }>;
+  /**
+   * Of a Forge clone, what the last simulation of the same case this window
+   * ran counted to write — the same orgs, and the same record, query,
+   * template or prompt — beside the rows above: in all, and per object.
+   * Absent when there was none.
+   */
+  simulated?: {
+    /** How long before it ended, in minutes, rounded up. */
+    minutesBefore: number;
+    total: number;
+    /** Its rows per object, the most first; an object the simulation wrote none of is absent. */
+    objects: Array<{ objectApiName: string; rows: number }>;
+    /**
+     * Set when `total` is far past what it counted — more than twice, or
+     * more than 500 records more: the question is put for it, whatever the
+     * volume.
+     */
+    farAbove?: true;
+  };
 }
 
 /**

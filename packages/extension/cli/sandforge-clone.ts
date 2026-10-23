@@ -53,6 +53,7 @@ import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 import type {
+  ForgeAdminChangeGroup,
   ForgeConfig,
   ForgeConfigInput,
   ForgeContactPointKind,
@@ -77,6 +78,7 @@ import {
   BYTES_PER_MB,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   FORGE_READ_CEILING_PER_OBJECT,
+  adminChangesOf,
   emailsPerInsertOf,
   forgeGapParts,
   FILE_COPY_CEILING_MB,
@@ -93,6 +95,7 @@ import {
   formatFileSize,
   isDeveloperEdition,
   leftOutAsEmptyTable,
+  mergeGaps,
   removalRisksOf,
 } from '@sandforge/shared';
 import {
@@ -118,6 +121,7 @@ import {
 } from '../src/modules/forge/ForgeAnonymizer.js';
 import {
   runDecisionsOf,
+  whySkippedRowsIgnored,
   type ForgeRunDecisions,
 } from '../src/modules/forge/stages/RunDecisions.js';
 import type {
@@ -411,7 +415,11 @@ Usage:
   through, the fields only the target requires that the clone does not
   write, the lookup filters of the lookups it writes, and the daily API
   requests the target has left against those the run takes (with --json,
-  under targetGaps). None of it stops the clone.
+  under targetGaps). None of it stops the clone. With --dry-run --json,
+  adminChanges lists, for whoever administers the target, the changes to its
+  metadata that would let the rows go in as they are — a picklist value to
+  add to a record type, a field to lengthen, a rule to turn off — grouped by
+  object and record type, each with its step in Setup; the clone makes none.
 
   Once every row is read and before the first is written, the clone counts
   the records it is about to write, per object, and the data storage they
@@ -2267,7 +2275,13 @@ export function choicesLines(
     ...(decided?.truncateFields ?? []).map((f) => `  ${f.object}.${f.field}  truncate`),
     ...(decided?.skippedRows ?? []).map((entry) => {
       const gap = forgeGapParts(entry.gapId);
-      return `  ${entry.object}.${gap?.field ?? '?'}  skip_rows "${gap?.value ?? ''}"${scope(gap?.recordType)}`;
+      // One the run holds back nothing for is said so, with why: listed as
+      // the others are, it was applied to nothing, and nothing said it.
+      const why = whySkippedRowsIgnored(entry);
+      return (
+        `  ${entry.object}.${gap?.field ?? '?'}  skip_rows "${gap?.value ?? ''}"${scope(gap?.recordType)}` +
+        (why !== undefined ? `: ignored, ${why}` : '')
+      );
     }),
     ...(decided?.ignoredGaps ?? []).map((gapId) => `  ignore ${gapId}`),
   ];
@@ -2374,6 +2388,24 @@ export function upsertKeyLines(keys: readonly NeutralizedUpsertKey[], target: st
       'the real ones',
     ...keys.map(({ objectApiName, field, kind }) => `  ${objectApiName}.${field} (${kind})`),
   ];
+}
+
+/**
+ * Of a dry run, the changes to the target's metadata that would let the rows
+ * go in as they are, for whoever administers the target (`adminChangesOf`),
+ * from what its metadata says and what the simulation found row by row,
+ * grouped by object and record type, each with its step in Setup: shown,
+ * never made. Nothing on a run that writes, nor when no change would cure a
+ * gap. Exported so it can be tested.
+ */
+export function dryRunAdminChanges(
+  dryRun: boolean,
+  targetGaps: { gaps: readonly ForgeGap[] },
+  simulated: readonly ForgeGap[] | undefined,
+): { adminChanges?: ForgeAdminChangeGroup[] } {
+  if (!dryRun) return {};
+  const groups = adminChangesOf(mergeGaps(targetGaps.gaps, simulated ?? []));
+  return groups.length > 0 ? { adminChanges: groups } : {};
 }
 
 /**
@@ -5528,6 +5560,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // the run: each gap with its kind, severity, object, field and the
     // decisions it allows; what could not be read, and what the read cost.
     targetGaps,
+    // Of a dry run, the changes to the target's metadata that would let the
+    // rows go in as they are, for whoever administers it.
+    ...dryRunAdminChanges(args.dryRun, targetGaps, counted.gaps),
     // The external ids --upsert may match by that the run writes neutralized.
     ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
     result: jsonResult(counted, args.readCeiling),

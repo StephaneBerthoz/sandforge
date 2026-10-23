@@ -3783,7 +3783,34 @@
         "ignored": "{{gap}}: dejado tal cual",
         "skippedRows": "{{gap}}: filas no escritas"
       },
-      "skipRows": "No escribir estas filas"
+      "skipRows": "No escribir estas filas",
+      "admin": {
+        "title": "Para el administrador del destino",
+        "hint": "Lo que los metadatos del destino deberían permitir para que estas filas entren tal como están. SandForge no cambia nada de ello: copie la lista para quien administre la org de destino.",
+        "show_one": "Mostrar el cambio",
+        "show_other": "Mostrar los {{count}} cambios",
+        "copy": "Copiar para el administrador del destino",
+        "copied": "Copiado",
+        "heading": "Cambios por hacer en la Configuración de la org de destino para que los registros que SandForge clona entren tal como están:",
+        "objectRecordType": "{{object}}, tipo de registro {{name}}",
+        "step": {
+          "addPicklistValue": "{{field}}: agregar o activar el valor «{{value}}» (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}} > Valores).",
+          "addPicklistValueForRecordType": "{{field}}: agregar o activar el valor «{{value}}» y luego seleccionarlo para el tipo de registro {{recordType}} (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}} > Valores, luego Tipos de registro > {{recordType}}).",
+          "selectPicklistValue": "{{field}}: agregar «{{value}}» a los valores que permite el tipo de registro {{recordType}} (Configuración > Gestor de objetos > {{object}} > Tipos de registro > {{recordType}} > {{field}} > Modificar).",
+          "allowDependentValue": "{{field}}: permitir «{{value}}» bajo los valores de {{controllingField}} con los que viene (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{controllingField}} > Dependencias de campos).",
+          "makeFieldOptional": "{{field}}: hacerlo opcional, o darle un valor predeterminado (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}}).",
+          "lengthenField": "{{field}}: darle una longitud de {{length}} caracteres o más (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}}).",
+          "lengthenFieldLonger": "{{field}}: alargarlo, para que quepa el valor más largo de las filas (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}}).",
+          "widenNumber": "{{field}}: darle más dígitos antes del separador decimal (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}}).",
+          "createRecordType": "Crear el tipo de registro {{value}} (Configuración > Gestor de objetos > {{object}} > Tipos de registro > Nuevo).",
+          "openRecordType": "Poner el tipo de registro {{recordType}} a disposición del usuario con el que escribe SandForge (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}}).",
+          "activateCurrency": "Activar la divisa {{value}} (Configuración > Configuración de la compañía > Gestionar divisas).",
+          "loosenLookupFilter": "{{field}}: hacer opcional su filtro de búsqueda, o hacer que acepte los registros que la clonación indica (Configuración > Gestor de objetos > {{object}} > Campos y relaciones > {{field}}).",
+          "deactivateValidationRule": "Desactivar la regla de validación {{value}}, o dar al usuario con el que escribe SandForge el permiso personalizado que la omite (Configuración > Gestor de objetos > {{object}} > Reglas de validación).",
+          "deactivateDuplicateRule": "Desactivar la regla de duplicados {{value}}, o hacer que permita el registro al crearlo (Configuración > Reglas de duplicados).",
+          "grantCreate": "Dar al usuario con el que escribe SandForge el permiso de creación sobre {{object}} (Configuración > su perfil o un conjunto de permisos > Configuración de objetos > {{object}})."
+        }
+      }
     },
     "controls": {
       "hint": "Lo que se ajusta aquí va con la ejecución: la simulación, la ejecución, un reintento y una plantilla guardada desde la revisión lo llevan. Los recuentos del plan se leyeron antes.",

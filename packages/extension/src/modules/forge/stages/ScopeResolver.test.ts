@@ -5,6 +5,7 @@ import {
   CATALOG_READ_ORDER,
   catalogBeyond,
   catalogWriteEdges,
+  fieldsToSelect,
   followsToItsParent,
   objectsOfId,
   queryNodeRecords,
@@ -175,6 +176,54 @@ describe('buildNodeQuery', () => {
       scopeCache: null,
     });
     expect(result).toEqual({ kind: 'query', statements: ['SELECT Id, Name FROM Account'] });
+  });
+
+  it('leaves out of the SELECT the fields the rows leave out, and reads a lookup among them all the same', () => {
+    // Left out of the rows, a description holding personal data was read from
+    // the source all the same, and held with the rows until the write.
+    const fields: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Description', queryable: true, createable: true, isReference: false },
+      {
+        name: 'ParentId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['Account'],
+      },
+    ];
+    const scopedBuilder = new ScopedSoqlBuilder();
+    const cache = new RecordScopeCache();
+    cache.add('Account', ['001000000000001AAA']);
+    for (const scoped of [false, true]) {
+      const result = buildNodeQuery({
+        node: makeNode('Contact'),
+        edges: [LOOKUP_EDGE],
+        fieldInfos: [
+          ...fields,
+          {
+            name: 'AccountId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Account'],
+          },
+        ],
+        scopedBuilder: scoped ? scopedBuilder : null,
+        scopeCache: scoped ? cache : null,
+        ...(scoped ? { rootObjectApiName: 'Account', rootRecordId: '001000000000001AAA' } : {}),
+        fieldsLeftOut: ['Description', 'ParentId', 'Name'],
+      });
+      if (result.kind !== 'query') throw new Error(`not read: ${result.reason}`);
+      for (const statement of result.statements) {
+        const select = statement.slice(0, statement.indexOf(' FROM '));
+        expect(select).not.toContain('Description');
+        expect(select).toContain('ParentId');
+        expect(select).toContain('AccountId');
+        // Reference data is matched by its name: read though left out.
+        expect(select).toContain('Name');
+      }
+    }
   });
 
   it("applies the object's filter to a full-table SELECT outside scoped mode", () => {
@@ -422,6 +471,43 @@ describe('buildNodeQuery', () => {
           "WHERE (AccountId IN ('001000000000001AAA')) AND (AccountId IN ('001000000000001AAA'))",
       ],
     });
+  });
+});
+
+describe('fieldsToSelect', () => {
+  const field = (name: string, over: Partial<FieldInfo> = {}): FieldInfo => ({
+    name,
+    queryable: true,
+    createable: true,
+    isReference: false,
+    ...over,
+  });
+
+  it('selects every queryable field but those left out, save the id, the lookups and what the run reads itself', () => {
+    const fields = [
+      field('Id', { createable: false }),
+      field('Description'),
+      field('NumberOfEmployees'),
+      field('Hidden__c', { queryable: false }),
+      field('OwnerId', { isReference: true, referenceTo: ['User'] }),
+      field('CurrencyIsoCode'),
+      field('Status'),
+      field('SellingModelType'),
+    ];
+    expect(
+      fieldsToSelect(fields, [
+        'Id',
+        'Description',
+        'NumberOfEmployees',
+        'OwnerId',
+        'CurrencyIsoCode',
+        'Status',
+        'SellingModelType',
+      ]),
+    ).toEqual(['Id', 'OwnerId', 'CurrencyIsoCode', 'Status', 'SellingModelType']);
+    expect(fieldsToSelect(fields, undefined)).toEqual(
+      fields.filter((f) => f.queryable).map((f) => f.name),
+    );
   });
 });
 

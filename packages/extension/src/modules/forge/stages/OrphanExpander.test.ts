@@ -1077,6 +1077,26 @@ describe('OrphanExpander', () => {
       ]);
     });
 
+    it('reads the parent without the fields the user excluded, its lookups all the same', async () => {
+      // Read and dropped before the write, an excluded field still left the
+      // source with the parent it belonged to.
+      const deps = parentDeps();
+      const { input } = makeInput(deps, {
+        fieldExclusions: { Account: ['Phone', 'RecordTypeId'] },
+      });
+
+      await new OrphanExpander(deps).expandForNode(input);
+
+      const reads = vi
+        .mocked(deps.queryRecords)
+        .mock.calls.map(([, soql]) => soql)
+        .filter((soql) => / FROM Account WHERE Id = /.test(soql));
+      expect(reads).toHaveLength(1);
+      expect(reads[0]).not.toMatch(/\bPhone\b/);
+      expect(reads[0]).toMatch(/\bRecordTypeId\b/);
+      expect(reads[0]).toMatch(/\bName\b/);
+    });
+
     it("says once a record type whose values could not be read, and checks the parent's values against each field's", async () => {
       const deps = parentDeps();
       const notes: Array<[string, unknown]> = [];

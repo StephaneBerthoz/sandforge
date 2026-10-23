@@ -18,6 +18,7 @@ import {
   contactPointLines,
   describeObjectInfo,
   describeOnce,
+  dryRunAdminChanges,
   executeOptions,
   failedOutright,
   graphCounts,
@@ -462,6 +463,72 @@ describe('sandforge-clone summary', () => {
     ]);
     expect(jsonResult(dry).gaps).toEqual(gaps);
     expect(jsonResult(summary({}))).not.toHaveProperty('gaps');
+  });
+
+  it("gives a dry run's --json the changes for the target's admin, from its metadata and its rows", () => {
+    const simulated: ForgeGap[] = [
+      {
+        id: 'picklist_value_refused|Case|Origin|Support|Fax',
+        kind: 'picklist_value_refused',
+        severity: 'warning',
+        source: 'simulation',
+        objectApiName: 'Case',
+        field: 'Origin',
+        recordType: 'Support',
+        value: 'Fax',
+        rows: 4,
+        detail: { reason: 'record-type', replacement: 'Phone' },
+        decisions: ['map_value'],
+      },
+    ];
+    const metadata: ForgeGap[] = [
+      {
+        id: 'validation_rule|Contact|||Phone_Format',
+        kind: 'validation_rule',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Contact',
+        rows: 0,
+        detail: { rule: 'Phone_Format', message: 'Phone is wrong' },
+        decisions: ['ignore'],
+      },
+      {
+        id: 'api_budget|Account|||',
+        kind: 'api_budget',
+        severity: 'warning',
+        source: 'metadata',
+        objectApiName: 'Account',
+        rows: 0,
+        decisions: ['ignore'],
+      },
+    ];
+
+    const { adminChanges } = dryRunAdminChanges(true, { gaps: metadata }, simulated);
+    expect(adminChanges).toEqual([
+      {
+        objectApiName: 'Case',
+        recordType: 'Support',
+        changes: [
+          expect.objectContaining({
+            change: 'select_picklist_value',
+            field: 'Origin',
+            value: 'Fax',
+            rows: 4,
+            setup:
+              'Setup > Object Manager > Case > Record Types > Support > Origin > Edit: add "Fax" to the selected values',
+          }),
+        ],
+      },
+      {
+        objectApiName: 'Contact',
+        changes: [
+          expect.objectContaining({ change: 'deactivate_validation_rule', value: 'Phone_Format' }),
+        ],
+      },
+    ]);
+    // A run that writes says none, nor a dry run whose gaps no change cures.
+    expect(dryRunAdminChanges(false, { gaps: metadata }, simulated)).toEqual({});
+    expect(dryRunAdminChanges(true, { gaps: [metadata[1]] }, undefined)).toEqual({});
   });
 
   it('says the decisions the run applied and on how many records', () => {

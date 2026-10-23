@@ -16,15 +16,19 @@ import {
   automationRefusal,
   automationUnreadOf,
   bypassesToAssign,
+  LastSimulations,
+  confirmationSimulatedOf,
   confirmationStorageOf,
   countedEmailChecksOf,
   emailCheckLines,
   emailChecksOf,
   emailRefusal,
   emailsCountedPerRecord,
+  farPastTheSimulation,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
+  forgeVolumeCaseKey,
   isForgeRunGateError,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
@@ -40,6 +44,7 @@ import {
   runBypassesOf,
   storageCheckOf,
   storageRefusal,
+  unreadEmailOf,
   updateStepsOf,
   writePlanLines,
   writePlanOf,
@@ -152,6 +157,84 @@ describe('writePlanOf', () => {
     expect(pricesForLinesOf(writePlanOf([{ objectApiName: 'Account', rows: rows(1) }]))).toEqual(
       {},
     );
+  });
+});
+
+describe('the last simulation of a case', () => {
+  const config = {
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    inputMode: 'record' as const,
+    recordId: '001000000000123',
+  };
+
+  it('tells a case by its orgs and its input, whatever the depth, the caps or the objects found', () => {
+    // A clone whose dry run said 37 records wrote 34 216: a parent added to
+    // its graph had widened what was read. Its graph was not the one simulated.
+    const key = forgeVolumeCaseKey(config);
+    expect(
+      forgeVolumeCaseKey({ ...config, depth: 'full', maxRecordsPerObject: 9 } as typeof config),
+    ).toBe(key);
+    expect(forgeVolumeCaseKey({ ...config, recordId: '001000000000456' })).not.toBe(key);
+    expect(forgeVolumeCaseKey({ ...config, targetOrgId: 'other' })).not.toBe(key);
+    expect(
+      forgeVolumeCaseKey({ ...config, inputMode: 'soql', soqlQuery: 'SELECT Id FROM Account' }),
+    ).not.toBe(key);
+  });
+
+  it('keeps the last simulation of each case, and drops the oldest past sixteen', () => {
+    const kept = new LastSimulations();
+    const plan = (n: number) => writePlanOf([{ objectApiName: 'Contact', rows: rows(n) }]);
+    kept.note('a', plan(3), 1_000);
+    kept.note('a', plan(5), 2_000);
+    expect(kept.of('a')).toEqual({
+      at: 2_000,
+      total: 5,
+      objects: [{ objectApiName: 'Contact', rows: 5 }],
+    });
+    for (let i = 0; i < 16; i++) kept.note(`case-${i}`, plan(1));
+    expect(kept.of('a')).toBeUndefined();
+    expect(kept.of('case-0')).toBeDefined();
+    expect(kept.of('never')).toBeUndefined();
+  });
+
+  it('is far past a simulation beyond twice its total or 500 records more, never below it', () => {
+    expect(farPastTheSimulation(34_216, 37)).toBe(true);
+    expect(farPastTheSimulation(11, 5)).toBe(true);
+    expect(farPastTheSimulation(10, 5)).toBe(false);
+    expect(farPastTheSimulation(2_600, 2_000)).toBe(true);
+    expect(farPastTheSimulation(2_500, 2_000)).toBe(false);
+    expect(farPastTheSimulation(3, 0)).toBe(true);
+    expect(farPastTheSimulation(4, 40)).toBe(false);
+  });
+
+  it('says how long before the simulation ended, rounded up, and whether the run is far past it', () => {
+    const simulated = { at: 0, total: 37, objects: [{ objectApiName: 'Contact', rows: 37 }] };
+    expect(confirmationSimulatedOf(simulated, 34_216, 90_000)).toEqual({
+      minutesBefore: 2,
+      total: 37,
+      objects: [{ objectApiName: 'Contact', rows: 37 }],
+      farAbove: true,
+    });
+    expect(confirmationSimulatedOf(simulated, 40, 5_000)).toEqual({
+      minutesBefore: 1,
+      total: 37,
+      objects: [{ objectApiName: 'Contact', rows: 37 }],
+    });
+  });
+});
+
+describe('unreadEmailOf', () => {
+  it('names the limit, the emails counted against it, and why it was not read', () => {
+    expect(
+      unreadEmailOf({
+        limit: 'SingleEmail',
+        objects: [],
+        emails: 4,
+        verdict: 'unread',
+        unread: 'INSUFFICIENT_ACCESS',
+      }),
+    ).toEqual({ limit: 'SingleEmail', emails: 4, unread: 'INSUFFICIENT_ACCESS' });
   });
 });
 

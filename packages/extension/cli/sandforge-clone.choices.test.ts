@@ -372,6 +372,20 @@ describe('choicesLines', () => {
     ]);
   });
 
+  it('says a decision to hold back rows the run holds back none of, and why', () => {
+    // A hand-written file held one on a dependent value's gap: listed with the
+    // others, it was applied to nothing, and nothing said so.
+    const dependent = 'dependent_value_invalid|Case|Detail__c||Late';
+    const config = { skippedRows: [{ object: 'Case', gapId: dependent }] };
+    const args = parseArgs(argv('--record', RECORD, '--config', fileOf('hand.json', config)));
+
+    expect(choicesLines(args).slice(-2)).toEqual([
+      '  decisions (1):',
+      '  Case.Detail__c  skip_rows "Late": ignored, a dependent_value_invalid gap does not offer ' +
+        'it: its rows are not exactly those holding its value',
+    ]);
+  });
+
   it('says nothing without a file', () => {
     expect(choicesLines(parseArgs(argv('--record', RECORD, '--exclude', 'Account.Fax')))).toEqual(
       [],
