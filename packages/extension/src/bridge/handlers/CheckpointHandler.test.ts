@@ -17,15 +17,13 @@ import {
   openCheckpointStore,
   type OrgCheckpointStore,
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
+import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
-import {
-  MEMORY_ORG_USER,
-  MemoryRemovalOrg,
-  type MemoryOrgRequest,
-} from '../../test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, type MemoryOrgRequest } from '../../test/memoryRemovalOrg.js';
+import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -57,16 +55,35 @@ let clock = T0;
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
 const STAMP_FIELDS = [
-  { name: 'Id', type: 'id', permissionable: false },
-  { name: 'SystemModstamp', type: 'datetime', permissionable: false },
-  { name: 'CreatedDate', type: 'datetime', permissionable: false },
-  { name: 'CreatedById', type: 'reference', referenceTo: ['User'], permissionable: false },
-  { name: 'LastModifiedDate', type: 'datetime', permissionable: false },
-  { name: 'LastModifiedById', type: 'reference', referenceTo: ['User'], permissionable: false },
-  { name: 'IsDeleted', type: 'boolean', permissionable: false },
+  { name: 'Id', label: 'Id', type: 'id', permissionable: false },
+  { name: 'SystemModstamp', label: 'System Modstamp', type: 'datetime', permissionable: false },
+  { name: 'CreatedDate', label: 'Created Date', type: 'datetime', permissionable: false },
+  {
+    name: 'CreatedById',
+    label: 'Created By',
+    type: 'reference',
+    referenceTo: ['User'],
+    permissionable: false,
+  },
+  {
+    name: 'LastModifiedDate',
+    label: 'Last Modified Date',
+    type: 'datetime',
+    permissionable: false,
+  },
+  {
+    name: 'LastModifiedById',
+    label: 'Last Modified By',
+    type: 'reference',
+    referenceTo: ['User'],
+    permissionable: false,
+  },
+  { name: 'IsDeleted', label: 'Deleted', type: 'boolean', permissionable: false },
 ];
+// Labelled as the org describes every field: what a rewind's give-back reads them by.
 const writable = (name: string) => ({
   name,
+  label: name,
   type: 'string',
   createable: true,
   updateable: true,
@@ -77,9 +94,14 @@ const FIELDS: Record<string, unknown[]> = {
   Case: [...STAMP_FIELDS, writable('Subject')],
 };
 
-/** The memory org as the handler reaches it: a global describe, `/limits`, its record and its user. */
-class HandlerTestOrg extends MemoryRemovalOrg {
+/**
+ * The memory org as the handler reaches it: a global describe, `/limits`, its
+ * record and its user; its updates made, as a rewind's give-back sends them.
+ */
+class HandlerTestOrg extends MemoryRestoreOrg {
   limits = { Max: 5_000_000, Remaining: 4_999_000 };
+  /** Whether each read of its clock moves it a second, as time passes during a rewind. */
+  ticking = false;
 
   constructor(says: { sandbox?: boolean; edition?: string } = {}) {
     super({}, { now: () => clock });
@@ -125,9 +147,18 @@ class HandlerTestOrg extends MemoryRemovalOrg {
     }
     return super.request(request);
   }
+
+  override async serverTime(): Promise<string> {
+    if (this.ticking) clock += 1_000;
+    return super.serverTime();
+  }
 }
 
-/** The org behind a connection shaped as jsforce's, as every read of the handler and its snapshot takes it. */
+/**
+ * The org behind a connection shaped as jsforce's, as every read of the
+ * handler and its snapshot takes it, and as a rewind and an undo write through
+ * it: updates and deletes by object, undeletes by SOAP.
+ */
 function connectionOf(org: HandlerTestOrg, onQuery?: (soql: string) => void) {
   return {
     get version() {
@@ -142,9 +173,14 @@ function connectionOf(org: HandlerTestOrg, onQuery?: (soql: string) => void) {
     describe: (objectApiName: string) => org.describe(objectApiName),
     describeGlobal: () => org.describeGlobal(),
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
+    sobject: (objectApiName: string) => ({
+      update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
+      destroy: (ids: string[]) => org.destroy(objectApiName, ids),
+    }),
     soap: {
       getServerTimestamp: async () => ({ timestamp: await org.serverTime() }),
       getUserInfo: async () => ({ userId: await org.userId() }),
+      undelete: (ids: string[]) => org.undelete(ids),
     },
   };
 }
@@ -180,6 +216,8 @@ interface Harness {
   orgManager: OrgManager;
   posted: Posted[];
   logs: string[];
+  /** The audit trail the handler records into, newest first. */
+  trail: () => ReturnType<AuditTrailStore['list']>['entries'];
   productionGuard: { check: ReturnType<typeof vi.fn>; confirmIfNeeded: ReturnType<typeof vi.fn> };
   /** Called with every statement the org is sent through the connection. */
   onQuery: (hook: (soql: string) => void) => void;
@@ -267,6 +305,7 @@ function harness(
     orgManager,
     posted,
     logs,
+    trail: () => new AuditTrailStore(configStore).list().entries,
     productionGuard,
     onQuery: (next) => {
       hook = next;
@@ -817,5 +856,431 @@ describe('CheckpointHandler — changes on this machine', () => {
     expect(h.logs).toContainEqual(
       expect.stringContaining("Removed checkpoint 'Before UAT' of DEV-SB"),
     );
+  });
+});
+
+// ─── The rewind, and its undo ────────────────────────────────────────────────
+
+/** A reader of what the org runs that finds nothing, read without a request. */
+function noAutomation(h: Harness): void {
+  h.handler.setTargetAutomation({
+    read: (_orgId, objects) =>
+      Promise.resolve({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 0,
+        requests: 0,
+      } satisfies ForgeTargetAutomation),
+  });
+}
+
+/** What the org holds of what the tests compare, live and in the bin: no stamp. */
+function stateOf(org: HandlerTestOrg): Record<string, unknown> {
+  const of = (rows: Array<Record<string, unknown>>) =>
+    rows
+      .map((row) => ({ Id: row.Id, Name: row.Name ?? null, Subject: row.Subject ?? null }))
+      .sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
+  return {
+    live: { Account: of(org.all('Account')), Case: of(org.all('Case')) },
+    bin: { Account: of(org.inBin('Account')), Case: of(org.inBin('Case')) },
+  };
+}
+
+/** A colleague's work since the checkpoint: an account renamed, a case created, another deleted. */
+function changedSince(h: Harness): void {
+  clock = T0 + 60_000;
+  h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+  h.org.add('Case', { Id: id('500', 2), Subject: 'New', LastModifiedById: COLLEAGUE });
+  h.org.trash('Case', id('500', 1), COLLEAGUE);
+  clock = T0 + 120_000;
+}
+
+/** Preview the rewind to `checkpointId`, and give back the preview's id. */
+async function previewed(h: Harness, checkpointId: string, requestId: string): Promise<string> {
+  await h.send(requestId, 'checkpoint:preview', { checkpointId });
+  const answer = answerOf(h, requestId);
+  expect(answer.type).toBe('checkpoint:preview:response');
+  return (answer.payload.diff as { previewId: string }).previewId;
+}
+
+/** A rewind's request: nothing accepted unless said. */
+function rewindOf(checkpointId: string, previewId: string, accepted: Record<string, boolean> = {}) {
+  return {
+    checkpointId,
+    previewId,
+    acceptAutomation: false,
+    acceptNoUndo: false,
+    acceptOutside: false,
+    ...accepted,
+  };
+}
+
+/** The result a rewind or an undo answered `requestId` with, or a failed test. */
+function resultOf(h: Harness, requestId: string, type: string) {
+  const answer = answerOf(h, requestId);
+  expect(answer.type, JSON.stringify(answer.payload)).toBe(type);
+  return answer.payload.result as {
+    rewindId: string;
+    status: string;
+    residual: unknown[];
+    apiRequests: { used: number; leftToday: number };
+  };
+}
+
+/** The operation messages carrying `operationId`, of `type`. */
+function operationMessages(h: Harness, type: string, operationId: string): Posted[] {
+  return h.posted.filter(
+    (message) =>
+      message.type === type &&
+      (message.payload as { operationId?: unknown }).operationId === operationId,
+  );
+}
+
+describe('CheckpointHandler — the rewind and its undo', () => {
+  it('rewinds the org on the preview it names, under the id of its request: progress on that id, in the registry and in Live Operations, recorded in the audit trail; then undoes it, once', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const atCheckpoint = stateOf(h.org);
+    changedSince(h);
+    const beforeRewind = stateOf(h.org);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.ticking = true;
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    const result = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+    expect(answerOf(h, 'wv-rewind-1').payload.operationId).toBe('wv-rewind-1');
+    expect(result).toMatchObject({ status: 'success', residual: [] });
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+    expect(operationMessages(h, 'operation:started', 'wv-rewind-1')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          module: 'checkpoint',
+          description: "Rewinding DEV-SB to 'Before UAT'",
+        }) as unknown,
+      }),
+    ]);
+    // Each step names its phase, which the page lists the planned ones of.
+    const steps = operationMessages(h, 'operation:progress', 'wv-rewind-1').map(
+      (message) => (message.payload as { currentStep: string }).currentStep,
+    );
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        'Reading DEV-SB again',
+        'Bringing back what was deleted since',
+        'Giving back what was changed since',
+        'Deleting what was created since',
+      ]),
+    );
+    expect(operationMessages(h, 'operation:completed', 'wv-rewind-1')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ result: { status: 'success' } }) as unknown,
+      }),
+    ]);
+    await Promise.resolve();
+    expect(h.registry.get('wv-rewind-1')).toMatchObject({
+      module: 'checkpoint',
+      status: 'completed',
+    });
+    expect(h.tracker.get('wv-rewind-1')).toMatchObject({
+      module: 'checkpoint',
+      status: 'completed',
+    });
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      module: 'checkpoint',
+      orgId: REGISTERED,
+      operationId: 'wv-rewind-1',
+      outcome: 'success',
+      details: { checkpointId, rewindId: result.rewindId, status: 'success', passes: 1 },
+    });
+    expect(
+      Object.fromEntries(
+        (h.trail()[0].objects ?? []).map(({ objectApiName, created, updated, deleted }) => [
+          objectApiName,
+          { created, updated, deleted },
+        ]),
+      ),
+    ).toEqual({
+      Case: { created: 1, updated: 1, deleted: 1 },
+      Account: { created: 0, updated: 1, deleted: 0 },
+    });
+
+    // The list offers its undo; the undo takes it back, and is not offered again.
+    const [listed] = await h.store.list();
+    expect(listed?.undo?.rewindId).toBe(result.rewindId);
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: result.rewindId,
+      acceptAutomation: false,
+    });
+    const undo = resultOf(h, 'wv-undo-1', 'checkpoint:undo:response');
+    expect(undo).toMatchObject({ rewindId: result.rewindId, status: 'success', residual: [] });
+    expect(stateOf(h.org).live).toEqual(beforeRewind.live);
+    expect(
+      operationMessages(h, 'operation:progress', 'wv-undo-1').map(
+        (message) => (message.payload as { currentStep: string }).currentStep,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'Reading what the rewind did',
+        'Bringing back what the rewind deleted and giving back what it wrote over',
+      ]),
+    );
+    expect(operationMessages(h, 'operation:started', 'wv-undo-1')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          description: "Undoing the rewind of DEV-SB to 'Before UAT'",
+        }) as unknown,
+      }),
+    ]);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_undo',
+      operationId: 'wv-undo-1',
+      outcome: 'success',
+      details: { checkpointId, rewindId: result.rewindId },
+    });
+    expect((await h.store.read(checkpointId))?.checkpoint?.lastRewind?.undoneAt).toBeDefined();
+
+    await h.send('wv-undo-2', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: result.rewindId,
+      acceptAutomation: false,
+    });
+    expect(answerOf(h, 'wv-undo-2').payload).toMatchObject({
+      code: 'UNDO_CLOSED',
+      message: expect.stringMatching(
+        /^This rewind can no longer be undone: it was undone on 20\d\d-\d\d-\d\d/,
+      ) as unknown,
+    });
+  });
+
+  it('refuses a production org with the checkpoint guard’s words, whatever Production Guard would let through, records the refusal, and writes nothing', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.edit('Organization', ORG_ID, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+    const before = stateOf(h.org);
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    expect(answerOf(h, 'wv-rewind-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: {
+        code: 'PRODUCTION',
+        retryable: false,
+        message: expect.stringContaining('a production org') as unknown,
+      },
+    });
+    expect(h.productionGuard.check).not.toHaveBeenCalled();
+    expect(h.productionGuard.confirmIfNeeded).not.toHaveBeenCalled();
+    expect(stateOf(h.org)).toEqual(before);
+    expect(h.org.updates).toEqual([]);
+    expect(h.org.deletes).toEqual([]);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { checkpointId, code: 'PRODUCTION' },
+    });
+  });
+
+  it('gives a gate’s refusal as the gate gives it, and rewinds once what it asks is accepted', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [],
+          unread: [{ part: 'flows', reason: 'Tooling API timed out' }],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const before = stateOf(h.org);
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'AUTOMATION',
+      retryable: false,
+      message: expect.stringMatching(
+        /^DEV-SB: what runs as the rewind writes could not all be read/,
+      ) as unknown,
+    });
+    expect(stateOf(h.org)).toEqual(before);
+    expect(operationMessages(h, 'operation:completed', 'wv-rewind-1')).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          result: { status: 'refused', code: 'AUTOMATION' },
+        }) as unknown,
+      }),
+    ]);
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true }),
+    );
+    expect(resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response').status).toBe('success');
+  });
+
+  it('refuses, without reaching the org, a rewind on a preview no longer kept, and a rewind or an undo of a checkpoint of the org before a refresh', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, 'pv-20261022-140000-zzzz'),
+    );
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'PREVIEW_GONE',
+      message: expect.stringContaining("preview the rewind to 'Before UAT' again") as unknown,
+    });
+
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+    await h.send('wv-rewind-2', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+    expect(answerOf(h, 'wv-rewind-2').payload.code).toBe('OTHER_ORG');
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: 'rw-20261022-141102-e5f6',
+      acceptAutomation: false,
+    });
+    expect(answerOf(h, 'wv-undo-1').payload.code).toBe('OTHER_ORG');
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+    expect(h.trail().filter((entry) => entry.module === 'checkpoint')).toEqual([]);
+  });
+
+  it('refuses the undo of a rewind the list does not offer, without reaching the org', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: 'rw-20261022-141102-e5f6',
+      acceptAutomation: false,
+    });
+
+    expect(answerOf(h, 'wv-undo-1').payload).toMatchObject({
+      code: 'UNDO_CLOSED',
+      retryable: false,
+      message:
+        "This rewind can no longer be undone: the rewind rw-20261022-141102-e5f6 is not the last rewind to 'Before UAT'. No record was read or written.",
+    });
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('refuses a malformed rewind and undo on the domain’s error channel, before anything is asked of the org', async () => {
+    const h = harness();
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', {
+      checkpointId: 'ck-20261022-140000-aaaa',
+      previewId: 'pv-20261022-140000-aaaa',
+      acceptAutomation: false,
+    });
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId: 'ck-20261022-140000-aaaa',
+      rewindId: '../elsewhere',
+      acceptAutomation: false,
+    });
+
+    expect(answerOf(h, 'wv-rewind-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'INVALID_PAYLOAD' },
+    });
+    expect(answerOf(h, 'wv-undo-1').payload.code).toBe('INVALID_PAYLOAD');
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('stops a rewind from Live Operations’ Cancel: before it writes, answered CANCELLED; part way, answered with its result, its journal taken up by the next rewind', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const atCheckpoint = stateOf(h.org);
+    changedSince(h);
+    const before = stateOf(h.org);
+    const first = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.ticking = true;
+    // As the guard reads the user's permissions: before anything is written.
+    h.onQuery((soql) => {
+      if (/FROM UserPermissionAccess/.test(soql)) h.registry.abort('wv-rewind-1');
+    });
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, first));
+
+    expect(answerOf(h, 'wv-rewind-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'CANCELLED', retryable: true },
+    });
+    expect(stateOf(h.org)).toEqual(before);
+    expect(h.registry.get('wv-rewind-1')?.status).toBe('aborted');
+    expect(h.tracker.get('wv-rewind-1')?.status).toBe('cancelled');
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { code: 'CANCELLED' },
+    });
+
+    // Stopped once it wrote: as its first delete goes.
+    h.onQuery(() => undefined);
+    const second = await previewed(h, checkpointId, 'wv-preview-2');
+    h.org.beforeDelete = () => {
+      h.org.beforeDelete = undefined;
+      h.registry.abort('wv-rewind-2');
+    };
+    await h.send('wv-rewind-2', 'checkpoint:rewind', rewindOf(checkpointId, second));
+    const stopped = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    expect(stopped.status).toBe('cancelled');
+    expect(h.registry.get('wv-rewind-2')?.status).toBe('aborted');
+    expect(h.tracker.get('wv-rewind-2')?.status).toBe('cancelled');
+    expect(h.trail()[0]).toMatchObject({ action: 'checkpoint_rewind', outcome: 'cancelled' });
+
+    const third = await previewed(h, checkpointId, 'wv-preview-3');
+    await h.send('wv-rewind-3', 'checkpoint:rewind', rewindOf(checkpointId, third));
+    const again = resultOf(h, 'wv-rewind-3', 'checkpoint:rewind:response');
+    expect(again).toMatchObject({ status: 'success', rewindId: stopped.rewindId });
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('rewinds from the preview it answered, as read, once told to: the org is not read again before the first pass', async () => {
+    const run = async (fromPreview: boolean): Promise<number> => {
+      const h = harness();
+      noAutomation(h);
+      if (fromPreview) h.handler.rewindFromPreviewsAnswered();
+      const checkpointId = await taken(h);
+      const atCheckpoint = stateOf(h.org);
+      changedSince(h);
+      const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+      h.org.ticking = true;
+      await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+      const result = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+      expect(result.status).toBe('success');
+      expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+      return result.apiRequests.used;
+    };
+
+    const fresh = await run(false);
+    const reused = await run(true);
+
+    expect(reused).toBeLessThan(fresh);
   });
 });

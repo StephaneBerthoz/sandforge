@@ -2404,7 +2404,9 @@
       "realtime_sync": "Echtzeit-Synchronisierung",
       "subject_erase": "Löschung auf Betroffenenanfrage",
       "cleanup_delete": "Bereinigungslöschung",
-      "pipeline_approval": "Pipeline-Genehmigung"
+      "pipeline_approval": "Pipeline-Genehmigung",
+      "checkpoint_rewind": "Zurücksetzen auf einen Prüfpunkt",
+      "checkpoint_undo": "Zurücksetzen rückgängig machen"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",

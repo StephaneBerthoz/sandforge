@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   CheckpointListEntry,
+  ForgeTargetAutomation,
   OrgCheckpoint,
   RewindDiff,
   RewindDiffObject,
+  RewindResult,
 } from '@sandforge/shared';
 import {
+  acceptanceRefusal,
   checkpointsOf,
   defaultName,
   invalidRefusal,
@@ -17,6 +20,12 @@ import {
   previewTotals,
   requestsLine,
   resolveCheckpoint,
+  resultExitCode,
+  resultJson,
+  rewindLines,
+  rewindQuestion,
+  rewindStepsOf,
+  undoLines,
 } from './sandforge-checkpoint.js';
 
 /*
@@ -157,12 +166,116 @@ describe('parseArgs', () => {
     }
   });
 
-  it('refuses a line without its command, and a command it does not have, rewind among them for now', () => {
+  it('refuses a line without its command, and a command it does not have', () => {
     expect(refused('--org', 'DEV-SB').code).toBe(2);
     expect(refused().code).toBe(2);
-    const rewind = refused('rewind', '--org', 'DEV-SB', '--yes');
-    expect(rewind.code).toBe(2);
-    expect(rewind.stderr).toContain('"rewind" is not a command of sandforge-checkpoint');
+    const restore = refused('restore', '--org', 'DEV-SB', '--yes');
+    expect(restore.code).toBe(2);
+    expect(restore.stderr).toContain(
+      '"restore" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo or delete',
+    );
+  });
+
+  it('rewinds to the latest checkpoint unless one is named, asking first, with nothing accepted unless said', () => {
+    expect(parseArgs(argv('rewind', '--org', 'DEV-SB'))).toEqual({
+      command: 'rewind',
+      org: 'DEV-SB',
+      checkpoint: 'latest',
+      dryRun: false,
+      acceptAutomation: false,
+      acceptNoUndo: false,
+      acceptOutside: false,
+      ignoreFields: [],
+      yes: false,
+      storeRoot: expect.any(String) as unknown,
+      json: false,
+    });
+    expect(
+      parseArgs(
+        argv(
+          'rewind',
+          '--org',
+          'DEV-SB',
+          '--checkpoint',
+          'baseline',
+          '--yes',
+          '--dry-run',
+          '--accept-automation',
+          '--accept-no-undo',
+          '--accept-outside',
+          '--ignore-field',
+          'Case.Last_Touched__c',
+          '--json',
+        ),
+      ),
+    ).toMatchObject({
+      command: 'rewind',
+      checkpoint: 'baseline',
+      yes: true,
+      dryRun: true,
+      acceptAutomation: true,
+      acceptNoUndo: true,
+      acceptOutside: true,
+      ignoreFields: ['Case.Last_Touched__c'],
+      json: true,
+    });
+  });
+
+  it('undoes the org’s last rewind unless a checkpoint is named', () => {
+    const plain = parseArgs(argv('undo', '--org', 'DEV-SB'));
+    expect(plain).toMatchObject({ command: 'undo', acceptAutomation: false, yes: false });
+    expect('checkpoint' in plain).toBe(false);
+    expect(
+      parseArgs(
+        argv('undo', '--org', 'DEV-SB', '--checkpoint', 'baseline', '--yes', '--accept-automation'),
+      ),
+    ).toMatchObject({ checkpoint: 'baseline', yes: true, acceptAutomation: true });
+  });
+
+  it('refuses, exit 2, a rewind or an undo told not to ask that does not name its checkpoint', () => {
+    for (const command of ['rewind', 'undo']) {
+      const none = refused(command, '--org', 'DEV-SB', '--yes');
+      expect(none.code, command).toBe(2);
+      expect(none.stdout).toBe('');
+      expect(none.stderr).toContain(`${command} --yes needs --checkpoint <id|name>`);
+      const latest = refused(command, '--org', 'DEV-SB', '--checkpoint', 'latest', '--yes');
+      expect(latest.code, command).toBe(2);
+      expect(latest.stderr).toContain(
+        `${command} --yes needs the checkpoint named by its id or its name, not latest`,
+      );
+    }
+  });
+
+  it('refuses, exit 2, what a rewind or an undo does not read, a flag given its value after =, and a field it cannot name', () => {
+    for (const line of [
+      ['rewind', '--org', 'DEV-SB', '--dry-run=true'],
+      ['rewind', '--org', 'DEV-SB', '--fail-on-change'],
+      ['rewind', '--org', 'DEV-SB', '--estimate'],
+      ['undo', '--org', 'DEV-SB', '--dry-run'],
+      ['undo', '--org', 'DEV-SB', '--accept-no-undo'],
+      ['undo', '--org', 'DEV-SB', '--ignore-field', 'Case.Subject'],
+      ['preview', '--org', 'DEV-SB', '--yes'],
+    ]) {
+      const { code, stdout, stderr } = refused(...line);
+      expect(code, line.join(' ')).toBe(2);
+      expect(stdout).toBe('');
+      expect(stderr).toContain('Nothing was run');
+    }
+    const field = refused('rewind', '--org', 'DEV-SB', '--ignore-field', 'Last_Touched__c');
+    expect(field.code).toBe(2);
+    expect(field.stderr).toContain('--ignore-field: Expected an Object.Field name');
+    const twice = refused(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--ignore-field',
+      'Case.Subject',
+      '--ignore-field',
+      'Case.Subject',
+    );
+    expect(twice.stderr).toContain('--ignore-field: A field is listed twice');
+    expect(refused('rewind').stderr).toContain('rewind needs --org');
+    expect(refused('undo').stderr).toContain('undo needs --org');
   });
 
   it('refuses a take, a preview or a delete without --org, and an org or a name given twice', () => {
@@ -207,7 +320,16 @@ describe('parseArgs', () => {
       'take      read the org',
       'list      name the checkpoints kept',
       'preview   say what a rewind would delete',
+      'rewind    return the org to a checkpoint: bring back from the recycle bin the records deleted',
+      "undo      take back the org's last rewind: bring back what it deleted, give back what it wrote",
       'delete    delete a checkpoint from this machine',
+      '--checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went',
+      '--dry-run                      the preview, then stop',
+      '--accept-automation            rewind even when the org runs flows, Apex triggers, processes or',
+      '--accept-no-undo               rewind even when undo could not bring back some records it deletes',
+      '--accept-outside               (a checkpoint of picked objects) also delete the records outside it',
+      '--ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint',
+      '--yes                          do not ask before writing; without it and with no terminal — a CI',
       '--max-total <n>                refuse, before reading, more than <n> records (default: 500000)',
       '--keep-days <n>                when it expires (default: 30; 0 keeps it until deleted)',
       'A production org is refused before anything is read or written, exit 1. No flag lifts it.',
@@ -218,14 +340,17 @@ describe('parseArgs', () => {
       'estimate.requestsByPhase splits',
       '{checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,',
       '{refusal: {code, message}}',
+      '  rewind --dry-run   as preview',
+      '  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,',
+      '  undo               as rewind, without cannotUndo and undo',
       'Exit codes: 0 done',
-      '3 with --fail-on-change, the org differs',
-      '130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it.',
+      'rewind or undo with --yes and no checkpoint named, or a question with no terminal',
+      '--fail-on-change, the org differs',
+      '4 unstable (someone else changed\nrecords during the rewind or the undo: left as they made them)',
+      '130, 143, 129 Ctrl-C, SIGTERM or\nSIGHUP stopped it — run rewind again: it takes up from what still differs',
     ]) {
       expect(stdout).toContain(said);
     }
-    // No line of the help says a command it does not have.
-    expect(stdout).not.toMatch(/^ {2}(rewind|undo) /m);
   });
 });
 
@@ -551,5 +676,346 @@ describe('previewLines', () => {
     expect(lines).toContain(
       "  DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
     );
+  });
+});
+
+// ─── What a rewind and an undo say, and how they end the command ─────────────
+
+/** What the org runs, found by a read that sends nothing. */
+function automation(patch: Partial<ForgeTargetAutomation> = {}): ForgeTargetAutomation {
+  return {
+    objectsRead: [],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 0,
+    requests: 0,
+    ...patch,
+  };
+}
+
+/** A trigger on `objectApiName` running on `events`. */
+function triggerOn(objectApiName: string, events: Array<'afterInsert' | 'afterUpdate'>) {
+  return { objectApiName, flows: [], triggers: [{ name: `${objectApiName}Audit`, events }] };
+}
+
+const NOTHING_ACCEPTED = { acceptAutomation: false, acceptNoUndo: false };
+
+describe('rewindStepsOf and acceptanceRefusal', () => {
+  const diff = diffOf([
+    object({ toGiveBack: { records: 2, fields: 2, clearedLookups: 0 } }),
+    object({
+      objectApiName: 'Order',
+      toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+    }),
+    object({
+      objectApiName: 'Case',
+      toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+    }),
+  ]);
+
+  it('says which objects each step of a rewind writes, an order deleted set back to Draft first', () => {
+    expect(rewindStepsOf(diff)).toEqual({
+      bringBack: ['Case'],
+      giveBack: ['Account'],
+      setToDraft: ['Order'],
+      delete: ['Order'],
+    });
+  });
+
+  it('refuses deletions Undo couldn’t bring back without --accept-no-undo, before anything else', () => {
+    const refusal = acceptanceRefusal(
+      'DEV-SB',
+      { diff: { ...diff, undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }] } },
+      NOTHING_ACCEPTED,
+    );
+    expect(refusal).toEqual({
+      code: 'NO_UNDO',
+      message:
+        "Undo couldn't bring back 3 OpportunityLineItem record(s) this rewind deletes: " +
+        'Salesforce undeletes them only with their parent, which stays. Rewind refused; give ' +
+        '--accept-no-undo to rewind all the same. No record was written.',
+    });
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: { ...diff, undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }] } },
+        { acceptAutomation: false, acceptNoUndo: true },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('refuses automation the rewind’s own writes fire, or that could not all be read, without --accept-automation', () => {
+    const fires = automation({ objects: [triggerOn('Account', ['afterUpdate'])] });
+    expect(acceptanceRefusal('DEV-SB', { diff, automation: fires }, NOTHING_ACCEPTED)).toEqual({
+      code: 'AUTOMATION',
+      message:
+        'DEV-SB: 1 flow(s), trigger(s) or rule(s) of Account run as the rewind brings records ' +
+        'back, gives them their values back or deletes them. Rewind refused; give ' +
+        '--accept-automation to rewind all the same. No record was written.',
+    });
+    const blind = automation({ unread: [{ part: 'flows', reason: 'Tooling API timed out' }] });
+    expect(
+      acceptanceRefusal('DEV-SB', { diff, automation: blind }, NOTHING_ACCEPTED)?.message,
+    ).toContain('what runs as the rewind writes could not all be read');
+    for (const found of [fires, blind]) {
+      expect(
+        acceptanceRefusal(
+          'DEV-SB',
+          { diff, automation: found },
+          { acceptAutomation: true, acceptNoUndo: false },
+        ),
+      ).toBeUndefined();
+    }
+  });
+
+  it('lets through automation the rewind’s writes do not fire: on insert, or on an object it does not write', () => {
+    const quiet = automation({
+      objects: [triggerOn('Account', ['afterInsert']), triggerOn('Contact', ['afterUpdate'])],
+    });
+    expect(acceptanceRefusal('DEV-SB', { diff, automation: quiet }, NOTHING_ACCEPTED)).toBe(
+      undefined,
+    );
+    expect(acceptanceRefusal('DEV-SB', { diff }, NOTHING_ACCEPTED)).toBeUndefined();
+  });
+
+  it('asks the question the page asks, with what the rewind does and the alias to type', () => {
+    expect(
+      rewindQuestion('DEV-SB', { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' }, diff),
+    ).toBe(
+      "Rewind DEV-SB to 'Before UAT': it deletes the 1 record(s) created since 2026-10-20 14:05 " +
+        'UTC, gives 2 record(s) their values from then back, and brings back 1 record(s) from ' +
+        'the recycle bin — whoever made these changes. What it changes is kept, so it can be ' +
+        'undone. Type DEV-SB to rewind it:',
+    );
+  });
+});
+
+/** A rewind's result, with nothing in it unless the patch says so. */
+function resultOf(patch: Partial<RewindResult> = {}): RewindResult {
+  return {
+    checkpointId: 'ck-20261022-160000-cccc',
+    rewindId: 'rw-20261022-170000-ffff',
+    status: 'success',
+    deleted: [],
+    restored: [],
+    undeleted: [],
+    residual: [],
+    passes: 1,
+    apiRequests: { used: 40, leftToday: 14_860 },
+    finishedAt: '2026-10-22T17:01:00.000Z',
+    ...patch,
+  };
+}
+
+const DID: Partial<RewindResult> = {
+  deleted: [
+    {
+      objectApiName: 'Case',
+      planned: 2,
+      deleted: 1,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 1,
+      heldBy: [],
+      unchecked: [],
+      reasons: ['ENTITY_IS_LOCKED: locked by an approval'],
+    },
+  ],
+  restored: [
+    {
+      objectApiName: 'Account',
+      planned: 3,
+      restored: 2,
+      keptChanged: 1,
+      alreadyGone: 0,
+      refused: 0,
+      notKept: 0,
+      reasons: [],
+    },
+  ],
+  undeleted: [
+    {
+      objectApiName: 'Account',
+      planned: 3,
+      undeleted: 2,
+      alreadyBack: 1,
+      goneForGood: 0,
+      refused: 0,
+      reasons: [],
+    },
+  ],
+};
+
+describe('rewindLines, undoLines and resultJson', () => {
+  const checkpoint = {
+    checkpointId: 'ck-20261022-160000-cccc',
+    name: 'Before UAT',
+    takenAt: '2026-10-20T14:05:31.000Z',
+    ignoredFields: ['Case.Last_Touched__c'],
+  };
+
+  it('says a rewind that went through, what it did, how long it can be undone and what it sent', () => {
+    const lines = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        ...DID,
+        undo: {
+          until: '2026-11-06T17:00:00.000Z',
+          cannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }],
+        },
+      }),
+    );
+    expect(lines).toEqual([
+      "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
+      '  deleted 1 record(s) created since the checkpoint (in the recycle bin for up to 15 days)',
+      '  gave 2 record(s) back their checkpoint values',
+      '  brought back 2 record(s) deleted since the checkpoint, with their original Ids, and 1 that came back with them',
+      '  undo it until 2026-11-06 17:00 UTC, sooner if the recycle bin fills: undo --org DEV-SB --checkpoint ck-20261022-160000-cccc',
+      "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent",
+      '  sent 40 API requests to the org; 14,860 left today',
+    ]);
+  });
+
+  it('names each record that still differs with why, and who changed one during the rewind', () => {
+    const names = { '005000000000003AAA': 'Ada Tester' };
+    const partial = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        status: 'partial',
+        residual: [
+          { objectApiName: 'Case', reason: 'automation', count: 2, ids: [] },
+          { objectApiName: 'Case', reason: 'refused', count: 1, ids: [], message: 'Locked' },
+          { objectApiName: 'Account', reason: 'goneForGood', count: 1, ids: [] },
+          { objectApiName: 'Account', reason: 'changedSincePreview', count: 1, ids: [] },
+        ],
+        unread: [{ objectApiName: 'Task', reason: 'its read ended early' }],
+      }),
+      names,
+    );
+    expect(partial[0]).toBe(
+      "DEV-SB is back at 'Before UAT' but for 5 record(s) that still differ, each said with why:",
+    );
+    expect(partial).toEqual(
+      expect.arrayContaining([
+        '  Case 2 — kept by your automation, which sets them again on save: rewind --ignore-field <Object.Field> stops comparing such a field',
+        '  Case 1 — refused: Locked',
+        "  Account 1 — deleted since and no longer in the recycle bin: they can't come back with their Id",
+        '  Account 1 — changed since the preview: rewind again to take them',
+        '  could not be read again: Task — its read ended early (never taken for unchanged)',
+      ]),
+    );
+    const unstable = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        status: 'unstable',
+        residual: [
+          {
+            objectApiName: 'Account',
+            reason: 'changedDuringRewind',
+            by: '005000000000003AAA',
+            count: 2,
+            ids: [],
+          },
+        ],
+      }),
+      names,
+    );
+    expect(unstable[0]).toBe(
+      'Someone kept writing to DEV-SB during the rewind: Ada Tester changed 2 record(s), left as they made them. Rewind again once they have stopped.',
+    );
+    expect(unstable).toContain(
+      '  Account 2 — changed during the rewind by Ada Tester: left as they made them',
+    );
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'cancelled' }))[0]).toBe(
+      "Stopped part way: DEV-SB is between 'Before UAT' and now. Rewind again to finish: it takes up from what still differs, and undo still returns DEV-SB to how it was before the rewind.",
+    );
+  });
+
+  it('says an undo, what it took back, what it kept changed since the rewind, and what the org refused it', () => {
+    const lines = undoLines('DEV-SB', checkpoint, resultOf({ ...DID, status: 'partial' }));
+    expect(lines).toEqual([
+      "DEV-SB is back as it was before its rewind to 'Before UAT', except 2 record(s), each said with why:",
+      '  sent back to the recycle bin 1 record(s) the rewind brought back',
+      '  brought back 3 record(s) the rewind deleted',
+      '  gave 2 record(s) back the values they had before the rewind',
+      '  kept 1 record(s) changed since the rewind: undo leaves them as they are now',
+      '  Case 1 — refused: ENTITY_IS_LOCKED: locked by an approval',
+      '  sent 40 API requests to the org; 14,860 left today',
+    ]);
+    expect(undoLines('DEV-SB', checkpoint, resultOf())[0]).toBe(
+      "DEV-SB is back as it was before its rewind to 'Before UAT'.",
+    );
+  });
+
+  it('answers a rewind’s JSON with each brick’s tally, what Undo can still reach, the verify and the result as the extension gave it', () => {
+    const result = resultOf({
+      ...DID,
+      status: 'partial',
+      residual: [
+        {
+          objectApiName: 'Account',
+          reason: 'changedDuringRewind',
+          by: '005000000000003AAA',
+          count: 1,
+          ids: ['001000000000001AAA'],
+        },
+      ],
+      undo: { until: '2026-11-06T17:00:00.000Z', cannot: [] },
+    });
+    const json = resultJson(
+      'rewind',
+      'DEV-SB',
+      checkpoint,
+      result,
+      diffOf([object({ cannotUndo: [{ reason: 'goneForGood', count: 2 }] })]),
+    );
+    expect(json).toEqual({
+      checkpoint: {
+        id: 'ck-20261022-160000-cccc',
+        name: 'Before UAT',
+        takenAt: '2026-10-20T14:05:31.000Z',
+        org: 'DEV-SB',
+      },
+      rewindId: 'rw-20261022-170000-ffff',
+      status: 'partial',
+      deleted: { planned: 2, done: 1, left: 1 },
+      givenBack: { planned: 3, done: 2, left: 1 },
+      broughtBack: { planned: 3, done: 3, left: 0 },
+      cannotUndo: [{ object: 'Account', reason: 'goneForGood', count: 2 }],
+      undo: { until: '2026-11-06T17:00:00.000Z', cannot: [] },
+      verify: { differences: 1, stable: true, passes: 1, notCompared: ['Case.Last_Touched__c'] },
+      residual: [
+        { object: 'Account', reason: 'changedDuringRewind', by: '005000000000003AAA', count: 1 },
+      ],
+      unread: [],
+      objects: [
+        { object: 'Case', deleted: 1, givenBack: 0, broughtBack: 0, refused: 1 },
+        { object: 'Account', deleted: 0, givenBack: 2, broughtBack: 3, refused: 0 },
+      ],
+      apiRequests: { used: 40, leftToday: 14_860 },
+      result,
+    });
+    const undone = resultJson('undo', 'DEV-SB', checkpoint, resultOf());
+    expect(undone).not.toHaveProperty('cannotUndo');
+    expect(undone).not.toHaveProperty('undo');
+  });
+});
+
+describe('resultExitCode', () => {
+  it('ends a rewind or an undo 0 done, 3 partial, 4 unstable, 1 when nothing went through, and with the code of the signal that stopped it', () => {
+    expect(resultExitCode('success')).toBe(0);
+    expect(resultExitCode('partial')).toBe(3);
+    expect(resultExitCode('unstable')).toBe(4);
+    expect(resultExitCode('failure')).toBe(1);
+    expect(resultExitCode('cancelled', 'SIGINT')).toBe(130);
+    expect(resultExitCode('cancelled', 'SIGTERM')).toBe(143);
+    expect(resultExitCode('cancelled', 'SIGHUP')).toBe(129);
+    // Stopped by nothing this command sent: what it asked was not done.
+    expect(resultExitCode('cancelled')).toBe(1);
   });
 });

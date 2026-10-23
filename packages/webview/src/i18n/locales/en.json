@@ -2404,7 +2404,9 @@
       "realtime_sync": "Real-Time Sync",
       "subject_erase": "Subject Request Erasure",
       "cleanup_delete": "Cleanup Delete",
-      "pipeline_approval": "Pipeline approval"
+      "pipeline_approval": "Pipeline approval",
+      "checkpoint_rewind": "Checkpoint Rewind",
+      "checkpoint_undo": "Rewind Undo"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",

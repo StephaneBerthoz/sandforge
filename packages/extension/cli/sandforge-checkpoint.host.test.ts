@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,7 +13,8 @@ import {
   openCheckpointStore,
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
-import { MemoryRemovalOrg, type MemoryOrgRequest } from '../src/test/memoryRemovalOrg.js';
+import { type MemoryOrgRequest, type MemoryRow } from '../src/test/memoryRemovalOrg.js';
+import { MemoryRestoreOrg } from '../src/test/memoryRestoreOrg.js';
 
 vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
   ...(await original<typeof import('../src/core/connection/ConnectionHelper.js')>()),
@@ -45,16 +46,35 @@ let clock = T0;
 const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
 
 const STAMP_FIELDS = [
-  { name: 'Id', type: 'id', permissionable: false },
-  { name: 'SystemModstamp', type: 'datetime', permissionable: false },
-  { name: 'CreatedDate', type: 'datetime', permissionable: false },
-  { name: 'CreatedById', type: 'reference', referenceTo: ['User'], permissionable: false },
-  { name: 'LastModifiedDate', type: 'datetime', permissionable: false },
-  { name: 'LastModifiedById', type: 'reference', referenceTo: ['User'], permissionable: false },
-  { name: 'IsDeleted', type: 'boolean', permissionable: false },
+  { name: 'Id', label: 'Id', type: 'id', permissionable: false },
+  { name: 'SystemModstamp', label: 'System Modstamp', type: 'datetime', permissionable: false },
+  { name: 'CreatedDate', label: 'Created Date', type: 'datetime', permissionable: false },
+  {
+    name: 'CreatedById',
+    label: 'Created By',
+    type: 'reference',
+    referenceTo: ['User'],
+    permissionable: false,
+  },
+  {
+    name: 'LastModifiedDate',
+    label: 'Last Modified Date',
+    type: 'datetime',
+    permissionable: false,
+  },
+  {
+    name: 'LastModifiedById',
+    label: 'Last Modified By',
+    type: 'reference',
+    referenceTo: ['User'],
+    permissionable: false,
+  },
+  { name: 'IsDeleted', label: 'Deleted', type: 'boolean', permissionable: false },
 ];
+// Labelled as the org describes every field: what a rewind's give-back reads them by.
 const writable = (name: string) => ({
   name,
+  label: name,
   type: 'string',
   createable: true,
   updateable: true,
@@ -65,9 +85,16 @@ const FIELDS: Record<string, unknown[]> = {
   Case: [...STAMP_FIELDS, writable('Subject')],
 };
 
-/** The memory org as the handler reaches it: a global describe, `/limits`, its record and its user. */
-class CliTestOrg extends MemoryRemovalOrg {
+/**
+ * The memory org as the handler reaches it: a global describe, `/limits`, its
+ * record and its user; its updates made, as a rewind's give-back sends them.
+ */
+class CliTestOrg extends MemoryRestoreOrg {
   limits = { Max: 15_000, Remaining: 14_900 };
+  /** Whether each read of its clock moves it a second, as time passes during a rewind. */
+  ticking = false;
+  /** Told of each update, once it is made. */
+  afterUpdate?: (objectApiName: string) => void;
 
   constructor(says: { sandbox?: boolean; edition?: string } = {}) {
     super({}, { now: () => clock });
@@ -113,9 +140,28 @@ class CliTestOrg extends MemoryRemovalOrg {
     }
     return super.request(request);
   }
+
+  override async serverTime(): Promise<string> {
+    if (this.ticking) clock += 1_000;
+    return super.serverTime();
+  }
+
+  override async update(
+    objectApiName: string,
+    records: Array<Record<string, unknown>>,
+  ): Promise<unknown> {
+    const answer = await super.update(objectApiName, records);
+    this.afterUpdate?.(objectApiName);
+    return answer;
+  }
 }
 
-/** The org behind a connection shaped as jsforce's, as every read of the handler and its snapshot takes it. */
+/**
+ * The org behind a connection shaped as jsforce's, as every read of the
+ * handler and its snapshot takes it, and as a rewind and an undo write
+ * through it: updates and deletes by object, undeletes by SOAP. Its Tooling
+ * API answers nothing: what the org runs as a rewind writes cannot be read.
+ */
 function connectionOf(org: CliTestOrg, onQuery: (soql: string) => void) {
   return {
     get version() {
@@ -130,9 +176,14 @@ function connectionOf(org: CliTestOrg, onQuery: (soql: string) => void) {
     describe: (objectApiName: string) => org.describe(objectApiName),
     describeGlobal: () => org.describeGlobal(),
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
+    sobject: (objectApiName: string) => ({
+      update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
+      destroy: (ids: string[]) => org.destroy(objectApiName, ids),
+    }),
     soap: {
       getServerTimestamp: async () => ({ timestamp: await org.serverTime() }),
       getUserInfo: async () => ({ userId: await org.userId() }),
+      undelete: (ids: string[]) => org.undelete(ids),
     },
   };
 }
@@ -707,5 +758,415 @@ describe('sandforge-checkpoint delete', () => {
 
     expect(code).toBe(1);
     expect(JSON.parse(stdout)).toMatchObject({ refusal: { code: 'NOT_FOUND' } });
+  });
+});
+
+// ─── rewind and undo ─────────────────────────────────────────────────────────
+
+/** What the org holds of what the tests compare, live and in the bin: no stamp. */
+function stateOf(org: CliTestOrg): Record<string, unknown> {
+  const of = (rows: MemoryRow[]) =>
+    rows
+      .map((row) => ({ Id: row.Id, Name: row.Name ?? null, Subject: row.Subject ?? null }))
+      .sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
+  return {
+    live: { Account: of(org.all('Account')), Case: of(org.all('Case')) },
+    bin: { Account: of(org.inBin('Account')), Case: of(org.inBin('Case')) },
+  };
+}
+
+/** The 60-second demo: one record created, two changed and one deleted, by a colleague. */
+function demo(h: Harness): void {
+  clock = T0 + 60_000;
+  h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+  h.org.edit('Account', id('001', 2), { Name: 'Renamed too' }, COLLEAGUE);
+  h.org.add('Case', { Id: id('500', 2), Subject: 'New', LastModifiedById: COLLEAGUE });
+  h.org.trash('Case', id('500', 1), COLLEAGUE);
+  clock = T0 + 120_000;
+  h.org.ticking = true;
+}
+
+/** The rewinds' journals kept of a checkpoint. */
+function journalsOf(h: Harness, checkpoint: OrgCheckpoint): string[] {
+  const dir = h.store.folderOf(ORG_ID, checkpoint.checkpointId).rewindsDir;
+  return existsSync(dir) ? readdirSync(dir) : [];
+}
+
+/** The rewind's answer with --json. */
+interface RewindJson {
+  rewindId: string;
+  status: string;
+  deleted: { planned: number; done: number; left: number };
+  givenBack: { planned: number; done: number; left: number };
+  broughtBack: { planned: number; done: number; left: number };
+  verify: { differences: number; stable: boolean; passes: number; notCompared: string[] };
+  residual: Array<{ object: string; reason: string; by?: string; count: number }>;
+  undo?: { until: string; cannot: unknown[] };
+  apiRequests: { used: number; leftToday: number };
+}
+
+describe('sandforge-checkpoint rewind', () => {
+  it('rewinds the org to a named checkpoint with --yes, from the preview it shows: exit 0, the org as the checkpoint holds it, its undo offered', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    const atCheckpoint = stateOf(h.org);
+    demo(h);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code, stderr).toBe(0);
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+    const answer = JSON.parse(stdout) as RewindJson & Record<string, unknown>;
+    expect(answer).toMatchObject({
+      checkpoint: { id: checkpoint.checkpointId, name: 'Before UAT', org: 'DEV-SB' },
+      status: 'success',
+      deleted: { done: 1, left: 0 },
+      givenBack: { done: 3, left: 0 },
+      broughtBack: { done: 1, left: 0 },
+      cannotUndo: [],
+      verify: { differences: 0, stable: true, notCompared: [] },
+      residual: [],
+      unread: [],
+    });
+    expect(answer.undo?.until).toEqual(expect.any(String));
+    expect(Object.keys(answer)).toEqual(
+      expect.arrayContaining(['objects', 'apiRequests', 'result', 'rewindId']),
+    );
+    expect(stderr).toContain('  1 to delete · 2 to give back · 1 to bring back');
+    expect(stderr).toContain(
+      "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
+    );
+    expect(stderr).toContain(`undo --org DEV-SB --checkpoint ${checkpoint.checkpointId}`);
+    const listed = JSON.parse((await h.run('list', '--org', 'DEV-SB', '--json')).stdout) as Array<{
+      lastRewind?: { rewindId: string; undoable: boolean };
+    }>;
+    expect(listed[0]?.lastRewind).toMatchObject({ rewindId: answer.rewindId, undoable: true });
+  });
+
+  it('asks, with no terminal to answer, stops at its question, exit 2, having written nothing', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const { code, stderr } = await h.run('rewind', '--org', 'DEV-SB', '--accept-automation');
+
+    expect(code).toBe(2);
+    expect(stderr).toContain("Rewind DEV-SB to 'Before UAT': it deletes the 1 record(s) created");
+    expect(stderr).toContain('Type DEV-SB to rewind it:');
+    expect(stderr).toContain('give --yes');
+    expect(stateOf(h.org)).toEqual(before);
+    expect(h.org.updates).toEqual([]);
+    expect(journalsOf(h, checkpoint)).toEqual([]);
+  });
+
+  it('refuses --yes without a checkpoint named, exit 2, before the org is reached', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const connected = h.connected.length;
+
+    for (const line of [
+      ['rewind', '--org', 'DEV-SB', '--yes'],
+      ['rewind', '--org', 'DEV-SB', '--checkpoint', 'latest', '--yes'],
+      ['undo', '--org', 'DEV-SB', '--yes'],
+    ]) {
+      const { code, stdout, stderr } = await h.run(...line);
+      expect(code, line.join(' ')).toBe(2);
+      expect(stdout).toBe('');
+      expect(stderr).toContain('--yes needs');
+    }
+    expect(h.connected.length).toBe(connected);
+  });
+
+  it('refuses, before its question, a rewind whose writes fire automation the org will not say, without --accept-automation: exit 1, nothing written', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const { code, stdout } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({
+      refusal: {
+        code: 'AUTOMATION',
+        message:
+          'DEV-SB: what runs as the rewind writes could not all be read, so automation may run. ' +
+          'Rewind refused; give --accept-automation to rewind all the same. No record was written.',
+      },
+    });
+    expect(stateOf(h.org)).toEqual(before);
+    expect(journalsOf(h, checkpoint)).toEqual([]);
+  });
+
+  it('previews with --dry-run and stops: exit 0, nothing written, the preview’s JSON', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--dry-run',
+      '--json',
+    );
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      toDelete: 1,
+      toGiveBack: 2,
+      toBringBack: 1,
+      differs: true,
+    });
+    // What a rewind now would meet, said beside the preview.
+    expect(stderr).toContain(
+      'a rewind now would be refused: DEV-SB: what runs as the rewind writes',
+    );
+    expect(stateOf(h.org)).toEqual(before);
+  });
+
+  it('stops comparing a field with --ignore-field from now on, kept in the checkpoint: a difference only there leaves nothing to rewind', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    clock = T0 + 60_000;
+    h.org.edit('Case', id('500', 1), { Subject: 'Touched by a flow' }, COLLEAGUE);
+    clock = T0 + 120_000;
+
+    const { code, stdout } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--ignore-field',
+      'Case.Subject',
+      '--dry-run',
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(
+      "not compared from now on, nor written back: Case.Subject (kept in 'Before UAT')",
+    );
+    expect(stdout).toContain('nothing to rewind');
+    expect((await h.store.read(checkpoint.checkpointId))?.checkpoint?.ignoredFields).toEqual([
+      'Case.Subject',
+    ]);
+  });
+
+  it('exits 3 when records still differ once it read the org again, each said with why', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    h.org.refuseUpdate.set(id('001', 2), {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Name must say who owns it',
+    });
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code).toBe(3);
+    const answer = JSON.parse(stdout) as RewindJson;
+    expect(answer.status).toBe('partial');
+    expect(answer.residual).toContainEqual(
+      expect.objectContaining({ object: 'Account', reason: 'refused', count: 1 }),
+    );
+    expect(stderr).toContain(
+      "DEV-SB is back at 'Before UAT' but for 1 record(s) that still differ",
+    );
+    expect(stderr).toMatch(/ {2}Account 1 — refused: .*Name must say who owns it/);
+  });
+
+  it('exits 4 when someone else changed a record during the rewind, left as they made it', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    h.org.afterUpdate = (objectApiName) => {
+      if (objectApiName !== 'Account') return;
+      h.org.afterUpdate = undefined;
+      h.org.edit('Account', id('001', 1), { Name: 'Changed during the rewind' }, COLLEAGUE);
+    };
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code).toBe(4);
+    const answer = JSON.parse(stdout) as RewindJson;
+    expect(answer).toMatchObject({ status: 'unstable', verify: { stable: false } });
+    expect(answer.residual).toContainEqual(
+      expect.objectContaining({ object: 'Account', reason: 'changedDuringRewind', by: COLLEAGUE }),
+    );
+    expect(stderr).toContain('Someone kept writing to DEV-SB during the rewind');
+    expect(h.org.all('Account').find((row) => row.Id === id('001', 1))?.Name).toBe(
+      'Changed during the rewind',
+    );
+  });
+
+  it('stops at Ctrl-C before its next call to the org, exit 130, leaving its journal; rewind again takes it up and finishes', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    const atCheckpoint = stateOf(h.org);
+    demo(h);
+    h.org.beforeDelete = () => {
+      h.org.beforeDelete = undefined;
+      process.emit('SIGINT');
+    };
+
+    const stopped = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(stopped.code).toBe(130);
+    expect(stopped.stderr).toContain(
+      'interrupted: the rewind stops before its next call to the org',
+    );
+    const first = JSON.parse(stopped.stdout) as RewindJson;
+    expect(first.status).toBe('cancelled');
+    expect(stopped.stderr).toContain("Stopped part way: DEV-SB is between 'Before UAT' and now.");
+    expect(journalsOf(h, checkpoint)).toEqual([first.rewindId]);
+    expect((await h.store.read(checkpoint.checkpointId))?.checkpoint?.lastRewind).toMatchObject({
+      rewindId: first.rewindId,
+    });
+    expect(
+      (await h.store.read(checkpoint.checkpointId))?.checkpoint?.lastRewind?.endedAt,
+    ).toBeUndefined();
+
+    const again = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(again.code, again.stderr).toBe(0);
+    expect(JSON.parse(again.stdout)).toMatchObject({ status: 'success', rewindId: first.rewindId });
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('refuses a production org with the guard’s words, exit 1, writing nothing', async () => {
+    const options: { production?: boolean } = {};
+    const h = harness(options);
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    h.org.edit('Organization', ORG_ID, { OrganizationType: 'Enterprise Edition' });
+    options.production = true;
+    const before = stateOf(h.org);
+
+    const { code, stdout } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code).toBe(1);
+    expect((JSON.parse(stdout) as { refusal: { code: string } }).refusal.code).toBe('PRODUCTION');
+    expect(stateOf(h.org)).toEqual(before);
+    expect(h.org.updates).toEqual([]);
+  });
+});
+
+describe('sandforge-checkpoint undo', () => {
+  it('takes the org’s last rewind back, by the checkpoint it went back to: exit 0, the org as before the rewind; then has nothing left to undo', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const beforeRewind = stateOf(h.org);
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(0);
+    const { rewindId } = JSON.parse(rewound.stdout) as RewindJson;
+    clock += 60_000;
+
+    const asked = await h.run('undo', '--org', 'DEV-SB');
+    expect(asked.code).toBe(2);
+    expect(asked.stdout).toContain(
+      `undo the rewind ${rewindId} of DEV-SB to 'Before UAT' (open until `,
+    );
+    expect(asked.stdout).toContain('it brings back 1 record(s) the rewind deleted');
+    // The question, on stderr, then where it stops with no terminal to answer it.
+    expect(asked.stderr).toContain('Type DEV-SB to undo its rewind:');
+    expect(asked.stderr).toContain('give --yes');
+
+    const { code, stdout, stderr } = await h.run(
+      'undo',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      checkpoint.checkpointId,
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code, stderr).toBe(0);
+    expect(stateOf(h.org).live).toEqual(beforeRewind.live);
+    const answer = JSON.parse(stdout) as RewindJson & Record<string, unknown>;
+    expect(answer).toMatchObject({ rewindId, status: 'success', residual: [] });
+    expect(answer).not.toHaveProperty('cannotUndo');
+    expect(answer).not.toHaveProperty('undo');
+    expect(stderr).toContain("DEV-SB is back as it was before its rewind to 'Before UAT'.");
+    expect((await h.store.read(checkpoint.checkpointId))?.checkpoint?.lastRewind?.undoneAt).toEqual(
+      expect.any(String),
+    );
+
+    const again = await h.run('undo', '--org', 'DEV-SB', '--json');
+    expect(again.code).toBe(1);
+    expect(JSON.parse(again.stdout)).toMatchObject({ refusal: { code: 'NOT_FOUND' } });
   });
 });

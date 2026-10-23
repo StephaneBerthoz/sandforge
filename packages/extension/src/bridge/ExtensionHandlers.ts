@@ -454,6 +454,15 @@ export class ExtensionHandlers {
   }
 
   /**
+   * Rewind from the preview the Checkpoints handler answered, as it read the
+   * org, rather than from a fresh read: a command line shows the preview and
+   * rewinds in the same command.
+   */
+  rewindCheckpointsFromPreviewsAnswered(): void {
+    this.checkpointHandler.rewindFromPreviewsAnswered();
+  }
+
+  /**
    * How many checkpoints this machine keeps of the org a refreshed sandbox
    * was before the refresh: the notice of the refresh names them.
    */
@@ -998,6 +1007,8 @@ export class ExtensionHandlers {
         'checkpoint:scope',
         'checkpoint:take',
         'checkpoint:preview',
+        'checkpoint:rewind',
+        'checkpoint:undo',
         'checkpoint:delete',
         'checkpoint:keep',
         'checkpoint:rename',

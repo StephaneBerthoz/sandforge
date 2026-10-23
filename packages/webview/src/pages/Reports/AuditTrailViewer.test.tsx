@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { AuditTrailViewer } from './AuditTrailViewer';
-import type { AuditLogEntry } from '@sandforge/shared';
+import type { AuditAction, AuditLogEntry } from '@sandforge/shared';
+import en from '../../i18n/locales/en.json';
 
 const entries: AuditLogEntry[] = [
   {
@@ -529,5 +530,45 @@ describe('AuditTrailViewer', () => {
 
     rerender(<AuditTrailViewer entries={entries} />);
     expect(screen.queryByTestId('audit-export-csv')).toBeNull();
+  });
+});
+
+/** Every action the audit trail records: an action added to the type without a label here fails to compile. */
+const EVERY_ACTION: Readonly<Record<AuditAction, true>> = {
+  org_connect: true,
+  org_disconnect: true,
+  seed_execute: true,
+  sync_execute: true,
+  backup_create: true,
+  backup_restore: true,
+  anonymize_execute: true,
+  delete_execute: true,
+  compare_execute: true,
+  pipeline_run: true,
+  pipeline_approval: true,
+  settings_change: true,
+  template_create: true,
+  template_update: true,
+  template_delete: true,
+  forge_execute: true,
+  forge_verify: true,
+  forge_rehearse: true,
+  seed_csv_import: true,
+  seed_clone: true,
+  autopilot_execute: true,
+  frozen_load: true,
+  metadata_deploy: true,
+  realtime_sync: true,
+  subject_erase: true,
+  cleanup_delete: true,
+  checkpoint_rewind: true,
+  checkpoint_undo: true,
+};
+
+describe('audit action labels', () => {
+  it('names every action the audit trail records, so none shows as its raw key', () => {
+    const labels: Record<string, string> = en.reports.auditActions;
+    const unlabelled = Object.keys(EVERY_ACTION).filter((action) => !(action in labels));
+    expect(unlabelled).toEqual([]);
   });
 });

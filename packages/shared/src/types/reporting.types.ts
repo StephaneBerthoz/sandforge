@@ -44,7 +44,9 @@ export type AuditAction =
   | 'metadata_deploy'
   | 'realtime_sync'
   | 'subject_erase'
-  | 'cleanup_delete';
+  | 'cleanup_delete'
+  | 'checkpoint_rewind'
+  | 'checkpoint_undo';
 
 /**
  * How a recorded run ended. `stopped` is a run stopped before it wrote

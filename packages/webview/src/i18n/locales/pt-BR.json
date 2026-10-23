@@ -2404,7 +2404,9 @@
       "realtime_sync": "Sincronização em tempo real",
       "subject_erase": "Apagamento por solicitação de titular",
       "cleanup_delete": "Exclusão de limpeza",
-      "pipeline_approval": "Aprovação de pipeline"
+      "pipeline_approval": "Aprovação de pipeline",
+      "checkpoint_rewind": "Retrocesso a um ponto de verificação",
+      "checkpoint_undo": "Desfazer um retrocesso"
     },
     "filterByAction": "Filtrar por ação",
     "filterByModule": "Filtrar por módulo",

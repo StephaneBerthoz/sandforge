@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * sandforge-checkpoint — take a checkpoint of an org's data, list the
- * checkpoints kept, preview what a rewind to one would do, and delete them,
- * without the editor.
+ * checkpoints kept, preview what a rewind to one would do, rewind the org to
+ * one and undo that rewind, and delete them, without the editor.
  *
  * Every command goes through the extension's own composition (`panelHost.ts`):
  * the Checkpoints page's requests, answered by the handler the page talks to,
@@ -13,9 +13,14 @@
  * org's checkpoints are told by the alias or username each was taken under,
  * and by the Organization Id they are filed under, so a scratch org that has
  * expired, whose alias no longer reaches it, still lists its checkpoints and
- * has them deleted. `take` and `preview` reach the org through the `sf` CLI's
- * session. A production org is refused by the checkpoint's own guard, before
- * any record is read, and no flag lifts it.
+ * has them deleted. `take`, `preview`, `rewind` and `undo` reach the org
+ * through the `sf` CLI's session. A production org is refused by the
+ * checkpoint's own guard, before any record is read, and no flag lifts it.
+ *
+ * `rewind` shows the preview, asks, then rewinds from that same preview, as
+ * it read the org: what changed since it read is left as it is and named. A
+ * rewind or an undo that does not ask (`--yes`) names its checkpoint: `latest`
+ * could be one taken since by someone else.
  *
  * The host keeps nothing of its own past the command: its config store is a
  * folder of the system's temp directory made for the run, its owner's alone,
@@ -24,6 +29,7 @@
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts take --org DEV --name baseline
  *   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts preview --org DEV --fail-on-change
+ *   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts rewind --org DEV --checkpoint baseline --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts list
  *
  * Run from the repository root of a checkout, after pnpm install and
@@ -34,7 +40,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  blindedBy,
   checkpointIdSchema,
+  checkpointIgnoredFieldsSchema,
+  firedOnRemovalStepsOf,
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointListEntry,
@@ -43,17 +52,21 @@ import {
   type CheckpointScopeMode,
   type CheckpointScopeObject,
   type CheckpointTakeRequests,
+  type ForgeRemovalSteps,
   type ForgeTargetAutomation,
   type OrgCheckpoint,
   type RewindDiff,
   type RewindDiffObject,
+  type RewindResidual,
+  type RewindResult,
+  type RewindStatus,
   type SalesforceOrg,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
 import type { PanelAnswer, PanelHost, PanelHostOptions, PostedMessage } from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
-import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
-import { confirm } from './prompt.js';
+import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, endWith } from './exitCodes.js';
+import { confirm, typed } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { checkpointTakePayloadSchema } from '../src/bridge/validatePayload.js';
 import type { InfraServices } from '../src/bridge/handlers/HandlerTypes.js';
@@ -64,10 +77,12 @@ import {
   openCheckpointStore,
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
+import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
+import { readRewindJournal, undoPlans } from '../src/modules/checkpoint/rewindJournal.js';
 import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 
-const HELP = `sandforge-checkpoint — take a checkpoint of an org's data, and see what a rewind to it would do, without the editor.
+const HELP = `sandforge-checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts <command> --org <alias> [options]
@@ -77,6 +92,13 @@ Commands:
   list      name the checkpoints kept, newest first, with what a rewind and an undo can still reach
   preview   say what a rewind would delete, give back and bring back, who last changed it, and what
             it and an undo cannot take back; writes nothing
+  rewind    return the org to a checkpoint: bring back from the recycle bin the records deleted
+            since, give the records changed since their values back, delete the records created
+            since — whoever made the changes; keep what it changes so it can be undone; then read
+            the org again
+  undo      take back the org's last rewind: bring back what it deleted, give back what it wrote
+            over, send back to the bin what it brought back; what anyone changed since the rewind
+            stays, and is said
   delete    delete a checkpoint from this machine; the org is not touched
 
 Required:
@@ -92,10 +114,27 @@ take:
   --max-total <n>                refuse, before reading, more than <n> records (default: ${DEFAULT_MAX_TOTAL})
   --keep-days <n>                when it expires (default: ${DEFAULT_KEEP_DAYS}; 0 keeps it until deleted)
   --estimate                     say the records, API requests, time and disk it would take, then stop
-preview, delete:
-  --checkpoint <id|name|latest>  which one (default: latest)
+preview, rewind, undo, delete:
+  --checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went
+                                 back to; rewind and undo with --yes need it named, by id or name)
 preview:
   --fail-on-change               exit 3 when the org differs from the checkpoint
+rewind:
+  --dry-run                      the preview, then stop
+  --accept-automation            rewind even when the org runs flows, Apex triggers, processes or
+                                 workflow rules as records are updated, deleted or brought back;
+                                 without it such a rewind writes nothing, exit 1
+  --accept-no-undo               rewind even when undo could not bring back some records it deletes
+                                 (objects Salesforce undeletes only with their parent, such as
+                                 OpportunityLineItem); without it such a rewind writes nothing, exit 1
+  --accept-outside               (a checkpoint of picked objects) also delete the records outside it
+                                 created under records it deletes; without it those parents stay
+  --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
+  --yes                          do not ask before writing; without it and with no terminal — a CI
+                                 step — it stops at its question, exit 2, having written nothing
+undo:
+  --accept-automation            as for rewind
+  --yes                          as for rewind
 delete:
   --all                          every checkpoint of the org
   --yes                          do not ask
@@ -112,13 +151,21 @@ in files only you can read (on Windows: in your user profile). Expired checkpoin
 any command starts, each named.
 list and delete read this machine alone and never contact the org. An org's checkpoints are the
 ones taken under its alias or username, and the others kept of the same Organization Id.
+rewind shows its preview and asks you to type the org's alias before it writes, then rewinds from
+that preview as it read the org: a record someone changes after it read is left as they made it,
+and said. A take, a rewind or an undo of the org under way on this machine, in the editor or in
+another command line, refuses a rewind and an undo; other runs writing to the org are not seen
+here, and what one of them changes after the preview read the org is left and said the same way.
 Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once,
-and leaves a checkpoint listed as never taken, which delete removes.
+and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stops a rewind or an
+undo before its next call to the org, and leaves its journal: rewind again takes up from what still
+differs, and undo still returns the org to how it was before the rewind.
 
-What a rewind cannot undo, said by preview: a record deleted since and no longer in the recycle
-bin; the values the org computes or keeps itself (formulas, roll-ups, auto-numbers, created and
-modified dates); a field added or removed since; a lead converted since; an activated contract;
-what left the org (emails, callouts, outbound messages, platform events); metadata; files.
+What a rewind cannot undo, said by preview and counted by rewind: a record deleted since and no
+longer in the recycle bin; the values the org computes or keeps itself (formulas, roll-ups,
+auto-numbers, created and modified dates); a field added or removed since; a lead converted since;
+an activated contract; what left the org (emails, callouts, outbound messages, platform events);
+metadata; files.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -135,25 +182,41 @@ JSON (--json), one value on stdout:
                       differs, diff, estimate, automation?, refusal?}: diff, estimate, automation
                      and refusal as the extension answers them; refusal is the one a rewind would
                      meet now
+  rewind --dry-run   as preview
+  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
+                      broughtBack (each {planned, done, left}), cannotUndo: [{object, reason,
+                      count}], undo?: {until, cannot: [{object, count}]}, verify: {differences,
+                      stable, passes, notCompared}, residual: [{object, reason, by?, count,
+                      message?}], unread: [{object, reason}], objects: [{object, deleted,
+                      givenBack, broughtBack, refused}], apiRequests: {used, leftToday}, result}:
+                     status success, partial, unstable, failure or cancelled; result as the
+                     extension answers it
+  undo               as rewind, without cannotUndo and undo
   delete             {deleted: [id], kept: [id]}
   refused or failed  {refusal: {code, message}}
   A bad command line (exit 2) prints nothing on stdout.
 
-Exit codes: 0 done (take: every record of its objects is kept; preview and list answered; delete:
-every checkpoint named is deleted); 1 refused before it read or wrote (a production org, missing
-permissions, more than --max-total records, more API requests than the org has left today, a
-checkpoint of the org before a refresh or of an expired scratch org, a SandForge run writing to
-it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints have, or a
-question with no terminal (give --yes); 3 with --fail-on-change, the org differs (records to
-delete, give back or bring back, records the rewind cannot take back or the checkpoint does not
-hold although they are dated before it, an object that could not be read); delete: some were
-kept, each said with why; 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it.
+Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
+org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
+delete: every checkpoint named is deleted); 1 refused before it read or wrote (a production org,
+missing permissions, automation without --accept-automation, deletions undo could not bring back
+without --accept-no-undo, more than --max-total records, more API requests than the org has left
+today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge run
+writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
+have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
+--yes); 3 partial (rewind and undo: records still differ, each said with why; with
+--fail-on-change, the org differs: records to delete, give back or bring back, records the rewind
+cannot take back or the checkpoint does not hold although they are dated before it, an object that
+could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
+records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
+SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches
+the state before it.
 `;
 
 // ─── The command line ────────────────────────────────────────────────────────
 
 /** What the tool does, as its first word names it. */
-const COMMANDS = ['take', 'list', 'preview', 'delete'] as const;
+const COMMANDS = ['take', 'list', 'preview', 'rewind', 'undo', 'delete'] as const;
 type Command = (typeof COMMANDS)[number];
 
 const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
@@ -183,6 +246,23 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   preview: {
     words: 1,
     switches: [...COMMON.switches, '--fail-on-change'],
+    values: [...COMMON.values, '--checkpoint'],
+  },
+  rewind: {
+    words: 1,
+    switches: [
+      ...COMMON.switches,
+      '--dry-run',
+      '--accept-automation',
+      '--accept-no-undo',
+      '--accept-outside',
+      '--yes',
+    ],
+    values: [...COMMON.values, '--checkpoint', '--ignore-field'],
+  },
+  undo: {
+    words: 1,
+    switches: [...COMMON.switches, '--accept-automation', '--yes'],
     values: [...COMMON.values, '--checkpoint'],
   },
   delete: {
@@ -225,6 +305,26 @@ export type CliArgs =
   | (CommonArgs & { command: 'list'; org?: string })
   | (CommonArgs & { command: 'preview'; org: string; checkpoint: string; failOnChange: boolean })
   | (CommonArgs & {
+      command: 'rewind';
+      org: string;
+      checkpoint: string;
+      dryRun: boolean;
+      acceptAutomation: boolean;
+      acceptNoUndo: boolean;
+      acceptOutside: boolean;
+      /** Fields, `Object.Field`, to stop comparing from now on. */
+      ignoreFields: string[];
+      yes: boolean;
+    })
+  | (CommonArgs & {
+      command: 'undo';
+      org: string;
+      /** Absent: the checkpoint the org's last rewind went back to. */
+      checkpoint?: string;
+      acceptAutomation: boolean;
+      yes: boolean;
+    })
+  | (CommonArgs & {
       command: 'delete';
       org: string;
       /** Absent with --all. */
@@ -259,12 +359,14 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   }
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
-    return refuseLine('Name the command first: take, list, preview or delete. Run with --help.');
+    return refuseLine(
+      'Name the command first: take, list, preview, rewind, undo or delete. Run with --help.',
+    );
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-checkpoint: take, list, preview or delete. ` +
-        'Nothing was run. Run with --help.',
+      `"${command}" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo ` +
+        'or delete. Nothing was run. Run with --help.',
     );
   }
   // A misspelt flag, or `--org=ALIAS`, would be dropped without a word.
@@ -302,6 +404,23 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   };
   const org = single('--org');
   const orgNamed = (): string => org ?? refuseLine(`${command} needs --org. Run with --help.`);
+  // A rewind or an undo that does not ask is told which checkpoint it acts
+  // on: `latest` could be one taken since, by someone else.
+  const namedForYes = (checkpoint: string | undefined): void => {
+    if (!args.includes('--yes')) return;
+    if (checkpoint === undefined) {
+      refuseLine(
+        `${command} --yes needs --checkpoint <id|name>: one that does not ask is told which ` +
+          'checkpoint it acts on. Nothing was run.',
+      );
+    }
+    if (checkpoint === 'latest') {
+      refuseLine(
+        `${command} --yes needs the checkpoint named by its id or its name, not latest: a ` +
+          'checkpoint taken since would be the one it acts on. Nothing was run.',
+      );
+    }
+  };
 
   switch (command) {
     case 'list':
@@ -346,6 +465,43 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         checkpoint: single('--checkpoint') ?? 'latest',
         failOnChange: args.includes('--fail-on-change'),
       };
+    case 'rewind': {
+      const named = orgNamed();
+      const checkpoint = single('--checkpoint');
+      namedForYes(checkpoint);
+      const ignoreFields = values('--ignore-field');
+      const checked = checkpointIgnoredFieldsSchema.safeParse(ignoreFields);
+      if (!checked.success) {
+        return refuseLine(
+          `--ignore-field: ${checked.error.issues[0]?.message ?? 'not read'}. Nothing was run.`,
+        );
+      }
+      return {
+        ...common,
+        command,
+        org: named,
+        checkpoint: checkpoint ?? 'latest',
+        dryRun: args.includes('--dry-run'),
+        acceptAutomation: args.includes('--accept-automation'),
+        acceptNoUndo: args.includes('--accept-no-undo'),
+        acceptOutside: args.includes('--accept-outside'),
+        ignoreFields,
+        yes: args.includes('--yes'),
+      };
+    }
+    case 'undo': {
+      const named = orgNamed();
+      const checkpoint = single('--checkpoint');
+      namedForYes(checkpoint);
+      return {
+        ...common,
+        command,
+        org: named,
+        ...(checkpoint !== undefined ? { checkpoint } : {}),
+        acceptAutomation: args.includes('--accept-automation'),
+        yes: args.includes('--yes'),
+      };
+    }
     case 'delete': {
       const named = orgNamed();
       const checkpoint = single('--checkpoint');
@@ -978,6 +1134,416 @@ export function previewExitCode(
   return failOnChange && orgDiffers(diff) ? PARTIAL_EXIT : DONE_EXIT;
 }
 
+// ─── What a rewind and an undo say, and how they end the command ─────────────
+
+/**
+ * The objects whose records each step of a rewind writes, as its preview
+ * counts them: brought back, given back, deleted — an order activated since
+ * set back to Draft first, which the platform deletes no other way.
+ */
+export function rewindStepsOf(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
+  const deleted = diff.objects.filter((o) => toDeleteOf(o) > 0).map((o) => o.objectApiName);
+  return {
+    bringBack: diff.objects.filter((o) => toBringBackOf(o) > 0).map((o) => o.objectApiName),
+    giveBack: diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
+    setToDraft: deleted.filter((name) => name === 'Order'),
+    delete: deleted,
+  };
+}
+
+/** What a rewind is told it may do, by its flags. */
+export interface RewindAccepted {
+  acceptAutomation: boolean;
+  acceptNoUndo: boolean;
+}
+
+/**
+ * The refusal a rewind of what `answer` previewed would meet before it
+ * writes, for want of a flag: deletions Undo couldn't bring back without
+ * `--accept-no-undo`, automation its writes fire — or that could not all be
+ * read — without `--accept-automation`. Said before the question, as the page
+ * holds its button until the box is ticked; the rewind itself refuses the
+ * same, whatever this says.
+ */
+export function acceptanceRefusal(
+  orgName: string,
+  answer: Pick<PreviewAnswer, 'diff' | 'automation'>,
+  accepted: RewindAccepted,
+): CheckpointRefusalLike | undefined {
+  const { diff, automation } = answer;
+  if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
+    const records = diff.undoCannot.reduce((total, u) => total + u.count, 0);
+    const objects = diff.undoCannot.map((u) => u.objectApiName).join(', ');
+    return {
+      code: 'NO_UNDO',
+      message:
+        `Undo couldn't bring back ${count(records)} ${objects} record(s) this rewind deletes: ` +
+        'Salesforce undeletes them only with their parent, which stays. Rewind refused; give ' +
+        '--accept-no-undo to rewind all the same. No record was written.',
+    };
+  }
+  if (!automation || accepted.acceptAutomation) return undefined;
+  const fired = firedOnRemovalStepsOf(automation, rewindStepsOf(diff));
+  if (fired.length === 0 && !blindedBy(automation.unread)) return undefined;
+  const objects = [...new Set(fired.map((each) => each.objectApiName))];
+  const what =
+    fired.length > 0
+      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
+        'rewind brings records back, gives them their values back or deletes them'
+      : 'what runs as the rewind writes could not all be read, so automation may run';
+  return {
+    code: 'AUTOMATION',
+    message:
+      `${orgName}: ${what}. Rewind refused; give --accept-automation to rewind all the same. ` +
+      'No record was written.',
+  };
+}
+
+/** The question a rewind asks before it writes: what it does, typed as the page asks it. */
+export function rewindQuestion(
+  orgName: string,
+  checkpoint: Pick<OrgCheckpoint, 'name' | 'takenAt'>,
+  diff: Pick<RewindDiff, 'objects'>,
+): string {
+  const totals = previewTotals(diff);
+  return (
+    `Rewind ${orgName} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
+    `record(s) created since ${when(checkpoint.takenAt)}, gives ${count(totals.toGiveBack)} ` +
+    `record(s) their values from then back, and brings back ${count(totals.toBringBack)} ` +
+    'record(s) from the recycle bin — whoever made these changes. What it changes is kept, so ' +
+    `it can be undone. Type ${orgName} to rewind it:`
+  );
+}
+
+/** Planned, done and left of one brick's work, summed over its objects. */
+interface Tally {
+  planned: number;
+  done: number;
+  left: number;
+}
+
+const sumOf = <T>(rows: readonly T[], of: (row: T) => number): number =>
+  rows.reduce((total, row) => total + of(row), 0);
+
+/** What a rewind or an undo deleted, gave back and brought back, all objects together. */
+function talliesOf(result: Pick<RewindResult, 'deleted' | 'restored' | 'undeleted'>): {
+  deleted: Tally;
+  givenBack: Tally;
+  broughtBack: Tally;
+} {
+  const deletedDone = sumOf(result.deleted, (o) => o.deleted);
+  const deletedPlanned = sumOf(result.deleted, (o) => o.planned);
+  const givenDone = sumOf(result.restored, (o) => o.restored + (o.restoredWithout ?? 0));
+  const givenPlanned = sumOf(result.restored, (o) => o.planned);
+  const backDone = sumOf(result.undeleted, (o) => o.undeleted + o.alreadyBack);
+  const backPlanned = sumOf(result.undeleted, (o) => o.planned);
+  return {
+    deleted: {
+      planned: deletedPlanned,
+      done: deletedDone,
+      left: Math.max(0, deletedPlanned - deletedDone - sumOf(result.deleted, (o) => o.alreadyGone)),
+    },
+    givenBack: {
+      planned: givenPlanned,
+      done: givenDone,
+      left: Math.max(0, givenPlanned - givenDone - sumOf(result.restored, (o) => o.alreadyGone)),
+    },
+    broughtBack: {
+      planned: backPlanned,
+      done: backDone,
+      left: Math.max(0, backPlanned - backDone),
+    },
+  };
+}
+
+/** A user, by the name the preview read for them, else by their id. */
+function userOf(userId: string | undefined, names: Readonly<Record<string, string>>): string {
+  if (userId === undefined) return 'another user';
+  return names[userId] ?? userId;
+}
+
+/** Why a record still differs once a rewind or an undo read the org again, as a person reads it. */
+function residualWords(
+  act: 'rewind' | 'undo',
+  residual: RewindResidual,
+  names: Readonly<Record<string, string>>,
+): string {
+  switch (residual.reason) {
+    case 'automation':
+      return act === 'rewind'
+        ? 'kept by your automation, which sets them again on save: rewind --ignore-field ' +
+            '<Object.Field> stops comparing such a field'
+        : 'set again on save by your automation, since the undo gave them back their values';
+    case 'changedDuringRewind':
+      return `changed during the ${act} by ${userOf(residual.by, names)}: left as they made them`;
+    case 'changedSincePreview':
+      return 'changed since the preview: rewind again to take them';
+    case 'refused':
+      return `refused: ${residual.message ?? 'the org gave no reason'}`;
+    case 'goneForGood':
+      return "deleted since and no longer in the recycle bin: they can't come back with their Id";
+    case 'kept':
+      return residual.message ?? 'kept as they are';
+  }
+}
+
+/** The lines a rewind prints once it answered, stopped part way included. */
+export function rewindLines(
+  orgName: string,
+  checkpoint: Pick<OrgCheckpoint, 'checkpointId' | 'name'>,
+  result: RewindResult,
+  names: Readonly<Record<string, string>> = {},
+): string[] {
+  const differing = sumOf(result.residual, (r) => r.count);
+  const others = result.residual.filter((r) => r.reason === 'changedDuringRewind');
+  const head: Record<RewindStatus, string> = {
+    success:
+      `${orgName} is back at '${checkpoint.name}': read again, nothing differs among the ` +
+      'objects and fields it holds.',
+    partial:
+      `${orgName} is back at '${checkpoint.name}' but for ${count(differing)} record(s) that ` +
+      'still differ, each said with why:',
+    unstable:
+      `Someone kept writing to ${orgName} during the rewind: ` +
+      `${[...new Set(others.map((r) => userOf(r.by, names)))].join(', ')} changed ` +
+      `${count(sumOf(others, (r) => r.count))} record(s), left as they made them. Rewind again ` +
+      'once they have stopped.',
+    failure:
+      `Nothing of the rewind of ${orgName} to '${checkpoint.name}' went through: what still ` +
+      'differs is said with why:',
+    cancelled:
+      `Stopped part way: ${orgName} is between '${checkpoint.name}' and now. Rewind again to ` +
+      `finish: it takes up from what still differs, and undo still returns ${orgName} to how it ` +
+      'was before the rewind.',
+  };
+  const tallies = talliesOf(result);
+  const cameBack = sumOf(result.undeleted, (o) => o.alreadyBack);
+  const lines = [head[result.status]];
+  if (tallies.deleted.done > 0) {
+    lines.push(
+      `  deleted ${count(tallies.deleted.done)} record(s) created since the checkpoint (in the ` +
+        'recycle bin for up to 15 days)',
+    );
+  }
+  if (tallies.givenBack.done > 0) {
+    lines.push(`  gave ${count(tallies.givenBack.done)} record(s) back their checkpoint values`);
+  }
+  if (tallies.broughtBack.done > 0) {
+    lines.push(
+      `  brought back ${count(tallies.broughtBack.done - cameBack)} record(s) deleted since the ` +
+        'checkpoint, with their original Ids' +
+        (cameBack > 0 ? `, and ${count(cameBack)} that came back with them` : ''),
+    );
+  }
+  lines.push(...followingLines('rewind', result, names));
+  if (result.undo) {
+    lines.push(
+      `  undo it until ${when(result.undo.until)}, sooner if the recycle bin fills: undo ` +
+        `--org ${orgName} --checkpoint ${checkpoint.checkpointId}`,
+    );
+    if (result.undo.cannot.length > 0) {
+      lines.push(
+        `  undo couldn't bring back: ${someOf(
+          result.undo.cannot.map((u) => `${u.objectApiName} ${count(u.count)}`),
+        )} — Salesforce undeletes them only with their parent`,
+      );
+    }
+  }
+  lines.push(requestsUsedLine(result));
+  return lines;
+}
+
+/** The lines an undo prints once it answered, stopped part way included. */
+export function undoLines(
+  orgName: string,
+  checkpoint: Pick<OrgCheckpoint, 'name'>,
+  result: RewindResult,
+): string[] {
+  const kept =
+    sumOf(result.restored, (o) => o.keptChanged) + sumOf(result.deleted, (o) => o.keptChanged);
+  const refused = sumOf(
+    [...result.deleted, ...result.restored, ...result.undeleted],
+    (o) => o.refused,
+  );
+  const differing = sumOf(result.residual, (r) => r.count) + refused;
+  const back = `${orgName} is back as it was before its rewind to '${checkpoint.name}'`;
+  const head: Record<RewindStatus, string> = {
+    success: `${back}.`,
+    partial:
+      kept > 0 && differing === 0
+        ? `${back}, except ${count(kept)} record(s) changed since the rewind, left as they are now.`
+        : `${back}, except ${count(differing + kept)} record(s), each said with why:`,
+    unstable:
+      `Someone changed records of ${orgName} during the undo: left as they made them, each said ` +
+      'below.',
+    failure: `Nothing of the undo of ${orgName}'s rewind went through: its reasons are said below.`,
+    cancelled:
+      `Stopped part way: ${orgName} is between the rewind and how it was before it. Undo again ` +
+      'to finish: it takes up what this one left.',
+  };
+  const tallies = talliesOf(result);
+  const lines = [head[result.status]];
+  if (tallies.deleted.done > 0) {
+    lines.push(
+      `  sent back to the recycle bin ${count(tallies.deleted.done)} record(s) the rewind brought back`,
+    );
+  }
+  if (tallies.broughtBack.done > 0) {
+    lines.push(`  brought back ${count(tallies.broughtBack.done)} record(s) the rewind deleted`);
+  }
+  if (tallies.givenBack.done > 0) {
+    lines.push(
+      `  gave ${count(tallies.givenBack.done)} record(s) back the values they had before the rewind`,
+    );
+  }
+  if (kept > 0) {
+    lines.push(
+      `  kept ${count(kept)} record(s) changed since the rewind: undo leaves them as they are now`,
+    );
+  }
+  lines.push(...followingLines('undo', result, {}));
+  lines.push(requestsUsedLine(result));
+  return lines;
+}
+
+/** What still differs and why, what was refused, and what could not be read again. */
+function followingLines(
+  act: 'rewind' | 'undo',
+  result: RewindResult,
+  names: Readonly<Record<string, string>>,
+): string[] {
+  const lines = result.residual.map(
+    (r) => `  ${r.objectApiName} ${count(r.count)} — ${residualWords(act, r, names)}`,
+  );
+  // An undo names no residual for what the org refused it: its bricks say why.
+  if (act === 'undo') {
+    for (const object of [...result.deleted, ...result.restored, ...result.undeleted]) {
+      if (object.refused === 0) continue;
+      lines.push(
+        `  ${object.objectApiName} ${count(object.refused)} — refused: ` +
+          `${object.reasons[0] ?? 'the org gave no reason'}`,
+      );
+    }
+  }
+  for (const unread of result.unread ?? []) {
+    lines.push(
+      `  could not be read again: ${unread.objectApiName} — ${unread.reason} (never taken for ` +
+        'unchanged)',
+    );
+  }
+  return lines;
+}
+
+/** The line of what a rewind or an undo sent the org. */
+function requestsUsedLine(result: Pick<RewindResult, 'apiRequests'>): string {
+  return (
+    `  sent ${count(result.apiRequests.used)} API requests to the org; ` +
+    `${count(result.apiRequests.leftToday)} left today`
+  );
+}
+
+/** What `rewind --json` and `undo --json` print: see the help. */
+export function resultJson(
+  act: 'rewind' | 'undo',
+  orgName: string,
+  checkpoint: Pick<OrgCheckpoint, 'checkpointId' | 'name' | 'takenAt' | 'ignoredFields'>,
+  result: RewindResult,
+  diff?: Pick<RewindDiff, 'objects'>,
+): Record<string, unknown> {
+  const objects = new Map<
+    string,
+    { object: string; deleted: number; givenBack: number; broughtBack: number; refused: number }
+  >();
+  const of = (name: string) => {
+    let row = objects.get(name);
+    if (!row) {
+      row = { object: name, deleted: 0, givenBack: 0, broughtBack: 0, refused: 0 };
+      objects.set(name, row);
+    }
+    return row;
+  };
+  for (const o of result.deleted) {
+    of(o.objectApiName).deleted += o.deleted;
+    of(o.objectApiName).refused += o.refused;
+  }
+  for (const o of result.restored) {
+    of(o.objectApiName).givenBack += o.restored + (o.restoredWithout ?? 0);
+    of(o.objectApiName).refused += o.refused;
+  }
+  for (const o of result.undeleted) {
+    of(o.objectApiName).broughtBack += o.undeleted + o.alreadyBack;
+    of(o.objectApiName).refused += o.refused;
+  }
+  const unread = (result.unread ?? []).map((u) => ({ object: u.objectApiName, reason: u.reason }));
+  return {
+    checkpoint: {
+      id: checkpoint.checkpointId,
+      name: checkpoint.name,
+      takenAt: checkpoint.takenAt,
+      org: orgName,
+    },
+    rewindId: result.rewindId,
+    status: result.status,
+    ...talliesOf(result),
+    ...(act === 'rewind'
+      ? {
+          cannotUndo: (diff?.objects ?? []).flatMap((o) =>
+            o.cannotUndo
+              .filter((line) => line.count > 0)
+              .map((line) => ({ object: o.objectApiName, reason: line.reason, count: line.count })),
+          ),
+        }
+      : {}),
+    ...(result.undo
+      ? {
+          undo: {
+            until: result.undo.until,
+            cannot: result.undo.cannot.map((u) => ({ object: u.objectApiName, count: u.count })),
+          },
+        }
+      : {}),
+    verify: {
+      differences: sumOf(result.residual, (r) => r.count) + unread.length,
+      stable: result.status !== 'unstable',
+      passes: result.passes,
+      notCompared: [...checkpoint.ignoredFields],
+    },
+    residual: result.residual.map((r) => ({
+      object: r.objectApiName,
+      reason: r.reason,
+      ...(r.by !== undefined ? { by: r.by } : {}),
+      count: r.count,
+      ...(r.message !== undefined ? { message: r.message } : {}),
+    })),
+    unread,
+    objects: [...objects.values()],
+    apiRequests: result.apiRequests,
+    result,
+  };
+}
+
+/**
+ * The exit code of a rewind or an undo, from how it ended: 0 when the org
+ * reads as the checkpoint — or as before the rewind — among what it compares,
+ * 3 when records still differ, 4 when someone else changed records during
+ * it, 1 when nothing it set out to write went through; stopped part way, the
+ * code of the signal that stopped it.
+ */
+export function resultExitCode(status: RewindStatus, stoppedBy?: StopSignal): number {
+  switch (status) {
+    case 'success':
+      return DONE_EXIT;
+    case 'partial':
+      return PARTIAL_EXIT;
+    case 'unstable':
+      return UNSTABLE_EXIT;
+    case 'failure':
+      return FAILED_EXIT;
+    case 'cancelled':
+      return stoppedBy !== undefined ? stopExitCode(stoppedBy) : FAILED_EXIT;
+  }
+}
+
 // ─── Running it ──────────────────────────────────────────────────────────────
 
 /** How long the page waits for what a take would hold and cost. */
@@ -1082,6 +1648,8 @@ export async function main(
       },
       compose: (wiring) => {
         wiring.handlers.setCheckpointStore(store);
+        // The rewind acts on the preview this command shows, as it read the org.
+        wiring.handlers.rewindCheckpointsFromPreviewsAnswered();
         // The registry alone: the take is listed in it, and Ctrl-C stops it
         // through it as Live Operations' Cancel does. Nothing else the
         // handlers this command sends to reads the rest of these services.
@@ -1144,18 +1712,7 @@ export async function main(
         if (invalid) throw new Stop(invalid);
         const checkpoint = entry.checkpoint as OrgCheckpoint;
         const org = await connect(args.org);
-        if (!sameOrganization(org.orgId, entry.organizationId)) {
-          const takenUnder = checkpointsOf([entry], args.org).length > 0;
-          throw new Stop({
-            code: 'OTHER_ORG',
-            message: takenUnder
-              ? `${args.org} answers as another org than the one '${checkpoint.name}' was taken ` +
-                'of: a sandbox refreshed since is another org, and this checkpoint can only be ' +
-                'deleted. No record was read.'
-              : `'${checkpoint.name}' is a checkpoint of ${orgOf(checkpoint)}, not of ` +
-                `${args.org}: preview it with --org ${orgOf(checkpoint)}. No record was read.`,
-          });
-        }
+        sameOrgOrStop(org, entry, checkpoint, args.org, 'preview');
         const answer = await host.request({
           type: 'checkpoint:preview',
           payload: { checkpointId: entry.checkpointId },
@@ -1168,6 +1725,13 @@ export async function main(
         for (const line of previewLines(args.org, checkpoint, preview)) say(line);
         answerJson(previewJson(args.org, checkpoint, preview));
         endWith(previewExitCode(preview.diff, args.failOnChange));
+        return;
+      }
+      case 'rewind':
+      case 'undo': {
+        const context: WriteContext = { host, registry, store, listAll, connect, say, answerJson };
+        if (args.command === 'rewind') await rewind(args, context);
+        else await undo(args, context);
         return;
       }
       case 'delete':
@@ -1244,38 +1808,21 @@ async function take(
       'and nothing of it is kept)',
   );
   // Ctrl-C stops the take as Live Operations' Cancel does, between two reads,
-  // and nothing of it is kept. One that comes before the take is listed stops
-  // it as it is listed. A second one ends the process at once.
-  let stopped: StopSignal | undefined;
-  const unlisten = registry.onEvent((operationId, type, operation) => {
-    if (stopped !== undefined && type === 'started' && operation.module === 'checkpoint') {
-      registry.abort(operationId);
-    }
-  });
-  const release = onStopSignal((signal) => {
-    stopped = signal;
-    process.stderr.write(
-      '\ninterrupted: the take stops after the read under way, and keeps nothing (Ctrl-C again ends it at once)\n',
-    );
-    for (const operation of registry.getRunning()) {
-      if (operation.module === 'checkpoint') registry.abort(operation.operationId);
-    }
-  });
-  let answer: PanelAnswer;
-  try {
-    answer = await host.request({
-      type: 'checkpoint:take',
-      payload: { orgId: org.id, ...asked },
-      timeoutMs: TAKE_TIMEOUT_MS,
-    });
-  } finally {
-    release();
-    unlisten();
-  }
+  // and nothing of it is kept.
+  const { answer, stoppedBy } = await stoppable(
+    registry,
+    'the take stops after the read under way, and keeps nothing',
+    () =>
+      host.request({
+        type: 'checkpoint:take',
+        payload: { orgId: org.id, ...asked },
+        timeoutMs: TAKE_TIMEOUT_MS,
+      }),
+  );
   if (answer.outcome !== 'answered') {
     const refusal = refusalOfAnswer(answer, 'The take');
-    if (stopped !== undefined && refusal.code === 'CANCELLED') {
-      throw new Stop(refusal, stopExitCode(stopped));
+    if (stoppedBy !== undefined && refusal.code === 'CANCELLED') {
+      throw new Stop(refusal, stopExitCode(stoppedBy));
     }
     throw new Stop(refusal);
   }
@@ -1363,6 +1910,294 @@ async function remove(
     kept: kept.map((entry) => entry.checkpointId),
   });
   if (kept.length > 0) endWith(deleted.length > 0 ? PARTIAL_EXIT : FAILED_EXIT);
+}
+
+/**
+ * Refuse a checkpoint the org `alias` reaches did not take, before any record
+ * is read: a sandbox refreshed since is another org, and one of another alias
+ * is to be named by that alias.
+ */
+function sameOrgOrStop(
+  org: SalesforceOrg,
+  entry: CheckpointListEntry,
+  checkpoint: OrgCheckpoint,
+  alias: string,
+  act: 'preview' | 'rewind' | 'undo',
+): void {
+  if (sameOrganization(org.orgId, entry.organizationId)) return;
+  const takenUnder = checkpointsOf([entry], alias).length > 0;
+  const verb = act === 'preview' ? 'preview it' : act === 'rewind' ? 'rewind to it' : 'undo it';
+  throw new Stop({
+    code: 'OTHER_ORG',
+    message: takenUnder
+      ? `${alias} answers as another org than the one '${checkpoint.name}' was taken of: a ` +
+        'sandbox refreshed since is another org, and this checkpoint can only be deleted. No ' +
+        'record was read.'
+      : `'${checkpoint.name}' is a checkpoint of ${orgOf(checkpoint)}, not of ${alias}: ` +
+        `${verb} with --org ${orgOf(checkpoint)}. No record was read.`,
+  });
+}
+
+/**
+ * Send `request` as a stop signal stops a take, a rewind or an undo: the
+ * first Ctrl-C, SIGTERM or SIGHUP aborts it through the registry, as Live
+ * Operations' Cancel does, and one that comes before it is listed stops it as
+ * it is listed; a second one ends the process at once.
+ *
+ * @param interrupted - What the stop does, said on stderr.
+ * @returns The answer, and the signal that stopped it, if one did.
+ */
+async function stoppable(
+  registry: BackgroundOperationRegistry,
+  interrupted: string,
+  request: () => Promise<PanelAnswer>,
+): Promise<{ answer: PanelAnswer; stoppedBy?: StopSignal }> {
+  let stopped: StopSignal | undefined;
+  const unlisten = registry.onEvent((operationId, type, operation) => {
+    if (stopped !== undefined && type === 'started' && operation.module === 'checkpoint') {
+      registry.abort(operationId);
+    }
+  });
+  const release = onStopSignal((signal) => {
+    stopped = signal;
+    process.stderr.write(`\ninterrupted: ${interrupted} (Ctrl-C again ends it at once)\n`);
+    for (const operation of registry.getRunning()) {
+      if (operation.module === 'checkpoint') registry.abort(operation.operationId);
+    }
+  });
+  try {
+    const answer = await request();
+    return stopped !== undefined ? { answer, stoppedBy: stopped } : { answer };
+  } finally {
+    release();
+    unlisten();
+  }
+}
+
+/** How long the page waits for a rewind or an undo it started: as long as a write run. */
+const WRITE_TIMEOUT_MS = 12 * 60 * 60_000;
+
+/** What a rewind and an undo are run with, beside their line. */
+interface WriteContext {
+  host: PanelHost;
+  registry: BackgroundOperationRegistry;
+  store: OrgCheckpointStore;
+  listAll: () => Promise<CheckpointListEntry[]>;
+  connect: (alias: string) => Promise<SalesforceOrg>;
+  say: (line: string) => void;
+  answerJson: (value: unknown) => void;
+}
+
+/** The answer a rewind or an undo came back with, as its result, or the stop it ends the command with. */
+function resultOfAnswer(
+  sent: { answer: PanelAnswer; stoppedBy?: StopSignal },
+  what: string,
+): RewindResult {
+  const { answer, stoppedBy } = sent;
+  if (answer.outcome !== 'answered') {
+    const refusal = refusalOfAnswer(answer, what);
+    if (stoppedBy !== undefined && refusal.code === 'CANCELLED') {
+      throw new Stop(refusal, stopExitCode(stoppedBy));
+    }
+    throw new Stop(refusal);
+  }
+  return payloadOf(answer).result as RewindResult;
+}
+
+/**
+ * `rewind`: the preview, said; the refusal it would meet for want of a flag;
+ * the question, unless --yes; then the rewind, from that preview as it read
+ * the org, and what still differs, said.
+ */
+async function rewind(
+  args: Extract<CliArgs, { command: 'rewind' }>,
+  context: WriteContext,
+): Promise<void> {
+  const { host, say, answerJson } = context;
+  const all = await context.listAll();
+  const entry = chosen(
+    resolveCheckpoint(all, checkpointsOf(all, args.org), args.checkpoint, args.org),
+  );
+  const invalid = invalidRefusal(entry);
+  if (invalid) throw new Stop(invalid);
+  let checkpoint = entry.checkpoint as OrgCheckpoint;
+
+  // Kept in the checkpoint before the preview, which then compares them no more.
+  const added = args.ignoreFields.filter((field) => !checkpoint.ignoredFields.includes(field));
+  if (added.length > 0) {
+    const answer = await host.request({
+      type: 'checkpoint:ignore-fields',
+      payload: {
+        checkpointId: entry.checkpointId,
+        fields: [...checkpoint.ignoredFields, ...added],
+      },
+      timeoutMs: LOCAL_TIMEOUT_MS,
+    });
+    if (answer.outcome !== 'answered') {
+      throw new Stop(refusalOfAnswer(answer, 'The fields not to compare'));
+    }
+    checkpoint = payloadOf(answer).checkpoint as OrgCheckpoint;
+    say(
+      `not compared from now on, nor written back: ${added.join(', ')} (kept in ` +
+        `'${checkpoint.name}')`,
+    );
+  }
+
+  const org = await context.connect(args.org);
+  sameOrgOrStop(org, entry, checkpoint, args.org, 'rewind');
+  const previewed = await host.request({
+    type: 'checkpoint:preview',
+    payload: { checkpointId: entry.checkpointId },
+    timeoutMs: PREVIEW_TIMEOUT_MS,
+  });
+  if (previewed.outcome !== 'answered') throw new Stop(refusalOfAnswer(previewed, 'The preview'));
+  const preview = payloadOf(previewed) as unknown as PreviewAnswer;
+  for (const line of previewLines(args.org, checkpoint, preview)) say(line);
+  const writes = objectsWrittenBy(preview.diff).length > 0;
+  const gate = writes ? acceptanceRefusal(args.org, preview, args) : undefined;
+  const outsideStays =
+    !args.acceptOutside &&
+    checkpoint.scope.mode === 'picked' &&
+    preview.diff.objects.some((object) => object.outside.length > 0);
+  if (outsideStays) {
+    say(
+      '  without --accept-outside, the records they hang from stay, and so do they: each is said ' +
+        'once the rewind is through',
+    );
+  }
+  if (args.dryRun) {
+    if (gate && !preview.refusal) say(`  a rewind now would be refused: ${gate.message}`);
+    answerJson(previewJson(args.org, checkpoint, preview));
+    return;
+  }
+  if (preview.refusal) throw new Stop(preview.refusal);
+  if (gate) throw new Stop(gate);
+  if (writes && !args.yes) {
+    const answer = await typed(rewindQuestion(args.org, checkpoint, preview.diff));
+    if (answer !== args.org) throw new Stop({ code: 'DECLINED', message: 'Nothing was written.' });
+  }
+
+  const sent = await stoppable(
+    context.registry,
+    'the rewind stops before its next call to the org, and leaves its journal: rewind again ' +
+      'takes up from what still differs',
+    () =>
+      host.request({
+        type: 'checkpoint:rewind',
+        payload: {
+          checkpointId: entry.checkpointId,
+          previewId: preview.diff.previewId,
+          acceptAutomation: args.acceptAutomation,
+          acceptNoUndo: args.acceptNoUndo,
+          acceptOutside: args.acceptOutside,
+        },
+        timeoutMs: WRITE_TIMEOUT_MS,
+      }),
+  );
+  const result = resultOfAnswer(sent, 'The rewind');
+  for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames)) say(line);
+  answerJson(resultJson('rewind', args.org, checkpoint, result, preview.diff));
+  endWith(resultExitCode(result.status, sent.stoppedBy));
+}
+
+/**
+ * What an undo of the rewind `rewindId` takes back, read from its journal on
+ * this machine, or nothing when the journal cannot be read: the handler then
+ * refuses the undo itself.
+ */
+async function undoCounts(
+  store: OrgCheckpointStore,
+  entry: CheckpointListEntry,
+  checkpoint: OrgCheckpoint,
+  rewindId: string,
+): Promise<{ bringBack: number; giveBack: number; remove: number } | undefined> {
+  try {
+    const folder = store.folderOf(entry.organizationId, entry.checkpointId);
+    const plans = undoPlans(await readRewindJournal(folder, rewindId), checkpoint.objects);
+    const total = (objects: ReadonlyArray<{ ids: readonly string[] }>) =>
+      objects.reduce((sum, object) => sum + object.ids.length, 0);
+    return {
+      bringBack: total(plans.bringBack),
+      giveBack: total(plans.giveBack),
+      remove: total(plans.remove),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * `undo`: the org's last rewind, by the checkpoint it went back to unless
+ * one is named; what it takes back, said from its journal; the question,
+ * unless --yes; then the undo, and what still differs, said.
+ */
+async function undo(
+  args: Extract<CliArgs, { command: 'undo' }>,
+  context: WriteContext,
+): Promise<void> {
+  const { host, say, answerJson } = context;
+  const all = await context.listAll();
+  const ofOrg = checkpointsOf(all, args.org);
+  const entry =
+    args.checkpoint === undefined
+      ? ofOrg.find((candidate) => candidate.undo !== undefined)
+      : chosen(resolveCheckpoint(all, ofOrg, args.checkpoint, args.org));
+  if (!entry) {
+    throw new Stop({
+      code: 'NOT_FOUND',
+      message:
+        `No rewind of ${args.org} can be undone from this machine: Undo is offered for the last ` +
+        'rewind of an org, for 15 days after it, until it is undone. Nothing was written.',
+    });
+  }
+  const invalid = invalidRefusal(entry);
+  if (invalid) throw new Stop(invalid);
+  const checkpoint = entry.checkpoint as OrgCheckpoint;
+  if (!entry.undo) {
+    throw new Stop({
+      code: 'UNDO_CLOSED',
+      message:
+        `'${checkpoint.name}' has no rewind that can be undone: Undo is offered for the last ` +
+        'rewind of an org only, for 15 days after it, until it is undone. Nothing was written.',
+    });
+  }
+  const { rewindId, until } = entry.undo;
+  const counts = await undoCounts(context.store, entry, checkpoint, rewindId);
+  say(
+    `undo the rewind ${rewindId} of ${args.org} to '${checkpoint.name}' (open until ` +
+      `${when(until)}, sooner if the recycle bin fills)` +
+      (counts
+        ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
+          `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
+          `${count(counts.remove)} record(s) it brought back to the recycle bin; what anyone ` +
+          'changed since the rewind stays'
+        : ''),
+  );
+  const org = await context.connect(args.org);
+  sameOrgOrStop(org, entry, checkpoint, args.org, 'undo');
+  if (!args.yes) {
+    const answer = await typed(`Type ${args.org} to undo its rewind:`);
+    if (answer !== args.org) throw new Stop({ code: 'DECLINED', message: 'Nothing was written.' });
+  }
+
+  const sent = await stoppable(
+    context.registry,
+    'the undo stops before its next call to the org: undo again takes up what it left',
+    () =>
+      host.request({
+        type: 'checkpoint:undo',
+        payload: {
+          checkpointId: entry.checkpointId,
+          rewindId,
+          acceptAutomation: args.acceptAutomation,
+        },
+        timeoutMs: WRITE_TIMEOUT_MS,
+      }),
+  );
+  const result = resultOfAnswer(sent, 'The undo');
+  for (const line of undoLines(args.org, checkpoint, result)) say(line);
+  answerJson(resultJson('undo', args.org, checkpoint, result));
+  endWith(resultExitCode(result.status, sent.stoppedBy));
 }
 
 // `tsx` runs this file directly; the check keeps it silent under test.

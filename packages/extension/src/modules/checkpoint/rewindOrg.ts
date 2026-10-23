@@ -443,7 +443,10 @@ function automationRefusal(
 }
 
 /** What a read of the org's automation that failed answers: each part it reads left unread, and why. */
-function automationUnread(objects: readonly string[], reason: string): ForgeTargetAutomation {
+export function automationUnread(
+  objects: readonly string[],
+  reason: string,
+): ForgeTargetAutomation {
   return {
     objectsRead: [...objects],
     objects: [],
@@ -823,12 +826,12 @@ function writes(plan: RewindPlan): boolean {
 // ─── The rewind ──────────────────────────────────────────────────────────────
 
 /**
- * The calls a rewind sends the org through `org`, counted: a composite is one
- * request, whatever it holds, and every SOAP call one more — the clock, the
- * user, each undelete — which a count of the connection's REST requests does
- * not see.
+ * The calls a rewind, or an undo of one, sends the org through `org`,
+ * counted: a composite is one request, whatever it holds, and every SOAP call
+ * one more — the clock, the user, each undelete — which a count of the
+ * connection's REST requests does not see.
  */
-function counted(
+export function counted(
   org: RewindOrg,
   undelete: UndeleteCall,
 ): { org: RewindOrg; undelete: UndeleteCall; used: () => number; add: (requests: number) => void } {

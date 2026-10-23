@@ -1,10 +1,15 @@
+import { stat } from 'node:fs/promises';
 import type {
+  AuditOutcome,
   CheckpointListEntry,
   CheckpointRefusal,
   CheckpointRefusalCode,
   CheckpointScopeMode,
   ForgeTargetAutomation,
   OrgCheckpoint,
+  RewindDiff,
+  RewindResult,
+  RewindStatus,
   SalesforceOrg,
 } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
@@ -14,6 +19,7 @@ import {
   sendOperationCompleted,
   sendOperationProgress,
   sendOperationStarted,
+  undeletableAsker,
 } from './HandlerTypes.js';
 import { listLive } from './liveRun.js';
 import {
@@ -23,20 +29,26 @@ import {
   checkpointListPayloadSchema,
   checkpointPreviewPayloadSchema,
   checkpointRenamePayloadSchema,
+  checkpointRewindPayloadSchema,
   checkpointScopePayloadSchema,
   checkpointTakePayloadSchema,
+  checkpointUndoPayloadSchema,
   validatePayload,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { ABORTED_BEFORE_START, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import { removalAuditObjects } from '../../modules/forge/removalOutcome.js';
+import { withRestoreAudit } from '../../modules/sync/SyncRunRestore.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { DetectedSandboxRefresh } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type {
+  CheckpointFolder,
   CheckpointStoreRefusal,
   OrgCheckpointStore,
   OrgLockHolder,
@@ -49,6 +61,8 @@ const CHECKPOINT_TYPES = new Set([
   'checkpoint:scope',
   'checkpoint:take',
   'checkpoint:preview',
+  'checkpoint:rewind',
+  'checkpoint:undo',
   'checkpoint:delete',
   'checkpoint:keep',
   'checkpoint:rename',
@@ -61,8 +75,29 @@ const MODULE = 'checkpoint';
 /** How long the read of what the org runs as a rewind writes may take: as a removal's. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
 
-/** The code a take stopped by its user answers with, as the page words it. */
+/** The code a take, a rewind or an undo stopped before it wrote answers with, as the page words it. */
 const CANCELLED = 'CANCELLED';
+
+/** How a rewind or an undo that ran is recorded in the audit trail: an unstable one did part of its work. */
+const AUDIT_OUTCOMES: Readonly<Record<RewindStatus, AuditOutcome>> = {
+  success: 'success',
+  partial: 'partial',
+  unstable: 'partial',
+  failure: 'failure',
+  cancelled: 'cancelled',
+};
+
+/** What is done to a checkpoint, as the refusal of one whose take never ended words it. */
+const ACT_WORDS: Readonly<Record<'preview' | 'rewind' | 'undo', string>> = {
+  preview: 'previewed',
+  rewind: 'rewound to',
+  undo: 'used',
+};
+
+/** How a rewind or an undo that reached the org ended: what it did, or the refusal it met before writing. */
+type WriteOutcome =
+  | { done: true; result: RewindResult; notes: string[] }
+  | { done: false; refusal: CheckpointRefusal };
 
 /** Refusals worth trying again once what refused them has passed: a run writing, the day's requests. */
 const RETRYABLE_REFUSALS: ReadonlySet<CheckpointRefusalCode> = new Set([
@@ -85,21 +120,29 @@ export interface WindowWriters {
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview] = await Promise.all([
+  const [store, take, preview, rewind, undo] = await Promise.all([
     import('../../modules/checkpoint/OrgCheckpointStore.js'),
     import('../../modules/checkpoint/takeCheckpoint.js'),
     import('../../modules/checkpoint/previewCheckpoint.js'),
+    import('../../modules/checkpoint/rewindOrg.js'),
+    import('../../modules/checkpoint/undoCheckpoint.js'),
   ]);
   return {
     openCheckpointStore: store.openCheckpointStore,
     defaultCheckpointStoreRoot: store.defaultCheckpointStoreRoot,
     scratchOrgExpired: store.scratchOrgExpired,
+    previewDirOf: store.previewDirOf,
     CheckpointStoreError: store.CheckpointStoreError,
     takeCheckpoint: take.takeCheckpoint,
     scopeCheckpoint: take.scopeCheckpoint,
     takeOrgOf: take.takeOrgOf,
     CheckpointTakeStopped: take.CheckpointTakeStopped,
     previewCheckpoint: preview.previewCheckpoint,
+    rewindOrg: rewind.rewindOrg,
+    rewindOrgOf: rewind.rewindOrgOf,
+    RewindStopped: rewind.RewindStopped,
+    undoCheckpoint: undo.undoCheckpoint,
+    UndoStopped: undo.UndoStopped,
   };
 }
 
@@ -114,6 +157,15 @@ class Refused extends Error {
   ) {
     super(message);
     this.name = 'Refused';
+  }
+}
+
+/** Whether a folder is there. */
+async function isFolder(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -174,6 +226,16 @@ function holderWords(holder: OrgLockHolder): string {
  *   it sent the org, phase by phase, beside what it estimated.
  * - `checkpoint:preview` — what a rewind would do, read from the org, nothing
  *   written (`previewCheckpoint`).
+ * - `checkpoint:rewind` — the rewind (`rewindOrg`) on the preview it names,
+ *   and `checkpoint:undo` — the undo of the org's last rewind
+ *   (`undoCheckpoint`): each under the id of its request, as a take is, in
+ *   the registry and in Live Operations, stopped by their Cancel and the
+ *   page's Stop between two calls, and held under that id from the request
+ *   on. Each holds the org's lock for its whole length, which the engine
+ *   takes, and is recorded in the audit trail (`checkpoint_rewind`,
+ *   `checkpoint_undo`): what it did, or the refusal it met before writing.
+ *   One stopped part way answers with its result; one stopped before it
+ *   wrote answers `CANCELLED`.
  * - `checkpoint:delete`, `checkpoint:keep`, `checkpoint:rename`,
  *   `checkpoint:ignore-fields` — changes to the checkpoints on this machine;
  *   the org is not touched.
@@ -182,7 +244,8 @@ function holderWords(holder: OrgLockHolder): string {
  * its words, on `checkpoint:error`: a production org is refused by the
  * checkpoint's own guard, which nothing lifts, and this handler asks no
  * other. The org's lock is the store's, one per org on this machine, taken by
- * the take for its own length and by nothing else here.
+ * the take, the rewind and the undo for their own length, and by nothing
+ * else here.
  */
 export class CheckpointHandler implements DomainHandler {
   private loaded?: Promise<CheckpointModules>;
@@ -199,6 +262,11 @@ export class CheckpointHandler implements DomainHandler {
       (await this.ownReader()).read(orgId, objectApiNames, options),
   };
   private reader?: Promise<TargetAutomationReader>;
+  /**
+   * The previews this handler answered, by id, when a rewind acts on the
+   * preview as it was read: see {@link rewindFromPreviewsAnswered}.
+   */
+  private previewsAnswered?: Map<string, RewindDiff>;
 
   /**
    * @param deps - Injected handler dependencies.
@@ -233,6 +301,17 @@ export class CheckpointHandler implements DomainHandler {
     this.targetAutomation = reader;
   }
 
+  /**
+   * Rewind from the preview this handler answered, as it read the org,
+   * rather than from a fresh read of it: what a command line does, which
+   * shows the preview and rewinds in the same command, its Tr the preview's.
+   * The panel's rewind reads the org again and acts on what of the preview
+   * still differs: a person may confirm a preview long after it was read.
+   */
+  rewindFromPreviewsAnswered(): void {
+    this.previewsAnswered ??= new Map();
+  }
+
   async handle(msg: InboundRequest): Promise<boolean> {
     if (!CHECKPOINT_TYPES.has(msg.type)) return false;
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -248,6 +327,12 @@ export class CheckpointHandler implements DomainHandler {
         return true;
       case 'checkpoint:preview':
         await this.handlePreview(msg);
+        return true;
+      case 'checkpoint:rewind':
+        await this.handleRewind(msg);
+        return true;
+      case 'checkpoint:undo':
+        await this.handleUndo(msg);
         return true;
       case 'checkpoint:delete':
         await this.handleDelete(msg);
@@ -527,6 +612,123 @@ export class CheckpointHandler implements DomainHandler {
     return { folder: read.folder, checkpoint: read.checkpoint };
   }
 
+  /**
+   * Refuse to preview, rewind to or undo a rewind of a checkpoint that cannot
+   * be: one whose take is under way, never ended or failed, one of the org a
+   * sandbox was before its refresh, and one of a scratch org that has expired.
+   * Each can only be deleted; none of these reads the org.
+   */
+  private usable(
+    m: CheckpointModules,
+    checkpoint: OrgCheckpoint,
+    act: 'preview' | 'rewind' | 'undo',
+  ): void {
+    const kept = checkpoint.org.alias ?? checkpoint.org.username;
+    if (checkpoint.status !== 'ready') {
+      throw new Refused(
+        checkpoint.status === 'taking' ? 'TAKING' : 'FAILED',
+        checkpoint.status === 'taking'
+          ? `The checkpoint '${checkpoint.name}' is being taken, or its take never ended: it can be ${ACT_WORDS[act]} once taken, or deleted.`
+          : `The take of checkpoint '${checkpoint.name}' failed: it can only be deleted.`,
+      );
+    }
+    const refreshed = this.refreshedAt(checkpoint.org.organizationId);
+    if (refreshed !== undefined) {
+      throw new Refused(
+        'OTHER_ORG',
+        `This sandbox was refreshed on ${refreshed.slice(0, 10)}: ${kept} is another org now, ` +
+          'and this checkpoint is of the org before it. It can only be deleted.',
+      );
+    }
+    if (m.scratchOrgExpired(checkpoint.org, Date.now())) {
+      throw new Refused(
+        'SCRATCH_EXPIRED',
+        `${kept} is a scratch org that has expired: its checkpoints can only be deleted.`,
+      );
+    }
+  }
+
+  /** The registered org a checkpoint is of, or a refusal saying to connect it to `then`. */
+  private connectedOrgOf(checkpoint: OrgCheckpoint, then: string): SalesforceOrg {
+    const org = this.orgOfCheckpoint(checkpoint);
+    if (!org) {
+      const kept = checkpoint.org.alias ?? checkpoint.org.username;
+      throw new Refused(
+        'ORG_NOT_FOUND',
+        `${kept} is not connected in SandForge: connect it to ${then}.`,
+      );
+    }
+    return org;
+  }
+
+  /**
+   * Refuse the undo of a rewind the list does not offer to undo: Undo is
+   * offered for an org's last rewind only, until the recycle bin's 15 days
+   * after it are over, while its journal is kept, and until it is undone.
+   */
+  private async undoOffered(
+    store: OrgCheckpointStore,
+    folder: CheckpointFolder,
+    checkpoint: OrgCheckpoint,
+    rewindId: string,
+  ): Promise<void> {
+    const entry = (
+      await store.list({
+        organizationId: folder.organizationId,
+        refreshedAt: (organizationId) => this.refreshedAt(organizationId),
+      })
+    ).find((listed) => listed.checkpointId === checkpoint.checkpointId);
+    if (entry?.undo?.rewindId === rewindId) return;
+    const last = checkpoint.lastRewind;
+    const why =
+      last?.rewindId !== rewindId
+        ? `the rewind ${rewindId} is not the last rewind to '${checkpoint.name}'`
+        : last.undoneAt !== undefined
+          ? `it was undone on ${last.undoneAt.slice(0, 10)}, and there is nothing left to undo`
+          : last.undoUntil !== undefined && Date.parse(last.undoUntil) <= Date.now()
+            ? `its 15 days ended on ${last.undoUntil.slice(0, 10)}, and what it deleted may have left the recycle bin`
+            : 'Undo is offered for the last rewind of an org only, while its journal is kept on this machine';
+    throw new Refused(
+      'UNDO_CLOSED',
+      `This rewind can no longer be undone: ${why}. No record was read or written.`,
+    );
+  }
+
+  /** Record a rewind or an undo in the audit trail: what it did, or why it stopped before writing. */
+  private audit(
+    msg: InboundRequest,
+    act: 'rewind' | 'undo',
+    org: SalesforceOrg,
+    checkpoint: OrgCheckpoint,
+    outcome: AuditOutcome,
+    extra: { result?: RewindResult; code?: string; rewindId?: string } = {},
+  ): void {
+    const { result, code } = extra;
+    const rewindId = result?.rewindId ?? extra.rewindId;
+    recordWriteRun(this.deps, {
+      action: act === 'rewind' ? 'checkpoint_rewind' : 'checkpoint_undo',
+      module: MODULE,
+      operationId: msg.id,
+      orgId: org.id,
+      outcome,
+      ...(result
+        ? {
+            objects: withRestoreAudit(
+              removalAuditObjects(result.deleted),
+              result.restored,
+              result.undeleted,
+            ),
+          }
+        : {}),
+      ...(code !== undefined ? { code } : {}),
+      details: {
+        checkpointId: checkpoint.checkpointId,
+        ...(rewindId !== undefined ? { rewindId } : {}),
+        ...(result ? { status: result.status, passes: result.passes } : {}),
+      },
+    });
+  }
+
   // ─── The requests ──────────────────────────────────────────────────────────
 
   private async handleList(msg: InboundRequest): Promise<void> {
@@ -749,36 +951,8 @@ export class CheckpointHandler implements DomainHandler {
       const m = await this.modules();
       const store = await this.openedStore();
       const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
-      const kept = checkpoint.org.alias ?? checkpoint.org.username;
-      if (checkpoint.status !== 'ready') {
-        throw new Refused(
-          checkpoint.status === 'taking' ? 'TAKING' : 'FAILED',
-          checkpoint.status === 'taking'
-            ? `The checkpoint '${checkpoint.name}' is being taken, or its take never ended: it can be previewed once taken, or deleted.`
-            : `The take of checkpoint '${checkpoint.name}' failed: it can only be deleted.`,
-        );
-      }
-      const refreshed = this.refreshedAt(checkpoint.org.organizationId);
-      if (refreshed !== undefined) {
-        throw new Refused(
-          'OTHER_ORG',
-          `This sandbox was refreshed on ${refreshed.slice(0, 10)}: ${kept} is another org now, ` +
-            'and this checkpoint is of the org before it. It can only be deleted.',
-        );
-      }
-      if (m.scratchOrgExpired(checkpoint.org, Date.now())) {
-        throw new Refused(
-          'SCRATCH_EXPIRED',
-          `${kept} is a scratch org that has expired: its checkpoints can only be deleted.`,
-        );
-      }
-      const org = this.orgOfCheckpoint(checkpoint);
-      if (!org) {
-        throw new Refused(
-          'ORG_NOT_FOUND',
-          `${kept} is not connected in SandForge: connect it to preview the checkpoint '${checkpoint.name}'.`,
-        );
-      }
+      this.usable(m, checkpoint, 'preview');
+      const org = this.connectedOrgOf(checkpoint, `preview the checkpoint '${checkpoint.name}'`);
       const conn = await this.connect(org);
       const outcome = await m.previewCheckpoint(
         {
@@ -801,6 +975,7 @@ export class CheckpointHandler implements DomainHandler {
         },
       );
       if (!outcome.previewed) throw this.refusalOf(outcome.refusal);
+      this.previewsAnswered?.set(outcome.diff.previewId, outcome.diff);
       this.respond(msg, 'checkpoint:preview:response', {
         diff: outcome.diff,
         ...(outcome.automation ? { automation: outcome.automation } : {}),
@@ -809,6 +984,263 @@ export class CheckpointHandler implements DomainHandler {
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'PREVIEW_ERROR');
+    }
+  }
+
+  /** The rewind: see the class's comment. */
+  private async handleRewind(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      checkpointRewindPayloadSchema,
+      msg,
+      'checkpoint:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const registry = this.deps.infraServices?.backgroundRegistry;
+    // Held from the request on: the page offers Stop as soon as it asks.
+    const pending = registry?.holdUntilStart(msg.id);
+    try {
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
+      this.usable(m, checkpoint, 'rewind');
+      // A rewind acts on what its user confirmed: a preview no longer kept
+      // would leave it nothing confirmed, and every difference named as new.
+      if (!(await isFolder(m.previewDirOf(folder, parsed.previewId)))) {
+        throw new Refused(
+          'PREVIEW_GONE',
+          'The preview this rewind was confirmed on is no longer kept on this machine: preview ' +
+            `the rewind to '${checkpoint.name}' again, then rewind. No record was read or written.`,
+        );
+      }
+      const org = this.connectedOrgOf(
+        checkpoint,
+        `rewind it to the checkpoint '${checkpoint.name}'`,
+      );
+      const conn = await this.connect(org);
+      if (pending?.signal.aborted) {
+        this.audit(msg, 'rewind', org, checkpoint, 'stopped', { code: ABORTED_BEFORE_START });
+        throw new Refused(CANCELLED, new m.RewindStopped().message, true);
+      }
+      const answered = this.previewsAnswered?.get(parsed.previewId);
+      this.previewsAnswered?.delete(parsed.previewId);
+      const reused = answered?.checkpointId === checkpoint.checkpointId ? answered : undefined;
+      const orgName = nameOf(org);
+      await this.writeAct(
+        msg,
+        'rewind',
+        org,
+        checkpoint,
+        `Rewinding ${orgName} to '${checkpoint.name}'`,
+        async (signal, onProgress) => {
+          const outcome = await m.rewindOrg(
+            {
+              org: m.rewindOrgOf(conn),
+              undelete: (ids) => conn.soap.undelete(ids),
+              store,
+              readAutomation: (objects) => this.readAutomation(org.id, objects),
+              runWriting: this.runWriting(
+                org.id,
+                orgName,
+                'rewind',
+                'No record was read or written.',
+              ),
+              onUndeletable: undeletableAsker(this.deps, org.id, 'checkpoint:rewind'),
+              onProgress: ({ percentage, step }) => onProgress(percentage, step),
+              signal,
+            },
+            {
+              checkpoint,
+              folder,
+              orgName,
+              registered: org,
+              username: org.username,
+              previewId: parsed.previewId,
+              ...(reused ? { reusesPreview: reused } : {}),
+              acceptAutomation: parsed.acceptAutomation,
+              acceptNoUndo: parsed.acceptNoUndo,
+              acceptOutside: parsed.acceptOutside,
+            },
+          );
+          return outcome.rewound
+            ? { done: true, result: outcome.result, notes: outcome.notes }
+            : { done: false, refusal: outcome.refusal };
+        },
+        (err) => err instanceof m.RewindStopped,
+      );
+    } catch (err: unknown) {
+      this.fail(msg, err, 'REWIND_ERROR');
+    } finally {
+      pending?.release();
+    }
+  }
+
+  /** The undo of the org's last rewind: see the class's comment. */
+  private async handleUndo(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(checkpointUndoPayloadSchema, msg, 'checkpoint:error', this.deps);
+    if (!parsed) return;
+    const registry = this.deps.infraServices?.backgroundRegistry;
+    // Held from the request on: the page offers Stop as soon as it asks.
+    const pending = registry?.holdUntilStart(msg.id);
+    try {
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
+      this.usable(m, checkpoint, 'undo');
+      await this.undoOffered(store, folder, checkpoint, parsed.rewindId);
+      const org = this.connectedOrgOf(checkpoint, `undo its rewind to '${checkpoint.name}'`);
+      const conn = await this.connect(org);
+      if (pending?.signal.aborted) {
+        this.audit(msg, 'undo', org, checkpoint, 'stopped', {
+          code: ABORTED_BEFORE_START,
+          rewindId: parsed.rewindId,
+        });
+        throw new Refused(CANCELLED, new m.UndoStopped().message, true);
+      }
+      const orgName = nameOf(org);
+      await this.writeAct(
+        msg,
+        'undo',
+        org,
+        checkpoint,
+        `Undoing the rewind of ${orgName} to '${checkpoint.name}'`,
+        async (signal, onProgress) => {
+          const outcome = await m.undoCheckpoint(
+            {
+              org: m.rewindOrgOf(conn),
+              undelete: (ids) => conn.soap.undelete(ids),
+              store,
+              readAutomation: (objects) => this.readAutomation(org.id, objects),
+              runWriting: this.runWriting(
+                org.id,
+                orgName,
+                'undo the rewind',
+                'No record was read or written.',
+              ),
+              onUndeletable: undeletableAsker(this.deps, org.id, 'checkpoint:undo'),
+              onProgress: ({ percentage, step }) => onProgress(percentage, step),
+              signal,
+            },
+            {
+              checkpoint,
+              folder,
+              orgName,
+              registered: org,
+              username: org.username,
+              rewindId: parsed.rewindId,
+              acceptAutomation: parsed.acceptAutomation,
+            },
+          );
+          return outcome.undone
+            ? { done: true, result: outcome.result, notes: outcome.notes }
+            : { done: false, refusal: outcome.refusal };
+        },
+        (err) => err instanceof m.UndoStopped,
+        parsed.rewindId,
+      );
+    } catch (err: unknown) {
+      this.fail(msg, err, 'UNDO_ERROR');
+    } finally {
+      pending?.release();
+    }
+  }
+
+  /**
+   * A rewind or an undo once the org is reached, under the id of its request:
+   * listed in the registry and in Live Operations, its progress on that id,
+   * recorded in the audit trail, and answered with its result — one stopped
+   * part way included — or with the refusal a guard or a gate gave, as it
+   * gave it.
+   *
+   * @param stoppedBefore - Whether an error is the act's own stop before it
+   *   wrote anything, answered `CANCELLED`.
+   * @param rewindId - The rewind an undo takes back, recorded when it is refused.
+   */
+  private async writeAct(
+    msg: InboundRequest,
+    act: 'rewind' | 'undo',
+    org: SalesforceOrg,
+    checkpoint: OrgCheckpoint,
+    description: string,
+    run: (
+      signal: AbortSignal,
+      onProgress: (percentage: number, step: string) => void,
+    ) => Promise<WriteOutcome>,
+    stoppedBefore: (err: unknown) => boolean,
+    rewindId?: string,
+  ): Promise<void> {
+    const operationId = msg.id;
+    const registry = this.deps.infraServices?.backgroundRegistry;
+    const stop = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this keeps a host with none from
+    // an unhandled rejection.
+    tracked.catch(() => {});
+    sendOperationStarted(this.deps, operationId, MODULE, description);
+    registry?.register(operationId, MODULE, description, tracked, stop);
+    const live = listLive(this.liveTracker, operationId, MODULE, description);
+    const refused = rewindId !== undefined ? { rewindId } : {};
+    const onProgress = (percentage: number, step: string): void => {
+      sendOperationProgress(this.deps, operationId, percentage, 0, 0, step);
+      // A run stopped from Live Operations ends before its next call; the
+      // registry has recorded the stop and hears no more of it.
+      if (!stop.signal.aborted) registry?.updateProgress(operationId, percentage);
+      live.progress(percentage, 0, 0, step);
+    };
+    try {
+      const outcome = await run(stop.signal, onProgress);
+      if (!outcome.done) {
+        this.audit(msg, act, org, checkpoint, 'stopped', {
+          code: outcome.refusal.code,
+          ...refused,
+        });
+        sendOperationCompleted(this.deps, operationId, {
+          status: 'refused',
+          code: outcome.refusal.code,
+        });
+        live.fail(outcome.refusal.message);
+        settle(new Error(outcome.refusal.message));
+        throw this.refusalOf(outcome.refusal);
+      }
+      const { result, notes } = outcome;
+      for (const note of notes) this.deps.log(`[WARN] checkpoint:${act} ${operationId}: ${note}`);
+      this.audit(msg, act, org, checkpoint, AUDIT_OUTCOMES[result.status], { result });
+      this.respond(msg, `checkpoint:${act}:response`, { result, operationId });
+      if (result.status === 'cancelled') {
+        // Aborted in the registry already when the stop came through it.
+        registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        live.cancel();
+        settle();
+      } else if (result.status === 'failure') {
+        const why = `Nothing the ${act} set out to write went through: its result says why.`;
+        sendOperationCompleted(this.deps, operationId, { status: result.status });
+        live.fail(why);
+        settle(new Error(why));
+      } else {
+        sendOperationCompleted(this.deps, operationId, { status: result.status });
+        live.complete();
+        settle();
+      }
+    } catch (err: unknown) {
+      if (err instanceof Refused) throw err;
+      if (stoppedBefore(err)) {
+        // Aborted in the registry already when the stop came through it.
+        registry?.abort(operationId);
+        sendOperationCompleted(this.deps, operationId, { aborted: true });
+        live.cancel();
+        settle();
+        this.audit(msg, act, org, checkpoint, 'stopped', { code: CANCELLED, ...refused });
+        throw new Refused(CANCELLED, extractErrorMessage(err), true);
+      }
+      this.audit(msg, act, org, checkpoint, 'failure', refused);
+      sendOperationCompleted(this.deps, operationId, { status: 'failure' });
+      live.fail(extractErrorMessage(err));
+      settle(err);
+      throw err;
     }
   }
 

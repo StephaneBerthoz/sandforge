@@ -2255,7 +2255,9 @@
       "realtime_sync": "リアルタイム同期",
       "subject_erase": "データ主体依頼による消去",
       "cleanup_delete": "クリーンアップ削除",
-      "pipeline_approval": "パイプラインの承認"
+      "pipeline_approval": "パイプラインの承認",
+      "checkpoint_rewind": "チェックポイントへの巻き戻し",
+      "checkpoint_undo": "巻き戻しの取り消し"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",
