@@ -61,13 +61,12 @@ import { DataOpsHandler } from '../../bridge/handlers/DataOpsHandler.js';
 import type { HandlerDeps } from '../../bridge/handlers/HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getQueryLimits, resolveOrgTier } from '../../core/common/queryLimits.js';
-import { columnGroups } from '../../core/common/wideRead.js';
 import type { TypedTarget } from '../../core/precheck/orgKindLive.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
 import { StepCancelledError } from '../automation/StepExecutor.js';
 import { BackupRecordStore, nodeBackupFiles } from '../dataops/BackupRecordStore.js';
-import { apiBudgetCheckOf, readApiBudget, type ApiBudget } from '../forge/ForgeRunGate.js';
+import type { ApiBudget } from '../forge/ForgeRunGate.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import { viewsEncryptedData } from '../sync/encryptedFields.js';
 import {
@@ -101,8 +100,6 @@ import {
 } from './checkpointScope.js';
 import {
   OrgReadStopped,
-  QUERIES_PER_COMPOSITE,
-  SUBREQUESTS_PER_COMPOSITE,
   compositeConnectionOf,
   compositeReader,
   type CompositeQueryConnection,
@@ -118,12 +115,8 @@ import {
   spooledRows,
   type ObjectChanges,
 } from './orgStreams.js';
-import {
-  SnapshotIndex,
-  snapshotFileOf,
-  snapshotIndexBytes,
-  writeSnapshotIndex,
-} from './snapshotIndex.js';
+import { budgetRefusal, readBudget, readGroupsOf, takeEstimate } from './rewindEstimate.js';
+import { SnapshotIndex, snapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 
 // ─── Limits and figures ──────────────────────────────────────────────────────
 
@@ -139,38 +132,6 @@ const OBJECT_ROWS_MAX = 1_000_000;
 
 /** The least that setting takes: a limit under it still reads that many rows of an object. */
 const SNAPSHOT_CAP_MIN = 100;
-
-/**
- * Bytes a record takes on this machine, about: measured on six standard
- * objects, 0.36 to 0.73 KB with the writable fields that hold a value, 1.1 to
- * 1.8 KB with every field; the snapshot keeps the writable ones, empty or not.
- */
-const BYTES_PER_RECORD = 1_000;
-
-/**
- * Requests every take sends whatever it holds: the guard's Organization,
- * edition and permissions reads, the day's limits, the two global describes
- * (data and Tooling), the View Encrypted Data permission, the Automated
- * Process user, the user's own id, the clock at T0 and at T1, and the
- * snapshot's read of which org it is.
- */
-const FIXED_REQUESTS = 12;
-
-/**
- * Statements a page of a wide object's snapshot costs per column group past
- * the first: the page's ids read again by their ids, 500 a statement.
- */
-const STATEMENTS_PER_GROUP = 4;
-
-/** Seconds a call of 25 describes takes, about (2.1 to 2.9 s measured). */
-const SECONDS_PER_DESCRIBE_CALL = 2.5;
-/** Seconds a composite of five small queries takes, about (0.23 to 0.45 s measured). */
-const SECONDS_PER_SMALL_CALL = 0.35;
-/** Seconds a page of the snapshot takes, about. */
-const SECONDS_PER_PAGE = 1;
-
-/** The columns every column group of a snapshot carries: the id, and the stamp a write moves. */
-const CARRIED_COLUMNS = ['Id', 'SystemModstamp'];
 
 /** What a checkpoint's folder holds while its take checks what moved: removed before it ends. */
 const STABILITY_DIR = 'taking';
@@ -316,54 +277,6 @@ export class CheckpointTakeStopped extends Error {
     super('The checkpoint was stopped before it was taken: nothing of it was kept.');
     this.name = 'CheckpointTakeStopped';
   }
-}
-
-// ─── The estimate ────────────────────────────────────────────────────────────
-
-/** What a take's estimate is made from. */
-export interface TakeEstimateInput {
-  /** Objects described: the scope's candidates. */
-  described: number;
-  /** Per object the take holds, its records and the column groups a page of it is read in. */
-  objects: ReadonlyArray<{ records: number; groups: number }>;
-  /** Rows a page of the snapshot reads: what the org's kind reads at a time. */
-  pageRows: number;
-}
-
-/**
- * The API requests, time and disk a take costs, about. One composite costs
- * the org one request whatever it holds, so the describes go 25 a call, and
- * the counts, the recycle bin's reads and the checks of what moved five a
- * call; the snapshot reads a page a call, and a wide object's other column
- * groups by the page's ids. Further pages of the bin, and the reads of what
- * moved while it ran, are not known before.
- */
-export function takeEstimate(
-  input: TakeEstimateInput,
-): Omit<CheckpointEstimate, 'apiRequestsLeft'> {
-  const objects = input.objects.length;
-  const describeCalls = Math.ceil(input.described / SUBREQUESTS_PER_COMPOSITE);
-  const smallCalls = 3 * Math.ceil(objects / QUERIES_PER_COMPOSITE);
-  let pageCalls = 0;
-  let records = 0;
-  let bytes = 0;
-  for (const object of input.objects) {
-    records += object.records;
-    bytes += object.records * BYTES_PER_RECORD + snapshotIndexBytes(object.records);
-    if (object.records === 0) continue;
-    const pages = Math.ceil(object.records / input.pageRows);
-    pageCalls += pages * (1 + Math.max(0, object.groups - 1) * STATEMENTS_PER_GROUP);
-  }
-  return {
-    records,
-    apiRequests: FIXED_REQUESTS + describeCalls + smallCalls + pageCalls,
-    seconds: Math.ceil(
-      describeCalls * SECONDS_PER_DESCRIBE_CALL +
-        smallCalls * SECONDS_PER_SMALL_CALL +
-        pageCalls * SECONDS_PER_PAGE,
-    ),
-    bytes,
-  };
 }
 
 // ─── Words ───────────────────────────────────────────────────────────────────
@@ -678,7 +591,7 @@ async function planOf(
       ...object,
       scoped: { ...scoped, readOrder: objects.length },
       records,
-      groups: columnGroups(object.capture.fields, CARRIED_COLUMNS).length,
+      groups: readGroupsOf(object.capture.fields),
     });
   }
   leftOut.sort((a, b) =>
@@ -703,35 +616,8 @@ async function planOf(
       },
     };
   }
-  if (apiBudgetCheckOf(cost.apiRequests, budget).verdict === 'exceeds') {
-    return {
-      ...plan,
-      refusal: {
-        code: 'API_BUDGET',
-        message:
-          `This checkpoint takes about ${cost.apiRequests} API requests; ${request.orgName} has ` +
-          `${budget.remaining} of its ${budget.max} left today. Take it once the org has ` +
-          `requests to spare — the limit is counted over the last 24 hours — or pick fewer ` +
-          `objects. ${NOTHING_READ}`,
-      },
-    };
-  }
-  return plan;
-}
-
-/**
- * The requests the org has left today, read once before the scope: a take
- * that cannot tell is not taken, as one that runs the org out of them stops
- * its integrations too.
- */
-async function budgetOf(org: TakeOrg, orgName: string): Promise<ApiBudget> {
-  try {
-    return await readApiBudget(org);
-  } catch (err: unknown) {
-    throw new Error(
-      `${orgName} did not say how many API requests it has left today: ${extractErrorMessage(err)}`,
-    );
-  }
+  const overBudget = budgetRefusal('take', cost.apiRequests, budget, request.orgName);
+  return overBudget === undefined ? plan : { ...plan, refusal: overBudget };
 }
 
 /** {@link guardCheckpoint}'s view of the take's org: it reads the answer's records, nothing else of jsforce's query. */
@@ -779,7 +665,7 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
   const reader = compositeReader(deps.org, deps.signal);
   try {
-    const budget = await budgetOf(deps.org, request.orgName);
+    const budget = await readBudget(deps.org, request.orgName);
     const scope = await describeScope(deps.org, reader, request);
     const plan = await planOf(deps.org, reader, request, scope, budget, deps.signal);
     const answer: TakeScope = {
@@ -1035,7 +921,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     }
     const reader = compositeReader(org, signal);
     const edition = await editionOf(org, guard.org);
-    const budget = await budgetOf(org, request.orgName);
+    const budget = await readBudget(org, request.orgName);
     report(2, `Reading the objects of ${request.orgName}`);
     const scope = await describeScope(org, reader, request);
     const userId = await org.userId();

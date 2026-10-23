@@ -19,6 +19,7 @@ import {
   type CheckpointFolder,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
+import { takeEstimate } from './rewindEstimate.js';
 import { SnapshotIndex, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
 import {
@@ -26,7 +27,6 @@ import {
   DEFAULT_MAX_TOTAL,
   scopeCheckpoint,
   takeCheckpoint,
-  takeEstimate,
   takeOrgOf,
   type TakeDeps,
   type TakeOrg,
@@ -947,31 +947,32 @@ describe('scopeCheckpoint', () => {
       other.lock.release();
     }
   });
+
+  it('estimates every request the take then sends the org, its SOAP calls and its snapshot’s reads counted', async () => {
+    const h = harness();
+    seed(h.org);
+    const scope = await scopeCheckpoint(h.deps, request());
+    h.org.requests = 0;
+    h.org.soapCalls = 0;
+    const sentBefore = h.sent.length;
+
+    taken(await takeCheckpoint(h.deps, request()));
+
+    // The snapshot's own handler reads which org it is through its own
+    // connection, which the org of the test does not answer.
+    const snapshotOrgReads = h.sent
+      .slice(sentBefore)
+      .filter(({ soql }) => soql === 'SELECT Id FROM Organization').length;
+    const sent = h.org.requests + h.org.soapCalls + snapshotOrgReads;
+    // The clock twice and the user: SOAP calls, each a request of the day's.
+    expect(h.org.soapCalls).toBe(3);
+    // All of them, but the Tooling API's global describe, which the org of
+    // the test does not offer.
+    expect(sent).toBe(scope.estimate.apiRequests - 1);
+  });
 });
 
-describe('takeEstimate', () => {
-  it('counts a composite as one request — 25 describes, or five counts, bin reads or checks — and the snapshot a page a request, more for a wide object', () => {
-    const estimate = takeEstimate({
-      described: 30,
-      objects: [
-        { records: 4_500, groups: 1 },
-        { records: 0, groups: 1 },
-        { records: 2_000, groups: 3 },
-      ],
-      pageRows: 2_000,
-    });
-
-    // 12 every take sends, 2 calls of describes, 3 of counts, bin reads and
-    // checks, 3 pages of the first object, 1 page of the wide one read in 1
-    // statement and 4 per group past the first.
-    expect(estimate).toEqual({
-      records: 6_500,
-      apiRequests: 12 + 2 + 3 + 3 + (1 + 2 * 4),
-      seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 12),
-      bytes: 6_500 * 1_000 + (8 + 4_500 * 35) + 8 + (8 + 2_000 * 35),
-    });
-  });
-
+describe('DEFAULT_MAX_TOTAL', () => {
   it('holds the default limit of records the design names', () => {
     expect(DEFAULT_MAX_TOTAL).toBe(500_000);
   });
