@@ -102,8 +102,9 @@
  *   before keep their parent, which the rewind's deletion leaves;
  * - the records to delete that Undo couldn't bring back: in an object
  *   Salesforce undeletes only with its parent, one whose parent the rewind
- *   deletes too goes with it and comes back with it; one whose parent stays
- *   is deleted on its own, and stays in the bin.
+ *   deletes too goes with it and comes back with it — when it was made at or
+ *   after T1, as the deletion takes along only such a record; one whose
+ *   parent stays is deleted on its own, and stays in the bin.
  *
  * An object any of whose reads failed is named "could not be read", never
  * taken for one that did not change: a rewind leaves it as it is.
@@ -180,7 +181,11 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from '
  *   object Salesforce undeletes only with a parent that is not coming back:
  *   named, it cannot come back with its id;
  * - `undoCannot`: of the records to delete, those Undo couldn't bring back.
- *   Not a class of its own: each of its records is in a class to delete too.
+ *   Not a class of its own: each of its records is in a class to delete too;
+ * - `outsideParents`: of the records to delete, those records outside the
+ *   checkpoint created since T1 hang from, which their deletion takes along.
+ *   Not a class of its own either: a rewind of picked objects keeps them
+ *   unless the deletion of what hangs from them is accepted.
  */
 export type RewindClass =
   | 'giveBack'
@@ -193,7 +198,8 @@ export type RewindClass =
   | 'withParent'
   | 'deletedWhileTaken'
   | 'goneForGood'
-  | 'undoCannot';
+  | 'undoCannot'
+  | 'outsideParents';
 
 /** Every class, as the files of an object are named by. */
 const REWIND_CLASSES: readonly RewindClass[] = [
@@ -208,6 +214,7 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'deletedWhileTaken',
   'goneForGood',
   'undoCannot',
+  'outsideParents',
 ];
 
 /** The classes of the records a rewind deletes in its first pass. */
@@ -376,6 +383,14 @@ class People {
 interface PendingUndo {
   id: string;
   parents: string[];
+  /**
+   * Whether the deletion takes it along with a parent it deletes, as it tells
+   * one from a record that keeps its parent: created at or after T1, and not
+   * changed in the second the read began in or since. One made while the
+   * checkpoint was taken, or brought back since, keeps its parent: it is
+   * deleted on its own.
+   */
+  goesAlong: boolean;
 }
 
 /** One object told: its diff, who changed it, and what Undo may not bring back of it. */
@@ -758,9 +773,17 @@ async function diffObject(
       const stamp = dateMs(row.SystemModstamp);
       return parentsOf(row, key).some((parent) => back.get(parent)?.stamp === stamp);
     };
-    const toDelete = (row: OrgRow, id: string, key: string): void => {
+    const t1 = Date.parse(checkpoint.takenAt);
+    const unchangedUntil = Date.parse(input.readAt) - ORG_DATE_GRAIN_MS;
+    const toDelete = (row: OrgRow, id: string, key: string, live: boolean): void => {
       people.add(row);
-      if (!object.undeletable) pending.push({ id, parents: parentsOf(row, key) });
+      if (object.undeletable) return;
+      pending.push({
+        id,
+        parents: parentsOf(row, key),
+        goesAlong:
+          live && dateMs(row.CreatedDate) >= t1 && dateMs(row.LastModifiedDate) <= unchangedUntil,
+      });
     };
 
     // The rows of the snapshot whose lookups name a record the rewind brings
@@ -865,10 +888,10 @@ async function diffObject(
         if (person) continue;
         if (await inBinAtCheckpoint(key)) {
           await spool('broughtBackSince').add({ Id: id });
-          toDelete(row, id, key);
+          toDelete(row, id, key, true);
         } else if (dateMs(row.CreatedDate) >= t0s) {
           await spool('createdSince').add({ Id: id });
-          toDelete(row, id, key);
+          toDelete(row, id, key, true);
         } else {
           await spool('unexplained').add({ Id: id });
         }
@@ -918,7 +941,7 @@ async function diffObject(
           await spool('deletedWhileTaken').add({ Id: id });
         } else if (wentWithParent(row, key)) {
           await spool('comesBackWithParent').add({ Id: id });
-          toDelete(row, id, key);
+          toDelete(row, id, key, false);
         }
       }
     }
@@ -1028,7 +1051,10 @@ async function* deletedFirst(previewDir: string, told: Told): AsyncGenerator<str
  * The records outside the checkpoint that the deletion of `told`'s records to
  * delete takes along, per object: those created at or after T1 under them,
  * through a relationship the org deletes along, in an object a person works
- * in — the relationships the deletion's own check of dependents reads.
+ * in — the relationships the deletion's own check of dependents reads. The
+ * records to delete they hang from are written to the preview's folder
+ * (`outsideParents`): a rewind of picked objects keeps those unless what hangs
+ * from them is accepted to go too.
  *
  * T1 is exact and the org dates to the second: a record created in T1's own
  * second may be from before it, and the deletion keeps it with its parent, so
@@ -1060,6 +1086,8 @@ async function outsideOf(
   if (!Number.isFinite(t1)) throw new Error(`Not a date: ${input.checkpoint.takenAt}`);
   const from = soqlInstant(Math.ceil(t1 / ORG_DATE_GRAIN_MS) * ORG_DATE_GRAIN_MS);
   const byObject = new Map<string, { records: Set<string>; parents: Set<string> }>();
+  /** The records to delete that something counted hangs from, by key, as the child names each. */
+  const parentIds = new Map<string, string>();
   // An object with no CreatedDate — a ContentDocumentLink — is read by its
   // stamp instead: a link is made and seldom changed, and one changed since
   // that it takes along is counted with those made since, never left out.
@@ -1101,7 +1129,10 @@ async function outsideOf(
             const record = keyOf(row.Id);
             const parent = keyOf(row[field]);
             if (record !== undefined) held.records.add(record);
-            if (parent !== undefined) held.parents.add(parent);
+            if (parent !== undefined) {
+              held.parents.add(parent);
+              parentIds.set(parent, String(row[field]));
+            }
           }
         },
         input.signal,
@@ -1125,6 +1156,11 @@ async function outsideOf(
       );
     }
   }
+  if (parentIds.size > 0) {
+    const spool = new ClassSpool(classFileOf(previewDir, objectApiName, 'outsideParents'));
+    for (const id of parentIds.values()) await spool.add({ Id: id });
+    await spool.flush();
+  }
   return [...byObject]
     .filter(([, { records }]) => records.size > 0)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -1142,6 +1178,9 @@ async function outsideOf(
  * and comes back with it; one whose parent stays is deleted on its own. One
  * that comes back with its parent to be deleted again hangs from a record
  * brought back, which the first pass never deletes: it is deleted on its own.
+ * So is one the deletion would not take along with its parent — made while
+ * the checkpoint was taken, brought back since, changed in the second the
+ * read began in — which the rewind deletes first, or its parent would be kept.
  */
 async function undoCannotOf(
   previewDir: string,
@@ -1161,7 +1200,9 @@ async function undoCannotOf(
   }
   const undoCannot: RewindDiff['undoCannot'] = [];
   for (const { diff, pending } of told) {
-    const alone = pending.filter(({ parents }) => !parents.some((parent) => deleted.has(parent)));
+    const alone = pending.filter(
+      ({ parents, goesAlong }) => !goesAlong || !parents.some((parent) => deleted.has(parent)),
+    );
     if (alone.length === 0) continue;
     const spool = new ClassSpool(classFileOf(previewDir, diff.objectApiName, 'undoCannot'));
     for (const { id } of alone) await spool.add({ Id: id });

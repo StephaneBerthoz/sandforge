@@ -1223,6 +1223,14 @@ describe('rewindDiff: what it says beside the classes', () => {
         { outside: [{ objectApiName: 'Opportunity', count: 2, parents: 1 }] },
       ),
     ]);
+    // The record to delete they hang from, which a rewind of picked objects keeps.
+    const parents: OrgRow[] = [];
+    const dir = previewDirOf(taken.folder, PREVIEW);
+    for await (const row of spooledRows(classFileOf(dir, 'Account', 'outsideParents'))) {
+      parents.push(row);
+    }
+    expect(parents).toEqual([{ Id: SUBJECT }]);
+    expect(existsSync(classFileOf(dir, 'Contact', 'outsideParents'))).toBe(false);
   });
 
   it('counts by its stamp the records outside the checkpoint of an object the org gives no CreatedDate, as it gives a ContentDocumentLink none', async () => {
@@ -1332,6 +1340,32 @@ describe('rewindDiff: what it says beside the classes', () => {
       }),
       objectOf('Opportunity', opportunities),
     ]);
+  });
+
+  it('says Undo couldn’t bring back a product made while the checkpoint was taken under an opportunity deleted too: the deletion keeps a parent for such a record, so it is deleted on its own (B1, B3)', async () => {
+    const [made, along] = [1, 2].map(lineId);
+    const parent = opportunityId(1);
+    const taken = await take({
+      objects: [PRODUCT, OPPORTUNITY],
+      background: false,
+      children: {
+        Opportunity: [
+          { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+        ],
+      },
+      // After the products and opportunities were read, before the take ended.
+      afterRead: (org) => {
+        org.add('Opportunity', { Id: parent, Name: 'Made while taken', StageName: 'Prospecting' });
+        org.add('OpportunityLineItem', { Id: made, Quantity: 1, OpportunityId: parent });
+      },
+      since: (org) =>
+        org.add('OpportunityLineItem', { Id: along, Quantity: 1, OpportunityId: parent }),
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(diff.undoCannot).toEqual([{ objectApiName: 'OpportunityLineItem', count: 1 }]);
+    expect((await classesOf(taken.folder, 'OpportunityLineItem')).undoCannot).toEqual(lines(made));
   });
 });
 

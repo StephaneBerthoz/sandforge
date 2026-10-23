@@ -50,4 +50,44 @@ describe('MemoryRestoreOrg', () => {
     ]);
     expect(org.all('Account')[0]).toMatchObject({ Name: 'After' });
   });
+
+  it('refuses a field while live records of another object name the record, naming the field, and writes it once they are gone', async () => {
+    const org = new MemoryRestoreOrg();
+    const opportunity = '006000000000001AAA';
+    const line = '00k000000000001AAA';
+    org.add('Opportunity', { Id: opportunity, Name: 'After', Pricebook2Id: '01s000000000002AAA' });
+    org.add('OpportunityLineItem', { Id: line, OpportunityId: opportunity });
+    org.heldByChildren.push({
+      objectApiName: 'Opportunity',
+      fields: ['Pricebook2Id', 'Amount'],
+      childSObject: 'OpportunityLineItem',
+      field: 'OpportunityId',
+      statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+      message: 'Cannot change pricebook on opportunity with line items',
+    });
+    const back = { Id: opportunity, Name: 'Before', Pricebook2Id: '01s000000000001AAA' };
+
+    const refused = await org.update('Opportunity', [{ ...back }]);
+    // A field the rule does not name is written as ever.
+    const named = await org.update('Opportunity', [{ Id: opportunity, Name: 'Before' }]);
+    org.trash('OpportunityLineItem', line);
+    const written = await org.update('Opportunity', [{ ...back }]);
+
+    expect(refused).toEqual([
+      {
+        id: opportunity,
+        success: false,
+        errors: [
+          {
+            statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+            message: 'Cannot change pricebook on opportunity with line items',
+            fields: ['Pricebook2Id'],
+          },
+        ],
+      },
+    ]);
+    expect(named).toEqual([{ id: opportunity, success: true, errors: [] }]);
+    expect(written).toEqual([{ id: opportunity, success: true, errors: [] }]);
+    expect(org.all('Opportunity')[0]).toMatchObject({ Pricebook2Id: '01s000000000001AAA' });
+  });
 });

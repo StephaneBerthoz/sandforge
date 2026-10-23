@@ -505,6 +505,16 @@ export interface SpoolFile {
   rows: number;
 }
 
+/** Where the change reads spool the live records of an object stamped since (L), in a preview's folder. */
+export function liveSpoolOf(folder: string, objectApiName: string): string {
+  return path.join(folder, `${sanitizeSoqlObjectName(objectApiName)}.live.ndjson`);
+}
+
+/** Where the change reads spool the records of an object deleted since (D), in a preview's folder. */
+export function deletedSpoolOf(folder: string, objectApiName: string): string {
+  return path.join(folder, `${sanitizeSoqlObjectName(objectApiName)}.deleted.ndjson`);
+}
+
 /** What the change reads found of an object, or why they could not read it. */
 export type ObjectChanges =
   | {
@@ -558,14 +568,8 @@ export async function readChanges(
     const { objectApiName, readMode, fields = [] } = objects[index];
     const object = sanitizeSoqlObjectName(objectApiName);
     return [
-      {
-        ...movedRead(object, readMode, readFrom, fields),
-        file: path.join(folder, `${object}.live.ndjson`),
-      },
-      {
-        ...deletedRead(object, readFrom, fields),
-        file: path.join(folder, `${object}.deleted.ndjson`),
-      },
+      { ...movedRead(object, readMode, readFrom, fields), file: liveSpoolOf(folder, object) },
+      { ...deletedRead(object, readFrom, fields), file: deletedSpoolOf(folder, object) },
     ];
   });
   const changeOutcomes = await spoolReads(reader, spooled, signal);
