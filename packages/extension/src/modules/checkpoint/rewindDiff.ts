@@ -1060,50 +1060,68 @@ async function outsideOf(
   if (!Number.isFinite(t1)) throw new Error(`Not a date: ${input.checkpoint.takenAt}`);
   const from = soqlInstant(Math.ceil(t1 / ORG_DATE_GRAIN_MS) * ORG_DATE_GRAIN_MS);
   const byObject = new Map<string, { records: Set<string>; parents: Set<string> }>();
+  // An object with no CreatedDate — a ContentDocumentLink — is read by its
+  // stamp instead: a link is made and seldom changed, and one changed since
+  // that it takes along is counted with those made since, never left out.
+  const datedBy = new Map<string, 'CreatedDate' | 'SystemModstamp'>();
   for await (const ids of deletedFirst(previewDir, told)) {
-    const reads: Array<{ read: ObjectRead; child: string; field: string }> = [];
-    for (const relationship of relationships) {
-      const child = sanitizeSoqlObjectName(relationship.childSObject);
-      const field = assertSoqlIdentifier(relationship.field);
-      const live = readModeOf(child) === 'scanAllLive';
-      for (const list of idLists(ids)) {
-        reads.push({
-          child,
-          field,
-          read: {
-            objectApiName: child,
-            soql:
-              `SELECT Id, ${field} FROM ${child} WHERE ${field} IN (${list}) ` +
-              `AND CreatedDate >= ${from}${live ? ' AND IsDeleted = false' : ''}`,
-            scanAll: live,
-          },
-        });
+    let pending = relationships;
+    while (pending.length > 0) {
+      const reads: Array<{ read: ObjectRead; child: string; field: string }> = [];
+      for (const relationship of pending) {
+        const child = sanitizeSoqlObjectName(relationship.childSObject);
+        const field = assertSoqlIdentifier(relationship.field);
+        const live = readModeOf(child) === 'scanAllLive';
+        const dated = datedBy.get(child) ?? 'CreatedDate';
+        for (const list of idLists(ids)) {
+          reads.push({
+            child,
+            field,
+            read: {
+              objectApiName: child,
+              soql:
+                `SELECT Id, ${field} FROM ${child} WHERE ${field} IN (${list}) ` +
+                `AND ${dated} >= ${from}${live ? ' AND IsDeleted = false' : ''}`,
+              scanAll: live,
+            },
+          });
+        }
       }
-    }
-    const outcomes = await readStreams(
-      input.reader,
-      reads.map(({ read }) => read),
-      (index, rows) => {
-        const { child, field } = reads[index];
-        let held = byObject.get(child);
-        if (!held) {
-          held = { records: new Set(), parents: new Set() };
-          byObject.set(child, held);
+      const outcomes = await readStreams(
+        input.reader,
+        reads.map(({ read }) => read),
+        (index, rows) => {
+          const { child, field } = reads[index];
+          let held = byObject.get(child);
+          if (!held) {
+            held = { records: new Set(), parents: new Set() };
+            byObject.set(child, held);
+          }
+          for (const row of rows) {
+            const record = keyOf(row.Id);
+            const parent = keyOf(row[field]);
+            if (record !== undefined) held.records.add(record);
+            if (parent !== undefined) held.parents.add(parent);
+          }
+        },
+        input.signal,
+      );
+      const undated = new Set<string>();
+      outcomes.forEach((outcome, index) => {
+        if (outcome.read) return;
+        const { child } = reads[index];
+        if (!datedBy.has(child) && /No such column 'CreatedDate'/.test(outcome.reason)) {
+          undated.add(child);
+          return;
         }
-        for (const row of rows) {
-          const record = keyOf(row.Id);
-          const parent = keyOf(row[field]);
-          if (record !== undefined) held.records.add(record);
-          if (parent !== undefined) held.parents.add(parent);
-        }
-      },
-      input.signal,
-    );
-    for (const outcome of outcomes) {
-      if (outcome.read) continue;
-      throw new Error(
-        `The ${outcome.objectApiName} records its deletion would take along could not be read: ` +
-          outcome.reason,
+        throw new Error(
+          `The ${outcome.objectApiName} records its deletion would take along could not be read: ` +
+            outcome.reason,
+        );
+      });
+      for (const child of undated) datedBy.set(child, 'SystemModstamp');
+      pending = pending.filter((relationship) =>
+        undated.has(sanitizeSoqlObjectName(relationship.childSObject)),
       );
     }
   }

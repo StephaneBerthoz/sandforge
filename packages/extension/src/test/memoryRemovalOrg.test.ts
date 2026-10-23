@@ -357,6 +357,29 @@ describe('MemoryRemovalOrg', () => {
       ]);
     });
 
+    it('refuses a statement naming a field the object does not have, as the org does, and reads one that does not', async () => {
+      const { org } = seeded();
+      org.missingFields.set('Account', new Set(['CreatedDate']));
+
+      const answers = await send(org, [
+        query('SELECT Id FROM Account WHERE CreatedDate >= 2026-01-01T00:00:00Z', 0),
+        query('SELECT Id FROM Account', 1),
+      ]);
+
+      expect(answers.map((answer) => [answer.httpStatusCode, answer.body])).toEqual([
+        [
+          400,
+          [
+            {
+              errorCode: 'INVALID_FIELD',
+              message: "No such column 'CreatedDate' on entity 'Account'.",
+            },
+          ],
+        ],
+        [200, { totalSize: 1, done: true, records: [{ Id: ACCOUNT }] }],
+      ]);
+    });
+
     it('answers a read sent alone through the connection, and rejects one the org refuses', async () => {
       const { org } = seeded();
 

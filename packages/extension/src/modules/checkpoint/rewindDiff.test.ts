@@ -1225,6 +1225,31 @@ describe('rewindDiff: what it says beside the classes', () => {
     ]);
   });
 
+  it('counts by its stamp the records outside the checkpoint of an object the org gives no CreatedDate, as it gives a ContentDocumentLink none', async () => {
+    const taken = await take({
+      children: {
+        Account: [{ childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true }],
+      },
+      since: (org) => {
+        org.add('Account', subject());
+        org.add('Opportunity', { Id: opportunityId(2), AccountId: SUBJECT });
+        org.add('Opportunity', { Id: opportunityId(3), AccountId: SUBJECT });
+      },
+    });
+    taken.org.missingFields.set('Opportunity', new Set(['CreatedDate']));
+
+    const diff = await diffOf(taken);
+
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { createdSince: lines(SUBJECT) },
+        { outside: [{ objectApiName: 'Opportunity', count: 2, parents: 1 }] },
+      ),
+    ]);
+  });
+
   it('names an object whose records to delete it could not tell the records outside the checkpoint of, and keeps none of its classes', async () => {
     const taken = await take({
       children: {

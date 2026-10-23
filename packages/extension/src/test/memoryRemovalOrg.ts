@@ -316,6 +316,12 @@ export class MemoryRemovalOrg implements RemovalOrg {
   readonly comesBackOnlyWithParent = new Set<string>();
   /** Objects the org refuses to read, with its answer: one it will not read whole. */
   readonly refuseRead = new Map<string, { errorCode: string; message: string }>();
+  /**
+   * Fields an object does not have, by object: a statement naming one is
+   * refused as the org refuses it, `INVALID_FIELD` — a ContentDocumentLink has
+   * no CreatedDate.
+   */
+  readonly missingFields = new Map<string, ReadonlySet<string>>();
   /** REST requests answered: a composite is one, whatever it holds. */
   requests = 0;
   /** SOAP calls answered (the clock, the user, undeletes), which a count of REST requests misses. */
@@ -488,6 +494,14 @@ export class MemoryRemovalOrg implements RemovalOrg {
     const statement = parseSoql(soql);
     const refusal = this.refuseRead.get(statement.object);
     if (refusal) throw orgError(refusal.errorCode, refusal.message);
+    for (const field of this.missingFields.get(statement.object) ?? []) {
+      if (new RegExp(`\\b${field}\\b`).test(soql)) {
+        throw orgError(
+          'INVALID_FIELD',
+          `No such column '${field}' on entity '${statement.object}'.`,
+        );
+      }
+    }
     const selected = selectFrom(this.visible(statement.object, scanAll), statement);
     const columns = statement.columns;
     if (columns === null) return { totalSize: selected.length, done: true, records: [] };
