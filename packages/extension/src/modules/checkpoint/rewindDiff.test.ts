@@ -62,6 +62,7 @@ const contactId = (n: number): string => idOf('003', n);
 const opportunityId = (n: number): string => idOf('006', n);
 const taskId = (n: number): string => idOf('00T', n);
 const lineId = (n: number): string => idOf('00k', n);
+const noteId = (n: number): string => idOf('a0n', n);
 
 /** A user of the org other than the one the session writes as. */
 const COLLEAGUE = '005000000000002AAA';
@@ -121,6 +122,12 @@ const LINE: Held = {
 };
 /** A contact whose account's delete takes it along. */
 const CASCADE_CONTACT: Held = { ...CONTACT, cascadeParents: ['AccountId'] };
+/** A note its contact's delete takes along, which comes back from the bin on its own. */
+const NOTE: Held = {
+  objectApiName: 'Note__c',
+  fields: [...STAMPS, 'Body__c', 'Contact__c'],
+  cascadeParents: ['Contact__c'],
+};
 const OPPORTUNITY: Held = {
   objectApiName: 'Opportunity',
   fields: [...STAMPS, 'Name', 'StageName'],
@@ -180,6 +187,7 @@ const CLASSES: RewindClass[] = [
   'withParent',
   'deletedWhileTaken',
   'goneForGood',
+  'convertedLead',
   'undoCannot',
 ];
 
@@ -616,7 +624,7 @@ const ROWS: Row[] = [
     extras: () => ({ Account: bySession(1), Contact: bySession(1) }),
   },
   {
-    name: 'children deleted since with their parent come back with it, never promised alone; one deleted on its own before its parent comes back on its own (C2, F9)',
+    name: 'children deleted since with their parent come back with it, never promised alone; one deleted on its own before its parent, which Salesforce then keeps in the bin for good, is gone for good, never to bring back (C2, F9, F41)',
     scenario: {
       objects: [CASCADE_CONTACT, ACCOUNT],
       children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
@@ -631,7 +639,45 @@ const ROWS: Row[] = [
     },
     expect: () => ({
       Account: { inBin: lines(SUBJECT) },
-      Contact: { withParent: lines(contactId(1), contactId(2)), inBin: lines(contactId(3)) },
+      Contact: {
+        withParent: lines(contactId(1), contactId(2)),
+        goneForGood: lines(contactId(3)),
+      },
+    }),
+  },
+  {
+    name: 'a child deleted on its own since, its parent staying: brought back on its own (C1, F9)',
+    scenario: {
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Contact', { Id: contactId(3), LastName: 'Alone', AccountId: SUBJECT });
+      },
+      since: (org) => org.trash('Contact', contactId(3)),
+    },
+    expect: () => ({ Contact: { inBin: lines(contactId(3)) } }),
+  },
+  {
+    name: 'what was deleted with a record Salesforce keeps in the bin for good stays with it: gone for good, never promised back with that record (F41)',
+    scenario: {
+      objects: [NOTE, CASCADE_CONTACT, ACCOUNT],
+      children: {
+        Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+        Contact: [{ childSObject: 'Note__c', field: 'Contact__c', cascadeDelete: true }],
+      },
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Contact', { Id: contactId(3), LastName: 'Alone', AccountId: SUBJECT });
+        org.add('Note__c', { Id: noteId(1), Body__c: 'Kept', Contact__c: contactId(3) });
+      },
+      since: (org) => org.trash('Contact', contactId(3)),
+      later: (org) => org.trash('Account', SUBJECT),
+    },
+    expect: () => ({
+      Account: { inBin: lines(SUBJECT) },
+      Contact: { goneForGood: lines(contactId(3)) },
+      Note__c: { goneForGood: lines(noteId(1)) },
     }),
   },
   {
@@ -1342,6 +1388,32 @@ describe('rewindDiff: what it says beside the classes', () => {
     ]);
   });
 
+  it('counts, in an object Salesforce undeletes on its own too, the records to delete that go with a parent deleted too: not one under a parent that stays, nor one made while the checkpoint was taken (B1, F41)', async () => {
+    const [along, underKept, whileTaken] = [1, 2, 3].map(contactId);
+    const [made, early] = [20, 21].map(accountId);
+    const taken = await take({
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
+      // After both objects were read, before the take ended.
+      afterRead: (org) => {
+        org.add('Account', { Id: early, Name: 'Made while taken' });
+        org.add('Contact', { Id: whileTaken, LastName: 'Made while taken', AccountId: early });
+      },
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.add('Contact', { Id: along, LastName: 'Along', AccountId: made });
+        org.add('Contact', { Id: underKept, LastName: 'Under kept', AccountId: KEPT });
+      },
+    });
+
+    const diff = await diffOf(taken);
+
+    const created = (await classesOf(taken.folder, 'Contact')).createdSince ?? [];
+    expect(created.map(({ Id }) => Id).sort()).toEqual([along, underKept, whileTaken].sort());
+    expect(diff.withParentDeleted).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(diff.undoCannot).toEqual([]);
+  });
+
   it('says Undo couldn’t bring back a product made while the checkpoint was taken under an opportunity deleted too: the deletion keeps a parent for such a record, so it is deleted on its own (B1, B3)', async () => {
     const [made, along] = [1, 2].map(lineId);
     const parent = opportunityId(1);
@@ -1366,6 +1438,49 @@ describe('rewindDiff: what it says beside the classes', () => {
 
     expect(diff.undoCannot).toEqual([{ objectApiName: 'OpportunityLineItem', count: 1 }]);
     expect((await classesOf(taken.folder, 'OpportunityLineItem')).undoCannot).toEqual(lines(made));
+  });
+});
+
+describe('rewindDiff: what a rewind cannot undo', () => {
+  const LEAD: Held = {
+    objectApiName: 'Lead',
+    fields: [...STAMPS, 'LastName', 'Status', 'IsConverted'],
+  };
+  const leadId = (n: number): string => idOf('00Q', n);
+  /** A lead converted since, and one whose status changed since. */
+  const leadsSince = (): Promise<Taken> =>
+    take({
+      objects: [LEAD],
+      background: false,
+      before: (org) => {
+        org.add('Lead', { Id: leadId(1), LastName: 'Ada', Status: 'Open', IsConverted: false });
+        org.add('Lead', { Id: leadId(2), LastName: 'Grace', Status: 'Open', IsConverted: false });
+      },
+      since: (org) => {
+        org.edit('Lead', leadId(1), { Status: 'Closed - Converted', IsConverted: true });
+        org.edit('Lead', leadId(2), { Status: 'Working' });
+      },
+    });
+
+  it('names a lead converted since as one it cannot undo, never to give back, whether its owner compares the flag or not: Salesforce refuses any update of a converted lead (A9, F14)', async () => {
+    for (const ignoredFields of [[], ['Lead.IsConverted']]) {
+      const taken = await leadsSince();
+
+      const diff = await diffOf(taken, { ignoredFields });
+
+      const said = JSON.stringify(ignoredFields);
+      expect(await classesOf(taken.folder, 'Lead'), said).toEqual({
+        giveBack: [{ Id: leadId(2), fields: ['Status'] }],
+        convertedLead: lines(leadId(1)),
+      });
+      expect(diff.objects, said).toEqual([
+        {
+          ...objectOf('Lead', { giveBack: [{ Id: leadId(2), fields: ['Status'] }] }, bySession(1)),
+          cannotUndo: [{ reason: 'convertedLead', count: 1 }],
+          notCompared: ignoredFields.length > 0 ? ['IsConverted'] : [],
+        },
+      ]);
+    }
   });
 });
 

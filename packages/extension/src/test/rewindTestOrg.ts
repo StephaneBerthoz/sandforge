@@ -183,6 +183,8 @@ export class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
   ticking = false;
   /** Told of every query the take's snapshot reads through, before it is answered. */
   onSnapshotRead?: (soql: string) => void;
+  /** Objects its global describe says the org does not query: views over other records. */
+  readonly unqueryable = new Set<string>();
   /** The objects its global describe lists: those it was given fields of. */
   private readonly objects: string[];
 
@@ -218,7 +220,7 @@ export class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
       sobjects: this.objects.map((name) => ({
         name,
         label: name,
-        queryable: true,
+        queryable: !this.unqueryable.has(name),
         createable: true,
         updateable: true,
         deletable: true,

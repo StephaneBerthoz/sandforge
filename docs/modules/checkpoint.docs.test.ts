@@ -7,9 +7,9 @@
  * are easy to make and the code does not keep them: a per-object cap that
  * leaves a large object out (the take refuses past one total instead), an
  * email count against a Developer Edition's fifteen a day (no rewind counts
- * emails), and a preview that names converted leads and activated contracts
- * (it counts records gone for good alone, though the contract has room for
- * the others). The command line's help is printed whole on the page, so it is
+ * emails), and a preview that names activated contracts (it counts records
+ * gone for good and leads converted since, though the contract has room for
+ * the other). The command line's help is printed whole on the page, so it is
  * held to the script's own text, word for word, with the two defaults it
  * interpolates.
  *
@@ -377,23 +377,27 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain('The rewind counts no emails');
   });
 
-  it('says the preview counts records gone for good, and neither converted leads nor activated contracts', () => {
+  it('says the preview counts records gone for good and leads converted since, and no activated contract', () => {
     // Anchor: the diff fills what a rewind cannot undo with records gone for
-    // good alone, and no code of the module names the other reasons the
-    // contract allows. Count them and this test fails first.
+    // good and leads converted since, and no code of the module names the
+    // other reason the contract allows. Count it and this test fails first.
     expect(DIFF).toContain(
-      "cannotUndo: goneForGood > 0 ? [{ reason: 'goneForGood', count: goneForGood }] : [],",
+      "...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),",
     );
+    expect(DIFF).toContain("? [{ reason: 'convertedLead' as const, count: convertedSince }]");
     const moduleCode = readdirSync(resolve(REPO_ROOT, MODULE_DIR))
       .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
       .map((file) => source(join(MODULE_DIR, file)))
       .join('\n');
-    expect(moduleCode).not.toMatch(/'convertedLead'|'activatedContract'/);
+    expect(moduleCode).not.toMatch(/'activatedContract'/);
 
     expect(DOC).toContain(
       'A lead converted since stays converted, and a contract activated since stays activated',
     );
-    expect(DOC).toContain('The preview does not count them');
+    expect(DOC).toContain(
+      'The preview counts a lead converted since among what a rewind cannot undo, and the result ' +
+        'names it kept; an activated contract the preview does not count',
+    );
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {

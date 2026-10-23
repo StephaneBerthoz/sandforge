@@ -652,12 +652,82 @@ describe('MemoryRemovalOrg', () => {
                 errors: [
                   {
                     statusCode: 'UNDELETE_FAILED',
-                    message: 'Its parent is in the recycle bin: undelete the parent first',
+                    message: 'Entity is not in the recycle bin',
                   },
                 ],
               },
         ]);
       }
+    });
+
+    it('keeps for good in the bin a child deleted on its own, then its parent: refused with its parent, after it or before it, though queryAll reads it deleted', async () => {
+      const refused = {
+        id: CONTACT,
+        success: false,
+        errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+      };
+      const stuck = (): ReturnType<typeof seeded> => {
+        const made = seeded();
+        made.org.trash('Contact', CONTACT);
+        made.wait(3_000);
+        made.org.trash('Account', ACCOUNT);
+        return made;
+      };
+
+      const together = stuck().org;
+      expect(await together.undelete([ACCOUNT, CONTACT])).toEqual([
+        { id: ACCOUNT, success: true, errors: [] },
+        refused,
+      ]);
+      const after = stuck().org;
+      await after.undelete([ACCOUNT]);
+      expect(await after.undelete([CONTACT])).toEqual([refused]);
+      const before = stuck().org;
+      expect(await before.undelete([CONTACT])).toEqual([refused]);
+
+      for (const org of [together, after, before]) {
+        expect(await recordOf(org, 'Contact', CONTACT)).toMatchObject({ IsDeleted: true });
+        expect(org.all('Contact').map((row) => row.Id)).not.toContain(CONTACT);
+      }
+      expect(after.all('Account').map((row) => row.Id)).toEqual([ACCOUNT]);
+      expect(before.all('Account')).toEqual([]);
+    });
+
+    it('keeps for good a child deleted on its own whose parent then goes with its own parent, and leaves alone one whose parent stays', async () => {
+      const { org, wait } = seeded();
+      org.add('Opportunity', { Id: OPPORTUNITY, AccountId: ACCOUNT }, WHEN);
+      org.add('OpportunityLineItem', { Id: PRODUCT_LINE, OpportunityId: OPPORTUNITY }, WHEN);
+      org.trash('OpportunityLineItem', PRODUCT_LINE);
+      org.trash('Contact', SECOND_CONTACT);
+      wait(2_000);
+      org.trash('Account', ACCOUNT);
+      await org.undelete([ACCOUNT]);
+
+      expect(await org.undelete([PRODUCT_LINE, SECOND_CONTACT])).toEqual([
+        {
+          id: PRODUCT_LINE,
+          success: false,
+          errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+        },
+        {
+          id: SECOND_CONTACT,
+          success: false,
+          errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+        },
+      ]);
+      const alone = seeded().org;
+      alone.trash('Contact', CONTACT);
+      expect(await alone.undelete([CONTACT])).toEqual([{ id: CONTACT, success: true, errors: [] }]);
+    });
+
+    it('brings back on its own a child deleted on its own, then its parent, when told the org does', async () => {
+      const { org, wait } = seeded({ facts: { childDeletedAloneThenParentLimbo: false } });
+      org.trash('Contact', CONTACT);
+      wait(3_000);
+      org.trash('Account', ACCOUNT);
+
+      expect(await org.undelete([CONTACT])).toEqual([{ id: CONTACT, success: true, errors: [] }]);
+      expect(org.all('Contact').map((row) => row.Id)).toEqual([CONTACT]);
     });
 
     it('puts back a lookup the delete cleared and restamps the child as the undeleting user, or leaves it cleared when told', async () => {
@@ -811,6 +881,7 @@ describe('MemoryRemovalOrg', () => {
         hardDeleteInQueryAll: false,
         parentsDeletedFirst: true,
         cascadeChildComesBackAlone: false,
+        childDeletedAloneThenParentLimbo: true,
       });
     });
 

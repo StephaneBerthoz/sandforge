@@ -64,6 +64,19 @@ describe('RewindTestOrg', () => {
     expect(spent(org)).toBe(2 + 2);
   });
 
+  it('says in its global describe that the org does not query an object it is told is a view over other records', async () => {
+    const org = new RewindTestOrg();
+    org.unqueryable.add('Order');
+
+    const global = (await org.describeGlobal()) as {
+      sobjects: Array<{ name: string; queryable: boolean }>;
+    };
+
+    expect(global.sobjects.filter(({ queryable }) => !queryable).map(({ name }) => name)).toEqual([
+      'Order',
+    ]);
+  });
+
   it('makes a person account’s name of its person’s as an update gives it a name', async () => {
     const org = new RewindTestOrg();
     org.addPersonAccount({ Id: account(9), FirstName: 'Ada', LastName: 'Lovelace' }, contact(9));

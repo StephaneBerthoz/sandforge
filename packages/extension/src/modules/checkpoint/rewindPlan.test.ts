@@ -778,8 +778,9 @@ describe('a rewind’s plan: records outside a checkpoint of picked objects (M8,
     expect(picked.left).toEqual([
       { objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1, ids: [parent] },
     ]);
-    expect(await idsOf(accepted.deletes)).toEqual({ Contact: [child], Account: [parent] });
-    expect(await idsOf(everything.deletes)).toEqual({ Contact: [child], Account: [parent] });
+    // Deleted, the account takes its contact made since along: never sent.
+    expect(await idsOf(accepted.deletes)).toEqual({ Account: [parent] });
+    expect(await idsOf(everything.deletes)).toEqual({ Account: [parent] });
 
     await world.remove(picked);
 

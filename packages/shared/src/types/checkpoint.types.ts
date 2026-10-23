@@ -416,6 +416,14 @@ export interface RewindDiff {
    */
   undoCannot: Array<{ objectApiName: string; count: number }>;
   /**
+   * Records it deletes that go with a parent it deletes too, per object: made
+   * since the checkpoint was taken and unchanged since the read began, they
+   * are taken along by their parent's delete, never sent on their own, and
+   * Undo brings them back with that parent. Absent when none does, and from
+   * a diff read before they were counted.
+   */
+  withParentDeleted?: Array<{ objectApiName: string; count: number }>;
+  /**
    * Objects whose read failed, with the reason: never read as unchanged, so
    * the rewind leaves them as they are.
    */

@@ -34,8 +34,9 @@
  * - Brought back: a page of 2,000 ids at a time, the undelete's own batches
  *   of 200. Before each batch goes, the children the recycle bin holds of
  *   each of its records, through every relationship its object deletes
- *   along, and their children, as deep as the bin holds them, are named in
- *   the journal as coming back with it: named after the undelete, a stop
+ *   along — but to an object the org does not query, or that keeps no
+ *   recycle bin — and their children, as deep as the bin holds them, are
+ *   named in the journal as coming back with it: named after the undelete, a stop
  *   between the two would lose them, and its undo would keep the parent they
  *   hang from. A person account's own contact is not named: it goes back to
  *   the bin with its account, never on its own. After the undelete, what it
@@ -66,10 +67,11 @@
  * gone for good; changed during the rewind by another user (the rewind is
  * then unstable); changed since the preview; kept by your automation — last
  * changed after Tr by the rewind's own users —; kept as the rewind had to,
- * among them a record to delete that records it does not delete hang from;
- * refused, in the org's words. A record deleted while the checkpoint was
- * taken and brought back by the rewind reads, live and not in the snapshot,
- * as unexplained: it is the rewind's own, and never named.
+ * among them a record to delete that records it does not delete hang from,
+ * and a lead converted since, which Salesforce cannot unconvert; refused, in
+ * the org's words. A record deleted while the checkpoint was taken and
+ * brought back by the rewind reads, live and not in the snapshot, as
+ * unexplained: it is the rewind's own, and never named.
  *
  * **Stop** reaches every phase: between two pages, two batches, two chunks,
  * two phases and two passes. A rewind stopped part way, or killed, leaves its
@@ -88,6 +90,7 @@ import { randomBytes } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
+import * as z from 'zod';
 import {
   blindedBy,
   firedOnRemovalStepsOf,
@@ -169,6 +172,7 @@ import {
 import { SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
 import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
+import { settleNotInBin } from './undoRewind.js';
 
 // ─── Figures ─────────────────────────────────────────────────────────────────
 
@@ -195,8 +199,12 @@ const ACTED: readonly RewindClass[] = [
   'deletedWhileTaken',
 ];
 
-/** What the verify names: the classes a pass acts on, and what cannot come back. */
-const STILL_DIFFERING: readonly RewindClass[] = [...ACTED, 'goneForGood'];
+/** What the verify names: the classes a pass acts on, and what cannot come back or be given back. */
+const STILL_DIFFERING: readonly RewindClass[] = [...ACTED, 'goneForGood', 'convertedLead'];
+
+/** Why a rewind leaves a lead converted since as it is: the preview named it so. */
+const CONVERTED_LEAD_WORDS =
+  "Left converted: Salesforce can't unconvert a lead, and refuses any update of a converted one.";
 
 /** Which brick acts on the records of each class, whose refusal the verify quotes. */
 const BRICK_OF: Readonly<Partial<Record<RewindClass, Brick>>> = {
@@ -244,6 +252,16 @@ const NOTHING_WRITTEN = 'No record was written.';
 
 const ACCOUNT = 'Account';
 const CONTACT = 'Contact';
+
+/** The org's objects as its global describe lists them, as far as a bring back reads them. */
+const globalObjectsSchema = z
+  .object({
+    sobjects: z.array(z.object({ name: z.string(), queryable: z.boolean().optional() }).loose()),
+  })
+  .loose();
+
+/** What the org answers a read naming `IsDeleted` of an object that keeps no such field. */
+const NO_RECYCLE_BIN = /No such column 'IsDeleted'/;
 
 /**
  * A relationship whose children come back with a parent: the child object,
@@ -956,6 +974,10 @@ class Rewind {
   private global: Promise<unknown> | undefined;
   /** Per object of records that came back with a parent, the cascades of their own children. */
   private readonly cascadesOfObject = new Map<string, Promise<Cascade[]>>();
+  /** The objects the org does not query, read once from its global describe. */
+  private unqueried: Promise<ReadonlySet<string>> | undefined;
+  /** The objects the org answered keep no recycle bin: no `IsDeleted` to read. */
+  private readonly noBin = new Set<string>();
   /** Every date a write of the rewind left on a record, by id: its own doing, whoever the org names. */
   private readonly stamps: Record<string, string> = {};
   /** The same dates, by the record's key, in milliseconds. */
@@ -1171,7 +1193,7 @@ class Rewind {
     first: PlanMade,
     remaining: number,
   ): Promise<RewindOutcome> {
-    const residual = await this.residualOf(fresh, [first], new PassTally());
+    const residual = await this.residualOf(fresh, fresh, [first], new PassTally());
     this.ended = true;
     return {
       rewound: true,
@@ -1243,7 +1265,7 @@ class Rewind {
 
     const tally = await passesTally({ tally: one, plan: first.plan }, second);
     const residual =
-      !cancelled && verify ? await this.residualOf(verify, made, one, second?.tally) : [];
+      !cancelled && verify ? await this.residualOf(verify, fresh, made, one, second?.tally) : [];
     const unread = !cancelled && verify ? verify.diff.unread : [];
     const did =
       tally.deleted.some((object) => object.deleted > 0) ||
@@ -1564,8 +1586,9 @@ class Rewind {
 
   /**
    * The children of an object's records that come back with them: every
-   * relationship it deletes along. An account's contacts, in an org with
-   * person accounts — its describe lists the flag — are read with it.
+   * relationship it deletes along, but to an object the org does not query.
+   * An account's contacts, in an org with person accounts — its describe
+   * lists the flag — are read with it.
    */
   private async cascadesOf(objectApiName: string): Promise<Cascade[]> {
     let body = this.kept.bodies.get(objectApiName);
@@ -1579,8 +1602,13 @@ class Rewind {
     const persons =
       objectApiName === ACCOUNT &&
       parsed.data.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG);
-    return (parsed.data.childRelationships ?? [])
-      .filter((relation) => relation.cascadeDelete === true)
+    const cascading = (parsed.data.childRelationships ?? []).filter(
+      (relation) => relation.cascadeDelete === true,
+    );
+    if (cascading.length === 0) return [];
+    const unqueried = await this.unqueriedObjects();
+    return cascading
+      .filter((relation) => !unqueried.has(relation.childSObject))
       .map((relation) => ({
         child: relation.childSObject,
         field: relation.field,
@@ -1588,6 +1616,40 @@ class Rewind {
           ? { persons: true as const }
           : {}),
       }));
+  }
+
+  /**
+   * The objects the org does not query, by name, as its global describe says
+   * (`queryable: false`): described once, as the first record with children
+   * comes back, unless a read of the rewind described them already.
+   *
+   * Such an object is a view over other records — ActivityHistory,
+   * OpenActivity, NoteAndAttachment, CombinedAttachment,
+   * AttachedContentDocument — listed among the children an account or a
+   * contact deletes along, whose records live, and come back, as tasks,
+   * events, notes and files. A read of one is refused
+   * (`INVALID_TYPE_FOR_OPERATION`), and a live rewind warned for each, under
+   * every record it brought back, that Undo might not send back what came
+   * back with it. A describe the org does not give leaves every object read.
+   */
+  private unqueriedObjects(): Promise<ReadonlySet<string>> {
+    this.unqueried ??= this.describeGlobal().then(
+      (body) => {
+        const parsed = globalObjectsSchema.safeParse(body);
+        if (!parsed.success) return new Set<string>();
+        return new Set(
+          parsed.data.sobjects
+            .filter((object) => object.queryable === false)
+            .map((object) => object.name),
+        );
+      },
+      () => {
+        // Asked again by the next read that needs it, never held failed.
+        this.global = undefined;
+        return new Set<string>();
+      },
+    );
+    return this.unqueried;
   }
 
   /**
@@ -1643,12 +1705,19 @@ class Rewind {
           stamp(await this.undeleteStamps(objectApiName, batch, byParent));
           return answer;
         };
-        const outcome = await undeleteRunDeletions({
-          org: this.org,
-          plan: [{ objectApiName, ids }],
-          undelete: call,
-          ...(this.signal ? { signal: this.signal } : {}),
-        });
+        // A record the org answers not in the bin though a read found it
+        // there is named with words that say why it stays.
+        const outcome = await settleNotInBin(
+          this.org,
+          await undeleteRunDeletions({
+            org: this.org,
+            plan: [{ objectApiName, ids }],
+            undelete: call,
+            ...(this.signal ? { signal: this.signal } : {}),
+          }),
+          [{ objectApiName, ids }],
+          this.notes,
+        );
         for (const object of outcome.objects) tally.undelete(object);
         tally.leftBy('undelete', objectApiName, outcome.left);
         if (outcome.wrote) {
@@ -1694,9 +1763,10 @@ class Rewind {
     while (level.length > 0) {
       /** The records found at this level, per object: the parents of the next. */
       const next = new Map<string, string[]>();
-      for (const { objectApiName: parentObject, cascades: relations, ids } of level) {
-        if (relations.length === 0) continue;
+      for (const { objectApiName: parentObject, cascades: listed, ids } of level) {
         for (const list of idLists(ids, RECORDS_PER_CALL)) {
+          const relations = listed.filter(({ child }) => !this.noBin.has(child));
+          if (relations.length === 0) break;
           const reads = relations.map(({ child, field, persons }) => ({
             objectApiName: child,
             soql:
@@ -1722,6 +1792,15 @@ class Rewind {
           });
           outcomes.forEach((outcome, index) => {
             if (outcome.read) return;
+            // An object that keeps no IsDeleted has no recycle bin — a case's
+            // team members, a case team template's members: deleted for good
+            // with their parent, nothing of it waits in the bin to come back.
+            // The org's answer says so, once: it is not read again, and no
+            // warning is given (a live rewind gave one under every record).
+            if (NO_RECYCLE_BIN.test(outcome.reason)) {
+              this.noBin.add(relations[index].child);
+              return;
+            }
             this.notes.push(
               `The ${relations[index].child} records that come back with ${parentObject} could ` +
                 `not be read (${outcome.reason}): Undo may not send those ${objectApiName} ` +
@@ -1898,6 +1977,7 @@ class Rewind {
    */
   private async residualOf(
     verify: DiffRead,
+    fresh: DiffRead,
     made: readonly PlanMade[],
     first: PassTally,
     second?: PassTally,
@@ -1939,9 +2019,22 @@ class Rewind {
       if (found.length === 0) continue;
       const rows = await this.whoChanged(verify.dir, name, found);
       const kept = this.keptOf(last, name);
+      // Gone for good when the rewind began, gone for good still: a record
+      // the bin keeps for good under a parent the rewind brought back reads
+      // as one to bring back once that parent is live, which no read tells.
+      const goneBefore = new RecordKeySet();
+      if (fresh.dir !== verify.dir) {
+        for await (const row of rowsOf(classFileOf(fresh.dir, name, 'goneForGood'))) {
+          if (typeof row.Id === 'string') goneBefore.add(row.Id);
+        }
+      }
       for (const { cls, id } of found) {
-        if (cls === 'goneForGood') {
+        if (cls === 'goneForGood' || goneBefore.has(id)) {
           add(name, 'goneForGood', id);
+          continue;
+        }
+        if (cls === 'convertedLead') {
+          add(name, 'kept', id, { message: CONVERTED_LEAD_WORDS });
           continue;
         }
         const row = rows.get(keyOf(id));

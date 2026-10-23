@@ -33,13 +33,16 @@
  * second, so a record dated in Tr's second may have changed after the rewind
  * began, and the give-back holds a record to the same rule. Out of it:
  *
- * - a record of an object Salesforce undeletes only with its parent (an
- *   opportunity's products), whose parent this pass deletes too, and which the
- *   removal takes along with it — created at or after T1, unchanged since Tr:
- *   it goes with its parent, and Undo brings it back with it. Sent on its own
- *   it would be deleted alone, and stay in the recycle bin when its parent
- *   comes back. One whose parent stays is deleted alone, and Undo couldn't
- *   bring it back: it is sent only once that was accepted, and left otherwise;
+ * - a record whose parent this pass deletes too, and which the removal takes
+ *   along with it — created at or after T1, unchanged since Tr: it goes with
+ *   its parent, and Undo brings it back with it. Sent on its own it would be
+ *   deleted alone, children going first, and a record deleted alone whose
+ *   parent is deleted after it stays in the recycle bin for good: its
+ *   undelete answers that it is not there, with its parent, after it or
+ *   before it (a case under an account, live). Of an object Salesforce
+ *   undeletes only with its parent (an opportunity's products), one whose
+ *   parent stays is deleted alone, and Undo couldn't bring it back: it is
+ *   sent only once that was accepted, and left otherwise;
  * - in a checkpoint of picked objects, a record that records outside the
  *   checkpoint created since hang from, unless their deletion was accepted:
  *   the removal would take them along;
@@ -571,7 +574,6 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const deleted = (id: string): boolean => toDelete.has(id) && !kept.has(id);
   const parentsFirst = [...objects].reverse();
   for (const object of parentsFirst) {
-    if (object.undeletable) continue;
     stopped();
     const name = object.objectApiName;
     const file = liveSpoolOf(freshDir, name);
@@ -587,7 +589,15 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       if (along) {
         goesAlong.add(id);
         countsOf(name).withParentDeleted++;
-      } else if (input.acceptNoUndo) {
+        continue;
+      }
+      // Of an object Salesforce undeletes on its own, a record deleted alone
+      // comes back alone — unless a parent this pass deletes goes after it,
+      // and the org then keeps it in the bin for good. One made while the
+      // checkpoint was taken, or brought back since, is such a record: the
+      // removal would keep its parent for it, so it cannot go with it.
+      if (object.undeletable) continue;
+      if (input.acceptNoUndo) {
         countsOf(name).undoCannot++;
       } else {
         kept.add(id, LEFT_FLAG.noUndoNotAccepted);

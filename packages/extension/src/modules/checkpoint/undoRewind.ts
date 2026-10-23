@@ -142,6 +142,20 @@ export interface UndoRewindOutcome {
 /** Ids a residual names at most: the count says how many there are. */
 export const RESIDUAL_IDS_KEPT = 50;
 
+/** What the org answers an undelete of a record it will not bring back, in its words. */
+const NOT_IN_BIN = /Entity is not in the recycle bin/;
+
+/**
+ * Why a record the org answered "not in the recycle bin" for is still in it,
+ * in words that say so: the org's own say the opposite of what a read of the
+ * bin shows.
+ */
+export const KEPT_IN_BIN_WORDS =
+  'Salesforce keeps it in the recycle bin and will not bring it back: deleted on its own, ' +
+  'then a record it hangs from was deleted after it, it can no longer come back, with that ' +
+  'record or without; deleted with a record still in the bin, it comes back only with that ' +
+  "record (the org answers 'UNDELETE_FAILED: Entity is not in the recycle bin')";
+
 /** Columns past which a read by id names a quarter as many ids, as the give-back reads them. */
 const WIDE_COLUMNS = 100;
 
@@ -322,6 +336,79 @@ function mergedRestore(
   };
 }
 
+/**
+ * `outcome` once what the undelete refused as not in the recycle bin is
+ * settled, the bring back through: of those records — read in the bin just
+ * before they were sent — one live now came back with a record it hangs from,
+ * brought back after it, and is counted back already (`alreadyBack`), never
+ * refused; one still in the bin is named with words that say why
+ * ({@link KEPT_IN_BIN_WORDS}).
+ *
+ * Seen live: an undo brought back contacts before the accounts their delete
+ * had gone with, as the order of the objects had it. The org answered each
+ * contact "Entity is not in the recycle bin", then brought it back with its
+ * account; the undo named six contacts refused, and ended partial.
+ *
+ * A read that fails leaves the outcome as it was, said in `notes`.
+ */
+export async function settleNotInBin(
+  org: Pick<RemovalOrg, 'query'>,
+  outcome: SyncUndeleteOutcome,
+  plan: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+  notes: string[],
+): Promise<SyncUndeleteOutcome> {
+  if (outcome.cancelled) return outcome;
+  const left = new Set(outcome.left.map(recordKey));
+  const back = new Set<string>();
+  const settled: SyncUndeleteObjectResult[] = [];
+  for (const object of outcome.objects) {
+    const words = object.reasons.find((reason) => NOT_IN_BIN.test(reason));
+    if (words === undefined || object.refused === 0) {
+      settled.push(object);
+      continue;
+    }
+    const ids = plan
+      .filter(({ objectApiName }) => objectApiName === object.objectApiName)
+      .flatMap((each) => each.ids.filter((id) => left.has(recordKey(id))));
+    let live = 0;
+    try {
+      const name = assertSoqlIdentifier(object.objectApiName);
+      for (const list of idLists(ids, RECORDS_PER_CALL)) {
+        const answer = await org.query(`SELECT Id FROM ${name} WHERE Id IN (${list})`);
+        for (const row of answer.records as Array<{ Id?: unknown }>) {
+          if (typeof row.Id !== 'string' || back.has(recordKey(row.Id))) continue;
+          back.add(recordKey(row.Id));
+          live++;
+        }
+      }
+    } catch (err: unknown) {
+      notes.push(
+        `Whether the ${object.objectApiName} records the org answered were not in the recycle bin ` +
+          `came back with their parent could not be read (${extractErrorMessage(err)}): they are ` +
+          'counted refused.',
+      );
+      settled.push(object);
+      continue;
+    }
+    const taken = Math.min(live, object.refused);
+    const refused = object.refused - taken;
+    settled.push({
+      ...object,
+      refused,
+      alreadyBack: object.alreadyBack + taken,
+      reasons:
+        refused === 0
+          ? object.reasons.filter((reason) => reason !== words)
+          : object.reasons.map((reason) => (reason === words ? KEPT_IN_BIN_WORDS : reason)),
+    });
+  }
+  return {
+    ...outcome,
+    objects: settled,
+    left: outcome.left.filter((id) => !back.has(recordKey(id))),
+  };
+}
+
 /** The values from before of `ids`, by key: each field once, as first kept. */
 async function valuesBefore(
   values: BackupReader,
@@ -492,7 +579,12 @@ async function undoFrom(
       (await bringBack(order.bringFirst)) &&
       (await giveBackOf(order.giveHeld)) &&
       (await bringBack(order.bringAfter));
-    if (through) await giveBackOf(order.giveRest);
+    if (through) {
+      // Every record brought back: what came back with a record after it is
+      // live now, and was answered not in the bin when it was sent first.
+      if (undeleted) undeleted = await settleNotInBin(org, undeleted, plans.bringBack, notes);
+      await giveBackOf(order.giveRest);
+    }
     return (undeleted?.wrote ?? false) || (restored?.wrote ?? false);
   };
 

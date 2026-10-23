@@ -41,6 +41,7 @@ import { overwriteBackupIdOf } from '../sync/syncOverwrites.js';
 import { rewindDirOf } from './OrgCheckpointStore.js';
 import { readRewindJournal } from './rewindJournal.js';
 import type { RewindDeps } from './rewindOrg.js';
+import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -310,6 +311,9 @@ const CASE_CHILDREN = {
   ],
 };
 const kase = (n: number): string => id('500', n);
+/** A checkpoint that holds the cases too: one comes back from the bin on its own. */
+const CASE_OBJECTS = [...PICKED, 'Case'];
+const CASE_COMPARED = [...COMPARED, 'Subject'];
 
 /** What a rewind says of a record it kept for the records hanging from it that it does not delete. */
 const KEPT_FOR = (holders: string): string =>
@@ -502,6 +506,37 @@ describe('the journal and Undo (B3)', () => {
     expect(stateOf(t.org)).toEqual(beforeRewind);
   });
 
+  it('sends no case made since under an account it deletes: it goes with the account, and Undo brings it back with it, where one deleted alone first would stay in the bin for good', async () => {
+    const t = await taken(
+      baseRecords,
+      new RewindTestOrg({ fields: CASE_FIELDS, children: CASE_CHILDREN }),
+      CASE_OBJECTS,
+      { objects: CASE_OBJECTS, fields: CASE_COMPARED },
+    );
+    expect(t.org.facts.childDeletedAloneThenParentLimbo).toBe(true);
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+    t.org.add('Case', {
+      Id: kase(7),
+      Subject: 'Made since',
+      AccountId: account(7),
+      LastModifiedById: COLLEAGUE,
+    });
+    const beforeRewind = stateOf(t.org, CASE_OBJECTS, CASE_COMPARED);
+    const diff = await previewed(t);
+    expect(diff.withParentDeleted).toEqual([{ objectApiName: 'Case', count: 1 }]);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.status).toBe('success');
+    expect(result.undo?.cannot).toEqual([]);
+    expect(t.org.deletes.flatMap(({ ids }) => ids)).toEqual([account(7)]);
+    expect(t.org.inBin('Case').map((row) => row.Id)).toEqual([kase(7)]);
+    const undo = await undone(t, result.rewindId);
+    expect(undo.status).toBe('success');
+    expect(stateOf(t.org, CASE_OBJECTS, CASE_COMPARED)).toEqual(beforeRewind);
+  });
+
   it('sends no give-back whose values from before could not be kept, and names the records it left', async () => {
     const t = await taken();
     clock.now = SINCE;
@@ -654,4 +689,196 @@ describe('others at work during the rewind (M3)', () => {
     const during = [...named].filter(([, reason]) => reason === 'changedDuringRewind');
     expect(during.length).toBeGreaterThan(0);
   });
+});
+
+// ─── What the org will not take back ─────────────────────────────────────────
+
+describe('a record Salesforce keeps in the recycle bin for good', () => {
+  it('deleted on its own, then its account, is never sent to the undelete: the preview counts it gone for good, and the rewind names it so (F41)', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Contact', contact(3), COLLEAGUE);
+    clock.now = SINCE + 5_000;
+    t.org.trash('Account', account(1), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+      toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
+      cannotUndo: [{ reason: 'goneForGood', count: 1 }],
+    });
+    const sent: string[] = [];
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, {
+        deps: {
+          undelete: (ids) => {
+            sent.push(...ids);
+            return t.org.undelete(ids);
+          },
+        },
+      }),
+    );
+
+    expect(sent).toEqual([account(1)]);
+    expect(result.undeleted.flatMap(({ reasons }) => reasons)).toEqual([]);
+    expect(result.residual).toEqual([
+      { objectApiName: 'Contact', reason: 'goneForGood', count: 1, ids: [contact(3)] },
+    ]);
+    expect(result.status).toBe('partial');
+    expect(liveIds(t.org, 'Account')).toContain(account(1));
+    expect(liveIds(t.org, 'Opportunity')).toContain(opportunity(1));
+  });
+});
+
+describe('a record Salesforce keeps in the recycle bin under a parent live again', () => {
+  it('is refused by the org as not in the bin, and named with words that say it stays there, not the org’s bare words: no read tells it from one to bring back (F41)', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Contact', contact(3), COLLEAGUE);
+    clock.now = SINCE + 5_000;
+    t.org.trash('Account', account(1), COLLEAGUE);
+    clock.now = SINCE + 10_000;
+    t.org.untrash(account(1), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+      toBringBack: { inBin: 1 },
+    });
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.residual).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        reason: 'refused',
+        ids: [contact(3)],
+        message: KEPT_IN_BIN_WORDS,
+      }),
+    ]);
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([contact(3)]);
+  });
+});
+
+describe('a lead converted since', () => {
+  const LEAD_FIELDS: Record<string, unknown[]> = {
+    ...FIELDS,
+    Lead: [
+      ...STAMP_FIELDS,
+      writable('LastName'),
+      writable('Status'),
+      // Set when a lead is made, never changed after: a conversion sets it.
+      { name: 'IsConverted', label: 'Converted', type: 'boolean', createable: true },
+    ],
+  };
+  const lead = (n: number): string => id('00Q', n);
+
+  it('is left converted, never sent an update: the preview names it one the rewind cannot undo, and the rewind says why it left it (A9, F14)', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('Lead', { Id: lead(1), LastName: 'Ada', Status: 'Open', IsConverted: false });
+      },
+      new RewindTestOrg({ fields: LEAD_FIELDS }),
+      [...PICKED, 'Lead'],
+    );
+    clock.now = SINCE;
+    t.org.edit('Lead', lead(1), { Status: 'Closed - Converted', IsConverted: true }, COLLEAGUE);
+    t.org.refuseUpdate.set(lead(1), {
+      statusCode: 'CANNOT_UPDATE_CONVERTED_LEAD',
+      message: 'cannot reference converted lead',
+    });
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Lead')).toMatchObject({
+      toGiveBack: { records: 0, fields: 0, clearedLookups: 0 },
+      cannotUndo: [{ reason: 'convertedLead', count: 1 }],
+    });
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Lead')).toEqual([]);
+    expect(result.residual).toEqual([
+      {
+        objectApiName: 'Lead',
+        reason: 'kept',
+        count: 1,
+        ids: [lead(1)],
+        message: expect.stringMatching(/can't unconvert a lead/),
+      },
+    ]);
+  });
+});
+
+describe('the records that come back with a record brought back', () => {
+  /** Accounts list a view over their activities, contacts a team membership without a recycle bin. */
+  const VIEW_FIELDS: Record<string, unknown[]> = {
+    ...FIELDS,
+    ActivityHistory: [
+      ...STAMP_FIELDS,
+      writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+    ],
+    CaseTeamMember: [
+      ...STAMP_FIELDS.filter(({ name }) => name !== 'IsDeleted'),
+      writable('MemberId', 'reference', { referenceTo: ['Contact'] }),
+    ],
+    Note__c: [...STAMP_FIELDS, writable('Account__c', 'reference', { referenceTo: ['Account'] })],
+  };
+  const VIEW_CHILDREN = {
+    ...CHILDREN,
+    Account: [
+      ...(CHILDREN.Account ?? []),
+      { childSObject: 'ActivityHistory', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Note__c', field: 'Account__c', cascadeDelete: true },
+    ],
+    Contact: [{ childSObject: 'CaseTeamMember', field: 'MemberId', cascadeDelete: true }],
+  };
+  const many = 201;
+
+  it('are not read through an object the org does not query, nor, once it answered so, through one without a recycle bin: neither is warned of, and a read refused otherwise is', async () => {
+    const org = new RewindTestOrg({ fields: VIEW_FIELDS, children: VIEW_CHILDREN });
+    const t = await taken(
+      (o) => {
+        for (let n = 0; n < many; n++) {
+          o.add('Account', { Id: account(100 + n), Name: `Account ${n}` });
+          o.add('Contact', {
+            Id: contact(100 + n),
+            LastName: `Contact ${n}`,
+            AccountId: account(100 + n),
+          });
+        }
+      },
+      org,
+      ['Account', 'Contact'],
+      { objects: ['Account', 'Contact'] },
+    );
+    t.org.unqueryable.add('ActivityHistory');
+    t.org.refuseRead.set('ActivityHistory', {
+      errorCode: 'INVALID_TYPE_FOR_OPERATION',
+      message: 'entity type ActivityHistory does not support query',
+    });
+    t.org.missingFields.set('CaseTeamMember', new Set(['IsDeleted']));
+    t.org.refuseRead.set('Note__c', {
+      errorCode: 'INSUFFICIENT_ACCESS',
+      message: 'insufficient access rights on object id',
+    });
+    clock.now = SINCE;
+    for (let n = 0; n < many; n++) t.org.trash('Account', account(100 + n), COLLEAGUE);
+    const asked: string[] = [];
+    const request = t.org.request.bind(t.org);
+    t.org.request = async (sent) => {
+      if (sent.body !== undefined) asked.push(decodeURIComponent(JSON.stringify(sent.body)));
+      return request(sent);
+    };
+    const diff = await previewed(t);
+
+    const outcome = await rewound(t, diff.previewId);
+
+    expect(resultOf(outcome).status).toBe('success');
+    if (!outcome.rewound) return;
+    const readsOf = (object: string): number =>
+      asked.filter((body) => body.includes(`FROM ${object} WHERE`)).length;
+    expect(readsOf('ActivityHistory')).toBe(0);
+    // Two batches of accounts brought back, their contacts with them: the
+    // team members asked once, under the first.
+    expect(readsOf('CaseTeamMember')).toBe(1);
+    expect(outcome.notes.filter((note) => /ActivityHistory|CaseTeamMember/.test(note))).toEqual([]);
+    expect(outcome.notes.filter((note) => /Note__c/.test(note)).length).toBeGreaterThan(0);
+  }, 60_000);
 });

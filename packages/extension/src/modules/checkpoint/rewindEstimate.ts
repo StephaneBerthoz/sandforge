@@ -724,11 +724,13 @@ export interface DiffEstimateInput {
   objects: readonly EstimatedObject[];
   /**
    * What the last read found: the objects that moved, those it could not
-   * read, and, of the records to delete of objects Salesforce undeletes only
-   * with their parent, those deleted on their own — the rest go with their
-   * parent, never sent. Not told, every record to delete is counted sent.
+   * read, the records to delete that go with a parent it deletes too, never
+   * sent, and, of the records to delete of objects Salesforce undeletes only
+   * with their parent, those deleted on their own. Told neither, every record
+   * to delete is counted sent.
    */
-  diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'undoCannot'>>;
+  diff: Pick<RewindDiff, 'objects' | 'unread'> &
+    Partial<Pick<RewindDiff, 'undoCannot' | 'withParentDeleted'>>;
   /**
    * Per object, its relationships as its describe lists them
    * ({@link relationshipsOf}). One not given, of an object the rewind
@@ -1108,7 +1110,8 @@ function mayHangFrom(
  * each part as `rewindOrg` sends it:
  *
  * - the user it writes as;
- * - pass 1: the bring back, parents first (`bringBackCost`); the give-back,
+ * - pass 1: the bring back, parents first (`bringBackCost`), and the org's
+ *   objects described for it unless the read before did; the give-back,
  *   before and after the deletes (`givenBackCost`); the removal of what was
  *   created or brought back since (`removalCost`);
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
@@ -1130,13 +1133,22 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
   const alone = input.diff.undoCannot
     ? new Map(input.diff.undoCannot.map(({ objectApiName, count }) => [objectApiName, count]))
     : undefined;
+  const along = input.diff.withParentDeleted
+    ? new Map(
+        input.diff.withParentDeleted.map(({ objectApiName, count }) => [objectApiName, count]),
+      )
+    : undefined;
   /**
-   * Records the first pass hands its removal: of an object Salesforce
-   * undeletes only with its parent, those deleted on their own, but those
-   * that come back with a parent, which the second pass deletes; the rest go
-   * with their parent, and hold nothing given back in place.
+   * Records the first pass hands its removal: all but those that go with a
+   * parent it deletes too, which hold nothing given back in place. A diff that
+   * does not count those tells, of an object Salesforce undeletes only with
+   * its parent, the records deleted on their own, but those that come back
+   * with a parent, which the second pass deletes.
    */
   const sentFirst = (object: RewindDiffObject): number => {
+    if (along !== undefined) {
+      return Math.max(0, deletedFirst(object) - (along.get(object.objectApiName) ?? 0));
+    }
     if (alone === undefined || heldOf.get(object.objectApiName)?.undeletable !== false) {
       return deletedFirst(object);
     }
@@ -1168,7 +1180,21 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       );
     });
   const topBatches = objects.reduce((total, object) => total + batches(sentBack(object)), 0);
+  // The org's objects, described once a record with children to read comes
+  // back — which of them the org does not query — unless the read the rewind
+  // acts on described them, for records to delete with children outside it.
+  const describedBefore =
+    input.reusesPreview !== true &&
+    objects.some(
+      (object) =>
+        deletedFirst(object) > 0 &&
+        (input.relationships?.get(object.objectApiName)?.outside?.all ?? object.outside.length) > 0,
+    );
+  const backWithChildren = objects.some(
+    (object) => sentBack(object) > 0 && relationships(object.objectApiName).cascades > 0,
+  );
   const passOne = sum(
+    calls(backWithChildren && !describedBefore ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
     bringBackCost(
       objects.map((object) => ({
         records: sentBack(object),

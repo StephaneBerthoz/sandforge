@@ -537,10 +537,34 @@ describe('a rewind on the memory org, over random histories since the checkpoint
       'childDeletedAloneStays',
       'undeleteRestoresLookups',
       'parentsDeletedFirst',
+      'childDeletedAloneThenParentLimbo',
     ])) {
       await fc.assert(
         fc.asyncProperty(historyArb(), async (history) => {
           await undoneAfter(facts, history, 'exactly');
+        }),
+        { numRuns: RUNS, seed: SEED, endOnFailure: true },
+      );
+    }
+  }, 120_000);
+
+  it('undone, after a family made since — an account, its contact, its deal and the deal’s line — returns that family as it was before the rewind, whether the org keeps for good in the bin a record deleted alone before its parent or not, and the rest of the org, or says each record it kept and why', async () => {
+    // Made a second apart from SINCE, numbered from 501: the account, then
+    // under it the contact and the deal, then the deal's line.
+    const family: Step[] = [
+      { kind: 'create', object: 0, parent: 0 },
+      { kind: 'create', object: 1, parent: 3 },
+      { kind: 'create', object: 2, parent: 3 },
+      { kind: 'create', object: 4, parent: 2 },
+    ];
+    const made = [account(501), contact(502), opportunity(503), lineOf(504)];
+    for (const facts of factCombinations([
+      'childDeletedAloneThenParentLimbo',
+      'childDeletedAloneStays',
+    ])) {
+      await fc.assert(
+        fc.asyncProperty(historyArb(), async (history) => {
+          await undoneAfter(facts, [...family, ...history], 'orSaysWhy', made);
         }),
         { numRuns: RUNS, seed: SEED, endOnFailure: true },
       );
@@ -850,17 +874,30 @@ describe('a rewind on the memory org, under the one hypothesis that breaks it', 
   });
 });
 
+/** A record as `state` holds it: its kept fields when live, `bin` when in the recycle bin, or none. */
+function recordIn(state: KeptState, id: string): unknown {
+  for (const [objectApiName, rows] of Object.entries(state.live)) {
+    const row = rows.find((each) => each.Id === id);
+    if (row) return { objectApiName, row };
+  }
+  for (const [objectApiName, ids] of Object.entries(state.bin)) {
+    if (ids.includes(id)) return { objectApiName, bin: id };
+  }
+  return undefined;
+}
+
 /**
  * Rewind `history` under `facts`, undo it, and hold the org to how it was
  * before the rewind: `exactly`, but for the objects whose records the
  * rewind said Undo could not bring back; or, `orSaysWhy`, each object that
  * differs counted by the undo among what it kept, left or could not bring
- * back.
+ * back. The records of `exact` are held to how they were whatever else.
  */
 async function undoneAfter(
   facts: MemoryOrgFacts,
   history: readonly Step[],
   hold: 'exactly' | 'orSaysWhy',
+  exact: readonly string[] = [],
 ): Promise<void> {
   const t = await since(facts, history);
   const before = keptOf(t.org, t.checkpoint);
@@ -872,6 +909,13 @@ async function undoneAfter(
   }
   const undo = await undone(t, result.rewindId);
   const after = keptOf(t.org, t.checkpoint);
+  for (const record of exact) {
+    expect({ message, record, state: recordIn(after, record) }).toEqual({
+      message,
+      record,
+      state: recordIn(before, record),
+    });
+  }
   const cannot = new Set(result.undo.cannot.map(({ objectApiName }) => objectApiName));
   /** Per object, the records the undo says it kept, left or could not bring back. */
   const counted = new Map<string, number>();

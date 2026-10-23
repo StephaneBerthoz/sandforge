@@ -558,6 +558,9 @@ describe('rewindEstimate', () => {
     // As the first diffEstimate case counts it.
     const diff = 8;
     const passOne =
+      // The org's objects, described for those it does not query among the
+      // children that come back: the fresh diff did not describe them.
+      1 +
       // Bring back the 3 accounts: the undelete's 3 for their batch, the
       // children it holds through Account's 1 cascade, the stamps read back.
       3 +
@@ -777,6 +780,40 @@ describe('rewindEstimate', () => {
 
     // Deleted on their own, the 450 products: their describe, 3 reads and 3 deletes.
     expect(cost(450) - cost(0)).toBe(1 + 3 + 3);
+  });
+
+  it('counts no delete of the records, of any object, that go with a parent the rewind deletes too: never sent, they come back with it', () => {
+    const objects: EstimatedObject[] = [
+      { ...held('Contact', 0), readOrder: 0, cascadeParents: ['AccountId'] },
+      { ...held('Account', 0), readOrder: 1, cascadeParents: [] },
+    ];
+    const cost = (along: number): number =>
+      rewindWritesCost({
+        objects,
+        diff: {
+          objects: [
+            found('Contact', {
+              toDelete: { createdSince: 450, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+            found('Account', {
+              toDelete: { createdSince: 300, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+          unread: [],
+          undoCannot: [],
+          ...(along > 0 ? { withParentDeleted: [{ objectApiName: 'Contact', count: along }] } : {}),
+        },
+        automationRequests: 0,
+        relationships: new Map([
+          ['Contact', { dependents: 0, cascades: 0, cascadeChildren: [] }],
+          ['Account', { dependents: 1, cascades: 1, cascadeChildren: ['Contact'] }],
+        ]),
+      }).apiRequests;
+
+    // Sent on their own, the 450 contacts: their describe, 3 reads and 3 deletes.
+    expect(cost(0) - cost(450)).toBe(1 + 3 + 3);
+    // 50 of them sent: a read and a delete for one batch, the describe kept.
+    expect(cost(400) - cost(450)).toBe(1 + 1 + 1);
   });
 
   it('asks again, for each page of 2,000 records a rewind hands its removal, whether anything points through each relationship', () => {

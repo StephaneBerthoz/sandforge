@@ -32,7 +32,12 @@ import {
   undoPlans,
 } from './rewindJournal.js';
 import { relationshipsOf, undoEstimate, type EstimatedObject } from './rewindEstimate.js';
-import { heldInPlaceOrder, undoRewind, type UndoRewindOutcome } from './undoRewind.js';
+import {
+  KEPT_IN_BIN_WORDS,
+  heldInPlaceOrder,
+  undoRewind,
+  type UndoRewindOutcome,
+} from './undoRewind.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -51,7 +56,10 @@ vi.mock('../../logger.js', () => ({
  * - N1 created with its contact N1c, and NC created;
  * - R made to report to NC instead of BOSS.
  * The rewind gives A1 and R their checkpoint values back, brings A2 back
- * with C2 and gives A2 its own, and deletes N1c, NC and N1.
+ * with C2 and gives A2 its own, and deletes NC and N1, N1c going with N1: as
+ * the rewind's plan has it, a record created since under a parent it deletes
+ * is not sent on its own, for one deleted alone whose parent goes after it
+ * the org keeps in the bin for good.
  */
 
 const ORG_ID = '00D000000000001AAA';
@@ -261,7 +269,7 @@ async function rewindPass(
   try {
     const state = (await journal.read()).rewind;
     const plan = [
-      { objectApiName: 'Contact', ids: [N1C, NC] },
+      { objectApiName: 'Contact', ids: [NC] },
       { objectApiName: 'Account', ids: [N1] },
     ];
     const bringBack = [{ objectApiName: 'Account', ids: [A2] }];
@@ -387,7 +395,7 @@ describe('undoRewind, on the memory org', () => {
     vi.setSystemTime(TR + 10 * 60_000);
     const outcome = await undo(folder, rewindId, org);
 
-    expect(outcome.planned).toEqual({ remove: 2, bringBack: 3, giveBack: 3 });
+    expect(outcome.planned).toEqual({ remove: 2, bringBack: 2, giveBack: 3 });
     expect(outcome.deleted.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
       ['Contact', 1],
       ['Account', 1],
@@ -396,8 +404,10 @@ describe('undoRewind, on the memory org', () => {
       outcome.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]),
     ).toEqual([
       ['Account', 1],
-      ['Contact', 2],
+      ['Contact', 1],
     ]);
+    // N1c came back with N1, which the rewind deleted it with.
+    expect(org.all('Contact').map((row) => row.Id)).toContain(N1C);
     expect(
       outcome.restored.map(({ objectApiName, restored }) => [objectApiName, restored]),
     ).toEqual([
@@ -610,7 +620,7 @@ describe('undoRewind, on the memory org', () => {
     expect(org.requests + org.soapCalls - sentBefore).toBe(
       estimate.apiRequests - actFixed.apiRequests,
     );
-    expect(estimate.records).toBe(2 + 3 + 3);
+    expect(estimate.records).toBe(2 + 2 + 3);
   });
 
   it('sends no removal for a rewind that brought nothing back, and gives back 2,000 records a call, as its estimate counts', async () => {
@@ -723,6 +733,104 @@ describe('undoRewind, on the memory org', () => {
     expect(org.requests + org.soapCalls - sentBefore).toBe(
       estimate.apiRequests - actFixed.apiRequests,
     );
+  });
+
+  /** A rewind that deleted `deleted` as `trash` does it in the org, its journal through. */
+  async function rewoundDeleting(
+    deleted: Array<{ objectApiName: string; ids: string[] }>,
+    trash: () => void,
+  ): Promise<{ folder: CheckpointFolder; rewindId: string }> {
+    const folder = await checkpointFolder();
+    vi.setSystemTime(TR);
+    const journal = await openRewindJournal({
+      folder,
+      lock,
+      startedAt: new Date().toISOString(),
+      userId: MEMORY_ORG_USER,
+    });
+    await journal.deleting(deleted);
+    trash();
+    await journal.deleted({ left: async function* () {} });
+    await journal.end();
+    await journal.close();
+    vi.setSystemTime(TR + 10 * 60_000);
+    return { folder, rewindId: journal.rewindId };
+  }
+
+  it('counts back already, never refused, a contact the org answered not in the recycle bin as its account was still there, once the account brought it back: the objects’ order sent the contact first', async () => {
+    vi.setSystemTime(LONG_AGO);
+    const org = new MemoryRestoreOrg(CHILDREN, { now: () => Date.now() });
+    org.add('Account', { Id: N1, Name: 'N1' });
+    org.add('Contact', { Id: N1C, LastName: 'N1c', AccountId: N1 });
+    const before = stateOf(org);
+    const { folder, rewindId } = await rewoundDeleting(
+      [
+        { objectApiName: 'Account', ids: [N1] },
+        { objectApiName: 'Contact', ids: [N1C] },
+      ],
+      () => org.trash('Account', N1),
+    );
+
+    // Contacts read after accounts, as an org with person accounts orders
+    // them: brought back parents first, the contact goes first.
+    const outcome = await undoRewind({
+      folder,
+      rewindId,
+      lock,
+      objects: [
+        { objectApiName: 'Account', readOrder: 0 },
+        { objectApiName: 'Contact', readOrder: 1 },
+      ],
+      org,
+      undelete: (ids) => org.undelete(ids),
+    });
+
+    expect(outcome.undeleted).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        planned: 1,
+        undeleted: 0,
+        alreadyBack: 1,
+        refused: 0,
+        reasons: [],
+      }),
+      expect.objectContaining({ objectApiName: 'Account', undeleted: 1, refused: 0 }),
+    ]);
+    expect(outcome.status).toBe('success');
+    expect(stateOf(org)).toEqual(before);
+    expect(outcome.notes).toEqual([]);
+  });
+
+  it('names with words that say why a record the org answered not in the recycle bin that stays there: deleted on its own before its account, Salesforce keeps it for good', async () => {
+    vi.setSystemTime(LONG_AGO);
+    const org = new MemoryRestoreOrg(CHILDREN, { now: () => Date.now() });
+    org.add('Account', { Id: N1, Name: 'N1' });
+    org.add('Contact', { Id: N1C, LastName: 'N1c', AccountId: N1 });
+    const { folder, rewindId } = await rewoundDeleting(
+      [
+        { objectApiName: 'Contact', ids: [N1C] },
+        { objectApiName: 'Account', ids: [N1] },
+      ],
+      () => {
+        org.trash('Contact', N1C);
+        org.trash('Account', N1);
+      },
+    );
+
+    const outcome = await undo(folder, rewindId, org);
+
+    expect(outcome.undeleted).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', undeleted: 1, refused: 0 }),
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        undeleted: 0,
+        alreadyBack: 0,
+        refused: 1,
+        reasons: [KEPT_IN_BIN_WORDS],
+      }),
+    ]);
+    expect(outcome.status).toBe('partial');
+    expect(org.inBin('Contact').map((row) => row.Id)).toEqual([N1C]);
   });
 
   it('gives back, of a record written over by two passes, the values it held before the first', async () => {
