@@ -321,11 +321,11 @@ describe('sandforge-autopilot — the plan', () => {
     });
 
     expect(lines).toContain(
-      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- one read of its lookups ' +
-        'takes no more',
+      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- a run copies no more of ' +
+        'a selected object',
     );
     expect(lines).toContain(
-      '  Case: 50000 record(s) copied, the first by Id -- one read of its lookups takes no more',
+      '  Case: 50000 record(s) copied, the first by Id -- a run copies no more of a selected object',
     );
   });
 

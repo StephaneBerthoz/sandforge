@@ -405,6 +405,31 @@ describe('useSeedFieldRules', () => {
     expect(result.current.fieldConfigs[0].fields[0].referenceTo).toEqual(['Contact', 'Lead']);
   });
 
+  it('marks the fields whose rule or value the user changed, which Set by me lists, and no other', () => {
+    bridge.data = CONTRACT_DESCRIBE;
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contract__c'], 1));
+    const setByUser = (): string[] =>
+      result.current.fieldConfigs[0].fields
+        .filter((field) => field.setByUser === true)
+        .map((field) => field.fieldApiName);
+    // What the describe gave is what the step opened on.
+    expect(setByUser()).toEqual([]);
+
+    act(() => {
+      result.current.handleChangeFieldRule('Contract__c', 'Notes__c', 'static');
+    });
+    act(() => {
+      result.current.handleChangeFieldConfig('Contract__c', 'Premium__c', 'staticValue', '300');
+    });
+    expect(setByUser()).toEqual(['Premium__c', 'Notes__c']);
+
+    // A persona's pattern replaces the user's rule: the field is the persona's.
+    act(() => {
+      result.current.applyPersona(ASSUREUR_FR);
+    });
+    expect(setByUser()).toEqual(['Notes__c']);
+  });
+
   it('should initialize with empty field configs', () => {
     const { result } = renderHook(() => useSeedFieldRules('org-1', ['Account'], 0));
 

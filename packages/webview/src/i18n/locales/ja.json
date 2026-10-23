@@ -1021,6 +1021,7 @@
       "filterFields": "{{object}} の項目を検索",
       "filterFieldsPlaceholder": "表示ラベルまたは API 参照名",
       "requiredOnly": "必須項目のみ",
+      "setByMe": "自分で設定した項目のみ",
       "fieldsShown": "{{total}} 項目中 {{shown}} 項目を表示",
       "noFieldMatches": "このフィルターに一致する項目はありません。"
     }
@@ -3731,8 +3732,8 @@
         "standardNeeded": "標準オブジェクトは指定されていませんが、{{object}} を取り込みます: {{field}} は空にできません。",
         "followedByDefault": "標準オブジェクトは要求されていませんが、{{object}} は既定で辿られます: {{fields}} が参照しています。",
         "currencies": "ターゲット組織で有効になっていない通貨: {{currencies}}。これらの通貨のレコードは、ターゲット組織の会社の通貨である {{writtenIn}} で書き込まれ、金額はソース組織の換算レートで換算されます ({{objects}})。",
-        "cutShort": "{{object}}: {{total}} 件のレコードのうち、ID 順で最初の {{copied}} 件と、それらが参照する親レコードをコピーします。参照項目の 1 回の読み取りでは、それ以上は取得できません。",
-        "cutShortUncounted": "{{object}}: ID 順で最初の {{copied}} 件のレコードと、それらが参照する親レコードをコピーします。参照項目の 1 回の読み取りでは、それ以上は取得できません。"
+        "cutShort": "{{object}}: {{total}} 件のレコードのうち、ID 順で最初の {{copied}} 件と、それらが参照する親レコードをコピーします。1 回の実行では、選択したオブジェクトからそれ以上はコピーしません。",
+        "cutShortUncounted": "{{object}}: ID 順で最初の {{copied}} 件のレコードと、それらが参照する親レコードをコピーします。1 回の実行では、選択したオブジェクトからそれ以上はコピーしません。"
       },
       "notCovered": "{{object}}: {{missing}} の匿名化ルールがありません。ソースのままコピーされます。",
       "personal": {

@@ -8,6 +8,7 @@ import type { NavigationIntent } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 import { TemplateGallery } from './TemplateGallery';
 import { useQuickSeed } from './useQuickSeed';
 import { focusWhenDrawn } from '../../utils/focusWhenDrawn';
@@ -54,7 +55,9 @@ const FLOW_LOADING = <div aria-busy="true" data-testid="seed-flow-loading" />;
  *
  * Each other way is a chunk of its own (`seedFlows`), loaded when it opens.
  * The wizard, once opened, stays mounted while the page shows another way:
- * a run it started goes on reporting to it.
+ * a run it started goes on reporting to it. Each is kept to its own place
+ * when it fails (`PartBoundary`): a CSV import whose file could not be
+ * fetched took the gallery, the way back and the page's header with it.
  */
 export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
@@ -203,9 +206,11 @@ export const SeedPage: React.FC = () => {
       {/* ----- START: the gallery, a template's run, the other ways ----- */}
       {seedMode === 'start' &&
         (quickSeed.phase !== 'idle' ? (
-          <Suspense fallback={FLOW_LOADING}>
-            <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
-          </Suspense>
+          <PartBoundary data-testid="seed-quick-failed">
+            <Suspense fallback={FLOW_LOADING}>
+              <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
+            </Suspense>
+          </PartBoundary>
         ) : (
           <>
             <TemplateGallery onSelectTemplate={handleSelectTemplate} />
@@ -264,35 +269,43 @@ export const SeedPage: React.FC = () => {
             </section>
 
             {/* The seeds kept, which a reload left removable */}
-            <Suspense fallback={null}>
-              <SeedRunHistory />
-            </Suspense>
+            <PartBoundary data-testid="seed-history-failed">
+              <Suspense fallback={null}>
+                <SeedRunHistory />
+              </Suspense>
+            </PartBoundary>
           </>
         ))}
 
       {/* ----- CSV UPLOAD MODE ----- */}
       {seedMode === 'csv' && (
-        <Suspense fallback={FLOW_LOADING}>
-          <CsvUploadWizard onBack={backToStart} onRunningChange={setFlowRunning} />
-        </Suspense>
+        <PartBoundary data-testid="seed-csv-failed">
+          <Suspense fallback={FLOW_LOADING}>
+            <CsvUploadWizard onBack={backToStart} onRunningChange={setFlowRunning} />
+          </Suspense>
+        </PartBoundary>
       )}
 
       {/* ----- CLONE MODE ----- */}
       {seedMode === 'clone' && (
-        <Suspense fallback={FLOW_LOADING}>
-          <CloneWizard
-            onBack={backToStart}
-            initialSourceOrgId={recommendedCloneSource}
-            onRunningChange={setFlowRunning}
-          />
-        </Suspense>
+        <PartBoundary data-testid="seed-clone-failed">
+          <Suspense fallback={FLOW_LOADING}>
+            <CloneWizard
+              onBack={backToStart}
+              initialSourceOrgId={recommendedCloneSource}
+              onRunningChange={setFlowRunning}
+            />
+          </Suspense>
+        </PartBoundary>
       )}
 
       {/* ----- GENERATE: the wizard, kept once opened ----- */}
       {(generateOpened || seedMode === 'generate') && (
-        <Suspense fallback={seedMode === 'generate' ? FLOW_LOADING : null}>
-          <SeedGenerateFlow active={seedMode === 'generate'} onBack={backToStart} />
-        </Suspense>
+        <PartBoundary data-testid="seed-generate-failed">
+          <Suspense fallback={seedMode === 'generate' ? FLOW_LOADING : null}>
+            <SeedGenerateFlow active={seedMode === 'generate'} onBack={backToStart} />
+          </Suspense>
+        </PartBoundary>
       )}
     </div>
   );

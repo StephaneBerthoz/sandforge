@@ -17,6 +17,25 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => stableApi,
 }));
 
+/** Whether the removal's file could not be fetched: it throws as React.lazy does then. */
+const removalFile = vi.hoisted(() => ({ unfetched: false }));
+
+vi.mock('./SeedRunRemoval', async (original) => {
+  const actual = await original<typeof import('./SeedRunRemoval')>();
+  const { createElement } = await import('react');
+  return {
+    ...actual,
+    SeedRunRemoval: (props: Parameters<typeof actual.SeedRunRemoval>[0]) => {
+      if (removalFile.unfetched) {
+        throw new TypeError(
+          'Failed to fetch dynamically imported module: https://panel.test/assets/SeedRunRemoval-x.js',
+        );
+      }
+      return createElement(actual.SeedRunRemoval, props);
+    },
+  };
+});
+
 import { SeedRunHistory } from './SeedRunHistory';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -83,6 +102,7 @@ function answer(requestType: string, type: string, payload: unknown): void {
 
 describe('SeedRunHistory', () => {
   beforeEach(() => {
+    removalFile.unfetched = false;
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [DEV] });
   });
@@ -111,6 +131,26 @@ describe('SeedRunHistory', () => {
     await waitFor(() =>
       expect(sentAll('seed:removal:info').pop()?.payload).toEqual({ runId: 'op-2' }),
     );
+  });
+
+  it('says under the seed that its removal could not be fetched, the list and its other seeds up', async () => {
+    // Fetched as a seed is opened onto it, its failure took the Seed page
+    // down: the gallery, the other ways to seed and the list with it.
+    removalFile.unfetched = true;
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      render(<SeedRunHistory />);
+      answer('seed:removal:list', 'seed:removal:list:response', { runs: RUNS });
+
+      fireEvent.click(screen.getByTestId('seed-run-history-toggle-op-2'));
+
+      const failed = await screen.findByTestId('seed-removal-failed');
+      expect(failed.textContent).toContain('This part did not load');
+      expect(screen.getByTestId('seed-removal-failed-reload')).toBeDefined();
+      expect(screen.getByTestId('seed-run-history-op-1')).toBeDefined();
+    } finally {
+      quiet.mockRestore();
+    }
   });
 
   it('says a seed that stopped before it ended is partial, lists what the org confirmed, and still offers its removal', () => {

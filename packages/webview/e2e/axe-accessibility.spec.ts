@@ -12067,5 +12067,86 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('field-filter-none-Account')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
     });
+
+    test('Seed configure step: the fields set by me, among 150, found by Set by me', async ({
+      page,
+    }) => {
+      // The few fields set sat among the ones left as the describe gave them,
+      // found again only by name.
+      const account = SEED_DESCRIBES.Account as { fields: Record<string, unknown>[] };
+      const wide = {
+        ...SEED_DESCRIBES,
+        Account: {
+          ...SEED_DESCRIBES.Account,
+          fields: [
+            ...account.fields,
+            ...Array.from({ length: 146 }, (_, i) => ({
+              fieldApiName: `Region${i}__c`,
+              label: `Region ${i}`,
+              type: 'string',
+              required: false,
+              picklistValues: [],
+              referenceTo: [],
+              length: 80,
+            })),
+          ],
+        },
+      };
+      await openSeedConfigure(bridge, page, theme, wide);
+      const fields = page.getByTestId('step-configure-fields');
+      await fields.getByTestId('field-filter-Account').waitFor({ timeout: 10_000 });
+      const filter = page.getByLabel('Find a field of Account');
+
+      await filter.fill('region 3');
+      await page
+        .getByLabel('Generation rule for Region 3', { exact: true })
+        .selectOption('sequence');
+      await filter.fill('region 5');
+      await page.getByLabel('Generation rule for Region 5', { exact: true }).selectOption('static');
+      await page.getByLabel('Static Value for Region 5', { exact: true }).fill('North');
+      await filter.fill('');
+
+      await page.getByLabel('Set by me').check();
+      await expect(page.getByTestId('field-filter-count-Account')).toHaveText(
+        /^2 of \d+ fields shown$/,
+      );
+      await expect(fields.getByTestId('field-Account-Region3__c')).toBeVisible();
+      await expect(fields.getByTestId('field-Account-Region5__c')).toBeVisible();
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
+
+      await page.getByLabel('Required only').check();
+      await expect(page.getByTestId('field-filter-none-Account')).toBeVisible();
+      await expectReadable(page, theme, '[data-testid="seed-step-configure-content"]');
+    });
+
+    /*
+     * A way to seed is a file fetched the first time it opens: one that could
+     * not be fetched took the gallery, the way back and the page's header
+     * with it, and only the page's boundary said so.
+     */
+    test('Seed whose CSV import could not be fetched: the failure in its place, the way back up', async ({
+      page,
+    }) => {
+      await page.route('**/src/pages/Seed/CsvUpload/CsvUploadWizard.tsx*', (route) =>
+        route.abort(),
+      );
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('mode-card-csv').click();
+
+      const failed = page.getByTestId('seed-csv-failed');
+      await expect(failed).toBeVisible({ timeout: 10_000 });
+      await expect(failed).toContainText('This part did not load');
+      await expect(failed).not.toContainText('dynamically imported');
+      await expect(page.getByTestId('error-boundary')).toHaveCount(0);
+      await expect(page.getByTestId('back-to-modes')).toBeVisible();
+      await expectReadable(page, theme);
+
+      await page.getByTestId('seed-csv-failed-reload').click();
+      expect((await bridge.waitForMessage('panel:reload')).payload).toEqual({ moduleId: 'seed' });
+
+      await page.getByTestId('back-to-modes').click();
+      await expect(page.getByTestId('seed-mode-selector')).toBeVisible();
+    });
   });
 }

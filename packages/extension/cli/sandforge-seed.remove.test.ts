@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
+import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 
 vi.mock('../src/logger.js', () => ({
@@ -23,11 +24,18 @@ vi.mock('../src/modules/forge/ForgeRunSweep.js', async (original) => ({
   sweepRunRecords: vi.fn(),
   listSweep: vi.fn(),
 }));
+/** What the target runs as the removal writes, as it reads it: nothing, unless a test says what. */
+const automationRead = vi.fn(async (..._args: unknown[]): Promise<ForgeTargetAutomation> => ({
+  objectsRead: [],
+  objects: [],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 0,
+}));
 vi.mock('./sandforge-clone.js', async (original) => ({
   ...(await original<typeof import('./sandforge-clone.js')>()),
-  targetAutomationReader: vi.fn(() => ({
-    read: async () => ({ objectsRead: [], objects: [], unread: [] }),
-  })),
+  targetAutomationReader: vi.fn(() => ({ read: automationRead })),
 }));
 
 import { makeConn } from './sfSession.js';
@@ -120,10 +128,14 @@ describe('sandforge-seed --remove: the command line and the summary', () => {
       sweepList: false,
       json: true,
       leaveUndeletable: false,
+      acceptAutomation: false,
     });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--leave-undeletable')),
     ).toMatchObject({ leaveUndeletable: true });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--accept-automation')),
+    ).toMatchObject({ acceptAutomation: true });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep')),
     ).toMatchObject({ sweep: true, sweepList: false });
@@ -367,5 +379,139 @@ describe('sandforge-seed --remove', () => {
 
     expect(exit.stderr()).toContain('is not the org the run wrote to');
     expect(org.deletes).toEqual([]);
+  });
+
+  describe('what the target runs as the removal deletes', () => {
+    /** What the target reads as running: an Apex trigger before an account is deleted, and one after a contact is. */
+    const firing = (): ForgeTargetAutomation => ({
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+        },
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [{ name: 'ContactNotify', events: ['afterDelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 3,
+    });
+
+    it('says what fires as it deletes, before anything is deleted, and deletes nothing without --accept-automation', async () => {
+      // The command read the target's automation for the sweep alone, and
+      // deleted without a word of what the deletes fire.
+      automationRead.mockResolvedValueOnce(firing());
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(automationRead).toHaveBeenLastCalledWith('TGT', ['Contact', 'Account']);
+      expect(stdout).toContain(
+        'removal automation: what TGT runs as the removal takes the run back\n' +
+          '  Account: before delete: Apex trigger AccountCleanup\n' +
+          '  Contact: after delete: Apex trigger ContactNotify\n',
+      );
+      expect(exit.stderr()).toContain(
+        'TGT runs automation on the records this removal deletes: Account: Apex trigger ' +
+          'AccountCleanup (before delete); Contact: Apex trigger ContactNotify (after delete). ' +
+          'Nothing was written or deleted. Add --accept-automation to remove all the same, or ' +
+          'turn that automation off in TGT first.',
+      );
+      expect(org.deletes).toEqual([]);
+      expect(existsSync(join(dir, 'seed.removals.json'))).toBe(false);
+    });
+
+    it('removes all the same with --accept-automation, having said what fires', async () => {
+      automationRead.mockResolvedValueOnce(firing());
+      let stderr = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+        stderr += chunk;
+        return true;
+      }) as never);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--accept-automation', '--json'));
+
+      // On stderr with --json, the outcome alone on stdout.
+      expect(stderr).toContain('  Account: before delete: Apex trigger AccountCleanup');
+      expect(org.all('Account')).toEqual([]);
+      expect(JSON.parse(stdout)).toMatchObject({ result: { status: 'success', planned: 4 } });
+    });
+
+    it('names what fires as it sets an activated order back to Draft before its delete', async () => {
+      const O1 = fakeId('801', 1);
+      writeFileSync(
+        file,
+        JSON.stringify(
+          summary({
+            result: {
+              ...(summary().result as Record<string, unknown>),
+              objectResults: [
+                {
+                  objectApiName: 'Order',
+                  recordsCreated: 1,
+                  recordsFailed: 0,
+                  createdIds: [O1],
+                  errors: [],
+                },
+              ],
+              totalRecordsCreated: 1,
+            },
+          }),
+        ),
+      );
+      automationRead.mockResolvedValueOnce({
+        ...firing(),
+        objectsRead: ['Order'],
+        objects: [
+          {
+            objectApiName: 'Order',
+            flows: [],
+            triggers: [{ name: 'OrderAudit', events: ['beforeUpdate'] }],
+          },
+        ],
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(stdout).toContain(
+        '  Order: set back to Draft before its delete: Apex trigger OrderAudit',
+      );
+      expect(exit.stderr()).toContain(
+        'TGT runs automation as this removal sets activated records back to Draft, the only ' +
+          'way the platform deletes them: Order: Apex trigger OrderAudit.',
+      );
+      expect(org.deletes).toEqual([]);
+    });
+
+    it('says nothing fires, and asks for nothing, when nothing does', async () => {
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain('  nothing fires on the 2 object(s) it writes records of');
+      expect(org.all('Account')).toEqual([]);
+    });
+
+    it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
+      automationRead.mockResolvedValueOnce({
+        ...firing(),
+        objects: [],
+        unread: [{ part: 'triggers', reason: 'API_DISABLED' }],
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(exit.stderr()).toContain(
+        'The Apex triggers of TGT could not be read (API_DISABLED), so what fires as the ' +
+          'removal writes is not known. Nothing was written or deleted.',
+      );
+      expect(org.deletes).toEqual([]);
+    });
   });
 });

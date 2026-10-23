@@ -1088,6 +1088,7 @@
       "filterFields": "Find a field of {{object}}",
       "filterFieldsPlaceholder": "Label or API name",
       "requiredOnly": "Required only",
+      "setByMe": "Set by me",
       "fieldsShown": "{{shown}} of {{total}} fields shown",
       "noFieldMatches": "No field matches this filter."
     }
@@ -3956,8 +3957,8 @@
         "standardNeeded": "{{object}} is taken although standard objects were not asked for: {{field}} cannot be left empty.",
         "followedByDefault": "{{object}} is followed although standard objects were not asked for, as it is by default: {{fields}} reference it.",
         "currencies": "Currencies the target org does not hold active: {{currencies}}. A record in one of them is written in {{writtenIn}}, its corporate currency, its amounts converted at the source org's rates ({{objects}}).",
-        "cutShort": "{{object}}: the first {{copied}} of its {{total}} records by Id are copied, with the parents they name — one read of its lookups takes no more.",
-        "cutShortUncounted": "{{object}}: the first {{copied}} of its records by Id are copied, with the parents they name — one read of its lookups takes no more."
+        "cutShort": "{{object}}: the first {{copied}} of its {{total}} records by Id are copied, with the parents they name — a run copies no more of a selected object.",
+        "cutShortUncounted": "{{object}}: the first {{copied}} of its records by Id are copied, with the parents they name — a run copies no more of a selected object."
       },
       "notCovered": "{{object}}: no anonymization rule for its {{missing}}. They would be copied as the source holds them.",
       "personal": {

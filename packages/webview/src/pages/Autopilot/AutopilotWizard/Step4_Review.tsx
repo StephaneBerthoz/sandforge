@@ -246,9 +246,9 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
               {t('autopilot.step4.scope.selected', { objects: wholeTables.join(', ') })}
             </p>
           )}
-          {/* A selected table larger than one read of its lookups takes is
-              copied from its first records by Id, which the plan said in the
-              log alone: the count above showed the bound beside millions. */}
+          {/* A selected table larger than a run copies of one is copied
+              from its first records by Id, which the plan said in the log
+              alone: the count above showed the bound beside millions. */}
           {(scope.cutShort ?? []).map((cut) => (
             <p
               key={cut.objectApiName}

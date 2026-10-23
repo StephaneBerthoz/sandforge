@@ -1088,6 +1088,7 @@
       "filterFields": "Encontrar um campo de {{object}}",
       "filterFieldsPlaceholder": "Rótulo ou nome de API",
       "requiredOnly": "Somente obrigatórios",
+      "setByMe": "Definidos por mim",
       "fieldsShown": "{{shown}} de {{total}} campos exibidos",
       "noFieldMatches": "Nenhum campo corresponde a este filtro."
     }
@@ -3956,8 +3957,8 @@
         "standardNeeded": "{{object}} é levado embora objetos padrão não tenham sido pedidos: {{field}} não pode ficar vazio.",
         "followedByDefault": "{{object}} é seguido embora objetos padrão não tenham sido pedidos, como é por padrão: {{fields}} fazem referência a ele.",
         "currencies": "Moedas que a org de destino não tem ativas: {{currencies}}. Um registro em uma delas é gravado em {{writtenIn}}, sua moeda corporativa, com seus valores convertidos pelas taxas da org de origem ({{objects}}).",
-        "cutShort": "{{object}}: são copiados os primeiros {{copied}} dos seus {{total}} registros por Id, com os registros pai que eles referenciam — uma leitura dos lookups dele não leva mais.",
-        "cutShortUncounted": "{{object}}: são copiados os primeiros {{copied}} dos seus registros por Id, com os registros pai que eles referenciam — uma leitura dos lookups dele não leva mais."
+        "cutShort": "{{object}}: são copiados os primeiros {{copied}} dos seus {{total}} registros por Id, com os registros pai que eles referenciam — uma execução não copia mais de um objeto selecionado.",
+        "cutShortUncounted": "{{object}}: são copiados os primeiros {{copied}} dos seus registros por Id, com os registros pai que eles referenciam — uma execução não copia mais de um objeto selecionado."
       },
       "notCovered": "{{object}}: nenhuma regra de anonimização para {{missing}}. Esses dados seriam copiados como a origem os contém.",
       "personal": {

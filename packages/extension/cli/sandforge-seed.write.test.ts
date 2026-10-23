@@ -178,6 +178,15 @@ describe('a seed from the command line', () => {
     expect(seedWritePathOf(200, 200)).toBe('(REST)');
   });
 
+  it('says of a job of any size that an object a duplicate rule watches goes through REST', () => {
+    // Past 10 000 records it named one job gathered 2 000 at a time, and not
+    // the REST a watched object takes whatever its count: a line no dry run
+    // printed, a slice holding 10 000 at most.
+    expect(seedWritePathOf(10_001, 200)).toBe(
+      '(a Bulk API job, or REST when an active duplicate rule watches the object)',
+    );
+  });
+
   it('stops at Ctrl-C before its next call, says what it wrote, and exits 130', async () => {
     const org = fakeOrg(() => {
       if (org.restCalls.length === 0) process.emit('SIGINT');

@@ -34,6 +34,12 @@ export interface FieldConfig {
    * field carries by then.
    */
   referenceTo?: string[];
+  /**
+   * Whether the user changed the field's rule or its value on this step, which
+   * "Set by me" lists. The describe's default and a persona's pattern set
+   * none: they are what the step opened on.
+   */
+  setByUser?: true;
 }
 
 /** Per-object field configuration. */
@@ -270,18 +276,22 @@ const ObjectPanel = React.memo(function ObjectPanel({
    */
   const [fieldFilter, setFieldFilter] = useState('');
   const [requiredOnly, setRequiredOnly] = useState(false);
+  /* The fields set so far, to check them before the run: past a few, they
+     sat among hundreds left as the describe gave them. */
+  const [setByMeOnly, setSetByMeOnly] = useState(false);
   const offersFilter = obj.fields.length > FIELD_FILTER_FROM;
-  const filtering = fieldFilter.trim() !== '' || requiredOnly;
+  const filtering = fieldFilter.trim() !== '' || requiredOnly || setByMeOnly;
   const shownFields = useMemo(() => {
     const needle = fieldFilter.trim().toLowerCase();
     return obj.fields.filter(
       (field) =>
         (!requiredOnly || field.required) &&
+        (!setByMeOnly || field.setByUser === true) &&
         (needle === '' ||
           field.label.toLowerCase().includes(needle) ||
           field.fieldApiName.toLowerCase().includes(needle)),
     );
-  }, [obj.fields, fieldFilter, requiredOnly]);
+  }, [obj.fields, fieldFilter, requiredOnly, setByMeOnly]);
 
   const row = (field: FieldConfig): React.ReactNode => (
     <FieldRow
@@ -334,6 +344,15 @@ const ObjectPanel = React.memo(function ObjectPanel({
                   data-testid={`field-filter-required-${obj.objectApiName}`}
                 />
                 {t('seed.configure.requiredOnly')}
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={setByMeOnly}
+                  onChange={(e) => setSetByMeOnly(e.target.checked)}
+                  data-testid={`field-filter-set-by-me-${obj.objectApiName}`}
+                />
+                {t('seed.configure.setByMe')}
               </label>
               <span
                 className="text-xs text-text-secondary"

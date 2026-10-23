@@ -982,7 +982,14 @@ function seedRemove(summaryPath, created, user, window) {
   if (created.size === 0) return;
   const opened = followUpTasks('seed-tasks-before', user, window);
   const remove = existsSync(summaryPath)
-    ? tsx('seed-remove', SEED_CLI, ['--remove', summaryPath, '--target', TARGET, '--json'])
+    ? tsx('seed-remove', SEED_CLI, [
+        '--remove',
+        summaryPath,
+        '--target',
+        TARGET,
+        '--accept-automation',
+        '--json',
+      ])
     : undefined;
   const removal = remove ? jsonOf(remove.stdout)?.result : undefined;
   let left = leftInTarget(created);

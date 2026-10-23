@@ -540,6 +540,43 @@ describe('categorizeObject', () => {
       expect(screen.queryByTestId('field-Account-Field1__c')).toBeNull();
     });
 
+    it('shows the fields the user set only, when asked, with the other filters', () => {
+      // The three fields set among 800 could only be found again by name.
+      const [account] = wide(40);
+      const fields = account.fields.map((field): FieldConfig =>
+        ['Name', 'Field4__c', 'Field7__c'].includes(field.fieldApiName)
+          ? { ...field, setByUser: true }
+          : field,
+      );
+      render(
+        <Step3ConfigureFields
+          objectConfigs={[{ ...account, fields }]}
+          onChangeRule={vi.fn()}
+          onChangeConfig={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByLabelText('Set by me'));
+
+      expect(screen.getAllByTestId(/^field-Account-/).map((row) => row.dataset.testid)).toEqual([
+        'field-Account-Name',
+        'field-Account-Field4__c',
+        'field-Account-Field7__c',
+      ]);
+      expect(screen.getByTestId('field-filter-count-Account').textContent).toBe(
+        '3 of 40 fields shown',
+      );
+
+      // Required as well: of the three, the ones the org requires.
+      fireEvent.click(screen.getByLabelText('Required only'));
+      expect(screen.getAllByTestId(/^field-Account-/).map((row) => row.dataset.testid)).toEqual([
+        'field-Account-Name',
+      ]);
+
+      fireEvent.click(screen.getByLabelText('Set by me'));
+      expect(screen.getAllByTestId(/^field-Account-/)).toHaveLength(14);
+    });
+
     it('offers no filter on an object of ten fields or fewer', () => {
       render(
         <Step3ConfigureFields

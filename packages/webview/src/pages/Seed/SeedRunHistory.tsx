@@ -8,6 +8,7 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
+import { PartBoundary } from '../../components/ui/PartBoundary';
 
 /*
  * A seed's removal, loaded when a seed is opened onto it: with Forge's sweep
@@ -167,9 +168,11 @@ export const SeedRunHistory: React.FC = () => {
                     )}
                   </div>
                   {shown && !run.running && !run.runningElsewhere && (
-                    <Suspense fallback={<div aria-busy="true" />}>
-                      <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
-                    </Suspense>
+                    <PartBoundary data-testid="seed-removal-failed">
+                      <Suspense fallback={<div aria-busy="true" />}>
+                        <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
+                      </Suspense>
+                    </PartBoundary>
                   )}
                 </li>
               );

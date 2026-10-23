@@ -900,6 +900,26 @@ describe('a selected table larger than one read takes', () => {
     ]);
   });
 
+  it('copies a table with no lookup to follow to the same bound, and says how many of how many', async () => {
+    // Counted, not read: two million rows went in whole beside a table of
+    // one lookup cut at 50 000, the plan saying nothing of either difference.
+    const source = mockConn({
+      globalSObjects: [mockGlobalSObject('Flat__c'), mockGlobalSObject('Small__c')],
+      counts: { Flat__c: 2_000_000, Small__c: 50_000 },
+    });
+    const target = mockConn({
+      globalSObjects: [mockGlobalSObject('Flat__c'), mockGlobalSObject('Small__c')],
+    });
+
+    const result = await new SchemaScanner().scan(source, target, ['Flat__c', 'Small__c'], false);
+
+    expect(result.recordCounts.get('Flat__c')).toBe(50_000);
+    expect(result.recordCounts.get('Small__c')).toBe(50_000);
+    expect(result.scope.cutShort).toEqual([
+      { objectApiName: 'Flat__c', copied: 50_000, total: 2_000_000 },
+    ]);
+  });
+
   it('says nothing of an object read to its end', async () => {
     const { result } = await (async () => {
       const org = largeOrg();

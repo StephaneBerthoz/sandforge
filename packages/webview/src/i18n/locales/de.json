@@ -1088,6 +1088,7 @@
       "filterFields": "Ein Feld von {{object}} finden",
       "filterFieldsPlaceholder": "Bezeichnung oder API-Name",
       "requiredOnly": "Nur Pflichtfelder",
+      "setByMe": "Von mir festgelegt",
       "fieldsShown": "{{shown}} von {{total}} Feldern angezeigt",
       "noFieldMatches": "Kein Feld entspricht diesem Filter."
     }
@@ -3956,8 +3957,8 @@
         "standardNeeded": "{{object}} wird übernommen, obwohl keine Standardobjekte angefordert wurden: {{field}} darf nicht leer bleiben.",
         "followedByDefault": "{{object}} wird verfolgt, obwohl keine Standardobjekte angefordert wurden, wie standardmäßig: {{fields}} verweisen darauf.",
         "currencies": "Währungen, die in der Ziel-Org nicht aktiv sind: {{currencies}}. Ein Datensatz in einer davon wird in {{writtenIn}} geschrieben, ihrer Unternehmenswährung, seine Beträge zu den Kursen der Quell-Org umgerechnet ({{objects}}).",
-        "cutShort": "{{object}}: Die ersten {{copied}} seiner {{total}} Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lesevorgang seiner Lookups nimmt nicht mehr.",
-        "cutShortUncounted": "{{object}}: Die ersten {{copied}} seiner Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lesevorgang seiner Lookups nimmt nicht mehr."
+        "cutShort": "{{object}}: Die ersten {{copied}} seiner {{total}} Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lauf kopiert von einem ausgewählten Objekt nicht mehr.",
+        "cutShortUncounted": "{{object}}: Die ersten {{copied}} seiner Datensätze nach Id werden kopiert, mit den übergeordneten Datensätzen, auf die sie verweisen — ein Lauf kopiert von einem ausgewählten Objekt nicht mehr."
       },
       "notCovered": "{{object}}: keine Anonymisierungsregel für {{missing}}. Diese Daten würden so kopiert, wie die Quelle sie enthält.",
       "personal": {

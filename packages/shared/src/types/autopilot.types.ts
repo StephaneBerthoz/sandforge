@@ -265,9 +265,10 @@ export interface AutopilotPlanScope {
    */
   readonly currencies?: AutopilotCurrencyPlan;
   /**
-   * The selected objects whose lookups the scan read to its bound, the table
-   * holding more: the run copies the first `copied` of their records by Id,
-   * those whose parents the plan holds, of `total` the source counts —
+   * The selected objects holding more records than a run copies of one — the
+   * bound a read of their lookups takes, or their count where no lookup leads
+   * out of the selection: the run copies the first `copied` of their records
+   * by Id, those whose parents the plan holds, of `total` the source counts —
    * absent when it would not count. Absent when no object was cut so.
    */
   readonly cutShort?: Array<{

@@ -3,7 +3,8 @@
  * Lists the objects a run may copy, without describing or counting any;
  * discovers the selected objects and the parents their records reference, as
  * far as the bounds go, verifies target org compatibility, and counts the
- * records a run copies: every record of a selected object, and of every other
+ * records a run copies: every record of a selected object, to the first
+ * {@link FORGE_QUERY_MAX_RECORDS} by Id of a larger one, and of every other
  * object only those the selection references.
  */
 
@@ -32,7 +33,7 @@ import {
   FULL_DEPTH,
   REQUIRED_PARENT_CEILING_FACTOR,
 } from '../forge/GraphDiscoveryService.js';
-import { queryAllPages } from '../forge/queryAllPages.js';
+import { FORGE_QUERY_MAX_RECORDS, queryAllPages } from '../forge/queryAllPages.js';
 import { CURRENCY_FIELD, readRunCurrencies } from '../../core/common/recordCurrencies.js';
 import { ACCOUNT, CONTACT } from '../../core/common/platformRecords.js';
 import { logger } from '../../logger.js';
@@ -326,8 +327,9 @@ export class SchemaScanner {
    *
    * 1. Walk from the selected objects' records to the records they
    *    reference, as far as `options` lets it: a selected object's table is
-   *    copied, and of every other object the records the selection
-   *    references, read by id.
+   *    copied, to its first {@link FORGE_QUERY_MAX_RECORDS} records by Id, and
+   *    of every other object the records the selection references, read by
+   *    id.
    * 2. Verify objects exist on target org.
    *
    * @param sourceConn - Connection to the source org.
@@ -710,8 +712,17 @@ export class SchemaScanner {
         counted.push(name);
       }
     }
+    // A table with no lookup to follow is copied to the bound a table with
+    // one is read to, and the plan says so: whether a lookup leads out of the
+    // selection decided whether two million rows went in whole or their
+    // first 50 000, and every record a run copies holds an id in its map.
     for (const [name, count] of await this.countRecords(conn, counted)) {
-      recordCounts.set(name, count);
+      if (count > FORGE_QUERY_MAX_RECORDS) {
+        recordCounts.set(name, FORGE_QUERY_MAX_RECORDS);
+        cutShort.push({ objectApiName: name, copied: FORGE_QUERY_MAX_RECORDS, total: count });
+      } else {
+        recordCounts.set(name, count);
+      }
     }
 
     const rounds = bounds.maxDepth + MAX_REQUIRED_ROUNDS;

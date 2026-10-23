@@ -28,7 +28,7 @@
  *     --target TGT --object Account:3 --object Contact:1 \
  *     --relation Contact.AccountId=Account --per-parent 3
  *   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \
- *     --remove <summary.json> --target TGT [--include-changed] [--json]
+ *     --remove <summary.json> --target TGT [--include-changed] [--accept-automation] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -40,6 +40,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type {
   ForgeEmailLimit,
+  ForgeRemovalSteps,
   ForgeSweepResult,
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
@@ -55,18 +56,15 @@ import {
   groupRecordErrors,
   integerDigitsOf,
   plannedChildCount,
+  removalStepsBypassesOf,
 } from '@sandforge/shared';
 import { BulkApiManager } from '../src/core/engine/BulkApiManager.js';
 import { RetryableOperation } from '../src/core/engine/RetryableOperation.js';
-import {
-  STREAMING_THRESHOLD,
-  seedInsert,
-  type SeedInsertConnection,
-} from '../src/modules/seed/seedInsert.js';
+import { seedInsert, type SeedInsertConnection } from '../src/modules/seed/seedInsert.js';
 import { ACCOUNT, leftOutForAccountKind } from '../src/core/common/platformRecords.js';
 import { parseRecordTypeInfos } from '../src/core/metadata/recordTypeAvailability.js';
 import { LOCALE_DATA } from '../src/modules/seed/LocaleData.js';
-import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import {
   nodeSyncRunCreations,
@@ -109,9 +107,12 @@ import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
 import { seedStorageGate } from '../src/modules/seed/seedStorage.js';
 import {
+  bypassesToAssign,
   emailCheckLines,
   formatMB,
   readEmailLimits,
+  removalStepsAutomationLines,
+  removalStepsAutomationRefusal,
   type EmailLimit,
   type StorageCheck,
 } from '../src/modules/forge/ForgeRunGate.js';
@@ -205,7 +206,7 @@ writes nothing; a dry run says it would be.
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
     --remove <summary.json | run file | run id> --target <alias> [--include-changed]
-    [--sweep | --sweep-list] [--json]
+    [--accept-automation] [--sweep | --sweep-list] [--json]
 
   --remove <file | id>   the summary a run printed with --json, saved to a
                          file; or the run's file, which it names as it
@@ -220,6 +221,12 @@ Remove what a run created:
                          sandbox or a Developer Edition org.
   --include-changed      remove also the records changed since the run, which
                          are kept otherwise
+  --accept-automation    remove although the target runs flows, Apex
+                         triggers, processes or workflow rules as the removal
+                         sets records back to Draft or deletes them, or could
+                         not say what it runs. Each is named before anything
+                         is deleted; without the flag the removal then
+                         deletes nothing, exit 1             (default: off)
   --sweep                before the run's records go, delete too what the
                          target's automation created during the run, as the
                          run's user, that the run did not write: in the objects
@@ -271,13 +278,15 @@ Relations (with --object; the options after a --relation apply to it):
 
 Exit codes: 0 the run finished, some of its records refused included (read the
 summary for per-object failures), or the removal took every record it set out
-to; 1 the run or the removal could not be started, the run was refused before
-it wrote — a production org among the reasons —, or it produced only
-failures, or it stopped on an error (its file keeps what it created); 2 a bad
-command line, or a summary or a file --remove cannot take a run back from; 3
-the removal left records of the run in the org, or the run was partial and
---fail-on-partial was given; 130 a Ctrl-C stopped the run, 143 a SIGTERM (a CI
-job cancelled or timed out), 129 a SIGHUP: its file keeps what it created.
+to; 1 the run or the removal could not be started, either was refused before
+it wrote or deleted anything — a production org among the reasons, and for
+the removal what the target runs as it deletes, without --accept-automation —,
+or the run produced only failures, or it stopped on an error (its file keeps
+what it created); 2 a bad command line, or a summary or a file --remove cannot
+take a run back from; 3 the removal left records of the run in the org, or the
+run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the run,
+143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file keeps
+what it created.
 `;
 
 /** Everything the command line settled. */
@@ -959,13 +968,13 @@ export function seedOrchestrator(deps: {
 
 /**
  * How the panel's write path sends an insert of `count` records, as a dry run
- * says it: past 10 000, one Bulk API job its records are gathered for 2 000 at
- * a time; past `bulkThreshold`, a Bulk API job — or REST, for an object an
- * active duplicate rule watches, which a run finds out as it writes; under
- * it, REST calls. Exported so it can be tested.
+ * says it of a slice: past `bulkThreshold`, a Bulk API job — or REST, for an
+ * object an active duplicate rule watches, which a run finds out as it
+ * writes; under it, REST calls. A slice holds 10 000 records at most
+ * (`SEED_SLICE_RECORDS`), never past the count from which `seedInsert`
+ * gathers a job's records a chunk at a time. Exported so it can be tested.
  */
 export function seedWritePathOf(count: number, bulkThreshold: number): string {
-  if (count > STREAMING_THRESHOLD) return '(one Bulk API job, its records gathered 2000 at a time)';
   if (count > bulkThreshold) {
     return '(a Bulk API job, or REST when an active duplicate rule watches the object)';
   }
@@ -1448,6 +1457,8 @@ export interface RemoveArgs {
   json: boolean;
   /** Remove the rest when the user may not delete some of the run's objects; else stop. */
   leaveUndeletable: boolean;
+  /** Remove although the target runs automation as the removal writes, or could not say what. */
+  acceptAutomation: boolean;
 }
 
 /** The flags a removal reads. */
@@ -1455,6 +1466,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--remove',
   '--target',
   '--include-changed',
+  '--accept-automation',
   '--sweep',
   '--sweep-list',
   '--leave-undeletable',
@@ -1473,8 +1485,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --sweep, --sweep-list, --leave-undeletable and --json, ` +
-          `not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --accept-automation, --sweep, --sweep-list, ` +
+          `--leave-undeletable and --json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -1506,6 +1518,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     sweepList: args.includes('--sweep-list'),
     json: args.includes('--json'),
     leaveUndeletable: args.includes('--leave-undeletable'),
+    acceptAutomation: args.includes('--accept-automation'),
   };
 }
 
@@ -1815,7 +1828,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const conn = makeConn(await loadOrg(args.target));
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
   const org = await typeTarget(conn);
   // A listing deletes nothing; a removal and a sweep delete, and are refused
   // before either reads anything outside a sandbox or a Developer Edition.
@@ -1903,6 +1917,31 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       "before them, a sweep deletes what the target's automation created during the run, as " +
         "the run's user — run with --sweep-list to see what",
     );
+  }
+  // What the target runs as the removal takes the run back, said before it
+  // deletes and asked about as Sync's and the clone's removals ask: what
+  // fires as it sets an activated order back to Draft, then before and after
+  // each delete. The command read it for the sweep alone, and deleted without
+  // a word of it. A seed only creates, so nothing is brought back from the
+  // recycle bin, and what runs on an undelete is not read.
+  const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
+  if (removed.length > 0) {
+    const steps: ForgeRemovalSteps = { setToDraft: setBackToDraftOf(removed), delete: removed };
+    const automation = await targetAutomationReader(conn).read(args.target, removed);
+    say('');
+    for (const line of removalStepsAutomationLines(automation, args.target, steps)) say(line);
+    const automationStop = removalStepsAutomationRefusal(automation, args.target, {
+      steps,
+      assign: bypassesToAssign(
+        automation,
+        removalStepsBypassesOf(automation, steps),
+        session.username ? { alias: args.target, username: session.username } : undefined,
+      ),
+    });
+    if (automationStop && !args.acceptAutomation) {
+      process.stderr.write(`${automationStop}\n`);
+      process.exit(1);
+    }
   }
 
   // Ctrl-C stops the removal before its next call to the org; a SIGTERM or a

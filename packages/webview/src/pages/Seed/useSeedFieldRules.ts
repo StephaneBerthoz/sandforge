@@ -74,7 +74,14 @@ function applyPersonaToFields(
     if (rule.ruleType === 'ai_generate' && !acceptsGeneratedSentence(field.type)) return field;
 
     matched++;
-    return { ...field, ruleType: rule.ruleType, config: { ...rule.config, ...lengthOf(field) } };
+    // The persona's rule replaced the user's: the field is no longer theirs.
+    const patterned: FieldConfig = {
+      ...field,
+      ruleType: rule.ruleType,
+      config: { ...rule.config, ...lengthOf(field) },
+    };
+    delete patterned.setByUser;
+    return patterned;
   });
   return { fields: next, matched };
 }
@@ -253,7 +260,12 @@ export function useSeedFieldRules(
                 ...obj,
                 fields: obj.fields.map((f) =>
                   f.fieldApiName === fieldApiName
-                    ? { ...f, ruleType, config: configForRuleType(f, ruleType, objectApiName) }
+                    ? {
+                        ...f,
+                        ruleType,
+                        config: configForRuleType(f, ruleType, objectApiName),
+                        setByUser: true,
+                      }
                     : f,
                 ),
               }
@@ -273,7 +285,7 @@ export function useSeedFieldRules(
                 ...obj,
                 fields: obj.fields.map((f) =>
                   f.fieldApiName === fieldApiName
-                    ? { ...f, config: { ...f.config, [key]: value } }
+                    ? { ...f, config: { ...f.config, [key]: value }, setByUser: true }
                     : f,
                 ),
               }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -150,8 +150,11 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 
 /* The page's other ways to seed load as chunks of their own (see seedFlows);
    here they are the modules themselves, so each renders as it is opened. */
-/** Whether the CSV import says, once opened, that an import runs. */
-const flowState = vi.hoisted(() => ({ csvRuns: false }));
+/**
+ * Whether the CSV import says, once opened, that an import runs; and the flow
+ * whose file could not be fetched, which throws as React.lazy does then.
+ */
+const flowState = vi.hoisted(() => ({ csvRuns: false, unfetched: null as string | null }));
 
 vi.mock('./seedFlows', async () => {
   const { createElement, useEffect } = await import('react');
@@ -170,12 +173,23 @@ vi.mock('./seedFlows', async () => {
     }, [onRunningChange]);
     return createElement(csv.CsvUploadWizard, { ...props, onRunningChange: undefined });
   };
+  /** `Flow`, unless the test says its file could not be fetched. */
+  const fetched =
+    <P extends object>(name: string, Flow: React.ComponentType<P>) =>
+    (props: P) => {
+      if (flowState.unfetched === name) {
+        throw new TypeError(
+          `Failed to fetch dynamically imported module: https://panel.test/assets/${name}-x.js`,
+        );
+      }
+      return createElement(Flow, props);
+    };
   return {
-    SeedGenerateFlow: generate.SeedGenerateFlow,
-    QuickSeedFlow: quick.QuickSeedFlow,
-    CsvUploadWizard,
-    CloneWizard: clone.CloneWizard,
-    SeedRunHistory: history.SeedRunHistory,
+    SeedGenerateFlow: fetched('SeedGenerateFlow', generate.SeedGenerateFlow),
+    QuickSeedFlow: fetched('QuickSeedFlow', quick.QuickSeedFlow),
+    CsvUploadWizard: fetched('CsvUploadWizard', CsvUploadWizard),
+    CloneWizard: fetched('CloneWizard', clone.CloneWizard),
+    SeedRunHistory: fetched('SeedRunHistory', history.SeedRunHistory),
   };
 });
 
@@ -402,6 +416,7 @@ const THREE_OBJECT_DESCRIBES: Record<string, Record<string, unknown>[]> = {
 
 describe('SeedPage', () => {
   beforeEach(() => {
+    flowState.unfetched = null;
     quickSeed.forceIdle = false;
     mutationTypes.clear();
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
@@ -511,6 +526,65 @@ describe('SeedPage', () => {
     fireEvent.click(screen.getByTestId('mode-card-clone'));
     expect(screen.getByTestId('clone-wizard-container')).toBeDefined();
     expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+  });
+
+  describe('a way to seed whose file could not be fetched', () => {
+    /*
+     * Each is a file fetched the first time it opens, and only the page's
+     * boundary caught its failure: a CSV import that could not be fetched
+     * took the gallery, the way back and the page's header with it.
+     */
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      ['CsvUploadWizard', 'mode-card-csv', 'seed-csv-failed'],
+      ['CloneWizard', 'mode-card-clone', 'seed-clone-failed'],
+      ['SeedGenerateFlow', 'mode-card-generate', 'seed-generate-failed'],
+      ['QuickSeedFlow', 'mock-template-select', 'seed-quick-failed'],
+    ])('says so in the place of %s, with Reload panel, the page up', (flow, opener, failed) => {
+      flowState.unfetched = flow;
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<SeedPage />);
+
+      fireEvent.click(screen.getByTestId(opener));
+
+      const part = screen.getByTestId(failed);
+      expect(part.getAttribute('role')).toBe('alert');
+      expect(part.textContent).toContain('This part did not load');
+      expect(screen.getByTestId(`${failed}-reload`)).toBeDefined();
+      expect(screen.getByTestId('seed-page')).toBeDefined();
+    });
+
+    it('keeps the way back from a CSV import that could not be fetched, to the gallery', () => {
+      flowState.unfetched = 'CsvUploadWizard';
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      useOrgStore.setState({ orgs: mockOrgs });
+      render(<SeedPage />);
+      fireEvent.click(screen.getByTestId('mode-card-csv'));
+      expect(screen.getByTestId('seed-csv-failed')).toBeDefined();
+
+      fireEvent.click(screen.getByTestId('back-to-modes'));
+
+      expect(screen.getByTestId('template-gallery')).toBeDefined();
+      expect(screen.queryByTestId('seed-csv-failed')).toBeNull();
+    });
+
+    it('keeps the gallery and the other ways when the seeds kept could not be fetched', () => {
+      flowState.unfetched = 'SeedRunHistory';
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      useOrgStore.setState({ orgs: mockOrgs });
+
+      render(<SeedPage />);
+
+      expect(screen.getByTestId('seed-history-failed').textContent).toContain(
+        'This part did not load',
+      );
+      expect(screen.getByTestId('template-gallery')).toBeDefined();
+      expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+    });
   });
 
   it('goes back to the gallery from another way to seed', () => {

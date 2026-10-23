@@ -664,13 +664,13 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
     `scope: depth ${scope.maxDepth}, at most ${scope.maxObjects} object(s)`,
     `  copied whole, as selected: ${scope.selected.join(', ') || '(none)'}`,
   ];
-  // A selected table larger than one read takes is copied from its first
-  // records by Id: said before the run, with what the source holds.
+  // A selected table larger than a run copies of one is copied from its
+  // first records by Id: said before the run, with what the source holds.
   for (const cut of scope.cutShort ?? []) {
     const of = cut.total !== undefined ? ` of ${cut.total}` : '';
     lines.push(
-      `  ${cut.objectApiName}: ${cut.copied}${of} record(s) copied, the first by Id -- one ` +
-        'read of its lookups takes no more',
+      `  ${cut.objectApiName}: ${cut.copied}${of} record(s) copied, the first by Id -- a run ` +
+        'copies no more of a selected object',
     );
   }
   if (scope.parents.length > 0) {

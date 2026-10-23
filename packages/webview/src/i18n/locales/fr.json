@@ -1088,6 +1088,7 @@
       "filterFields": "Trouver un champ de {{object}}",
       "filterFieldsPlaceholder": "Libellé ou nom d'API",
       "requiredOnly": "Obligatoires seulement",
+      "setByMe": "Définis par moi",
       "fieldsShown": "{{shown}} champs affichés sur {{total}}",
       "noFieldMatches": "Aucun champ ne correspond à ce filtre."
     }
@@ -3956,8 +3957,8 @@
         "standardNeeded": "{{object}} est pris bien que les objets standard n'aient pas été demandés : {{field}} ne peut pas rester vide.",
         "followedByDefault": "{{object}} est suivi bien que les objets standard n'aient pas été demandés, comme il l'est par défaut : {{fields}} y font référence.",
         "currencies": "Devises que l'org cible n'a pas actives : {{currencies}}. Un enregistrement dans l'une d'elles est écrit en {{writtenIn}}, sa devise de société, ses montants convertis aux taux de l'org source ({{objects}}).",
-        "cutShort": "{{object}} : les {{copied}} premiers de ses {{total}} enregistrements par Id sont copiés, avec les parents qu'ils désignent — une lecture de ses lookups n'en prend pas plus.",
-        "cutShortUncounted": "{{object}} : les {{copied}} premiers de ses enregistrements par Id sont copiés, avec les parents qu'ils désignent — une lecture de ses lookups n'en prend pas plus."
+        "cutShort": "{{object}} : les {{copied}} premiers de ses {{total}} enregistrements par Id sont copiés, avec les parents qu'ils désignent — une exécution n'en copie pas davantage d'un objet sélectionné.",
+        "cutShortUncounted": "{{object}} : les {{copied}} premiers de ses enregistrements par Id sont copiés, avec les parents qu'ils désignent — une exécution n'en copie pas davantage d'un objet sélectionné."
       },
       "notCovered": "{{object}} : aucune règle d'anonymisation pour {{missing}}. Ces données seraient copiées telles que la source les contient.",
       "personal": {
