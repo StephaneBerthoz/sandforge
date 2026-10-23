@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Dialog } from './Dialog';
@@ -134,5 +135,59 @@ describe('Dialog', () => {
     );
     const dialog = screen.getByRole('dialog');
     expect(dialog.getAttribute('role')).toBeNull();
+  });
+});
+
+describe('Dialog and the keyboard', () => {
+  /** A button that opens the dialog, which Cancel takes off the page, as most parents close it. */
+  function Asking() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Rename</button>
+        {open && (
+          <Dialog
+            open
+            onClose={() => setOpen(false)}
+            title="Rename"
+            footer={<button onClick={() => setOpen(false)}>Cancel</button>}
+          >
+            <p>Body</p>
+          </Dialog>
+        )}
+      </>
+    );
+  }
+
+  /** Open the dialog from its button, and put the keyboard on its Cancel, as a browser would inside it. */
+  function openFrom(opener: HTMLElement): HTMLElement {
+    opener.focus();
+    fireEvent.click(opener);
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    cancel.focus();
+    return cancel;
+  }
+
+  it('gives the keyboard back to the button that opened it when its parent stops drawing it', () => {
+    render(<Asking />);
+    const opener = screen.getByRole('button', { name: 'Rename' });
+
+    fireEvent.click(openFrom(opener));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('leaves the keyboard alone when something outside took it before the dialog left', () => {
+    render(<Asking />);
+    const cancel = openFrom(screen.getByRole('button', { name: 'Rename' }));
+    const elsewhere = document.createElement('button');
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+
+    fireEvent.click(cancel);
+
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
   });
 });

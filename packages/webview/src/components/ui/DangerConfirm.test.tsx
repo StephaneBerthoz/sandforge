@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '../../i18n';
@@ -217,5 +218,77 @@ describe('DangerConfirm as a plain question', () => {
 
     expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('danger-input')));
+  });
+});
+
+/*
+ * Radix gives the focus back to a Dialog.Trigger, which this dialog never
+ * has: every answer left the keyboard on <body>.
+ */
+describe('DangerConfirm and the keyboard', () => {
+  /** A button that asks, and, once confirmed, a heading the page hands the keyboard to. */
+  function Asking({ headingOnConfirm = false }: { headingOnConfirm?: boolean }) {
+    const [open, setOpen] = useState(false);
+    const [done, setDone] = useState(false);
+    const heading = useRef<HTMLHeadingElement>(null);
+    useEffect(() => {
+      if (done) heading.current?.focus();
+    }, [done]);
+    return (
+      <>
+        <button onClick={() => setOpen(true)}>Delete the run</button>
+        {done && (
+          <h2 ref={heading} tabIndex={-1}>
+            Deleting
+          </h2>
+        )}
+        <DangerConfirm
+          open={open}
+          onClose={() => setOpen(false)}
+          onConfirm={() => {
+            setOpen(false);
+            if (headingOnConfirm) setDone(true);
+          }}
+          title="Delete the run?"
+          description="Deletes what the run created."
+          confirmText="DevSandbox"
+        />
+      </>
+    );
+  }
+
+  async function openFrom(opener: HTMLElement): Promise<void> {
+    opener.focus();
+    fireEvent.click(opener);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('danger-input')));
+  }
+
+  it('gives the keyboard back to the button that asked, on Cancel and on Confirm', async () => {
+    render(<Asking />);
+    const opener = screen.getByRole('button', { name: 'Delete the run' });
+
+    await openFrom(opener);
+    fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+    await waitFor(() => expect(screen.queryByTestId('danger-input')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+
+    await openFrom(opener);
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DevSandbox' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    await waitFor(() => expect(screen.queryByTestId('danger-input')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it('leaves the keyboard where the page put it as the dialog closed', async () => {
+    render(<Asking headingOnConfirm />);
+    await openFrom(screen.getByRole('button', { name: 'Delete the run' }));
+
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DevSandbox' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    await waitFor(() => expect(screen.queryByTestId('danger-input')).toBeNull());
+    // The dialog gives the focus back a task after it leaves the page.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Deleting' }));
   });
 });

@@ -265,16 +265,20 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     setPreviewing(null);
     setUndoAsked(null);
   };
-  const undoConfirm = (
+  // Drawn only while it asks, so a Confirm takes it off the page with the
+  // result whose Undo opened it, and the heading of the undo it starts takes
+  // the keyboard. Kept on the page to fade out, it held the keyboard as that
+  // heading was drawn, and left it on <body> once it went.
+  const undoConfirm = undoAsked !== null && (
     <DangerConfirm
-      open={undoAsked !== null}
+      open
       onClose={() => setUndoAsked(null)}
       onConfirm={confirmUndo}
       title={t('checkpoint.undo.title', { org: orgName })}
       description={t('checkpoint.undo.description', { org: orgName })}
       confirmText={orgName}
     >
-      {undoAsked && undoAsked.cannot.length > 0 && (
+      {undoAsked.cannot.length > 0 && (
         <ul className="mb-2 ml-4 list-disc" data-testid="checkpoint-undo-cannot">
           {undoAsked.cannot.map((item) => (
             <li key={item.objectApiName}>

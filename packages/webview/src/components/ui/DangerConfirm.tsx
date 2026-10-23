@@ -143,6 +143,10 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
     [isMatch, handleConfirm],
   );
 
+  // The element that held the keyboard as the dialog opened, still holding it
+  // when Radix hands the focus out: the button that asked.
+  const openerRef = useRef<HTMLElement | null>(null);
+
   // The field takes the focus when Radix hands it out, once the content is on
   // the page. An effect on `open` ran first, while the portal had not mounted
   // the field yet, and with Radix's own focus turned off the dialog opened
@@ -152,10 +156,25 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
   const focusField = useCallback(
     (event: Event) => {
       event.preventDefault();
+      const opener = document.activeElement;
+      openerRef.current = opener instanceof HTMLElement && opener !== document.body ? opener : null;
       (asksToType ? inputRef.current : dismissRef.current)?.focus();
     },
     [asksToType],
   );
+  // Radix gives the focus back to a Dialog.Trigger, which this dialog never
+  // has: Cancel, Escape and Confirm left the keyboard on <body>, and a
+  // keyboard user started again from the top of the page. It goes back to
+  // the button that asked, while that button is still on the page and
+  // nothing else took the keyboard as the dialog closed — the heading of the
+  // run its Confirm started keeps it.
+  const giveFocusBack = useCallback((event: Event) => {
+    event.preventDefault();
+    const opener = openerRef.current;
+    openerRef.current = null;
+    const active = document.activeElement;
+    if (opener?.isConnected && (active === null || active === document.body)) opener.focus();
+  }, []);
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -172,7 +191,11 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                 onClick={handleClose}
                 data-testid="danger-overlay"
               >
-                <Dialog.Content asChild onOpenAutoFocus={focusField}>
+                <Dialog.Content
+                  asChild
+                  onOpenAutoFocus={focusField}
+                  onCloseAutoFocus={giveFocusBack}
+                >
                   <m.div
                     className={cn(
                       'rounded-lg p-4 max-w-md w-full',
