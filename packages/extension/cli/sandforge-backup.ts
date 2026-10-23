@@ -21,7 +21,7 @@
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-backup.ts \
  *     --org TGT --object Account --object Contact
- *   pnpm exec tsx packages/extension/cli/sandforge-backup.ts --org TGT --list
+ *   pnpm exec tsx packages/extension/cli/sandforge-backup.ts --list [--org TGT]
  *   pnpm exec tsx packages/extension/cli/sandforge-backup.ts --org TGT --restore <id> --yes
  *
  * Run from the repository root of a checkout, after pnpm install and
@@ -54,13 +54,19 @@ const HELP = `sandforge-backup — take and restore DataOps snapshots, without t
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-backup.ts --org <alias> [options]
+  pnpm exec tsx packages/extension/cli/sandforge-backup.ts --list [--org <alias>]
 
 Required:
-  --org <alias>          sf CLI alias of the org
+  --org <alias>          sf CLI alias of the org (--list: every org of the
+                         store without it)
 
 One of:
   --object <ApiName>     object to snapshot; repeat for more
-  --list                 name the snapshots taken so far, then stop
+  --list                 name the snapshots kept in the store, each with the
+                         org it was taken of, then stop: the org's with --org
+                         (those taken under its alias, and the others of the
+                         same Organization Id), every org's without it. It
+                         reads the store alone and contacts no org
   --restore <id>         upsert a snapshot back into the org by record Id
 
 Options:
@@ -110,11 +116,15 @@ snapshot that holds part of the records, or records of a Sync run's snapshot
 changed since the run, held back without --include-changed).
 `;
 
-/** Everything the command line settled. */
-interface CliArgs {
-  org: string;
+/**
+ * Everything the command line settled. A listing alone may name no org: it
+ * then lists every org's snapshots.
+ */
+type CliArgs = CommonArgs & ({ list: true; org?: string } | { list: false; org: string });
+
+/** What the command line settles whatever it asks. */
+interface CommonArgs {
   objects: string[];
-  list: boolean;
   restoreId?: string;
   storeDir: string;
   /** The cap of records per object a snapshot reads, when the line sets one. */
@@ -160,12 +170,13 @@ export function parseArgs(argv: string[]): CliArgs {
   };
 
   const org = get('--org');
-  if (!org) {
+  const list = args.includes('--list');
+  // A listing reads the store alone: without --org, every org's snapshots.
+  if (!org && !list) {
     process.stderr.write('Missing --org. Run with --help.\n');
     process.exit(2);
   }
   const objects = collect('--object');
-  const list = args.includes('--list');
   const restoreId = get('--restore');
 
   const asked = [objects.length > 0, list, restoreId !== undefined].filter(Boolean).length;
@@ -201,10 +212,8 @@ export function parseArgs(argv: string[]): CliArgs {
   }
   const maxAgeDays = maxAgeDaysOf(get('--max-age-days'));
 
-  return {
-    org,
+  const common: CommonArgs = {
     objects,
-    list,
     restoreId,
     storeDir: get('--store', defaultBackupStoreOf()) ?? '',
     ...(cap !== undefined ? { maxRecords: Number(cap) } : {}),
@@ -214,6 +223,9 @@ export function parseArgs(argv: string[]): CliArgs {
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
+  // Only a listing gets here without an org.
+  if (!org) return { ...common, list: true };
+  return list ? { ...common, list: true, org } : { ...common, list: false, org };
 }
 
 /** Run one DataOps operation; exported so its parsing can be tested. */
@@ -234,23 +246,32 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // Said first, as the clone command says where its journal goes: the
   // snapshots hold the records' values, and the user should know where.
   log(`store: ${args.storeDir}`);
-  const org = await loadOrg(args.org);
   const configStore = fileConfigStore(join(args.storeDir, 'snapshots.json'));
 
   if (args.list) {
-    const snapshots = configStore
+    // The store alone, before any org is reached: a listing asked for the
+    // org's session first, then named every org's snapshots all the same.
+    const kept = configStore
       .getKeysByPrefix('backup:')
       .map((key) => configStore.get(key) as ListedSnapshot);
+    const snapshots = args.org !== undefined ? snapshotsOf(kept, args.org) : kept;
     // Printed before the JSON did: `--list --json` printed nothing at all, and
     // a pipeline could not read which snapshot to restore.
     if (args.json) {
       process.stdout.write(`${JSON.stringify(snapshotListing(snapshots), null, 2)}\n`);
       return;
     }
-    if (snapshots.length === 0) log('No snapshot in this store.');
+    if (snapshots.length === 0) {
+      log(
+        args.org !== undefined
+          ? `No snapshot of ${args.org} in this store.`
+          : 'No snapshot in this store.',
+      );
+    }
     for (const line of snapshots.map(snapshotLine)) log(line);
     return;
   }
+  const org = await loadOrg(args.org);
 
   // Typed as the extension types an org it connects (`orgTypeOf`): its
   // `Organization` record, `IsSandbox` and its edition. Handed neither, the
@@ -392,6 +413,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 interface ListedSnapshot {
   operationId: string;
   timestamp: string;
+  /** The alias the snapshot was taken under. */
+  orgId?: string;
+  /** The Organization Id the org answered with; absent from snapshots taken before it was recorded. */
+  organizationId?: string;
   totalRecords: number;
   status?: string;
   objects: Array<{
@@ -402,6 +427,26 @@ interface ListedSnapshot {
   }>;
 }
 
+/** Whether two Organization Ids name one org: the 15-character id and its 18-character form alike. */
+function sameOrganization(a: string | undefined, b: string | undefined): boolean {
+  return a !== undefined && b !== undefined && a.length >= 15 && a.slice(0, 15) === b.slice(0, 15);
+}
+
+/**
+ * The snapshots of the org `org` names, read from the store alone: those
+ * taken under that alias, and every other one of the Organization Id one of
+ * them was taken of — the org under another alias — as `sandforge-checkpoint
+ * list` reads an org's checkpoints.
+ */
+function snapshotsOf(snapshots: readonly ListedSnapshot[], org: string): ListedSnapshot[] {
+  const ids = snapshots.flatMap((meta) =>
+    meta.orgId === org && meta.organizationId !== undefined ? [meta.organizationId] : [],
+  );
+  return snapshots.filter(
+    (meta) => meta.orgId === org || ids.some((id) => sameOrganization(id, meta.organizationId)),
+  );
+}
+
 /** One snapshot of the listing, as a line; `Contact:500/1234(cap)` for an object it holds part of. */
 function snapshotLine(meta: ListedSnapshot): string {
   const held = meta.objects.map(
@@ -410,7 +455,7 @@ function snapshotLine(meta: ListedSnapshot): string {
       (o.stoppedAt !== undefined ? `/${o.orgCount ?? '?'}(${o.stoppedAt})` : ''),
   );
   return (
-    `${meta.operationId}  ${meta.timestamp}  ${meta.totalRecords} record(s)` +
+    `${meta.operationId}  ${meta.timestamp}  ${meta.orgId ?? '?'}  ${meta.totalRecords} record(s)` +
     `${meta.status === 'failed' ? ' failed part-way' : ''}  ${held.join(' ')}`
   );
 }
@@ -425,6 +470,9 @@ export function snapshotListing(snapshots: readonly ListedSnapshot[]): {
     snapshots: snapshots.map((meta) => ({
       operationId: meta.operationId,
       timestamp: meta.timestamp,
+      // Which org each is of: without --org, the listing names every org's.
+      ...(meta.orgId !== undefined ? { orgId: meta.orgId } : {}),
+      ...(meta.organizationId !== undefined ? { organizationId: meta.organizationId } : {}),
       totalRecords: meta.totalRecords,
       ...(meta.status !== undefined ? { status: meta.status } : {}),
       objects: meta.objects,

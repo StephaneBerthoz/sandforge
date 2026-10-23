@@ -27,15 +27,19 @@ import {
   bypassesOfWrites,
   emailsPerInsertOf,
   firedOnRemovalOf,
+  firedOnRemovalStepsOf,
   firedOnWriteOf,
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import type {
   ForgeEmailLimit,
   ForgeEmailsPerInsert,
+  ForgeFiredOnRemovalStep,
   ForgeFiredOnWrite,
   ForgeGraph,
   ForgeRemovalRisk,
+  ForgeRemovalStep,
+  ForgeRemovalSteps,
   ForgeRunGateCode,
   ForgeRunGateStop,
   ForgeTargetAutomation,
@@ -1402,4 +1406,106 @@ export function removalAutomationLines(
     lines.push(`  ${UNREAD_WORDS[part]} could not be read: ${reason}`);
   }
   return lines;
+}
+
+/** What a step of a removal that takes a whole run back does to the record it fires on, as the command line says it. */
+const REMOVAL_STEP_WORDS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
+  bringBack: 'brought back from the recycle bin',
+  giveBack: 'given back its values from before the run',
+  setToDraft: 'set back to Draft before its delete',
+};
+
+/**
+ * What the command line says, before a removal that takes a whole run back
+ * writes anything, of what the target runs as it does, step by step as it
+ * writes ({@link firedOnRemovalStepsOf}): as it brings back from the recycle
+ * bin what the run deleted, gives back what the run wrote over, sets an
+ * activated record back to Draft, then before and after each delete; or that
+ * nothing does; and what could not be read. A Sync run's removal brought
+ * records back and gave values back, and the command line said nothing of
+ * what those writes fire, where the panel lists it.
+ */
+export function removalStepsAutomationLines(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  target: string,
+  steps: ForgeRemovalSteps,
+): string[] {
+  const lines = [`removal automation: what ${target} runs as the removal takes the run back`];
+  for (const entry of firedOnRemovalStepsOf(automation, steps)) {
+    lines.push(
+      entry.step === 'delete'
+        ? `  ${entry.objectApiName}: ${DELETE_WHEN_WORDS[entry.when]}: ${firedWords(entry)}`
+        : `  ${entry.objectApiName}: ${REMOVAL_STEP_WORDS[entry.step]}: ${firedWords(entry)}`,
+    );
+  }
+  const unread = automationUnreadOf(automation);
+  if (lines.length === 1 && unread.length === 0) {
+    const objects = new Set(Object.values(steps).flat()).size;
+    lines.push(`  nothing fires on the ${objects} object(s) it writes records of`);
+  }
+  for (const { part, reason } of unread) {
+    lines.push(`  ${UNREAD_WORDS[part]} could not be read: ${reason}`);
+  }
+  return lines;
+}
+
+/**
+ * Why the command line will not take a whole run back without
+ * `--accept-automation`: what the target runs as each step of the removal
+ * writes ({@link removalStepsAutomationLines}), named, or what of it could
+ * not be read; then the bypasses to assign. Nothing when nothing fires and
+ * everything was read.
+ *
+ * @param options - What each step writes, and the bypasses to assign
+ *   ({@link bypassesToAssign}).
+ */
+export function removalStepsAutomationRefusal(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  target: string,
+  options: { steps: ForgeRemovalSteps; assign?: readonly BypassToAssign[] },
+): string | undefined {
+  const fired = firedOnRemovalStepsOf(automation, options.steps);
+  const unread = automationUnreadOf(automation);
+  if (fired.length === 0 && unread.length === 0) return undefined;
+  const of = (step: ForgeRemovalStep): ForgeFiredOnRemovalStep[] =>
+    fired.filter((entry) => entry.step === step);
+  const parts: string[] = [];
+  if (of('bringBack').length > 0) {
+    parts.push(
+      `${target} runs automation as this removal brings back from the recycle bin what the ` +
+        `run deleted: ${namedList(of('bringBack'))}.`,
+    );
+  }
+  if (of('giveBack').length > 0) {
+    parts.push(
+      `${target} runs automation as this removal gives the records the run wrote over their ` +
+        `values from before it: ${namedList(of('giveBack'))}.`,
+    );
+  }
+  if (of('setToDraft').length > 0) {
+    parts.push(
+      `${target} runs automation as this removal sets activated records back to Draft, the ` +
+        `only way the platform deletes them: ${namedList(of('setToDraft'))}.`,
+    );
+  }
+  if (of('delete').length > 0) {
+    const named = of('delete').map(
+      (entry) => `${entry.objectApiName}: ${firedWords(entry)} (${DELETE_WHEN_WORDS[entry.when]})`,
+    );
+    parts.push(
+      `${target} runs automation on the records this removal deletes: ${named.join('; ')}.`,
+    );
+  }
+  for (const { part, reason } of unread) {
+    parts.push(
+      `${UNREAD_WORDS[part][0].toUpperCase()}${UNREAD_WORDS[part].slice(1)} of ${target} ` +
+        `could not be read (${reason}), so what fires as the removal writes is not known.`,
+    );
+  }
+  parts.push(...bypassAssistantSentences(options.assign ?? [], target, 'the removal'));
+  parts.push(
+    `Nothing was written or deleted. Add --accept-automation to remove all the same, or turn ` +
+      `that automation off in ${target} first.`,
+  );
+  return parts.join(' ');
 }

@@ -89,6 +89,15 @@ describe('parseArgs', () => {
 
   it('refuses a line with no org', () => {
     expect(refuse('--object', 'Account').code).toBe(2);
+    expect(refuse('--restore', 'op-1').code).toBe(2);
+  });
+
+  it("reads a listing without an org, of every org's snapshots, and one of the org named", () => {
+    // It asked for an org, then listed every org's snapshots all the same.
+    const every = parseArgs(argv('--list'));
+    expect(every.list).toBe(true);
+    expect(every.org).toBeUndefined();
+    expect(parseArgs(argv('--org', 'T', '--list'))).toMatchObject({ list: true, org: 'T' });
   });
 
   it('reads the cap of records per object a snapshot reads, and leaves it to the default otherwise', () => {
@@ -515,6 +524,70 @@ describe('against an org', () => {
           },
         ],
       });
+    });
+  });
+
+  it("lists from the store alone, contacting no org: every org's snapshots without --org, and with it the org's, those of its Organization Id under another alias included", async () => {
+    await inStore(async (store) => {
+      const kept = fileConfigStore(join(store, 'snapshots.json'));
+      const snapshot = (operationId: string, orgId: string, organizationId?: string): void =>
+        kept.set(
+          `backup:${operationId}`,
+          {
+            operationId,
+            orgId,
+            ...(organizationId !== undefined ? { organizationId } : {}),
+            objects: [{ objectApiName: 'Contact', recordCount: 1, truncated: false }],
+            totalRecords: 1,
+            timestamp: '2026-10-22T08:00:00.000Z',
+          },
+          'backups',
+        );
+      snapshot('op-1', 'ORG', '00D000000000001AAA');
+      snapshot('op-2', 'OTHER', '00D000000000002AAA');
+      // The same org, taken under the alias it had before, its id in 15 characters.
+      snapshot('op-3', 'RENAMED', '00D000000000001');
+      // Taken before the Organization Id was recorded: its alias alone says whose it is.
+      snapshot('op-4', 'OTHER');
+      vi.mocked(loadOrg).mockClear();
+      validateConnection.mockClear();
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const listed = async (...args: string[]): Promise<string> => {
+        let out = '';
+        const stdout = vi
+          .spyOn(process.stdout, 'write')
+          .mockImplementation((chunk: string | Uint8Array) => {
+            out += String(chunk);
+            return true;
+          });
+        await main(argv(...args, '--list', '--store', store));
+        stdout.mockRestore();
+        return out;
+      };
+      const ids = async (...args: string[]): Promise<string[]> =>
+        (
+          JSON.parse(await listed(...args, '--json')) as {
+            snapshots: Array<{ operationId: string }>;
+          }
+        ).snapshots.map((meta) => meta.operationId);
+
+      expect(await ids()).toEqual(['op-1', 'op-2', 'op-3', 'op-4']);
+      expect(await ids('--org', 'ORG')).toEqual(['op-1', 'op-3']);
+      expect(await ids('--org', 'OTHER')).toEqual(['op-2', 'op-4']);
+      expect(await ids('--org', 'NONE')).toEqual([]);
+      // Each names the org it was taken of, which a listing of every org needs.
+      const [first] = (JSON.parse(await listed('--json')) as { snapshots: unknown[] }).snapshots;
+      expect(first).toMatchObject({
+        operationId: 'op-1',
+        orgId: 'ORG',
+        organizationId: '00D000000000001AAA',
+      });
+      expect(await listed()).toContain(
+        'op-2  2026-10-22T08:00:00.000Z  OTHER  1 record(s)  Contact:1',
+      );
+      expect(await listed('--org', 'NONE')).toContain('No snapshot of NONE in this store.');
+      expect(loadOrg).not.toHaveBeenCalled();
+      expect(validateConnection).not.toHaveBeenCalled();
     });
   });
 

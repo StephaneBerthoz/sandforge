@@ -51,10 +51,21 @@ describe('the words a command line reads', () => {
     );
   });
 
-  it("leaves a flag given no value to the command's own check, and reads the flag after it", () => {
-    // The command says which value its flag wants; a flag after it is read as one.
-    expect(unreadArgument(['--target', '--dry-run'], FLAGS)).toBeUndefined();
-    expect(unreadArgument(['--target', '--dryrun'], FLAGS)).toContain('"--dryrun" is not a flag');
+  it('refuses a flag followed by another flag, or by nothing, which wants a value', () => {
+    // The command took the next word for its value: `--target --dry-run`
+    // logged in to an org named "--dry-run", and wrote nothing as a dry run.
+    expect(unreadArgument(['--target', '--dry-run'], FLAGS)).toBe(
+      '--target wants a value. Nothing was run.',
+    );
+    expect(unreadArgument(['--object', '--dryrun'], FLAGS)).toBe(
+      '--object wants a value. Nothing was run.',
+    );
+    // Last on the line, it was taken as left out, and its default ran.
+    expect(unreadArgument(['--target', 'TGT', '--object'], FLAGS)).toBe(
+      '--object wants a value. Nothing was run.',
+    );
+    // A value may start with one dash.
+    expect(unreadArgument(['--target', '-TGT'], FLAGS)).toBeUndefined();
   });
 });
 

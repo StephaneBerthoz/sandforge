@@ -21,7 +21,7 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 }));
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { makeConn } from './sfSession.js';
+import { loadOrg, makeConn } from './sfSession.js';
 import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { readRunFile } from '../src/modules/sync/SyncRunCreations.js';
@@ -267,6 +267,26 @@ describe('a seed from the command line', () => {
     expect(makeConn).not.toHaveBeenCalled();
     expect(org.restCalls).toEqual([]);
     expect(stderr.join('')).toContain('"--dry-run=true" is not read');
+  });
+
+  it('refuses --target followed by --dry-run, which it took for the alias, before any org is reached', async () => {
+    // `--target --dry-run` logged in to an org named "--dry-run", and the run
+    // was no dry run.
+    const org = fakeOrg();
+    vi.mocked(loadOrg).mockClear();
+    vi.mocked(makeConn).mockClear();
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+
+    await expect(
+      main(['node', 'sandforge-seed.ts', '--target', '--dry-run', '--object', 'Asset:10']),
+    ).rejects.toThrow('exit 2');
+
+    expect(loadOrg).not.toHaveBeenCalled();
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(org.restCalls).toEqual([]);
+    expect(stderr.join('')).toContain('--target wants a value. Nothing was run.');
   });
 
   it('keeps what it creates in its file insert by insert, and --remove takes back a run killed before it printed its summary', async () => {

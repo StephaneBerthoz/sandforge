@@ -1382,7 +1382,16 @@ function syncCreated(summaryPath) {
  * `--include-changed`, and the configuration's store is told both times.
  */
 function syncRemove(summaryPath, store, { quiet = false } = {}) {
-  const base = ['--remove', summaryPath, '--target', TARGET, '--store', store, '--json'];
+  const base = [
+    '--remove',
+    summaryPath,
+    '--target',
+    TARGET,
+    '--store',
+    store,
+    '--accept-automation',
+    '--json',
+  ];
   const first = tsx('sync-remove', SYNC_CLI, base);
   const firstResult = jsonOf(first.stdout)?.result;
   const keptChanged = (firstResult?.objects ?? []).reduce(

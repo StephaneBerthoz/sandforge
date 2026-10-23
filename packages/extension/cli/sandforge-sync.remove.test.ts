@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
+import type { ForgeTargetAutomation } from '@sandforge/shared';
 import { MemoryRemovalOrg } from '../src/test/memoryRemovalOrg.js';
 import { nodeSyncIdMap } from '../src/modules/sync/SyncIdMap.js';
 
@@ -16,6 +17,19 @@ vi.mock('./sfSession.js', () => ({
 vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
+}));
+/** What the target runs as the removal writes, as it reads it: nothing, unless a test says what. */
+const automationRead = vi.fn(async (): Promise<ForgeTargetAutomation> => ({
+  objectsRead: [],
+  objects: [],
+  unread: [],
+  conditionsNotRead: 0,
+  conditionsBound: 25,
+  requests: 0,
+}));
+vi.mock('./sandforge-clone.js', async (original) => ({
+  ...(await original<typeof import('./sandforge-clone.js')>()),
+  targetAutomationReader: vi.fn(() => ({ read: automationRead })),
 }));
 
 import { makeConn } from './sfSession.js';
@@ -97,6 +111,7 @@ describe('parseRemoveArgs', () => {
       summaryPath: 'run.json',
       target: 'TGT',
       includeChanged: true,
+      acceptAutomation: false,
       json: true,
       sweep: false,
       sweepList: false,
@@ -108,6 +123,7 @@ describe('parseRemoveArgs', () => {
       summaryPath: 'run.json',
       target: 'TGT',
       includeChanged: false,
+      acceptAutomation: false,
       json: false,
       store: 'state',
       sweep: false,
@@ -117,6 +133,9 @@ describe('parseRemoveArgs', () => {
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--leave-undeletable')),
     ).toMatchObject({ leaveUndeletable: true });
+    expect(
+      parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--accept-automation')),
+    ).toMatchObject({ acceptAutomation: true });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--sweep')),
     ).toMatchObject({ sweep: true, sweepList: false });
@@ -254,6 +273,62 @@ describe('what the command takes back, and from where', () => {
     expect(kept.lastWrittenAt()).toEqual(expect.any(String));
   });
 
+  it('keeps in memory what a delta run deleted as the source had, each record once, dated as a write', () => {
+    // Told to the run's file alone: the summary carried a bare count, and a
+    // removal from it never brought the records back.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-14T08:00:05.000Z'));
+      const kept = memoryCreations('run-1');
+      kept.deleted?.('Contact', [C1, C1.slice(0, 15)]);
+      kept.deleted?.('Account', [A1]);
+      kept.deleted?.('Contact', []);
+
+      expect(kept.deletions()).toEqual([
+        { objectApiName: 'Contact', ids: [C1] },
+        { objectApiName: 'Account', ids: [A1] },
+      ]);
+      expect(kept.created()).toEqual([]);
+      expect(kept.firstWrittenAt()).toBe('2026-10-14T08:00:05.000Z');
+      expect(kept.lastWriteAt()).toBe('2026-10-14T08:00:05.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads what a run deleted from its summary, which the removal brings back from the recycle bin', () => {
+    const read = readRunSummary(
+      JSON.stringify(
+        summary({
+          created: {
+            runId: 'sandforge-sync-1',
+            objects: [],
+            deleted: [
+              { objectApiName: 'Contact', ids: [C1] },
+              { objectApiName: 'Account', ids: [] },
+            ],
+          },
+        }),
+      ),
+    );
+    if (!('summary' in read)) throw new Error('refused');
+    expect(runOfSummary(read.summary).deleted).toEqual([{ objectApiName: 'Contact', ids: [C1] }]);
+    // An id that is not one never reaches an undelete.
+    expect(
+      readRunSummary(
+        JSON.stringify(
+          summary({
+            created: {
+              runId: 'sandforge-sync-1',
+              objects: [],
+              deleted: [{ objectApiName: 'Contact', ids: ["x' OR Id != '"] }],
+            },
+          }),
+        ),
+      ),
+    ).toMatchObject({ refusal: expect.stringContaining('created.deleted.0.ids.0') });
+  });
+
   it('keeps each id once, whichever length it is noted in and however often', () => {
     const kept = memoryCreations('run-1');
     kept.note('Account', [A1, A2]);
@@ -380,6 +455,123 @@ describe('sandforge-sync --remove', () => {
 
     expect(exit.stderr()).toContain('is not the org the run wrote to');
     expect(org.deletes).toEqual([]);
+  });
+
+  describe('what the target runs as the removal takes the run back', () => {
+    /** What the target reads as running: an Apex trigger before an account is deleted, and one after a contact is undeleted. */
+    const firing = (): ForgeTargetAutomation => ({
+      objectsRead: ['Account', 'Contact'],
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountCleanup', events: ['beforeDelete'] }],
+        },
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [{ name: 'ContactBack', events: ['afterUndelete'] }],
+        },
+      ],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 3,
+    });
+
+    it('says what fires as it deletes, before anything is written, and deletes nothing without --accept-automation', async () => {
+      // The panel listed it before the org's name was typed; the command
+      // read it for the sweep alone, and deleted without a word of it.
+      automationRead.mockResolvedValueOnce(firing());
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(automationRead).toHaveBeenLastCalledWith('TGT', ['Contact', 'Account'], {
+        undeletes: true,
+      });
+      expect(stdout).toContain(
+        'removal automation: what TGT runs as the removal takes the run back\n' +
+          '  Account: before delete: Apex trigger AccountCleanup\n',
+      );
+      expect(exit.stderr()).toContain(
+        'TGT runs automation on the records this removal deletes: Account: Apex trigger ' +
+          'AccountCleanup (before delete). Nothing was written or deleted. Add ' +
+          '--accept-automation to remove all the same, or turn that automation off in TGT first.',
+      );
+      expect(org.deletes).toEqual([]);
+      expect(existsSync(join(dir, 'run.removals.json'))).toBe(false);
+    });
+
+    it('removes all the same with --accept-automation, having said what fires', async () => {
+      automationRead.mockResolvedValueOnce(firing());
+      let stderr = '';
+      vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+        stderr += chunk;
+        return true;
+      }) as never);
+
+      await main(argv('--remove', file, '--target', 'TGT', '--accept-automation', '--json'));
+
+      // On stderr with --json, the outcome alone on stdout.
+      expect(stderr).toContain('  Account: before delete: Apex trigger AccountCleanup');
+      expect(org.all('Account')).toEqual([]);
+      expect(JSON.parse(stdout)).toMatchObject({ result: { status: 'success', planned: 3 } });
+    });
+
+    it('names the triggers that run after an undelete, for what a delta run deleted and the removal brings back', async () => {
+      const C2 = fakeId('003', 2);
+      writeFileSync(
+        file,
+        JSON.stringify(
+          summary({
+            created: {
+              runId: 'sandforge-sync-1',
+              objects: [],
+              deleted: [{ objectApiName: 'Contact', ids: [C2] }],
+            },
+          }),
+        ),
+      );
+      automationRead.mockResolvedValueOnce(firing());
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(automationRead).toHaveBeenLastCalledWith('TGT', ['Contact'], { undeletes: true });
+      expect(stdout).toContain(
+        '  Contact: brought back from the recycle bin: Apex trigger ContactBack',
+      );
+      expect(exit.stderr()).toContain(
+        'TGT runs automation as this removal brings back from the recycle bin what the run ' +
+          'deleted: Contact: Apex trigger ContactBack.',
+      );
+      expect(exit.stderr()).not.toContain('AccountCleanup');
+    });
+
+    it('says nothing fires, and asks for nothing, when nothing does', async () => {
+      await main(argv('--remove', file, '--target', 'TGT'));
+
+      expect(stdout).toContain('  nothing fires on the 2 object(s) it writes records of');
+      expect(org.all('Account')).toEqual([]);
+    });
+
+    it('deletes nothing when it could not read what fires, without --accept-automation', async () => {
+      automationRead.mockResolvedValueOnce({
+        ...firing(),
+        objects: [],
+        unread: [{ part: 'triggers', reason: 'API_DISABLED' }],
+      });
+      const exit = stubExit();
+
+      await expect(main(argv('--remove', file, '--target', 'TGT'))).rejects.toThrow('exit 1');
+
+      expect(exit.stderr()).toContain(
+        'The Apex triggers of TGT could not be read (API_DISABLED), so what fires as the ' +
+          'removal writes is not known. Nothing was written or deleted.',
+      );
+      expect(org.deletes).toEqual([]);
+    });
   });
 
   describe('of a run of a saved configuration', () => {

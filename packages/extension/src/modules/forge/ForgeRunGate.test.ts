@@ -34,6 +34,8 @@ import {
   removalAutomationLines,
   removalAutomationRefusal,
   removalRiskLines,
+  removalStepsAutomationLines,
+  removalStepsAutomationRefusal,
   rowStorageBytes,
   runBypassesOf,
   storageCheckOf,
@@ -1026,6 +1028,121 @@ describe('what fires as a removal takes the run back', () => {
       ),
     ).toContain(
       'The flows of TGT could not be read (NO_ACCESS), so what fires as the removal deletes is not known.',
+    );
+  });
+});
+
+describe('what fires as a removal takes a whole run back, step by step', () => {
+  const automation: ForgeTargetAutomation = {
+    objectsRead: ['Contact', 'Account', 'Order'],
+    objects: [
+      {
+        objectApiName: 'Contact',
+        flows: [],
+        triggers: [{ name: 'ContactBack', events: ['afterUndelete'] }],
+      },
+      {
+        objectApiName: 'Account',
+        flows: [
+          {
+            apiName: 'Account_Touch',
+            label: 'Account touch',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+          },
+        ],
+        triggers: [{ name: 'AccountCleanup', events: ['beforeDelete', 'afterDelete'] }],
+      },
+      {
+        objectApiName: 'Order',
+        flows: [
+          {
+            apiName: 'Order_Sync',
+            label: 'Order sync',
+            timing: 'afterSave',
+            startsOn: 'update',
+            condition: 'read',
+            permissions: [],
+          },
+        ],
+        triggers: [],
+      },
+    ],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 5,
+  };
+  /** A Sync run's removal: what the run deleted, wrote over and created. */
+  const steps = {
+    bringBack: ['Contact'],
+    giveBack: ['Account'],
+    setToDraft: ['Order'],
+    delete: ['Order', 'Account'],
+  };
+
+  it('says per object what each step fires, in the order the removal writes, and that nothing does when nothing does', () => {
+    // A Sync run's removal brought records back and gave values back, and
+    // the command line said nothing of what those writes fire.
+    expect(removalStepsAutomationLines(automation, 'TGT', steps)).toEqual([
+      'removal automation: what TGT runs as the removal takes the run back',
+      '  Contact: brought back from the recycle bin: Apex trigger ContactBack',
+      '  Account: given back its values from before the run: flow "Account touch"',
+      '  Order: set back to Draft before its delete: flow "Order sync"',
+      '  Account: before and after delete: Apex trigger AccountCleanup',
+    ]);
+    expect(removalStepsAutomationLines({ ...automation, objects: [] }, 'TGT', steps)).toEqual([
+      'removal automation: what TGT runs as the removal takes the run back',
+      '  nothing fires on the 3 object(s) it writes records of',
+    ]);
+    expect(
+      removalStepsAutomationLines(
+        { objects: [], unread: [{ part: 'triggers', reason: 'NO_ACCESS' }] },
+        'TGT',
+        steps,
+      ),
+    ).toEqual([
+      'removal automation: what TGT runs as the removal takes the run back',
+      '  the Apex triggers could not be read: NO_ACCESS',
+    ]);
+  });
+
+  it('names what each step fires, and asks for --accept-automation', () => {
+    expect(removalStepsAutomationRefusal(automation, 'TGT', { steps })).toBe(
+      'TGT runs automation as this removal brings back from the recycle bin what the run ' +
+        'deleted: Contact: Apex trigger ContactBack. TGT runs automation as this removal gives ' +
+        'the records the run wrote over their values from before it: Account: flow "Account ' +
+        'touch". TGT runs automation as this removal sets activated records back to Draft, the ' +
+        'only way the platform deletes them: Order: flow "Order sync". TGT runs automation on ' +
+        'the records this removal deletes: Account: Apex trigger AccountCleanup (before and ' +
+        'after delete). Nothing was written or deleted. Add --accept-automation to remove all ' +
+        'the same, or turn that automation off in TGT first.',
+    );
+  });
+
+  it('reads only what the steps write: an undelete trigger fires on what comes back alone', () => {
+    expect(
+      removalStepsAutomationRefusal(automation, 'TGT', { steps: { delete: ['Contact'] } }),
+    ).toBeUndefined();
+    expect(
+      removalStepsAutomationRefusal(automation, 'TGT', { steps: { bringBack: ['Contact'] } }),
+    ).toContain('brings back from the recycle bin what the run deleted: Contact');
+  });
+
+  it('gives none when nothing fires and everything was read, and refuses what could not be read', () => {
+    expect(
+      removalStepsAutomationRefusal({ ...automation, objects: [] }, 'TGT', { steps }),
+    ).toBeUndefined();
+    expect(
+      removalStepsAutomationRefusal(
+        { ...automation, objects: [], unread: [{ part: 'flows', reason: 'NO_ACCESS' }] },
+        'TGT',
+        { steps },
+      ),
+    ).toContain(
+      'The flows of TGT could not be read (NO_ACCESS), so what fires as the removal writes is not known.',
     );
   });
 });

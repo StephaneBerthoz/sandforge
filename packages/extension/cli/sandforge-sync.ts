@@ -36,7 +36,7 @@
  *     --config-file <config.json> --store <dir> --source SRC --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \
  *     --remove <summary.json | run file | run id> --target TGT [--include-changed]
- *     [--store <dir>] [--sweep | --sweep-list] [--json]
+ *     [--accept-automation] [--store <dir>] [--sweep | --sweep-list] [--json]
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -53,6 +53,7 @@ import type {
   PriceCurrencySettled,
   ForgeContactPointsReport,
   ForgeFieldRefusal,
+  ForgeRemovalSteps,
   ForgeSweepResult,
   ForgeTargetAutomation,
   ForgeUndoObjectResult,
@@ -66,7 +67,13 @@ import type {
   SyncSimulationResult,
   SyncWriteCheck,
 } from '@sandforge/shared';
-import { guardTierOf, isDeveloperEdition, orgTypeOf, recordWriteHeaders } from '@sandforge/shared';
+import {
+  guardTierOf,
+  isDeveloperEdition,
+  orgTypeOf,
+  recordWriteHeaders,
+  removalStepsBypassesOf,
+} from '@sandforge/shared';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from '@sandforge/shared';
 import {
   orgFileCopyDeps,
@@ -83,7 +90,7 @@ import { SyncConfigStore } from '../src/modules/sync/SyncConfigStore.js';
 import { nodeSyncIdMap, savedConfigIdMap } from '../src/modules/sync/SyncIdMap.js';
 import { fileConfigStore } from './fileConfigStore.js';
 import type { OperationOutcome } from '../src/modules/sync/DataSync.js';
-import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../src/modules/forge/ForgeRunRemoval.js';
 import { removeSyncRun } from '../src/modules/sync/SyncRunRemoval.js';
 import { seedSweepInput } from '../src/modules/seed/seedRunSweep.js';
 import { listSweep, sweepRunRecords } from '../src/modules/forge/ForgeRunSweep.js';
@@ -160,9 +167,12 @@ import {
 import { toolingRetrievesOver } from '../src/modules/forge/TargetAutomationReader.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  bypassesToAssign,
   formatMB,
   readDataStorage,
   readEmailLimits,
+  removalStepsAutomationLines,
+  removalStepsAutomationRefusal,
 } from '../src/modules/forge/ForgeRunGate.js';
 import {
   gateSyncWrite,
@@ -247,7 +257,8 @@ Run a saved configuration:
 Remove what a run created:
   pnpm exec tsx packages/extension/cli/sandforge-sync.ts \\
     --remove <summary.json | run file | run id> --target <alias>
-    [--include-changed] [--store <dir>] [--sweep | --sweep-list] [--json]
+    [--include-changed] [--accept-automation] [--store <dir>]
+    [--sweep | --sweep-list] [--json]
 
   --remove <file | id>   the summary a run printed with --json, saved to a
                          file; or the run's file, which it names as it
@@ -275,6 +286,13 @@ Remove what a run created:
                          are kept otherwise, and give back their values from
                          before the run to the records it wrote over that
                          were changed since
+  --accept-automation    remove although the target runs flows, Apex
+                         triggers, processes or workflow rules as the removal
+                         brings records back from the recycle bin, gives them
+                         their values back, sets them back to Draft or
+                         deletes them, or could not say what it runs. Each is
+                         named before anything is written; without the flag
+                         the removal then writes nothing, exit 1 (default: off)
   --store <dir>          for a run of a saved configuration: its store, which
                          the removal tells what it took, so that the next
                          delta run reads those objects whole and copies the
@@ -333,12 +351,13 @@ are still in the target, and inserts the others.
 
 Exit codes: 0 the run finished, some of its records refused included (read
 the summary for per-object failures), or the removal took every record it set
-out to; 1 the run or the removal could not be started, the run was refused
-before it wrote anything — a production target among the reasons — or it
-produced only failures, or it stopped on an error (its file keeps what it
-created); 2 a bad command line, or a summary or a file --remove cannot take a
-run back from; 3 the removal left records of the run in the target, or the
-run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the
+out to; 1 the run or the removal could not be started, either was refused
+before it wrote anything — a production target among the reasons, and for
+the removal what the target runs as it writes, without --accept-automation —
+or the run produced only failures, or it stopped on an error (its file keeps
+what it created); 2 a bad command line, or a summary or a file --remove cannot
+take a run back from; 3 the removal left records of the run in the target, or
+the run was partial and --fail-on-partial was given; 130 a Ctrl-C stopped the
 run, 143 a SIGTERM (a CI job cancelled or timed out), 129 a SIGHUP: its file
 keeps what it created.
 `;
@@ -1189,9 +1208,17 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
   lastWriteAt(): string | undefined;
   /** What it wrote over, per object, as the run's file reads it back (`SyncRunKept.overwritten`). */
   overwritten(): SyncRunOverwritten[];
+  /**
+   * What it deleted as the source had, per object in the order it first
+   * deleted some, each record once, as the run's file reads it back
+   * (`SyncRunKept.deleted`).
+   */
+  deletions(): Array<{ objectApiName: string; ids: string[] }>;
 } {
   const byObject = new Map<string, string[]>();
   const overwrites = new OverwritesRead();
+  /** What it deleted, per object, by the first fifteen characters of each id. */
+  const deletedByObject = new Map<string, Map<string, string>>();
   /** The ids kept so far, by their first fifteen characters, as a run's file reads them back. */
   const seen = new Set<string>();
   let last: string | undefined;
@@ -1249,6 +1276,16 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
       overwrites.answer(objectApiName, notWritten);
       lastWrite = new Date().toISOString();
     },
+    // What a delta run deleted as the source had: the summary carried a bare
+    // count, and a removal from the summary alone never brought them back.
+    // A write of the run, dated as the run's file dates it.
+    deleted: (objectApiName, ids) => {
+      if (ids.length === 0) return;
+      const ofObject = deletedByObject.get(objectApiName) ?? new Map<string, string>();
+      for (const id of ids) if (!ofObject.has(id.slice(0, 15))) ofObject.set(id.slice(0, 15), id);
+      deletedByObject.set(objectApiName, ofObject);
+      calling(ids.length);
+    },
     overwrittenCount: () => overwrites.count,
     flush: async () => undefined,
     created: () => [...byObject].map(([objectApiName, ids]) => ({ objectApiName, ids: [...ids] })),
@@ -1256,6 +1293,11 @@ export function memoryCreations(runId: string): SyncCreationRecorder & {
     firstWrittenAt: () => first,
     lastWriteAt: () => lastWrite,
     overwritten: () => overwrites.read(),
+    deletions: () =>
+      [...deletedByObject].map(([objectApiName, ids]) => ({
+        objectApiName,
+        ids: [...ids.values()],
+      })),
   };
 }
 
@@ -1770,10 +1812,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const firstWrittenAt = kept.firstWrittenAt();
   const lastWriteAt = kept.lastWriteAt();
   const overwritten = kept.overwritten();
+  const deleted = kept.deletions();
   // The org's own id, so --remove takes the run back from it and no other,
   // whatever alias names it then.
   const targetOrgId =
-    created.length > 0 || overwritten.length > 0
+    created.length > 0 || overwritten.length > 0 || deleted.length > 0
       ? (typed?.id ?? (await organizationIdOf(targetConn)))
       : undefined;
   const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
@@ -1804,6 +1847,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             objects: created,
             // What it wrote over, by id, and the backup its values went to.
             ...(overwritten.length > 0 ? { overwritten } : {}),
+            // What it deleted as the source had, by id: what --remove brings
+            // back from the recycle bin.
+            ...(deleted.length > 0 ? { deleted } : {}),
           },
           elapsedMs,
         },
@@ -1910,6 +1956,8 @@ export interface RemoveArgs {
   target: string;
   /** Remove also the records changed since the run. */
   includeChanged: boolean;
+  /** Remove although the target runs automation as the removal writes, or could not say what. */
+  acceptAutomation: boolean;
   /** Print the removal as JSON on stdout, every other line on stderr. */
   json: boolean;
   /** The store of the saved configuration the run was of, which the removal tells. */
@@ -1927,6 +1975,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--remove',
   '--target',
   '--include-changed',
+  '--accept-automation',
   '--store',
   '--sweep',
   '--sweep-list',
@@ -1946,8 +1995,8 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --store, --sweep, --sweep-list, ` +
-          `--leave-undeletable and --json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --accept-automation, --store, --sweep, ` +
+          `--sweep-list, --leave-undeletable and --json, not "${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -1980,6 +2029,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     summaryPath,
     target,
     includeChanged: args.includes('--include-changed'),
+    acceptAutomation: args.includes('--accept-automation'),
     json: args.includes('--json'),
     ...(store !== undefined ? { store } : {}),
     sweep: args.includes('--sweep'),
@@ -2020,6 +2070,14 @@ const runSummarySchema = z
             z.object({
               objectApiName: z.string().regex(API_NAME_RE),
               backup: backupIdSchema,
+              ids: z.array(z.string().regex(ID)),
+            }),
+          )
+          .optional(),
+        deleted: z
+          .array(
+            z.object({
+              objectApiName: z.string().regex(API_NAME_RE),
               ids: z.array(z.string().regex(ID)),
             }),
           )
@@ -2092,6 +2150,9 @@ export function runOfSummary(summary: RunSummary, removal?: SyncRunRemovalState)
     created: (created?.objects ?? []).filter((object) => object.ids.length > 0),
     ...((created?.overwritten ?? []).some((object) => object.ids.length > 0)
       ? { overwritten: (created?.overwritten ?? []).filter((object) => object.ids.length > 0) }
+      : {}),
+    ...((created?.deleted ?? []).some((object) => object.ids.length > 0)
+      ? { deleted: (created?.deleted ?? []).filter((object) => object.ids.length > 0) }
       : {}),
     ...(removal ? { removal } : {}),
   };
@@ -2570,7 +2631,8 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const conn = makeConn(await loadOrg(args.target));
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
   const org = await typeTarget(conn);
   // A listing deletes nothing; a removal and a sweep delete, and are refused
   // before either reads anything outside a sandbox or a Developer Edition.
@@ -2730,6 +2792,42 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       "before them, a sweep deletes what the target's automation created during the run, as " +
         "the run's user — run with --sweep-list to see what",
     );
+  }
+  // What the target runs as the removal takes the run back, said before it
+  // writes and asked about as the clone's removal asks, step by step as it
+  // writes: the triggers that run after an undelete as it brings back what
+  // the run deleted, what fires as it gives back what the run wrote over and
+  // as it sets an activated order back to Draft, then before and after each
+  // delete. The panel listed it before the org's name was typed; the command
+  // read it for the sweep alone, and said nothing of it.
+  const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
+    ...new Set(objects.map(({ objectApiName }) => objectApiName)),
+  ];
+  const steps: ForgeRemovalSteps = {
+    bringBack: names(bringBack),
+    giveBack: names(kept.kept),
+    setToDraft: setBackToDraftOf(names(plan)),
+    delete: names(plan),
+  };
+  const written = [...new Set(Object.values(steps).flat())];
+  if (written.length > 0) {
+    const automation = await targetAutomationReader(conn).read(args.target, written, {
+      undeletes: true,
+    });
+    say('');
+    for (const line of removalStepsAutomationLines(automation, args.target, steps)) say(line);
+    const automationStop = removalStepsAutomationRefusal(automation, args.target, {
+      steps,
+      assign: bypassesToAssign(
+        automation,
+        removalStepsBypassesOf(automation, steps),
+        session.username ? { alias: args.target, username: session.username } : undefined,
+      ),
+    });
+    if (automationStop && !args.acceptAutomation) {
+      process.stderr.write(`${automationStop}\n`);
+      process.exit(1);
+    }
   }
 
   // Ctrl-C stops the removal before its next call to the org, as Cancel does

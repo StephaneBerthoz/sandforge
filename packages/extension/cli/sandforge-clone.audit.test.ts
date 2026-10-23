@@ -238,7 +238,7 @@ describe('sandforge-clone --audit', () => {
 
     it('refuses no file, and a file there it cannot add to, before contacting any org', () => {
       expect(() => parseArgs(argv('--audit'))).toThrow(ExitCalled);
-      expect(stderr).toContain('--audit takes the file the audit trail is kept in.');
+      expect(stderr).toContain('--audit wants a value. Nothing was run.');
 
       writeFileSync(auditPath, 'notes, not a trail', 'utf8');
       stderr = '';

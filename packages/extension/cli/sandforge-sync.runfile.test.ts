@@ -18,6 +18,13 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
 }));
+// What the target runs as a removal writes, as it reads it: nothing.
+vi.mock('./sandforge-clone.js', async (original) => ({
+  ...(await original<typeof import('./sandforge-clone.js')>()),
+  targetAutomationReader: vi.fn(() => ({
+    read: async () => ({ objectsRead: [], objects: [], unread: [] }),
+  })),
+}));
 
 /** What each run handed the engine, and what the engine does with it. */
 const engine = vi.hoisted(() => ({
@@ -101,6 +108,8 @@ describe('the file a run of sandforge-sync keeps', () => {
             : { records: [{ Id: ORG_ID }], totalSize: 1 },
       ),
       queryMore: vi.fn(),
+      // What a removal brings back from the recycle bin, the fake org's own bin.
+      soap: { undelete: async (ids: string[]) => org.undelete(ids) },
       bulk2: {
         job: (_type: string, { id }: { id: string }) => {
           jobsAsked.push(id);
@@ -163,6 +172,42 @@ describe('the file a run of sandforge-sync keeps', () => {
       runId: kept?.runId,
       runFile: file,
       lastWriteAt: expect.any(String),
+    });
+  });
+
+  it('prints in its summary what a delta run deleted as the source had, and --remove brings it back from the summary alone', async () => {
+    // The summary carried a bare count: a removal from it, without the run's
+    // file, never brought those records back from the recycle bin.
+    engine.run = async (deps, config) => {
+      deps.creations?.deleted?.('Contact', [C1, C2]);
+      return answered(config);
+    };
+
+    await run();
+
+    const printed = JSON.parse(stdout) as { targetOrgId?: string; created: { deleted?: unknown } };
+    expect(printed.created.deleted).toEqual([{ objectApiName: 'Contact', ids: [C1, C2] }]);
+    // The org's own id, which a run that only deleted gave none of.
+    expect(printed.targetOrgId).toBe(ORG_ID);
+
+    const summaryPath = join(process.env['SANDFORGE_JOURNAL_DIR'] ?? '', 'delta-run.json');
+    writeFileSync(summaryPath, stdout);
+    rmSync(runsDir(), { recursive: true, force: true });
+    const at = new Date(Date.now() - 60_000).toISOString();
+    org.add('Contact', { Id: C1 }, at);
+    org.add('Contact', { Id: C2 }, at);
+    org.trash('Contact', C1);
+    org.trash('Contact', C2);
+    stdout = '';
+
+    await main(argv('--remove', summaryPath, '--target', 'TGT', '--json'));
+
+    expect(org.all('Contact').map((row) => row.Id)).toEqual([C1, C2]);
+    expect(JSON.parse(stdout)).toMatchObject({
+      result: {
+        status: 'success',
+        undeleted: [{ objectApiName: 'Contact', planned: 2, undeleted: 2 }],
+      },
     });
   });
 

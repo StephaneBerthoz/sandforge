@@ -18,6 +18,13 @@ vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
 }));
+// What the target runs as a removal writes, as it reads it: nothing.
+vi.mock('./sandforge-clone.js', async (original) => ({
+  ...(await original<typeof import('./sandforge-clone.js')>()),
+  targetAutomationReader: vi.fn(() => ({
+    read: async () => ({ objectsRead: [], objects: [], unread: [] }),
+  })),
+}));
 
 /** What each run handed the engine, and what the engine does with it. */
 const engine = vi.hoisted(() => ({

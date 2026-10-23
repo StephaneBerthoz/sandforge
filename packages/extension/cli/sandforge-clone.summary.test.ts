@@ -280,7 +280,7 @@ describe('sandforge-clone --summary', () => {
 
     it('refuses no file, and a run that creates nothing to take back', () => {
       expect(() => parseArgs(argv('--summary'))).toThrow(ExitCalled);
-      expect(stderr).toContain('--summary takes the file to write the summary to.');
+      expect(stderr).toContain('--summary wants a value. Nothing was run.');
 
       const path = join(dir, 'clone-summary.json');
       for (const flag of ['--list-objects', '--rehearse']) {
@@ -791,7 +791,7 @@ describe('sandforge-clone --summary', () => {
 
     it('refuses --resume with nothing to take up, and with a run that writes nothing', () => {
       expect(() => parseArgs(argv('--resume'))).toThrow(ExitCalled);
-      expect(stderr).toContain('--resume takes the journal of the run to take up, or its run id.');
+      expect(stderr).toContain('--resume wants a value. Nothing was run.');
       for (const flag of ['--dry-run', '--rehearse', '--list-objects']) {
         stderr = '';
         expect(() => parseArgs(argv('--resume', 'run-1', flag))).toThrow(ExitCalled);

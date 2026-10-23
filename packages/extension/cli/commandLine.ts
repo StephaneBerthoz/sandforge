@@ -25,9 +25,11 @@ const HELP_FLAGS: readonly string[] = ['--help', '-h'];
 
 /**
  * Why a word of the line is not one the command reads, or nothing when every
- * word is. A value is the word after its flag, unless that word is a flag
- * itself: the command's own check then says the flag wants a value. Exported
- * so it can be tested.
+ * word is. A value is the word after its flag, and a flag followed by another
+ * flag, or by nothing, is refused: the commands took the next word as the
+ * value whatever it was, and `--target --dry-run` logged in to an org named
+ * `--dry-run`, while a flag last on the line was taken as left out, its
+ * default in its place. Exported so it can be tested.
  *
  * @param args - The line after the program and the script.
  */
@@ -38,7 +40,10 @@ export function unreadArgument(args: readonly string[], flags: CommandFlags): st
     const arg = args[i];
     if (values.has(arg)) {
       const next = args[i + 1];
-      if (next !== undefined && !next.startsWith('--')) i++;
+      if (next === undefined || next.startsWith('--')) {
+        return `${arg} wants a value. Nothing was run.`;
+      }
+      i++;
       continue;
     }
     if (switches.has(arg)) continue;
