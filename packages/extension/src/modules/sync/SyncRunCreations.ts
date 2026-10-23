@@ -281,12 +281,22 @@ export const backupIdSchema = z
  * (`overwroteSchema`); one a call cut short leaves named, and its removal
  * finds it holding its values from before, and writes nothing to it. Ids
  * alone: the values are in the backup, never here.
+ *
+ * `held` says, of the records the run had not written yet, when the org last
+ * dated each modified before the call, and by whom: what tells a change
+ * someone made since an earlier run of the same target from that run's own
+ * write (`SyncRunKept.heldBefore`). Absent from a line of a file kept before,
+ * or when the target would not say.
  */
 const overwritingSchema = z.object({
   overwriting: z.object({
     object: objectSchema,
     backup: backupIdSchema,
     ids: z.array(idSchema).min(1).max(IDS_PER_LINE),
+    held: z
+      .array(z.object({ id: idSchema, at: dateSchema, by: idSchema.optional() }))
+      .max(IDS_PER_LINE)
+      .optional(),
     at: dateSchema,
   }),
 });
@@ -489,6 +499,17 @@ export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
    */
   overwritten?: SyncRunOverwritten[];
   /**
+   * Of the records it wrote over, when the org last dated each modified
+   * before the run first wrote it, and by whom (`LastModifiedDate`,
+   * `LastModifiedById`), by the first fifteen characters of its id. A record
+   * modified after an earlier run of the same target, by someone else, was
+   * changed between the two: the removal of this run gives it back that
+   * change, and stamps nothing of it on the earlier run, whose removal would
+   * otherwise read it as unchanged since and write over the change. Absent
+   * from a run kept before, or when the target would not say.
+   */
+  heldBefore?: Record<string, { at: string; by?: string }>;
+  /**
    * The records of the target it deleted, per object in the order it first
    * deleted some, as the source had deleted them: what its removal brings
    * back from the recycle bin. Absent when it deleted none.
@@ -502,6 +523,18 @@ export interface SyncRunKept extends Omit<SyncRunHead, 'answersNameJobs'> {
   unkept?: Array<{ objectApiName: string; fields: string[] }>;
   /** What its removals did, once one ran. */
   removal?: SyncRunRemovalState;
+}
+
+/**
+ * When the org last dated a record modified, and by whom, as read before a
+ * run first wrote over it (`SyncRunKept.heldBefore`).
+ */
+export interface HeldStamp {
+  id: string;
+  /** Its `LastModifiedDate`, on the org's clock. */
+  at: string;
+  /** Its `LastModifiedById`, when the target said. */
+  by?: string;
 }
 
 /** The records of one object a run wrote over, and where their values from before are kept. */
@@ -558,6 +591,8 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
   const deletedByObject = new Map<string, Map<string, string>>();
   /** The encrypted fields not kept, per object. */
   const unkeptByObject = new Map<string, Set<string>>();
+  /** When the records it wrote over were last modified before it, and by whom. */
+  const heldBefore = new Map<string, { at: string; by?: string }>();
   for (const line of text.split('\n')) {
     if (line.trim() === '') continue;
     const value = parseLine(line);
@@ -568,9 +603,16 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
     }
     const overwriting = overwritingSchema.safeParse(value);
     if (overwriting.success) {
-      const { object, backup, ids, at } = overwriting.data.overwriting;
+      const { object, backup, ids, at, held } = overwriting.data.overwriting;
       wrote(at);
       overwrites.candidates(object, backup, ids);
+      // As each record was before the run first wrote it: a later line names
+      // it after a write of the run's own.
+      for (const stamp of held ?? []) {
+        const key = stamp.id.slice(0, 15);
+        if (heldBefore.has(key)) continue;
+        heldBefore.set(key, { at: stamp.at, ...(stamp.by !== undefined ? { by: stamp.by } : {}) });
+      }
       continue;
     }
     const overwrote = overwroteSchema.safeParse(value);
@@ -680,6 +722,7 @@ export function readRunFile(text: string): Omit<SyncRunKept, 'removal'> | undefi
       ids.length > 0 ? [{ objectApiName, ids }] : [],
     ),
     ...(overwritten.length > 0 ? { overwritten } : {}),
+    ...(heldBefore.size > 0 ? { heldBefore: Object.fromEntries(heldBefore) } : {}),
     ...(unkeptByObject.size > 0
       ? {
           unkept: [...unkeptByObject].map(([objectApiName, fields]) => ({
@@ -969,8 +1012,17 @@ export interface SyncCreationRecorder {
    * target holds whose values from before went to `backup` first: written at
    * once, dated now. The run's first such line begins its file, as a creation
    * does: a run that only updates keeps what it has to give back.
+   *
+   * @param held - Of the records the run had not written yet, when the org
+   *   last dated each modified, and by whom, as read before the call
+   *   (`SyncRunKept.heldBefore`).
    */
-  overwriting?(objectApiName: string, backup: string, ids: readonly string[]): void;
+  overwriting?(
+    objectApiName: string,
+    backup: string,
+    ids: readonly string[],
+    held?: ReadonlyArray<HeldStamp>,
+  ): void;
   /**
    * The call {@link overwriting} named records of answered: `notWritten` are
    * those it did not write, none when it wrote them all.
@@ -1151,19 +1203,43 @@ export class SyncRunCreations {
         if (rows <= 0 || !objectSchema.safeParse(objectApiName).success) return;
         append({ touched: { object: objectApiName, rows, at: new Date().toISOString() } });
       },
-      overwriting: (objectApiName, backup, ids) => {
+      overwriting: (objectApiName, backup, ids, held) => {
         if (!objectSchema.safeParse(objectApiName).success) return;
         if (!backupIdSchema.safeParse(backup).success) return;
         const valid = ids.filter((id) => idSchema.safeParse(id).success);
         if (valid.length === 0) return;
         overwrites.candidates(objectApiName, backup, valid);
         const at = new Date().toISOString();
+        const stampOf = new Map(
+          (held ?? []).flatMap((stamp) =>
+            idSchema.safeParse(stamp.id).success && dateSchema.safeParse(stamp.at).success
+              ? [
+                  [
+                    stamp.id.slice(0, 15),
+                    {
+                      id: stamp.id,
+                      at: stamp.at,
+                      ...(stamp.by !== undefined && idSchema.safeParse(stamp.by).success
+                        ? { by: stamp.by }
+                        : {}),
+                    },
+                  ] as const,
+                ]
+              : [],
+          ),
+        );
         for (let from = 0; from < valid.length; from += IDS_PER_LINE) {
+          const lineIds = valid.slice(from, from + IDS_PER_LINE);
+          const lineHeld = lineIds.flatMap((id) => {
+            const stamp = stampOf.get(id.slice(0, 15));
+            return stamp ? [stamp] : [];
+          });
           append({
             overwriting: {
               object: objectApiName,
               backup,
-              ids: valid.slice(from, from + IDS_PER_LINE),
+              ids: lineIds,
+              ...(lineHeld.length > 0 ? { held: lineHeld } : {}),
               at,
             },
           });

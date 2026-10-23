@@ -149,6 +149,14 @@ export interface SyncOrchestratorDeps {
   transformPipeline: TransformPipeline;
   querySource: OrchestratorQueryFn;
   queryTarget: OrchestratorQueryFn;
+  /**
+   * The classic encrypted fields of an object that the user the source is
+   * read as reads masked (`maskedEncryptedFields`): taken out of every record
+   * the read returns, before it is mapped, and named in the object's result
+   * (`encryptedLeftOut`). Read masked, the value a run copied was the mask
+   * itself. Without it, every field read goes on to the write.
+   */
+  maskedSourceFields?: (objectApiName: string) => Promise<readonly string[]>;
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: SyncGrappeEvent) => void;
   /**
@@ -490,6 +498,20 @@ interface PreparedObject {
   matchField: string;
   /** Rows read that an earlier run of the configuration copied, left out as they are. */
   alreadyCopied: number;
+  /** The encrypted fields the source's user reads masked, taken out of every record read. */
+  encryptedLeftOut?: string[];
+}
+
+/**
+ * An object's result naming the encrypted fields its records went without,
+ * read masked from the source: see `SyncObjectResult.encryptedLeftOut`.
+ */
+function withEncryptedLeftOut<T extends { encryptedLeftOut?: string[] }>(
+  result: T,
+  prepared: Pick<PreparedObject, 'encryptedLeftOut'>,
+): T {
+  const fields = prepared.encryptedLeftOut ?? [];
+  return fields.length > 0 ? { ...result, encryptedLeftOut: [...fields] } : result;
 }
 
 /**
@@ -1865,20 +1887,23 @@ export class SyncOrchestrator {
           }
         }
       }
-      return {
-        objectApiName: objectConfig.objectApiName,
-        operation: objectConfig.operation,
-        read: prepared.read,
-        insert: 0,
-        update: 0,
-        delete: 0,
-        skipped: prepared.alreadyCopied,
-        ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
-        refused: prepared.records.length,
-        conflicts: 0,
-        conflictFields: [],
-        notes: [refusal.message],
-      };
+      return withEncryptedLeftOut<SyncObjectSimulation>(
+        {
+          objectApiName: objectConfig.objectApiName,
+          operation: objectConfig.operation,
+          read: prepared.read,
+          insert: 0,
+          update: 0,
+          delete: 0,
+          skipped: prepared.alreadyCopied,
+          ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
+          refused: prepared.records.length,
+          conflicts: 0,
+          conflictFields: [],
+          notes: [refusal.message],
+        },
+        prepared,
+      );
     }
 
     // What the target lets a write carry, the describe the write reads too.
@@ -2012,6 +2037,7 @@ export class SyncOrchestrator {
       ...outcome,
       skipped: outcome.skipped + linkedAt.size + prepared.alreadyCopied,
       ...(prepared.alreadyCopied > 0 ? { alreadyCopied: prepared.alreadyCopied } : {}),
+      ...(prepared.encryptedLeftOut ? { encryptedLeftOut: [...prepared.encryptedLeftOut] } : {}),
       refused: outcome.refused + rows.held.length + refusedAt.size,
       notes: [
         ...(settled?.standardMatched ? [STANDARD_PRICEBOOK_MATCHED_NOTE] : []),
@@ -2086,7 +2112,7 @@ export class SyncOrchestrator {
   ): Promise<SyncObjectResult | typeof NOT_WRITTEN> {
     const prepared = await this.prepare(config, objectConfig, leftOut, read, copied);
     const asCopied = (result: SyncObjectResult): SyncObjectResult =>
-      withAlreadyCopied(result, prepared.alreadyCopied);
+      withEncryptedLeftOut(withAlreadyCopied(result, prepared.alreadyCopied), prepared);
     if (prepared.records.length === 0) {
       return asCopied(withRowsLeftOut(createEmptyResult(objectConfig), leftOut));
     }
@@ -2219,6 +2245,20 @@ export class SyncOrchestrator {
     if (asked) asked.rows = read.length;
     const matchField = objectConfig.externalIdField ?? 'Id';
 
+    // An encrypted field the source's user reads masked goes nowhere: the
+    // value read is the mask, which the run copied into the target. Named in
+    // the object's result.
+    const maskedOf = this.deps.maskedSourceFields;
+    const masked: readonly string[] =
+      read.length > 0 && maskedOf
+        ? await maskedOf(objectConfig.objectApiName).catch((): readonly string[] => [])
+        : [];
+    const encryptedLeftOut = masked.filter((field) =>
+      read.some((record) => Object.prototype.hasOwnProperty.call(record, field)),
+    );
+    for (const record of read) for (const field of encryptedLeftOut) delete record[field];
+    const leftOutNamed = encryptedLeftOut.length > 0 ? { encryptedLeftOut } : {};
+
     // What the platform writes itself is left out of a write that creates
     // records, and said: see `writtenByThePlatform`. Sent, a tracked change is
     // refused — "Cannot directly insert FeedItem with type TrackedChange". An
@@ -2247,6 +2287,7 @@ export class SyncOrchestrator {
         unsettled: [],
         matchField,
         alreadyCopied,
+        ...leftOutNamed,
       };
     }
 
@@ -2278,6 +2319,12 @@ export class SyncOrchestrator {
       objectConfig.operation === 'upsert' || objectConfig.operation === 'update';
     if (config.direction === 'bidirectional' && writesOverHeld) {
       const targetRecords = await this.deps.queryTarget(config.targetOrgId, objectConfig);
+      // Compared without the encrypted fields the source read leaves out: a
+      // field the source no longer carries differs from every record's, and
+      // the target's value, which may be its own mask, was written back.
+      for (const record of targetRecords) {
+        for (const field of encryptedLeftOut) delete record[field];
+      }
 
       conflicts = this.deps.conflictResolver.detectConflicts(
         recordsWithAddOns,
@@ -2312,6 +2359,7 @@ export class SyncOrchestrator {
       unsettled: recordsWithAddOns,
       matchField,
       alreadyCopied,
+      ...leftOutNamed,
     };
   }
 

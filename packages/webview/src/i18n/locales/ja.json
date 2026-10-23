@@ -1048,7 +1048,8 @@
       "orderUnread": "ターゲット組織から順序を読み取れませんでした。実行は書き込む前にあらためて計算します。",
       "insertsSaved": "保存済み: この設定の各実行は、以前の実行がコピーしたレコードをそのまま残し、それ以外を挿入します。",
       "insertsUnsaved": "未保存: 各実行は読み取ったすべてのレコードを再び挿入します。設定を保存すると、その実行は以前の実行がコピーしたものをそのまま残します。",
-      "overwriteKept": "更新または upsert が上書きする内容は、先にターゲット組織から読み取られ、このマシンに保持されます。実行を削除すると、レコードが持っていた値が元に戻ります。"
+      "overwriteKept": "更新または upsert が上書きする内容は、先にターゲット組織から読み取られ、このマシンに保持されます。実行を削除すると、レコードが持っていた値が元に戻ります。",
+      "encrypted": "{{object}}: {{fields}} は暗号化項目で、SandForge がソース組織を読み取るユーザーには View Encrypted Data 権限がないためマスクされています。実行ではマスクをコピーせず、すべてのレコードからこれらを除外します。値をコピーするにはこの権限を付与してください。"
     },
     "configSaved": "設定を保存しました。スケジュールから実行できます。",
     "execute": "実行",
@@ -1511,7 +1512,8 @@
       "notReached_other": "{{count}} 件のレコードを {{fields}} なしで書き込みました。設定する前に実行が停止されたためです。",
       "setAfter_other": "{{objects}} のレコードの書き込み後に、{{count}} 件のレコードに {{fields}} を設定しました。互いに参照し合うため、最初は {{fields}} なしで書き込みました。",
       "withoutFields_other": "{{count}} 件のレコードを、ターゲット組織が拒否した項目なしで書き込み直しました:",
-      "withoutField_other": "{{field}} ({{count}} 件で除外): {{refusedBy}}。"
+      "withoutField_other": "{{field}} ({{count}} 件で除外): {{refusedBy}}。",
+      "encryptedLeftOut": "{{fields}}: SandForge がソース組織を読み取るユーザーには View Encrypted Data 権限がないため、マスクされて見える暗号化項目です。マスクのままコピーせず、書き込むすべてのレコードから除外されます。"
     },
     "firstStepTitle": "Sync を始める",
     "firstStepDesc": "クイック Sync で3クリックで Salesforce 組織間のデータを転送",
@@ -1591,6 +1593,7 @@
     "backupReadFailed": "{{object}}: {{held}} 行のうち {{read}} 行を読み取り — そこで読み取りに失敗しました。",
     "backupReadFailedUncounted": "{{object}}: {{read}} 行を読み取り — そこで読み取りに失敗しました。",
     "backupNotReached": "{{object}}: 未読 — バックアップはこのオブジェクトに達する前に失敗し、その行を 1 行も保持していません。",
+    "backupNotKeptEncrypted": "{{object}}: {{fields}} は保持されていません — SandForge が接続するユーザーには View Encrypted Data 権限がないため、マスクされて見える暗号化項目です。復元では組織が保持している値のまま残ります。",
     "restorePartialBadge": "一部のみ",
     "backupExported": "{{path}} に保存しました。オブジェクトごとのレコード数: {{records}}。",
     "backupDesc": "データバックアップの作成と管理",

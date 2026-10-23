@@ -677,6 +677,15 @@ export interface SyncObjectResult {
    * once that object's records had their copies. Absent when none.
    */
   lookupsSetAfter?: SyncLookupsSetAfter;
+  /**
+   * The classic encrypted fields (`encryptedstring`) of the object that the
+   * user SandForge reads the source as reads masked, lacking View Encrypted
+   * Data: left out of the read and of every record written, on a
+   * bidirectional run out of the comparison too. The run copied the mask
+   * (`***-**-1234`) into the target, over a record's real value on an update.
+   * Absent when none.
+   */
+  encryptedLeftOut?: ApiName[];
 }
 
 /** See {@link SyncObjectResult.writtenWithoutFields}. */
@@ -764,6 +773,16 @@ export interface SyncWriteOrder {
 }
 
 /**
+ * An object's classic encrypted fields that the user the source is read as
+ * reads masked, lacking View Encrypted Data, which a run leaves out
+ * (`SyncObjectResult.encryptedLeftOut`): what the Review step warns of.
+ */
+export interface SyncEncryptedFieldsMasked {
+  objectApiName: ApiName;
+  fields: ApiName[];
+}
+
+/**
  * Why a target takes no record of an object as a run writes it: it has not
  * the object, or the user the run writes as cannot see it (its describe
  * answers NOT_FOUND alike); that user may not create its records, for an
@@ -843,7 +862,8 @@ export interface SyncWriteCheck {
   /**
    * What the run comes to before it writes, asked from the page: it writes,
    * it asks first — past the setting's volume, near the storage, when the
-   * storage could not be read, or past a daily email limit — or it is
+   * storage could not be read, past a daily email limit, or when what is
+   * left of one, or the target's automation, could not be read — or it is
    * refused, past the storage. A run nobody watches is refused past a daily
    * email limit too, and the command line past either.
    */
@@ -915,6 +935,8 @@ export interface SyncObjectSimulation {
    * leaves as they are: counted among `skipped`. Absent when none.
    */
   alreadyCopied?: number;
+  /** See {@link SyncObjectResult.encryptedLeftOut}: what a run would leave out. */
+  encryptedLeftOut?: ApiName[];
 }
 
 /** What a sync run would do, object by object, as a simulation found it. */

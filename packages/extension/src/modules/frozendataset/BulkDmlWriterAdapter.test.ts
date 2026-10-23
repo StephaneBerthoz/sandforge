@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { BulkDataWriter, WriterCalls } from '../sync/BulkDataWriter.js';
+import type { Connection } from 'jsforce';
+import { BulkDataWriter, type WriterCalls } from '../sync/BulkDataWriter.js';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { duplicateRuleOrg } from '../../test/duplicateRuleOrg.js';
 import { WriteCancelledError } from '../sync/WriteCancelledError.js';
 import { createBulkDmlWriter, DEFAULT_FROZEN_LOAD_BATCH_SIZE } from './BulkDmlWriterAdapter.js';
 
@@ -100,6 +104,45 @@ describe('createBulkDmlWriter', () => {
       [0, 2],
       [2, 1],
       [4, 1],
+    ]);
+  });
+
+  it("tells the loader of the rows a duplicate rule refused in a job, saved on the writer's second try, each at its place", async () => {
+    // A load of 250 accounts went as one job, which carries no header: the
+    // twins were refused and counted as duplicates skipped, though a smaller
+    // load of the same rows saved them.
+    const org = duplicateRuleOrg();
+    const writer = new BulkDataWriter({
+      connection: org.connection as unknown as Connection,
+      bulkExecutor: new BulkApiExecutor(200),
+      bulkManager: new BulkApiManager(5),
+      retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+      onProgress: () => {},
+      log: () => {},
+    });
+    const told: Array<[number, string | undefined]> = [];
+
+    const outcomes = await createBulkDmlWriter(writer).insert(
+      '00D-any',
+      'Account',
+      Array.from({ length: 250 }, (_, i) => ({
+        Name: i === 30 || i === 240 ? `Twin ${i}` : `A${i}`,
+      })),
+      (offset, answered) =>
+        answered.forEach((outcome, k) => {
+          if (outcome.success) told.push([offset + k, outcome.id]);
+        }),
+    );
+
+    expect(outcomes).toHaveLength(250);
+    expect(outcomes.every((outcome) => outcome.success)).toBe(true);
+    // Every record told once, at its own place, with the id it was saved under.
+    expect(told.map(([place]) => place).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 250 }, (_, i) => i),
+    );
+    expect(told.find(([place]) => place === 240)?.[1]).toBe(outcomes[240].id);
+    expect(org.rest.map((call) => call.rows.map((row) => row.Name))).toEqual([
+      ['Twin 30', 'Twin 240'],
     ]);
   });
 

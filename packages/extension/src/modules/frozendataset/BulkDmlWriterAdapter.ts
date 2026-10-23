@@ -44,6 +44,9 @@ export function createBulkDmlWriter(
  * the records, one after the other, each the records it said it sends —
  * answered with an outcome per record, or fewer when the answer was cut
  * short, and none for a job the cancel aborted, whose records go nowhere.
+ * The rows a duplicate rule refused in a Bulk API job go again after it,
+ * each told at its own place (`at`): taken as the next ones, the records the
+ * second try saved were journalled against rows past the end of the insert.
  */
 function answeredInOrder(
   onAnswered: (offset: number, outcomes: readonly OperationOutcome[]) => void,
@@ -54,9 +57,16 @@ function answeredInOrder(
     sending: (_objectName, _operation, rows) => {
       sent = rows;
     },
-    answered: (_objectName, _operation, outcomes) => {
-      onAnswered(offset, outcomes);
-      offset += sent;
+    answered: (_objectName, _operation, outcomes, at) => {
+      if (at) {
+        outcomes.forEach((outcome, k) => {
+          const place = at[k];
+          if (place !== undefined) onAnswered(place, [outcome]);
+        });
+      } else {
+        onAnswered(offset, outcomes);
+        offset += sent;
+      }
       sent = 0;
     },
   };

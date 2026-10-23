@@ -27,7 +27,7 @@ import type { BulkOperation } from '../../core/engine/BulkApiExecutor.js';
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { OperationOutcome } from './DataSync.js';
-import type { SyncCreationRecorder } from './SyncRunCreations.js';
+import type { HeldStamp, SyncCreationRecorder } from './SyncRunCreations.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import { ENCRYPTED_FIELD_TYPE } from './encryptedFields.js';
 
@@ -224,6 +224,16 @@ export function storeOverwriteBackup(input: {
 /** Records one statement names at most: what one `IN` list holds, short enough for a URL. */
 const KEYS_PER_QUERY = 200;
 
+/**
+ * When the org last dated a record modified, and by whom, read with what a
+ * call writes over: kept in the run's file (`SyncRunKept.heldBefore`), they
+ * tell a change someone made between two runs from an earlier run's write.
+ * Only `LastModifiedDate` was compared, and a colleague's edit made between
+ * two runs of one configuration was stamped as the later run's: the earlier
+ * run's removal then wrote its values from before over the edit.
+ */
+const STAMP_FIELDS = ['LastModifiedDate', 'LastModifiedById'] as const;
+
 /** Columns past which a statement names fewer records, so it stays short enough for a URL. */
 const WIDE_COLUMNS = 100;
 
@@ -317,6 +327,10 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
   const maskedOf = new Map<string, Promise<ReadonlySet<string>>>();
   /** Per object, the encrypted fields its file names as not kept already. */
   const unkeptNamed = new Map<string, Set<string>>();
+  /** Per object, the records whose stamps from before the run its file holds already. */
+  const stampedOf = new Map<string, Set<string>>();
+  /** Per object, false once a read of its stamps was refused: it is read without them. */
+  const stampsRead = new Map<string, boolean>();
 
   const maskedFieldsOf = (objectName: string): Promise<ReadonlySet<string>> => {
     const describe = deps.describe;
@@ -390,14 +404,26 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
         }
         if (values.size === 0 || (fields.size === 0 && maskedWritten.size === 0)) return undefined;
 
-        // What the target holds under each key, of the fields the call writes.
-        const columns = ['Id', ...(byId ? [] : [keyField]), ...fields];
-        const perQuery = columns.length > WIDE_COLUMNS ? KEYS_PER_QUERY / 4 : KEYS_PER_QUERY;
+        // What the target holds under each key, of the fields the call writes,
+        // and when it was last modified, by whom: an object that has no such
+        // stamps is read without them, as it was.
+        const base = ['Id', ...(byId ? [] : [keyField]), ...fields];
+        const stamped = [...base, ...STAMP_FIELDS.filter((field) => !base.includes(field))];
+        const perQuery = stamped.length > WIDE_COLUMNS ? KEYS_PER_QUERY / 4 : KEYS_PER_QUERY;
         const held = new Map<string, Array<Record<string, unknown>>>();
+        let columns = stampsRead.get(objectName) === false ? base : stamped;
         for (const list of inLists([...values.values()], perQuery)) {
-          const rowsHeld = await deps.query(
-            `SELECT ${columns.join(', ')} FROM ${objectName} WHERE ${keyField} IN (${list.join(', ')})`,
-          );
+          const statement = (named: readonly string[]): string =>
+            `SELECT ${named.join(', ')} FROM ${objectName} WHERE ${keyField} IN (${list.join(', ')})`;
+          let rowsHeld: Array<Record<string, unknown>>;
+          try {
+            rowsHeld = await deps.query(statement(columns));
+          } catch (err: unknown) {
+            if (columns === base) throw err;
+            columns = base;
+            stampsRead.set(objectName, false);
+            rowsHeld = await deps.query(statement(columns));
+          }
           for (const record of rowsHeld) {
             const key = keyOf(byId ? record.Id : record[keyField], byId);
             if (key === undefined || typeof record.Id !== 'string') continue;
@@ -411,6 +437,8 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
         const reaches: Array<string | undefined> = [];
         const keeping = new Map<string, Record<string, unknown>>();
         const fieldsOf = new Map<string, Set<string>>();
+        /** Each record's stamps as read, by its first fifteen characters. */
+        const stampsOf = new Map<string, HeldStamp>();
         for (const row of rows) {
           const key = keyOf(row[keyField], byId);
           const found = key === undefined ? undefined : held.get(key);
@@ -418,6 +446,15 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
           const id = record?.Id as string | undefined;
           reaches.push(id);
           if (!record || id === undefined || created.has(recordKey(id))) continue;
+          if (typeof record.LastModifiedDate === 'string') {
+            stampsOf.set(recordKey(id), {
+              id,
+              at: record.LastModifiedDate,
+              ...(typeof record.LastModifiedById === 'string'
+                ? { by: record.LastModifiedById }
+                : {}),
+            });
+          }
           const already = ofObject.get(recordKey(id));
           const values: Record<string, unknown> = keeping.get(recordKey(id)) ?? { Id: id };
           const adding = fieldsOf.get(recordKey(id)) ?? new Set<string>();
@@ -469,7 +506,21 @@ export function syncOverwriteKeeper(deps: SyncOverwriteKeeperDeps): SyncOverwrit
         }
         inBackup.set(objectName, stored);
         const named = records.map((record) => record.Id as string);
-        deps.recorder.overwriting?.(objectName, deps.backup.id, named);
+        // Of each record the run had not written yet, its stamps as the call
+        // found them: a later call finds the run's own.
+        const firstStamped = stampedOf.get(objectName) ?? new Set<string>();
+        const stamps: HeldStamp[] = [];
+        for (const id of named) {
+          const key = recordKey(id);
+          if (firstStamped.has(key)) continue;
+          firstStamped.add(key);
+          const stamp = stampsOf.get(key);
+          if (stamp) stamps.push(stamp);
+        }
+        stampedOf.set(objectName, firstStamped);
+        if (stamps.length > 0)
+          deps.recorder.overwriting?.(objectName, deps.backup.id, named, stamps);
+        else deps.recorder.overwriting?.(objectName, deps.backup.id, named);
         const unkept = await deps.recorder.flush();
         if (unkept !== undefined) throw new Error(`the run's file could not be written: ${unkept}`);
         for (const [key, adding] of fieldsOf) {

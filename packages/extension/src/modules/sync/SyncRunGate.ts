@@ -42,6 +42,7 @@ import {
   overEmailOf,
   runRequestsEstimate,
   storageCheckOf,
+  unreadEmailOf,
   writePlanOf,
   type ApiBudgetCheck,
   type DataStorage,
@@ -187,6 +188,10 @@ export async function measureSyncWrite(
     rows,
     why,
   }));
+  // Emails the target would not say it has room for are asked about, as
+  // storage it would not say is, and so is an automation that could not be
+  // read, whose emails were not counted at all: the page said both and the
+  // run went on without a word to the user who started it.
   const verdict: SyncWriteCheck['verdict'] =
     total === 0
       ? unwritable.length > 0
@@ -197,7 +202,8 @@ export async function measureSyncWrite(
         : aboveRecords !== undefined ||
             unwritable.length > 0 ||
             (plan.totalRows > 0 && storage.verdict !== 'fits') ||
-            emails.some((check) => check.verdict === 'exceeds')
+            emails.some((check) => check.verdict !== 'fits') ||
+            emailsUnread !== undefined
           ? 'asks'
           : 'writes';
   const check: SyncWriteCheck = {
@@ -264,7 +270,8 @@ export type SyncGateCode =
  * Who answers for a run before it writes:
  * - `ask`: a run from the page, a re-run or a Quick Sync, whose user is
  *   asked past the setting's volume, near the storage, when the storage could
- *   not be read, or past a daily email limit;
+ *   not be read, past a daily email limit, or when what is left of one, or
+ *   the target's automation, could not be read;
  * - `unattended`: a schedule's or a pipeline's run, which nobody watches: it
  *   is refused past a daily email limit, where every record past it would be
  *   refused by the flow that sends, and goes on otherwise, as it was set up;
@@ -330,6 +337,7 @@ export async function gateSyncWrite(
   if (check.verdict === 'writes') return { go: true, asked: false };
   const line = largeVolumeThreshold(input.orgTier);
   const overEmails = emails.filter((email) => email.verdict === 'exceeds').map(overEmailOf);
+  const unreadEmails = emails.filter((email) => email.verdict === 'unread').map(unreadEmailOf);
   const answer = input.confirm
     ? await input.confirm({
         stage: 'write',
@@ -344,6 +352,8 @@ export async function gateSyncWrite(
         counted: true,
         ...(check.overwrites !== undefined ? { overwrites: check.overwrites } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
+        ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
+        ...(check.emailsUnread !== undefined ? { emailsUncounted: check.emailsUnread } : {}),
         ...(check.alreadyCopied > 0 ? { alreadyCopied: check.alreadyCopied } : {}),
         ...(unwritable.length > 0 ? { unwritable } : {}),
         ...confirmationApiOf(api),

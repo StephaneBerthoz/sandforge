@@ -88,6 +88,13 @@ export interface BackupObjectHeld {
    * tier's bound (2,000 rows on a sandbox, 500 on production).
    */
   stoppedAt?: BackupStopReason;
+  /**
+   * The classic encrypted fields of the object the user the backup read it as
+   * reads masked, lacking View Encrypted Data: not kept, so a restore leaves
+   * them as the org holds them. Kept, the mask was the value from before, and
+   * a restore wrote it back over the real one. Absent when none.
+   */
+  notKept?: string[];
 }
 
 /** One entry of the backup history, as persisted by dataops:backup. */

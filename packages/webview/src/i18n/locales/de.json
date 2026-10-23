@@ -1115,7 +1115,8 @@
       "orderUnread": "Die Reihenfolge konnte nicht aus der Ziel-Org gelesen werden: Der Lauf berechnet sie vor dem Schreiben erneut.",
       "insertsSaved": "Gespeichert: Jeder Lauf dieser Konfiguration lässt die Datensätze, die ein früherer Lauf kopiert hat, wie sie sind, und fügt die anderen ein.",
       "insertsUnsaved": "Nicht gespeichert: Jeder Lauf fügt jeden gelesenen Datensatz erneut ein. Speichern Sie die Konfiguration, dann lassen ihre Läufe, was ein früherer Lauf kopiert hat, wie es ist.",
-      "overwriteKept": "Was ein Update oder ein Upsert überschreibt, wird zuerst aus der Ziel-Org gelesen und auf diesem Rechner aufbewahrt: Das Entfernen des Laufs stellt die Werte wieder her, die die Datensätze hatten."
+      "overwriteKept": "Was ein Update oder ein Upsert überschreibt, wird zuerst aus der Ziel-Org gelesen und auf diesem Rechner aufbewahrt: Das Entfernen des Laufs stellt die Werte wieder her, die die Datensätze hatten.",
+      "encrypted": "{{object}}: {{fields}} sind verschlüsselt und für den Benutzer, mit dem SandForge die Quell-Org liest, maskiert, da ihm die Berechtigung View Encrypted Data fehlt. Der Lauf lässt sie aus jedem Datensatz weg, statt die Masken zu kopieren; erteilen Sie diese Berechtigung, um ihre Werte zu kopieren."
     },
     "configSaved": "Konfiguration gespeichert. Ein Zeitplan kann sie jetzt ausführen.",
     "execute": "Ausführen",
@@ -1621,7 +1622,8 @@
       "withoutFields_one": "{{count}} Datensatz erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
       "withoutFields_other": "{{count}} Datensätze erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
       "withoutField_one": "{{field}}, bei {{count}} Datensatz weggelassen: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
+      "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}.",
+      "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert."
     },
     "firstStepTitle": "Erste Schritte mit Sync",
     "firstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
@@ -1702,6 +1704,7 @@
     "backupReadFailed": "{{object}}: {{read}} von {{held}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupReadFailedUncounted": "{{object}}: {{read}} Zeilen gelesen — dort ist das Lesen fehlgeschlagen.",
     "backupNotReached": "{{object}}: nicht gelesen — die Sicherung ist fehlgeschlagen, bevor sie dieses Objekt erreichte, und enthält keine seiner Zeilen.",
+    "backupNotKeptEncrypted": "{{object}}: {{fields}} nicht aufbewahrt — verschlüsselte Felder, die der Benutzer, mit dem SandForge sich verbindet, ohne die Berechtigung View Encrypted Data maskiert sieht. Eine Wiederherstellung lässt sie so, wie die Org sie enthält.",
     "restorePartialBadge": "Unvollständig",
     "backupExported": "Gespeichert unter {{path}}. Datensätze pro Objekt: {{records}}.",
     "backupDesc": "Datensicherungen erstellen und verwalten",

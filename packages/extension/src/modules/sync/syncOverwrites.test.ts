@@ -81,7 +81,7 @@ describe('syncOverwriteKeeper', () => {
     ]);
 
     expect(statements).toEqual([
-      `SELECT Id, Name, Phone FROM Account WHERE Id IN ('${A1}', '${A2}')`,
+      `SELECT Id, Name, Phone, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A1}', '${A2}')`,
     ]);
     // Each record with the fields its row writes, as the target held them.
     expect(kept).toEqual([
@@ -117,7 +117,7 @@ describe('syncOverwriteKeeper', () => {
     ]);
 
     expect(statements).toEqual([
-      "SELECT Id, Ext__c, Name FROM Account WHERE Ext__c IN ('k-1', 'K-NEW')",
+      "SELECT Id, Ext__c, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Ext__c IN ('k-1', 'K-NEW')",
     ]);
     expect(kept).toEqual([{ objectApiName: 'Account', records: [{ Id: A1, Name: 'Before 1' }] }]);
     expect(lines).toEqual([
@@ -234,7 +234,9 @@ describe('syncOverwriteKeeper', () => {
     await keeper.before('Account', 'upsert', [{ Name: 'No key' }], 'Ext__c');
     await keeper.before('Account', 'update', [{ Id: A1, Name: 'After', Body: 'QUJD' }]);
 
-    expect(statements).toEqual([`SELECT Id, Name FROM Account WHERE Id IN ('${A1}')`]);
+    expect(statements).toEqual([
+      `SELECT Id, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A1}')`,
+    ]);
   });
 
   it('keeps no encrypted field the run’s user reads masked, and names it as not kept in the run’s file', async () => {
@@ -272,8 +274,8 @@ describe('syncOverwriteKeeper', () => {
 
     // The mask the target answers is never read as the value from before.
     expect(statements).toEqual([
-      `SELECT Id, Name FROM Account WHERE Id IN ('${A1}')`,
-      `SELECT Id FROM Account WHERE Id IN ('${A2}')`,
+      `SELECT Id, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A1}')`,
+      `SELECT Id, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A2}')`,
     ]);
     expect(kept).toEqual([{ objectApiName: 'Account', records: [{ Id: A1, Name: 'Before 1' }] }]);
     expect(unkept).toEqual([{ object: 'Account', fields: ['Tax__c'] }]);
@@ -306,7 +308,64 @@ describe('syncOverwriteKeeper', () => {
 
     await keeper.before('Account', 'update', [{ Id: A1, Phone: '+44 20 0000 0001' }]);
 
-    expect(statements).toEqual([`SELECT Id, Phone FROM Account WHERE Id IN ('${A1}')`]);
+    expect(statements).toEqual([
+      `SELECT Id, Phone, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A1}')`,
+    ]);
+  });
+
+  it('names, with the records it writes over, when each was last modified before the run first wrote it, and by whom', async () => {
+    // Only the date was compared: a colleague's edit between two runs read
+    // as the later run's own write.
+    const COLLEAGUE = fakeId('005', 42);
+    const query = vi.fn(async () => [
+      {
+        Id: A1,
+        Name: 'Before 1',
+        LastModifiedDate: '2026-10-20T09:00:00.000+0000',
+        LastModifiedById: COLLEAGUE,
+      },
+    ]);
+    const { backup, recorder } = keeping();
+    const keeper = syncOverwriteKeeper({ query, backup, recorder });
+
+    await keeper.before('Account', 'update', [{ Id: A1, Name: 'After 1' }]);
+    keeper.answered('Account', 'update', [{ id: A1, success: true, errors: [] }]);
+    // Written again by the run: what it finds then is its own write.
+    await keeper.before('Account', 'update', [{ Id: A1, Fax: '+1' }]);
+
+    expect(recorder.overwriting.mock.calls[0]).toEqual([
+      'Account',
+      BACKUP,
+      [A1],
+      [{ id: A1, at: '2026-10-20T09:00:00.000+0000', by: COLLEAGUE }],
+    ]);
+    expect(recorder.overwriting.mock.calls[1]).toEqual(['Account', BACKUP, [A1]]);
+    // Nothing of the stamps goes into the backup, which a restore writes back.
+    expect(vi.mocked(backup.keep).mock.calls[0][1]).toEqual([{ Id: A1, Name: 'Before 1' }]);
+  });
+
+  it('reads an object whose records have no modified stamps without them, as it read it before', async () => {
+    const statements: string[] = [];
+    const query = vi.fn(async (soql: string) => {
+      statements.push(soql);
+      if (soql.includes('LastModifiedDate')) {
+        throw new Error("INVALID_FIELD: No such column 'LastModifiedDate' on entity 'Account'");
+      }
+      return [{ Id: A1, Name: 'Before 1' }];
+    });
+    const { kept, backup, recorder } = keeping();
+    const keeper = syncOverwriteKeeper({ query, backup, recorder });
+
+    expect(await keeper.before('Account', 'update', [{ Id: A1, Name: 'After 1' }])).toBeUndefined();
+    await keeper.before('Account', 'update', [{ Id: A2, Name: 'After 2' }]);
+
+    expect(statements).toEqual([
+      `SELECT Id, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${A1}')`,
+      `SELECT Id, Name FROM Account WHERE Id IN ('${A1}')`,
+      `SELECT Id, Name FROM Account WHERE Id IN ('${A2}')`,
+    ]);
+    expect(kept[0].records).toEqual([{ Id: A1, Name: 'Before 1' }]);
+    expect(recorder.overwriting.mock.calls[0]).toEqual(['Account', BACKUP, [A1]]);
   });
 });
 

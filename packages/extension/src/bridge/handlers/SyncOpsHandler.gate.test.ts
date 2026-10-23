@@ -344,5 +344,77 @@ describe('a Sync run held to what the target has left, before its first write', 
       moved: [{ objectApiName: 'Contact', after: 'Account', field: 'AccountId' }],
       cycles: [],
     });
+    expect(answer.payload).not.toHaveProperty('encrypted');
+  });
+
+  describe('of contacts holding an encrypted field the source user reads masked', () => {
+    /** The orgs of {@link mockOrgs}, the contacts holding a tax id the source answers masked. */
+    function maskedOrgs(contacts: number) {
+      const orgs = mockOrgs(contacts);
+      const plain = vi.mocked(getJsforceConnection).getMockImplementation();
+      vi.mocked(getJsforceConnection).mockImplementation(async (orgId, ...rest) => {
+        const conn = (await plain?.(orgId, ...rest)) as unknown as {
+          query: (soql: string) => Promise<{ records?: Array<Record<string, unknown>> }>;
+          describe: (name: string) => Promise<{ name: string; fields: unknown[] }>;
+        };
+        const query = conn.query;
+        const describe = conn.describe;
+        return {
+          ...conn,
+          query: vi.fn(async (soql: string) => {
+            const answer = await query(soql);
+            return /^SELECT Id, LastName\b.* FROM Contact/.test(soql)
+              ? {
+                  ...answer,
+                  records: (answer.records ?? []).map((row) => ({
+                    ...row,
+                    Tax_Id__c: '***-**-1234',
+                  })),
+                }
+              : answer;
+          }),
+          describe: vi.fn(async (name: string) => {
+            const described = await describe(name);
+            return name === 'Contact'
+              ? {
+                  ...described,
+                  fields: [
+                    ...described.fields,
+                    {
+                      name: 'Tax_Id__c',
+                      type: 'encryptedstring',
+                      createable: true,
+                      updateable: true,
+                    },
+                  ],
+                }
+              : described;
+          }),
+        } as never;
+      });
+      return orgs;
+    }
+
+    it('copies none of the masks, and names the field in the run result', async () => {
+      // The run wrote "***-**-1234" into every contact of the target.
+      const { create } = maskedOrgs(3);
+
+      await send(handler, 'sync:execute', 'run-enc', { config: config() });
+
+      const sent = create.mock.calls.flatMap(([batch]) => batch as Array<Record<string, unknown>>);
+      expect(sent).toHaveLength(3);
+      expect(sent.every((row) => !('Tax_Id__c' in row))).toBe(true);
+    });
+
+    it('warns of it on Review, with the order', async () => {
+      maskedOrgs(1);
+
+      await send(handler, 'sync:write-order', 'order-enc', { config: config() });
+
+      const [answer] = posted(deps, 'sync:write-order:response');
+      expect(answer.payload.encrypted).toEqual([
+        { objectApiName: 'Contact', fields: ['Tax_Id__c'] },
+      ]);
+    });
   });
 });

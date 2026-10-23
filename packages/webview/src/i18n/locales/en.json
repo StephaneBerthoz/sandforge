@@ -1115,7 +1115,8 @@
       "orderUnread": "The order could not be read from the target org: the run computes it again before it writes.",
       "insertsSaved": "Saved: each run of this configuration leaves as they are the records an earlier run copied, and inserts the others.",
       "insertsUnsaved": "Not saved: each run inserts every record it reads again. Save the configuration, and its runs leave what an earlier run copied as it is.",
-      "overwriteKept": "What an update or an upsert writes over is read from the target org first and kept on this machine: removing the run puts back the values the records held."
+      "overwriteKept": "What an update or an upsert writes over is read from the target org first and kept on this machine: removing the run puts back the values the records held.",
+      "encrypted": "{{object}}: {{fields}}, encrypted, are masked for the user SandForge reads the source org as, who lacks View Encrypted Data. The run leaves them out of every record rather than copy the masks; grant that permission to copy their values."
     },
     "configSaved": "Configuration saved. A schedule can now run it.",
     "execute": "Execute",
@@ -1621,7 +1622,8 @@
       "withoutFields_one": "{{count}} record written again without the fields the target org refused it on:",
       "withoutFields_other": "{{count}} records written again without the fields the target org refused them on:",
       "withoutField_one": "{{field}}, left out of {{count}} record: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}."
+      "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}.",
+      "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks."
     },
     "firstStepTitle": "Get Started with Sync",
     "firstStepDesc": "Transfer data between your Salesforce orgs in 3 clicks with Quick Sync",
@@ -1702,6 +1704,7 @@
     "backupReadFailed": "{{object}}: {{read}} of {{held}} rows read — the read failed there.",
     "backupReadFailedUncounted": "{{object}}: {{read}} rows read — the read failed there.",
     "backupNotReached": "{{object}}: not read — the backup failed before it reached this object, and holds none of its rows.",
+    "backupNotKeptEncrypted": "{{object}}: {{fields}} not kept — encrypted fields the user SandForge connects as sees masked, lacking View Encrypted Data. A restore leaves them as the org holds them.",
     "restorePartialBadge": "Partial",
     "backupExported": "Saved to {{path}}. Records per object: {{records}}.",
     "backupDesc": "Create and manage data backups",

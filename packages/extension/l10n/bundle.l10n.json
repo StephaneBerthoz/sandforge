@@ -167,6 +167,7 @@
   "SandForge: confirm this seed": "SandForge: confirm this seed",
   "These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.": "These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.",
   "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.",
+  "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.": "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.",
   "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.",
   "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them."
 }

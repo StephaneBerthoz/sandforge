@@ -575,6 +575,16 @@ function writeQuestion(question: WriteConfirmation): string[] {
           ),
     );
   }
+  // What the target runs could not be read: no email of its flows was counted.
+  if (question.emailsUncounted !== undefined) {
+    lines.push(
+      vscode.l10n.t(
+        'What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.',
+        question.org,
+        question.emailsUncounted,
+      ),
+    );
+  }
   // A limit the org would not give: the user it answers needs View Setup.
   if ('unread' in question.storage || (question.emailsUnread ?? []).length > 0) {
     lines.push(

@@ -201,6 +201,21 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
                   data-testid={`backup-partial-${backup.operationId}`}
                 />
               )}
+              {/* Kept, a mask was written back over the real value by a restore. */}
+              {backup.objectResults
+                .filter((o) => (o.notKept ?? []).length > 0)
+                .map((o) => (
+                  <p
+                    key={o.objectApiName}
+                    className="mt-2 text-xs text-status-warning"
+                    data-testid={`backup-not-kept-${backup.operationId}-${o.objectApiName}`}
+                  >
+                    {t('dataops.backupNotKeptEncrypted', {
+                      object: o.objectApiName,
+                      fields: (o.notKept ?? []).join(', '),
+                    })}
+                  </p>
+                ))}
             </CardBody>
           </Card>
         </div>

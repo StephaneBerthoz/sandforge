@@ -28,6 +28,7 @@ import type {
   SyncRestoreObjectResult,
 } from '@sandforge/shared';
 import {
+  CLOCK_LEEWAY_MS,
   removeRunRecords,
   type RemovalOrg,
   type RunRemovalOptions,
@@ -43,7 +44,13 @@ import {
   type SyncRunKept,
   type SyncRunRemovalState,
 } from './SyncRunCreations.js';
-import { restoreOverwrites, type BackupReader, type SyncRestoreOutcome } from './SyncRunRestore.js';
+import {
+  orgAheadOf,
+  restoreOverwrites,
+  writerOnce,
+  type BackupReader,
+  type SyncRestoreOutcome,
+} from './SyncRunRestore.js';
 import {
   undeleteLeftOver,
   undeleteRunDeletions,
@@ -348,11 +355,23 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   // on a Developer Edition, two runs taken back newest first left the older
   // run's copy in the org, held by the feed items the newer run's removal
   // had made it post.
+  //
+  // But for a record someone else changed between that run and this one:
+  // this removal gave it back that change, which the earlier run's removal
+  // would otherwise read as no change since it, and write over. Told apart
+  // by when the org dated it modified before this run first wrote it, and
+  // by whom (`SyncRunKept.heldBefore`): a colleague's edit between two runs
+  // of one configuration was stamped as the later run's, and lost.
+  const changedBetween =
+    Object.keys(restored?.stamps ?? {}).length > 0
+      ? await changedBetweenRuns(input.org, run, input.earlierRuns ?? [])
+      : new Map<string, Set<string>>();
   const earlierStamped: Array<{ runId: string; records: number }> = [];
   for (const { runId, keys } of earlier) {
+    const between = changedBetween.get(runId);
     const picked = Object.fromEntries(
-      Object.entries({ ...undeleted?.stamps, ...restored?.stamps }).filter(([id]) =>
-        keys.has(id.slice(0, 15)),
+      Object.entries({ ...undeleted?.stamps, ...restored?.stamps }).filter(
+        ([id]) => keys.has(id.slice(0, 15)) && !between?.has(id.slice(0, 15)),
       ),
     );
     const records = Object.keys(picked).length;
@@ -433,6 +452,43 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(linksForgotten ? { linksForgotten } : {}),
     ...(earlierStamped.length > 0 ? { earlierStamped } : {}),
   };
+}
+
+/**
+ * Of the records a run wrote over, per earlier run of the same target, those
+ * someone changed between that run and this one: the org dated each modified
+ * after the earlier run's last write — on the org's clock, with the leeway a
+ * removal reads it with — and before this run first wrote it
+ * (`SyncRunKept.heldBefore`), as someone other than the user the removal
+ * writes as. Where people sign in as that same user, their changes cannot be
+ * told from the runs'. By run id, each record by its first fifteen characters.
+ */
+export async function changedBetweenRuns(
+  org: Pick<RemovalOrg, 'serverTime'> & Partial<Pick<RemovalOrg, 'userId'>>,
+  run: Pick<SyncRunKept, 'heldBefore'>,
+  earlierRuns: ReadonlyArray<Pick<SyncRunKept, 'runId' | 'lastWriteAt' | 'lastWrittenAt' | 'end'>>,
+): Promise<Map<string, Set<string>>> {
+  const between = new Map<string, Set<string>>();
+  const held = Object.entries(run.heldBefore ?? {});
+  if (held.length === 0 || earlierRuns.length === 0) return between;
+  const writer = await writerOnce(org)();
+  const ahead = await orgAheadOf(org);
+  for (const other of earlierRuns) {
+    const lastWrite = Date.parse(writtenUntil(other) ?? '');
+    // An earlier run whose last write is unknown: every record reads as
+    // changed since it, as its own removal reads them.
+    const end = Number.isFinite(lastWrite)
+      ? lastWrite + ahead + CLOCK_LEEWAY_MS
+      : Number.NEGATIVE_INFINITY;
+    const keys = new Set<string>();
+    for (const [key, { at, by }] of held) {
+      if (!(Date.parse(at) > end)) continue;
+      if (writer !== undefined && by !== undefined && by.slice(0, 15) === writer) continue;
+      keys.add(key);
+    }
+    if (keys.size > 0) between.set(other.runId, keys);
+  }
+  return between;
 }
 
 /**

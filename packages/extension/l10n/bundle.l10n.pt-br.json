@@ -167,6 +167,7 @@
   "SandForge: confirm this seed": "SandForge: confirme este seed",
   "These records make the flows of {0} send about {1} single emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Estes registros fazem os fluxos de {0} enviar cerca de {1} e-mails individuais. O que resta hoje não pôde ser lido ({2}), então não se sabe se cabem.",
   "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Estes registros fazem os fluxos de {0} enviar cerca de {1} e-mails de fluxo de trabalho. O que resta hoje não pôde ser lido ({2}), então não se sabe se cabem.",
+  "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.": "Não foi possível ler o que {0} executa nesses objetos ({1}), então os e-mails que seus fluxos enviam quando os registros entram não foram contados nos limites diários.",
   "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} só dá seus limites a um usuário com \"Exibir configuração\": o usuário com que o SandForge se conecta pode não ter isso.",
   "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "A execução usa cerca de {0} solicitações de API, e {1} tem {2} de suas {3} solicitações diárias restantes: deixaria a org com menos de um décimo delas."
 }

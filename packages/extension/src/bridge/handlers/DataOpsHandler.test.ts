@@ -1953,6 +1953,100 @@ describe('DataOpsHandler', () => {
       expect(response?.payload.totalRecords).toBe(1);
     });
 
+    it('keeps no encrypted field its user reads masked, and says so in the backup it lists', async () => {
+      // Kept, the mask was the value from before, and a restore wrote it
+      // back over the real one.
+      const conn = mockOrg([{ Id: '001', Name: 'Acme' }], []);
+      conn.describe.mockResolvedValue({
+        fields: [
+          { name: 'Id', type: 'id' },
+          { name: 'Name', type: 'string' },
+          { name: 'Tax_Id__c', type: 'encryptedstring' },
+        ],
+      });
+      conn.query.mockImplementation(async (soql: string) =>
+        soql.includes('UserPermissionAccess')
+          ? answer([{ PermissionsViewEncryptedData: false }])
+          : answer([{ Id: '001', Name: 'Acme' }]),
+      );
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const stored = new Map<string, unknown>();
+      deps.configStore = {
+        get: vi.fn((key: string) => stored.get(key)),
+        set: vi.fn((key: string, value: unknown) => {
+          stored.set(key, value);
+        }),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          [...stored.keys()].filter((key) => key.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-encrypted',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(conn.query.mock.calls.map(([soql]) => soql)).toContain('SELECT Id, Name FROM Account');
+      expect(stored.get('backup:bk-encrypted')).toMatchObject({
+        objects: [{ objectApiName: 'Account', recordCount: 1, notKept: ['Tax_Id__c'] }],
+      });
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-list',
+          type: 'backup:list',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1' },
+        } as BaseMessage),
+      );
+      const listed = posted().find((m) => m.type === 'backup:list:result');
+      expect(
+        (listed?.payload.backups as Array<{ objectResults: unknown[] }>)[0].objectResults,
+      ).toEqual([expect.objectContaining({ objectApiName: 'Account', notKept: ['Tax_Id__c'] })]);
+    });
+
+    it('keeps an encrypted field as any other when its user reads it in clear', async () => {
+      const conn = mockOrg([{ Id: '001', Name: 'Acme', Tax_Id__c: '123-45-6789' }], []);
+      conn.describe.mockResolvedValue({
+        fields: [
+          { name: 'Id', type: 'id' },
+          { name: 'Name', type: 'string' },
+          { name: 'Tax_Id__c', type: 'encryptedstring' },
+        ],
+      });
+      conn.query.mockImplementation(async (soql: string) =>
+        soql.includes('UserPermissionAccess')
+          ? answer([{ PermissionsViewEncryptedData: true }])
+          : answer([]),
+      );
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      deps.configStore = {
+        get: vi.fn(() => undefined),
+        set: vi.fn(),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-clear',
+          type: 'backup:execute',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
+
+      expect(conn.query.mock.calls.map(([soql]) => soql)).toContain(
+        'SELECT Id, Name, Tax_Id__c FROM Account',
+      );
+    });
+
     it('backs up every field of every row of an object too wide to name them in one query', async () => {
       // Named in one statement, 700 fields make a URL the org refuses (414):
       // the backup failed before its first row.

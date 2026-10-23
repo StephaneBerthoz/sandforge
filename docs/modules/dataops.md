@@ -30,6 +30,10 @@ Take a snapshot of the objects an Anonymize writes over:
   records per object, `sandforge.backup.maxRecordsPerObject` (50,000 unless
   you set it, from 100 to 1,000,000). There is no object picker and no
   incremental mode -- each backup is a new snapshot
+- A classic encrypted field (`encryptedstring`) is not kept when the user
+  SandForge connects as lacks View Encrypted Data, which the API answers
+  masked: the Backup tab names it per object, and a restore leaves it as the
+  org holds it. Kept, the mask was written back over the real value
 - Each page is written to disk before the next is read, one record to a
   line, so a backup holds one page in memory whatever the object's size
 - Every backup is written to extension storage with per-object record counts,

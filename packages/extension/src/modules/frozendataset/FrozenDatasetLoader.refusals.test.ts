@@ -10,6 +10,7 @@ import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { BulkDataWriter } from '../sync/BulkDataWriter.js';
 import type { OperationOutcome } from '../sync/DataSync.js';
 import { createBulkDmlWriter } from './BulkDmlWriterAdapter.js';
+import { duplicateRuleOrg } from '../../test/duplicateRuleOrg.js';
 import { SasPathGuard, findRepoRoot } from './SasPathGuard.js';
 import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
 import { readCountingContract } from './CountingContract.js';
@@ -667,6 +668,71 @@ describe('FrozenDatasetLoader — a record the target refused on fields it named
       inserted: 2,
       failed: [],
       writtenWithoutFields: { rows: 1 },
+    });
+  });
+
+  describe('of more accounts than a REST call takes, which go as a Bulk API job', () => {
+    /** 205 accounts, three of them twins of the target's under its duplicate rule. */
+    function manyAccounts(): FrozenDataset {
+      return {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Account',
+            records: Array.from({ length: 205 }, (_, i) => ({
+              referenceId: `Account-${String(i + 1).padStart(6, '0')}`,
+              fields: { Name: i % 100 === 0 ? `Twin ${i}` : `Anon ${i}` },
+            })),
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      };
+    }
+
+    /** The load's writer over `org`, as the panel builds it. */
+    const loadWriter = (org: ReturnType<typeof duplicateRuleOrg>) =>
+      createBulkDmlWriter(
+        new BulkDataWriter({
+          connection: org.connection as unknown as Connection,
+          bulkExecutor: new BulkApiExecutor(200),
+          bulkManager: new BulkApiManager(),
+          retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+          onProgress: () => undefined,
+          log: () => undefined,
+        }),
+      );
+
+    it("inserts the rows an Alert duplicate rule refused in the job, which the writer's second try saved, as no duplicates skipped", async () => {
+      // A Bulk API job carries no header: the twins were refused and counted
+      // as duplicates skipped, which a load of fewer rows saved.
+      const dataset = manyAccounts();
+      const org = duplicateRuleOrg();
+      const deps = makeDeps({ dataset, writer: loadWriter(org) });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(report.perObject.find((o) => o.objectApiName === 'Account')).toMatchObject({
+        inserted: 205,
+        failed: [],
+        skippedDuplicates: [],
+      });
+      expect(org.rest.map((call) => call.rows.length)).toEqual([3]);
+    });
+
+    it('still skips as duplicates the rows a Block rule refuses on the second try too', async () => {
+      const dataset = manyAccounts();
+      const deps = makeDeps({ dataset, writer: loadWriter(duplicateRuleOrg({ blocks: true })) });
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      const accountsLoaded = report.perObject.find((o) => o.objectApiName === 'Account');
+      expect(accountsLoaded?.inserted).toBe(202);
+      expect(accountsLoaded?.skippedDuplicates.map((s) => s.referenceId)).toEqual([
+        'Account-000001',
+        'Account-000101',
+        'Account-000201',
+      ]);
     });
   });
 

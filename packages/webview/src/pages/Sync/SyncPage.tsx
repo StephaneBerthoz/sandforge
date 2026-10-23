@@ -294,6 +294,7 @@ export const SyncPage: React.FC = () => {
     writeOrder,
     writeOrderLoading,
     writeOrderUnread,
+    writeOrderEncrypted,
     filesNeedSave,
     handleApplyTemplate,
     canGoNext,
@@ -875,6 +876,7 @@ export const SyncPage: React.FC = () => {
                   orderLoading={writeOrderLoading}
                   orderUnread={writeOrderUnread}
                   saved={configSaved}
+                  encrypted={writeOrderEncrypted}
                 />
                 <SankeyFlow
                   nodes={buildSankeyNodes(objectEntries, mappings)}

@@ -151,7 +151,7 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
                 </p>
               ))}
               {check.emailsUnread !== undefined && (
-                <p className="text-text-secondary">
+                <p className="text-status-warning" data-testid="sync-write-check-emails-unread">
                   {t('sync.writeCheck.emailsUnread', { reason: check.emailsUnread })}
                 </p>
               )}

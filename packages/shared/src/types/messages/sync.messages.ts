@@ -7,6 +7,7 @@ import type {
   SyncRemovalResult,
   SyncRunRemovalInfo,
   SyncScheduleEntry,
+  SyncEncryptedFieldsMasked,
   SyncSimulationResult,
   SyncWriteOrder,
 } from '../sync.types.js';
@@ -54,10 +55,16 @@ export interface SyncWriteOrderRequest extends BaseMessage {
   payload: { config: Record<string, unknown> };
 }
 
-/** `sync:write-order:response`. Extension -> WebView. */
+/**
+ * `sync:write-order:response`. Extension -> WebView. With the order, per
+ * object, the classic encrypted fields the user the source is read as reads
+ * masked, lacking View Encrypted Data, which a run leaves out
+ * (`SyncObjectResult.encryptedLeftOut`): what Review warns of. Absent when
+ * none, or when the source would not say.
+ */
 export interface SyncWriteOrderResponse extends BaseMessage {
   type: 'sync:write-order:response';
-  payload: { order: SyncWriteOrder };
+  payload: { order: SyncWriteOrder; encrypted?: SyncEncryptedFieldsMasked[] };
 }
 
 /** Pause a running sync before its next object or batch, by the id of the request that started it. */

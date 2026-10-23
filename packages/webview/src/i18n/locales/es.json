@@ -1115,7 +1115,8 @@
       "orderUnread": "No se pudo leer el orden en la org de destino: la ejecución lo vuelve a calcular antes de escribir.",
       "insertsSaved": "Guardada: cada ejecución de esta configuración deja como están los registros que copió una ejecución anterior e inserta los demás.",
       "insertsUnsaved": "Sin guardar: cada ejecución vuelve a insertar cada registro que lee. Guarde la configuración, y sus ejecuciones dejarán como está lo que copió una ejecución anterior.",
-      "overwriteKept": "Lo que una actualización o un upsert sobrescribe se lee primero de la org de destino y se conserva en este equipo: eliminar la ejecución restablece los valores que tenían los registros."
+      "overwriteKept": "Lo que una actualización o un upsert sobrescribe se lee primero de la org de destino y se conserva en este equipo: eliminar la ejecución restablece los valores que tenían los registros.",
+      "encrypted": "{{object}}: {{fields}}, cifrados, aparecen enmascarados para el usuario con el que SandForge lee la org de origen, que no tiene el permiso View Encrypted Data. La ejecución los deja fuera de cada registro en lugar de copiar las máscaras; conceda ese permiso para copiar sus valores."
     },
     "configSaved": "Configuración guardada. Ya puede ejecutarla una programación.",
     "execute": "Ejecutar",
@@ -1621,7 +1622,8 @@
       "withoutFields_one": "{{count}} registro escrito de nuevo sin los campos que la org de destino rechazó:",
       "withoutFields_other": "{{count}} registros escritos de nuevo sin los campos que la org de destino rechazó:",
       "withoutField_one": "{{field}}, omitido en {{count}} registro: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}."
+      "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}.",
+      "encryptedLeftOut": "{{fields}}: campos cifrados que el usuario con el que SandForge lee la org de origen ve enmascarados, al no tener el permiso View Encrypted Data. Se dejan fuera de cada registro escrito, en lugar de copiarse enmascarados."
     },
     "firstStepTitle": "Comience con Sync",
     "firstStepDesc": "Transfiera datos entre sus orgs Salesforce en 3 clics con Sync rápido",
@@ -1702,6 +1704,7 @@
     "backupReadFailed": "{{object}}: {{read}} de {{held}} filas leídas — la lectura falló ahí.",
     "backupReadFailedUncounted": "{{object}}: {{read}} filas leídas — la lectura falló ahí.",
     "backupNotReached": "{{object}}: no leído — el respaldo falló antes de llegar a este objeto y no contiene ninguna de sus filas.",
+    "backupNotKeptEncrypted": "{{object}}: {{fields}} no conservados — campos cifrados que el usuario con el que SandForge se conecta ve enmascarados, al no tener el permiso View Encrypted Data. Una restauración los deja como la org los tiene.",
     "restorePartialBadge": "Parcial",
     "backupExported": "Guardada en {{path}}. Registros por objeto: {{records}}.",
     "backupDesc": "Crear y administrar respaldos de datos",

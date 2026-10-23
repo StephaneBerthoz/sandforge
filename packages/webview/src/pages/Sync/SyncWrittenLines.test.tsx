@@ -53,6 +53,26 @@ describe('SyncWrittenLines', () => {
     expect(hasWrittenLines({})).toBe(false);
   });
 
+  it('says the encrypted fields every record went without, read masked from the source, in the panel language', async () => {
+    const result = { encryptedLeftOut: ['Tax_Id__c'] };
+    const { unmount } = render(<SyncWrittenLines result={result} testId="lines" />);
+
+    expect(hasWrittenLines(result)).toBe(true);
+    expect(screen.getByTestId('lines-encrypted').textContent).toBe(
+      'Tax_Id__c: encrypted fields the user SandForge reads the source org as sees masked, ' +
+        'lacking View Encrypted Data. Left out of every record written, rather than copied as masks.',
+    );
+    unmount();
+    i18n.addResourceBundle('fr', 'translation', fr, true, true);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    render(<SyncWrittenLines result={result} testId="lines" />);
+    expect(screen.getByTestId('lines-encrypted').textContent).toBe(
+      fr.sync.written.encryptedLeftOut.replace('{{fields}}', 'Tax_Id__c'),
+    );
+  });
+
   it('says the records written again without the fields the target refused, each with what refused it and its words', () => {
     const result = {
       writtenWithoutFields: {

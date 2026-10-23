@@ -47,6 +47,37 @@ describe('SyncReviewObjects', () => {
     );
   });
 
+  it('warns, object by object, of the encrypted fields the source user reads masked, which the run leaves out', () => {
+    // Review said nothing of them, and the run copied the masks.
+    const { rerender } = render(
+      <SyncReviewObjects
+        entries={ENTRIES}
+        order={null}
+        orderLoading={false}
+        orderUnread={false}
+        saved={false}
+        encrypted={[{ objectApiName: 'Contact', fields: ['Tax_Id__c', 'Passport__c'] }]}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-review-encrypted-Contact').textContent).toBe(
+      'Contact: Tax_Id__c, Passport__c, encrypted, are masked for the user SandForge reads the ' +
+        'source org as, who lacks View Encrypted Data. The run leaves them out of every record ' +
+        'rather than copy the masks; grant that permission to copy their values.',
+    );
+
+    rerender(
+      <SyncReviewObjects
+        entries={ENTRIES}
+        order={null}
+        orderLoading={false}
+        orderUnread={false}
+        saved={false}
+      />,
+    );
+    expect(screen.queryByTestId('sync-review-encrypted-Contact')).toBeNull();
+  });
+
   it('says what an update and a delete do to the records that hold the source ids', () => {
     render(
       <SyncReviewObjects

@@ -41,3 +41,48 @@ export function viewsEncryptedDataOnce(query: RowsQuery): () => Promise<boolean>
     return asked;
   };
 }
+
+/** An object's fields as a describe names and types them. */
+export type FieldsDescribe = (
+  objectApiName: string,
+) => Promise<{ fields: ReadonlyArray<{ name: string; type?: string }> }>;
+
+/**
+ * The classic encrypted fields of an object that the user a connection runs
+ * as reads masked: none when it views encrypted data in clear, or when the
+ * object has none, or would not describe. Each object is described once, and
+ * the permission asked (`viewsEncrypted`) only of one that has such a field:
+ * most objects of most orgs have none.
+ *
+ * A Sync run copied what the source answered for them, `***-**-1234`, into
+ * the target, over the real value of a record it updated; and the backup of
+ * a DataOps operation kept the masks, which a restore wrote back.
+ *
+ * @param viewsEncrypted - Whether the user reads them in clear (`viewsEncryptedDataOnce`).
+ * @param describe - The object's describe.
+ */
+export function maskedEncryptedFields(
+  viewsEncrypted: () => Promise<boolean>,
+  describe: FieldsDescribe,
+): (objectApiName: string) => Promise<string[]> {
+  const byObject = new Map<string, Promise<string[]>>();
+  return (objectApiName) => {
+    let fields = byObject.get(objectApiName);
+    if (!fields) {
+      fields = (async () => {
+        let encrypted: string[];
+        try {
+          const described = await describe(objectApiName);
+          encrypted = described.fields
+            .filter((field) => field.type === ENCRYPTED_FIELD_TYPE)
+            .map((field) => field.name);
+        } catch {
+          return [];
+        }
+        return encrypted.length > 0 && !(await viewsEncrypted()) ? encrypted : [];
+      })();
+      byObject.set(objectApiName, fields);
+    }
+    return fields;
+  };
+}

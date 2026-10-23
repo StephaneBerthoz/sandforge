@@ -90,6 +90,10 @@ import {
 import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
 import { writtenUntil } from '../../modules/sync/SyncRunRemoval.js';
 import { runEndOnOrgClock } from '../../modules/sync/SyncRunRestore.js';
+import {
+  ENCRYPTED_FIELD_TYPE,
+  viewsEncryptedDataOnce,
+} from '../../modules/sync/encryptedFields.js';
 import { AnonymizationTemplateStore } from '../../modules/dataops/AnonymizationTemplateStore.js';
 import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { isFilledValue } from '../../modules/dataops/personalDataFields.js';
@@ -553,6 +557,7 @@ function heldOf(o: BackupObjectHeld): BackupObjectHeld & { truncated: boolean } 
     truncated: o.truncated === true,
     ...(o.orgCount !== undefined ? { orgCount: o.orgCount } : {}),
     ...(o.stoppedAt ? { stoppedAt: o.stoppedAt } : {}),
+    ...(o.notKept && o.notKept.length > 0 ? { notKept: [...o.notKept] } : {}),
   };
 }
 
@@ -1354,11 +1359,23 @@ export class DataOpsHandler implements DomainHandler {
    * @param objectApiName - Already-sanitized SObject API name.
    */
   private async selectAllFields(
-    conn: { describe: (objectApiName: string) => Promise<{ fields: Array<{ name: string }> }> },
+    conn: {
+      describe: (
+        objectApiName: string,
+      ) => Promise<{ fields: Array<{ name: string; type?: string }> }>;
+    },
     objectApiName: string,
-  ): Promise<string> {
+    viewsEncrypted?: () => Promise<boolean>,
+  ): Promise<{ select: string; notKept: string[] }> {
     const desc = await conn.describe(objectApiName);
-    return desc.fields.map((f) => f.name).join(', ');
+    // A classic encrypted field the user reads masked is not kept: the mask
+    // kept as its value was written back over the real one by a restore.
+    // Asked only of an object that has one.
+    const encrypted = desc.fields.filter((f) => f.type === ENCRYPTED_FIELD_TYPE).map((f) => f.name);
+    const notKept =
+      encrypted.length > 0 && viewsEncrypted && !(await viewsEncrypted()) ? encrypted : [];
+    const kept = desc.fields.filter((f) => !notKept.includes(f.name)).map((f) => f.name);
+    return { select: kept.join(', '), notKept };
   }
 
   /**
@@ -1721,6 +1738,10 @@ export class DataOpsHandler implements DomainHandler {
       );
       connection = conn;
       payload.onConnection?.(conn);
+      // Asked once for the snapshot, of the first object with an encrypted field.
+      const viewsEncrypted = viewsEncryptedDataOnce(
+        async (soql) => (await conn.query<Record<string, unknown>>(soql)).records,
+      );
 
       // A page is as many rows as the org's tier reads at a time: 2,000 on a
       // sandbox, 500 on production. It used to be how many rows of each
@@ -1779,6 +1800,7 @@ export class DataOpsHandler implements DomainHandler {
             scanAll: payload.scanAll?.has(safeObj) === true,
             ...(payload.origin === 'checkpoint' ? { stamp: CHECKPOINT_STAMP } : {}),
             whole: payload.failWhenTruncated === true,
+            viewsEncrypted,
           },
           stop.signal,
           () => {
@@ -2029,6 +2051,8 @@ export class DataOpsHandler implements DomainHandler {
       scanAll?: boolean;
       stamp?: string;
       whole?: boolean;
+      /** Whether the user reads encrypted fields in clear: asked of an object that has one. */
+      viewsEncrypted?: () => Promise<boolean>;
     },
     stop: AbortSignal,
     onPage: () => void,
@@ -2041,7 +2065,12 @@ export class DataOpsHandler implements DomainHandler {
       scanAll,
       responseTarget: 'QueryResult',
     };
-    const select = limits.select ?? (await this.selectAllFields(conn, safeObj));
+    let select = limits.select;
+    if (select === undefined) {
+      const every = await this.selectAllFields(conn, safeObj, limits.viewsEncrypted);
+      select = every.select;
+      if (every.notKept.length > 0) read.notKept = every.notKept;
+    }
     // Read through the recycle bin, a statement keeps to the live rows: the
     // archived activities a plain query leaves out, not the deleted ones.
     const where = scanAll ? liveRowsOf(limits.where) : limits.where;

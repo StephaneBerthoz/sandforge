@@ -209,6 +209,30 @@ describe('measureSyncWrite', () => {
 
     expect(check.emails).toEqual([]);
     expect(check.emailsUnread).toBe("the target's automation: timed out");
+    expect(check.verdict).toBe('asks');
+  });
+
+  it('asks when the target would not say what it has left of a daily email limit its flows send against', async () => {
+    const { check } = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 2 }]),
+      measures({
+        readAutomation: async () => WELCOME_FLOW,
+        readLimits: async () => {
+          throw new Error('INSUFFICIENT_ACCESS');
+        },
+      }),
+    );
+
+    expect(check.emails).toEqual([
+      {
+        limit: 'SingleEmail',
+        emails: 4,
+        verdict: 'unread',
+        objects: [{ objectApiName: 'Contact', perRecord: 2 }],
+        unread: 'INSUFFICIENT_ACCESS',
+      },
+    ]);
+    expect(check.verdict).toBe('asks');
   });
 });
 
@@ -309,6 +333,74 @@ describe('gateSyncWrite', () => {
         code: 'SYNC_EMAILS_EXCEEDED',
         message: expect.stringContaining('about 40 single emails, 12 of 15 left today'),
       });
+    }
+  });
+
+  it('asks the user who started the run about emails it could not count, naming each limit and the unread automation', async () => {
+    // The page said "what is left today could not be read" and the run went
+    // on, the user who started it asked nothing.
+    const confirm = vi.fn(
+      async (_question: WriteConfirmation): Promise<'confirmed'> => 'confirmed',
+    );
+    const unreadLimit = await measureSyncWrite(
+      pastEmails,
+      measures({
+        readAutomation: async () => WELCOME_FLOW,
+        readLimits: async () => {
+          throw new Error('INSUFFICIENT_ACCESS');
+        },
+      }),
+    );
+    const unreadAutomation = await measureSyncWrite(
+      pastEmails,
+      measures({
+        readAutomation: async () => {
+          throw new Error('timed out');
+        },
+      }),
+    );
+
+    const first = await gateSyncWrite(unreadLimit, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+    const second = await gateSyncWrite(unreadAutomation, {
+      policy: 'ask',
+      org: 'TRAP',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect([first, second]).toEqual([
+      { go: true, asked: true },
+      { go: true, asked: true },
+    ]);
+    expect(confirm.mock.calls[0][0].emailsUnread).toEqual([
+      { limit: 'SingleEmail', emails: 40, unread: 'INSUFFICIENT_ACCESS' },
+    ]);
+    expect(confirm.mock.calls[0][0].emails).toBeUndefined();
+    expect(confirm.mock.calls[1][0].emailsUncounted).toBe("the target's automation: timed out");
+  });
+
+  it('lets a run nobody watches, and the command line, go on when its emails could not be counted, as when the storage could not be read', async () => {
+    // Neither puts a question: the command line prints the line and writes,
+    // a schedule writes as it was set up; only past a limit are they refused.
+    const measured = await measureSyncWrite(
+      pastEmails,
+      measures({
+        readAutomation: async () => WELCOME_FLOW,
+        readLimits: async () => {
+          throw new Error('INSUFFICIENT_ACCESS');
+        },
+      }),
+    );
+
+    for (const policy of ['unattended', 'refuse'] as const) {
+      expect(
+        await gateSyncWrite(measured, { policy, org: 'TRAP', orgTier: 'development' }),
+      ).toEqual({ go: true, asked: false });
     }
   });
 

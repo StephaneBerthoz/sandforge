@@ -1915,7 +1915,9 @@ describe('SyncOpsHandler', () => {
       );
 
       expect(refusal).toBeUndefined();
-      expect(query).toHaveBeenCalledWith(`SELECT Id, Name FROM Account WHERE Id IN ('${HELD}')`);
+      expect(query).toHaveBeenCalledWith(
+        `SELECT Id, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Id IN ('${HELD}')`,
+      );
       expect(files).toEqual([
         {
           operationId: 'sync-before-sync-over-1',

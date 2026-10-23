@@ -1115,7 +1115,8 @@
       "orderUnread": "Não foi possível ler a ordem na org de destino: a execução a calcula de novo antes de gravar.",
       "insertsSaved": "Salva: cada execução desta configuração deixa como estão os registros que uma execução anterior copiou e insere os outros.",
       "insertsUnsaved": "Não salva: cada execução insere de novo cada registro que lê. Salve a configuração, e suas execuções deixarão como está o que uma execução anterior copiou.",
-      "overwriteKept": "O que uma atualização ou um upsert sobrescreve é lido antes na org de destino e guardado nesta máquina: remover a execução restaura os valores que os registros tinham."
+      "overwriteKept": "O que uma atualização ou um upsert sobrescreve é lido antes na org de destino e guardado nesta máquina: remover a execução restaura os valores que os registros tinham.",
+      "encrypted": "{{object}}: {{fields}}, criptografados, aparecem mascarados para o usuário com que o SandForge lê a org de origem, que não tem a permissão View Encrypted Data. A execução os deixa de fora de cada registro em vez de copiar as máscaras; conceda essa permissão para copiar seus valores."
     },
     "configSaved": "Configuração salva. Um agendamento já pode executá-la.",
     "execute": "Executar",
@@ -1621,7 +1622,8 @@
       "withoutFields_one": "{{count}} registro gravado novamente sem os campos que a org de destino recusou:",
       "withoutFields_other": "{{count}} registros gravados novamente sem os campos que a org de destino recusou:",
       "withoutField_one": "{{field}}, omitido em {{count}} registro: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}."
+      "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}.",
+      "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados."
     },
     "firstStepTitle": "Primeiros passos com o Sync",
     "firstStepDesc": "Transfira dados entre suas orgs Salesforce em 3 cliques com o Sync rápido",
@@ -1702,6 +1704,7 @@
     "backupReadFailed": "{{object}}: {{read}} de {{held}} linhas lidas — a leitura falhou ali.",
     "backupReadFailedUncounted": "{{object}}: {{read}} linhas lidas — a leitura falhou ali.",
     "backupNotReached": "{{object}}: não lido — o backup falhou antes de chegar a este objeto e não contém nenhuma de suas linhas.",
+    "backupNotKeptEncrypted": "{{object}}: {{fields}} não guardados — campos criptografados que o usuário com que o SandForge se conecta vê mascarados, por não ter a permissão View Encrypted Data. Uma restauração os deixa como a org os tem.",
     "restorePartialBadge": "Parcial",
     "backupExported": "Salvo em {{path}}. Registros por objeto: {{records}}.",
     "backupDesc": "Criar e gerenciar backups de dados",

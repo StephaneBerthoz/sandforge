@@ -1115,7 +1115,8 @@
       "orderUnread": "L'ordre n'a pas pu être lu dans l'org cible : l'exécution le calcule de nouveau avant d'écrire.",
       "insertsSaved": "Enregistrée : chaque exécution de cette configuration laisse tels quels les enregistrements qu'une exécution précédente a copiés, et insère les autres.",
       "insertsUnsaved": "Non enregistrée : chaque exécution insère de nouveau chaque enregistrement qu'elle lit. Enregistrez la configuration, et ses exécutions laissent tel quel ce qu'une exécution précédente a copié.",
-      "overwriteKept": "Ce qu'une mise à jour ou un upsert écrase est d'abord lu dans l'org cible et conservé sur cette machine : supprimer l'exécution remet en place les valeurs que les enregistrements avaient."
+      "overwriteKept": "Ce qu'une mise à jour ou un upsert écrase est d'abord lu dans l'org cible et conservé sur cette machine : supprimer l'exécution remet en place les valeurs que les enregistrements avaient.",
+      "encrypted": "{{object}} : {{fields}}, chiffrés, sont masqués pour l'utilisateur avec lequel SandForge lit l'org source, qui n'a pas l'autorisation View Encrypted Data. L'exécution les laisse hors de chaque enregistrement plutôt que de copier les masques ; accordez cette autorisation pour copier leurs valeurs."
     },
     "configSaved": "Configuration enregistrée. Une planification peut désormais l'exécuter.",
     "execute": "Exécuter",
@@ -1621,7 +1622,8 @@
       "withoutFields_one": "{{count}} enregistrement réécrit sans les champs que l'org cible a refusés :",
       "withoutFields_other": "{{count}} enregistrements réécrits sans les champs que l'org cible a refusés :",
       "withoutField_one": "{{field}}, retiré de {{count}} enregistrement : {{refusedBy}}.",
-      "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
+      "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}.",
+      "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués."
     },
     "firstStepTitle": "Démarrer avec Sync",
     "firstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Sync rapide",
@@ -1702,6 +1704,7 @@
     "backupReadFailed": "{{object}} : {{read}} lignes lues sur {{held}} — la lecture a échoué à cet endroit.",
     "backupReadFailedUncounted": "{{object}} : {{read}} lignes lues — la lecture a échoué à cet endroit.",
     "backupNotReached": "{{object}} : non lu — la sauvegarde a échoué avant d'atteindre cet objet, et n'en contient aucune ligne.",
+    "backupNotKeptEncrypted": "{{object}} : {{fields}} non conservés — champs chiffrés que l'utilisateur avec lequel SandForge se connecte voit masqués, faute de l'autorisation View Encrypted Data. Une restauration les laisse tels que l'org les contient.",
     "restorePartialBadge": "Partielle",
     "backupExported": "Enregistrée dans {{path}}. Enregistrements par objet : {{records}}.",
     "backupDesc": "Créer et gérer les sauvegardes de données",

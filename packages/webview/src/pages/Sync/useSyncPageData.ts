@@ -20,6 +20,7 @@ import type {
   SyncSimulationResult,
   SyncFileCopyOption,
   SyncWriteOrder,
+  SyncEncryptedFieldsMasked,
 } from '@sandforge/shared';
 import type { PIIScanResponse, SyncDescribeGlobalResponse } from '@sandforge/shared';
 import {
@@ -225,6 +226,8 @@ export interface SyncPageData {
   writeOrderLoading: boolean;
   /** Whether that order could not be read. */
   writeOrderUnread: boolean;
+  /** Per object, the encrypted fields the source's user reads masked, which a run leaves out. */
+  writeOrderEncrypted: SyncEncryptedFieldsMasked[];
   /**
    * Whether the configuration on screen copies files and is not saved: the
    * extension refuses a run and a simulation of it, so neither is sent.
@@ -882,7 +885,10 @@ export function useSyncPageData(): SyncPageData {
     createdAt: undefined,
     updatedAt: undefined,
   };
-  const writeOrderQuery = useBridgeQuery<{ order: SyncWriteOrder }>(
+  const writeOrderQuery = useBridgeQuery<{
+    order: SyncWriteOrder;
+    encrypted?: SyncEncryptedFieldsMasked[];
+  }>(
     'sync:write-order',
     { config: writeOrderConfig },
     {
@@ -1102,6 +1108,7 @@ export function useSyncPageData(): SyncPageData {
     writeOrder: writeOrderQuery.data?.order ?? null,
     writeOrderLoading: writeOrderQuery.loading,
     writeOrderUnread: writeOrderQuery.error !== null,
+    writeOrderEncrypted: writeOrderQuery.data?.encrypted ?? [],
     filesNeedSave,
     handleApplyTemplate,
     canGoNext,

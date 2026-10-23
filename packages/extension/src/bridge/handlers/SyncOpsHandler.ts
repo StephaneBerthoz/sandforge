@@ -7,6 +7,7 @@ import type {
   MappingType,
   SyncConfig,
   SyncConfigSummary,
+  SyncEncryptedFieldsMasked,
   SyncExecutionResult,
   SyncHistoryEntry,
   SyncObjectConfig,
@@ -117,7 +118,10 @@ import {
   syncOverwriteKeeper,
   type BackupRecordFiles,
 } from '../../modules/sync/syncOverwrites.js';
-import { viewsEncryptedDataOnce } from '../../modules/sync/encryptedFields.js';
+import {
+  maskedEncryptedFields,
+  viewsEncryptedDataOnce,
+} from '../../modules/sync/encryptedFields.js';
 import { savedConfigIdMap, type SyncIdMapStore } from '../../modules/sync/SyncIdMap.js';
 import type { SyncRecordTypes } from '../../modules/sync/syncRecordTypes.js';
 import type { RunCurrencies } from '../../core/common/recordCurrencies.js';
@@ -321,6 +325,8 @@ interface SyncReaders {
   targetConn: Awaited<ReturnType<typeof getJsforceConnection>>;
   querySource: OrchestratorQueryFn;
   queryTarget: OrchestratorQueryFn;
+  /** The encrypted fields the source's user reads masked: see `SyncOrchestratorDeps.maskedSourceFields`. */
+  maskedSourceFields: (objectApiName: string) => Promise<string[]>;
   countSource: OrchestratorCountFn;
   describeTargetFields: (objectApiName: string) => Promise<TargetWriteFields>;
   /** Both orgs' record types, what `RecordTypeId` is mapped with: see `readSyncRecordTypes`. */
@@ -1043,12 +1049,52 @@ export class SyncOpsHandler implements DomainHandler {
         }
       }
       const { order } = orderSyncObjects(config.objects, lookups);
-      const response = buildResponse(this.deps, msg, 'sync:write-order:response', { order });
+      // And what Review warns of: the encrypted fields a run leaves out.
+      const encrypted = await this.encryptedMaskedOf(config, timeoutMs).catch(() => []);
+      const response = buildResponse(this.deps, msg, 'sync:write-order:response', {
+        order,
+        ...(encrypted.length > 0 ? { encrypted } : {}),
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'sync:write-order', 'sync:error', msg, err);
     }
+  }
+
+  /**
+   * Per object a run of `config` writes, the classic encrypted fields the user
+   * the source is read as reads masked, which the run leaves out
+   * (`SyncOrchestratorDeps.maskedSourceFields`): its View Encrypted Data asked
+   * once, each object's describe the cached one. Review said nothing of
+   * them, and the run copied the masks.
+   */
+  private async encryptedMaskedOf(
+    config: SyncConfig,
+    timeoutMs: number,
+  ): Promise<SyncEncryptedFieldsMasked[]> {
+    const objects = config.objects.filter((object) => object.operation !== 'delete');
+    if (objects.length === 0) return [];
+    const sourceConn = await getJsforceConnection(
+      config.sourceOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+    const masked = maskedEncryptedFields(
+      viewsEncryptedDataOnce(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+      ),
+      (name) =>
+        new TimeoutManager(timeoutMs).withTimeout(`describe-source-${name}`, () =>
+          describeCached(config.sourceOrgId, name, () => sourceConn.describe(name)),
+        ),
+    );
+    const out: SyncEncryptedFieldsMasked[] = [];
+    for (const object of objects) {
+      const fields = await masked(object.objectApiName);
+      if (fields.length > 0) out.push({ objectApiName: object.objectApiName, fields });
+    }
+    return out;
   }
 
   private async handleExecute(msg: InboundRequest): Promise<void> {
@@ -1147,6 +1193,7 @@ export class SyncOpsHandler implements DomainHandler {
         fieldMapping: new FieldMappingService(),
         transformPipeline: new TransformPipeline(),
         querySource: readers.querySource,
+        maskedSourceFields: readers.maskedSourceFields,
         queryTarget: readers.queryTarget,
         services: this.deps.services,
         signal: abortController.signal,
@@ -1629,11 +1676,21 @@ export class SyncOpsHandler implements DomainHandler {
       );
     };
 
+    // The encrypted fields the source's user reads masked: its permission
+    // asked once for the run, each object's describe the cached one.
+    const maskedSourceFields = maskedEncryptedFields(
+      viewsEncryptedDataOnce(
+        async (soql) => (await sourceConn.query<Record<string, unknown>>(soql)).records,
+      ),
+      (name) => describeCached(config.sourceOrgId, name, () => sourceConn.describe(name)),
+    );
+
     return {
       sourceConn,
       targetConn,
       querySource: buildQueryFn(sourceConn, config.sourceOrgId),
       queryTarget: buildQueryFn(targetConn, config.targetOrgId),
+      maskedSourceFields,
       countSource,
       describeTargetFields,
       recordTypes,
@@ -2140,6 +2197,8 @@ export class SyncOpsHandler implements DomainHandler {
         fieldMapping,
         transformPipeline,
         querySource: readers.querySource,
+        // An encrypted field the source's user reads masked is left out of every record.
+        maskedSourceFields: readers.maskedSourceFields,
         queryTarget: readers.queryTarget,
         services: this.deps.services,
         // Same contract as seed: without BOTH the config and the callback the

@@ -3,7 +3,7 @@ import { removeSyncRun, type SyncRemovalConfigs } from './SyncRunRemoval';
 import type { SyncRunKept, SyncRunRemovalState } from './SyncRunCreations';
 import { syncRemovalPlan, syncRestorePlan } from './SyncRunCreations';
 import type { BackupReader } from './SyncRunRestore';
-import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg';
+import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../../test/memoryRemovalOrg';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg';
 
 vi.mock('../../logger.js', () => ({
@@ -370,5 +370,129 @@ describe('removeSyncRun, of a run that wrote over records of the target', () => 
         'they were not put back, and the next removal offers them again.',
     ]);
     expect(syncRestorePlan({ ...overwriting(), removal: store.state })).toHaveLength(1);
+  });
+});
+
+describe('removeSyncRun, of two runs that wrote over the same record, newest first', () => {
+  const HELD = fakeId('003', 7);
+  /** A user of the target who is not the one the runs and their removals write as. */
+  const COLLEAGUE = fakeId('005', 42);
+
+  /** Each run's backup, holding the contact as that run found it. */
+  function backupsOf(before: Record<string, string>): BackupReader {
+    return {
+      batches: async (operationId, objectApiName) =>
+        objectApiName === 'Contact' && before[operationId] !== undefined
+          ? {
+              async *[Symbol.asyncIterator]() {
+                yield [{ Id: HELD, LastName: before[operationId] }];
+              },
+            }
+          : null,
+    };
+  }
+
+  /** A run that only updated the contact, its last write `minutes` ago. */
+  function updating(
+    runId: string,
+    minutes: number,
+    heldBefore?: SyncRunKept['heldBefore'],
+  ): SyncRunKept {
+    return {
+      ...run(),
+      runId,
+      startedAt: minutesAgo(minutes + 1),
+      lastWrittenAt: minutesAgo(minutes),
+      lastWriteAt: minutesAgo(minutes),
+      end: { at: minutesAgo(minutes), status: 'success' },
+      created: [],
+      overwritten: [{ objectApiName: 'Contact', backup: `before-${runId}`, ids: [HELD] }],
+      ...(heldBefore ? { heldBefore } : {}),
+    };
+  }
+
+  /** Each run's removal state, kept in memory by run. */
+  function statesByRun() {
+    const states = new Map<string, SyncRunRemovalState>();
+    return {
+      of: (runId: string) => states.get(runId) ?? {},
+      updateRemoval: vi.fn(
+        async (runId: string, change: (s: SyncRunRemovalState) => SyncRunRemovalState) => {
+          states.set(runId, change(states.get(runId) ?? {}));
+        },
+      ),
+    };
+  }
+
+  /**
+   * The contact as two runs and someone between them left it: the first run
+   * wrote "Run 1" over "Before", `between` then changed it at `betweenAt`,
+   * and the second run wrote "Run 2" over that.
+   */
+  async function twoRuns(between: string, betweenAt: number) {
+    const org = new MemoryRestoreOrg({});
+    org.add(
+      'Contact',
+      { Id: HELD, LastName: 'Changed between', LastModifiedById: between },
+      minutesAgo(betweenAt),
+    );
+    const first = updating('run-1', 30);
+    const second = updating('run-2', 10, {
+      [HELD.slice(0, 15)]: { at: minutesAgo(betweenAt), by: between },
+    });
+    org.edit('Contact', HELD, { LastName: 'Run 2' });
+    org.touch('Contact', HELD, minutesAgo(10));
+    const backups = backupsOf({
+      'before-run-1': 'Before',
+      'before-run-2': 'Changed between',
+    });
+    const store = statesByRun();
+    const removedSecond = await removeSyncRun({
+      run: second,
+      org,
+      includeChanged: false,
+      store,
+      backups,
+      earlierRuns: [first],
+    });
+    const removedFirst = await removeSyncRun({
+      run: { ...first, removal: store.of('run-1') },
+      org,
+      includeChanged: false,
+      store,
+      backups,
+    });
+    return { org, store, removedSecond, removedFirst };
+  }
+
+  it("leaves to the first run's removal, as changed since it, a colleague's change made between the two", async () => {
+    // The second run's removal stamped the record on the first as given back,
+    // and the first run's removal wrote "Before" over the colleague's change.
+    const { org, store, removedSecond, removedFirst } = await twoRuns(COLLEAGUE, 20);
+
+    expect(org.all('Contact')[0]).toMatchObject({ LastName: 'Changed between' });
+    expect(removedSecond.earlierStamped).toBeUndefined();
+    expect(store.of('run-1').removalStamps).toBeUndefined();
+    expect(removedFirst.result.restored).toEqual([
+      expect.objectContaining({ objectApiName: 'Contact', restored: 0, keptChanged: 1 }),
+    ]);
+  });
+
+  it('stamps on the first run a record no one changed between the two, which its removal gives back', async () => {
+    // Last modified by the first run itself, before its last write.
+    const { org, removedSecond, removedFirst } = await twoRuns(MEMORY_ORG_USER, 31);
+
+    expect(removedSecond.earlierStamped).toEqual([{ runId: 'run-1', records: 1 }]);
+    expect(removedFirst.result.restored).toEqual([
+      expect.objectContaining({ objectApiName: 'Contact', restored: 1, keptChanged: 0 }),
+    ]);
+    expect(org.all('Contact')[0]).toMatchObject({ LastName: 'Before' });
+  });
+
+  it("takes a change made between the two as the runs' own when the user they write as made it", async () => {
+    // Where people sign in as the runs' user, theirs cannot be told apart.
+    const { removedSecond } = await twoRuns(MEMORY_ORG_USER, 20);
+
+    expect(removedSecond.earlierStamped).toEqual([{ runId: 'run-1', records: 1 }]);
   });
 });

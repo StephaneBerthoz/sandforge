@@ -117,7 +117,10 @@ import { BackupRecordStore, nodeBackupFiles } from '../src/modules/dataops/Backu
 import { defaultBackupStoreOf, openBackupStore } from './backupStore.js';
 import { answerJobsInFlight, type IngestJobReading } from '../src/modules/sync/inFlightJob.js';
 import { writtenElsewhere } from '../src/modules/sync/runWriter.js';
-import { viewsEncryptedDataOnce } from '../src/modules/sync/encryptedFields.js';
+import {
+  maskedEncryptedFields,
+  viewsEncryptedDataOnce,
+} from '../src/modules/sync/encryptedFields.js';
 import {
   BACKUP_MAX_AGE_DAYS_DEFAULT,
   putBackKept,
@@ -996,6 +999,9 @@ export function simulationLines(simulation: SyncSimulationResult, target = 'the 
           'left as they are',
       );
     }
+    if ((o.encryptedLeftOut ?? []).length > 0) {
+      lines.push(`      ${encryptedLeftOutLine(o.encryptedLeftOut ?? [])}`);
+    }
     if (o.conflictFields.length > 0) lines.push(`      differ on: ${o.conflictFields.join(', ')}`);
     if (o.files) {
       lines.push(
@@ -1073,10 +1079,17 @@ const REFUSED_FIELD_BY: Readonly<Record<ForgeFieldRefusal, string>> = {
 export function objectWrittenLines(
   result: Pick<
     SyncObjectResult,
-    'linkedToExisting' | 'lookupsLeftOut' | 'lookupsSetAfter' | 'writtenWithoutFields'
+    | 'linkedToExisting'
+    | 'lookupsLeftOut'
+    | 'lookupsSetAfter'
+    | 'writtenWithoutFields'
+    | 'encryptedLeftOut'
   >,
 ): string[] {
   const lines: string[] = [];
+  if ((result.encryptedLeftOut ?? []).length > 0) {
+    lines.push(encryptedLeftOutLine(result.encryptedLeftOut ?? []));
+  }
   const linked = result.linkedToExisting;
   if (linked) {
     lines.push(
@@ -1110,6 +1123,17 @@ export function objectWrittenLines(
     );
   }
   return lines;
+}
+
+/**
+ * What the command says of the encrypted fields the source's user reads
+ * masked, which the run left out: a run and a dry run alike.
+ */
+export function encryptedLeftOutLine(fields: readonly string[]): string {
+  return (
+    `${fields.join(', ')}: encrypted, and read masked by the user the source is read as ` +
+    '(it lacks View Encrypted Data): left out of every record written, never copied as masks'
+  );
 }
 
 /**
@@ -1336,9 +1360,9 @@ export function bothRecorders(
       summary.touched?.(objectApiName, rows);
       file.touched?.(objectApiName, rows);
     },
-    overwriting: (objectApiName, backup, ids) => {
+    overwriting: (objectApiName, backup, ids, held) => {
       summary.overwriting?.(objectApiName, backup, ids);
-      file.overwriting?.(objectApiName, backup, ids);
+      file.overwriting?.(objectApiName, backup, ids, held);
     },
     overwrote: (objectApiName, notWritten) => {
       summary.overwrote?.(objectApiName, notWritten);
@@ -1650,6 +1674,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     transformPipeline: new TransformPipeline(),
     querySource: buildQueryFn(sourceConn),
     queryTarget: buildQueryFn(targetConn),
+    // An encrypted field the source's user reads masked is left out of every
+    // record, as the panel leaves it out.
+    maskedSourceFields: maskedEncryptedFields(
+      viewsEncryptedDataOnce(
+        async (soql) =>
+          (
+            await queryAllPages<Record<string, unknown>>(
+              {
+                query: async (q) => sourceConn.query<Record<string, unknown>>(q),
+                queryMore: async (url) => sourceConn.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            )
+          ).records,
+      ),
+      (name) => sourceConn.sobject(name).describe(),
+    ),
     findInTarget: targetLookup({
       query: async (q) => targetConn.query<Record<string, unknown>>(q),
       queryMore: async (url) => targetConn.queryMore<Record<string, unknown>>(url),

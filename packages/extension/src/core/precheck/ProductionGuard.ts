@@ -307,6 +307,12 @@ export interface WriteConfirmation {
     unread: string;
   }>;
   /**
+   * Of a Sync run, why the target's automation could not be read: the emails
+   * its flows send as the records go in were not counted at all. Absent when
+   * it was read.
+   */
+  emailsUncounted?: string;
+  /**
    * Of a Forge clone, what the last simulation of the same case this window
    * ran counted to write — the same orgs, and the same record, query,
    * template or prompt — beside the rows above: in all, and per object.

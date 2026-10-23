@@ -2,8 +2,16 @@ import type { Connection } from 'jsforce';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter.js';
 import type { BulkDataWriterDeps } from './BulkDataWriter.js';
-import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import {
+  BulkApiExecutor as RealBulkApiExecutor,
+  type BulkApiExecutor,
+} from '../../core/engine/BulkApiExecutor.js';
+import {
+  BulkApiManager as RealBulkApiManager,
+  type BulkApiManager,
+} from '../../core/engine/BulkApiManager.js';
+import { DataSync } from './DataSync.js';
+import { duplicateRuleOrg, type DuplicateRuleOrg } from '../../test/duplicateRuleOrg.js';
 
 /**
  * The streaming path builds its own `ChunkedBulkExecutor`, so the only way to
@@ -945,6 +953,167 @@ describe('BulkDataWriter', () => {
     });
   });
 
+  describe('rows a duplicate rule refused in a Bulk API job', () => {
+    /** As a Developer Edition's Alert rule refused a twin of an account in a job of one row. */
+    const ALERT_REFUSAL = 'DUPLICATES_DETECTED:Another account already has this name.:--';
+
+    it('sends them again through REST with the header, those alone, and keeps what the second try saved', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        outcomes: [
+          { recordIndex: 0, id: '001A', success: true },
+          { recordIndex: 1, success: false, error: ALERT_REFUSAL },
+          { recordIndex: 2, success: false, error: 'REQUIRED_FIELD_MISSING:Name:--' },
+          { recordIndex: 3, success: false, error: ALERT_REFUSAL },
+        ],
+      });
+      h.sobject.create.mockResolvedValueOnce([
+        { success: true, id: '001B' },
+        { success: true, id: '001D' },
+      ]);
+      const answered: Array<[readonly unknown[], readonly number[] | undefined]> = [];
+      const calls = {
+        sending: vi.fn(),
+        answered: (_o: string, _op: string, outcomes: readonly unknown[], at?: readonly number[]) =>
+          answered.push([outcomes, at]),
+      };
+
+      const outcomes = await h.writer.insert('Account', makeRecords(4), 50, calls);
+
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+      expect(h.sobject.create.mock.calls[0][0]).toEqual([{ Name: 'Acme 1' }, { Name: 'Acme 3' }]);
+      expect(h.sobject.create.mock.calls[0][1]).toEqual({
+        headers: expect.objectContaining({ 'Sforce-Duplicate-Rule-Header': 'allowSave=true' }),
+      });
+      expect(outcomes.map((o) => [o.success, o.id])).toEqual([
+        [true, '001A'],
+        [true, '001B'],
+        [false, undefined],
+        [true, '001D'],
+      ]);
+      expect(outcomes[2].errors).toEqual(['REQUIRED_FIELD_MISSING:Name:--']);
+      // The job's answer, then the second try's, each row at its place.
+      expect(answered).toHaveLength(2);
+      expect(answered[1][1]).toEqual([1, 3]);
+      expect(h.deps.log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '2 row(s) a duplicate rule refused in the Bulk API job, which cannot carry the header',
+        ),
+      );
+      expect(h.deps.log).toHaveBeenCalledWith(expect.stringContaining('2 saved'));
+    });
+
+    it('leaves a row a Block rule refuses again refused, in the words of the REST answer', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        outcomes: [
+          {
+            recordIndex: 0,
+            success: false,
+            error: 'DUPLICATES_DETECTED:Another lead already has this email.:--',
+          },
+        ],
+      });
+      h.sobject.create.mockResolvedValueOnce([
+        {
+          success: false,
+          errors: [
+            {
+              statusCode: 'DUPLICATES_DETECTED',
+              message: 'Another lead already has this email.',
+              fields: [],
+            },
+          ],
+        },
+      ]);
+
+      const outcomes = await h.writer.insert('Lead', makeRecords(1), 200);
+
+      expect(h.sobject.create).toHaveBeenCalledTimes(1);
+      expect(outcomes).toHaveLength(1);
+      expect(outcomes[0].success).toBe(false);
+      expect(outcomes[0].errors[0]).toContain('DUPLICATES_DETECTED');
+      expect(h.deps.log).toHaveBeenCalledWith(expect.stringContaining('0 saved'));
+    });
+
+    it('sends them again in calls of two hundred at most, for an upsert by its key and an update too', async () => {
+      const h = createHarness({ useBulkApi: true });
+      const refused = (count: number) => ({
+        outcomes: Array.from({ length: count }, (_, i) => ({
+          recordIndex: i,
+          success: false,
+          error: ALERT_REFUSAL,
+        })),
+      });
+      h.executeBulk.mockResolvedValueOnce(refused(450)).mockResolvedValueOnce(refused(3));
+      h.sobject.upsert.mockImplementation(async (batch: unknown[]) =>
+        batch.map(() => ({ success: true, id: '001U', created: true })),
+      );
+      h.sobject.update.mockImplementation(async (batch: unknown[]) =>
+        batch.map(() => ({ success: true, id: '001V' })),
+      );
+
+      const upserted = await h.writer.upsert('Account', 'Code__c', makeRecords(450), 500);
+      const updated = await h.writer.update('Account', makeRecords(3), 200);
+
+      expect(h.sobject.upsert.mock.calls.map((call) => (call[0] as unknown[]).length)).toEqual([
+        200, 200, 50,
+      ]);
+      expect(h.sobject.upsert.mock.calls[0][1]).toBe('Code__c');
+      expect(upserted.every((o) => o.success && o.created === true)).toBe(true);
+      expect(h.sobject.update).toHaveBeenCalledTimes(1);
+      expect(updated.every((o) => o.success)).toBe(true);
+    });
+
+    it('sends nothing again of a job no duplicate rule refused, nor of a delete', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockResolvedValue({
+        outcomes: [{ recordIndex: 0, success: false, error: ALERT_REFUSAL }],
+      });
+
+      await h.writer.delete('Account', ['001X'], 200);
+      h.executeBulk.mockResolvedValue({
+        outcomes: [{ recordIndex: 0, success: false, error: 'STORAGE_LIMIT_EXCEEDED:full:--' }],
+      });
+      await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(h.sobject.destroy).not.toHaveBeenCalled();
+      expect(h.sobject.create).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing again once the run is cancelled, the rows keeping the job answer', async () => {
+      const h = createHarness({ useBulkApi: true });
+      h.executeBulk.mockImplementation(async () => {
+        h.abort.abort();
+        return { outcomes: [{ recordIndex: 0, success: false, error: ALERT_REFUSAL }] };
+      });
+
+      const outcomes = await h.writer.insert('Account', makeRecords(1), 200);
+
+      expect(h.sobject.create).not.toHaveBeenCalled();
+      expect(outcomes[0]).toMatchObject({ success: false, errors: [ALERT_REFUSAL] });
+    });
+
+    it('sends again the rows a streamed job refused for a duplicate rule', async () => {
+      const h = createHarness();
+      const count = STREAMING_THRESHOLD + 1;
+      streaming.executeChunked.mockResolvedValue({
+        outcomes: Array.from({ length: count }, (_, i) =>
+          i === 5
+            ? { recordIndex: i, success: false, error: ALERT_REFUSAL }
+            : { recordIndex: i, success: true, id: `001S${i}` },
+        ),
+      });
+      h.sobject.create.mockResolvedValueOnce([{ success: true, id: '001AGAIN' }]);
+
+      const outcomes = await h.writer.insert('Account', makeRecords(count), 200);
+
+      expect(h.sobject.create.mock.calls[0][0]).toEqual([{ Name: 'Acme 5' }]);
+      expect(outcomes[5]).toMatchObject({ success: true, id: '001AGAIN' });
+      expect(outcomes).toHaveLength(count);
+    });
+  });
+
   describe('streaming path', () => {
     it('streams above the threshold and hands over the abort signal', async () => {
       const h = createHarness({ useBulkApi: true });
@@ -1186,5 +1355,85 @@ describe('syncWriterCalls', () => {
     expect(keeper.before).toHaveBeenCalledWith('Account', 'update', rows, undefined);
     expect(keeper.answered).toHaveBeenCalledWith('Account', 'update', answer);
     expect(syncWriterCalls(recorder).before).toBeUndefined();
+  });
+});
+
+describe("a Sync run's write of rows a duplicate rule refused in a Bulk API job", () => {
+  /** The writer a Sync run builds, over `org`, keeping the ids each call created. */
+  function runWriter(org: DuplicateRuleOrg, created: string[]): BulkDataWriter {
+    return new BulkDataWriter({
+      connection: org.connection as unknown as Connection,
+      bulkExecutor: new RealBulkApiExecutor(200),
+      bulkManager: new RealBulkApiManager(5),
+      retryConfig: { maxRetries: 0, initialDelay: 0, jitter: false },
+      onProgress: () => {},
+      log: () => {},
+      calls: syncWriterCalls({
+        sending: () => {},
+        answered: (_object, ids) => created.push(...ids),
+        writing: () => {},
+      }),
+    });
+  }
+
+  it('counts the rows the second try saved as written, and keeps their ids for the removal', async () => {
+    const org = duplicateRuleOrg();
+    const created: string[] = [];
+    const writer = runWriter(org, created);
+    const dataSync = new DataSync({
+      insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+      upsert: (objectName, key, records, batchSize) =>
+        writer.upsert(objectName, key, records, batchSize),
+      update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+      delete: (objectName, ids, batchSize) => writer.delete(objectName, ids, batchSize),
+    });
+    const rows = Array.from({ length: 250 }, (_, i) => ({
+      Name: i % 50 === 0 ? `Twin ${i}` : `Acme ${i}`,
+    }));
+
+    const result = await dataSync.sync(
+      {
+        objectApiName: 'Account',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 1,
+      },
+      rows,
+    );
+
+    expect(result.success).toBe(250);
+    expect(result.failed).toBe(0);
+    expect(created).toHaveLength(250);
+    expect(new Set(created).size).toBe(250);
+    // The five twins alone went again, with the header, after the one job.
+    expect(org.jobs.map((job) => job.rows.length)).toEqual([250]);
+    expect(org.rest).toHaveLength(1);
+    expect(org.rest[0].rows.map((row) => row.Name)).toEqual([
+      'Twin 0',
+      'Twin 50',
+      'Twin 100',
+      'Twin 150',
+      'Twin 200',
+    ]);
+    expect(org.rest[0].headers).toMatchObject({ 'Sforce-Duplicate-Rule-Header': 'allowSave=true' });
+  });
+
+  it('leaves the rows a Block rule refuses again refused, and keeps no id of them', async () => {
+    const org = duplicateRuleOrg({ blocks: true });
+    const created: string[] = [];
+    const writer = runWriter(org, created);
+    const rows = Array.from({ length: 201 }, (_, i) => ({
+      Name: i === 7 ? 'Twin 7' : `Acme ${i}`,
+    }));
+
+    const outcomes = await writer.insert('Account', rows, 200);
+
+    expect(outcomes.filter((o) => !o.success)).toHaveLength(1);
+    expect(outcomes[7].errors[0]).toContain('DUPLICATES_DETECTED');
+    expect(created).toHaveLength(200);
   });
 });

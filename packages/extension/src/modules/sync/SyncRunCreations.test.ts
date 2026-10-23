@@ -748,6 +748,46 @@ describe('SyncRunCreations — what a run wrote over, named as it goes', () => {
     expect(run?.firstWrittenAt).toBe('2026-10-14T08:01:00.000Z');
   });
 
+  it('keeps when each record it wrote over was last modified before it first wrote it, and by whom', async () => {
+    const { deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run-1'));
+    const COLLEAGUE = fakeId('005', 42);
+
+    recorder.overwriting?.(
+      'Account',
+      BACKUP,
+      [HELD1, HELD2],
+      [
+        { id: HELD1, at: '2026-10-14T07:30:00.000+0000', by: COLLEAGUE },
+        { id: HELD2, at: '2026-10-14T07:00:00.000+0000' },
+        // Not an id: never written.
+        { id: '../x', at: '2026-10-14T07:00:00.000+0000' },
+      ],
+    );
+    recorder.overwrote?.('Account', []);
+    // Written again by the run: the stamps from before its first write stay.
+    recorder.overwriting?.(
+      'Account',
+      BACKUP,
+      [HELD1],
+      [{ id: HELD1, at: '2026-10-14T08:00:00.000+0000', by: fakeId('005', 1) }],
+    );
+    await recorder.end({ status: 'success' });
+
+    expect((await store.get('run-1'))?.heldBefore).toEqual({
+      [HELD1.slice(0, 15)]: { at: '2026-10-14T07:30:00.000+0000', by: COLLEAGUE },
+      [HELD2.slice(0, 15)]: { at: '2026-10-14T07:00:00.000+0000' },
+    });
+  });
+
+  it('reads a file kept before the stamps were, with none of them', () => {
+    const run = readRunFile(`${[head, over([HELD1], '2026-10-14T08:01:00.000Z')].join('\n')}\n`);
+
+    expect(run?.overwritten).toHaveLength(1);
+    expect(run).not.toHaveProperty('heldBefore');
+  });
+
   it('keeps named what a call cut short wrote over, its answer never written', () => {
     const lines = [head, over([HELD1, HELD2], '2026-10-14T08:01:00.000Z')];
 

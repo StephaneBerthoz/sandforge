@@ -5,7 +5,11 @@ import type { ForgeFieldRefusal, SyncObjectResult } from '@sandforge/shared';
 /** What an object's result says its write did beside its refusals. */
 type WrittenResult = Pick<
   SyncObjectResult,
-  'linkedToExisting' | 'lookupsLeftOut' | 'lookupsSetAfter' | 'writtenWithoutFields'
+  | 'linkedToExisting'
+  | 'lookupsLeftOut'
+  | 'lookupsSetAfter'
+  | 'writtenWithoutFields'
+  | 'encryptedLeftOut'
 >;
 
 /** Props for {@link SyncWrittenLines}. */
@@ -32,7 +36,8 @@ export function hasWrittenLines(result: WrittenResult): boolean {
     result.linkedToExisting !== undefined ||
     (result.lookupsLeftOut?.length ?? 0) > 0 ||
     result.lookupsSetAfter !== undefined ||
-    result.writtenWithoutFields !== undefined
+    result.writtenWithoutFields !== undefined ||
+    (result.encryptedLeftOut?.length ?? 0) > 0
   );
 }
 
@@ -41,8 +46,9 @@ export function hasWrittenLines(result: WrittenResult): boolean {
  * the results step, the Quick Sync results and the history detail: the
  * records linked to one the target already holds rather than written, those
  * written without lookups they held, with why, those given lookups at an
- * object written after them, and those written again without the fields the
- * target refused them on, in the panel's language.
+ * object written after them, those written again without the fields the
+ * target refused them on, and the encrypted fields every record went without,
+ * read masked from the source, in the panel's language.
  *
  * Each was a sentence among the object's errors, which the pages list as
  * refusals: "1 × LINKED_TO_EXISTING", "1 × 12 record(s) written without
@@ -63,8 +69,14 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
         <span className="font-mono wrap-break-word">{refusal}</span>
       </>
     );
+  const encrypted = result.encryptedLeftOut ?? [];
   return (
     <ul className="flex flex-col gap-0.5 text-xs text-text-secondary" data-testid={testId}>
+      {encrypted.length > 0 && (
+        <li className="text-status-warning" data-testid={`${testId}-encrypted`}>
+          {t('sync.written.encryptedLeftOut', { fields: encrypted.join(', ') })}
+        </li>
+      )}
       {linked && (
         <li data-testid={`${testId}-linked`}>
           {t('sync.written.linked', { count: linked.records })}

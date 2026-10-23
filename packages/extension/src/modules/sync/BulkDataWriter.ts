@@ -1,5 +1,5 @@
 import type { Connection } from 'jsforce';
-import { recordWriteHeaders } from '@sandforge/shared';
+import { recordWriteHeaders, SF_LIMITS } from '@sandforge/shared';
 import type { RetryConfig } from '../../core/engine/RetryStrategy.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
@@ -26,6 +26,19 @@ import { WriteCancelledError } from './WriteCancelledError.js';
 
 /** Record count threshold above which the streaming pipeline is used. */
 const STREAMING_THRESHOLD = 10_000;
+
+/** The most records one REST call takes: the rows a duplicate rule refused in a job go again so. */
+const REST_CALL_MAX = SF_LIMITS.REST_API_BATCH_SIZE;
+
+/**
+ * Whether a row was refused by a duplicate rule, as a Bulk API job words it
+ * in `sf__Error`: `DUPLICATES_DETECTED:<the rule's message>:--`.
+ */
+function refusedByDuplicateRule(outcome: OperationOutcome): boolean {
+  return (
+    !outcome.success && outcome.errors.some((error) => error.startsWith('DUPLICATES_DETECTED'))
+  );
+}
 
 /** Minimal shape of a jsforce per-record DML result. */
 type JsforceResult = {
@@ -153,11 +166,19 @@ export interface WriterCalls {
    * read back by this id (`readJobCreated`).
    */
   opened?(objectName: string, operation: BulkOperation, rows: number, jobId: string): void;
-  /** The call answered: one outcome per row it sent, in their order. */
+  /**
+   * The call answered: one outcome per row it sent, in their order.
+   *
+   * @param at - Given for a call whose rows are not the ones after the call
+   *   before — the rows a duplicate rule refused in a Bulk API job, sent
+   *   again through REST: the place of each outcome's row among the write's
+   *   records. Absent, the call's rows follow the last call's.
+   */
   answered(
     objectName: string,
     operation: BulkOperation,
     outcomes: readonly OperationOutcome[],
+    at?: readonly number[],
   ): void;
 }
 
@@ -179,9 +200,9 @@ function bothCalls(
       own.opened?.(objectName, operation, rows, jobId);
       more.opened?.(objectName, operation, rows, jobId);
     },
-    answered: (objectName, operation, outcomes) => {
-      own.answered(objectName, operation, outcomes);
-      more.answered(objectName, operation, outcomes);
+    answered: (objectName, operation, outcomes, at) => {
+      own.answered(objectName, operation, outcomes, at);
+      more.answered(objectName, operation, outcomes, at);
     },
   };
 }
@@ -300,24 +321,19 @@ export class BulkDataWriter {
     calls?: WriterCalls,
   ): Promise<OperationOutcome[]> {
     const told = bothCalls(this.deps.calls, calls);
-    const streamed = await this.tryStreaming('insert', objectName, records, undefined, told);
-    if (streamed) return streamed;
+    const create = (batch: Record<string, unknown>[]) =>
+      this.deps.connection
+        .sobject(objectName)
+        .create(batch, { headers: recordWriteHeaders() }) as Promise<JsforceResult[]>;
+    const failure = 'Insert failed after retries';
+    const jobbed =
+      (await this.tryStreaming('insert', objectName, records, undefined, told)) ??
+      (await this.tryBulk('insert', objectName, records, undefined, told));
+    if (jobbed) {
+      return this.duplicatesAgain('insert', objectName, records, jobbed, create, failure, told);
+    }
 
-    const bulked = await this.tryBulk('insert', objectName, records, undefined, told);
-    if (bulked) return bulked;
-
-    return this.executeRestBatches(
-      'insert',
-      objectName,
-      records,
-      batchSize,
-      (batch) =>
-        this.deps.connection
-          .sobject(objectName)
-          .create(batch, { headers: recordWriteHeaders() }) as Promise<JsforceResult[]>,
-      'Insert failed after retries',
-      told,
-    );
+    return this.executeRestBatches('insert', objectName, records, batchSize, create, failure, told);
   }
 
   /**
@@ -335,22 +351,34 @@ export class BulkDataWriter {
     records: Record<string, unknown>[],
     batchSize: number,
   ): Promise<OperationOutcome[]> {
-    const streamed = await this.tryStreaming('upsert', objectName, records, externalIdField);
-    if (streamed) return streamed;
-
-    const bulked = await this.tryBulk('upsert', objectName, records, externalIdField);
-    if (bulked) return bulked;
+    const upsert = (batch: Record<string, unknown>[]) =>
+      this.deps.connection.sobject(objectName).upsert(batch, externalIdField, {
+        headers: recordWriteHeaders(),
+      }) as unknown as Promise<JsforceResult[]>;
+    const failure = 'Upsert failed after retries';
+    const jobbed =
+      (await this.tryStreaming('upsert', objectName, records, externalIdField)) ??
+      (await this.tryBulk('upsert', objectName, records, externalIdField));
+    if (jobbed) {
+      return this.duplicatesAgain(
+        'upsert',
+        objectName,
+        records,
+        jobbed,
+        upsert,
+        failure,
+        this.deps.calls,
+        externalIdField,
+      );
+    }
 
     return this.executeRestBatches(
       'upsert',
       objectName,
       records,
       batchSize,
-      (batch) =>
-        this.deps.connection.sobject(objectName).upsert(batch, externalIdField, {
-          headers: recordWriteHeaders(),
-        }) as unknown as Promise<JsforceResult[]>,
-      'Upsert failed after retries',
+      upsert,
+      failure,
       this.deps.calls,
       externalIdField,
     );
@@ -373,25 +401,21 @@ export class BulkDataWriter {
     records: Record<string, unknown>[],
     batchSize: number,
   ): Promise<OperationOutcome[]> {
-    const streamed = await this.tryStreaming('update', objectName, records);
-    if (streamed) return streamed;
+    const update = (batch: Record<string, unknown>[]) =>
+      this.deps.connection
+        .sobject(objectName)
+        .update(batch as Array<Record<string, unknown> & { Id: string }>, {
+          headers: recordWriteHeaders(),
+        }) as unknown as Promise<JsforceResult[]>;
+    const failure = 'Update failed after retries';
+    const jobbed =
+      (await this.tryStreaming('update', objectName, records)) ??
+      (await this.tryBulk('update', objectName, records));
+    if (jobbed) {
+      return this.duplicatesAgain('update', objectName, records, jobbed, update, failure);
+    }
 
-    const bulked = await this.tryBulk('update', objectName, records);
-    if (bulked) return bulked;
-
-    return this.executeRestBatches(
-      'update',
-      objectName,
-      records,
-      batchSize,
-      (batch) =>
-        this.deps.connection
-          .sobject(objectName)
-          .update(batch as Array<Record<string, unknown> & { Id: string }>, {
-            headers: recordWriteHeaders(),
-          }) as unknown as Promise<JsforceResult[]>,
-      'Update failed after retries',
-    );
+    return this.executeRestBatches('update', objectName, records, batchSize, update, failure);
   }
 
   /**
@@ -579,6 +603,69 @@ export class BulkDataWriter {
   }
 
   /**
+   * The rows a Bulk API job refused for a duplicate rule, sent again through
+   * REST with the duplicate-rule header, in calls of {@link REST_CALL_MAX},
+   * and only those: each outcome of the job's in its place, but theirs, which
+   * the second try answers. A rule that only alerts lets them be saved there;
+   * one that blocks refuses them again, in the org's words.
+   *
+   * A Bulk API 2.0 job carries no header: run into a Developer Edition, an
+   * account the target's Alert rule matched was refused in a job of one row
+   * ("DUPLICATES_DETECTED: Another account already has this name"), and
+   * saved over REST with the header. Every object of more than two hundred
+   * records goes as a job, so a Sync run, a Frozen load, a clone from
+   * another org and a CSV import had such rows refused that a smaller write
+   * of the same rows saved.
+   *
+   * A cancel that came meanwhile sends nothing more: the rows not sent again
+   * keep the job's answer.
+   */
+  private async duplicatesAgain(
+    operation: Exclude<BulkOperation, 'delete'>,
+    objectName: string,
+    records: Record<string, unknown>[],
+    outcomes: OperationOutcome[],
+    call: (batch: Record<string, unknown>[]) => Promise<JsforceResult[]>,
+    failureMessage: string,
+    calls: WriterCalls | undefined = this.deps.calls,
+    externalIdField?: string,
+  ): Promise<OperationOutcome[]> {
+    const at = outcomes.flatMap((outcome, i) =>
+      i < records.length && refusedByDuplicateRule(outcome) ? [i] : [],
+    );
+    if (at.length === 0 || this.deps.signal?.aborted) return outcomes;
+    let again: OperationOutcome[];
+    try {
+      again = await this.executeRestBatches(
+        operation,
+        objectName,
+        at.map((i) => records[i]),
+        REST_CALL_MAX,
+        call,
+        failureMessage,
+        calls,
+        externalIdField,
+        at,
+      );
+    } catch (err: unknown) {
+      if (!(err instanceof WriteCancelledError)) throw err;
+      again = err.written;
+    }
+    const merged = [...outcomes];
+    again.forEach((outcome, k) => {
+      merged[at[k]] = outcome;
+    });
+    const saved = again.filter((outcome) => outcome.success).length;
+    this.deps.log(
+      `[INFO] ${operation} ${objectName}: ${at.length} row(s) a duplicate rule refused in the ` +
+        `Bulk API job, which cannot carry the header that lets a rule's matches be saved, went ` +
+        `again through REST with it: ${saved} saved` +
+        (again.length < at.length ? `, ${at.length - again.length} not sent (cancelled)` : ''),
+    );
+    return merged;
+  }
+
+  /**
    * Log every id of a record the job wrote that no row could be matched to.
    * The rows left without a result name ten of them; the log keeps them all,
    * as they are the only trace of records no row maps.
@@ -606,6 +693,10 @@ export class BulkDataWriter {
    * Run the REST batch path: slice items into batches, execute each batch
    * with retry, and flatten per-record results. A batch that exhausts its
    * retries marks every item in it as failed with the last error message.
+   *
+   * @param at - Of items sent again out of their order, the place of each
+   *   among the write's records, told with each call's answer
+   *   (`WriterCalls.answered`).
    */
   private async executeRestBatches<T>(
     operation: BulkOperation,
@@ -616,6 +707,7 @@ export class BulkDataWriter {
     failureMessage: string,
     calls: WriterCalls | undefined = this.deps.calls,
     externalIdField?: string,
+    at?: readonly number[],
   ): Promise<OperationOutcome[]> {
     const outcomes: OperationOutcome[] = [];
     for (let i = 0; i < items.length; i += batchSize) {
@@ -651,7 +743,7 @@ export class BulkDataWriter {
       // The batch failed and the cancel came before it was tried again: none
       // of it was written, and nothing after it is sent.
       if (retryResult.cancelled) {
-        calls?.answered(objectName, operation, []);
+        calls?.answered(objectName, operation, [], at && []);
         throw new WriteCancelledError(objectName, outcomes);
       }
       const answered: OperationOutcome[] = [];
@@ -670,7 +762,7 @@ export class BulkDataWriter {
         );
       }
       outcomes.push(...answered);
-      calls?.answered(objectName, operation, answered);
+      calls?.answered(objectName, operation, answered, at?.slice(i, i + batch.length));
     }
     return outcomes;
   }

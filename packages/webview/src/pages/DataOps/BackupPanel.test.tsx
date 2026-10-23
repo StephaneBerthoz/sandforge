@@ -123,6 +123,28 @@ describe('BackupPanel', () => {
     expect(screen.getByText('failed')).toBeDefined();
   });
 
+  it('names the encrypted fields a backup did not keep, read masked, and that a restore leaves them', () => {
+    render(
+      <BackupPanel
+        backups={[
+          {
+            ...backups[0],
+            objectResults: [
+              { objectApiName: 'Account', recordCount: 100, notKept: ['Tax_Id__c'] },
+              { objectApiName: 'Contact', recordCount: 3 },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('backup-not-kept-op-1-Account').textContent).toBe(
+      'Account: Tax_Id__c not kept — encrypted fields the user SandForge connects as sees ' +
+        'masked, lacking View Encrypted Data. A restore leaves them as the org holds them.',
+    );
+    expect(screen.queryByTestId('backup-not-kept-op-1-Contact')).toBeNull();
+  });
+
   it('names each object a failed backup never reached, and says it holds none of it', () => {
     render(
       <BackupPanel

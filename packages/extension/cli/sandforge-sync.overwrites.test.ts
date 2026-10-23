@@ -85,7 +85,11 @@ describe('what a run of sandforge-sync writes over, kept before it writes and gi
         if (soql.startsWith('SELECT OrganizationType')) {
           return { records: [{ OrganizationType: 'Developer Edition' }], totalSize: 1, done: true };
         }
-        if (soql.startsWith('SELECT Id, Ext__c, Name FROM Account WHERE Ext__c IN')) {
+        if (
+          soql.startsWith(
+            'SELECT Id, Ext__c, Name, LastModifiedDate, LastModifiedById FROM Account WHERE Ext__c IN',
+          )
+        ) {
           return {
             records: soql.includes("'K-1'") ? [{ Id: HELD, Ext__c: 'K-1', Name: 'Before' }] : [],
             totalSize: 1,

@@ -826,6 +826,19 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     );
   });
 
+  it("says the target's automation could not be read, so no email of its flows was counted", () => {
+    const lines = runQuestionDetail({
+      ...write,
+      module: 'sync',
+      emailsUncounted: "the target's automation: timed out",
+    }).split('\n');
+
+    expect(lines).toContain(
+      "What DEV runs on these objects could not be read (the target's automation: timed out), so the emails its flows send as the records go in were not counted against its daily limits.",
+    );
+    expect(runQuestionDetail(write)).not.toContain('were not counted against');
+  });
+
   it('says the prices it counts in that the clone may read as it writes them', () => {
     const lines = runQuestionDetail({ ...write, pricesForLines: 4 }).split('\n');
 

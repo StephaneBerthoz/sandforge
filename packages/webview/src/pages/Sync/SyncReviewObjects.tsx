@@ -1,6 +1,6 @@
 import React, { useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncWriteOrder } from '@sandforge/shared';
+import type { SyncEncryptedFieldsMasked, SyncWriteOrder } from '@sandforge/shared';
 import { listWords } from '../../utils/listWords';
 import type { ObjectSetEntry } from './ObjectSetEditor';
 
@@ -16,6 +16,11 @@ export interface SyncReviewObjectsProps {
   orderUnread: boolean;
   /** Whether the configuration on screen is the one saved: its runs leave what earlier ones copied. */
   saved: boolean;
+  /**
+   * Per object, the encrypted fields the source's user reads masked, which
+   * the run leaves out, as the extension read them with the order.
+   */
+  encrypted?: readonly SyncEncryptedFieldsMasked[];
 }
 
 /** The objects in the order a run writes them, those the order does not name after it, as listed. */
@@ -49,6 +54,7 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
   orderLoading,
   orderUnread,
   saved,
+  encrypted = [],
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -129,6 +135,16 @@ export const SyncReviewObjects: React.FC<SyncReviewObjectsProps> = ({
           {t('sync.reviewObjects.overwriteKept')}
         </p>
       )}
+      {/* Review said nothing of them, and the run copied the masks. */}
+      {encrypted.map(({ objectApiName, fields }) => (
+        <p
+          key={objectApiName}
+          className="text-xs text-status-warning"
+          data-testid={`sync-review-encrypted-${objectApiName}`}
+        >
+          {t('sync.reviewObjects.encrypted', { object: objectApiName, fields: fields.join(', ') })}
+        </p>
+      ))}
       {inserts && (
         <p
           className={saved ? 'text-xs text-text-secondary' : 'text-xs text-status-warning'}

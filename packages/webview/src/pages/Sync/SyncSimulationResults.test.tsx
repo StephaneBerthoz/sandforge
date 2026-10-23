@@ -74,6 +74,24 @@ describe('SyncSimulationResults', () => {
     );
   });
 
+  it('names beside an object the encrypted fields a run would leave out, read masked from the source', () => {
+    const base = simulation();
+    render(
+      <SyncSimulationResults
+        simulation={{
+          ...base,
+          objects: [{ ...base.objects[1], encryptedLeftOut: ['Tax_Id__c'] }, base.objects[0]],
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('sync-simulation-encrypted-Contact').textContent).toContain(
+      'Tax_Id__c: encrypted fields the user SandForge reads the source org as sees masked',
+    );
+    expect(screen.queryByTestId('sync-simulation-encrypted-Account')).toBeNull();
+  });
+
   it("lists beside an object the target's validation rules, which a simulation cannot evaluate", () => {
     const base = simulation();
     render(

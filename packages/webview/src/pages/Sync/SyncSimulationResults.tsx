@@ -158,6 +158,16 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 </li>
               )}
             </ul>
+            {(o.encryptedLeftOut ?? []).length > 0 && (
+              <p
+                className="mt-2 text-xs text-status-warning"
+                data-testid={`sync-simulation-encrypted-${o.objectApiName}`}
+              >
+                {t('sync.written.encryptedLeftOut', {
+                  fields: (o.encryptedLeftOut ?? []).join(', '),
+                })}
+              </p>
+            )}
             {o.alreadyCopied !== undefined && o.alreadyCopied > 0 && (
               <div className="mt-2">
                 <SyncAlreadyCopiedLine
