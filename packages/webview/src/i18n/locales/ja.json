@@ -4919,6 +4919,7 @@
       "keptUntil": "{{date}} まで保持",
       "keptForever": "削除するまで保持",
       "rename": "名前を変更",
+      "rewind": "巻き戻す…",
       "why": {
         "damaged": "ファイルを読み取れません。このチェックポイントは削除のみできます。",
         "taking": "完了していません。作成中か、作成が終了前に停止しました。削除のみできます。",
@@ -4980,6 +4981,82 @@
       "taken": "「{{name}}」を作成しました — {{objects}}に {{records}}、{{size}}",
       "moved_other": "作成中に {{formatted}} 件のレコードが変更されました。巻き戻しでは、作成後に変更されたものとして扱います。",
       "done": "完了"
+    },
+    "preview": {
+      "title": "{{org}} を「{{name}}」({{date}}) に巻き戻す",
+      "reading": "「{{name}}」以降に {{org}} で変更されたものを読み取っています。何も書き込みません。",
+      "readingAgain": "{{org}} を再度読み取っています…",
+      "toDelete_other": "削除 {{formatted}} 件",
+      "toDeleteHint": "その後に作成されたもの (親と一緒に戻って再び削除されるものを含む)",
+      "toGiveBack_other": "値を戻す {{formatted}} 件",
+      "toGiveBackHint": "その後に変更されたもの",
+      "toBringBack_other": "復元 {{formatted}} 件",
+      "toBringBackHint": "その後に削除されたもの",
+      "lastChangedBy": "最終更新者: {{people}}",
+      "person": "{{name}} {{formatted}} 件",
+      "activeLastHour": "直近 1 時間に {{org}} で作業した人: {{people}}。",
+      "sharedUser": "{{user}} としてログインするテスト担当者の変更は巻き戻しと区別できません。先に作業を止めるよう依頼してください。",
+      "table": {
+        "caption": "巻き戻しがオブジェクトごとに行うこと",
+        "object": "オブジェクト",
+        "delete": "削除",
+        "giveBack": "値を戻す",
+        "bringBack": "復元",
+        "cannotUndo": "巻き戻し不可"
+      },
+      "detail": {
+        "deletedWhileTaken_other": "{{object}}: チェックポイントの作成中に削除された {{formatted}} 件のレコードは、当時の値で戻ります。",
+        "withParent_other": "{{object}}: {{formatted}} 件のレコードは親レコードと一緒に戻ります。",
+        "fields_other": "{{object}}: 戻す項目値は {{formatted}} 件です。",
+        "clearedLookups_other": "{{object}}: その後の削除で空になった参照項目を {{formatted}} 件のレコードで戻します。",
+        "broughtBackSince_other": "{{object}}: チェックポイント時点でごみ箱にあり、その後に復元された {{formatted}} 件のレコードは、ごみ箱に戻ります。",
+        "comesBackWithParent_other": "{{object}}: その後に作成され、巻き戻しで復元する親と一緒に削除された {{formatted}} 件のレコードは、親と一緒に戻ってから削除されます。",
+        "touched_other": "{{object}}: その後に更新されてもチェックポイントの値のままの {{formatted}} 件のレコードは、戻す値がありません。",
+        "unexplained_other": "{{object}}: チェックポイントより前の日付なのにチェックポイントにない {{formatted}} 件のレコードは、そのまま残します (作成日を過去に設定した読み込みかもしれません)。"
+      },
+      "unread_other": "{{formatted}} 件のオブジェクトを読み取れませんでした。巻き戻しではそのまま残します",
+      "cannot": {
+        "title": "巻き戻しで取り戻せないもの",
+        "goneForGood_other": "その後に削除された {{formatted}} 件のレコードは、ごみ箱にもうないため、同じ Id では戻せません ({{objects}})。",
+        "deletedWithCreatedParent_other": "その後に作成された親と一緒に削除された {{formatted}} 件のレコードは、単独では戻せません ({{objects}})。",
+        "convertedLead_other": "その後に {{formatted}} 件のリードが取引開始されました。Salesforce はリードの取引開始を取り消せません。取引開始で作成されたものは削除し、リードは取引開始済みのまま残ります。",
+        "activatedContract_other": "その後に {{formatted}} 件の契約が有効化されました。Salesforce はドラフトに戻さないため、有効なまま残ります。",
+        "fieldRemoved": "{{field}} はチェックポイントの後に削除されました。削除済み項目から (15 日以内に) 復元してから、もう一度巻き戻してください。",
+        "fieldsAdded_other": "{{fields}} はその後に追加されました。値はそのまま残ります。",
+        "fieldsChanged_other": "{{fields}} の型はその後に変更されました。巻き戻しでは項目ごとに試します。",
+        "computed": "数式、積み上げ集計、自動採番、作成日と最終更新日は組織が管理する値です。巻き戻しでは書き込まず、最終更新日には巻き戻しの日時が表示されます。",
+        "leftTheOrg": "巻き戻しで変わるのは {{org}} のデータだけです。既に組織の外に出たもの (メール、コールアウト、アウトバウンドメッセージ、プラットフォームイベント、他のシステムが取得したデータ) は送信済みのままです。",
+        "metadata": "メタデータは巻き戻しません。項目、フロー、入力規則、レイアウト、権限はそのままです。メタデータは組織比較で扱います。"
+      },
+      "undoCannot": {
+        "title": "元に戻す操作で復元できないもの",
+        "line_other": "この巻き戻しで削除する {{object}} の {{formatted}} 件のレコード: Salesforce は親レコードと一緒にしか復元しませんが、親は残ります。",
+        "accept": "元に戻す操作で復元できなくても巻き戻す"
+      },
+      "outside": {
+        "title": "チェックポイントの外で一緒に削除されるもの",
+        "line_other": "{{parents}} の下に作成された {{outside}} の {{formatted}} 件のレコード",
+        "parents_other": "巻き戻しで削除する {{object}} の {{formatted}} 件のレコード",
+        "everything": "依存先のレコードと一緒に削除されます。",
+        "accept": "これらも削除する",
+        "otherwise": "チェックしない場合、依存先のレコードは残り、その名前を示します。"
+      },
+      "notCompared": "比較しない項目 (選択済み): {{fields}}",
+      "automation": {
+        "title": "巻き戻しの書き込み時に {{org}} が実行するもの",
+        "loading": "巻き戻しの書き込み時に {{org}} が実行するものを読み取っています…",
+        "intro": "巻き戻しの書き込み時に、{{org}} は次を実行します:",
+        "none": "巻き戻しで書き込んでも、{{org}} の自動化は何も実行されません。",
+        "error": "巻き戻しの書き込み時に {{org}} が実行するものを読み取れませんでした: {{reason}}",
+        "broughtBack": "巻き戻しでごみ箱から復元した後",
+        "givenBack": "巻き戻しでチェックポイントの値に戻すとき",
+        "accept": "{{org}} が自動化を実行しても巻き戻す"
+      },
+      "cost": "約 {{time}} · 今日残っている {{left}} 件のうち約 {{requests}} 件の API 要求",
+      "journal": "巻き戻しは書き込む前に変更内容を保持するため、{{date}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く元に戻せなくなります。",
+      "nothing": "{{org}} は、「{{name}}」が保持するオブジェクトと項目について、その時点のままです。巻き戻すものはありません。",
+      "nothingToWrite": "巻き戻すものはありません。まだ異なるものは下に示しますが、巻き戻しでは戻せません。",
+      "rewind": "{{org}} を巻き戻す…"
     }
   }
 }

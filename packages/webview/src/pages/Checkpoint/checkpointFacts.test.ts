@@ -4,6 +4,7 @@ import {
   isCheckpointName,
   objectsWithRecords,
   recordsHeld,
+  roughSeconds,
   usableCheckpoints,
 } from './checkpointFacts';
 import { listEntry, readyCheckpoint } from './testing/checkpointFixtures';
@@ -27,6 +28,13 @@ describe('checkpointFacts', () => {
     expect(
       usableCheckpoints([newest, failed, damaged, older]).map((entry) => entry.checkpointId),
     ).toEqual(['ck-20261022-090000-0001', 'ck-20261020-090000-0003']);
+  });
+
+  it('says an estimate of time to ten seconds under a minute and to the minute above', () => {
+    expect(roughSeconds(3)).toBe(10);
+    expect(roughSeconds(38)).toBe(40);
+    expect(roughSeconds(64)).toBe(60);
+    expect(roughSeconds(95)).toBe(120);
   });
 
   it('holds a name to the store’s rule: one line, not blank, at most 120 characters', () => {

@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CheckpointInvalidReason, CheckpointListEntry } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
@@ -38,6 +38,13 @@ export interface CheckpointListProps {
   onKeep: (checkpointId: string, keep: boolean) => void;
   /** Delete a checkpoint from this machine, once confirmed. */
   onDelete: (checkpointId: string) => void;
+  /** Open what a rewind to a checkpoint would do. */
+  onRewind: (checkpointId: string) => void;
+  /**
+   * The checkpoint whose Rewind… takes the keyboard as the list is drawn:
+   * the one whose preview was just left.
+   */
+  focusRewind?: string;
 }
 
 /** The name a checkpoint is listed by: its own, or its folder's when its file cannot be read. */
@@ -48,8 +55,8 @@ function nameOf(entry: CheckpointListEntry): string {
 /**
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
- * takes and how long it is kept. One that cannot be rewound to says why, and
- * can only be deleted.
+ * takes and how long it is kept, and Rewind…, which opens what a rewind to it
+ * would do. One that cannot be rewound to says why, and can only be deleted.
  */
 export const CheckpointList: React.FC<CheckpointListProps> = ({
   entries,
@@ -57,6 +64,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
   onRename,
   onKeep,
   onDelete,
+  onRewind,
+  focusRewind,
 }) => {
   const { t } = useTranslation();
   const [renaming, setRenaming] = useState<CheckpointListEntry | null>(null);
@@ -85,6 +94,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
             onRename={() => setRenaming(entry)}
             onKeep={(keep) => onKeep(entry.checkpointId, keep)}
             onDelete={() => setDeleting(entry)}
+            onRewind={() => onRewind(entry.checkpointId)}
+            focusRewind={focusRewind === entry.checkpointId}
           />
         ))}
       </ul>
@@ -122,6 +133,9 @@ interface CheckpointRowProps {
   onRename: () => void;
   onKeep: (keep: boolean) => void;
   onDelete: () => void;
+  onRewind: () => void;
+  /** Its Rewind… takes the keyboard as it is drawn. */
+  focusRewind: boolean;
 }
 
 /** One checkpoint of the list, with what can be done to it. */
@@ -131,9 +145,16 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
   onRename,
   onKeep,
   onDelete,
+  onRewind,
+  focusRewind,
 }) => {
   const { t } = useTranslation();
   const nameId = useId();
+  const rewindRef = useRef<HTMLButtonElement>(null);
+  // Back from a preview, the keyboard is where it was before it opened.
+  useEffect(() => {
+    if (focusRewind) rewindRef.current?.focus();
+  }, [focusRewind]);
   const { checkpoint } = entry;
   const usable = entry.valid && checkpoint !== undefined;
   const records = checkpoint ? recordsHeld(checkpoint) : 0;
@@ -185,6 +206,18 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {usable && (
+            <Button
+              ref={rewindRef}
+              variant="secondary"
+              size="sm"
+              onClick={onRewind}
+              aria-describedby={nameId}
+              data-testid={`checkpoint-rewind-${entry.checkpointId}`}
+            >
+              {t('checkpoint.list.rewind')}
+            </Button>
+          )}
           {usable && (
             <label className="flex items-center gap-1.5 text-xs text-text-primary">
               <input

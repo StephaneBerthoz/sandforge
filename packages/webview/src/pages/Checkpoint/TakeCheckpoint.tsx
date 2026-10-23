@@ -35,6 +35,7 @@ import {
   isCheckpointName,
   objectsWithRecords,
   recordsHeld,
+  roughSeconds,
 } from './checkpointFacts';
 
 /** What `checkpoint:scope` answers. */
@@ -66,15 +67,6 @@ const NAME_CHIPS: ReadonlyArray<{ key: string; keep: boolean; testId: string }> 
 /** The date and time a checkpoint is called by default, in the panel's language. */
 function defaultName(): string {
   return dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(new Date());
-}
-
-/**
- * An estimate of time as it is worth saying: to ten seconds under a minute,
- * to the minute above. "About 1min 4s" says more than an estimate knows.
- */
-function roughSeconds(seconds: number): number {
-  if (seconds < 60) return Math.max(10, Math.round(seconds / 10) * 10);
-  return Math.round(seconds / 60) * 60;
 }
 
 /** `value`, once it has stopped changing for `ms`. */

@@ -23,7 +23,7 @@ export interface CheckpointTileProps {
 
 /**
  * Home's word on the selected org's checkpoints: its latest, with Rewind…,
- * or the offer to take one before the next test session; and a checkpoint
+ * which opens what a rewind to it would do, or the offer to take one before the next test session; and a checkpoint
  * that expires within three days, with Keep. Read from this machine, never
  * from the org. Nothing for a production org, of which none is ever taken,
  * nor before the list has answered.
@@ -79,7 +79,7 @@ export const CheckpointTile: React.FC<CheckpointTileProps> = ({ org }) => {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => navigate('checkpoint')}
+              onClick={() => navigate('checkpoint', { previewCheckpointId: latest.checkpointId })}
               data-testid="checkpoint-tile-rewind"
             >
               {t('home.checkpoint.rewind')}

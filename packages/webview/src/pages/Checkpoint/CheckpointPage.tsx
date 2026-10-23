@@ -22,11 +22,16 @@ import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { CheckpointList } from './CheckpointList';
-import { TakeCheckpoint } from './checkpointParts';
+import { RewindPreview, TakeCheckpoint } from './checkpointParts';
+import { usableCheckpoints } from './checkpointFacts';
+
+/** Where the page opens for the org Home named: a take, or what a rewind to one checkpoint would do. */
+type Arrival = { take: true } | { preview: string } | null;
 
 /**
  * The Checkpoints page: the checkpoints of an org kept on this machine, read
- * without contacting the org, and Take a checkpoint.
+ * without contacting the org, Take a checkpoint, and what a rewind to one
+ * would do.
  *
  * A checkpoint is the state of an org's data at a moment. It is offered for
  * a sandbox, a scratch org or a Developer Edition only: on a production org
@@ -43,9 +48,16 @@ export const CheckpointPage: React.FC = () => {
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
 
   // Home's "Take a checkpoint" opens the page on a take of the org it named,
-  // that once: the org picked here afterwards opens on its list.
-  const [takeOnArrival, setTakeOnArrival] = useState(
-    () => navigationIntent?.route === 'checkpoint' && navigationIntent.takeCheckpoint === true,
+  // and its "Rewind…" on the preview of that org's latest checkpoint, that
+  // once: the org picked here afterwards opens on its list.
+  const [arrival, setArrival] = useState<Arrival>(() =>
+    navigationIntent?.route !== 'checkpoint'
+      ? null
+      : navigationIntent.takeCheckpoint === true
+        ? { take: true }
+        : navigationIntent.previewCheckpointId !== undefined
+          ? { preview: navigationIntent.previewCheckpointId }
+          : null,
   );
   const [arrivedFor] = useState(currentOrg?.id);
   useEffect(() => {
@@ -53,7 +65,7 @@ export const CheckpointPage: React.FC = () => {
   }, [navigationIntent, clearNavigationIntent]);
   const orgId = currentOrg?.id;
   useEffect(() => {
-    if (orgId !== arrivedFor) setTakeOnArrival(false);
+    if (orgId !== arrivedFor) setArrival(null);
   }, [orgId, arrivedFor]);
 
   // The org picked here is the org picked everywhere: the status bar, the
@@ -100,7 +112,7 @@ export const CheckpointPage: React.FC = () => {
       <OrgCheckpoints
         key={currentOrg.id}
         org={currentOrg}
-        takeFirst={takeOnArrival && currentOrg.id === arrivedFor}
+        arrival={currentOrg.id === arrivedFor ? arrival : null}
       />
     );
   }
@@ -135,19 +147,25 @@ export const CheckpointPage: React.FC = () => {
 interface OrgCheckpointsProps {
   /** A sandbox, a scratch org or a Developer Edition. */
   org: SalesforceOrg;
-  /** Open on a take rather than on the list. */
-  takeFirst: boolean;
+  /** Open on a take, or on the preview of a checkpoint, rather than on the list. */
+  arrival: Arrival;
 }
 
 /**
  * The checkpoints of one org: its list, read from this machine, what can be
- * done to each — kept, renamed, deleted — and a take.
+ * done to each — rewound to, kept, renamed, deleted — and a take.
  */
-const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, takeFirst }) => {
+const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
   const listHeadingRef = useRef<HTMLHeadingElement>(null);
-  const [taking, setTaking] = useState(takeFirst);
+  const [taking, setTaking] = useState(arrival !== null && 'take' in arrival);
+  // The checkpoint whose preview is open, and the one whose Rewind… takes
+  // the keyboard back once it is left.
+  const [previewing, setPreviewing] = useState<string | null>(
+    arrival !== null && 'preview' in arrival ? arrival.preview : null,
+  );
+  const [leftPreview, setLeftPreview] = useState<string | undefined>(undefined);
 
   const listQuery = useBridgeQuery<CheckpointListResponse['payload']>('checkpoint:list', {
     orgId: org.id,
@@ -185,6 +203,26 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, takeFirst }) => {
         org={org}
         onClose={() => setTaking(false)}
         onTaken={() => refetchList.current()}
+      />
+    );
+  }
+  // A preview opens once the list has said the checkpoint is there and can
+  // be rewound to: one Home named that was deleted since leaves the list.
+  const previewed =
+    previewing !== null && listQuery.data
+      ? usableCheckpoints(listQuery.data.checkpoints).find(
+          (entry) => entry.checkpointId === previewing,
+        )
+      : undefined;
+  if (previewed) {
+    return (
+      <RewindPreview
+        org={org}
+        checkpoint={previewed.checkpoint}
+        onClose={() => {
+          setLeftPreview(previewed.checkpointId);
+          setPreviewing(null);
+        }}
       />
     );
   }
@@ -261,6 +299,11 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, takeFirst }) => {
         onRename={(checkpointId, name) => renaming.mutate({ checkpointId, name })}
         onKeep={(checkpointId, keep) => keeping.mutate({ checkpointId, keep })}
         onDelete={(checkpointId) => deletion.mutate({ checkpointIds: [checkpointId] })}
+        onRewind={(checkpointId) => {
+          setLeftPreview(undefined);
+          setPreviewing(checkpointId);
+        }}
+        focusRewind={leftPreview}
       />
     </section>
   );

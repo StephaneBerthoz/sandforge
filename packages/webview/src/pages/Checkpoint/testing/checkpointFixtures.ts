@@ -9,8 +9,10 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import type {
   BaseMessage,
   CheckpointListEntry,
+  CheckpointPreviewResponse,
   CheckpointScopeResponse,
   OrgCheckpoint,
+  RewindDiffObject,
   SalesforceOrg,
 } from '@sandforge/shared';
 
@@ -200,6 +202,91 @@ export function scopeAnswer(
     },
     ...overrides,
   };
+}
+
+/** The users a preview names, by fake Id: two the org gave a name, one it did not. */
+export const USERS = {
+  alice: '005xx0000020001AAA',
+  integration: '005xx0000020002AAA',
+  unnamed: '005xx0000020003AAA',
+} as const;
+
+/** One object of a diff with nothing to do, unless `overrides` says otherwise. */
+export function diffObject(
+  objectApiName: string,
+  overrides: Partial<Omit<RewindDiffObject, 'objectApiName'>> = {},
+): RewindDiffObject {
+  return {
+    objectApiName,
+    toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 0 },
+    toGiveBack: { records: 0, fields: 0, clearedLookups: 0 },
+    toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
+    cannotUndo: [],
+    outside: [],
+    touched: 0,
+    unexplained: 0,
+    lastChangedBy: {},
+    notCompared: [],
+    ...overrides,
+  };
+}
+
+/**
+ * What `checkpoint:preview` answers for the checkpoint of {@link readyCheckpoint}:
+ * Accounts and Contacts created, changed and deleted since, who changed them,
+ * what the rewind would cost, and nothing the org runs as it writes.
+ */
+export function previewAnswer(
+  overrides: Partial<CheckpointPreviewResponse['payload']> = {},
+): CheckpointPreviewResponse['payload'] {
+  return {
+    diff: {
+      checkpointId: 'ck-20261020-140512-a1b2',
+      previewId: 'pv-1',
+      readAt: '2026-10-22T14:00:00.000Z',
+      objects: [
+        diffObject('Contact', {
+          toDelete: { createdSince: 5, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 2, fields: 3, clearedLookups: 0 },
+          toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
+          lastChangedBy: { [USERS.alice]: 5, [USERS.unnamed]: 2 },
+        }),
+        diffObject('Account', {
+          toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 4, fields: 9, clearedLookups: 0 },
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          lastChangedBy: { [USERS.alice]: 3, [USERS.integration]: 4 },
+        }),
+      ],
+      undoCannot: [],
+      unread: [],
+      userNames: { [USERS.alice]: 'Alice Martin', [USERS.integration]: 'Integration User' },
+      activeLastHour: [],
+    },
+    automation: {
+      objectsRead: ['Contact', 'Account'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 3,
+    },
+    estimate: {
+      records: 15,
+      apiRequests: 120,
+      apiRequestsLeft: 14_900,
+      seconds: 38,
+      bytes: 0,
+    },
+    ...overrides,
+  };
+}
+
+/** The diff of {@link previewAnswer}, changed by `overrides`. */
+export function previewDiff(
+  overrides: Partial<CheckpointPreviewResponse['payload']['diff']> = {},
+): CheckpointPreviewResponse['payload']['diff'] {
+  return { ...previewAnswer().diff, ...overrides };
 }
 
 /**

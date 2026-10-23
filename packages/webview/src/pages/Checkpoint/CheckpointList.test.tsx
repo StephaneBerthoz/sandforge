@@ -6,10 +6,11 @@ import { CheckpointList } from './CheckpointList';
 import { listEntry, polyfillDialog, readyCheckpoint } from './testing/checkpointFixtures';
 
 /** The list rendered with spies for what it asks the page to do. */
-function renderList(entries = [listEntry()]) {
+function renderList(entries = [listEntry()], focusRewind?: string) {
   const onRename = vi.fn();
   const onKeep = vi.fn();
   const onDelete = vi.fn();
+  const onRewind = vi.fn();
   render(
     <CheckpointList
       entries={entries}
@@ -17,9 +18,11 @@ function renderList(entries = [listEntry()]) {
       onRename={onRename}
       onKeep={onKeep}
       onDelete={onDelete}
+      onRewind={onRewind}
+      {...(focusRewind ? { focusRewind } : {})}
     />,
   );
-  return { onRename, onKeep, onDelete };
+  return { onRename, onKeep, onDelete, onRewind };
 }
 
 const ID = 'ck-20261020-140512-a1b2';
@@ -61,6 +64,21 @@ describe('CheckpointList', () => {
     expect(onKeep).toHaveBeenCalledWith(ID, true);
   });
 
+  it('opens what a rewind to a checkpoint would do from its Rewind…, which names the checkpoint', () => {
+    const { onRewind } = renderList();
+    const rewind = screen.getByTestId(`checkpoint-rewind-${ID}`);
+    expect(rewind.textContent).toBe('Rewind…');
+    expect(rewind).toHaveAccessibleDescription('Before UAT');
+    fireEvent.click(rewind);
+    expect(onRewind).toHaveBeenCalledWith(ID);
+  });
+
+  it('hands the keyboard to the Rewind… of the checkpoint whose preview was just left', () => {
+    const other = listEntry(readyCheckpoint({ checkpointId: 'ck-20261021-090000-0001' }));
+    renderList([other, listEntry()], ID);
+    expect(screen.getByTestId(`checkpoint-rewind-${ID}`)).toHaveFocus();
+  });
+
   it.each([
     ['damaged', null, 'Its file cannot be read: this checkpoint can only be deleted.'],
     [
@@ -86,6 +104,7 @@ describe('CheckpointList', () => {
       expect(screen.getByTestId(`checkpoint-why-${entry.checkpointId}`).textContent).toBe(said);
       expect(screen.queryByTestId(`checkpoint-keep-${entry.checkpointId}`)).toBeNull();
       expect(screen.queryByTestId(`checkpoint-rename-${entry.checkpointId}`)).toBeNull();
+      expect(screen.queryByTestId(`checkpoint-rewind-${entry.checkpointId}`)).toBeNull();
       expect(screen.getByTestId(`checkpoint-delete-${entry.checkpointId}`)).toBeInTheDocument();
     },
   );

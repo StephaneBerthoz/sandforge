@@ -39,7 +39,7 @@ describe('CheckpointTile', () => {
     vi.useRealTimers();
   });
 
-  it('names the org’s latest checkpoint and its age, and opens Checkpoints on Rewind…', () => {
+  it('names the org’s latest checkpoint and its age, and opens its preview on Rewind…', () => {
     render(<CheckpointTile org={developerOrg()} />);
     expect(host.current?.lastPayload('checkpoint:list')).toEqual({ orgId: 'org-dev' });
     answerList([
@@ -61,7 +61,11 @@ describe('CheckpointTile', () => {
     );
     fireEvent.click(screen.getByTestId('checkpoint-tile-rewind'));
     expect(useAppStore.getState().currentRoute).toBe('checkpoint');
-    expect(useAppStore.getState().navigationIntent).toBeNull();
+    // On the preview of the latest it named, the usable one.
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'checkpoint',
+      previewCheckpointId: 'ck-20261020-140512-a1b2',
+    });
   });
 
   it('offers to take a checkpoint of an org that has none, opening Checkpoints on the take', () => {

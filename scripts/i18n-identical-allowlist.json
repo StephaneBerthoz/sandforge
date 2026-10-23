@@ -6,6 +6,7 @@
     "auth.oauthWeb",
     "automation.errorCount_one",
     "automation.timeout",
+    "checkpoint.preview.person",
     "common.itemCount_one",
     "common.orgType.devPro",
     "common.recordErrors.group",

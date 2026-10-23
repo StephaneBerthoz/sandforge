@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
-import { developerOrg } from './testing/checkpointFixtures';
+import { developerOrg, readyCheckpoint } from './testing/checkpointFixtures';
 
 /**
- * When the take loads. The stand-in notes when its module is evaluated: a
- * page that imported it up front would parse what a take asks and shows
- * before its list painted.
+ * When the take and the preview load. Each stand-in notes when its module is
+ * evaluated: a page that imported one up front would parse what a take asks
+ * or a preview shows before its list painted.
  */
 const evaluated = vi.hoisted(() => new Set<string>());
 
@@ -27,7 +27,16 @@ vi.mock('./TakeCheckpoint', () => {
   };
 });
 
-import { TakeCheckpoint } from './checkpointParts';
+vi.mock('./RewindPreview', () => {
+  evaluated.add('RewindPreview');
+  return {
+    RewindPreview: ({ checkpoint }: { checkpoint: { name: string } }) => (
+      <div data-testid="preview-stand-in">{checkpoint.name}</div>
+    ),
+  };
+});
+
+import { RewindPreview, TakeCheckpoint } from './checkpointParts';
 
 describe('the parts of the Checkpoints page loaded on demand', () => {
   it('loads the take the first time it is shown, with the props it was given', async () => {
@@ -35,6 +44,13 @@ describe('the parts of the Checkpoints page loaded on demand', () => {
     render(<TakeCheckpoint org={developerOrg()} onClose={vi.fn()} onTaken={vi.fn()} />);
     expect((await screen.findByTestId('take-stand-in')).textContent).toBe('DEV-SB');
     expect([...evaluated]).toEqual(['TakeCheckpoint']);
+  });
+
+  it('loads the preview the first time it is shown, apart from the take, with the props it was given', async () => {
+    expect([...evaluated]).not.toContain('RewindPreview');
+    render(<RewindPreview org={developerOrg()} checkpoint={readyCheckpoint()} onClose={vi.fn()} />);
+    expect((await screen.findByTestId('preview-stand-in')).textContent).toBe('Before UAT');
+    expect([...evaluated]).toContain('RewindPreview');
   });
 
   it('says a take that could not load in its place, and leaves the page around it up', async () => {

@@ -34,6 +34,15 @@ export function usableCheckpoints(
   );
 }
 
+/**
+ * An estimate of time as it is worth saying: to ten seconds under a minute,
+ * to the minute above. "About 1min 4s" says more than an estimate knows.
+ */
+export function roughSeconds(seconds: number): number {
+  if (seconds < 60) return Math.max(10, Math.round(seconds / 10) * 10);
+  return Math.round(seconds / 60) * 60;
+}
+
 /** Longest a name may be: the store's limit (`checkpointNameSchema`). */
 export const CHECKPOINT_NAME_MAX = 120;
 

@@ -74,6 +74,11 @@ export interface NavigationIntent {
   recordId?: string;
   /** Open Checkpoints on a take of the selected org: Home's "Take a checkpoint". */
   takeCheckpoint?: true;
+  /**
+   * Open Checkpoints on what a rewind of the selected org to this checkpoint
+   * would do: Home's "Rewind…", for the org's latest.
+   */
+  previewCheckpointId?: string;
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

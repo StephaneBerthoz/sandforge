@@ -224,6 +224,41 @@ describe('CheckpointPage', () => {
     expect(screen.getByTestId(`checkpoint-row-${ID}`)).toBeInTheDocument();
   });
 
+  it('opens what a rewind to a checkpoint would do from its row, and gives the keyboard back to it on Back', async () => {
+    render(<CheckpointPage />);
+    answerList();
+    fireEvent.click(screen.getByTestId(`checkpoint-rewind-${ID}`));
+    const preview = await screen.findByTestId('checkpoint-preview');
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
+    expect(within(preview).getByRole('heading', { level: 2 })).toHaveFocus();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-back'));
+    expect(screen.getByTestId(`checkpoint-rewind-${ID}`)).toHaveFocus();
+  });
+
+  it('opens on the preview of the checkpoint Home’s Rewind… named, once the list says it is there', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', previewCheckpointId: ID },
+    });
+    render(<CheckpointPage />);
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+    expect(host.current?.sent('checkpoint:preview')).toEqual([]);
+    answerList();
+    expect(await screen.findByTestId('checkpoint-preview')).toBeInTheDocument();
+    expect(host.current?.lastPayload('checkpoint:preview')).toEqual({ checkpointId: ID });
+  });
+
+  it('opens on the list when the checkpoint Home named is no longer there', () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', previewCheckpointId: 'ck-20261019-090000-gone' },
+    });
+    render(<CheckpointPage />);
+    answerList();
+    expect(screen.getByTestId(`checkpoint-row-${ID}`)).toBeInTheDocument();
+    expect(host.current?.sent('checkpoint:preview')).toEqual([]);
+  });
+
   it('opens on a take when Home asked for one, and clears the ask', async () => {
     useAppStore.setState({
       currentRoute: 'checkpoint',
