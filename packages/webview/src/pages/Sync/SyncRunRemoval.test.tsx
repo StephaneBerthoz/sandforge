@@ -558,6 +558,103 @@ describe('SyncRunRemoval', () => {
     });
   });
 
+  it('says every count a removal left of what it brought back and gave back, brought back first, each part under its heading', () => {
+    render(<SyncRunRemoval runId="run-1" />);
+    answer('sync:removal:info', 'sync:removal:info:response', {
+      info: {
+        ...KEPT,
+        created: 0,
+        left: [],
+        overwritten: 2,
+        deleted: 2,
+        putBack: [{ objectApiName: 'Account', count: 2 }],
+        bringBack: [{ objectApiName: 'Contact', count: 2 }],
+      },
+    });
+    confirmRemoval();
+
+    answer('sync:remove', 'sync:remove:response', {
+      result: {
+        runId: 'run-1',
+        status: 'partial',
+        includeChanged: false,
+        finishedAt: '2026-10-14T09:00:00.000Z',
+        objects: [],
+        undeleted: [
+          {
+            objectApiName: 'Contact',
+            planned: 1234,
+            undeleted: 1000,
+            alreadyBack: 1,
+            goneForGood: 2,
+            refused: 3,
+            notReached: 4,
+            reasons: ['DUPLICATE_VALUE: a contact holds this external id'],
+          },
+          {
+            objectApiName: 'Case',
+            planned: 1,
+            undeleted: 1,
+            alreadyBack: 0,
+            goneForGood: 0,
+            refused: 0,
+            reasons: [],
+          },
+        ],
+        restored: [
+          {
+            objectApiName: 'Account',
+            planned: 4321,
+            restored: 2000,
+            keptChanged: 1,
+            alreadyGone: 2,
+            refused: 3,
+            notKept: 4,
+            notReached: 5,
+            restoredWithout: 6,
+            reasons: ['Account.OwnerId: the owner is inactive'],
+          },
+        ],
+      },
+      operationId: 'req-1',
+    });
+
+    const undeleted = screen.getByRole('region', { name: 'What this run deleted in DEV-SANDBOX' });
+    const restored = screen.getByRole('region', {
+      name: 'What this run wrote over in DEV-SANDBOX',
+    });
+    expect(undeleted).toBe(screen.getByTestId('sync-removal-undeleted'));
+    expect(restored).toBe(screen.getByTestId('sync-removal-restored'));
+    expect(within(undeleted).getByRole('heading', { level: 4 }).textContent).toBe(
+      'What this run deleted in DEV-SANDBOX',
+    );
+    expect(
+      undeleted.compareDocumentPosition(restored) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('sync-removal-undeleted-Contact').textContent).toBe(
+      'Contact: 1,000 of 1,234 brought back from the recycle bin · back in DEV-SANDBOX already: 1' +
+        ' · no longer in the recycle bin, gone for good: 2 · refused by DEV-SANDBOX: 3' +
+        ' · not reached before the stop: 4' +
+        'DUPLICATE_VALUE: a contact holds this external id',
+    );
+    // An object that left nothing says its count alone, with no list of reasons.
+    expect(screen.getByTestId('sync-removal-undeleted-Case').textContent).toBe(
+      'Case: 1 of 1 brought back from the recycle bin',
+    );
+    expect(
+      within(screen.getByTestId('sync-removal-undeleted-Case')).queryByRole('list'),
+    ).toBeNull();
+    expect(screen.getByTestId('sync-removal-restored-Account').textContent).toBe(
+      'Account: 2,000 of 4,321 given back their values from before the run' +
+        ' · changed since the run, left as they are: 1 · no longer in DEV-SANDBOX: 2' +
+        ' · refused by DEV-SANDBOX: 3 · values from before no longer kept (their backup was' +
+        ' deleted from the Restore tab, or reached its retention): 4' +
+        ' · not reached before the stop: 5' +
+        " · given back but for fields DEV-SANDBOX no longer takes, which keep the run's values: 6" +
+        'Account.OwnerId: the owner is inactive',
+    );
+  });
+
   it('keeps "keep their new values" off a run whose values an earlier removal gave back', () => {
     render(<SyncRunRemoval runId="run-1" />);
     answer('sync:removal:info', 'sync:removal:info:response', {

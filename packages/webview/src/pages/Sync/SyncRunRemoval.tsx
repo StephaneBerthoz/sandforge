@@ -8,9 +8,7 @@ import type {
   ForgeTargetAutomation,
   SyncRemovalRefusalCode,
   SyncRemovalResult,
-  SyncRestoreObjectResult,
   SyncRunRemovalInfo,
-  SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 import { firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
@@ -20,6 +18,12 @@ import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import {
+  RestoredResult,
+  UndeletedResult,
+  type RestoredResultWords,
+  type UndeletedResultWords,
+} from '../../components/ui/RestoredResults';
 import {
   ForgeRunRemovalMark,
   ForgeRunRemovalPlan,
@@ -203,119 +207,26 @@ const SyncRemovalSweep: React.FC<{ runId: string; org: string }> = ({ runId, org
   );
 };
 
-/**
- * What a removal gave back of what the run wrote over, per object: the
- * records holding their values from before the run again, and those it left,
- * with why — changed since, gone, refused, no longer kept, not reached.
- */
-const SyncRestoredResult: React.FC<{ restored: SyncRestoreObjectResult[]; org: string }> = ({
-  restored,
-  org,
-}) => {
-  const { t } = useTranslation();
-  const headingId = useId();
-  const left = (object: SyncRestoreObjectResult): string[] =>
-    [
-      [object.keptChanged, 'runRemoval.sync.restoredKeptChanged'],
-      [object.alreadyGone, 'runRemoval.sync.restoredGone'],
-      [object.refused, 'runRemoval.sync.restoredRefused'],
-      [object.notKept, 'runRemoval.sync.restoredNotKept'],
-      [object.notReached ?? 0, 'runRemoval.sync.restoredNotReached'],
-      [object.restoredWithout ?? 0, 'runRemoval.sync.restoredWithout'],
-    ].flatMap(([count, key]) =>
-      (count as number) > 0 ? [t(key as string, { n: formatNumber(count as number), org })] : [],
-    );
-  return (
-    <section
-      aria-labelledby={headingId}
-      data-testid="sync-removal-restored"
-      className="flex flex-col gap-1 mt-1.5 text-[11px]"
-    >
-      <h4 id={headingId} className="text-[11px] font-semibold text-text-primary">
-        {t('runRemoval.sync.restoredTitle', { org })}
-      </h4>
-      <ul className="flex flex-col gap-1">
-        {restored.map((object) => (
-          <li
-            key={object.objectApiName}
-            data-testid={`sync-removal-restored-${object.objectApiName}`}
-            className="text-text-secondary"
-          >
-            {t('runRemoval.sync.restored', {
-              object: object.objectApiName,
-              restored: formatNumber(object.restored),
-              planned: formatNumber(object.planned),
-            })}
-            {left(object).length > 0 && ` · ${left(object).join(' · ')}`}
-            {object.reasons.length > 0 && (
-              <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
-                {object.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+/** What the card says of what a removal gave back of what the run wrote over. */
+const RESTORED_WORDS: RestoredResultWords = {
+  title: 'runRemoval.sync.restoredTitle',
+  restored: 'runRemoval.sync.restored',
+  keptChanged: 'runRemoval.sync.restoredKeptChanged',
+  alreadyGone: 'runRemoval.sync.restoredGone',
+  refused: 'runRemoval.sync.restoredRefused',
+  notKept: 'runRemoval.sync.restoredNotKept',
+  notReached: 'runRemoval.sync.restoredNotReached',
+  restoredWithout: 'runRemoval.sync.restoredWithout',
 };
 
-/**
- * What a removal brought back from the recycle bin of what the run deleted,
- * as the source had deleted them, per object: the records back in the
- * target, and those it left deleted, with why — gone for good, refused, not
- * reached.
- */
-const SyncUndeletedResult: React.FC<{ undeleted: SyncUndeleteObjectResult[]; org: string }> = ({
-  undeleted,
-  org,
-}) => {
-  const { t } = useTranslation();
-  const headingId = useId();
-  const left = (object: SyncUndeleteObjectResult): string[] =>
-    [
-      [object.alreadyBack, 'runRemoval.sync.undeletedAlreadyBack'],
-      [object.goneForGood, 'runRemoval.sync.undeletedGone'],
-      [object.refused, 'runRemoval.sync.restoredRefused'],
-      [object.notReached ?? 0, 'runRemoval.sync.restoredNotReached'],
-    ].flatMap(([count, key]) =>
-      (count as number) > 0 ? [t(key as string, { n: formatNumber(count as number), org })] : [],
-    );
-  return (
-    <section
-      aria-labelledby={headingId}
-      data-testid="sync-removal-undeleted"
-      className="flex flex-col gap-1 mt-1.5 text-[11px]"
-    >
-      <h4 id={headingId} className="text-[11px] font-semibold text-text-primary">
-        {t('runRemoval.sync.undeletedTitle', { org })}
-      </h4>
-      <ul className="flex flex-col gap-1">
-        {undeleted.map((object) => (
-          <li
-            key={object.objectApiName}
-            data-testid={`sync-removal-undeleted-${object.objectApiName}`}
-            className="text-text-secondary"
-          >
-            {t('runRemoval.sync.undeleted', {
-              object: object.objectApiName,
-              undeleted: formatNumber(object.undeleted),
-              planned: formatNumber(object.planned),
-            })}
-            {left(object).length > 0 && ` · ${left(object).join(' · ')}`}
-            {object.reasons.length > 0 && (
-              <ul className="ml-3 mt-0.5 list-disc list-inside wrap-break-word">
-                {object.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+/** What the card says of what a removal brought back from the recycle bin of what the run deleted. */
+const UNDELETED_WORDS: UndeletedResultWords = {
+  title: 'runRemoval.sync.undeletedTitle',
+  undeleted: 'runRemoval.sync.undeleted',
+  alreadyBack: 'runRemoval.sync.undeletedAlreadyBack',
+  goneForGood: 'runRemoval.sync.undeletedGone',
+  refused: 'runRemoval.sync.restoredRefused',
+  notReached: 'runRemoval.sync.restoredNotReached',
 };
 
 /**
@@ -620,8 +531,22 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             (!result.restored && !result.undeleted)) && (
             <ForgeRunRemovalResult result={result} org={org} />
           )}
-          {result.undeleted && <SyncUndeletedResult undeleted={result.undeleted} org={org} />}
-          {result.restored && <SyncRestoredResult restored={result.restored} org={org} />}
+          {result.undeleted && (
+            <UndeletedResult
+              undeleted={result.undeleted}
+              org={org}
+              words={UNDELETED_WORDS}
+              testId="sync-removal-undeleted"
+            />
+          )}
+          {result.restored && (
+            <RestoredResult
+              restored={result.restored}
+              org={org}
+              words={RESTORED_WORDS}
+              testId="sync-removal-restored"
+            />
+          )}
           {result.readWhole && result.readWhole.length > 0 && (
             <p className="text-[11px] text-text-secondary" data-testid="sync-removal-read-whole">
               {t('runRemoval.sync.readWhole', {
