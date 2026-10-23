@@ -10,6 +10,7 @@ import type {
   OrgCheckpoint,
   RewindDiff,
   RewindDiffObject,
+  RewindUndoCannotReason,
   SalesforceOrg,
 } from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -32,7 +33,7 @@ import {
   type RemovalAutomationShown,
   type RemovalAutomationWords,
 } from '../Forge/ForgeRemovalAutomation';
-import { roughSeconds } from './checkpointFacts';
+import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
 import {
   REWIND_UNDO_DAYS,
   cannotUndoLines,
@@ -116,6 +117,12 @@ const CANNOT_UNDO_KEYS: Readonly<Record<CannotUndoLine['reason'], string>> = {
   deletedWithCreatedParent: 'checkpoint.preview.cannot.deletedWithCreatedParent',
   convertedLead: 'checkpoint.preview.cannot.convertedLead',
   activatedContract: 'checkpoint.preview.cannot.activatedContract',
+};
+
+/** What the preview says Undo could not bring back of what a rewind deletes, by reason. */
+const UNDO_CANNOT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> = {
+  onlyWithParent: 'checkpoint.preview.undoCannot.line',
+  deletedBeforeParent: 'checkpoint.preview.undoCannot.beforeParent',
 };
 
 /** What the user ticked in a preview, for the rewind it confirms. */
@@ -411,18 +418,25 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             {t('checkpoint.preview.undoCannot.title')}
           </h3>
           <ul className="ml-4 list-disc">
-            {diff.undoCannot.map((item) => (
-              <li
-                key={item.objectApiName}
-                data-testid={`checkpoint-preview-undo-cannot-${item.objectApiName}`}
-              >
-                {t('checkpoint.preview.undoCannot.line', {
-                  count: item.count,
-                  formatted: formatNumber(item.count),
-                  object: item.objectApiName,
-                })}
-              </li>
-            ))}
+            {diff.undoCannot.map((item) => {
+              // Each reason its own sentence: a record deleted before a
+              // record it points at is said apart from one Salesforce
+              // undeletes only with a parent that stays.
+              const reason = undoCannotReasonOf(item);
+              const named =
+                reason === 'onlyWithParent'
+                  ? item.objectApiName
+                  : `${item.objectApiName}-${reason}`;
+              return (
+                <li key={named} data-testid={`checkpoint-preview-undo-cannot-${named}`}>
+                  {t(UNDO_CANNOT_KEYS[reason], {
+                    count: item.count,
+                    formatted: formatNumber(item.count),
+                    object: item.objectApiName,
+                  })}
+                </li>
+              );
+            })}
           </ul>
           <Box
             checked={ticked.noUndo}

@@ -11,6 +11,8 @@ import type {
   CheckpointUndoResponse,
   OrgCheckpoint,
   RewindDiff,
+  RewindUndoCannot,
+  RewindUndoCannotReason,
   SalesforceOrg,
 } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
@@ -30,9 +32,18 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
 import { RewindPreview, RewindRun, StopComparingFields, TakeCheckpoint } from './checkpointParts';
-import { usableCheckpoints } from './checkpointFacts';
+import { undoCannotReasonOf, usableCheckpoints } from './checkpointFacts';
 import type { RewindAcceptances } from './RewindPreview';
 import type { RunShown } from './RewindRun';
+
+/**
+ * The words of an undo's confirmation, as the rewind's result says them, for records Undo couldn't bring back, by reason: each
+ * its own sentence.
+ */
+const UNDO_CANNOT_RESULT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> = {
+  onlyWithParent: 'checkpoint.result.undoCannot',
+  deletedBeforeParent: 'checkpoint.result.undoCannotBeforeParent',
+};
 
 /** Where the page opens for the org Home named: a take, or what a rewind to one checkpoint would do. */
 type Arrival = { take: true } | { preview: string } | null;
@@ -44,7 +55,7 @@ type PageRun = RunShown & { checkpoint: OrgCheckpoint };
 interface UndoAsked {
   checkpoint: OrgCheckpoint;
   rewindId: string;
-  cannot: ReadonlyArray<{ objectApiName: string; count: number }>;
+  cannot: readonly RewindUndoCannot[];
 }
 
 /**
@@ -283,15 +294,18 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     >
       {undoAsked.cannot.length > 0 && (
         <ul className="mb-2 ml-4 list-disc" data-testid="checkpoint-undo-cannot">
-          {undoAsked.cannot.map((item) => (
-            <li key={item.objectApiName}>
-              {t('checkpoint.result.undoCannot', {
-                count: item.count,
-                formatted: formatNumber(item.count),
-                object: item.objectApiName,
-              })}
-            </li>
-          ))}
+          {undoAsked.cannot.map((item) => {
+            const reason = undoCannotReasonOf(item);
+            return (
+              <li key={`${item.objectApiName}-${reason}`}>
+                {t(UNDO_CANNOT_RESULT_KEYS[reason], {
+                  count: item.count,
+                  formatted: formatNumber(item.count),
+                  object: item.objectApiName,
+                })}
+              </li>
+            );
+          })}
         </ul>
       )}
       {/* Never ticked unasked: without it, an org that runs automation as

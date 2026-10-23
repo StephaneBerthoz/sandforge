@@ -693,6 +693,76 @@ describe('others at work during the rewind (M3)', () => {
 
 // ─── What the org will not take back ─────────────────────────────────────────
 
+describe('a case its rewind would delete before the account it points at', () => {
+  /**
+   * Cases a contact's delete takes along, whose account lookup restricts the
+   * account's delete instead, as the scratch org of the live proof had it.
+   */
+  const RESTRICT_FIELDS: Record<string, unknown[]> = {
+    ...FIELDS,
+    Case: [
+      ...STAMP_FIELDS,
+      writable('Subject'),
+      writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+      writable('ContactId', 'reference', { referenceTo: ['Contact'] }),
+    ],
+  };
+  const RESTRICT_CHILDREN = {
+    ...CHILDREN,
+    Account: [
+      ...(CHILDREN.Account ?? []),
+      { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
+    ],
+    Contact: [{ childSObject: 'Case', field: 'ContactId', cascadeDelete: true }],
+  };
+
+  it('is kept by the second pass, which would delete it before that account, and named so, when that Undo couldn’t bring it back was not accepted: a case that came back with its contact under an account made since (F41)', async () => {
+    const t = await taken(
+      baseRecords,
+      new RewindTestOrg({ fields: RESTRICT_FIELDS, children: RESTRICT_CHILDREN }),
+      CASE_OBJECTS,
+      { objects: CASE_OBJECTS, fields: CASE_COMPARED },
+    );
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+    t.org.add('Case', {
+      Id: kase(7),
+      Subject: 'Made since',
+      AccountId: account(7),
+      ContactId: contact(3),
+      LastModifiedById: COLLEAGUE,
+    });
+    clock.now = SINCE + 5_000;
+    // The case goes with its contact, and comes back with it.
+    t.org.trash('Contact', contact(3), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Case')?.toDelete).toEqual({
+      createdSince: 0,
+      broughtBackSince: 0,
+      comesBackWithParent: 1,
+    });
+    expect(diff.undoCannot).toEqual([
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.passes).toBe(2);
+    expect(result.residual).toContainEqual({
+      objectApiName: 'Case',
+      reason: 'kept',
+      count: 1,
+      ids: [kase(7)],
+      message:
+        "Kept: Undo couldn't bring it back once deleted before a record it points at, which " +
+        'the rewind deletes next, and that was not accepted.',
+    });
+    expect(liveIds(t.org, 'Case')).toEqual([kase(7)]);
+    expect(liveIds(t.org, 'Account')).toContain(account(7));
+    expect(result.undo?.cannot).toEqual([]);
+  });
+});
+
 describe('a record Salesforce keeps in the recycle bin for good', () => {
   it('deleted on its own, then its account, is never sent to the undelete: the preview counts it gone for good, and the rewind names it so (F41)', async () => {
     const t = await taken();

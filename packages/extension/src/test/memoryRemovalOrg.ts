@@ -22,9 +22,12 @@
  *   longer come back at all: `queryAll` still reads it deleted, and its
  *   undelete answers `UNDELETE_FAILED` "Entity is not in the recycle bin",
  *   sent with its parent, after it or before it (a case under an account, on a
- *   scratch org, tour 15). A child deleted with its parent answers the same
- *   while the parent is in the bin: the rewind's undo sent contacts before the
- *   accounts they went with, and the org refused each so.
+ *   scratch org, tour 15). So does one deleted on its own before a record it
+ *   points at through a lookup that restricts that record's delete: the
+ *   case's account lookup, on that org, restricted the account's delete
+ *   rather than taking the case along. A child deleted with its parent
+ *   answers the same while the parent is in the bin: the rewind's undo sent
+ *   contacts before the accounts they went with, and the org refused each so.
  * - Deleting a record clears a lookup to it that does not cascade (a
  *   contact's `ReportsToId`) and restamps the child; undeleting the record
  *   puts the lookup back and restamps the child again.
@@ -129,7 +132,9 @@ export interface MemoryOrgFacts {
    * its own undelete answers "Entity is not in the recycle bin", sent with its
    * parent, after it or before it: it can no longer come back on its own.
    * Whether it comes back with its parent is {@link childDeletedAloneStays}.
-   * Off: it comes back on its own, as any record deleted on its own.
+   * The same holds of a record deleted on its own before one it points at
+   * through a lookup that restricts that one's delete, which never brings it
+   * back. Off: either comes back on its own, as any record deleted on its own.
    */
   childDeletedAloneThenParentLimbo: boolean;
 }
@@ -266,8 +271,9 @@ interface Binned {
   /** Hard-deleted: never to come back. */
   hard?: boolean;
   /**
-   * Deleted on its own, then a record it hangs from through a cascade
-   * deleted after it: still in the bin, never to come back (see
+   * Deleted on its own, then a record it hangs from through a cascade, or
+   * points at through a lookup that restricts its delete, deleted after it:
+   * still in the bin, never to come back (see
    * {@link MemoryOrgFacts.childDeletedAloneThenParentLimbo}).
    */
   stuck?: boolean;
@@ -872,7 +878,9 @@ export class MemoryRemovalOrg implements RemovalOrg {
     for (const { objectApiName: object, row } of taken) {
       const key = keyOf(row.Id);
       if (this.facts.childDeletedAloneThenParentLimbo) {
-        for (const [, held] of this.deletedAloneUnder({ objectApiName: object, row })) {
+        const strands = (child: MemoryChild): boolean =>
+          child.cascadeDelete === true || child.restrictedDelete === true;
+        for (const [, held] of this.deletedAloneUnder({ objectApiName: object, row }, strands)) {
           held.stuck = true;
         }
       }
@@ -922,16 +930,16 @@ export class MemoryRemovalOrg implements RemovalOrg {
 
   /**
    * The records the bin holds that were deleted on their own before `parent`,
-   * through a relationship that cascades from it: what its delete leaves
-   * stuck, and what its undelete may bring back.
+   * through a relationship `through` takes — one that cascades from it unless
+   * told: what its undelete may bring back; with the lookups that restrict its
+   * delete too, what its delete leaves stuck.
    */
   private deletedAloneUnder(
     parent: Pick<Binned, 'objectApiName' | 'row'>,
+    through: (child: MemoryChild) => boolean = (child) => child.cascadeDelete === true,
   ): Array<[string, Binned]> {
     const key = keyOf(parent.row.Id);
-    const cascades = (this.children[parent.objectApiName] ?? []).filter(
-      (child) => child.cascadeDelete,
-    );
+    const cascades = (this.children[parent.objectApiName] ?? []).filter(through);
     return [...this.binned].filter(
       ([, held]) =>
         !held.hard &&

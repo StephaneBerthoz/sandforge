@@ -85,6 +85,8 @@ interface Held {
   undeletable?: boolean;
   /** Its fields whose parent's delete takes a record along. */
   cascadeParents?: string[];
+  /** Its fields whose parent's delete a live record refuses. */
+  restrictParents?: string[];
   /** Its fields as the take described them: each of {@link fields} a text unless told. */
   described?: FingerprintField[];
 }
@@ -128,6 +130,17 @@ const NOTE: Held = {
   fields: [...STAMPS, 'Body__c', 'Contact__c'],
   cascadeParents: ['Contact__c'],
 };
+/** A case whose account lookup restricts the account's delete, as seen live: never deleted along. */
+const CASE: Held = {
+  objectApiName: 'Case',
+  fields: [...STAMPS, 'Subject', 'AccountId'],
+  restrictParents: ['AccountId'],
+};
+const caseId = (n: number): string => idOf('500', n);
+/** The account's describe, as the org lists that lookup. */
+const RESTRICTING = {
+  Account: [{ childSObject: 'Case', field: 'AccountId', restrictedDelete: true }],
+};
 const OPPORTUNITY: Held = {
   objectApiName: 'Opportunity',
   fields: [...STAMPS, 'Name', 'StageName'],
@@ -170,10 +183,11 @@ interface Scenario {
 }
 
 /**
- * A line of a class's file: the record's id, and for one given back the
- * fields that differ and, of them, the lookups a deletion cleared.
+ * A line of a class's file: the record's id, for one given back the fields
+ * that differ and, of them, the lookups a deletion cleared, and for one Undo
+ * couldn't bring back why, when it is not the first reason.
  */
-type ClassLine = { Id: string; fields?: string[]; cleared?: string[] };
+type ClassLine = { Id: string; fields?: string[]; cleared?: string[]; reason?: string };
 type Classes = Partial<Record<RewindClass, ClassLine[]>>;
 
 const CLASSES: RewindClass[] = [
@@ -300,6 +314,7 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
       readMode,
       undeletable: object.undeletable ?? true,
       cascadeParents: object.cascadeParents ?? [],
+      ...(object.restrictParents ? { restrictParents: object.restrictParents } : {}),
       fingerprint: prints[object.objectApiName].digest,
       fields: object.fields,
       leftOutFields: [],
@@ -643,6 +658,27 @@ const ROWS: Row[] = [
         withParent: lines(contactId(1), contactId(2)),
         goneForGood: lines(contactId(3)),
       },
+    }),
+  },
+  {
+    name: 'a case deleted on its own since, then the account it points at through a lookup that restricts the account’s delete: gone for good, never to bring back, the account brought back (F41, a case under its account, live)',
+    scenario: {
+      objects: [CASE, ACCOUNT],
+      children: RESTRICTING,
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Case', { Id: caseId(1), Subject: 'Alone', AccountId: SUBJECT });
+        org.add('Case', { Id: caseId(2), Subject: 'Alone too', AccountId: KEPT });
+      },
+      since: (org) => {
+        org.trash('Case', caseId(1));
+        org.trash('Case', caseId(2));
+      },
+      later: (org) => org.trash('Account', SUBJECT),
+    },
+    expect: () => ({
+      Account: { inBin: lines(SUBJECT) },
+      Case: { goneForGood: lines(caseId(1)), inBin: lines(caseId(2)) },
     }),
   },
   {
@@ -1388,7 +1424,7 @@ describe('rewindDiff: what it says beside the classes', () => {
     ]);
   });
 
-  it('counts, in an object Salesforce undeletes on its own too, the records to delete that go with a parent deleted too: not one under a parent that stays, nor one made while the checkpoint was taken (B1, F41)', async () => {
+  it('counts, in an object Salesforce undeletes on its own too, the records to delete that go with a parent deleted too: not one under a parent that stays, nor one made while the checkpoint was taken, which is deleted before its parent and Undo couldn’t bring back (B1, F41)', async () => {
     const [along, underKept, whileTaken] = [1, 2, 3].map(contactId);
     const [made, early] = [20, 21].map(accountId);
     const taken = await take({
@@ -1411,10 +1447,43 @@ describe('rewindDiff: what it says beside the classes', () => {
     const created = (await classesOf(taken.folder, 'Contact')).createdSince ?? [];
     expect(created.map(({ Id }) => Id).sort()).toEqual([along, underKept, whileTaken].sort());
     expect(diff.withParentDeleted).toEqual([{ objectApiName: 'Contact', count: 1 }]);
-    expect(diff.undoCannot).toEqual([]);
+    // The one made while the checkpoint was taken keeps its parent for the
+    // deletion, so it is deleted on its own first: its account's delete then
+    // leaves it in the bin for good (F41).
+    expect(diff.undoCannot).toEqual([
+      { objectApiName: 'Contact', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+    expect((await classesOf(taken.folder, 'Contact')).undoCannot).toEqual([
+      { Id: whileTaken, reason: 'deletedBeforeParent' },
+    ]);
   });
 
-  it('says Undo couldn’t bring back a product made while the checkpoint was taken under an opportunity deleted too: the deletion keeps a parent for such a record, so it is deleted on its own (B1, B3)', async () => {
+  it('says Undo couldn’t bring back a case it deletes before the account it points at, which it deletes next, through a lookup that restricts the account’s delete: Salesforce then keeps the case in the bin for good; not one whose account stays (F41, a case under its account, live)', async () => {
+    const [before, underKept] = [1, 2].map(caseId);
+    const made = accountId(20);
+    const taken = await take({
+      objects: [CASE, ACCOUNT],
+      children: RESTRICTING,
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.add('Case', { Id: before, Subject: 'Under made', AccountId: made });
+        org.add('Case', { Id: underKept, Subject: 'Under kept', AccountId: KEPT });
+      },
+    });
+
+    const diff = await diffOf(taken);
+
+    const cases = await classesOf(taken.folder, 'Case');
+    expect(cases.createdSince?.map(({ Id }) => Id).sort()).toEqual([before, underKept].sort());
+    expect(cases.undoCannot).toEqual([{ Id: before, reason: 'deletedBeforeParent' }]);
+    expect(diff.undoCannot).toEqual([
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+    // The account's delete never takes the case along: it goes alone, first.
+    expect(diff.withParentDeleted).toBeUndefined();
+  });
+
+  it('says Undo couldn’t bring back a product made while the checkpoint was taken under an opportunity deleted too, as one deleted before its parent: the deletion keeps a parent for such a record, so it is deleted on its own, first (B1, B3, F41)', async () => {
     const [made, along] = [1, 2].map(lineId);
     const parent = opportunityId(1);
     const taken = await take({
@@ -1436,8 +1505,12 @@ describe('rewindDiff: what it says beside the classes', () => {
 
     const diff = await diffOf(taken);
 
-    expect(diff.undoCannot).toEqual([{ objectApiName: 'OpportunityLineItem', count: 1 }]);
-    expect((await classesOf(taken.folder, 'OpportunityLineItem')).undoCannot).toEqual(lines(made));
+    expect(diff.undoCannot).toEqual([
+      { objectApiName: 'OpportunityLineItem', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+    expect((await classesOf(taken.folder, 'OpportunityLineItem')).undoCannot).toEqual([
+      { Id: made, reason: 'deletedBeforeParent' },
+    ]);
   });
 });
 

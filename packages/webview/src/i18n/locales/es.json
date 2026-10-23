@@ -5377,6 +5377,8 @@
         "title": "Lo que Deshacer no podría recuperar",
         "line_one": "{{formatted}} registro de {{object}} que este retroceso elimina: Salesforce solo lo restaura con su registro padre, que se queda.",
         "line_other": "{{formatted}} registros de {{object}} que este retroceso elimina: Salesforce solo los restaura con su registro padre, que se queda.",
+        "beforeParent_one": "{{formatted}} registro de {{object}} que este retroceso elimina antes de un registro al que apunta, que el retroceso elimina después: Salesforce ya no puede recuperarlo después de eso.",
+        "beforeParent_other": "{{formatted}} registros de {{object}} que este retroceso elimina antes de un registro al que apuntan, que el retroceso elimina después: Salesforce ya no puede recuperarlos después de eso.",
         "accept": "Retroceder aunque Deshacer no pudiera recuperarlos"
       },
       "outside": {
@@ -5454,6 +5456,8 @@
       "undoUntil": "Este retroceso se puede deshacer hasta el {{date}}, antes si la papelera se llena.",
       "undoCannot_one": "Deshacer no podría recuperar {{formatted}} registro de {{object}} que este retroceso eliminó: Salesforce solo lo restaura con su registro padre.",
       "undoCannot_other": "Deshacer no podría recuperar {{formatted}} registros de {{object}} que este retroceso eliminó: Salesforce solo los restaura con su registro padre.",
+      "undoCannotBeforeParent_one": "Deshacer no podría recuperar {{formatted}} registro de {{object}} que este retroceso eliminó antes de un registro al que apunta, que el retroceso eliminó después: Salesforce ya no puede recuperarlo después de eso.",
+      "undoCannotBeforeParent_other": "Deshacer no podría recuperar {{formatted}} registros de {{object}} que este retroceso eliminó antes de un registro al que apuntan, que el retroceso eliminó después: Salesforce ya no puede recuperarlos después de eso.",
       "refused": "rechazados por {{org}}: {{n}}",
       "notReached": "no alcanzados antes de la detención: {{n}}",
       "residual": {

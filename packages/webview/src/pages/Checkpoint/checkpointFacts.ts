@@ -1,4 +1,9 @@
-import type { CheckpointListEntry, OrgCheckpoint } from '@sandforge/shared';
+import type {
+  CheckpointListEntry,
+  OrgCheckpoint,
+  RewindUndoCannot,
+  RewindUndoCannotReason,
+} from '@sandforge/shared';
 
 /**
  * Days a checkpoint is kept unless its owner keeps it until they delete it:
@@ -6,6 +11,15 @@ import type { CheckpointListEntry, OrgCheckpoint } from '@sandforge/shared';
  * OrgCheckpointStore), which the take asks for by number.
  */
 export const CHECKPOINT_KEEP_DAYS = 30;
+
+/**
+ * Why Undo couldn't bring back records a rewind deletes, as an entry of a
+ * preview or a result says it: one that names none is of the first reason,
+ * as a diff or a result made before the second was told says it.
+ */
+export function undoCannotReasonOf(item: Pick<RewindUndoCannot, 'reason'>): RewindUndoCannotReason {
+  return item.reason ?? 'onlyWithParent';
+}
 
 /** Records a checkpoint holds, all its objects together. */
 export function recordsHeld(checkpoint: Pick<OrgCheckpoint, 'objects'>): number {

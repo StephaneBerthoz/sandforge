@@ -5377,6 +5377,8 @@
         "title": "What Undo could not bring back",
         "line_one": "{{formatted}} {{object}} record this rewind deletes: Salesforce undeletes it only with its parent record, which stays.",
         "line_other": "{{formatted}} {{object}} records this rewind deletes: Salesforce undeletes them only with their parent record, which stays.",
+        "beforeParent_one": "{{formatted}} {{object}} record this rewind deletes before a record it points at, which the rewind deletes next: Salesforce cannot bring it back after that.",
+        "beforeParent_other": "{{formatted}} {{object}} records this rewind deletes before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that.",
         "accept": "Rewind even though Undo could not bring these back"
       },
       "outside": {
@@ -5454,6 +5456,8 @@
       "undoUntil": "This rewind can be undone until {{date}}, sooner if the recycle bin fills.",
       "undoCannot_one": "Undo could not bring back {{formatted}} {{object}} record this rewind deleted: Salesforce undeletes it only with its parent record.",
       "undoCannot_other": "Undo could not bring back {{formatted}} {{object}} records this rewind deleted: Salesforce undeletes them only with their parent record.",
+      "undoCannotBeforeParent_one": "Undo could not bring back {{formatted}} {{object}} record this rewind deleted before a record it points at, which the rewind deleted next: Salesforce cannot bring it back after that.",
+      "undoCannotBeforeParent_other": "Undo could not bring back {{formatted}} {{object}} records this rewind deleted before a record they point at, which the rewind deleted next: Salesforce cannot bring them back after that.",
       "refused": "refused by {{org}}: {{n}}",
       "notReached": "not reached before the stop: {{n}}",
       "residual": {

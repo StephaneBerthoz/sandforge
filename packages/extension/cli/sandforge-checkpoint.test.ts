@@ -671,6 +671,30 @@ describe('previewLines', () => {
     );
   });
 
+  it('says in a line of its own the records Undo couldn’t bring back as deleted before a record they point at, which the rewind deletes next', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf(
+        [
+          object({
+            objectApiName: 'Case',
+            toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+          }),
+        ],
+        {
+          undoCannot: [
+            { objectApiName: 'OpportunityLineItem', count: 3 },
+            { objectApiName: 'Case', count: 2, reason: 'deletedBeforeParent' },
+          ],
+        },
+      ),
+      estimate,
+    });
+    expect(lines.filter((line) => line.startsWith("  undo couldn't bring back:"))).toEqual([
+      "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent, and their parent stays",
+      "  undo couldn't bring back: Case 2 — deleted before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that",
+    ]);
+  });
+
   it('says there is nothing to rewind when the org is as it was', () => {
     const lines = previewLines('DEV-SB', checkpoint, { diff: diffOf([]), estimate });
     expect(lines).toContain(
@@ -740,6 +764,46 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
       acceptanceRefusal(
         'DEV-SB',
         { diff: { ...diff, undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }] } },
+        { acceptAutomation: false, acceptNoUndo: true },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('refuses without --accept-no-undo a rewind that deletes records before a record they point at, which it deletes next, each reason in its own words', () => {
+    const before = { objectApiName: 'Case', count: 2, reason: 'deletedBeforeParent' as const };
+    expect(
+      acceptanceRefusal('DEV-SB', { diff: { ...diff, undoCannot: [before] } }, NOTHING_ACCEPTED),
+    ).toEqual({
+      code: 'NO_UNDO',
+      message:
+        "Undo couldn't bring back 2 Case record(s) this rewind deletes: deleted before a record " +
+        'they point at, which the rewind deletes next, Salesforce cannot bring them back after ' +
+        'that. Rewind refused; give --accept-no-undo to rewind all the same. No record was ' +
+        'written.',
+    });
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        {
+          diff: {
+            ...diff,
+            undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }, before],
+          },
+        },
+        NOTHING_ACCEPTED,
+      )?.message,
+    ).toBe(
+      "Undo couldn't bring back 3 OpportunityLineItem record(s) this rewind deletes: " +
+        'Salesforce undeletes them only with their parent, which stays. ' +
+        "Undo couldn't bring back 2 Case record(s) this rewind deletes: deleted before a record " +
+        'they point at, which the rewind deletes next, Salesforce cannot bring them back after ' +
+        'that. Rewind refused; give --accept-no-undo to rewind all the same. No record was ' +
+        'written.',
+    );
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: { ...diff, undoCannot: [before] } },
         { acceptAutomation: false, acceptNoUndo: true },
       ),
     ).toBeUndefined();
@@ -877,6 +941,28 @@ describe('rewindLines, undoLines and resultJson', () => {
       "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent",
       '  sent 40 API requests to the org; 14,860 left today',
     ]);
+  });
+
+  it('says Undo couldn’t bring back, in a line of its own, what the rewind deleted before a record it points at, and gives the reason in its JSON', () => {
+    const cannot = [
+      { objectApiName: 'OpportunityLineItem', count: 3 },
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' as const },
+    ];
+    const result = resultOf({ ...DID, undo: { until: '2026-11-06T17:00:00.000Z', cannot } });
+    const lines = rewindLines('DEV-SB', checkpoint, result);
+    expect(lines.filter((line) => line.startsWith("  undo couldn't bring back:"))).toEqual([
+      "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent",
+      "  undo couldn't bring back: Case 1 — deleted before a record they point at, which the rewind deleted next: Salesforce cannot bring them back after that",
+    ]);
+    expect((resultJson('rewind', 'DEV-SB', checkpoint, result) as { undo?: unknown }).undo).toEqual(
+      {
+        until: '2026-11-06T17:00:00.000Z',
+        cannot: [
+          { object: 'OpportunityLineItem', count: 3 },
+          { object: 'Case', count: 1, reason: 'deletedBeforeParent' },
+        ],
+      },
+    );
   });
 
   it('names each record that still differs with why, and who changed one during the rewind', () => {

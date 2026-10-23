@@ -99,6 +99,19 @@ describe('orgCheckpointSchema', () => {
     expect(twice).toEqual(readyCheckpoint());
   });
 
+  it("keeps an object's fields whose parent its live records refuse the delete of, and reads a checkpoint taken before they were kept", () => {
+    const restricting = withContact({ restrictParents: ['AccountId'] });
+    const parsed = orgCheckpointSchema.parse(restricting);
+    expect(parsed.objects[0].restrictParents).toEqual(['AccountId']);
+    expect(parsed).toEqual(restricting);
+    expect(orgCheckpointSchema.parse(readyCheckpoint()).objects[0]).not.toHaveProperty(
+      'restrictParents',
+    );
+    expect(
+      orgCheckpointSchema.safeParse(withContact({ restrictParents: ['Not a field'] })).success,
+    ).toBe(false);
+  });
+
   it('reads a checkpoint kept until it is deleted, and one with its last rewind', () => {
     expect(orgCheckpointSchema.safeParse(checkpointWith({ expiresAt: null })).success).toBe(true);
     const rewound = checkpointWith({

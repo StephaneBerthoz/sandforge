@@ -1154,6 +1154,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       readMode: capture.readMode,
       undeletable: capture.undeletable,
       cascadeParents: capture.cascadeParents,
+      restrictParents: capture.restrictParents,
       fingerprint: prints[scoped.objectApiName].digest,
       fields: capture.fields,
       leftOutFields: capture.leftOutFields,

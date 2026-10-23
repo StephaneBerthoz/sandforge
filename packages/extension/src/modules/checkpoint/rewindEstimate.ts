@@ -726,8 +726,9 @@ export interface DiffEstimateInput {
    * What the last read found: the objects that moved, those it could not
    * read, the records to delete that go with a parent it deletes too, never
    * sent, and, of the records to delete of objects Salesforce undeletes only
-   * with their parent, those deleted on their own. Told neither, every record
-   * to delete is counted sent.
+   * with their parent, those deleted on their own, whatever the reason Undo
+   * couldn't bring them back. Told neither, every record to delete is
+   * counted sent.
    */
   diff: Pick<RewindDiff, 'objects' | 'unread'> &
     Partial<Pick<RewindDiff, 'undoCannot' | 'withParentDeleted'>>;
@@ -1130,8 +1131,15 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
   const heldOf = new Map(input.objects.map((object) => [object.objectApiName, object]));
   const relationships = (objectApiName: string): ObjectRelationships =>
     relationshipsFor(input.relationships, objectApiName);
+  // Every reason together: of an object Salesforce undeletes only with its
+  // parent, a record Undo couldn't bring back is sent on its own, whether its
+  // parent stays or is deleted after it.
   const alone = input.diff.undoCannot
-    ? new Map(input.diff.undoCannot.map(({ objectApiName, count }) => [objectApiName, count]))
+    ? input.diff.undoCannot.reduce(
+        (sum, { objectApiName, count }) =>
+          sum.set(objectApiName, (sum.get(objectApiName) ?? 0) + count),
+        new Map<string, number>(),
+      )
     : undefined;
   const along = input.diff.withParentDeleted
     ? new Map(

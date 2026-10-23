@@ -353,6 +353,43 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('says in a sentence of its own the records the rewind deletes before a record they point at, which it deletes next, and holds Rewind until that is accepted too (F41)', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        undoCannot: [
+          { objectApiName: 'OpportunityLineItem', count: 3 },
+          { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+          { objectApiName: 'OpportunityLineItem', count: 2, reason: 'deletedBeforeParent' },
+        ],
+      }),
+    });
+    const box = screen.getByTestId('checkpoint-preview-undo-cannot');
+    expect(
+      within(box)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      '3 OpportunityLineItem records this rewind deletes: Salesforce undeletes them only with their parent record, which stays.',
+      '1 Case record this rewind deletes before a record it points at, which the rewind deletes next: Salesforce cannot bring it back after that.',
+      '2 OpportunityLineItem records this rewind deletes before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that.',
+    ]);
+    expect(
+      screen.getByTestId('checkpoint-preview-undo-cannot-Case-deletedBeforeParent'),
+    ).toBeInTheDocument();
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Rewind even though Undo could not bring these back' }),
+    );
+    fireEvent.click(rewind);
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptNoUndo: true }),
+      expect.anything(),
+    );
+  });
+
   it('lists what the org runs as each step of the rewind writes, and holds Rewind until it is accepted', () => {
     const { onRewind } = renderPreview();
     answerPreview({ automation: AUTOMATION });

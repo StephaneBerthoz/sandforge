@@ -46,8 +46,9 @@
  *   own comes back on its own — but not in an object Salesforce undeletes
  *   only with its parent (an opportunity's products, a campaign's members):
  *   such a record whose parent is not coming back cannot come back with its
- *   id at all, and is named so. Nor one whose parent that way was deleted
- *   after it: Salesforce keeps such a record in the bin for good;
+ *   id at all, and is named so. Nor one whose parent that way, or a record it
+ *   points at through a lookup that restricts that record's delete, was
+ *   deleted after it: Salesforce keeps such a record in the bin for good;
  * - in `L` and `S`, a lead converted since: Salesforce cannot unconvert it and
  *   refuses any update of it, so it is named, never given back;
  * - in `D`, in neither, created before T0's second: live at T0, gone before
@@ -108,9 +109,15 @@
  *   record, they are never sent on their own and come back with that parent.
  *   Deleted alone first, a record whose parent is deleted after it stays in
  *   the bin for good;
- * - the records to delete that Undo couldn't bring back: in an object
- *   Salesforce undeletes only with its parent, one whose parent stays is
- *   deleted on its own, and stays in the bin.
+ * - the records to delete that Undo couldn't bring back, each with why: in an
+ *   object Salesforce undeletes only with its parent, one whose parent stays
+ *   is deleted on its own, and stays in the bin (`onlyWithParent`); in any
+ *   object, one deleted on its own before a record it points at that the
+ *   rewind deletes next stays there for good (`deletedBeforeParent`) — a
+ *   case whose account lookup restricts the account's delete, which the
+ *   account cannot go before (seen live), or one the deletion would not take
+ *   along with its parent: made while the checkpoint was taken, brought back
+ *   since, changed in the second the read began in.
  *
  * An object any of whose reads failed is named "could not be read", never
  * taken for one that did not change: a rewind leaves it as it is.
@@ -189,8 +196,9 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from '
  *   come back with its id;
  * - `convertedLead`: a lead converted since, which Salesforce cannot
  *   unconvert and refuses any update of: named, never given back;
- * - `undoCannot`: of the records to delete, those Undo couldn't bring back.
- *   Not a class of its own: each of its records is in a class to delete too;
+ * - `undoCannot`: of the records to delete, those Undo couldn't bring back,
+ *   a line naming why when it is not `onlyWithParent`. Not a class of its
+ *   own: each of its records is in a class to delete too;
  * - `outsideParents`: of the records to delete, those records outside the
  *   checkpoint created since T1 hang from, which their deletion takes along.
  *   Not a class of its own either: a rewind of picked objects keeps them
@@ -391,13 +399,17 @@ class People {
 }
 
 /**
- * A record to delete, and the parents it hangs from through a field whose
- * parent's delete takes it along: of an object Salesforce undeletes only with
- * its parent, every one; of any other, one the deletion may take along.
+ * A record to delete, the parents it hangs from through a field whose
+ * parent's delete takes it along, and the records it points at through a
+ * lookup that restricts their delete: of an object Salesforce undeletes only
+ * with its parent, every one; of any other, one that hangs from or points at
+ * a record, which the rewind may delete next.
  */
 interface PendingUndo {
   id: string;
   parents: string[];
+  /** The records it points at through a lookup that restricts their delete, by key. */
+  restricts: string[];
   /**
    * Whether the deletion takes it along with a parent it deletes, as it tells
    * one from a record that keeps its parent: created at or after T1, and not
@@ -430,13 +442,15 @@ interface FieldsNow {
 
 /**
  * A record deleted since that a rewind brings back: its object, the stamp its
- * delete left, and the records it hangs from through a field whose parent's
- * delete takes it along, by key.
+ * delete left, the records it hangs from through a field whose parent's
+ * delete takes it along, and those it points at through a lookup that
+ * restricts their delete, by key.
  */
 interface ToBringBack {
   objectApiName: string;
   stamp: number;
   parents: string[];
+  restricts: string[];
 }
 
 /** What every object of a diff shares. */
@@ -593,13 +607,16 @@ async function fieldsNowOf(
 /**
  * What the change reads of an object read beside the stamps: the fields whose
  * parent's delete takes a record along, which tell what comes back with a
- * parent; on a contact of an org with person accounts, the flag and the
- * account, which tell a person account's contact; and who last changed each
- * record, when. Never a field gone since: a read that names one is refused
- * whole.
+ * parent, and those whose parent's delete a live record refuses, which tell
+ * what a rewind deletes before a record it points at; on a contact of an org
+ * with person accounts, the flag and the account, which tell a person
+ * account's contact; and who last changed each record, when. Never a field
+ * gone since: a read that names one is refused whole.
  */
 function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): string[] {
-  const fields = object.cascadeParents.filter((field) => !gone.has(field.toLowerCase()));
+  const fields = [...object.cascadeParents, ...(object.restrictParents ?? [])].filter(
+    (field) => !gone.has(field.toLowerCase()),
+  );
   const flag = heldField(object.fields, PERSON_ACCOUNT_FLAG);
   if (object.objectApiName === CONTACT && flag !== undefined) {
     const account = heldField(object.fields, 'AccountId');
@@ -631,7 +648,7 @@ async function toBringBackOf(
 ): Promise<Map<string, ToBringBack>> {
   const { folder, checkpoint } = context.input;
   const back = new Map<string, ToBringBack>();
-  for (const { objectApiName, cascadeParents } of objects) {
+  for (const { objectApiName, cascadeParents, restrictParents = [] } of objects) {
     const changed = changes.get(objectApiName);
     if (!changed || 'unread' in changed || !changed.deleted || changed.deleted.rows === 0) continue;
     const found = new Map<string, ToBringBack>();
@@ -645,10 +662,16 @@ async function toBringBackOf(
           if (await inBinAtCheckpoint(key)) continue;
           if (!(dateMs(row.CreatedDate) < context.t0s)) continue;
         }
-        const parents = cascadeParents
-          .map((field) => keyOf(row[field]))
-          .filter((parent): parent is string => parent !== undefined && parent !== key);
-        found.set(key, { objectApiName, stamp: dateMs(row.SystemModstamp), parents });
+        const keysOf = (fields: readonly string[]): string[] =>
+          fields
+            .map((field) => keyOf(row[field]))
+            .filter((parent): parent is string => parent !== undefined && parent !== key);
+        found.set(key, {
+          objectApiName,
+          stamp: dateMs(row.SystemModstamp),
+          parents: keysOf(cascadeParents),
+          restricts: keysOf(restrictParents),
+        });
       }
     } catch (err: unknown) {
       if (err instanceof OrgReadStopped) throw err;
@@ -663,12 +686,14 @@ async function toBringBackOf(
  * Of the records deleted since that a rewind would bring back, those
  * Salesforce keeps in the bin for good, by key, taken out of `back`: one
  * deleted on its own, then a record it hangs from through a field whose
- * parent's delete takes it along, deleted after it — its stamp later — and
+ * parent's delete takes it along, or points at through a lookup that
+ * restricts that record's delete, deleted after it — its stamp later — and
  * what was deleted with such a record, which comes back with it alone. Seen
- * live on a case deleted on its own, then its account: the case still reads
- * deleted in the bin, and its undelete answers "Entity is not in the recycle
- * bin", sent with its account, after it or before it. A rewind would be
- * refused it; it can no longer come back with its id.
+ * live on a case deleted on its own, then its account, whose lookup
+ * restricted the account's delete: the case still reads deleted in the bin,
+ * and its undelete answers "Entity is not in the recycle bin", sent with its
+ * account, after it or before it. A rewind would be refused it; it can no
+ * longer come back with its id.
  *
  * Told only of a parent the rewind brings back, the one whose stamp the read
  * holds: one outside the checkpoint, or brought back and deleted again since,
@@ -677,7 +702,9 @@ async function toBringBackOf(
 function stuckOf(back: Map<string, ToBringBack>): Set<string> {
   const stuck = new Set<string>();
   for (const [key, record] of back) {
-    const after = record.parents.some((parent) => (back.get(parent)?.stamp ?? 0) > record.stamp);
+    const after = [...record.parents, ...record.restricts].some(
+      (parent) => (back.get(parent)?.stamp ?? 0) > record.stamp,
+    );
     if (after) stuck.add(key);
   }
   // What went with a record stuck in the bin, in its second, stays with it.
@@ -836,6 +863,9 @@ async function diffObject(
       ...(convertedRead !== undefined && !compared.includes(convertedRead) ? [convertedRead] : []),
     ];
     const cascade = object.cascadeParents.filter((field) => !gone.has(field.toLowerCase()));
+    const restrict = (object.restrictParents ?? []).filter(
+      (field) => !gone.has(field.toLowerCase()),
+    );
     const holdsPersons =
       objectApiName === CONTACT && heldField(object.fields, PERSON_ACCOUNT_FLAG) !== undefined;
     const isPerson = (row: OrgRow): boolean => holdsPersons && isPersonContact(objectApiName, row);
@@ -846,10 +876,11 @@ async function diffObject(
       if (key === undefined) throw new Error(`${objectApiName} answered a record without its Id.`);
       return { id: String(row.Id), key };
     };
-    const parentsOf = (row: OrgRow, key: string): string[] =>
-      cascade
+    const keysOf = (fields: readonly string[], row: OrgRow, key: string): string[] =>
+      fields
         .map((field) => keyOf(row[field]))
         .filter((parent): parent is string => parent !== undefined && parent !== key);
+    const parentsOf = (row: OrgRow, key: string): string[] => keysOf(cascade, row, key);
     // Deleted in the second a parent the rewind brings back was, through a
     // field whose parent's delete takes it along: it went with that parent.
     const wentWithParent = (row: OrgRow, key: string): boolean => {
@@ -861,12 +892,14 @@ async function diffObject(
     const toDelete = (row: OrgRow, id: string, key: string, live: boolean): void => {
       people.add(row);
       const parents = parentsOf(row, key);
+      const restricts = keysOf(restrict, row, key);
       const goesAlong =
         live && dateMs(row.CreatedDate) >= t1 && dateMs(row.LastModifiedDate) <= unchangedUntil;
-      // Of an object that comes back on its own, only what may go with a
-      // parent is counted: the rest is sent, and Undo brings it back alone.
-      if (object.undeletable && !(goesAlong && parents.length > 0)) return;
-      pending.push({ id, parents, goesAlong, undeletable: object.undeletable });
+      // Of an object that comes back on its own, only what hangs from or
+      // points at a record is counted: it may go with that record, or be
+      // deleted before it. The rest is sent, and Undo brings it back alone.
+      if (object.undeletable && parents.length + restricts.length === 0) return;
+      pending.push({ id, parents, restricts, goesAlong, undeletable: object.undeletable });
     };
 
     // The rows of the snapshot whose lookups name a record the rewind brings
@@ -1272,21 +1305,34 @@ async function outsideOf(
 
 /**
  * Of the records to delete, per object, those that go with a parent the first
- * pass deletes too, never sent on their own; and of objects Salesforce
- * undeletes only with their parent, those Undo couldn't bring back, written to
- * the preview's folder: one whose parent the first pass deletes too goes with
- * it, and comes back with it; one whose parent stays is deleted on its own.
- * One that comes back with its parent to be deleted again hangs from a record
- * brought back, which the first pass never deletes: it is deleted on its own.
- * So is one the deletion would not take along with its parent — made while
- * the checkpoint was taken, brought back since, changed in the second the
- * read began in — which the rewind deletes first, or its parent would be kept.
+ * pass deletes too, never sent on their own; and those Undo couldn't bring
+ * back, written to the preview's folder, with why (`RewindUndoCannotReason`):
+ *
+ * - one whose parent the first pass deletes too, which the deletion takes
+ *   along, goes with it, and comes back with it;
+ * - one the first pass deletes on its own before a record it points at that
+ *   it deletes next stays in the bin for good: one whose lookup restricts that
+ *   record's delete, which cannot go first — a case's account, live — and one
+ *   the deletion would not take along with its parent — made while the
+ *   checkpoint was taken, brought back since, changed in the second the read
+ *   began in — which the rewind deletes first, or its parent would be kept;
+ * - of an object Salesforce undeletes only with its parent, one whose parent
+ *   stays is deleted on its own, and stays in the bin. So is one that comes
+ *   back with its parent to be deleted again: it hangs from a record brought
+ *   back, which the first pass never deletes.
+ *
+ * A line of the folder names its record, and why when it is not the first of
+ * the reasons, `onlyWithParent`, as the diff's counts do.
  */
 async function withParentOf(
   previewDir: string,
   told: readonly Told[],
 ): Promise<Pick<RewindDiff, 'undoCannot'> & Required<Pick<RewindDiff, 'withParentDeleted'>>> {
-  const wanted = new Set(told.flatMap(({ pending }) => pending.flatMap(({ parents }) => parents)));
+  const wanted = new Set(
+    told.flatMap(({ pending }) =>
+      pending.flatMap(({ parents, restricts }) => [...parents, ...restricts]),
+    ),
+  );
   const deleted = new Set<string>();
   if (wanted.size > 0) {
     for (const each of told) {
@@ -1301,16 +1347,26 @@ async function withParentOf(
   const undoCannot: RewindDiff['undoCannot'] = [];
   const withParentDeleted: NonNullable<RewindDiff['withParentDeleted']> = [];
   for (const { diff, pending } of told) {
+    const objectApiName = diff.objectApiName;
     const along = (record: PendingUndo): boolean =>
       record.goesAlong && record.parents.some((parent) => deleted.has(parent));
     const goes = pending.filter(along).length;
-    if (goes > 0) withParentDeleted.push({ objectApiName: diff.objectApiName, count: goes });
-    const alone = pending.filter((record) => !record.undeletable && !along(record));
-    if (alone.length === 0) continue;
-    const spool = new ClassSpool(classFileOf(previewDir, diff.objectApiName, 'undoCannot'));
-    for (const { id } of alone) await spool.add({ Id: id });
+    if (goes > 0) withParentDeleted.push({ objectApiName, count: goes });
+    const alone = pending.filter((record) => !along(record));
+    const beforeParent = alone.filter((record) =>
+      [...record.parents, ...record.restricts].some((parent) => deleted.has(parent)),
+    );
+    const before = new Set(beforeParent.map(({ id }) => id));
+    const onlyWithParent = alone.filter((record) => !record.undeletable && !before.has(record.id));
+    if (onlyWithParent.length + beforeParent.length === 0) continue;
+    const spool = new ClassSpool(classFileOf(previewDir, objectApiName, 'undoCannot'));
+    for (const { id } of onlyWithParent) await spool.add({ Id: id });
+    for (const { id } of beforeParent) await spool.add({ Id: id, reason: 'deletedBeforeParent' });
     await spool.flush();
-    undoCannot.push({ objectApiName: diff.objectApiName, count: spool.count });
+    if (onlyWithParent.length > 0) undoCannot.push({ objectApiName, count: onlyWithParent.length });
+    if (beforeParent.length > 0) {
+      undoCannot.push({ objectApiName, count: beforeParent.length, reason: 'deletedBeforeParent' });
+    }
   }
   return { undoCannot, withParentDeleted };
 }

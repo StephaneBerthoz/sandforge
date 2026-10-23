@@ -357,6 +357,74 @@ describe('the journal, read back', () => {
     expect(read.lastWriteAt).toBeUndefined();
   });
 
+  it('says which records it deleted before a record they point at that went too — deleted, or taken along by a record deleted — over every pass, never one whose record a removal left, nor one it never deleted (F41)', async () => {
+    const kase = (n: number): string => id('500', n);
+    const journal = await journalOpened();
+    await journal.beforeParent('Case', [
+      // Before an account deleted.
+      { id: kase(1), parent: account(1) },
+      // Before an account the removal left: the case can come back.
+      { id: kase(2), parent: account(2) },
+      // Before a contact taken along by its account, never handed to a removal.
+      { id: kase(3), parent: contact(9) },
+      // Before an account the removal left, and one it deleted.
+      { id: kase(4), parent: account(2) },
+      { id: kase(4), parent: account(1) },
+      // Named, then left by the removal itself.
+      { id: kase(5), parent: account(1) },
+    ]);
+    await journal.deleting([
+      { objectApiName: 'Case', ids: [kase(1), kase(2), kase(3), kase(4), kase(5)] },
+      { objectApiName: 'Account', ids: [account(1), account(2)] },
+    ]);
+    await journal.deleted(
+      leaving([
+        { objectApiName: 'Case', ids: [kase(5)] },
+        { objectApiName: 'Account', ids: [account(2)] },
+      ]),
+    );
+    // A second pass: a case before an account it deletes then.
+    await journal.beforeParent('Case', [{ id: kase(6), parent: account(3) }]);
+    await journal.deleting([
+      { objectApiName: 'Case', ids: [kase(6)] },
+      { objectApiName: 'Account', ids: [account(3)] },
+    ]);
+    await journal.deleted(leaving([]));
+    await journal.close();
+
+    expect(linesOn(journal).filter((line) => line.kind === 'beforeParent')).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Case',
+        ids: [kase(1), kase(2), kase(3), kase(4), kase(4), kase(5)],
+        parents: [account(1), account(2), contact(9), account(2), account(1), account(1)],
+      }),
+      expect.objectContaining({ ids: [kase(6)], parents: [account(3)] }),
+    ]);
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.deletedBeforeParent).toEqual([
+      { objectApiName: 'Case', ids: [kase(1), kase(3), kase(4), kase(6)] },
+    ]);
+  });
+
+  it('refuses as damaged a line of records deleted before a record they point at without each one’s record', async () => {
+    const journal = await journalOpened();
+    await journal.close();
+    appendFileSync(
+      join(journal.dir, 'journal.ndjson'),
+      `${JSON.stringify({
+        kind: 'beforeParent',
+        objectApiName: 'Case',
+        ids: [id('500', 1), id('500', 2)],
+        parents: [account(1)],
+        at: '2026-10-22T15:00:09.000Z',
+      })}\n${JSON.stringify({ kind: 'wrote', at: '2026-10-22T15:00:10.000Z' })}\n`,
+    );
+
+    await expect(readRewindJournal(folder, journal.rewindId)).rejects.toMatchObject({
+      code: 'damaged',
+    });
+  });
+
   it('dates the rewind’s last write by its write lines, never by a pass taken up later, which wrote nothing by being taken up', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.parse('2026-10-22T15:00:05.000Z'));

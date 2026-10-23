@@ -720,6 +720,61 @@ describe('MemoryRemovalOrg', () => {
       expect(await alone.undelete([CONTACT])).toEqual([{ id: CONTACT, success: true, errors: [] }]);
     });
 
+    it('keeps for good in the bin a case deleted on its own, then the account it points at through a lookup that restricts the account’s delete, though the account’s undelete never brings it back: refused with it, after it or before it (F41, a case under its account, live)', async () => {
+      const CASE = fakeId('500', 1);
+      const refused = {
+        id: CASE,
+        success: false,
+        errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+      };
+      const restricting: Record<string, MemoryChild[]> = {
+        Account: [{ childSObject: 'Case', field: 'AccountId', restrictedDelete: true }],
+      };
+      const stuck = (facts: MemoryOrgOptions['facts'] = {}): MemoryRemovalOrg => {
+        const { org, wait } = orgAt({ facts }, restricting);
+        org.add('Account', { Id: ACCOUNT, Name: 'Acme' }, WHEN);
+        org.add('Case', { Id: CASE, AccountId: ACCOUNT }, WHEN);
+        org.trash('Case', CASE);
+        wait(3_000);
+        org.trash('Account', ACCOUNT);
+        return org;
+      };
+
+      const together = stuck();
+      expect(await together.undelete([ACCOUNT, CASE])).toEqual([
+        { id: ACCOUNT, success: true, errors: [] },
+        refused,
+      ]);
+      const after = stuck();
+      await after.undelete([ACCOUNT]);
+      expect(await after.undelete([CASE])).toEqual([refused]);
+      const before = stuck();
+      expect(await before.undelete([CASE])).toEqual([refused]);
+      for (const org of [together, after, before]) {
+        expect(await recordOf(org, 'Case', CASE)).toMatchObject({ IsDeleted: true });
+      }
+      // The account's undelete never brings back a record it restricts the
+      // delete by, with the bin's other fact either way: the case was never
+      // its parent's to take along.
+      const loose = stuck({
+        childDeletedAloneStays: false,
+        childDeletedAloneThenParentLimbo: false,
+      });
+      await loose.undelete([ACCOUNT]);
+      expect(loose.all('Case')).toEqual([]);
+      expect(await loose.undelete([CASE])).toEqual([{ id: CASE, success: true, errors: [] }]);
+      // A live case still refuses the account's delete.
+      const { org: held } = orgAt({}, restricting);
+      held.add('Account', { Id: ACCOUNT, Name: 'Acme' }, WHEN);
+      held.add('Case', { Id: CASE, AccountId: ACCOUNT }, WHEN);
+      expect(await held.destroy('Account', [ACCOUNT])).toEqual([
+        {
+          success: false,
+          errors: [{ statusCode: 'DELETE_FAILED', message: expect.stringContaining(CASE) }],
+        },
+      ]);
+    });
+
     it('brings back on its own a child deleted on its own, then its parent, when told the org does', async () => {
       const { org, wait } = seeded({ facts: { childDeletedAloneThenParentLimbo: false } });
       org.trash('Contact', CONTACT);

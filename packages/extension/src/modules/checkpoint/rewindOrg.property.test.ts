@@ -19,7 +19,7 @@ import { existsSync, readdirSync } from 'node:fs';
 
 import * as fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OrgCheckpoint } from '@sandforge/shared';
+import type { OrgCheckpoint, RewindResult } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import {
@@ -130,10 +130,37 @@ const CHILDREN: Record<string, MemoryChild[]> = {
 const OBJECTS = ['Account', 'Contact', 'Opportunity', 'OpportunityLineItem', 'Line__c'];
 
 const lineOf = (n: number): string => id('a0l', n);
+const caseOf = (n: number): string => id('500', n);
+
+/**
+ * Cases, in an org whose account lookup of a case restricts the account's
+ * delete rather than taking the case along, as seen live: a rewind deletes
+ * such a case before its account, which then keeps it in the recycle bin for
+ * good. Held by the checkpoint of a property that says so, beside the others.
+ */
+const CASE_FIELDS: Record<string, unknown[]> = {
+  ...FIELDS,
+  Case: [
+    ...STAMP_FIELDS,
+    writable('Subject'),
+    writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+  ],
+};
+const CASE_CHILDREN: Record<string, MemoryChild[]> = {
+  ...CHILDREN,
+  Account: [
+    ...(CHILDREN.Account ?? []),
+    { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
+  ],
+};
 
 /** The org: its price book held in place by an opportunity's products and lines, as seen live. */
-function orgUnder(facts: MemoryOrgFacts): RewindTestOrg {
-  const org = new RewindTestOrg({ facts, fields: FIELDS, children: CHILDREN });
+function orgUnder(facts: MemoryOrgFacts, cases = false): RewindTestOrg {
+  const org = new RewindTestOrg({
+    facts,
+    fields: cases ? CASE_FIELDS : FIELDS,
+    children: cases ? CASE_CHILDREN : CHILDREN,
+  });
   org.heldByChildren.push(PRICE_BOOK_HELD, {
     ...PRICE_BOOK_HELD,
     childSObject: 'Line__c',
@@ -233,7 +260,9 @@ type Step =
   | { kind: 'untrash'; object: number; pick: number }
   | { kind: 'priceBook'; pick: number }
   | { kind: 'purge'; object: number; pick: number }
-  | { kind: 'hardDelete'; object: number; pick: number };
+  | { kind: 'hardDelete'; object: number; pick: number }
+  // Only in an org with cases, never drawn at random.
+  | { kind: 'case'; parent: number };
 
 const objectIndex = fc.nat(OBJECTS.length - 1);
 const pick = fc.nat(30);
@@ -391,7 +420,29 @@ function apply(org: RewindTestOrg, history: readonly Step[], made: { next: numbe
       }
       case 'trash': {
         const row = nth(workable(org, objectApiName), step.pick);
-        if (row) org.trash(objectApiName, row.Id, COLLEAGUE);
+        if (!row) return;
+        // The org refuses an account's delete while a case names it.
+        const named = (value: unknown): boolean =>
+          typeof value === 'string' && value.slice(0, 15) === row.Id.slice(0, 15);
+        if (objectApiName === 'Account' && org.all('Case').some((each) => named(each.AccountId))) {
+          return;
+        }
+        org.trash(objectApiName, row.Id, COLLEAGUE);
+        return;
+      }
+      case 'case': {
+        const n = ++made.next;
+        const parent = nth(
+          org.all('Account').filter((each) => each.IsPersonAccount !== true),
+          step.parent,
+        );
+        if (!parent) return;
+        org.add('Case', {
+          Id: caseOf(n),
+          Subject: `New ${n}`,
+          AccountId: parent.Id,
+          LastModifiedById: COLLEAGUE,
+        });
         return;
       }
       case 'untrash': {
@@ -432,9 +483,17 @@ interface Since extends Taken {
   personOf: Map<string, string>;
 }
 
-/** The checkpoint taken under `facts`, then `history` done since. */
-async function since(facts: MemoryOrgFacts, history: readonly Step[]): Promise<Since> {
-  const t = await taken(atCheckpoint, orgUnder(facts), OBJECTS);
+/** The checkpoint taken under `facts`, of the org with cases when told, then `history` done since. */
+async function since(
+  facts: MemoryOrgFacts,
+  history: readonly Step[],
+  cases = false,
+): Promise<Since> {
+  const t = await taken(
+    atCheckpoint,
+    orgUnder(facts, cases),
+    cases ? [...OBJECTS, 'Case'] : OBJECTS,
+  );
   const kept = keptOf(t.org, t.checkpoint);
   const personOf = new Map(
     t.org
@@ -565,6 +624,42 @@ describe('a rewind on the memory org, over random histories since the checkpoint
       await fc.assert(
         fc.asyncProperty(historyArb(), async (history) => {
           await undoneAfter(facts, [...family, ...history], 'orSaysWhy', made);
+        }),
+        { numRuns: RUNS, seed: SEED, endOnFailure: true },
+      );
+    }
+  }, 120_000);
+
+  it('undone, after a family made since whose account a case made since names through a lookup that restricts the account’s delete, returns the family as it was before the rewind, and the case too where the org lets it come back; where the org keeps it in the bin for good, the rewind said Undo could not bring it back, as deleted before its account (F41, live)', async () => {
+    // The family as above, then a case under its account, numbered 505.
+    const family: Step[] = [
+      { kind: 'create', object: 0, parent: 0 },
+      { kind: 'create', object: 1, parent: 3 },
+      { kind: 'create', object: 2, parent: 3 },
+      { kind: 'create', object: 4, parent: 2 },
+      { kind: 'case', parent: 3 },
+    ];
+    const made = [account(501), contact(502), opportunity(503), lineOf(504)];
+    for (const facts of factCombinations([
+      'childDeletedAloneThenParentLimbo',
+      'childDeletedAloneStays',
+    ])) {
+      await fc.assert(
+        fc.asyncProperty(historyArb(), async (history) => {
+          const limbo = facts.childDeletedAloneThenParentLimbo;
+          const result = await undoneAfter(
+            facts,
+            [...family, ...history],
+            'orSaysWhy',
+            limbo ? made : [...made, caseOf(505)],
+            true,
+          );
+          expect({ facts: said(facts, history), cannot: result?.undo?.cannot }).toEqual({
+            facts: said(facts, history),
+            cannot: expect.arrayContaining([
+              { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+            ]) as unknown,
+          });
         }),
         { numRuns: RUNS, seed: SEED, endOnFailure: true },
       );
@@ -898,14 +993,15 @@ async function undoneAfter(
   history: readonly Step[],
   hold: 'exactly' | 'orSaysWhy',
   exact: readonly string[] = [],
-): Promise<void> {
-  const t = await since(facts, history);
+  cases = false,
+): Promise<RewindResult> {
+  const t = await since(facts, history, cases);
   const before = keptOf(t.org, t.checkpoint);
   const result = resultOf(await rewindNow(t));
   const message = said(facts, history, { status: result.status });
   if (result.undo === undefined) {
     expect(keptOf(t.org, t.checkpoint), message).toEqual(before);
-    return;
+    return result;
   }
   const undo = await undone(t, result.rewindId);
   const after = keptOf(t.org, t.checkpoint);
@@ -953,4 +1049,5 @@ async function undoneAfter(
       expect({ message, undo: undo.status }).toEqual({ message, undo: 'success' });
     }
   }
+  return result;
 }

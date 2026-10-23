@@ -19,8 +19,10 @@
  * each update of its give-back, once the values they hold are kept
  * (`storeOverwriteBackup`, which a Sync run keeps what it writes over with),
  * and of them those it gives back once the records hanging from them that it
- * deletes are gone; and the records it sets out to delete, then, once the
- * removal answered, those it left. After a crash, what it set out to delete
+ * deletes are gone; the records it deletes on their own before a record they
+ * point at that it deletes too, each beside that record, which Undo couldn't
+ * bring back once both went; and the records it sets out to delete, then, once
+ * the removal answered, those it left. After a crash, what it set out to delete
  * stands, and the undo finds out which of them the recycle bin holds. What
  * its removals left on records, and when they ran, is kept beside, for its
  * next pass.
@@ -167,6 +169,20 @@ const heldLineSchema = z.object({
   at: instantSchema,
 });
 
+/**
+ * Records of one object the rewind deletes on their own before a record they
+ * point at that it deletes too, `parents[i]` beside `ids[i]`: once both went,
+ * Salesforce keeps the record in the recycle bin for good. A record pointing
+ * at two such records is named twice.
+ */
+const beforeParentLineSchema = z.object({
+  kind: z.literal('beforeParent'),
+  objectApiName: objectSchema,
+  ids: idsSchema,
+  parents: idsSchema,
+  at: instantSchema,
+});
+
 /** A removal answered: what it left of the step is named before this line. */
 const deletedLineSchema = z.object({
   kind: z.literal('deleted'),
@@ -200,6 +216,7 @@ const lineSchema = z.discriminatedUnion('kind', [
   resumedLineSchema,
   idsLineSchema,
   heldLineSchema,
+  beforeParentLineSchema,
   stepIdsLineSchema,
   deletedLineSchema,
   removalLineSchema,
@@ -264,6 +281,14 @@ export interface RewindJournalDid {
    * hanging from them that it deleted were gone. Absent when there is none.
    */
   heldInPlace?: HeldIds[];
+  /**
+   * Of what it deleted, the records it deleted on their own before a record
+   * they point at that went too — deleted by it, or taken along by a record
+   * it deleted, as a removal never names such a record: Salesforce keeps them
+   * in the recycle bin for good, and Undo cannot bring them back. Absent when
+   * there is none.
+   */
+  deletedBeforeParent?: ObjectIds[];
 }
 
 /** Records of one object that held values in place, and the objects whose records held them. */
@@ -350,6 +375,16 @@ export interface RewindJournal {
    * products.
    */
   heldInPlace(objectApiName: string, by: readonly string[], ids: readonly string[]): Promise<void>;
+  /**
+   * Records the next removal deletes on their own before a record they point
+   * at that the rewind deletes too, each beside that record, named before the
+   * removal is handed them: the rewind's result says Undo couldn't bring back
+   * those that went with that record, every pass and resume counted.
+   */
+  beforeParent(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ id: string; parent: string }>,
+  ): Promise<void>;
   /** Name what a removal sets out to delete, before it is handed the plan. */
   deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void>;
   /** The removal of the last {@link deleting} answered: name what it left. */
@@ -620,6 +655,21 @@ class JournalFile implements RewindJournal {
     }
   }
 
+  async beforeParent(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ id: string; parent: string }>,
+  ): Promise<void> {
+    for (let at = 0; at < pairs.length; at += IDS_PER_LINE) {
+      const chunk = pairs.slice(at, at + IDS_PER_LINE);
+      await this.append({
+        kind: 'beforeParent',
+        objectApiName,
+        ids: chunk.map(({ id }) => id),
+        parents: chunk.map(({ parent }) => parent),
+      });
+    }
+  }
+
   async deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void> {
     const step = ++this.step;
     this.openStep = step;
@@ -809,6 +859,8 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
   const held = new IdsByObject();
   /** Per object held in place, the objects whose records held it, in the order named. */
   const heldBy = new Map<string, Set<string>>();
+  /** Records deleted on their own before a record they point at, beside that record. */
+  const beforeParent: Array<{ objectApiName: string; id: string; parent: string }> = [];
   /** Per step: what it set out to delete, what it left, and whether its removal answered. */
   const steps = new Map<number, { deleting: IdsByObject; left: Set<string>; answered: boolean }>();
   const stepOf = (
@@ -848,6 +900,17 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
         heldBy.set(line.objectApiName, by);
         break;
       }
+      case 'beforeParent':
+        if (line.parents.length !== line.ids.length) {
+          throw new CheckpointStoreError(
+            'damaged',
+            'The rewind’s journal names records deleted before a parent without their parent.',
+          );
+        }
+        line.ids.forEach((id, at) => {
+          beforeParent.push({ objectApiName: line.objectApiName, id, parent: line.parents[at] });
+        });
+        break;
       case 'deleting':
         stepOf(line.step).deleting.add(line.objectApiName, line.ids);
         break;
@@ -885,6 +948,20 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
     ids,
     by: [...(heldBy.get(objectApiName) ?? [])],
   }));
+  // A record deleted before its parent stays in the bin for good once that
+  // parent went too: deleted by a removal, or never handed to one — taken
+  // along by a record it hangs from. One a removal kept leaves it to come
+  // back.
+  const gone = deleted.keys();
+  const named = new Set([...steps.values()].flatMap(({ deleting }) => [...deleting.keys()]));
+  const before = new IdsByObject();
+  for (const { objectApiName, id, parent } of beforeParent) {
+    const parentKey = recordKey(parent);
+    if (gone.has(recordKey(id)) && (gone.has(parentKey) || !named.has(parentKey))) {
+      before.add(objectApiName, [id]);
+    }
+  }
+  const deletedBeforeParent = before.list();
   return {
     head,
     passes,
@@ -893,6 +970,7 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
       deleted: deleted.list(),
       givenBack: givenBack.list(),
       ...(heldInPlace.length > 0 ? { heldInPlace } : {}),
+      ...(deletedBeforeParent.length > 0 ? { deletedBeforeParent } : {}),
     },
     ...(Number.isFinite(lastWrite) ? { lastWriteAt: new Date(lastWrite).toISOString() } : {}),
     ...(endedAt !== undefined ? { endedAt } : {}),

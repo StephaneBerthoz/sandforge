@@ -119,11 +119,11 @@ const FIELDS: Record<string, unknown[]> = {
   Lead: [...STAMP_FIELDS, writable('LastName')],
 };
 
-/** Who points at whom. */
+/** Who points at whom: a case's account refuses its delete while the case lives, as seen live. */
 const CHILDREN: Record<string, MemoryChild[]> = {
   Account: [
     { childSObject: 'Contact', field: 'AccountId' },
-    { childSObject: 'Case', field: 'AccountId' },
+    { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
   ],
   Contact: [{ childSObject: 'Case', field: 'ContactId' }],
 };
@@ -415,6 +415,16 @@ describe('takeCheckpoint — what it keeps', () => {
       ['Task', 2],
     ]);
     expect(checkpoint.objects.map((object) => object.readOrder)).toEqual([0, 1, 2, 3, 4]);
+    // What a rewind must delete before the account it points at, as the account lists it.
+    expect(
+      checkpoint.objects.map((object) => [object.objectApiName, object.restrictParents]),
+    ).toEqual([
+      ['Case', ['AccountId']],
+      ['Contact', []],
+      ['Account', []],
+      ['Lead', []],
+      ['Task', []],
+    ]);
     const order = await removalOrder(
       h.org,
       checkpoint.objects.map(({ objectApiName }) => ({ objectApiName })),

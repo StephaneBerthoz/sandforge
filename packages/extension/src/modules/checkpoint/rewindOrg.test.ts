@@ -6,7 +6,9 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { MEMORY_ORG_USER, factCombinations } from '../../test/memoryRemovalOrg.js';
 import {
   AUTOMATED_PROCESS,
+  CHILDREN,
   COLLEAGUE,
+  COMPARED,
   FIELDS,
   ORG_ID,
   PERSON_FLAG,
@@ -24,6 +26,7 @@ import {
   changedSince,
   clock,
   contact,
+  id,
   journalKinds,
   line,
   liveIds,
@@ -53,6 +56,7 @@ import {
   rewindOrgOf,
   type RewindOutcome,
 } from './rewindOrg.js';
+import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -672,6 +676,87 @@ describe('rewindOrg: what it refuses before it writes', () => {
     );
     expect(accepted.status).toBe('success');
     expect(liveIds(t.org, 'OpportunityLineItem')).toEqual([]);
+  });
+
+  it('refuses to delete a case before the account it points at, which it deletes next, unless that Undo couldn’t bring the case back was accepted; accepted, its result says so from its journal, and its undo names the case with words that say it stays in the bin (F41, a case under its account, live)', async () => {
+    // On the scratch org the live proof ran on, a case's account lookup
+    // restricts the account's delete: the case goes first, alone, and the
+    // account's delete then keeps it in the recycle bin for good.
+    const objects = [...PICKED, 'Case'];
+    const compared = [...COMPARED, 'Subject'];
+    const kase = id('500', 7);
+    const t = await taken(
+      baseRecords,
+      new RewindTestOrg({
+        fields: {
+          ...FIELDS,
+          Case: [
+            ...STAMP_FIELDS,
+            writable('Subject'),
+            writable('AccountId', 'reference', { referenceTo: ['Account'] }),
+          ],
+        },
+        children: {
+          ...CHILDREN,
+          Account: [
+            ...(CHILDREN.Account ?? []),
+            { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
+          ],
+        },
+      }),
+      objects,
+      { objects, fields: compared },
+    );
+    expect(t.checkpoint.objects.find((object) => object.objectApiName === 'Case')).toMatchObject({
+      cascadeParents: [],
+      restrictParents: ['AccountId'],
+    });
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(7), Name: 'Made since', LastModifiedById: COLLEAGUE });
+    t.org.add('Case', {
+      Id: kase,
+      Subject: 'Made since',
+      AccountId: account(7),
+      LastModifiedById: COLLEAGUE,
+    });
+    const diff = await previewed(t);
+    expect(diff.undoCannot).toEqual([
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+    const before = stateOf(t.org);
+
+    const outcome = await rewound(t, diff.previewId);
+
+    expect(outcome).toEqual({
+      rewound: false,
+      refusal: {
+        code: 'NO_UNDO',
+        message:
+          "Undo couldn't bring back 1 Case record(s) this rewind deletes: deleted before a " +
+          'record they point at, which the rewind deletes next, Salesforce cannot bring them ' +
+          "back after that. Rewind refused; accept that Undo couldn't bring them back to " +
+          'rewind all the same. No record was written.',
+      },
+    });
+    untouched(t, before);
+    expect(liveIds(t.org, 'Case')).toEqual([kase]);
+
+    const accepted = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptNoUndo: true } }),
+    );
+
+    expect(accepted.status).toBe('success');
+    expect(t.org.deletes.map(({ ids }) => ids)).toEqual([[kase], [account(7)]]);
+    expect(accepted.undo?.cannot).toEqual([
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+    expect(journalKinds(t.folder, accepted.rewindId)).toContain('beforeParent');
+    const undo = await undone(t, accepted.rewindId);
+    expect(liveIds(t.org, 'Account')).toContain(account(7));
+    expect(liveIds(t.org, 'Case')).toEqual([]);
+    expect(undo.undeleted).toContainEqual(
+      expect.objectContaining({ objectApiName: 'Case', refused: 1, reasons: [KEPT_IN_BIN_WORDS] }),
+    );
   });
 
   it('refuses when the org runs automation as it writes, or cannot say what it runs, unless accepted', async () => {

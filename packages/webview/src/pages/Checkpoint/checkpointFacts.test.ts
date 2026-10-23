@@ -5,11 +5,18 @@ import {
   objectsWithRecords,
   recordsHeld,
   roughSeconds,
+  undoCannotReasonOf,
   usableCheckpoints,
 } from './checkpointFacts';
 import { listEntry, readyCheckpoint } from './testing/checkpointFixtures';
 
 describe('checkpointFacts', () => {
+  it('reads an entry of what Undo could not bring back that names no reason as one of the first, as entries made before the second say it', () => {
+    expect(undoCannotReasonOf({})).toBe('onlyWithParent');
+    expect(undoCannotReasonOf({ reason: 'onlyWithParent' })).toBe('onlyWithParent');
+    expect(undoCannotReasonOf({ reason: 'deletedBeforeParent' })).toBe('deletedBeforeParent');
+  });
+
   it('counts the records of every object a checkpoint holds, and the objects holding some', () => {
     const checkpoint = readyCheckpoint();
     // Account 400, Contact 2,012 and an empty Campaign.

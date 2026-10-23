@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RewindDiffObject } from '@sandforge/shared';
+import type { RewindDiff, RewindDiffObject } from '@sandforge/shared';
 
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
@@ -780,6 +780,47 @@ describe('rewindEstimate', () => {
 
     // Deleted on their own, the 450 products: their describe, 3 reads and 3 deletes.
     expect(cost(450) - cost(0)).toBe(1 + 3 + 3);
+  });
+
+  it('counts the deletes of every record Salesforce undeletes only with its parent that Undo couldn’t bring back, whatever the reason: those under a parent that stays and those deleted before one the rewind deletes next', () => {
+    const objects: EstimatedObject[] = [
+      {
+        ...held('OpportunityLineItem', 0),
+        undeletable: false,
+        readOrder: 0,
+        cascadeParents: ['OpportunityId'],
+      },
+      { ...held('Opportunity', 0), readOrder: 1, cascadeParents: [] },
+    ];
+    const cost = (undoCannot: RewindDiff['undoCannot']): number =>
+      rewindWritesCost({
+        objects,
+        diff: {
+          objects: [
+            found('OpportunityLineItem', {
+              toDelete: { createdSince: 450, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+            found('Opportunity', {
+              toDelete: { createdSince: 300, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+          unread: [],
+          undoCannot,
+        },
+        automationRequests: 0,
+        relationships: new Map([
+          ['OpportunityLineItem', { dependents: 0, cascades: 0, cascadeChildren: [] }],
+          ['Opportunity', { dependents: 1, cascades: 1, cascadeChildren: ['OpportunityLineItem'] }],
+        ]),
+      }).apiRequests;
+
+    // 250 under an opportunity that stays and 200 before one deleted next: all 450 sent.
+    expect(
+      cost([
+        { objectApiName: 'OpportunityLineItem', count: 250 },
+        { objectApiName: 'OpportunityLineItem', count: 200, reason: 'deletedBeforeParent' },
+      ]),
+    ).toBe(cost([{ objectApiName: 'OpportunityLineItem', count: 450 }]));
   });
 
   it('counts no delete of the records, of any object, that go with a parent the rewind deletes too: never sent, they come back with it', () => {

@@ -5,6 +5,7 @@ import type {
   OrgCheckpoint,
   RewindResidualReason,
   RewindResult as RewindOutcome,
+  RewindUndoCannotReason,
 } from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import {
@@ -17,6 +18,7 @@ import { listWords } from '../../utils/listWords';
 import { formatDate, formatNumber, formatStoredDate } from '../../utils/formatters';
 import { ForgeRunRemovalResult } from '../Forge/ForgeRunRemovalView';
 import { StopComparingFields } from './StopComparingFields';
+import { undoCannotReasonOf } from './checkpointFacts';
 import {
   automationObjects,
   changedDuringRewind,
@@ -25,6 +27,15 @@ import {
   residualGroups,
   residualTotal,
 } from './rewindPreviewFacts';
+
+/**
+ * The words of a rewind's result for records Undo couldn't bring back, by reason: each
+ * its own sentence.
+ */
+const UNDO_CANNOT_RESULT_KEYS: Readonly<Record<RewindUndoCannotReason, string>> = {
+  onlyWithParent: 'checkpoint.result.undoCannot',
+  deletedBeforeParent: 'checkpoint.result.undoCannotBeforeParent',
+};
 
 /** What a run was: a rewind to the checkpoint, or the undo of the org's last rewind. */
 export type RunKind = 'rewind' | 'undo';
@@ -219,15 +230,18 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           <p>{t('checkpoint.result.undoUntil', { date: until })}</p>
           {undoUntil.cannot.length > 0 && (
             <ul className="ml-4 list-disc" data-testid="checkpoint-result-undo-cannot">
-              {undoUntil.cannot.map((item) => (
-                <li key={item.objectApiName}>
-                  {t('checkpoint.result.undoCannot', {
-                    count: item.count,
-                    formatted: formatNumber(item.count),
-                    object: item.objectApiName,
-                  })}
-                </li>
-              ))}
+              {undoUntil.cannot.map((item) => {
+                const reason = undoCannotReasonOf(item);
+                return (
+                  <li key={`${item.objectApiName}-${reason}`}>
+                    {t(UNDO_CANNOT_RESULT_KEYS[reason], {
+                      count: item.count,
+                      formatted: formatNumber(item.count),
+                      object: item.objectApiName,
+                    })}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

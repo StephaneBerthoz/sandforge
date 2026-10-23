@@ -10,6 +10,7 @@ import {
   objectCapture,
   readModeOf,
   restoreAllowList,
+  restrictParentsOf,
   rowToWriteBack,
   type CheckpointDescribe,
   type CheckpointField,
@@ -252,6 +253,38 @@ describe('cascadeParentsOf', () => {
   });
 });
 
+describe('restrictParentsOf', () => {
+  // Seen live on a scratch org: a case's account lookup restricts the
+  // account's delete, and does not take the case along.
+  const account = described('Account', [], {
+    childRelationships: [
+      { childSObject: 'Case', field: 'AccountId', cascadeDelete: false, restrictedDelete: true },
+      { childSObject: 'Case', field: 'Account__c', cascadeDelete: true, restrictedDelete: true },
+      { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+      { childSObject: 'Case', field: 'Partner__c', cascadeDelete: false },
+    ],
+  });
+
+  it('names the lookups whose parent the org refuses to delete while the record lives, as the parents list them', () => {
+    const kase = described('Case', [
+      writable('AccountId', 'reference'),
+      writable('Account__c', 'reference'),
+      writable('Partner__c', 'reference'),
+    ]);
+
+    expect(restrictParentsOf(kase, [account])).toEqual(['AccountId']);
+    // One that deletes along is a cascade parent, never a restricting one.
+    expect(cascadeParentsOf(kase, [account])).toEqual(['Account__c']);
+  });
+
+  it('names none of a parent not described, and no field the child does not describe', () => {
+    expect(restrictParentsOf(described('Case', [writable('AccountId', 'reference')]), [])).toEqual(
+      [],
+    );
+    expect(restrictParentsOf(described('Case', []), [account])).toEqual([]);
+  });
+});
+
 describe('objectCapture', () => {
   it('records the read mode, whether records come back on their own, the cascade parents and the projection', async () => {
     const opportunity = described('Opportunity', [], {
@@ -275,6 +308,7 @@ describe('objectCapture', () => {
       readMode: 'query',
       undeletable: false,
       cascadeParents: ['OpportunityId'],
+      restrictParents: [],
       fields: [...SNAPSHOT_STAMPS, 'OpportunityId', 'Quantity'],
       leftOutFields: [],
     });

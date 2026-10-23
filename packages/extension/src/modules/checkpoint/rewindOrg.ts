@@ -107,6 +107,7 @@ import {
   type RewindResidualReason,
   type RewindResult,
   type RewindStatus,
+  type RewindUndoCannot,
   type SyncRestoreObjectResult,
   type SyncUndeleteObjectResult,
 } from '@sandforge/shared';
@@ -160,7 +161,7 @@ import {
   rewindWritesCost,
   type ObjectRelationships,
 } from './rewindEstimate.js';
-import { openRewindJournal, type RewindJournal } from './rewindJournal.js';
+import { IDS_PER_LINE, openRewindJournal, type RewindJournal } from './rewindJournal.js';
 import {
   heldInPlaceReason,
   rewindPlan,
@@ -229,6 +230,9 @@ const KEPT_WORDS: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
     'Kept: a record the rewind left hangs from it, and its deletion would take that record along.',
   noUndoNotAccepted:
     "Kept: Undo couldn't bring it back once deleted on its own, and that was not accepted.",
+  beforeParentNotAccepted:
+    "Kept: Undo couldn't bring it back once deleted before a record it points at, which the " +
+    'rewind deletes next, and that was not accepted.',
 };
 
 /**
@@ -459,16 +463,40 @@ function lockedRefusal(orgName: string, holder: OrgLockHolder): CheckpointRefusa
   };
 }
 
-/** The refusal of a rewind that would delete records Undo couldn't bring back, not accepted. */
+/** The plan's reasons for keeping a record Undo couldn't bring back, as the gate refuses them. */
+const NO_UNDO_LEFT: ReadonlySet<RewindPlanLeftReason> = new Set([
+  'noUndoNotAccepted',
+  'beforeParentNotAccepted',
+]);
+
+/** Why Undo couldn't bring back records a rewind deletes, for each reason the plan keeps them for. */
+const NO_UNDO_WHY: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
+  noUndoNotAccepted: 'Salesforce undeletes them only with their parent, which stays',
+  beforeParentNotAccepted:
+    'deleted before a record they point at, which the rewind deletes next, Salesforce cannot ' +
+    'bring them back after that',
+};
+
+/**
+ * The refusal of a rewind that would delete records Undo couldn't bring back,
+ * not accepted: a sentence for each reason the plan kept them for.
+ */
 function noUndoRefusal(left: readonly RewindPlanLeft[]): CheckpointRefusal {
-  const count = left.reduce((sum, entry) => sum + entry.count, 0);
-  const objects = [...new Set(left.map((entry) => entry.objectApiName))].join(', ');
+  const said = [...NO_UNDO_LEFT].flatMap((reason) => {
+    const entries = left.filter((entry) => entry.reason === reason);
+    if (entries.length === 0) return [];
+    const count = entries.reduce((sum, entry) => sum + entry.count, 0);
+    const objects = [...new Set(entries.map((entry) => entry.objectApiName))].join(', ');
+    return [
+      `Undo couldn't bring back ${count} ${objects} record(s) this rewind deletes: ` +
+        `${NO_UNDO_WHY[reason] ?? ''}.`,
+    ];
+  });
   return {
     code: 'NO_UNDO',
     message:
-      `Undo couldn't bring back ${count} ${objects} record(s) this rewind deletes: Salesforce ` +
-      'undeletes them only with their parent, which stays. Rewind refused; accept that Undo ' +
-      `couldn't bring them back to rewind all the same. ${NOTHING_WRITTEN}`,
+      `${said.join(' ')} Rewind refused; accept that Undo couldn't bring them back to rewind ` +
+      `all the same. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -1112,7 +1140,7 @@ class Rewind {
     }
 
     // ─── What it refuses before it writes ───
-    const noUndo = first.plan.left.filter((entry) => entry.reason === 'noUndoNotAccepted');
+    const noUndo = first.plan.left.filter((entry) => NO_UNDO_LEFT.has(entry.reason));
     if (noUndo.length > 0) return { rewound: false, refusal: noUndoRefusal(noUndo) };
     // A rewind stopped part way that wrote, whose work the fresh read finds
     // done: its journal is taken up to end it, and its Undo stays offered.
@@ -1308,26 +1336,30 @@ class Rewind {
         unread,
         passes: second ? 2 : 1,
         leftToday: remaining,
-        undo: {
-          until: undoUntil,
-          cannot: [...undoCannot].map(([objectApiName, count]) => ({ objectApiName, count })),
-        },
+        undo: { until: undoUntil, cannot: undoCannot },
       }),
       notes: this.notes,
     };
   }
 
   /**
-   * Per object, the records the rewind deleted that Undo couldn't bring back,
-   * as its journal says, every pass and every rewind taken up on it counted:
-   * of an object Salesforce undeletes only with its parent, a record its
-   * removal was handed went on its own — one that goes with its parent is
-   * never handed over — but for one it had brought back first, which its undo
-   * leaves in the bin it came from. Counted from the passes of this call
-   * alone, a rewind taken up after a stop said Undo could bring back the
-   * products the stopped pass had deleted.
+   * Per object and reason, the records the rewind deleted that Undo couldn't
+   * bring back, as its journal says, every pass and every rewind taken up on
+   * it counted — but for one it had brought back first, which its undo leaves
+   * in the bin it came from:
+   *
+   * - one deleted on its own before a record it points at that went too,
+   *   which leaves it in the bin for good (`deletedBeforeParent`): a case
+   *   before its account, live;
+   * - of an object Salesforce undeletes only with its parent, any other its
+   *   removal was handed: it went on its own — one that goes with its parent
+   *   is never handed over.
+   *
+   * Counted from the passes of this call alone, a rewind taken up after a
+   * stop said Undo could bring back the products the stopped pass had
+   * deleted.
    */
-  private async undoCannotOf(journal: RewindJournal): Promise<Map<string, number>> {
+  private async undoCannotOf(journal: RewindJournal): Promise<RewindUndoCannot[]> {
     const alone = new Set(
       this.request.checkpoint.objects
         .filter((object) => !object.undeletable)
@@ -1335,11 +1367,18 @@ class Rewind {
     );
     const read = await journal.read();
     const back = new Set(read.did.broughtBack.flatMap(({ ids }) => ids.map(keyOf)));
-    const cannot = new Map<string, number>();
+    const before = new Set(
+      (read.did.deletedBeforeParent ?? []).flatMap(({ ids }) => ids.map(keyOf)),
+    );
+    const cannot: RewindUndoCannot[] = [];
     for (const { objectApiName, ids } of read.did.deleted) {
-      if (!alone.has(objectApiName)) continue;
-      const count = ids.filter((id) => !back.has(keyOf(id))).length;
-      if (count > 0) cannot.set(objectApiName, (cannot.get(objectApiName) ?? 0) + count);
+      const gone = ids.map(keyOf).filter((key) => !back.has(key));
+      const beforeParent = gone.filter((key) => before.has(key)).length;
+      const withParent = alone.has(objectApiName) ? gone.length - beforeParent : 0;
+      if (withParent > 0) cannot.push({ objectApiName, count: withParent });
+      if (beforeParent > 0) {
+        cannot.push({ objectApiName, count: beforeParent, reason: 'deletedBeforeParent' });
+      }
     }
     return cannot;
   }
@@ -1445,6 +1484,24 @@ class Rewind {
     let outcome: RunRemovalOutcome | undefined;
     if (plan.deletes.spool.count > 0) {
       this.progress('deleting', pass, pass === 1 ? 55 : 85, 'Deleting what was created since');
+      // Named before the removal is handed them: what the rewind deletes
+      // before a record it points at, beside that record, for what its
+      // result says Undo couldn't bring back.
+      for (const { objectApiName, file } of plan.beforeParent) {
+        const pairs: Array<{ id: string; parent: string }> = [];
+        for await (const row of rowsOf(file)) {
+          const parents = Array.isArray(row.parents) ? row.parents : [];
+          for (const parent of parents) {
+            if (typeof row.Id === 'string' && typeof parent === 'string') {
+              pairs.push({ id: row.Id, parent });
+            }
+          }
+          if (pairs.length >= IDS_PER_LINE) {
+            await journal.beforeParent(objectApiName, pairs.splice(0));
+          }
+        }
+        if (pairs.length > 0) await journal.beforeParent(objectApiName, pairs);
+      }
       await journal.deleting(plan.deletes);
       const removalStamps = { ...this.stamps, ...plan.removal.removalStamps };
       const spans = [...this.spans, ...(plan.removal.removalSpans ?? [])].filter(

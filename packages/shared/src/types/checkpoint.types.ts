@@ -138,6 +138,14 @@ export interface CheckpointObject {
   /** Its reference fields whose parent's delete takes the record along. */
   cascadeParents: string[];
   /**
+   * Its reference fields whose parent the org refuses to delete while the
+   * record lives — a case's account, on some orgs: a rewind that deletes
+   * both deletes the record first, and Salesforce then keeps it in the
+   * recycle bin for good. Absent from a checkpoint taken before they were
+   * kept, which knows none.
+   */
+  restrictParents?: string[];
+  /**
    * sha256, hex, of each field's name, type, createable, updateable, nillable,
    * referenceTo and encrypted flag: what tells a field added, removed or
    * changed since the take.
@@ -350,6 +358,33 @@ export interface RewindSchemaDrift {
   changed: string[];
 }
 
+/**
+ * Why Undo couldn't bring back records a rewind deletes:
+ *
+ * - `onlyWithParent`: of an object Salesforce undeletes only with its parent
+ *   (an opportunity's products), deleted on their own under a parent that
+ *   stays;
+ * - `deletedBeforeParent`: deleted on their own before a record they point at,
+ *   which the rewind deletes next — through a lookup that restricts that
+ *   record's delete, or one whose delete would take them along but does not
+ *   here (made while the checkpoint was taken, brought back since, changed as
+ *   the rewind began). Salesforce keeps such a record in the recycle bin for
+ *   good once that record is deleted after it: its undelete answers that it is
+ *   not there, with that record, after it or before it.
+ */
+export type RewindUndoCannotReason = 'onlyWithParent' | 'deletedBeforeParent';
+
+/**
+ * Records of one object a rewind deletes, or deleted, that Undo couldn't
+ * bring back, for one reason. No reason is `onlyWithParent`, as a diff or a
+ * result made before the second reason was told says it.
+ */
+export interface RewindUndoCannot {
+  objectApiName: string;
+  count: number;
+  reason?: RewindUndoCannotReason;
+}
+
 /** What a rewind would do to one object of the checkpoint. */
 export interface RewindDiffObject {
   objectApiName: string;
@@ -410,11 +445,10 @@ export interface RewindDiff {
    */
   objects: RewindDiffObject[];
   /**
-   * Records it deletes that Undo couldn't bring back, per object: in an object
-   * Salesforce undeletes only with its parent, under a parent that stays.
-   * The rewind needs them accepted.
+   * Records it deletes that Undo couldn't bring back, per object and reason
+   * ({@link RewindUndoCannot}). The rewind needs them accepted.
    */
-  undoCannot: Array<{ objectApiName: string; count: number }>;
+  undoCannot: RewindUndoCannot[];
   /**
    * Records it deletes that go with a parent it deletes too, per object: made
    * since the checkpoint was taken and unchanged since the read began, they
@@ -492,10 +526,10 @@ export interface RewindResult {
   passes: number;
   /**
    * Until when it can be undone, and what Undo couldn't bring back, per
-   * object. Absent from an undo's own result, and from a rewind that wrote
-   * nothing.
+   * object and reason. Absent from an undo's own result, and from a rewind
+   * that wrote nothing.
    */
-  undo?: { until: ISODateString; cannot: Array<{ objectApiName: string; count: number }> };
+  undo?: { until: ISODateString; cannot: RewindUndoCannot[] };
   /** API requests it used, counted by SandForge, and the requests the org has left today. */
   apiRequests: { used: number; leftToday: number };
   finishedAt: ISODateString;

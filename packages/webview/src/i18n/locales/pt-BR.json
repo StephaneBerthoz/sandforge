@@ -5377,6 +5377,8 @@
         "title": "O que Desfazer não conseguiria recuperar",
         "line_one": "{{formatted}} registro de {{object}} que este retrocesso exclui: o Salesforce só o recupera com o registro pai, que fica.",
         "line_other": "{{formatted}} registros de {{object}} que este retrocesso exclui: o Salesforce só os recupera com o registro pai, que fica.",
+        "beforeParent_one": "{{formatted}} registro de {{object}} que este retrocesso exclui antes de um registro para o qual ele aponta, que o retrocesso exclui em seguida: o Salesforce não consegue mais recuperá-lo depois disso.",
+        "beforeParent_other": "{{formatted}} registros de {{object}} que este retrocesso exclui antes de um registro para o qual eles apontam, que o retrocesso exclui em seguida: o Salesforce não consegue mais recuperá-los depois disso.",
         "accept": "Retroceder mesmo que Desfazer não consiga recuperá-los"
       },
       "outside": {
@@ -5454,6 +5456,8 @@
       "undoUntil": "Este retrocesso pode ser desfeito até {{date}}, antes se a lixeira encher.",
       "undoCannot_one": "Desfazer não conseguiria recuperar {{formatted}} registro de {{object}} que este retrocesso excluiu: o Salesforce só o recupera com o registro pai.",
       "undoCannot_other": "Desfazer não conseguiria recuperar {{formatted}} registros de {{object}} que este retrocesso excluiu: o Salesforce só os recupera com o registro pai.",
+      "undoCannotBeforeParent_one": "Desfazer não conseguiria recuperar {{formatted}} registro de {{object}} que este retrocesso excluiu antes de um registro para o qual ele aponta, que o retrocesso excluiu em seguida: o Salesforce não consegue mais recuperá-lo depois disso.",
+      "undoCannotBeforeParent_other": "Desfazer não conseguiria recuperar {{formatted}} registros de {{object}} que este retrocesso excluiu antes de um registro para o qual eles apontam, que o retrocesso excluiu em seguida: o Salesforce não consegue mais recuperá-los depois disso.",
       "refused": "recusados por {{org}}: {{n}}",
       "notReached": "não alcançados antes da parada: {{n}}",
       "residual": {

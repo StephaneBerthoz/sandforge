@@ -331,6 +331,28 @@ describe('RewindResult', () => {
     );
   });
 
+  it('says in a sentence of its own what Undo could not bring back as deleted before a record it points at, which the rewind deleted next (F41)', () => {
+    renderResult(
+      rewindResult({
+        undo: {
+          until: '2026-11-06T14:02:00.000Z',
+          cannot: [
+            { objectApiName: 'OpportunityLineItem', count: 3 },
+            { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+          ],
+        },
+      }),
+    );
+    expect(
+      within(screen.getByTestId('checkpoint-result-undo-cannot'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Undo could not bring back 3 OpportunityLineItem records this rewind deleted: Salesforce undeletes them only with their parent record.',
+      'Undo could not bring back 1 Case record this rewind deleted before a record it points at, which the rewind deleted next: Salesforce cannot bring it back after that.',
+    ]);
+  });
+
   it('says an undo put the org back as it was before its last rewind, in the undo’s words, with nothing more to offer', () => {
     const undone = rewindResult({
       deleted: [deletedObject('Account', { planned: 1, deleted: 1 })],

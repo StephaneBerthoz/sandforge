@@ -5377,6 +5377,8 @@
         "title": "Was das Rückgängigmachen nicht zurückholen könnte",
         "line_one": "{{formatted}} {{object}}-Datensatz, den dieses Zurücksetzen löscht: Salesforce stellt ihn nur mit seinem übergeordneten Datensatz wieder her, der bleibt.",
         "line_other": "{{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen löscht: Salesforce stellt sie nur mit ihrem übergeordneten Datensatz wieder her, der bleibt.",
+        "beforeParent_one": "{{formatted}} {{object}}-Datensatz, den dieses Zurücksetzen vor einem Datensatz löscht, auf den er verweist und den das Zurücksetzen danach löscht: Salesforce kann ihn danach nicht mehr zurückholen.",
+        "beforeParent_other": "{{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen vor einem Datensatz löscht, auf den sie verweisen und den das Zurücksetzen danach löscht: Salesforce kann sie danach nicht mehr zurückholen.",
         "accept": "Zurücksetzen, auch wenn das Rückgängigmachen diese nicht zurückholen könnte"
       },
       "outside": {
@@ -5454,6 +5456,8 @@
       "undoUntil": "Dieses Zurücksetzen kann bis {{date}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
       "undoCannot_one": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensatz, den dieses Zurücksetzen gelöscht hat, nicht zurückholen: Salesforce stellt ihn nur mit seinem übergeordneten Datensatz wieder her.",
       "undoCannot_other": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen gelöscht hat, nicht zurückholen: Salesforce stellt sie nur mit ihrem übergeordneten Datensatz wieder her.",
+      "undoCannotBeforeParent_one": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensatz nicht zurückholen, den dieses Zurücksetzen vor einem Datensatz gelöscht hat, auf den er verweist und den das Zurücksetzen danach gelöscht hat: Salesforce kann ihn danach nicht mehr zurückholen.",
+      "undoCannotBeforeParent_other": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensätze nicht zurückholen, die dieses Zurücksetzen vor einem Datensatz gelöscht hat, auf den sie verweisen und den das Zurücksetzen danach gelöscht hat: Salesforce kann sie danach nicht mehr zurückholen.",
       "refused": "von {{org}} abgelehnt: {{n}}",
       "notReached": "vor dem Anhalten nicht erreicht: {{n}}",
       "residual": {

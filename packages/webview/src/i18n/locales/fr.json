@@ -5377,6 +5377,8 @@
         "title": "Ce que l'annulation ne pourrait pas rétablir",
         "line_one": "{{formatted}} enregistrement {{object}} que ce retour arrière supprime : Salesforce ne le restaure qu'avec son enregistrement parent, qui reste.",
         "line_other": "{{formatted}} enregistrements {{object}} que ce retour arrière supprime : Salesforce ne les restaure qu'avec leur enregistrement parent, qui reste.",
+        "beforeParent_one": "{{formatted}} enregistrement {{object}} que ce retour arrière supprime avant un enregistrement vers lequel il pointe, que le retour arrière supprime ensuite : Salesforce ne peut plus le rétablir après cela.",
+        "beforeParent_other": "{{formatted}} enregistrements {{object}} que ce retour arrière supprime avant un enregistrement vers lequel ils pointent, que le retour arrière supprime ensuite : Salesforce ne peut plus les rétablir après cela.",
         "accept": "Revenir à ce point même si l'annulation ne pourrait pas les rétablir"
       },
       "outside": {
@@ -5454,6 +5456,8 @@
       "undoUntil": "Ce retour arrière peut être annulé jusqu'au {{date}}, plus tôt si la corbeille se remplit.",
       "undoCannot_one": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrement {{object}} que ce retour arrière a supprimé : Salesforce ne le restaure qu'avec son enregistrement parent.",
       "undoCannot_other": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrements {{object}} que ce retour arrière a supprimés : Salesforce ne les restaure qu'avec leur enregistrement parent.",
+      "undoCannotBeforeParent_one": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrement {{object}} que ce retour arrière a supprimé avant un enregistrement vers lequel il pointe, que le retour arrière a supprimé ensuite : Salesforce ne peut plus le rétablir après cela.",
+      "undoCannotBeforeParent_other": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrements {{object}} que ce retour arrière a supprimés avant un enregistrement vers lequel ils pointent, que le retour arrière a supprimé ensuite : Salesforce ne peut plus les rétablir après cela.",
       "refused": "refusés par {{org}} : {{n}}",
       "notReached": "non atteints avant l'arrêt : {{n}}",
       "residual": {

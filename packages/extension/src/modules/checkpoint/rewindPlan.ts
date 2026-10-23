@@ -42,7 +42,13 @@
  *   before it (a case under an account, live). Of an object Salesforce
  *   undeletes only with its parent (an opportunity's products), one whose
  *   parent stays is deleted alone, and Undo couldn't bring it back: it is
- *   sent only once that was accepted, and left otherwise;
+ *   sent only once that was accepted, and left otherwise. So is one, of any
+ *   object, sent alone before a record it points at that this pass deletes
+ *   too: one the removal would not take along with its parent — made while
+ *   the checkpoint was taken, brought back since — and one whose lookup
+ *   restricts that record's delete, which the org refuses while it lives (a
+ *   case's account, live). Each such record is said beside that record
+ *   (`beforeParent`), for the journal;
  * - in a checkpoint of picked objects, a record that records outside the
  *   checkpoint created since hang from, unless their deletion was accepted:
  *   the removal would take them along;
@@ -68,11 +74,13 @@
  */
 
 import { appendFile, readdir } from 'node:fs/promises';
-import type {
-  CheckpointObject,
-  CheckpointTakenBy,
-  ForgeRemovalSpan,
-  OrgCheckpoint,
+import { join } from 'node:path';
+import {
+  sanitizeSoqlObjectName,
+  type CheckpointObject,
+  type CheckpointTakenBy,
+  type ForgeRemovalSpan,
+  type OrgCheckpoint,
 } from '@sandforge/shared';
 import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
@@ -169,14 +177,18 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   along;
  * - `noUndoNotAccepted`: it would be deleted on its own in an object
  *   Salesforce undeletes only with its parent, and that Undo couldn't bring it
- *   back was not accepted.
+ *   back was not accepted;
+ * - `beforeParentNotAccepted`: it would be deleted on its own before a record
+ *   it points at that the pass deletes next, which leaves it in the recycle
+ *   bin for good, and that Undo couldn't bring it back was not accepted.
  */
 export type RewindPlanLeftReason =
   | 'changedSincePreview'
   | 'changedDuringRewind'
   | 'outsideNotAccepted'
   | 'holdsLeft'
-  | 'noUndoNotAccepted';
+  | 'noUndoNotAccepted'
+  | 'beforeParentNotAccepted';
 
 /** The reasons, each as a flag of the records left for it. */
 const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
@@ -185,6 +197,7 @@ const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
   outsideNotAccepted: 4,
   holdsLeft: 8,
   noUndoNotAccepted: 16,
+  beforeParentNotAccepted: 32,
 };
 
 /** Records of one object a plan left for one reason. */
@@ -288,6 +301,12 @@ export interface RewindPlan {
   objects: RewindPlanObject[];
   /** Records deleted that Undo couldn't bring back, per object. */
   undoCannot: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Of those, per object, the records it deletes on their own before a record
+   * they point at that it deletes too: a file of one line a record, its id
+   * and the ids of those records (`parents`), which the journal names.
+   */
+  beforeParent: Array<{ objectApiName: string; count: number; file: string }>;
   /** What it leaves that differs, per object and reason. */
   left: RewindPlanLeft[];
 }
@@ -344,12 +363,17 @@ async function* rowsOf(file: string): AsyncGenerator<OrgRow> {
   }
 }
 
+/** Where a plan names the records it deletes before a record they point at, of one object. */
+function beforeParentFileOf(dir: string, objectApiName: string): string {
+  return join(dir, `${sanitizeSoqlObjectName(objectApiName)}.beforeParent.ndjson`);
+}
+
 /** The lines of one class of one object, written to the plan's folder as the preview writes them. */
 class ClassLines {
   private lines: string[] = [];
   private written = false;
 
-  constructor(private readonly file: string) {}
+  constructor(readonly file: string) {}
 
   async add(line: OrgRow): Promise<void> {
     this.lines.push(`${JSON.stringify(line)}\n`);
@@ -464,11 +488,16 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   );
   /** Whether a row's last change after Tr is the rewind's own: by its users, or no later than its stamp. */
   const ownChange = (row: OrgRow): boolean => isOwnChange(row, before, owners, stampOf);
-  const cascadeOf = (object: CheckpointObject, row: OrgRow): string[] =>
-    object.cascadeParents.flatMap((field) => {
+  const idsIn = (fields: readonly string[], row: OrgRow): string[] =>
+    fields.flatMap((field) => {
       const parent = row[field];
       return typeof parent === 'string' && RECORD_ID.test(parent) ? [parent] : [];
     });
+  const cascadeOf = (object: CheckpointObject, row: OrgRow): string[] =>
+    idsIn(object.cascadeParents, row);
+  /** The records `row` points at through a lookup that restricts their delete. */
+  const restrictOf = (object: CheckpointObject, row: OrgRow): string[] =>
+    idsIn(object.restrictParents ?? [], row);
   const left = new LeftTally();
 
   /** Every record this pass would delete, before what it keeps out. */
@@ -573,10 +602,13 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const goesAlong = new RecordKeySet();
   const deleted = (id: string): boolean => toDelete.has(id) && !kept.has(id);
   const parentsFirst = [...objects].reverse();
+  const beforeParent: RewindPlan['beforeParent'] = [];
   for (const object of parentsFirst) {
     stopped();
     const name = object.objectApiName;
     const file = liveSpoolOf(freshDir, name);
+    const pointing = new ClassLines(beforeParentFileOf(dir, name));
+    let sentBefore = 0;
     for await (const row of rowsOf(file)) {
       const id = typeof row.Id === 'string' ? row.Id : '';
       if (!deleted(id)) continue;
@@ -592,17 +624,29 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         continue;
       }
       // Of an object Salesforce undeletes on its own, a record deleted alone
-      // comes back alone — unless a parent this pass deletes goes after it,
-      // and the org then keeps it in the bin for good. One made while the
-      // checkpoint was taken, or brought back since, is such a record: the
-      // removal would keep its parent for it, so it cannot go with it.
-      if (object.undeletable) continue;
+      // comes back alone — unless a record it points at that this pass
+      // deletes goes after it, and the org then keeps it in the bin for
+      // good. One made while the checkpoint was taken, or brought back
+      // since, is such a record: the removal would keep its parent for it,
+      // so it cannot go with it. So is one whose lookup restricts that
+      // record's delete: the org refuses the record's delete while it lives.
+      const parents = [...cascadeOf(object, row), ...restrictOf(object, row)].filter(deleted);
+      if (object.undeletable && parents.length === 0) continue;
+      const reason = parents.length > 0 ? 'beforeParentNotAccepted' : 'noUndoNotAccepted';
       if (input.acceptNoUndo) {
         countsOf(name).undoCannot++;
+        if (parents.length > 0) {
+          await pointing.add({ Id: id, parents });
+          sentBefore++;
+        }
       } else {
-        kept.add(id, LEFT_FLAG.noUndoNotAccepted);
-        left.add(name, 'noUndoNotAccepted', id);
+        kept.add(id, LEFT_FLAG[reason]);
+        left.add(name, reason, id);
       }
+    }
+    await pointing.flush();
+    if (sentBefore > 0) {
+      beforeParent.push({ objectApiName: name, count: sentBefore, file: pointing.file });
     }
   }
 
@@ -737,6 +781,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     undoCannot: planObjects
       .filter((object) => object.undoCannot > 0)
       .map(({ objectApiName, undoCannot }) => ({ objectApiName, count: undoCannot })),
+    // Children first, as the removal deletes them.
+    beforeParent: beforeParent.reverse(),
     left: left.all(order),
   };
 }

@@ -102,6 +102,8 @@ const checkpointObjectSchema = z.object({
   readMode: checkpointReadModeSchema,
   undeletable: z.boolean(),
   cascadeParents: z.array(apiNameSchema).max(1000),
+  // Absent from a checkpoint taken before they were kept.
+  restrictParents: z.array(apiNameSchema).max(1000).optional(),
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/, 'Expected a sha256, hex'),
   fields: z.array(apiNameSchema).max(5000),
   leftOutFields: z

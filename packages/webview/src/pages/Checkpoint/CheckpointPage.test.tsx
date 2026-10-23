@@ -359,7 +359,10 @@ describe('CheckpointPage', () => {
           result: rewindResult({
             undo: {
               until: '2026-11-06T14:02:00.000Z',
-              cannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }],
+              cannot: [
+                { objectApiName: 'OpportunityLineItem', count: 3 },
+                { objectApiName: 'Case', count: 2, reason: 'deletedBeforeParent' },
+              ],
             },
           }),
           operationId: 'op-rewind',
@@ -369,9 +372,14 @@ describe('CheckpointPage', () => {
       expect(screen.getByTestId('danger-title').textContent).toBe(
         'Undo the last rewind of DEV-SB?',
       );
-      expect(screen.getByTestId('checkpoint-undo-cannot').textContent).toBe(
+      expect(
+        within(screen.getByTestId('checkpoint-undo-cannot'))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([
         'Undo could not bring back 3 OpportunityLineItem records this rewind deleted: Salesforce undeletes them only with their parent record.',
-      );
+        'Undo could not bring back 2 Case records this rewind deleted before a record they point at, which the rewind deleted next: Salesforce cannot bring them back after that.',
+      ]);
       const box = screen.getByRole('checkbox', {
         name: 'Undo even though DEV-SB runs automation as records are updated, deleted or brought back',
       });

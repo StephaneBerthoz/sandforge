@@ -60,6 +60,8 @@ import {
   type RewindResidual,
   type RewindResult,
   type RewindStatus,
+  type RewindUndoCannot,
+  type RewindUndoCannotReason,
   type SalesforceOrg,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
@@ -185,12 +187,14 @@ JSON (--json), one value on stdout:
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack (each {planned, done, left}), cannotUndo: [{object, reason,
-                      count}], undo?: {until, cannot: [{object, count}]}, verify: {differences,
-                      stable, passes, notCompared}, residual: [{object, reason, by?, count,
-                      message?}], unread: [{object, reason}], objects: [{object, deleted,
-                      givenBack, broughtBack, refused}], apiRequests: {used, leftToday}, result}:
+                      count}], undo?: {until, cannot: [{object, count, reason?}]}, verify:
+                      {differences, stable, passes, notCompared}, residual: [{object, reason,
+                      by?, count, message?}], unread: [{object, reason}], objects: [{object,
+                      deleted, givenBack, broughtBack, refused}], apiRequests: {used,
+                      leftToday}, result}:
                      status success, partial, unstable, failure or cancelled; result as the
-                     extension answers it
+                     extension answers it; undo.cannot's reason deletedBeforeParent: deleted
+                     before a record they point at, which the rewind deleted next
   undo               as rewind, without cannotUndo and undo
   delete             {deleted: [id], kept: [id]}
   refused or failed  {refusal: {code, message}}
@@ -924,6 +928,51 @@ const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
     'deleted with a parent created since: they can’t come back on their own',
 };
 
+/**
+ * Why Undo couldn't bring back records a rewind deletes, in the order the
+ * lines say them: as the preview says it, as a refusal for want of
+ * `--accept-no-undo` does, and as the rewind's result does once they went.
+ */
+const UNDO_CANNOT_WORDS: ReadonlyArray<{
+  reason: RewindUndoCannotReason;
+  preview: string;
+  refusal: string;
+  result: string;
+}> = [
+  {
+    reason: 'onlyWithParent',
+    preview: 'Salesforce undeletes them only with their parent, and their parent stays',
+    refusal: 'Salesforce undeletes them only with their parent, which stays',
+    result: 'Salesforce undeletes them only with their parent',
+  },
+  {
+    reason: 'deletedBeforeParent',
+    preview:
+      'deleted before a record they point at, which the rewind deletes next: Salesforce ' +
+      'cannot bring them back after that',
+    refusal:
+      'deleted before a record they point at, which the rewind deletes next, Salesforce ' +
+      'cannot bring them back after that',
+    result:
+      'deleted before a record they point at, which the rewind deleted next: Salesforce ' +
+      'cannot bring them back after that',
+  },
+];
+
+/**
+ * What Undo couldn't bring back, by reason, for the reasons that apply: an
+ * entry that names none is of the first, as a diff or a result made before
+ * the second was told says it.
+ */
+function undoCannotByReason(
+  cannot: readonly RewindUndoCannot[],
+): Array<{ words: (typeof UNDO_CANNOT_WORDS)[number]; of: RewindUndoCannot[] }> {
+  return UNDO_CANNOT_WORDS.flatMap((words) => {
+    const of = cannot.filter((u) => (u.reason ?? 'onlyWithParent') === words.reason);
+    return of.length > 0 ? [{ words, of }] : [];
+  });
+}
+
 /** What the preview answers: the diff, what the org runs, the cost, and a rewind's refusal. */
 export interface PreviewAnswer {
   diff: RewindDiff;
@@ -1051,11 +1100,11 @@ export function previewLines(
         'back-dated creation dates?); a rewind deletes nothing it cannot prove was created since',
     );
   }
-  if (diff.undoCannot.length > 0) {
+  for (const { words, of } of undoCannotByReason(diff.undoCannot)) {
     lines.push(
       `  undo couldn't bring back: ${someOf(
-        diff.undoCannot.map((u) => `${u.objectApiName} ${count(u.count)}`),
-      )} — Salesforce undeletes them only with their parent, and their parent stays`,
+        of.map((u) => `${u.objectApiName} ${count(u.count)}`),
+      )} — ${words.preview}`,
     );
   }
   for (const object of diff.objects) {
@@ -1172,14 +1221,19 @@ export function acceptanceRefusal(
 ): CheckpointRefusalLike | undefined {
   const { diff, automation } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
-    const records = diff.undoCannot.reduce((total, u) => total + u.count, 0);
-    const objects = diff.undoCannot.map((u) => u.objectApiName).join(', ');
+    const said = undoCannotByReason(diff.undoCannot).map(({ words, of }) => {
+      const records = of.reduce((total, u) => total + u.count, 0);
+      const objects = [...new Set(of.map((u) => u.objectApiName))].join(', ');
+      return (
+        `Undo couldn't bring back ${count(records)} ${objects} record(s) this rewind deletes: ` +
+        `${words.refusal}.`
+      );
+    });
     return {
       code: 'NO_UNDO',
       message:
-        `Undo couldn't bring back ${count(records)} ${objects} record(s) this rewind deletes: ` +
-        'Salesforce undeletes them only with their parent, which stays. Rewind refused; give ' +
-        '--accept-no-undo to rewind all the same. No record was written.',
+        `${said.join(' ')} Rewind refused; give --accept-no-undo to rewind all the same. ` +
+        'No record was written.',
     };
   }
   if (!automation || accepted.acceptAutomation) return undefined;
@@ -1341,11 +1395,11 @@ export function rewindLines(
       `  undo it until ${when(result.undo.until)}, sooner if the recycle bin fills: undo ` +
         `--org ${orgName} --checkpoint ${checkpoint.checkpointId}`,
     );
-    if (result.undo.cannot.length > 0) {
+    for (const { words, of } of undoCannotByReason(result.undo.cannot)) {
       lines.push(
         `  undo couldn't bring back: ${someOf(
-          result.undo.cannot.map((u) => `${u.objectApiName} ${count(u.count)}`),
-        )} — Salesforce undeletes them only with their parent`,
+          of.map((u) => `${u.objectApiName} ${count(u.count)}`),
+        )} — ${words.result}`,
       );
     }
   }
@@ -1498,7 +1552,11 @@ export function resultJson(
       ? {
           undo: {
             until: result.undo.until,
-            cannot: result.undo.cannot.map((u) => ({ object: u.objectApiName, count: u.count })),
+            cannot: result.undo.cannot.map((u) => ({
+              object: u.objectApiName,
+              count: u.count,
+              ...(u.reason !== undefined ? { reason: u.reason } : {}),
+            })),
           },
         }
       : {}),

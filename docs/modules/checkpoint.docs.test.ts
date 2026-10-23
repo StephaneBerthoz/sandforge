@@ -430,6 +430,37 @@ describe('docs/modules/checkpoint.md', () => {
     expect(take).toContain('It is not offered for a production org, nor after a run');
   });
 
+  it('says, in a sentence of its own, that Undo could not bring back a record deleted before a record it points at, and that the acceptance covers it', () => {
+    // Anchor: the diff counts such a record under a reason of its own, the
+    // page words it apart, and the rewind refuses it unaccepted as it refuses
+    // the other reason. Drop any of them and this test fails first.
+    expect(TYPES).toContain(
+      "export type RewindUndoCannotReason = 'onlyWithParent' | 'deletedBeforeParent';",
+    );
+    expect(DIFF).toContain(
+      "undoCannot.push({ objectApiName, count: beforeParent.length, reason: 'deletedBeforeParent' });",
+    );
+    expect(REWIND).toMatch(
+      /const NO_UNDO_LEFT[^;]*'noUndoNotAccepted',\s*'beforeParentNotAccepted',/,
+    );
+    expect(label('checkpoint.preview.undoCannot.beforeParent_other')).toContain(
+      'which the rewind deletes next: Salesforce cannot bring them back after that.',
+    );
+
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'the records it deletes before a record they point at, which the rewind deletes next: ' +
+        'Salesforce cannot bring them back after that',
+    );
+    expect(preview).toContain(
+      "the case's account lookup forbids deleting an account that still has cases",
+    );
+    expect(preview).toContain('and so is `--accept-no-undo` on the command line');
+    expect(section(DOC, '## Undo')).toContain(
+      'and those it deleted before a record they point at, which it deleted next',
+    );
+  });
+
   it('opens from the third line of the side bar, as its quick start says', () => {
     // Positive control: the side bar's primary modules, in their order.
     const primary = /const PRIMARY_MODULES: NavItem\[\] = \[([\s\S]*?)\n\];/.exec(SIDE_PANEL)?.[1];

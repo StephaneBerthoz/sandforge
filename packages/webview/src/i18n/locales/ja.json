@@ -5059,6 +5059,7 @@
       "undoCannot": {
         "title": "元に戻す操作で復元できないもの",
         "line_other": "この巻き戻しで削除する {{object}} の {{formatted}} 件のレコード: Salesforce は親レコードと一緒にしか復元しませんが、親は残ります。",
+        "beforeParent_other": "この巻き戻しで、参照先のレコードより先に削除する {{object}} の {{formatted}} 件のレコード: 参照先のレコードもこの巻き戻しで続けて削除するため、その後 Salesforce はこれらを復元できません。",
         "accept": "元に戻す操作で復元できなくても巻き戻す"
       },
       "outside": {
@@ -5125,6 +5126,7 @@
       "requests": "使用した API 要求 {{used}} 件 · 今日の残り {{left}} 件",
       "undoUntil": "この巻き戻しは {{date}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
       "undoCannot_other": "この巻き戻しで削除した {{object}} のレコード {{formatted}} 件は、元に戻す操作では復元できません。Salesforce は親レコードと一緒にしか復元しません。",
+      "undoCannotBeforeParent_other": "この巻き戻しで、参照先のレコードより先に削除した {{object}} のレコード {{formatted}} 件は、元に戻す操作では復元できません。参照先のレコードもこの巻き戻しで続けて削除したため、その後 Salesforce は復元できません。",
       "refused": "{{org}} に拒否されたもの: {{n}} 件",
       "notReached": "停止前に到達しなかったもの: {{n}} 件",
       "residual": {

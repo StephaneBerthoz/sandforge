@@ -62,6 +62,7 @@ export const checkpointDescribeSchema = z
             childSObject: z.string(),
             field: z.string(),
             cascadeDelete: z.boolean().optional(),
+            restrictedDelete: z.boolean().optional(),
           })
           .loose(),
       )
@@ -281,6 +282,36 @@ export function cascadeParentsOf(
   return [...fields].sort();
 }
 
+/**
+ * The reference fields of `child` whose parent the org refuses to delete
+ * while a live record names it, and whose delete does not take the record
+ * along — as the parents' describes list them: a case's account, seen live
+ * on a scratch org. A rewind that deletes such a record and its parent must
+ * delete the record first, and Salesforce then keeps it in the recycle bin
+ * for good, which Undo cannot change. Only the fields `child`'s own describe
+ * lists are named, as {@link cascadeParentsOf} names its own.
+ *
+ * @param describes - The objects described with it: a parent not among them
+ *   names nothing.
+ */
+export function restrictParentsOf(
+  child: CheckpointDescribe,
+  describes: Iterable<CheckpointDescribe>,
+): string[] {
+  const own = fieldsByName(child);
+  const childName = child.name.toLowerCase();
+  const fields = new Set<string>();
+  for (const parent of describes) {
+    for (const relationship of parent.childRelationships ?? []) {
+      if (relationship.restrictedDelete !== true || relationship.cascadeDelete === true) continue;
+      if (relationship.childSObject.toLowerCase() !== childName) continue;
+      const field = own.get(relationship.field.toLowerCase());
+      if (field) fields.add(field.name);
+    }
+  }
+  return [...fields].sort();
+}
+
 /** What a checkpoint records of one object before reading it. */
 export interface ObjectCapture extends CaptureProjection {
   objectApiName: string;
@@ -293,9 +324,14 @@ export interface ObjectCapture extends CaptureProjection {
   undeletable: boolean;
   /** {@link cascadeParentsOf}. */
   cascadeParents: string[];
+  /** {@link restrictParentsOf}. */
+  restrictParents: string[];
 }
 
-/** {@link captureProjection}, {@link readModeOf} and {@link cascadeParentsOf} of one object. */
+/**
+ * {@link captureProjection}, {@link readModeOf}, {@link cascadeParentsOf} and
+ * {@link restrictParentsOf} of one object.
+ */
 export async function objectCapture(
   described: CheckpointDescribe,
   describes: Iterable<CheckpointDescribe>,
@@ -306,6 +342,7 @@ export async function objectCapture(
     readMode: readModeOf(described.name),
     undeletable: described.undeletable === true,
     cascadeParents: cascadeParentsOf(described, describes),
+    restrictParents: restrictParentsOf(described, describes),
     ...(await captureProjection(described, options)),
   };
 }

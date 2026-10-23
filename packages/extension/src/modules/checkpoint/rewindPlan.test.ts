@@ -25,7 +25,7 @@ import {
   rewindDirOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
-import { binLedgerRead, spoolReads } from './orgStreams.js';
+import { binLedgerRead, spoolReads, spooledRows } from './orgStreams.js';
 import { rewindDiff } from './rewindDiff.js';
 import {
   heldInPlaceReason,
@@ -91,9 +91,22 @@ interface Held {
   undeletable?: boolean;
   /** Its fields whose parent's delete takes a record along. */
   cascadeParents?: string[];
+  /** Its fields whose parent's delete a live record refuses. */
+  restrictParents?: string[];
 }
 
 const ACCOUNT: Held = { objectApiName: 'Account', fields: [...STAMPS, 'Name', 'Industry'] };
+/** A case whose account lookup restricts the account's delete, as seen live: never deleted along. */
+const CASE: Held = {
+  objectApiName: 'Case',
+  fields: [...STAMPS, 'Subject', 'AccountId'],
+  restrictParents: ['AccountId'],
+};
+const ACCOUNT_CASES: MemoryChild = {
+  childSObject: 'Case',
+  field: 'AccountId',
+  restrictedDelete: true,
+};
 /** A contact, which its account's delete takes along. */
 const CONTACT: Held = {
   objectApiName: 'Contact',
@@ -332,6 +345,7 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
       readMode: 'query',
       undeletable: object.undeletable ?? true,
       cascadeParents: object.cascadeParents ?? [],
+      ...(object.restrictParents ? { restrictParents: object.restrictParents } : {}),
       fingerprint: prints[object.objectApiName].digest,
       fields: object.fields,
       leftOutFields: [],
@@ -344,6 +358,13 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
   scenario.afterRead?.(org);
   world.takenAt = new Date(readAt + 2_400).toISOString();
   return world;
+}
+
+/** The lines of a plan's file. */
+async function linesOf(file: string): Promise<OrgRow[]> {
+  const rows: OrgRow[] = [];
+  for await (const row of spooledRows(file)) rows.push(row);
+  return rows;
 }
 
 /** Every id of a spool, per object. */
@@ -743,11 +764,60 @@ describe('a rewind’s plan: what Undo couldn’t bring back (B3, A14)', () => {
       Opportunity: [parent],
     });
     expect(plan.undoCannot).toEqual([{ objectApiName: 'OpportunityLineItem', count: 1 }]);
+    expect(plan.beforeParent.map(({ objectApiName, count }) => [objectApiName, count])).toEqual([
+      ['OpportunityLineItem', 1],
+    ]);
+    expect(await linesOf(plan.beforeParent[0].file)).toEqual([{ Id: line, parents: [parent] }]);
     expect(outcome.objects.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
       ['OpportunityLineItem', 1],
       ['Opportunity', 1],
     ]);
     expect(world.live('Opportunity', parent)).toBe(false);
+  });
+
+  it('leaves and names a case made since under an account it deletes too, through a lookup that restricts the account’s delete, unless that Undo couldn’t bring it back was accepted: then sends it first, said beside the account, and the account’s delete leaves it in the bin for good (F41, a case under its account, live)', async () => {
+    const parent = accountId(1);
+    const kase = caseId(1);
+    const world = await take({ objects: [CASE, ACCOUNT], children: { Account: [ACCOUNT_CASES] } });
+    world.at(SINCE, (org) => {
+      org.add('Account', { Id: parent, Name: 'Made since' });
+      org.add('Case', { Id: kase, Subject: 'Made since', AccountId: parent });
+    });
+    const fresh = await world.diff(PV1, TR);
+    expect(fresh.diff.undoCannot).toEqual([
+      { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+    ]);
+
+    const refused = await world.plan({ freshDir: fresh.dir });
+    const accepted = await world.plan({ freshDir: fresh.dir, acceptNoUndo: true });
+
+    expect(refused.left).toEqual([
+      { objectApiName: 'Case', reason: 'beforeParentNotAccepted', count: 1, ids: [kase] },
+    ]);
+    expect((await idsOf(refused.deletes)).Case).toBeUndefined();
+    expect(refused.beforeParent).toEqual([]);
+    expect(await idsOf(accepted.deletes)).toEqual({ Case: [kase], Account: [parent] });
+    expect(accepted.left).toEqual([]);
+    expect(accepted.objects).toEqual([
+      counts('Case', { deleted: 1, undoCannot: 1 }),
+      counts('Account', { deleted: 1 }),
+    ]);
+    expect(accepted.beforeParent.map(({ objectApiName, count }) => [objectApiName, count])).toEqual(
+      [['Case', 1]],
+    );
+    expect(await linesOf(accepted.beforeParent[0].file)).toEqual([{ Id: kase, parents: [parent] }]);
+
+    const outcome = await world.remove(accepted);
+
+    expect(outcome.objects.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
+      ['Case', 1],
+      ['Account', 1],
+    ]);
+    // What Undo would send: the account comes back, the case is refused.
+    expect(await world.org.undelete([parent, kase])).toEqual([
+      { id: parent, success: true, errors: [] },
+      expect.objectContaining({ id: kase, success: false }),
+    ]);
   });
 });
 
