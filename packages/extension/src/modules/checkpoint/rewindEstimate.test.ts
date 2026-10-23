@@ -619,7 +619,7 @@ describe('rewindEstimate', () => {
 });
 
 describe('undoEstimate', () => {
-  it('counts the guard and the limits, the automation, the removal of what the rewind brought back, the bring back of what it deleted, the give-back and one verify by id', () => {
+  it('counts the guard and the limits, the automation, the removal of what the rewind brought back, the bring back of what it deleted, the give-back and one verify by id of what it gave back', () => {
     const estimate = undoEstimate({
       objects: CHECKPOINT,
       rewound: [
@@ -635,13 +635,13 @@ describe('undoEstimate', () => {
         7 +
         // Back to the bin: the 3 accounts.
         (3 + (1 + 1 + 2 + 1)) +
-        // Back from the bin: 4 accounts and 450 contacts, 4 batches.
-        (2 + 4 * 4) +
-        // Values back: a chunk of accounts, a chunk of contacts.
-        5 +
-        5 +
-        // Read again: 20 accounts in 1 call, 455 contacts in 3.
-        (1 + 3),
+        // Back from the bin: 4 accounts and 450 contacts, 4 batches of a bin
+        // read, a live read and the undelete, no stamps said back.
+        4 * 3 +
+        // Values back, a chunk of accounts, a chunk of contacts: each its
+        // clock, a read, an update, and the records read again.
+        (1 + 1 + 1 + 1) +
+        (1 + 1 + 1 + 1),
     );
     expect(estimate.records).toBe(20 + 455);
     expect(estimate.bytes).toBe(0);

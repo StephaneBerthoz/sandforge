@@ -1,0 +1,660 @@
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { open } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { MEMORY_ORG_USER } from '../../test/memoryRemovalOrg.js';
+import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
+import { runRecordsOf, type RunRemovalOutcome } from '../forge/ForgeRunRemoval.js';
+import { restoreOverwrites } from '../sync/SyncRunRestore.js';
+import {
+  CheckpointStoreError,
+  openCheckpointStore,
+  rewindDirOf,
+  type CheckpointFolder,
+  type OrgLock,
+  type OrgCheckpointStore,
+} from './OrgCheckpointStore.js';
+import {
+  IDS_PER_LINE,
+  openRewindJournal,
+  readRewindJournal,
+  reopenRewindJournal,
+  rewoundObjects,
+  undoPlans,
+  type RewindJournal,
+  type RewindJournalRead,
+} from './rewindJournal.js';
+
+vi.mock('../../logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+/*
+ * The journal a rewind writes before it writes, on a checkpoint's folder made
+ * by its store: each line on disk and flushed before the call it names, the
+ * values a give-back writes over kept first through the store a Sync run
+ * keeps its own in, a stopped rewind's journal taken up again, and the whole
+ * read back as the three plans of its undo.
+ */
+
+const ORG_ID = '00D000000000001AAA';
+const OTHER_ORG = '00D000000000002AAA';
+const CHECKPOINT_ID = 'ck-20261022-140512-a1b2';
+const AUTOMATED_PROCESS = '005000000000002AAA';
+
+const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
+const account = (n: number): string => id('001', n);
+const contact = (n: number): string => id('003', n);
+
+/** Tr of a first pass, on the org's clock, and of a pass taken up later. */
+const TR = '2026-10-22T15:00:00.000Z';
+const TR_LATER = '2026-10-22T15:40:00.000Z';
+
+const made: string[] = [];
+const held: OrgLock[] = [];
+let store: OrgCheckpointStore;
+let folder: CheckpointFolder;
+let lock: OrgLock;
+
+function locked(organizationId: string): OrgLock {
+  const taken = store.lock(organizationId, 'rewind', CHECKPOINT_ID);
+  if (!('lock' in taken)) throw new Error('the org’s lock is held');
+  held.push(taken.lock);
+  return taken.lock;
+}
+
+beforeEach(async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sandforge-journal-'));
+  made.push(dir);
+  const opened = openCheckpointStore({
+    root: join(dir, 'checkpoints'),
+    locksDir: join(dir, 'locks'),
+  });
+  if (!('store' in opened)) throw new Error(`refused: ${opened.refusal.reason}`);
+  store = opened.store;
+  folder = await store.create(ORG_ID, CHECKPOINT_ID);
+  lock = locked(ORG_ID);
+});
+
+afterEach(() => {
+  for (const taken of held.splice(0)) taken.release();
+  for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+function journalOpened(startedAt = TR): Promise<RewindJournal> {
+  return openRewindJournal({
+    folder,
+    lock,
+    startedAt,
+    userId: MEMORY_ORG_USER,
+    automatedProcessUserId: AUTOMATED_PROCESS,
+  });
+}
+
+/** The lines of a journal on disk, as written. */
+function linesOn(journal: RewindJournal): Array<Record<string, unknown>> {
+  return readFileSync(join(journal.dir, 'journal.ndjson'), 'utf8')
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** The values kept of an object, in the order they were kept. */
+function valuesOn(journal: RewindJournal, objectApiName: string): Array<Record<string, unknown>> {
+  return readFileSync(
+    join(journal.dir, 'backups', `${journal.backup}__${objectApiName}.ndjson`),
+    'utf8',
+  )
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** A removal's answer that left `left` of what it was handed. */
+function leaving(
+  left: Array<{ objectApiName: string; ids: string[] }>,
+): Pick<RunRemovalOutcome, 'left'> {
+  return {
+    left: async function* () {
+      yield* left;
+    },
+  };
+}
+
+/** Every flush of a file to the disk, in order with the calls a test records beside. */
+async function flushesInto(events: string[]): Promise<void> {
+  const probe = await open(join(folder.dir, 'probe'), 'w');
+  const prototype = Object.getPrototypeOf(probe) as { sync: () => Promise<void> };
+  await probe.close();
+  const sync = prototype.sync;
+  vi.spyOn(prototype, 'sync').mockImplementation(async function (this: unknown) {
+    await sync.call(this);
+    events.push('flushed');
+  });
+}
+
+describe('the journal, before each write', () => {
+  it('names each batch it brings back on disk, flushed, before the undelete of it is sent', async () => {
+    const journal = await journalOpened();
+    const events: string[] = [];
+    await flushesInto(events);
+    const sent: string[][] = [];
+    const undelete = journal.bringingBack(
+      [
+        { objectApiName: 'Account', ids: [account(1), account(2)] },
+        { objectApiName: 'Contact', ids: [contact(1)] },
+      ],
+      async (ids) => {
+        events.push('undelete');
+        // What the journal holds when the call goes: read from the disk.
+        expect(linesOn(journal).at(-1)).toMatchObject({ kind: 'bringingBack', ids });
+        sent.push(ids);
+        return ids.map((record) => ({ id: record, success: true }));
+      },
+    );
+
+    await undelete([account(1), account(2)]);
+    await undelete([contact(1)]);
+    await journal.close();
+
+    expect(sent).toEqual([[account(1), account(2)], [contact(1)]]);
+    expect(events).toEqual(['flushed', 'undelete', 'flushed', 'undelete']);
+    expect(linesOn(journal).slice(1)).toMatchObject([
+      { kind: 'bringingBack', objectApiName: 'Account', ids: [account(1), account(2)] },
+      { kind: 'bringingBack', objectApiName: 'Contact', ids: [contact(1)] },
+    ]);
+  });
+
+  it('sends no batch of records its plan does not hold, the journal never having named them', async () => {
+    const journal = await journalOpened();
+    const undelete = vi.fn(async (ids: string[]) => ids.map(() => ({ success: true })));
+    const call = journal.bringingBack([{ objectApiName: 'Account', ids: [account(1)] }], undelete);
+
+    await expect(call([contact(9)])).rejects.toThrow('none was sent');
+    await expect(call([account(1), contact(9)])).rejects.toThrow('none was sent');
+    await journal.close();
+
+    expect(undelete).not.toHaveBeenCalled();
+    expect(linesOn(journal)).toHaveLength(1);
+  });
+
+  it('keeps what an update of the give-back writes over, then names its records, both on disk and flushed before the update goes', async () => {
+    const journal = await journalOpened();
+    const org = new MemoryRestoreOrg({}, { now: () => Date.parse(TR) + 60_000 });
+    org.add('Account', { Id: account(1), Name: 'Changed since', Phone: '555' });
+    org.add('Account', { Id: account(2), Name: 'At the checkpoint 2', Phone: '556' });
+    const events: string[] = [];
+    await flushesInto(events);
+    const update = org.update.bind(org);
+    vi.spyOn(org, 'update').mockImplementation(async (objectApiName, records) => {
+      events.push('update');
+      expect(valuesOn(journal, 'Account')).toEqual([{ Id: account(1), Name: 'Changed since' }]);
+      expect(linesOn(journal).at(-1)).toMatchObject({
+        kind: 'givingBack',
+        objectApiName: 'Account',
+        ids: [account(1)],
+      });
+      return update(objectApiName, records);
+    });
+
+    const outcome = await restoreOverwrites({
+      org,
+      plan: [{ objectApiName: 'Account', backup: 'snapshot', ids: [account(1), account(2)] }],
+      backups: {
+        batches: async () => ({
+          async *[Symbol.asyncIterator]() {
+            yield [
+              { Id: account(1), Name: 'At the checkpoint 1', Phone: '555' },
+              { Id: account(2), Name: 'At the checkpoint 2', Phone: '556' },
+            ];
+          },
+        }),
+      },
+      changedAfter: new Date(Date.parse(TR) + 120_000).toISOString(),
+      fields: { Account: ['Name', 'Phone'] },
+      includeChanged: false,
+      keep: journal.keep,
+    });
+    await journal.close();
+
+    expect(outcome.objects[0]).toMatchObject({ restored: 2, refused: 0 });
+    // The values, the folder their new file is in, the line, then the
+    // update: each flushed before the next.
+    expect(events).toEqual(['flushed', 'flushed', 'flushed', 'update']);
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.givenBack).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
+  });
+
+  it('sends no update whose values could not be kept, names none of its records, and gives back the next object all the same', async () => {
+    const journal = await journalOpened();
+    // The file the account values go to cannot be written: a folder stands in its place.
+    mkdirSync(join(journal.dir, 'backups', `${journal.backup}__Account.ndjson`), {
+      recursive: true,
+    });
+    const org = new MemoryRestoreOrg({}, { now: () => Date.parse(TR) + 60_000 });
+    org.add('Account', { Id: account(1), Name: 'Changed since' });
+    org.add('Contact', { Id: contact(1), LastName: 'Changed since' });
+
+    const outcome = await restoreOverwrites({
+      org,
+      plan: [
+        { objectApiName: 'Account', backup: 'snapshot', ids: [account(1)] },
+        { objectApiName: 'Contact', backup: 'snapshot', ids: [contact(1)] },
+      ],
+      backups: {
+        batches: async (_backup, objectApiName) => ({
+          async *[Symbol.asyncIterator]() {
+            yield objectApiName === 'Account'
+              ? [{ Id: account(1), Name: 'At the checkpoint' }]
+              : [{ Id: contact(1), LastName: 'At the checkpoint' }];
+          },
+        }),
+      },
+      changedAfter: new Date(Date.parse(TR) + 120_000).toISOString(),
+      includeChanged: false,
+      keep: journal.keep,
+    });
+    await journal.close();
+
+    expect(outcome.objects.map(({ restored, refused }) => ({ restored, refused }))).toEqual([
+      { restored: 0, refused: 1 },
+      { restored: 1, refused: 0 },
+    ]);
+    expect(outcome.objects[0].reasons[0]).toContain(
+      'nothing is written over that cannot be put back',
+    );
+    expect(org.updates.map((call) => call.objectApiName)).toEqual(['Contact']);
+    expect(org.all('Account')[0].Name).toBe('Changed since');
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.givenBack).toEqual([{ objectApiName: 'Contact', ids: [contact(1)] }]);
+  });
+
+  it('names what a removal sets out to delete before it is handed the plan, a page at a time, and at most 2,000 ids a line', async () => {
+    const journal = await journalOpened();
+    const contacts = Array.from({ length: 4_500 }, (_, n) => contact(n + 1));
+    await journal.deleting(
+      runRecordsOf([
+        { objectApiName: 'Contact', ids: contacts },
+        { objectApiName: 'Account', ids: [account(1)] },
+      ]),
+    );
+    await journal.close();
+
+    const lines = linesOn(journal).slice(1);
+    expect(lines.map((line) => [line.kind, line.step, line.objectApiName])).toEqual([
+      ['deleting', 1, 'Contact'],
+      ['deleting', 1, 'Contact'],
+      ['deleting', 1, 'Contact'],
+      ['deleting', 1, 'Account'],
+    ]);
+    expect(lines.map((line) => (line.ids as string[]).length)).toEqual([
+      IDS_PER_LINE,
+      IDS_PER_LINE,
+      500,
+      1,
+    ]);
+  });
+});
+
+describe('the journal, read back', () => {
+  it('says the removal deleted what it set out to less what it left, once it answered; all of it when it never did', async () => {
+    const journal = await journalOpened();
+    await journal.deleting([
+      { objectApiName: 'Contact', ids: [contact(1), contact(2)] },
+      { objectApiName: 'Account', ids: [account(1), account(2)] },
+    ]);
+    // Changed after Tr by a colleague: the removal left it.
+    await journal.deleted(leaving([{ objectApiName: 'Account', ids: [account(2)] }]));
+    // A second pass, whose removal never answered: a crash.
+    await journal.deleting([{ objectApiName: 'Account', ids: [account(3)] }]);
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.deleted).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1), contact(2)] },
+      { objectApiName: 'Account', ids: [account(1), account(3)] },
+    ]);
+  });
+
+  it('holds what came back with a parent as brought back, each record once whichever length its id is named in', async () => {
+    const journal = await journalOpened();
+    await journal.withParent('Contact', [contact(1), contact(2)]);
+    await journal.bringingBack([{ objectApiName: 'Account', ids: [account(1)] }], async () => [])([
+      account(1),
+    ]);
+    await journal.withParent('Contact', [contact(1).slice(0, 15)]);
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.broughtBack).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1), contact(2)] },
+      { objectApiName: 'Account', ids: [account(1)] },
+    ]);
+  });
+
+  it('dates the rewind’s last write by its write lines, never by a pass taken up later, which wrote nothing by being taken up', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-22T15:00:05.000Z'));
+    const first = await journalOpened();
+    vi.setSystemTime(Date.parse('2026-10-22T15:00:09.000Z'));
+    await first.withParent('Contact', [contact(1)]);
+    await first.close();
+    vi.setSystemTime(Date.parse('2026-10-22T15:40:02.000Z'));
+    const resumed = await journalOpened(TR_LATER);
+    const read = await resumed.read();
+    await resumed.close();
+
+    expect(read.passes).toEqual([
+      { startedAt: TR, userId: MEMORY_ORG_USER },
+      { startedAt: TR_LATER, userId: MEMORY_ORG_USER },
+    ]);
+    expect(read.lastWriteAt).toBe('2026-10-22T15:00:09.000Z');
+  });
+
+  it('keeps what the rewind’s removals left on records, stamps merged and spans in turn, for its next pass', async () => {
+    const journal = await journalOpened();
+    await journal.removal({
+      removalStamps: { [account(1)]: '2026-10-22T15:01:00.000Z' },
+      removalSpans: [
+        {
+          first: '2026-10-22T15:00:00.000Z',
+          last: '2026-10-22T15:01:10.000Z',
+          userId: MEMORY_ORG_USER,
+        },
+      ],
+    });
+    await journal.removal({
+      removalStamps: { [account(2)]: '2026-10-22T15:02:00.000Z' },
+      removalSpans: [
+        {
+          first: '2026-10-22T15:02:00.000Z',
+          last: '2026-10-22T15:02:10.000Z',
+          userId: MEMORY_ORG_USER,
+        },
+      ],
+    });
+    // Nothing to keep: no line.
+    await journal.removal({ removalStamps: {}, removalSpans: [] });
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.rewind.removalStamps).toEqual({
+      [account(1)]: '2026-10-22T15:01:00.000Z',
+      [account(2)]: '2026-10-22T15:02:00.000Z',
+    });
+    expect(read.rewind.removalSpans?.map((span) => span.first)).toEqual([
+      '2026-10-22T15:00:00.000Z',
+      '2026-10-22T15:02:00.000Z',
+    ]);
+    expect(linesOn(journal).filter((line) => line.kind === 'removal')).toHaveLength(2);
+  });
+});
+
+describe('the journal across resumes', () => {
+  it('takes up the journal of a rewind stopped part way, its lines and its values kept, the values kept first standing', async () => {
+    const first = await journalOpened();
+    await first.keep('Account', [{ Id: account(1), Name: 'Before the rewind' }]);
+    await first.close();
+
+    const resumed = await journalOpened(TR_LATER);
+    // A second pass writes over the record again: what it holds now is what
+    // the first pass wrote, which is not what it held before the rewind.
+    await resumed.keep('Account', [{ Id: account(1), Name: 'At the checkpoint' }]);
+    const read = await resumed.read();
+    await resumed.close();
+
+    expect(resumed.rewindId).toBe(first.rewindId);
+    expect(resumed.resumed).toBe(true);
+    expect(valuesOn(resumed, 'Account')).toEqual([
+      { Id: account(1), Name: 'Before the rewind' },
+      { Id: account(1), Name: 'At the checkpoint' },
+    ]);
+    expect(read.did.givenBack).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
+    const before = JSON.parse(readFileSync(join(resumed.dir, 'before.json'), 'utf8')) as {
+      openings: Array<{ totalRecords: number }>;
+    };
+    expect(before.openings.map((opening) => opening.totalRecords)).toEqual([1, 1]);
+  });
+
+  it('starts a new journal once the last rewind went through, or was undone', async () => {
+    const first = await journalOpened();
+    await first.end();
+    await first.close();
+    const second = await journalOpened(TR_LATER);
+    await second.undone({}, 'success');
+    await second.close();
+    const third = await journalOpened(TR_LATER);
+    await third.close();
+
+    expect(new Set([first.rewindId, second.rewindId, third.rewindId]).size).toBe(3);
+    expect([second.resumed, third.resumed]).toEqual([false, false]);
+  });
+
+  it('takes up the rewind stopped part way when another rewind of the checkpoint began in the same second and went through', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-10-22T15:00:00.400Z'));
+    // A rewind that began in that second too and went through, its id
+    // sorting after any other of the second.
+    const ended = 'rw-20261022-150000-zzzz';
+    mkdirSync(join(rewindDirOf(folder, ended), 'backups'), { recursive: true });
+    const at = '2026-10-22T15:00:00.100Z';
+    appendFileSync(
+      join(rewindDirOf(folder, ended), 'journal.ndjson'),
+      `${JSON.stringify({
+        kind: 'head',
+        version: 1,
+        rewindId: ended,
+        checkpointId: CHECKPOINT_ID,
+        organizationId: folder.organizationId,
+        startedAt: TR,
+        userId: MEMORY_ORG_USER,
+        backup: `sync-before-${ended}`,
+        at,
+      })}\n${JSON.stringify({ kind: 'end', at })}\n`,
+    );
+    const stopped = await journalOpened();
+    await stopped.withParent('Contact', [contact(1)]);
+    await stopped.close();
+
+    const resumed = await journalOpened(TR_LATER);
+    await resumed.close();
+
+    expect(stopped.rewindId).not.toBe(ended);
+    expect(resumed.rewindId).toBe(stopped.rewindId);
+    expect(resumed.resumed).toBe(true);
+  });
+
+  it('drops a line a crash cut short, which no write followed, and adds the next after the last whole one', async () => {
+    const first = await journalOpened();
+    await first.withParent('Contact', [contact(1)]);
+    await first.close();
+    appendFileSync(
+      join(first.dir, 'journal.ndjson'),
+      `{"kind":"withParent","objectApiName":"Contact","ids":["${contact(2)}"],"at":"2026-10-22T15:00:0`,
+    );
+
+    const resumed = await journalOpened(TR_LATER);
+    await resumed.withParent('Contact', [contact(3)]);
+    const read = await resumed.read();
+    await resumed.close();
+
+    expect(read.did.broughtBack).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1), contact(3)] },
+    ]);
+    expect(readFileSync(join(first.dir, 'journal.ndjson'), 'utf8').endsWith('}\n')).toBe(true);
+  });
+
+  it('uses a rewind’s folder left without a head as a new journal: nothing was written to the org', async () => {
+    const dir = rewindDirOf(folder, 'rw-20261022-145959-zzzz');
+    mkdirSync(dir, { recursive: true });
+
+    const journal = await journalOpened();
+    await journal.close();
+
+    expect(journal.rewindId).toBe('rw-20261022-145959-zzzz');
+    expect(journal.resumed).toBe(false);
+    expect(linesOn(journal)).toMatchObject([{ kind: 'head', startedAt: TR }]);
+  });
+
+  it('refuses a journal damaged before its last line: no rewind starts over it, and no undo reads it', async () => {
+    const first = await journalOpened();
+    await first.close();
+    appendFileSync(join(first.dir, 'journal.ndjson'), 'not a line of the journal\n');
+    appendFileSync(
+      join(first.dir, 'journal.ndjson'),
+      `${JSON.stringify({ kind: 'wrote', at: '2026-10-22T15:00:09.000Z' })}\n`,
+    );
+
+    await expect(journalOpened(TR_LATER)).rejects.toThrow(CheckpointStoreError);
+    await expect(journalOpened(TR_LATER)).rejects.toMatchObject({ code: 'damaged' });
+    await expect(readRewindJournal(folder, first.rewindId)).rejects.toMatchObject({
+      code: 'damaged',
+    });
+    await expect(reopenRewindJournal(folder, first.rewindId, lock)).rejects.toMatchObject({
+      code: 'damaged',
+    });
+  });
+
+  it('is written under the lock of the checkpoint’s org alone', async () => {
+    const other = locked(OTHER_ORG);
+
+    await expect(
+      openRewindJournal({ folder, lock: other, startedAt: TR, userId: MEMORY_ORG_USER }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    const first = await journalOpened();
+    await first.close();
+    await expect(reopenRewindJournal(folder, first.rewindId, other)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'is its owner’s alone: its folders 0700, its lines, its values and what is said of them 0600',
+    async () => {
+      const journal = await journalOpened();
+      await journal.keep('Account', [{ Id: account(1), Name: 'Before the rewind' }]);
+      await journal.close();
+
+      const mode = (path: string): number => statSync(path).mode & 0o777;
+      expect(mode(journal.dir)).toBe(0o700);
+      expect(mode(join(journal.dir, 'backups'))).toBe(0o700);
+      expect(mode(join(journal.dir, 'journal.ndjson'))).toBe(0o600);
+      expect(mode(join(journal.dir, 'before.json'))).toBe(0o600);
+      expect(mode(join(journal.dir, 'backups', `${journal.backup}__Account.ndjson`))).toBe(0o600);
+    },
+  );
+});
+
+describe('undoPlans', () => {
+  /** A journal read back as a test gives it. */
+  function readOf(
+    did: Partial<RewindJournalRead['did']>,
+    undo: RewindJournalRead['undo'] = {},
+  ): Pick<RewindJournalRead, 'head' | 'did' | 'undo'> {
+    return {
+      head: {
+        rewindId: 'rw-20261022-150000-a1b2',
+        checkpointId: CHECKPOINT_ID,
+        organizationId: ORG_ID,
+        startedAt: TR,
+        userId: MEMORY_ORG_USER,
+        backup: 'sync-before-rw-20261022-150000-a1b2',
+      },
+      did: { broughtBack: [], deleted: [], givenBack: [], ...did },
+      undo,
+    };
+  }
+
+  const OBJECTS = [
+    { objectApiName: 'Contact', readOrder: 0 },
+    { objectApiName: 'Account', readOrder: 1 },
+  ];
+
+  it('brings back what the rewind deleted parents first, sends back what it brought back children first, and gives back what it wrote over', () => {
+    const plans = undoPlans(
+      readOf({
+        deleted: [
+          { objectApiName: 'Contact', ids: [contact(1)] },
+          { objectApiName: 'Account', ids: [account(1)] },
+        ],
+        broughtBack: [
+          { objectApiName: 'Account', ids: [account(2)] },
+          { objectApiName: 'Contact', ids: [contact(2)] },
+          // A child outside the checkpoint that came back with its account.
+          { objectApiName: 'Note', ids: [id('002', 1)] },
+        ],
+        givenBack: [{ objectApiName: 'Account', ids: [account(3)] }],
+      }),
+      OBJECTS,
+    );
+
+    expect(plans).toEqual({
+      remove: [
+        { objectApiName: 'Note', ids: [id('002', 1)] },
+        { objectApiName: 'Contact', ids: [contact(2)] },
+        { objectApiName: 'Account', ids: [account(2)] },
+      ],
+      bringBack: [
+        { objectApiName: 'Account', ids: [account(1)] },
+        { objectApiName: 'Contact', ids: [contact(1)] },
+      ],
+      giveBack: [
+        {
+          objectApiName: 'Account',
+          ids: [account(3)],
+          backup: 'sync-before-rw-20261022-150000-a1b2',
+        },
+      ],
+    });
+  });
+
+  it('leaves out of both what the rewind brought back and deleted again: it is in the recycle bin as it was', () => {
+    const plans = undoPlans(
+      readOf({
+        broughtBack: [
+          { objectApiName: 'Account', ids: [account(1)] },
+          // Came back with its account, created then deleted since: a second pass deleted it.
+          { objectApiName: 'Contact', ids: [contact(1)] },
+        ],
+        deleted: [{ objectApiName: 'Contact', ids: [contact(1).slice(0, 15)] }],
+      }),
+      OBJECTS,
+    );
+
+    expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
+    expect(plans.bringBack).toEqual([]);
+  });
+
+  it('takes up only what the undo before it left of each plan', () => {
+    const plans = undoPlans(
+      readOf(
+        {
+          broughtBack: [{ objectApiName: 'Account', ids: [account(1), account(2)] }],
+          deleted: [{ objectApiName: 'Contact', ids: [contact(1), contact(2)] }],
+          givenBack: [{ objectApiName: 'Account', ids: [account(3), account(4)] }],
+        },
+        {
+          removalLeft: [account(2)],
+          undeleteLeft: [contact(1)],
+          restoreLeft: [],
+        },
+      ),
+      OBJECTS,
+    );
+
+    expect(plans).toEqual({
+      remove: [{ objectApiName: 'Account', ids: [account(2)] }],
+      bringBack: [{ objectApiName: 'Contact', ids: [contact(1)] }],
+      giveBack: [],
+    });
+    expect(rewoundObjects(plans)).toEqual([
+      { objectApiName: 'Contact', deleted: 1, broughtBack: 0, givenBack: 0 },
+      { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
+    ]);
+  });
+});

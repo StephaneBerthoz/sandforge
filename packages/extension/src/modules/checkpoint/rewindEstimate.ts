@@ -803,6 +803,54 @@ export interface RewoundObject {
   givenBack: number;
 }
 
+/**
+ * Requests per batch of 200 an undo's bring back sends: the batch read in the
+ * recycle bin, then among the live records, and the undelete itself (a SOAP
+ * call). It says back no stamps — an undo taken up again plans only what the
+ * one before left — so it reads neither the clock nor its user.
+ */
+const UNDO_UNDELETE_REQUESTS_PER_BATCH = 3;
+
+/**
+ * SOAP calls one call of `restoreOverwrites` sends in an undo, whatever it
+ * gives back: the org's clock, which the rewind's last write, dated by this
+ * machine's, is read on. It says back no stamps, so it reads no user.
+ */
+const UNDO_RESTORE_FIXED_REQUESTS = 1;
+
+/**
+ * What an undo's bring back costs, per object the records it brings back:
+ * per batch of 200, the bin read, the live read and the undelete.
+ */
+function undoUndeleteCost(records: readonly number[]): Cost {
+  const batchCount = records.reduce((total, count) => total + batches(count), 0);
+  return sum(
+    calls(batchCount * (UNDO_UNDELETE_REQUESTS_PER_BATCH - 1), SECONDS_PER_READ),
+    calls(batchCount, SECONDS_PER_WRITE),
+  );
+}
+
+/**
+ * What an undo's give-back of `records` records of one object costs, a chunk
+ * of {@link SNAPSHOT_CHUNK_IDS} a call of `restoreOverwrites`: per chunk, its
+ * clock, the org's values read by id in the object's column groups, the
+ * updates; then the records read again by id, once the undo is through.
+ */
+function undoRestoreCost(records: number, fields: readonly string[]): Cost {
+  let cost = NOTHING;
+  for (let left = records; left > 0; left -= SNAPSHOT_CHUNK_IDS) {
+    const chunk = Math.min(left, SNAPSHOT_CHUNK_IDS);
+    cost = sum(
+      cost,
+      calls(UNDO_RESTORE_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
+      calls(readsById(chunk, fields), SECONDS_PER_READ),
+      calls(runRequestsEstimate([{ rows: chunk }]), SECONDS_PER_WRITE),
+      calls(readsById(chunk, fields), SECONDS_PER_READ),
+    );
+  }
+  return cost;
+}
+
 /** What an undo's estimate is made from. */
 export interface UndoEstimateInput {
   /** The checkpoint's objects (`OrgCheckpoint.objects`). */
@@ -817,10 +865,13 @@ export interface UndoEstimateInput {
 
 /**
  * The API requests and time an undo costs, about, from what the rewind's
- * journal says it did: the guard and the day's limits; the automation read; the removal of what the
- * rewind brought back; what it deleted brought back; what it wrote over
- * given back, by chunks of 2,000; and one verify, the records it wrote read
- * again by their ids. It keeps nothing more on this machine.
+ * journal says it did (`rewoundObjects`), each brick as `undoRewind` sends
+ * it: the guard and the day's limits; the automation read; the removal of
+ * what the rewind brought back; what it deleted brought back, saying back no
+ * stamps; what it wrote over given back, by chunks of 2,000; and one verify,
+ * the records it gave back read again by their ids. What it brought back and
+ * sent back the bricks read around their own writes, and are not read again.
+ * It keeps nothing more on this machine.
  */
 export function undoEstimate(
   input: UndoEstimateInput,
@@ -848,18 +899,9 @@ export function undoEstimate(
         dependents: relationshipsFor(input.relationships, object.objectApiName).dependents,
       })),
     ),
-    undeleteCost(input.rewound.map((object) => object.deleted)),
+    undoUndeleteCost(input.rewound.map((object) => object.deleted)),
     ...input.rewound.map((object) =>
-      restoreCost(object.givenBack, fieldsOf.get(object.objectApiName) ?? []),
-    ),
-    ...input.rewound.map((object) =>
-      calls(
-        readsById(
-          object.deleted + object.broughtBack + object.givenBack,
-          fieldsOf.get(object.objectApiName) ?? [],
-        ),
-        SECONDS_PER_READ,
-      ),
+      undoRestoreCost(object.givenBack, fieldsOf.get(object.objectApiName) ?? []),
     ),
   );
   return { records, apiRequests: cost.apiRequests, seconds: Math.ceil(cost.seconds), bytes: 0 };
