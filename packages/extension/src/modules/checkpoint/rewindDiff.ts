@@ -38,15 +38,24 @@
  *   deleted by a rewind. Created before it: left and named. A load can set
  *   `CreatedDate` in the past, a transaction can commit late, and a rewind
  *   deletes nothing it cannot prove was created since;
- * - in `D` and `S`: deleted since, in the bin, brought back — by a rewind of
- *   its own, or with its parent for an object Salesforce undeletes only so;
+ * - in `D` and `S`: deleted since, in the bin, brought back. One deleted in
+ *   the second a parent the rewind brings back was deleted in, through a
+ *   field whose parent's delete takes it along, went with that parent and
+ *   comes back with it: it is never promised back on its own, since the org
+ *   refuses one deleted so while its parent is in the bin. One deleted on its
+ *   own comes back on its own — but not in an object Salesforce undeletes
+ *   only with its parent (an opportunity's products, a campaign's members):
+ *   such a record whose parent is not coming back cannot come back with its
+ *   id at all, and is named so;
  * - in `D`, in neither, created before T0's second: live at T0, gone before
  *   its object was read — deleted while the checkpoint was taken, brought back
  *   with the values it had when deleted, as the snapshot holds none. A record
  *   deleted in T0's own second, before T0, reads so too: brought back, never
  *   lost;
- * - in `D` and `B0`: in the bin at the checkpoint; in `D` alone, created
- *   since: created and deleted since. Neither is anything to rewind.
+ * - in `D` and `B0`: in the bin at the checkpoint: nothing to rewind. In `D`
+ *   alone, created since: created and deleted since, nothing to rewind —
+ *   unless it went with a parent the rewind brings back: it comes back with
+ *   that parent, and the rewind deletes it once more.
  *
  * What is left is what the snapshot holds and the org no longer does, live or
  * in the bin: `lost = |S| − (n − |L \ S|) − |D ∩ S|`, every live record the
@@ -62,13 +71,48 @@
  * goes through the recycle bin and keeps to the live records, so an activity
  * archived since is neither deleted nor gone.
  *
+ * Beside the classes, a diff says:
+ *
+ * - what changed in the objects' fields since the take: each object is
+ *   described again, asked whether it changed since a day before T0 — the
+ *   take described it before T0 and kept no date of it — and what comes back
+ *   is printed as the take printed it. A field deleted since, or hidden since
+ *   by field-level security, is neither read nor compared, and is named: a
+ *   read that names it is refused whole, and its object would read as one
+ *   that could not be read. A field added since is left alone; one whose
+ *   type changed is compared still, and named;
+ * - the fields not compared: those its owner chose to stop comparing, and
+ *   those gone since;
+ * - a person account's contact as its account's: Salesforce neither deletes
+ *   nor brings back such a contact on its own, so it is in no class of
+ *   Contact, and its account, which alone is deleted, brought back or given
+ *   its fields back, is compared whenever its contact moved;
+ * - the lookups a deletion since cleared: the org empties a lookup that
+ *   names a record it deletes, and restamped the child it did so on (asked
+ *   live for a contact's `ReportsToId`), but no other lookup was asked. So the
+ *   snapshot's rows of every object a deleted record's describe lists as its
+ *   child are read for the lookups that name a record the rewind brings back,
+ *   and their values compared whatever their stamps;
+ * - who last changed the records to delete or give back, and who changed any
+ *   of them in the hour before the read: a record two people changed names
+ *   the last of them;
+ * - the records outside the checkpoint that its deletions take along: those
+ *   created at or after T1 under a record to delete, through a relationship
+ *   the org deletes along, in an object a person works in. Those created
+ *   before keep their parent, which the rewind's deletion leaves;
+ * - the records to delete that Undo couldn't bring back: in an object
+ *   Salesforce undeletes only with its parent, one whose parent the rewind
+ *   deletes too goes with it and comes back with it; one whose parent stays
+ *   is deleted on its own, and stays in the bin.
+ *
  * An object any of whose reads failed is named "could not be read", never
  * taken for one that did not change: a rewind leaves it as it is.
  *
  * The ids of each class are written to the preview's folder as they are told,
  * `<Object>.<class>.ndjson`, one `{"Id"}` line each and nothing held whole: a
  * rewind acts on what its preview confirmed that still differs, class by
- * class, by id.
+ * class, by id. A line given back names the fields that differ, and of them
+ * the lookups a deletion cleared.
  */
 
 import { appendFile, rm } from 'node:fs/promises';
@@ -79,54 +123,95 @@ import {
   type OrgCheckpoint,
   type RewindDiff,
   type RewindDiffObject,
+  type RewindSchemaDrift,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { ACCOUNT, CONTACT } from '../../core/common/platformRecords.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
-import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import { sameValue } from '../sync/SyncRunRestore.js';
-import { comparedFields } from './checkpointFields.js';
+import {
+  PERSON_ACCOUNT_FLAG,
+  checkpointDescribeSchema,
+  comparedFields,
+  ignoredFieldsOf,
+  isPersonContact,
+  readModeOf,
+  type CheckpointDescribe,
+} from './checkpointFields.js';
+import { fingerprintOf, schemaDrift, type ObjectFingerprint } from './checkpointFingerprint.js';
 import { OrgReadStopped, type CompositeReader, type OrgRow } from './compositeQueries.js';
 import {
   CHECKPOINT_FILE_MODE,
   binFileOf,
   makePrivateDir,
   previewDirOf,
+  readFieldPrints,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
 import {
   idScanRead,
   readChanges,
   readStreams,
+  soqlInstant,
   spooledRows,
   streamRead,
   type ObjectChanges,
+  type ObjectRead,
 } from './orgStreams.js';
-import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
+import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from './snapshotIndex.js';
 
 /**
  * The classes a record is told into, each with its file in the preview's
  * folder:
  *
- * - `giveBack`: changed since, a compared field differs; its line names them;
+ * - `giveBack`: changed since, a compared field differs; its line names them,
+ *   and of them, as `cleared`, the lookups a deletion since emptied;
  * - `touched`: stamped since over its checkpoint values;
  * - `createdSince`, `broughtBackSince`: to delete;
+ * - `comesBackWithParent`: created since and deleted with a parent the rewind
+ *   brings back: it comes back with it, and is deleted again;
  * - `unexplained`: live, not held, dated before the checkpoint: left, named;
  * - `inBin`, `withParent`, `deletedWhileTaken`: to bring back, on its own,
  *   with its parent, or with the values it had when deleted;
- * - `goneForGood`: deleted since and no longer in the bin: named.
+ * - `goneForGood`: deleted since and no longer in the bin, or in it in an
+ *   object Salesforce undeletes only with a parent that is not coming back:
+ *   named, it cannot come back with its id;
+ * - `undoCannot`: of the records to delete, those Undo couldn't bring back.
+ *   Not a class of its own: each of its records is in a class to delete too.
  */
 export type RewindClass =
   | 'giveBack'
   | 'touched'
   | 'createdSince'
   | 'broughtBackSince'
+  | 'comesBackWithParent'
   | 'unexplained'
   | 'inBin'
   | 'withParent'
   | 'deletedWhileTaken'
-  | 'goneForGood';
+  | 'goneForGood'
+  | 'undoCannot';
+
+/** Every class, as the files of an object are named by. */
+const REWIND_CLASSES: readonly RewindClass[] = [
+  'giveBack',
+  'touched',
+  'createdSince',
+  'broughtBackSince',
+  'comesBackWithParent',
+  'unexplained',
+  'inBin',
+  'withParent',
+  'deletedWhileTaken',
+  'goneForGood',
+  'undoCannot',
+];
+
+/** The classes of the records a rewind deletes in its first pass. */
+const DELETED_FIRST = ['createdSince', 'broughtBackSince'] as const;
 
 /** Where a preview keeps the ids of one class of one object. */
 export function classFileOf(previewDir: string, objectApiName: string, cls: RewindClass): string {
@@ -137,12 +222,18 @@ export function classFileOf(previewDir: string, objectApiName: string, cls: Rewi
 export interface RewindDiffInput {
   checkpoint: Pick<
     OrgCheckpoint,
-    'checkpointId' | 'readFrom' | 'objects' | 'ignoredFields' | 'snapshotId'
+    'checkpointId' | 'readFrom' | 'takenAt' | 'objects' | 'ignoredFields' | 'snapshotId'
   >;
-  /** The checkpoint's folder: its snapshot, index and bin files. */
+  /** The checkpoint's folder: its snapshot, index, bin and field prints. */
   folder: CheckpointFolder;
   /** The org, read through composites. */
   reader: CompositeReader;
+  /**
+   * The org's global describe, `conn.describeGlobal()`: which objects outside
+   * the checkpoint a person works in, read once a deletion would take records
+   * of one along.
+   */
+  describeGlobal: () => Promise<unknown>;
   /** Names the preview: its reads and classes go to `previews/<previewId>/`. */
   previewId: string;
   /** Tr: read on the org's clock just before the reads begin. */
@@ -157,11 +248,28 @@ export interface RewindDiffInput {
  */
 const ORG_DATE_GRAIN_MS = 1_000;
 
+/**
+ * How long before T0 a describe is asked whether its object changed since.
+ * The take describes its objects before T0 — the scope, the counts and the
+ * day's budget come first — and keeps no date of it: asked from T0, a field
+ * deleted in between would answer "not modified". Asked from a day before,
+ * such a change comes back, and one from before the take's describe comes
+ * back too, as a describe that prints as the take printed it: a few more
+ * bytes, never a change missed.
+ */
+const DESCRIBED_SINCE_MS = 24 * 60 * 60_000;
+
+/** The hour before the read in which a person who changed a record is working in the org now. */
+const ACTIVE_WINDOW_MS = 60 * 60_000;
+
 /** Columns past which a read by id names fewer records per query, as a restore reads them. */
 const WIDE_COLUMNS = 100;
 
 /** Lines a class's file is written by at a time. */
 const SPOOL_LINES = 2_000;
+
+/** Who last changed a record, and when: read beside the stamps. */
+const WHO_COLUMNS = ['LastModifiedById', 'LastModifiedDate'];
 
 /** The key the org knows a record by: its id's first fifteen characters. */
 function keyOf(id: unknown): string | undefined {
@@ -172,6 +280,17 @@ function keyOf(id: unknown): string | undefined {
 function dateMs(value: unknown): number {
   const at = orgDateTime(value);
   return at === null ? Number.NaN : Date.parse(at);
+}
+
+/** Whether a field holds no value: a lookup the org cleared. */
+function isEmpty(value: unknown): boolean {
+  return value === null || value === undefined || value === '';
+}
+
+/** The snapshot's own spelling of a field, whatever the case it is asked in; none when it holds none. */
+function heldField(fields: readonly string[], name: string): string | undefined {
+  const wanted = name.toLowerCase();
+  return fields.find((field) => field.toLowerCase() === wanted);
 }
 
 /** The ids of one class of one object, written to the preview's folder as they are told. */
@@ -207,19 +326,81 @@ class ClassSpool {
   }
 }
 
+/** Remove every class file of an object: one whose reads failed after it was told keeps none. */
+async function discardClasses(previewDir: string, objectApiName: string): Promise<void> {
+  await Promise.all(
+    REWIND_CLASSES.map((cls) => rm(classFileOf(previewDir, objectApiName, cls), { force: true })),
+  );
+}
+
 /**
- * A record of `L` the snapshot holds whose values decide: the stamp the
- * snapshot read it with, and the one the change read found.
+ * A record of the snapshot whose values decide: the stamp the snapshot read
+ * it with, the one the change read found — the same, for one no change read
+ * found — and the lookups of its snapshot row that name a record deleted
+ * since.
  */
 interface Candidate {
   id: string;
   key: string;
   held: number;
   stamp: number;
+  cleared?: readonly string[];
+}
+
+/** Who last changed the records of an object to delete or give back, and who did so lately. */
+class People {
+  private readonly counts = new Map<string, number>();
+  readonly active = new Set<string>();
+
+  constructor(private readonly activeFrom: number) {}
+
+  /** Count the last modifier of `row`, as the org gives it: none for a row that names none. */
+  add(row: OrgRow): void {
+    const by = row.LastModifiedById;
+    if (typeof by !== 'string' || by === '') return;
+    this.counts.set(by, (this.counts.get(by) ?? 0) + 1);
+    if (dateMs(row.LastModifiedDate) >= this.activeFrom) this.active.add(by);
+  }
+
+  /** How many each user last changed, by user Id, in Id order. */
+  byUser(): Record<string, number> {
+    return Object.fromEntries([...this.counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  }
+}
+
+/**
+ * A record to delete of an object Salesforce undeletes only with its parent,
+ * and the parents it hangs from through a field whose parent's delete takes
+ * it along.
+ */
+interface PendingUndo {
+  id: string;
+  parents: string[];
+}
+
+/** One object told: its diff, who changed it, and what Undo may not bring back of it. */
+interface Told {
+  diff: RewindDiffObject;
+  people: People;
+  pending: PendingUndo[];
 }
 
 /** What one object's diff came to: what a rewind would do, or why it could not be read. */
-type ObjectOutcome = { diff: RewindDiffObject } | { unread: string };
+type ObjectOutcome = { told: Told } | { unread: string };
+
+/** What the org's describe says now of an object's fields since the take. */
+interface FieldsNow {
+  /** Absent when no field changed. */
+  drift?: RewindSchemaDrift;
+  /** The fields deleted or hidden since, in lower case: neither read nor compared. */
+  gone: ReadonlySet<string>;
+}
+
+/** A record deleted since that a rewind brings back: its object, and the stamp its delete left. */
+interface ToBringBack {
+  objectApiName: string;
+  stamp: number;
+}
 
 /** What every object of a diff shares. */
 interface DiffContext {
@@ -227,6 +408,18 @@ interface DiffContext {
   previewDir: string;
   /** T0's second, in milliseconds: what `CreatedDate` is compared with. */
   t0s: number;
+  /** From when a person who last changed a record is working in the org now. */
+  activeFrom: number;
+  /** By key, every record deleted since that the rewind brings back. */
+  back: ReadonlyMap<string, ToBringBack>;
+  /** By object, the lookups of its snapshot rows that may name a record of {@link back}. */
+  lookups: ReadonlyMap<string, readonly string[]>;
+  /**
+   * The accounts, by key, of the person contacts that moved since: their
+   * fields are the account's, which is compared whatever its own stamp says.
+   * The account's diff takes them out as it compares them.
+   */
+  personAccounts: Set<string>;
 }
 
 /** The ids of an object in the recycle bin at T0, by key, read from its bin file once asked. */
@@ -296,9 +489,208 @@ async function valuesNow(
   return now;
 }
 
+// ─── The objects' fields now ─────────────────────────────────────────────────
+
+/**
+ * Each of `objects` described again, asked whether it changed since a day
+ * before T0, and what changed in its fields printed against the take's: see
+ * the module's comment. An object whose describe the org would not give, or
+ * whose prints this machine no longer holds, could not be read.
+ *
+ * @param bodies - Filled with every describe the org answered in full.
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function fieldsNowOf(
+  input: RewindDiffInput,
+  objects: readonly CheckpointObject[],
+  bodies: Map<string, CheckpointDescribe>,
+): Promise<Map<string, FieldsNow | { unread: string }>> {
+  const { checkpoint, folder, reader } = input;
+  const since = new Date(Date.parse(checkpoint.readFrom) - DESCRIBED_SINCE_MS).toISOString();
+  const answers = await Promise.allSettled(
+    objects.map(({ objectApiName }) => reader.describe(objectApiName, since)),
+  );
+  let prints: Promise<Map<string, ObjectFingerprint>> | undefined;
+  const now = new Map<string, FieldsNow | { unread: string }>();
+  for (const [at, answer] of answers.entries()) {
+    const name = objects[at].objectApiName;
+    if (answer.status === 'rejected') {
+      if (answer.reason instanceof OrgReadStopped) throw answer.reason;
+      now.set(name, {
+        unread: `The org did not answer the describe of ${name}: ${extractErrorMessage(answer.reason)}`,
+      });
+      continue;
+    }
+    if ('notModified' in answer.value) {
+      now.set(name, { gone: new Set() });
+      continue;
+    }
+    const parsed = checkpointDescribeSchema.safeParse(answer.value.body);
+    if (!parsed.success) {
+      now.set(name, { unread: `The describe of ${name} does not read as one.` });
+      continue;
+    }
+    bodies.set(name, parsed.data);
+    try {
+      const then = (await (prints ??= readFieldPrints(folder, checkpoint.objects))).get(name);
+      if (then === undefined) throw new Error(`The checkpoint holds no field prints of ${name}.`);
+      const { removed, added, changed } = schemaDrift(then, fingerprintOf(parsed.data.fields));
+      now.set(name, {
+        ...(removed.length + added.length + changed.length > 0
+          ? { drift: { removed, added, changed } }
+          : {}),
+        gone: new Set(removed.map((field) => field.toLowerCase())),
+      });
+    } catch (err: unknown) {
+      now.set(name, { unread: extractErrorMessage(err) });
+    }
+  }
+  return now;
+}
+
+/**
+ * What the change reads of an object read beside the stamps: the fields whose
+ * parent's delete takes a record along, which tell what comes back with a
+ * parent; on a contact of an org with person accounts, the flag and the
+ * account, which tell a person account's contact; and who last changed each
+ * record, when. Never a field gone since: a read that names one is refused
+ * whole.
+ */
+function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): string[] {
+  const fields = object.cascadeParents.filter((field) => !gone.has(field.toLowerCase()));
+  const flag = heldField(object.fields, PERSON_ACCOUNT_FLAG);
+  if (object.objectApiName === CONTACT && flag !== undefined) {
+    const account = heldField(object.fields, 'AccountId');
+    for (const field of [flag, account]) {
+      if (field !== undefined && !gone.has(field.toLowerCase())) fields.push(field);
+    }
+  }
+  return [...fields, ...WHO_COLUMNS];
+}
+
+// ─── What a rewind brings back, and the lookups that name it ─────────────────
+
+/**
+ * Every record deleted since that the rewind brings back, by key, with the
+ * stamp its delete left: held by the snapshot, or deleted while the
+ * checkpoint was taken. Read from the change reads of the bin, before any
+ * object is told: an object is told before its parents, and what comes back
+ * with a parent, or names one, is told by what the parent is.
+ *
+ * An object whose index or bin is not on this machine brings nothing back:
+ * its own diff names why.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function toBringBackOf(
+  context: Pick<DiffContext, 'input' | 't0s'>,
+  objects: readonly CheckpointObject[],
+  changes: ReadonlyMap<string, ObjectChanges>,
+): Promise<Map<string, ToBringBack>> {
+  const { folder, checkpoint } = context.input;
+  const back = new Map<string, ToBringBack>();
+  for (const { objectApiName } of objects) {
+    const changed = changes.get(objectApiName);
+    if (!changed || 'unread' in changed || !changed.deleted || changed.deleted.rows === 0) continue;
+    const found = new Map<string, ToBringBack>();
+    try {
+      const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
+      const inBinAtCheckpoint = binAtCheckpoint(folder, objectApiName);
+      for await (const row of spooledRows(changed.deleted.file)) {
+        const key = keyOf(row.Id);
+        if (key === undefined) continue;
+        if (!index.has(row.Id)) {
+          if (await inBinAtCheckpoint(key)) continue;
+          if (!(dateMs(row.CreatedDate) < context.t0s)) continue;
+        }
+        found.set(key, { objectApiName, stamp: dateMs(row.SystemModstamp) });
+      }
+    } catch (err: unknown) {
+      if (err instanceof OrgReadStopped) throw err;
+      continue;
+    }
+    for (const [key, record] of found) back.set(key, record);
+  }
+  return back;
+}
+
+/**
+ * Per object of the checkpoint, its compared lookups that a parent's describe
+ * lists as one of its children: the fields whose snapshot value may name a
+ * record of `back`. A parent the org will not describe could not be read: what
+ * names it could not be told, and it brings nothing back.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function lookupsOf(
+  back: Map<string, ToBringBack>,
+  compared: ReadonlyMap<string, readonly string[]>,
+  relationsOf: (objectApiName: string) => Promise<CheckpointDescribe>,
+  unread: Map<string, string>,
+): Promise<Map<string, string[]>> {
+  const parents = [...new Set([...back.values()].map(({ objectApiName }) => objectApiName))];
+  const described = await Promise.allSettled(parents.map(relationsOf));
+  const byLowerName = new Map([...compared.keys()].map((name) => [name.toLowerCase(), name]));
+  const lookups = new Map<string, Set<string>>();
+  for (const [at, answer] of described.entries()) {
+    if (answer.status === 'rejected') {
+      if (answer.reason instanceof OrgReadStopped) throw answer.reason;
+      const parent = parents[at];
+      unread.set(parent, extractErrorMessage(answer.reason));
+      for (const [key, record] of back) if (record.objectApiName === parent) back.delete(key);
+      continue;
+    }
+    for (const relationship of answer.value.childRelationships ?? []) {
+      const child = byLowerName.get(relationship.childSObject.toLowerCase());
+      if (child === undefined) continue;
+      const field = heldField(compared.get(child) ?? [], relationship.field);
+      if (field === undefined) continue;
+      let fields = lookups.get(child);
+      if (!fields) {
+        fields = new Set();
+        lookups.set(child, fields);
+      }
+      fields.add(field);
+    }
+  }
+  return new Map([...lookups].map(([child, fields]) => [child, [...fields]]));
+}
+
+/**
+ * The accounts, by key, of the person contacts the change reads found moved
+ * since, read from the contacts' spooled read before any object is told: an
+ * account and its person contact point at each other, so which of the two is
+ * read first is the scope's choice, and the account's diff must know them
+ * either way. An org without person accounts, or a contact read that failed,
+ * names none: the contact's own diff names why.
+ */
+async function personAccountsOf(
+  objects: readonly CheckpointObject[],
+  changes: ReadonlyMap<string, ObjectChanges>,
+): Promise<Set<string>> {
+  const accounts = new Set<string>();
+  const contact = objects.find(({ objectApiName }) => objectApiName === CONTACT);
+  if (!contact || heldField(contact.fields, PERSON_ACCOUNT_FLAG) === undefined) return accounts;
+  const changed = changes.get(CONTACT);
+  if (!changed || 'unread' in changed || !changed.live) return accounts;
+  try {
+    for await (const row of spooledRows(changed.live.file)) {
+      const account = keyOf(row.AccountId);
+      if (account !== undefined && isPersonContact(CONTACT, row)) accounts.add(account);
+    }
+  } catch {
+    return new Set();
+  }
+  return accounts;
+}
+
+// ─── One object ──────────────────────────────────────────────────────────────
+
 /** The counts of one object, as the classes fill. */
 interface Tally {
   fields: number;
+  /** Records given back whose lookup a deletion since cleared. */
+  cleared: number;
   /** Live records the snapshot does not hold: `|L \ S|`. */
   liveNotHeld: number;
   /** Records of the snapshot in the bin since: `|D ∩ S|`. */
@@ -315,9 +707,10 @@ async function diffObject(
   context: DiffContext,
   object: CheckpointObject,
   changes: ObjectChanges,
+  fieldsNow: FieldsNow,
 ): Promise<ObjectOutcome> {
   if ('unread' in changes) return { unread: changes.unread };
-  const { input, previewDir, t0s } = context;
+  const { input, previewDir, t0s, back, personAccounts } = context;
   const { folder, reader, checkpoint, signal } = input;
   const objectApiName = object.objectApiName;
   const spools = new Map<RewindClass, ClassSpool>();
@@ -330,21 +723,64 @@ async function diffObject(
     return held;
   };
   const countOf = (cls: RewindClass): number => spools.get(cls)?.count ?? 0;
+  const people = new People(context.activeFrom);
+  const pending: PendingUndo[] = [];
 
   try {
     const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
     const inBinAtCheckpoint = binAtCheckpoint(folder, objectApiName);
-    const compared = comparedFields(objectApiName, object.fields, checkpoint.ignoredFields).map(
-      assertSoqlIdentifier,
-    );
-    const columns = ['Id', 'SystemModstamp', ...compared];
+    const { gone } = fieldsNow;
+    const ignored = ignoredFieldsOf(objectApiName, checkpoint.ignoredFields);
+    const values = comparedFields(objectApiName, object.fields, []);
+    const leftAside = (field: string): boolean =>
+      ignored.has(field.toLowerCase()) || gone.has(field.toLowerCase());
+    const compared = values.filter((field) => !leftAside(field)).map(assertSoqlIdentifier);
+    const notCompared = values.filter(leftAside);
+    const columns = ['Id', 'SystemModstamp', ...WHO_COLUMNS, ...compared];
+    const cascade = object.cascadeParents.filter((field) => !gone.has(field.toLowerCase()));
+    const holdsPersons =
+      objectApiName === CONTACT && heldField(object.fields, PERSON_ACCOUNT_FLAG) !== undefined;
+    const isPerson = (row: OrgRow): boolean => holdsPersons && isPersonContact(objectApiName, row);
     const sameSecondFrom = t0s - ORG_DATE_GRAIN_MS;
-    const tally: Tally = { fields: 0, liveNotHeld: 0, deletedHeld: 0 };
+    const tally: Tally = { fields: 0, cleared: 0, liveNotHeld: 0, deletedHeld: 0 };
     const recordOf = (row: OrgRow): { id: string; key: string } => {
       const key = keyOf(row.Id);
       if (key === undefined) throw new Error(`${objectApiName} answered a record without its Id.`);
       return { id: String(row.Id), key };
     };
+    const parentsOf = (row: OrgRow, key: string): string[] =>
+      cascade
+        .map((field) => keyOf(row[field]))
+        .filter((parent): parent is string => parent !== undefined && parent !== key);
+    // Deleted in the second a parent the rewind brings back was, through a
+    // field whose parent's delete takes it along: it went with that parent.
+    const wentWithParent = (row: OrgRow, key: string): boolean => {
+      const stamp = dateMs(row.SystemModstamp);
+      return parentsOf(row, key).some((parent) => back.get(parent)?.stamp === stamp);
+    };
+    const toDelete = (row: OrgRow, id: string, key: string): void => {
+      people.add(row);
+      if (!object.undeletable) pending.push({ id, parents: parentsOf(row, key) });
+    };
+
+    // The rows of the snapshot whose lookups name a record the rewind brings
+    // back: compared whatever their stamps, for the org may empty a lookup
+    // without stamping the record it empties it on.
+    const suspects = new Map<string, { id: string; fields: string[] }>();
+    const lookups = context.lookups.get(objectApiName) ?? [];
+    if (lookups.length > 0 && index.size > 0) {
+      const file = snapshotFileOf(folder, checkpoint.snapshotId, objectApiName);
+      for await (const row of spooledRows(file)) {
+        if (isPerson(row)) continue;
+        const key = keyOf(row.Id);
+        if (key === undefined) continue;
+        const named = lookups.filter((field) => {
+          const parent = keyOf(row[field]);
+          return parent !== undefined && back.has(parent);
+        });
+        if (named.length > 0) suspects.set(key, { id: String(row.Id), fields: named });
+      }
+    }
 
     // The candidates' values, a chunk of the snapshot at a time: its rows read
     // at their offsets, the org's read by id, each compared field by field.
@@ -384,49 +820,106 @@ async function diffObject(
         const differ = compared.filter((field) => !sameValue(then[field], current[field]));
         if (differ.length > 0) {
           tally.fields += differ.length;
-          await spool('giveBack').add({ Id: candidate.id, fields: differ });
+          const cleared = (candidate.cleared ?? []).filter(
+            (field) => differ.includes(field) && isEmpty(current[field]),
+          );
+          if (cleared.length > 0) tally.cleared++;
+          await spool('giveBack').add({
+            Id: candidate.id,
+            fields: differ,
+            ...(cleared.length > 0 ? { cleared } : {}),
+          });
+          people.add(current);
         } else if (dateMs(current.SystemModstamp) !== candidate.held) {
           await spool('touched').add({ Id: candidate.id });
         }
       }
     };
+    let candidates: Candidate[] = [];
+    const consider = async (candidate: Candidate): Promise<void> => {
+      candidates.push(candidate);
+      if (candidates.length >= SNAPSHOT_CHUNK_IDS) {
+        await decide(candidates);
+        candidates = [];
+      }
+    };
 
     if (changes.live) {
-      let candidates: Candidate[] = [];
       for await (const row of spooledRows(changes.live.file)) {
         const { id, key } = recordOf(row);
+        const person = isPerson(row);
         const held = index.stampOf(id);
         if (held !== undefined) {
+          if (person) continue;
+          const cleared = suspects.get(key)?.fields;
+          if (cleared) suspects.delete(key);
+          const ofPerson = objectApiName === ACCOUNT && personAccounts.delete(key);
           const stamp = dateMs(row.SystemModstamp);
-          if (stamp !== held || held >= sameSecondFrom) {
-            candidates.push({ id, key, held, stamp });
-            if (candidates.length >= SNAPSHOT_CHUNK_IDS) {
-              await decide(candidates);
-              candidates = [];
-            }
+          if (cleared || ofPerson || stamp !== held || held >= sameSecondFrom) {
+            await consider({ id, key, held, stamp, ...(cleared ? { cleared } : {}) });
           }
           continue;
         }
         tally.liveNotHeld++;
-        if (await inBinAtCheckpoint(key)) await spool('broughtBackSince').add({ Id: id });
-        else if (dateMs(row.CreatedDate) >= t0s) await spool('createdSince').add({ Id: id });
-        else await spool('unexplained').add({ Id: id });
+        // Counted with its account, which alone is deleted.
+        if (person) continue;
+        if (await inBinAtCheckpoint(key)) {
+          await spool('broughtBackSince').add({ Id: id });
+          toDelete(row, id, key);
+        } else if (dateMs(row.CreatedDate) >= t0s) {
+          await spool('createdSince').add({ Id: id });
+          toDelete(row, id, key);
+        } else {
+          await spool('unexplained').add({ Id: id });
+        }
       }
-      await decide(candidates);
     }
+    // What the change reads did not find, compared all the same: a lookup
+    // cleared without a stamp, and a person account whose contact moved.
+    for (const [key, suspect] of suspects) {
+      const held = index.stampOf(suspect.id);
+      if (held !== undefined) {
+        await consider({ id: suspect.id, key, held, stamp: held, cleared: suspect.fields });
+      }
+    }
+    if (objectApiName === ACCOUNT) {
+      for (const key of personAccounts) {
+        const row = index.rowOf(key);
+        if (row < 0) continue;
+        personAccounts.delete(key);
+        if (suspects.has(key)) continue;
+        const id = index.idAt(row);
+        const held = index.stampOf(id);
+        if (held !== undefined) await consider({ id, key, held, stamp: held });
+      }
+    }
+    await decide(candidates);
 
     if (changes.deleted) {
       for await (const row of spooledRows(changes.deleted.file)) {
         const { id, key } = recordOf(row);
+        // Brought back with its account, which alone is sent.
+        const person = isPerson(row);
         if (index.has(id)) {
           tally.deletedHeld++;
-          await spool(object.undeletable ? 'inBin' : 'withParent').add({ Id: id });
+          if (person) continue;
+          if (wentWithParent(row, key)) await spool('withParent').add({ Id: id });
+          else if (object.undeletable) await spool('inBin').add({ Id: id });
+          // Salesforce brings it back with its parent only, and its parent
+          // is not coming back.
+          else await spool('goneForGood').add({ Id: id });
           continue;
         }
-        if (await inBinAtCheckpoint(key)) continue;
-        // Live at T0 and gone before its object was read; one created since and
-        // deleted since leaves nothing to rewind.
-        if (dateMs(row.CreatedDate) < t0s) await spool('deletedWhileTaken').add({ Id: id });
+        if (person || (await inBinAtCheckpoint(key))) continue;
+        // Live at T0 and gone before its object was read. One created since
+        // and deleted since leaves nothing to rewind, unless it went with a
+        // parent the rewind brings back: it comes back with it.
+        if (dateMs(row.CreatedDate) < t0s) {
+          await spool('deletedWhileTaken').add({ Id: id });
+        } else if (wentWithParent(row, key)) {
+          await spool('comesBackWithParent').add({ Id: id });
+          toDelete(row, id, key);
+        }
       }
     }
 
@@ -450,7 +943,31 @@ async function diffObject(
         signal,
       );
       if (!scan.read) throw new Error(scan.reason);
-      for (const id of gone.ids()) await spool('goneForGood').add({ Id: id });
+      // A person account's contact goes with its account, which is named.
+      let ids: string[] = [];
+      const named = async (): Promise<void> => {
+        const persons = new Set<string>();
+        if (holdsPersons) {
+          const batches = await index
+            .chunk(ids)
+            .batches(checkpoint.snapshotId, objectApiName, RECORDS_PER_CALL);
+          for await (const batch of batches ?? []) {
+            for (const row of batch) {
+              const key = keyOf(row.Id);
+              if (key !== undefined && isPerson(row)) persons.add(key);
+            }
+          }
+        }
+        for (const id of ids) {
+          if (!persons.has(id.slice(0, 15))) await spool('goneForGood').add({ Id: id });
+        }
+        ids = [];
+      };
+      for (const id of gone.ids()) {
+        ids.push(id);
+        if (ids.length >= SNAPSHOT_CHUNK_IDS) await named();
+      }
+      await named();
     }
 
     for (const held of spools.values()) await held.flush();
@@ -460,9 +977,13 @@ async function diffObject(
       toDelete: {
         createdSince: countOf('createdSince'),
         broughtBackSince: countOf('broughtBackSince'),
-        comesBackWithParent: 0,
+        comesBackWithParent: countOf('comesBackWithParent'),
       },
-      toGiveBack: { records: countOf('giveBack'), fields: tally.fields, clearedLookups: 0 },
+      toGiveBack: {
+        records: countOf('giveBack'),
+        fields: tally.fields,
+        clearedLookups: tally.cleared,
+      },
       toBringBack: {
         inBin: countOf('inBin'),
         withParent: countOf('withParent'),
@@ -472,15 +993,196 @@ async function diffObject(
       outside: [],
       touched: countOf('touched'),
       unexplained: countOf('unexplained'),
-      lastChangedBy: {},
-      notCompared: [],
+      lastChangedBy: people.byUser(),
+      ...(fieldsNow.drift ? { schemaDrift: fieldsNow.drift } : {}),
+      notCompared,
     };
-    return { diff };
+    return { told: { diff, people, pending } };
   } catch (err: unknown) {
     for (const held of spools.values()) await held.discard();
     if (err instanceof OrgReadStopped) throw err;
     return { unread: extractErrorMessage(err) };
   }
+}
+
+// ─── After every object is told ──────────────────────────────────────────────
+
+/** The ids of the classes of `told`'s object the first pass deletes, a chunk at a time. */
+async function* deletedFirst(previewDir: string, told: Told): AsyncGenerator<string[]> {
+  let chunk: string[] = [];
+  for (const cls of DELETED_FIRST) {
+    if (told.diff.toDelete[cls] === 0) continue;
+    for await (const row of spooledRows(classFileOf(previewDir, told.diff.objectApiName, cls))) {
+      if (typeof row.Id !== 'string') continue;
+      chunk.push(row.Id);
+      if (chunk.length >= SNAPSHOT_CHUNK_IDS) {
+        yield chunk;
+        chunk = [];
+      }
+    }
+  }
+  if (chunk.length > 0) yield chunk;
+}
+
+/**
+ * The records outside the checkpoint that the deletion of `told`'s records to
+ * delete takes along, per object: those created at or after T1 under them,
+ * through a relationship the org deletes along, in an object a person works
+ * in — the relationships the deletion's own check of dependents reads.
+ *
+ * T1 is exact and the org dates to the second: a record created in T1's own
+ * second may be from before it, and the deletion keeps it with its parent, so
+ * the count starts at the next second.
+ *
+ * @throws When the org would not describe the object, or read what hangs from it.
+ */
+async function outsideOf(
+  context: DiffContext,
+  told: Told,
+  relationsOf: (objectApiName: string) => Promise<CheckpointDescribe>,
+  worked: () => Promise<ReadonlyMap<string, string>>,
+  inCheckpoint: ReadonlySet<string>,
+): Promise<RewindDiffObject['outside']> {
+  const { input, previewDir } = context;
+  const objectApiName = told.diff.objectApiName;
+  const described = await relationsOf(objectApiName);
+  const cascades = (described.childRelationships ?? []).filter(
+    (relationship) =>
+      relationship.cascadeDelete === true &&
+      !inCheckpoint.has(relationship.childSObject.toLowerCase()),
+  );
+  if (cascades.length === 0) return [];
+  const workedIn = await worked();
+  const relationships = cascades.filter((relationship) => workedIn.has(relationship.childSObject));
+  if (relationships.length === 0) return [];
+
+  const t1 = Date.parse(input.checkpoint.takenAt);
+  if (!Number.isFinite(t1)) throw new Error(`Not a date: ${input.checkpoint.takenAt}`);
+  const from = soqlInstant(Math.ceil(t1 / ORG_DATE_GRAIN_MS) * ORG_DATE_GRAIN_MS);
+  const byObject = new Map<string, { records: Set<string>; parents: Set<string> }>();
+  for await (const ids of deletedFirst(previewDir, told)) {
+    const reads: Array<{ read: ObjectRead; child: string; field: string }> = [];
+    for (const relationship of relationships) {
+      const child = sanitizeSoqlObjectName(relationship.childSObject);
+      const field = assertSoqlIdentifier(relationship.field);
+      const live = readModeOf(child) === 'scanAllLive';
+      for (const list of idLists(ids)) {
+        reads.push({
+          child,
+          field,
+          read: {
+            objectApiName: child,
+            soql:
+              `SELECT Id, ${field} FROM ${child} WHERE ${field} IN (${list}) ` +
+              `AND CreatedDate >= ${from}${live ? ' AND IsDeleted = false' : ''}`,
+            scanAll: live,
+          },
+        });
+      }
+    }
+    const outcomes = await readStreams(
+      input.reader,
+      reads.map(({ read }) => read),
+      (index, rows) => {
+        const { child, field } = reads[index];
+        let held = byObject.get(child);
+        if (!held) {
+          held = { records: new Set(), parents: new Set() };
+          byObject.set(child, held);
+        }
+        for (const row of rows) {
+          const record = keyOf(row.Id);
+          const parent = keyOf(row[field]);
+          if (record !== undefined) held.records.add(record);
+          if (parent !== undefined) held.parents.add(parent);
+        }
+      },
+      input.signal,
+    );
+    for (const outcome of outcomes) {
+      if (outcome.read) continue;
+      throw new Error(
+        `The ${outcome.objectApiName} records its deletion would take along could not be read: ` +
+          outcome.reason,
+      );
+    }
+  }
+  return [...byObject]
+    .filter(([, { records }]) => records.size > 0)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([child, { records, parents }]) => ({
+      objectApiName: child,
+      count: records.size,
+      parents: parents.size,
+    }));
+}
+
+/**
+ * Of the records to delete of objects Salesforce undeletes only with their
+ * parent, those Undo couldn't bring back, per object, written to the
+ * preview's folder: one whose parent the first pass deletes too goes with it,
+ * and comes back with it; one whose parent stays is deleted on its own. One
+ * that comes back with its parent to be deleted again hangs from a record
+ * brought back, which the first pass never deletes: it is deleted on its own.
+ */
+async function undoCannotOf(
+  previewDir: string,
+  told: readonly Told[],
+): Promise<RewindDiff['undoCannot']> {
+  const wanted = new Set(told.flatMap(({ pending }) => pending.flatMap(({ parents }) => parents)));
+  const deleted = new Set<string>();
+  if (wanted.size > 0) {
+    for (const each of told) {
+      for await (const ids of deletedFirst(previewDir, each)) {
+        for (const id of ids) {
+          const key = id.slice(0, 15);
+          if (wanted.has(key)) deleted.add(key);
+        }
+      }
+    }
+  }
+  const undoCannot: RewindDiff['undoCannot'] = [];
+  for (const { diff, pending } of told) {
+    const alone = pending.filter(({ parents }) => !parents.some((parent) => deleted.has(parent)));
+    if (alone.length === 0) continue;
+    const spool = new ClassSpool(classFileOf(previewDir, diff.objectApiName, 'undoCannot'));
+    for (const { id } of alone) await spool.add({ Id: id });
+    await spool.flush();
+    undoCannot.push({ objectApiName: diff.objectApiName, count: spool.count });
+  }
+  return undoCannot;
+}
+
+/**
+ * The names of the users `ids` name, by user Id: one read of `User` for every
+ * two hundred. A name the org does not give is left out, and the page shows
+ * the Id: who changed what is told by the Ids already.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function userNamesOf(
+  reader: CompositeReader,
+  ids: readonly string[],
+  signal: AbortSignal | undefined,
+): Promise<Record<string, string>> {
+  const names: Record<string, string> = {};
+  if (ids.length === 0) return names;
+  const reads = idLists([...ids].sort()).map((list): ObjectRead => ({
+    objectApiName: 'User',
+    soql: `SELECT Id, Name FROM User WHERE Id IN (${list})`,
+    scanAll: false,
+  }));
+  await readStreams(
+    reader,
+    reads,
+    (_, rows) => {
+      for (const row of rows) {
+        if (typeof row.Id === 'string' && typeof row.Name === 'string') names[row.Id] = row.Name;
+      }
+    },
+    signal,
+  );
+  return names;
 }
 
 /** Whether a rewind has anything to do with an object, or to say of it. */
@@ -497,59 +1199,160 @@ function differs(diff: RewindDiffObject): boolean {
       diff.touched +
       diff.unexplained +
       diff.cannotUndo.reduce((sum, item) => sum + item.count, 0) >
-    0
+      0 || diff.schemaDrift !== undefined
   );
 }
 
 /**
  * What a rewind to a checkpoint would do, read from the org now: see the
  * module's comment. The objects are diffed in the checkpoint's reading order,
- * one at a time, each one's sets released before the next.
+ * one at a time, each one's sets released before the next; what comes back
+ * with a parent, what names a parent brought back, and a person account's
+ * contact are read before any of them, and what its deletions take along and
+ * Undo couldn't bring back once all of them are told.
  *
  * @throws {OrgReadStopped} When the run was stopped.
- * @throws When the checkpoint names no date it was taken from.
+ * @throws When the checkpoint names no date it was taken from, or the read none it began at.
  */
 export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   const { checkpoint, folder, reader, previewId, readAt, signal } = input;
   const t0 = Date.parse(checkpoint.readFrom);
   if (!Number.isFinite(t0)) throw new Error(`Not a date: ${checkpoint.readFrom}`);
+  const tr = Date.parse(readAt);
+  if (!Number.isFinite(tr)) throw new Error(`Not a date: ${readAt}`);
+  if (signal?.aborted) throw new OrgReadStopped();
   const t0s = t0 - (((t0 % 1000) + 1000) % 1000);
   const previewDir = previewDirOf(folder, previewId);
   await makePrivateDir(previewDir);
 
   const ordered = [...checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
-  const changes = await readChanges(
+  const bodies = new Map<string, CheckpointDescribe>();
+  const fieldsNow = await fieldsNowOf(input, ordered, bodies);
+  const unread = new Map<string, string>();
+  const readable: Array<{ object: CheckpointObject; fields: FieldsNow }> = [];
+  for (const object of ordered) {
+    const now = fieldsNow.get(object.objectApiName);
+    if (now === undefined || 'unread' in now) {
+      unread.set(object.objectApiName, now?.unread ?? 'Its describe was not read.');
+    } else {
+      readable.push({ object, fields: now });
+    }
+  }
+
+  const read = await readChanges(
     reader,
-    ordered.map(({ objectApiName, readMode, records }) => ({
-      objectApiName,
-      readMode,
-      held: records > 0,
+    readable.map(({ object, fields }) => ({
+      objectApiName: object.objectApiName,
+      readMode: object.readMode,
+      held: object.records > 0,
+      fields: changeReadFields(object, fields.gone),
     })),
     checkpoint.readFrom,
     previewDir,
     signal,
   );
+  const changes = new Map(readable.map(({ object }, at) => [object.objectApiName, read[at]]));
 
-  const context: DiffContext = { input, previewDir, t0s };
-  const objects: RewindDiffObject[] = [];
-  const unread: RewindDiff['unread'] = [];
-  for (const [at, object] of ordered.entries()) {
+  const asked = new Map<string, Promise<CheckpointDescribe>>();
+  const relationsOf = (objectApiName: string): Promise<CheckpointDescribe> => {
+    const body = bodies.get(objectApiName);
+    if (body) return Promise.resolve(body);
+    let describing = asked.get(objectApiName);
+    if (!describing) {
+      describing = (async () => {
+        const answer = await reader.describe(objectApiName);
+        const parsed = checkpointDescribeSchema.safeParse('body' in answer ? answer.body : null);
+        if (!parsed.success) throw new Error(`The org gave no describe of ${objectApiName}.`);
+        return parsed.data;
+      })();
+      asked.set(objectApiName, describing);
+    }
+    return describing;
+  };
+
+  const back = await toBringBackOf({ input, t0s }, ordered, changes);
+  const compared = new Map(
+    readable.map(({ object, fields }) => [
+      object.objectApiName,
+      comparedFields(object.objectApiName, object.fields, checkpoint.ignoredFields).filter(
+        (field) => !fields.gone.has(field.toLowerCase()),
+      ),
+    ]),
+  );
+  const lookups = await lookupsOf(back, compared, relationsOf, unread);
+  const context: DiffContext = {
+    input,
+    previewDir,
+    t0s,
+    activeFrom: tr - ACTIVE_WINDOW_MS,
+    back,
+    lookups,
+    personAccounts: await personAccountsOf(ordered, changes),
+  };
+
+  const outcomes = new Map<string, ObjectOutcome>();
+  for (const { object, fields } of readable) {
     if (signal?.aborted) throw new OrgReadStopped();
-    const outcome = await diffObject(context, object, changes[at]);
-    if ('unread' in outcome) {
-      unread.push({ objectApiName: object.objectApiName, reason: outcome.unread });
-    } else if (differs(outcome.diff)) {
-      objects.push(outcome.diff);
+    const early = unread.get(object.objectApiName);
+    const changed = changes.get(object.objectApiName);
+    outcomes.set(
+      object.objectApiName,
+      early !== undefined || changed === undefined
+        ? { unread: early ?? 'Its changes were not read.' }
+        : await diffObject(context, object, changed, fields),
+    );
+  }
+
+  // What its deletions take along outside the checkpoint.
+  const inCheckpoint = new Set(ordered.map(({ objectApiName }) => objectApiName.toLowerCase()));
+  let worked: Promise<ReadonlyMap<string, string>> | undefined;
+  const workedNow = (): Promise<ReadonlyMap<string, string>> =>
+    (worked ??= workedObjects({ describeGlobal: input.describeGlobal }));
+  for (const [objectApiName, outcome] of outcomes) {
+    if (!('told' in outcome)) continue;
+    const { toDelete } = outcome.told.diff;
+    if (toDelete.createdSince + toDelete.broughtBackSince === 0) continue;
+    try {
+      outcome.told.diff.outside = await outsideOf(
+        context,
+        outcome.told,
+        relationsOf,
+        workedNow,
+        inCheckpoint,
+      );
+    } catch (err: unknown) {
+      if (err instanceof OrgReadStopped) throw err;
+      await discardClasses(previewDir, objectApiName);
+      outcomes.set(objectApiName, { unread: extractErrorMessage(err) });
     }
   }
+
+  const told = ordered.flatMap(({ objectApiName }) => {
+    const outcome = outcomes.get(objectApiName);
+    return outcome && 'told' in outcome ? [outcome.told] : [];
+  });
+  const undoCannot = await undoCannotOf(previewDir, told);
+  const users = [...new Set(told.flatMap(({ diff }) => Object.keys(diff.lastChangedBy)))];
+  const userNames = await userNamesOf(reader, users, signal);
+  const active = new Set(told.flatMap(({ people }) => [...people.active]));
+
   return {
     checkpointId: checkpoint.checkpointId,
     previewId,
     readAt,
-    objects,
-    undoCannot: [],
-    unread,
-    userNames: {},
-    activeLastHour: [],
+    objects: told.map(({ diff }) => diff).filter(differs),
+    undoCannot,
+    unread: ordered.flatMap(({ objectApiName }) => {
+      const outcome = outcomes.get(objectApiName);
+      const reason =
+        outcome && 'unread' in outcome
+          ? outcome.unread
+          : outcome
+            ? undefined
+            : unread.get(objectApiName);
+      return reason === undefined ? [] : [{ objectApiName, reason }];
+    }),
+    userNames,
+    activeLastHour: [...active].sort(),
   };
 }

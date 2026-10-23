@@ -6,12 +6,19 @@ import type { CheckpointObject, CheckpointReadMode, RewindDiffObject } from '@sa
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import { BackupRecordStore, nodeBackupFiles } from '../dataops/BackupRecordStore.js';
 import {
+  MEMORY_ORG_USER,
   MemoryRemovalOrg,
   factCombinations,
+  orgError,
   type MemoryChild,
   type MemoryOrgFacts,
   type MemoryRow,
 } from '../../test/memoryRemovalOrg.js';
+import {
+  fingerprintOf,
+  type FingerprintField,
+  type ObjectFingerprint,
+} from './checkpointFingerprint.js';
 import {
   OrgReadStopped,
   compositeReader,
@@ -26,6 +33,7 @@ import {
   openCheckpointStore,
   previewDirOf,
   type CheckpointFolder,
+  type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { writeSnapshotIndex } from './snapshotIndex.js';
 import { classFileOf, rewindDiff, type RewindClass } from './rewindDiff.js';
@@ -51,8 +59,12 @@ function idOf(prefix: string, n: number): string {
 }
 const accountId = (n: number): string => idOf('001', n);
 const contactId = (n: number): string => idOf('003', n);
+const opportunityId = (n: number): string => idOf('006', n);
 const taskId = (n: number): string => idOf('00T', n);
 const lineId = (n: number): string => idOf('00k', n);
+
+/** A user of the org other than the one the session writes as. */
+const COLLEAGUE = '005000000000002AAA';
 
 /** Never touched since it was made, a day before the checkpoint. */
 const KEPT = accountId(1);
@@ -70,6 +82,23 @@ interface Held {
   fields: string[];
   readMode?: CheckpointReadMode;
   undeletable?: boolean;
+  /** Its fields whose parent's delete takes a record along. */
+  cascadeParents?: string[];
+  /** Its fields as the take described them: each of {@link fields} a text unless told. */
+  described?: FingerprintField[];
+}
+
+/** Fields as a describe lists them, each a text the user may create and edit unless told. */
+function describedOf(
+  fields: readonly string[],
+  types: Record<string, string> = {},
+): FingerprintField[] {
+  return fields.map((name) => ({
+    name,
+    type: types[name] ?? 'string',
+    createable: true,
+    updateable: true,
+  }));
 }
 
 const ACCOUNT: Held = {
@@ -89,6 +118,19 @@ const LINE: Held = {
   objectApiName: 'OpportunityLineItem',
   fields: [...STAMPS, 'Quantity'],
   undeletable: false,
+};
+/** A contact whose account's delete takes it along. */
+const CASCADE_CONTACT: Held = { ...CONTACT, cascadeParents: ['AccountId'] };
+const OPPORTUNITY: Held = {
+  objectApiName: 'Opportunity',
+  fields: [...STAMPS, 'Name', 'StageName'],
+};
+/** An opportunity's product: deleted with its opportunity, brought back with it only. */
+const PRODUCT: Held = {
+  objectApiName: 'OpportunityLineItem',
+  fields: [...STAMPS, 'Quantity', 'OpportunityId'],
+  undeletable: false,
+  cascadeParents: ['OpportunityId'],
 };
 
 type Act = (org: MemoryRemovalOrg) => void;
@@ -111,6 +153,8 @@ interface Scenario {
   afterRead?: Act;
   /** Since the checkpoint: a minute after T0. */
   since?: Act;
+  /** Later since the checkpoint, in another second: half a minute after {@link since}. */
+  later?: Act;
   /** When the snapshot reads, after T0: 200 ms unless told. */
   readAfterMs?: number;
   pageSize?: number;
@@ -118,8 +162,11 @@ interface Scenario {
   cursorLimit?: number;
 }
 
-/** A line of a class's file: the record's id, and for one given back the fields that differ. */
-type ClassLine = { Id: string; fields?: string[] };
+/**
+ * A line of a class's file: the record's id, and for one given back the
+ * fields that differ and, of them, the lookups a deletion cleared.
+ */
+type ClassLine = { Id: string; fields?: string[]; cleared?: string[] };
 type Classes = Partial<Record<RewindClass, ClassLine[]>>;
 
 const CLASSES: RewindClass[] = [
@@ -127,11 +174,13 @@ const CLASSES: RewindClass[] = [
   'touched',
   'createdSince',
   'broughtBackSince',
+  'comesBackWithParent',
   'unexplained',
   'inBin',
   'withParent',
   'deletedWhileTaken',
   'goneForGood',
+  'undoCannot',
 ];
 
 const lines = (...ids: string[]): ClassLine[] => ids.map((id) => ({ Id: id }));
@@ -142,7 +191,7 @@ afterEach(() => {
 });
 
 /** A checkpoint's folder, made by the store, as a take makes it. */
-async function folderOf(): Promise<CheckpointFolder> {
+async function folderOf(): Promise<{ store: OrgCheckpointStore; folder: CheckpointFolder }> {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-rewind-diff-'));
   made.push(dir);
   const opened = openCheckpointStore({
@@ -150,7 +199,7 @@ async function folderOf(): Promise<CheckpointFolder> {
     locksDir: defaultCheckpointLocksDir(join(dir, 'home')),
   });
   if (!('store' in opened)) throw new Error(`refused: ${opened.refusal.reason}`);
-  return opened.store.create(ORG, CHECKPOINT);
+  return { store: opened.store, folder: await opened.store.create(ORG, CHECKPOINT) };
 }
 
 /** Every row `soql` selects, page after page. */
@@ -169,6 +218,8 @@ interface Taken {
   org: MemoryRemovalOrg;
   folder: CheckpointFolder;
   objects: CheckpointObject[];
+  /** T1: once every object was read. */
+  takenAt: string;
 }
 
 /**
@@ -184,6 +235,9 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
     ...(scenario.cursorLimit ? { cursorLimit: scenario.cursorLimit } : {}),
   });
   const held = scenario.objects ?? [ACCOUNT];
+  for (const object of held) {
+    if (object.undeletable === false) org.comesBackOnlyWithParent.add(object.objectApiName);
+  }
   if (scenario.background !== false) {
     org.add('Account', { Id: KEPT, Name: 'Kept', Industry: 'Energy' });
     org.add('Account', { Id: RECENT, Name: 'Recent', Industry: 'Energy' });
@@ -194,7 +248,11 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
   scenario.nearT0?.(org);
 
   clock = T0_MS;
-  const folder = await folderOf();
+  const { store: checkpoints, folder } = await folderOf();
+  const prints: Record<string, ObjectFingerprint> = {};
+  for (const object of held) {
+    prints[object.objectApiName] = fingerprintOf(object.described ?? describedOf(object.fields));
+  }
   const bin = await spoolReads(
     compositeReader(org),
     held.map((object) => ({
@@ -233,37 +291,52 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
       readOrder,
       readMode,
       undeletable: object.undeletable ?? true,
-      cascadeParents: [],
-      fingerprint: '0'.repeat(64),
+      cascadeParents: object.cascadeParents ?? [],
+      fingerprint: prints[object.objectApiName].digest,
       fields: object.fields,
       leftOutFields: [],
     });
   }
+  await checkpoints.writeFingerprints(folder, prints);
   clock = readAt + 100;
   scenario.afterRead?.(org);
+  const takenAt = new Date(readAt + 200).toISOString();
   clock = T0_MS + 60_000;
   scenario.since?.(org);
+  clock = T0_MS + 90_000;
+  scenario.later?.(org);
   clock = T0_MS + 120_000;
-  return { org, folder, objects };
+  return { org, folder, objects, takenAt };
 }
+
+/** When the diffs of the scenarios read the org unless told: two minutes after T0. */
+const READ_AT = new Date(T0_MS + 120_000).toISOString();
 
 /** The diff since the checkpoint `taken` holds, read now. */
 async function diffOf(
   taken: Taken,
-  options: { ignoredFields?: string[]; conn?: CompositeQueryConnection; signal?: AbortSignal } = {},
+  options: {
+    ignoredFields?: string[];
+    conn?: CompositeQueryConnection;
+    signal?: AbortSignal;
+    readAt?: string;
+    describeGlobal?: () => Promise<unknown>;
+  } = {},
 ) {
   return rewindDiff({
     checkpoint: {
       checkpointId: CHECKPOINT,
       readFrom: T0,
+      takenAt: taken.takenAt,
       objects: taken.objects,
       ignoredFields: options.ignoredFields ?? [],
       snapshotId: SNAPSHOT,
     },
     folder: taken.folder,
     reader: compositeReader(options.conn ?? taken.org),
+    describeGlobal: options.describeGlobal ?? (() => taken.org.describeGlobal()),
     previewId: PREVIEW,
-    readAt: new Date(T0_MS + 120_000).toISOString(),
+    readAt: options.readAt ?? READ_AT,
     ...(options.signal ? { signal: options.signal } : {}),
   });
 }
@@ -282,21 +355,27 @@ async function classesOf(folder: CheckpointFolder, objectApiName: string): Promi
   return classes;
 }
 
-/** What the diff says of an object whose classes are `classes`. */
-function objectOf(objectApiName: string, classes: Classes): RewindDiffObject {
+/** What a diff says of an object beside what its classes count. */
+type Extras = Partial<
+  Pick<RewindDiffObject, 'outside' | 'lastChangedBy' | 'schemaDrift' | 'notCompared'>
+>;
+
+/** What the diff says of an object whose classes are `classes`, and of it besides. */
+function objectOf(objectApiName: string, classes: Classes, extras: Extras = {}): RewindDiffObject {
   const count = (cls: RewindClass): number => classes[cls]?.length ?? 0;
   const gone = count('goneForGood');
+  const givenBack = classes.giveBack ?? [];
   return {
     objectApiName,
     toDelete: {
       createdSince: count('createdSince'),
       broughtBackSince: count('broughtBackSince'),
-      comesBackWithParent: 0,
+      comesBackWithParent: count('comesBackWithParent'),
     },
     toGiveBack: {
       records: count('giveBack'),
-      fields: (classes.giveBack ?? []).reduce((sum, line) => sum + (line.fields?.length ?? 0), 0),
-      clearedLookups: 0,
+      fields: givenBack.reduce((sum, line) => sum + (line.fields?.length ?? 0), 0),
+      clearedLookups: givenBack.filter((line) => (line.cleared?.length ?? 0) > 0).length,
     },
     toBringBack: {
       inBin: count('inBin'),
@@ -304,11 +383,12 @@ function objectOf(objectApiName: string, classes: Classes): RewindDiffObject {
       deletedWhileTaken: count('deletedWhileTaken'),
     },
     cannotUndo: gone > 0 ? [{ reason: 'goneForGood', count: gone }] : [],
-    outside: [],
+    outside: extras.outside ?? [],
     touched: count('touched'),
     unexplained: count('unexplained'),
-    lastChangedBy: {},
-    notCompared: [],
+    lastChangedBy: extras.lastChangedBy ?? {},
+    ...(extras.schemaDrift ? { schemaDrift: extras.schemaDrift } : {}),
+    notCompared: extras.notCompared ?? [],
   };
 }
 
@@ -329,7 +409,12 @@ interface Row {
   expect: (facts: MemoryOrgFacts) => Record<string, Classes>;
   /** The facts the row is held to; every combination unless told. */
   under?: (facts: MemoryOrgFacts) => boolean;
+  /** What the diff says of each object beside its classes, by object. */
+  extras?: (facts: MemoryOrgFacts) => Record<string, Extras>;
 }
+
+/** Each record the session's user last changed, counted for it. */
+const bySession = (count: number): Extras => ({ lastChangedBy: { [MEMORY_ORG_USER]: count } });
 
 const subject = (values: Record<string, unknown> = {}): MemoryRow => ({
   Id: SUBJECT,
@@ -348,6 +433,7 @@ const ROWS: Row[] = [
     expect: () => ({
       Account: { giveBack: [{ Id: SUBJECT, fields: ['Industry', 'Description'] }] },
     }),
+    extras: () => ({ Account: bySession(1) }),
   },
   {
     name: 'stamped since over its checkpoint values — an edit undone: touched, nothing to give back',
@@ -378,6 +464,7 @@ const ROWS: Row[] = [
       afterRead: (org) => org.edit('Account', SUBJECT, { Industry: 'Retail' }),
     },
     expect: () => ({ Account: { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] } }),
+    extras: () => ({ Account: bySession(1) }),
   },
   {
     name: 'written again in the second its object was read, thirty seconds into the take: given back too (m2)',
@@ -388,6 +475,7 @@ const ROWS: Row[] = [
       afterRead: (org) => org.edit('Account', SUBJECT, { Industry: 'Retail' }),
     },
     expect: () => ({ Account: { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] } }),
+    extras: () => ({ Account: bySession(1) }),
   },
   {
     name: 'written in the second the snapshot read it, before the read, and not since: as the checkpoint holds it, neither given back nor touched',
@@ -407,6 +495,7 @@ const ROWS: Row[] = [
       since: (org) => org.untrash(SUBJECT),
     },
     expect: () => ({ Account: { broughtBackSince: lines(SUBJECT) } }),
+    extras: () => ({ Account: bySession(1) }),
   },
   {
     name: 'deleted since and brought back before the preview: touched, never brought back since (M5)',
@@ -438,13 +527,13 @@ const ROWS: Row[] = [
     expect: () => ({ Account: { inBin: lines(SUBJECT) } }),
   },
   {
-    name: 'deleted since, of an object Salesforce undeletes only with its parent: expected back with it, never promised alone (C4)',
+    name: 'deleted since on its own, of an object Salesforce undeletes only with its parent, no parent coming back: it cannot come back with its id, named (C4, C3)',
     scenario: {
       objects: [ACCOUNT, LINE],
       before: (org) => org.add('OpportunityLineItem', { Id: lineId(1), Quantity: 2 }),
       since: (org) => org.trash('OpportunityLineItem', lineId(1)),
     },
-    expect: () => ({ OpportunityLineItem: { withParent: lines(lineId(1)) } }),
+    expect: () => ({ OpportunityLineItem: { goneForGood: lines(lineId(1)) } }),
   },
   {
     name: 'live at the checkpoint and deleted before its object was read: brought back with the values it had, named (C10, M5)',
@@ -524,9 +613,29 @@ const ROWS: Row[] = [
       Account: { broughtBackSince: lines(SUBJECT) },
       Contact: facts.childDeletedAloneStays ? {} : { broughtBackSince: lines(contactId(1)) },
     }),
+    extras: () => ({ Account: bySession(1), Contact: bySession(1) }),
   },
   {
-    name: 'a lookup a delete since cleared, the child restamped as the org restamps it: given back, its parent to bring back (F35)',
+    name: 'children deleted since with their parent come back with it, never promised alone; one deleted on its own before its parent comes back on its own (C2, F9)',
+    scenario: {
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
+      before: (org) => {
+        org.add('Account', subject());
+        for (const n of [1, 2, 3]) {
+          org.add('Contact', { Id: contactId(n), LastName: `Contact ${n}`, AccountId: SUBJECT });
+        }
+      },
+      since: (org) => org.trash('Contact', contactId(3)),
+      later: (org) => org.trash('Account', SUBJECT),
+    },
+    expect: () => ({
+      Account: { inBin: lines(SUBJECT) },
+      Contact: { withParent: lines(contactId(1), contactId(2)), inBin: lines(contactId(3)) },
+    }),
+  },
+  {
+    name: 'a lookup a delete since cleared: given back and named cleared whether the org restamped the child or not, its parent to bring back (F35, M9)',
     scenario: {
       objects: [ACCOUNT, CONTACT],
       children: { Contact: [{ childSObject: 'Contact', field: 'ReportsToId' }] },
@@ -538,13 +647,14 @@ const ROWS: Row[] = [
     },
     // Without the restamp the child is not stamped since: what finds it then
     // is the read of the snapshot's lookups to records deleted since (M9).
-    under: (facts) => facts.clearedLookupRestamps,
     expect: () => ({
       Contact: {
-        giveBack: [{ Id: contactId(2), fields: ['ReportsToId'] }],
+        giveBack: [{ Id: contactId(2), fields: ['ReportsToId'], cleared: ['ReportsToId'] }],
         inBin: lines(contactId(1)),
       },
     }),
+    // Restamped, the child names the user whose delete cleared it.
+    extras: (facts) => ({ Contact: facts.clearedLookupRestamps ? bySession(1) : {} }),
   },
   {
     name: 'a Task archived since is neither deleted nor gone for good, one changed then archived is given back, and only one emptied from the bin is gone (C11, M6)',
@@ -569,6 +679,7 @@ const ROWS: Row[] = [
         goneForGood: lines(taskId(3)),
       },
     }),
+    extras: () => ({ Task: bySession(1) }),
   },
 ];
 
@@ -586,6 +697,7 @@ describe('rewindDiff: every row of the classification, under every hypothesis of
         const taken = await take(row.scenario, facts);
         const diff = await diffOf(taken);
         const expected = row.expect(facts);
+        const extras = row.extras?.(facts) ?? {};
         const said = JSON.stringify(facts);
         for (const object of taken.objects) {
           expect(await classesOf(taken.folder, object.objectApiName), said).toEqual(
@@ -594,7 +706,9 @@ describe('rewindDiff: every row of the classification, under every hypothesis of
         }
         expect(diff.objects, said).toEqual(
           taken.objects
-            .map(({ objectApiName }) => objectOf(objectApiName, expected[objectApiName] ?? {}))
+            .map(({ objectApiName }) =>
+              objectOf(objectApiName, expected[objectApiName] ?? {}, extras[objectApiName]),
+            )
             .filter(({ objectApiName }) => Object.keys(expected[objectApiName] ?? {}).length > 0),
         );
         expect(diff.unread, said).toEqual([]);
@@ -646,24 +760,25 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     });
   });
 
-  it('reads no value of a record stamped in the five minutes before the checkpoint and not since: three calls, the pre-check, the change reads and the count', async () => {
+  it('reads no value of a record stamped in the five minutes before the checkpoint and not since: four calls, the describes, the pre-check, the change reads and the count', async () => {
     const taken = await take({});
     const before = taken.org.requests;
 
     await diffOf(taken);
 
-    expect(taken.org.requests - before).toBe(3);
+    expect(taken.org.requests - before).toBe(4);
   });
 
-  it('reads the values of its candidates in one call per two hundred, and the live ids only once records are lost', async () => {
+  it('reads the values of its candidates in one call per two hundred, the names of who changed them in one more, and the live ids only once records are lost', async () => {
     const changed = await take({
       before: (org) => org.add('Account', subject()),
       since: (org) => org.edit('Account', SUBJECT, { Industry: 'Retail' }),
     });
     const atChanged = changed.org.requests;
     await diffOf(changed);
-    // The pre-check, the change reads, the count, and one read of values.
-    expect(changed.org.requests - atChanged).toBe(4);
+    // The describes, the pre-check, the change reads, the count, one read of
+    // values, and the names of who last changed them.
+    expect(changed.org.requests - atChanged).toBe(6);
 
     const lost = await take({
       before: (org) => org.add('Account', subject()),
@@ -674,8 +789,9 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     });
     const atLost = lost.org.requests;
     await diffOf(lost);
-    // The pre-check, the change reads, the count, and the scan of live ids.
-    expect(lost.org.requests - atLost).toBe(4);
+    // The describes, the pre-check, the change reads, the count, and the scan
+    // of live ids.
+    expect(lost.org.requests - atLost).toBe(5);
   });
 
   it('counts an object whose records left without a stamp even though nothing in it moved, and names them gone for good (F29)', async () => {
@@ -694,8 +810,9 @@ describe('rewindDiff: what it reads, and what it sends', () => {
 
     const diff = await diffOf(taken);
 
-    // The pre-check saw nothing move: no change read, the count, the scan.
-    expect(taken.org.requests - before).toBe(3);
+    // The pre-check saw nothing move: the describes, no change read, the
+    // count, the scan.
+    expect(taken.org.requests - before).toBe(4);
     expect(await classesOf(taken.folder, 'Account')).toEqual({ goneForGood: lines(SUBJECT) });
     expect(diff.objects).toEqual([objectOf('Account', { goneForGood: lines(SUBJECT) })]);
   });
@@ -719,16 +836,18 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     expect(diff.objects).toEqual([objectOf('Account', { goneForGood: lines(SUBJECT) })]);
   });
 
-  it('compares the fields the checkpoint compares only: a field its owner chose not to compare never makes a record given back', async () => {
+  it('compares the fields the checkpoint compares only: a field its owner chose not to compare never makes a record given back, and is named not compared', async () => {
     const taken = await take({
       before: (org) => org.add('Account', subject()),
       since: (org) => org.edit('Account', SUBJECT, { Industry: 'Retail' }),
     });
 
-    const diff = await diffOf(taken, { ignoredFields: ['Account.Industry'] });
+    const diff = await diffOf(taken, { ignoredFields: ['Account.Industry', 'Contact.LastName'] });
 
     expect(await classesOf(taken.folder, 'Account')).toEqual({ touched: lines(SUBJECT) });
-    expect(diff.objects).toEqual([objectOf('Account', { touched: lines(SUBJECT) })]);
+    expect(diff.objects).toEqual([
+      objectOf('Account', { touched: lines(SUBJECT) }, { notCompared: ['Industry'] }),
+    ]);
   });
 
   it('tells an object of stamps alone by its stamps, with no read of values', async () => {
@@ -742,7 +861,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
 
     await diffOf(taken);
 
-    expect(taken.org.requests - before).toBe(3);
+    expect(taken.org.requests - before).toBe(4);
     expect(await classesOf(taken.folder, 'Account')).toEqual({ touched: lines(SUBJECT) });
   });
 
@@ -792,6 +911,405 @@ describe('rewindDiff: what it reads, and what it sends', () => {
   });
 });
 
+/** An account and the contact the platform makes with it, as a person account; its fields filled. */
+function addPerson(org: MemoryRemovalOrg, n: number, email: string): void {
+  org.addPersonAccount({ Id: accountId(n), Name: `Person ${n}`, PersonEmail: email }, contactId(n));
+  const contact = org.all('Contact').find((row) => row.Id === contactId(n));
+  if (contact) Object.assign(contact, { LastName: `Person ${n}`, Email: email });
+}
+
+/** A connection to `org` that refuses, as the org does, any read naming a field gone since. */
+function refusingField(org: MemoryRemovalOrg, field: string): CompositeQueryConnection {
+  const refusal = (): Error =>
+    orgError('INVALID_FIELD', `No such column '${field}' on entity 'Account'.`);
+  return {
+    version: org.version,
+    query: async (soql, options) => {
+      if (soql.includes(field)) throw refusal();
+      return org.query(soql, options);
+    },
+    queryMore: (url) => org.queryMore(url),
+    request: async (request) => {
+      if (typeof request.body === 'string' && request.body.includes(field)) throw refusal();
+      return org.request(request);
+    },
+  };
+}
+
+/** The account's fields as the take described them: a picklist, a long text, a date and time. */
+const ACCOUNT_DESCRIBED = describedOf(ACCOUNT.fields, {
+  Industry: 'picklist',
+  Description: 'textarea',
+  Due__c: 'datetime',
+});
+
+describe('rewindDiff: what changed in the objects’ fields since the take', () => {
+  it('names a field deleted since and compares it no more, never failing its object; leaves a field added since alone; compares still a field whose type changed, and names it', async () => {
+    const taken = await take({
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail', Description: 'new' });
+        org.changeSchema(
+          'Account',
+          describedOf([...STAMPS, 'Name', 'Industry', 'Due__c', 'Region__c'], {
+            Due__c: 'datetime',
+          }),
+        );
+      },
+    });
+
+    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Description') });
+
+    expect(diff.unread).toEqual([]);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({
+      giveBack: [{ Id: SUBJECT, fields: ['Industry'] }],
+    });
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        {
+          ...bySession(1),
+          schemaDrift: { removed: ['Description'], added: ['Region__c'], changed: ['Industry'] },
+          notCompared: ['Description'],
+        },
+      ),
+    ]);
+  });
+
+  it('asks whether an object changed since a day before the checkpoint: a field deleted after the take described it and before T0 is named, though no record changed', async () => {
+    const taken = await take({
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
+      nearT0: (org) =>
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Description'),
+        ),
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        {},
+        {
+          schemaDrift: { removed: ['Description'], added: [], changed: [] },
+          notCompared: ['Description'],
+        },
+      ),
+    ]);
+  });
+
+  it('names an object whose describe changed and whose field prints are no longer on this machine, and diffs the others', async () => {
+    const taken = await take({
+      objects: [CONTACT, ACCOUNT],
+      before: (org) => org.add('Contact', { Id: contactId(1), LastName: 'Then' }),
+      since: (org) => {
+        org.edit('Contact', contactId(1), { LastName: 'Now' });
+        org.changeSchema('Account', describedOf([...STAMPS, 'Name']));
+      },
+    });
+    rmSync(taken.folder.fingerprintsFile);
+
+    const diff = await diffOf(taken);
+
+    expect(diff.unread).toEqual([
+      { objectApiName: 'Account', reason: expect.stringMatching(/field prints cannot be read/) },
+    ]);
+    expect(diff.objects).toEqual([
+      objectOf('Contact', { giveBack: [{ Id: contactId(1), fields: ['LastName'] }] }, bySession(1)),
+    ]);
+  });
+});
+
+describe('rewindDiff: what it says beside the classes', () => {
+  // An account and its person contact point at each other: the scope may read
+  // either first.
+  it.each([
+    { first: 'Contact', order: ['Contact', 'Account'] },
+    { first: 'Account', order: ['Account', 'Contact'] },
+  ])(
+    'counts a person account’s contact with its account, never in a class of its own: the account alone is given back, brought back, deleted or named gone, and is compared when only its contact moved, whichever is read first ($first) (m6, A8)',
+    async ({ order }) => {
+      const personAccount: Held = {
+        objectApiName: 'Account',
+        fields: [...STAMPS, 'Name', 'Industry', 'IsPersonAccount', 'PersonEmail'],
+      };
+      const personContact: Held = {
+        objectApiName: 'Contact',
+        fields: [...STAMPS, 'LastName', 'Email', 'AccountId', 'IsPersonAccount'],
+        cascadeParents: ['AccountId'],
+      };
+      const held = { Account: personAccount, Contact: personContact };
+      const taken = await take({
+        objects: order.map((name) => (name === 'Account' ? held.Account : held.Contact)),
+        children: {
+          Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+        },
+        before: (org) => {
+          addPerson(org, 30, 'thirty@example.com');
+          addPerson(org, 31, 'thirty-one@example.com');
+          addPerson(org, 33, 'thirty-three@example.com');
+          org.add('Contact', { Id: contactId(40), LastName: 'Business', AccountId: KEPT });
+        },
+        since: (org) => {
+          org.edit('Contact', contactId(30), { Email: 'moved@example.com' });
+          // The account's own copy of its person's fields follows, without a
+          // stamp of its own.
+          const account = org.all('Account').find((row) => row.Id === accountId(30));
+          if (account) account.PersonEmail = 'moved@example.com';
+          org.trash('Account', accountId(31));
+          org.addPersonAccount({ Id: accountId(32), Name: 'Person 32' }, contactId(32));
+          org.hardDelete('Account', accountId(33));
+          org.edit('Contact', contactId(40), { LastName: 'Changed' });
+        },
+      });
+
+      const diff = await diffOf(taken);
+
+      const account: Classes = {
+        giveBack: [{ Id: accountId(30), fields: ['PersonEmail'] }],
+        createdSince: lines(accountId(32)),
+        inBin: lines(accountId(31)),
+        goneForGood: lines(accountId(33)),
+      };
+      const contact: Classes = { giveBack: [{ Id: contactId(40), fields: ['LastName'] }] };
+      expect(await classesOf(taken.folder, 'Account')).toEqual(account);
+      expect(await classesOf(taken.folder, 'Contact')).toEqual(contact);
+      const told = {
+        Account: objectOf('Account', account),
+        Contact: objectOf('Contact', contact, bySession(1)),
+      };
+      expect(diff.objects).toEqual(
+        order.map((name) => (name === 'Account' ? told.Account : told.Contact)),
+      );
+      expect(diff.unread).toEqual([]);
+    },
+  );
+
+  it('names who last changed each record to delete or give back — the last of two — by name, read in one call, and who changed one in the hour before the read', async () => {
+    const third = accountId(12);
+    const taken = await take({
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Account', { Id: third, Name: 'Third', Industry: 'Energy' });
+        org.add('User', { Id: MEMORY_ORG_USER, Name: 'Integration User' });
+        org.add('User', { Id: COLLEAGUE, Name: 'Test Colleague' });
+      },
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.edit('Account', SUBJECT, { Description: 'a colleague’s' }, COLLEAGUE);
+        org.add('Account', { Id: OTHER, Name: 'Made since', LastModifiedById: MEMORY_ORG_USER });
+        // Touched, then put back: nothing to give back, no one to name.
+        org.edit('Account', third, { Industry: 'Retail' }, COLLEAGUE);
+        org.edit('Account', third, { Industry: 'Energy' }, COLLEAGUE);
+      },
+    });
+    const told = objectOf(
+      'Account',
+      {
+        giveBack: [{ Id: SUBJECT, fields: ['Industry', 'Description'] }],
+        createdSince: lines(OTHER),
+        touched: lines(third),
+      },
+      { lastChangedBy: { [COLLEAGUE]: 1, [MEMORY_ORG_USER]: 1 } },
+    );
+    const before = taken.org.requests;
+
+    const soon = await diffOf(taken, { readAt: new Date(T0_MS + 30 * 60_000).toISOString() });
+
+    // The describes, the pre-check, the change reads, the count, the values,
+    // the describe of what the deletion takes along, and one read of names.
+    expect(taken.org.requests - before).toBe(7);
+    expect(soon.objects).toEqual([told]);
+    expect(soon.userNames).toEqual({
+      [MEMORY_ORG_USER]: 'Integration User',
+      [COLLEAGUE]: 'Test Colleague',
+    });
+    expect(soon.activeLastHour).toEqual([MEMORY_ORG_USER, COLLEAGUE]);
+
+    const hoursLater = await diffOf(taken, {
+      readAt: new Date(T0_MS + 3 * 60 * 60_000).toISOString(),
+    });
+
+    expect(hoursLater.objects).toEqual([told]);
+    expect(hoursLater.activeLastHour).toEqual([]);
+  });
+
+  it('finds a lookup a deletion cleared from the snapshot, on an object nothing stamped since, whatever the org does with the child’s stamps (M9, F35)', async () => {
+    const sponsored: Held = {
+      objectApiName: 'Contact',
+      fields: [...STAMPS, 'LastName', 'Sponsor__c'],
+    };
+    for (const facts of factCombinations(['clearedLookupRestamps', 'undeleteRestoresLookups'])) {
+      const taken = await take(
+        {
+          objects: [sponsored, ACCOUNT],
+          children: { Account: [{ childSObject: 'Contact', field: 'Sponsor__c' }] },
+          before: (org) => {
+            org.add('Account', subject());
+            org.add('Contact', { Id: contactId(1), LastName: 'Sponsored', Sponsor__c: SUBJECT });
+            org.add('Contact', { Id: contactId(2), LastName: 'Not', Sponsor__c: KEPT });
+          },
+          since: (org) => org.trash('Account', SUBJECT),
+        },
+        facts,
+      );
+
+      const diff = await diffOf(taken);
+
+      const said = JSON.stringify(facts);
+      const contact: Classes = {
+        giveBack: [{ Id: contactId(1), fields: ['Sponsor__c'], cleared: ['Sponsor__c'] }],
+      };
+      expect(await classesOf(taken.folder, 'Contact'), said).toEqual(contact);
+      expect(diff.objects, said).toEqual([
+        objectOf('Contact', contact, facts.clearedLookupRestamps ? bySession(1) : {}),
+        objectOf('Account', { inBin: lines(SUBJECT) }),
+      ]);
+    }
+  });
+
+  it('counts the records outside the checkpoint its deletions take along: created at or after T1 under a record to delete, through a relationship the org deletes along, in an object a person works in (M8, A13)', async () => {
+    const historyId = idOf('017', 1);
+    const taken = await take({
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: {
+        Account: [
+          { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+          { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
+          { childSObject: 'AccountHistory', field: 'AccountId', cascadeDelete: true },
+          { childSObject: 'Case', field: 'AccountId' },
+        ],
+      },
+      // Made after the Accounts were read and before the take ended: the
+      // deletion keeps the opportunity, and its parent with it.
+      afterRead: (org) => {
+        org.add('Account', { Id: OTHER, Name: 'Made while taken' });
+        org.add('Opportunity', { Id: opportunityId(1), AccountId: OTHER });
+      },
+      since: (org) => {
+        org.add('Account', subject());
+        org.add('Opportunity', { Id: opportunityId(2), AccountId: SUBJECT });
+        org.add('Opportunity', { Id: opportunityId(3), AccountId: SUBJECT });
+        org.add('Opportunity', { Id: opportunityId(4), AccountId: KEPT });
+        org.add('AccountHistory', { Id: historyId, AccountId: SUBJECT });
+        org.add('Case', { Id: idOf('500', 1), AccountId: SUBJECT });
+        org.add('Contact', { Id: contactId(5), LastName: 'Made since', AccountId: SUBJECT });
+      },
+    });
+    // History is the org's own trace of a record: no layout, no one works in it.
+    const describeGlobal = async (): Promise<unknown> => {
+      const global = (await taken.org.describeGlobal()) as {
+        sobjects: Array<Record<string, unknown>>;
+      };
+      return {
+        sobjects: global.sobjects.map((object) =>
+          object.name === 'AccountHistory' ? { ...object, layoutable: false } : object,
+        ),
+      };
+    };
+
+    const diff = await diffOf(taken, { describeGlobal });
+
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf('Contact', { createdSince: lines(contactId(5)) }),
+      objectOf(
+        'Account',
+        { createdSince: lines(OTHER, SUBJECT) },
+        { outside: [{ objectApiName: 'Opportunity', count: 2, parents: 1 }] },
+      ),
+    ]);
+  });
+
+  it('names an object whose records to delete it could not tell the records outside the checkpoint of, and keeps none of its classes', async () => {
+    const taken = await take({
+      children: {
+        Account: [{ childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true }],
+      },
+      since: (org) => {
+        org.add('Account', subject());
+        org.add('Opportunity', { Id: opportunityId(2), AccountId: SUBJECT });
+      },
+    });
+    taken.org.refuseRead.set('Opportunity', {
+      errorCode: 'INSUFFICIENT_ACCESS',
+      message: 'insufficient access rights on object id',
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(diff.objects).toEqual([]);
+    expect(diff.unread).toEqual([
+      {
+        objectApiName: 'Account',
+        reason: expect.stringMatching(/Opportunity records its deletion would take along/),
+      },
+    ]);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({});
+  });
+
+  it('says which records to delete Undo couldn’t bring back: of an object Salesforce undeletes only with its parent, those under a parent that stays, and those that come back with their parent to be deleted again; one under a parent deleted too goes with it (B3, A14, m14, C12, C4)', async () => {
+    const [l1, l2, l3, l4, l5] = [1, 2, 3, 4, 5].map(lineId);
+    const [o1, o2, o3] = [1, 2, 3].map(opportunityId);
+    const taken = await take({
+      objects: [PRODUCT, OPPORTUNITY],
+      background: false,
+      children: {
+        Opportunity: [
+          { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
+        ],
+      },
+      before: (org) => {
+        org.add('Opportunity', { Id: o1, Name: 'Kept', StageName: 'Prospecting' });
+        org.add('Opportunity', { Id: o2, Name: 'Deleted since', StageName: 'Prospecting' });
+        org.add('OpportunityLineItem', { Id: l4, Quantity: 1, OpportunityId: o1 });
+        org.add('OpportunityLineItem', { Id: l5, Quantity: 1, OpportunityId: o2 });
+      },
+      since: (org) => {
+        // Added since to an opportunity that stays.
+        org.add('OpportunityLineItem', {
+          Id: l1,
+          Quantity: 2,
+          OpportunityId: o1,
+          LastModifiedById: COLLEAGUE,
+        });
+        // Added since to an opportunity added since.
+        org.add('Opportunity', { Id: o3, Name: 'Made since', StageName: 'Prospecting' });
+        org.add('OpportunityLineItem', { Id: l2, Quantity: 2, OpportunityId: o3 });
+        // Added since to the opportunity deleted later.
+        org.add('OpportunityLineItem', { Id: l3, Quantity: 2, OpportunityId: o2 });
+        // Deleted on its own, its opportunity live.
+        org.trash('OpportunityLineItem', l4);
+      },
+      later: (org) => org.trash('Opportunity', o2),
+    });
+
+    const diff = await diffOf(taken);
+
+    const products: Classes = {
+      createdSince: lines(l1, l2),
+      comesBackWithParent: lines(l3),
+      withParent: lines(l5),
+      goneForGood: lines(l4),
+      undoCannot: lines(l1, l3),
+    };
+    const opportunities: Classes = { createdSince: lines(o3), inBin: lines(o2) };
+    expect(await classesOf(taken.folder, 'OpportunityLineItem')).toEqual(products);
+    expect(await classesOf(taken.folder, 'Opportunity')).toEqual(opportunities);
+    expect(diff.undoCannot).toEqual([{ objectApiName: 'OpportunityLineItem', count: 2 }]);
+    expect(diff.objects).toEqual([
+      objectOf('OpportunityLineItem', products, {
+        lastChangedBy: { [COLLEAGUE]: 1, [MEMORY_ORG_USER]: 1 },
+      }),
+      objectOf('Opportunity', opportunities),
+    ]);
+  });
+});
+
 describe('rewindDiff: an object it cannot read whole is named, never read as unchanged', () => {
   it('names an object whose cursor the org released before it was read to its end, and diffs the others', async () => {
     const accounts = [accountId(20), accountId(21), accountId(22)];
@@ -818,9 +1336,11 @@ describe('rewindDiff: an object it cannot read whole is named, never read as unc
       { objectApiName: 'Account', reason: expect.stringMatching(/invalid query locator/) },
     ]);
     expect(diff.objects).toEqual([
-      objectOf('Contact', {
-        giveBack: contacts.map((id) => ({ Id: id, fields: ['LastName'] })),
-      }),
+      objectOf(
+        'Contact',
+        { giveBack: contacts.map((id) => ({ Id: id, fields: ['LastName'] })) },
+        bySession(3),
+      ),
     ]);
     expect(await classesOf(taken.folder, 'Account')).toEqual({});
   });

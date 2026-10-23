@@ -418,6 +418,42 @@ const fingerprintsFileSchema = z.object({
 });
 
 /**
+ * The field prints of a checkpoint's objects, by object, read from its
+ * folder and checked against what its file says of each object's whole
+ * print: the store's {@link OrgCheckpointStore.readFingerprints}, for a
+ * reader that holds the folder and the objects alone, as a preview does.
+ *
+ * @throws {CheckpointStoreError} `damaged`, when they are not there, do not
+ *   parse, or one of `objects` has none or another: what changed in the org's
+ *   fields since could not be told.
+ */
+export async function readFieldPrints(
+  folder: Pick<CheckpointFolder, 'fingerprintsFile'>,
+  objects: ReadonlyArray<Pick<OrgCheckpoint['objects'][number], 'objectApiName' | 'fingerprint'>>,
+): Promise<Map<string, ObjectFingerprint>> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(folder.fingerprintsFile, 'utf8'));
+  } catch {
+    throw new CheckpointStoreError('damaged', 'The checkpoint’s field prints cannot be read');
+  }
+  const file = fingerprintsFileSchema.safeParse(raw);
+  if (!file.success) {
+    throw new CheckpointStoreError('damaged', 'The checkpoint’s field prints do not parse');
+  }
+  const prints = new Map(Object.entries(file.data.objects));
+  for (const object of objects) {
+    if (prints.get(object.objectApiName)?.digest !== object.fingerprint) {
+      throw new CheckpointStoreError(
+        'damaged',
+        `The field prints of ${object.objectApiName} are not the checkpoint’s`,
+      );
+    }
+  }
+  return prints;
+}
+
+/**
  * Open the store at `options.root`: make its folder and the folder of the
  * locks, their owner's alone when new, and refuse either when another user
  * owns it. Where the system gives files no owner, as on Windows, the folders
@@ -549,26 +585,7 @@ export class OrgCheckpointStore {
     folder: CheckpointFolder,
     checkpoint: OrgCheckpoint,
   ): Promise<Map<string, ObjectFingerprint>> {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(await readFile(folder.fingerprintsFile, 'utf8'));
-    } catch {
-      throw new CheckpointStoreError('damaged', 'The checkpoint’s field prints cannot be read');
-    }
-    const file = fingerprintsFileSchema.safeParse(raw);
-    if (!file.success) {
-      throw new CheckpointStoreError('damaged', 'The checkpoint’s field prints do not parse');
-    }
-    const prints = new Map(Object.entries(file.data.objects));
-    for (const object of checkpoint.objects) {
-      if (prints.get(object.objectApiName)?.digest !== object.fingerprint) {
-        throw new CheckpointStoreError(
-          'damaged',
-          `The field prints of ${object.objectApiName} are not the checkpoint’s`,
-        );
-      }
-    }
-    return prints;
+    return readFieldPrints(folder, checkpoint.objects);
   }
 
   /** A kept checkpoint, damaged or not; undefined when none of that id is kept. */
