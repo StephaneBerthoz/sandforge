@@ -10,6 +10,7 @@ import type {
   CheckpointStatus,
   CheckpointTakeRequests,
   OrgCheckpoint,
+  RewindResidualReason,
   RewindResult,
   RewindStatus,
 } from './checkpoint.types.js';
@@ -75,5 +76,19 @@ describe('the result of a rewind', () => {
   it('ends as a removal ends, or unstable when someone else wrote during it', () => {
     expectTypeOf<ForgeUndoStatus>().toExtend<RewindStatus>();
     expectTypeOf<Exclude<RewindStatus, ForgeUndoStatus>>().toEqualTypeOf<'unstable'>();
+  });
+
+  it('says why each record still differs, those it kept as it had to among them, and the objects its last read could not read', () => {
+    expectTypeOf<RewindResidualReason>().toEqualTypeOf<
+      | 'automation'
+      | 'changedDuringRewind'
+      | 'changedSincePreview'
+      | 'refused'
+      | 'goneForGood'
+      | 'kept'
+    >();
+    expectTypeOf<RewindResult['unread']>().toEqualTypeOf<
+      Array<{ objectApiName: string; reason: string }> | undefined
+    >();
   });
 });

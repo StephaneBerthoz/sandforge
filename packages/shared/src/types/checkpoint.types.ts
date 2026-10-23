@@ -438,11 +438,14 @@ export type RewindStatus = 'success' | 'partial' | 'failure' | 'unstable' | 'can
 /**
  * Why a record still differs once the rewind verified: the org's automation
  * set it again, another user changed it during the rewind, it changed after
- * the preview the rewind acted on, the org refused the write, or the recycle
- * bin no longer holds it.
+ * the preview the rewind acted on, the org refused the write, the recycle
+ * bin no longer holds it, or the rewind kept it as it had to — records
+ * outside a checkpoint of picked objects hang from it and their deletion was
+ * not accepted, a record the rewind left hangs from it, or Undo couldn't
+ * bring it back and that was not accepted — which its `message` says.
  */
 export type RewindResidualReason =
-  'automation' | 'changedDuringRewind' | 'changedSincePreview' | 'refused' | 'goneForGood';
+  'automation' | 'changedDuringRewind' | 'changedSincePreview' | 'refused' | 'goneForGood' | 'kept';
 
 /** Records of one object that still differ, for one reason. */
 export interface RewindResidual {
@@ -454,7 +457,7 @@ export interface RewindResidual {
   count: number;
   /** Their ids, or the first of them when there are many: {@link count} says how many there are. */
   ids: string[];
-  /** The org's words, for a refusal. */
+  /** The org's words, for a refusal; the rewind's own, for a record it kept. */
   message?: string;
 }
 
@@ -471,6 +474,12 @@ export interface RewindResult {
   undeleted: SyncUndeleteObjectResult[];
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
+  /**
+   * Objects the last read of the org could not read, with the reason: never
+   * taken for objects that match the checkpoint, so a rewind that names one
+   * is partial. Absent when every object was read.
+   */
+  unread?: Array<{ objectApiName: string; reason: string }>;
   /** Passes it made: the rewind, then one convergence pass at most. */
   passes: number;
   /**
