@@ -346,6 +346,10 @@ export function compositeReader(
   let scheduled = false;
   let ticket = 0;
   let sent = 0;
+  // The reader listens to `signal` only while it has a read open or a call
+  // out: an operation that makes a reader per read under one signal would
+  // otherwise leave a listener on it for each.
+  let listening = false;
 
   const stopAll = (): void => {
     for (const lane of lanes) {
@@ -515,9 +519,23 @@ export function compositeReader(
     } finally {
       inFlight = false;
       schedule();
+      unlistenWhenIdle();
     }
   };
-  signal?.addEventListener('abort', schedule, { once: true });
+  const onAbort = (): void => {
+    listening = false;
+    schedule();
+  };
+  const listen = (): void => {
+    if (listening || signal === undefined || signal.aborted) return;
+    signal.addEventListener('abort', onAbort, { once: true });
+    listening = true;
+  };
+  const unlistenWhenIdle = (): void => {
+    if (!listening || inFlight || lanes.size > 0 || describes.length > 0) return;
+    signal?.removeEventListener('abort', onAbort);
+    listening = false;
+  };
 
   const ask = (state: LaneState, page: PageAsk): Promise<CountedPage> => {
     if (!lanes.has(state)) return Promise.reject(new Error('This read is closed.'));
@@ -538,6 +556,7 @@ export function compositeReader(
     lane() {
       const state: LaneState = { state: 'idle', order: 0 };
       lanes.add(state);
+      listen();
       return {
         query: (soql, options) =>
           ask(state, { kind: 'first', soql, scanAll: options?.scanAll === true }),
@@ -554,6 +573,7 @@ export function compositeReader(
           if (!lanes.delete(state)) return;
           if (state.state === 'pending') answerLane(state, new Error('This read is closed.'));
           schedule();
+          unlistenWhenIdle();
         },
       };
     },
@@ -568,6 +588,7 @@ export function compositeReader(
           if (!Number.isFinite(at)) throw new Error(`Not a date: ${modifiedSince}`);
           headers = { [IF_MODIFIED_SINCE]: new Date(at).toUTCString() };
         }
+        listen();
         describes.push({
           path: `sobjects/${object}/describe`,
           ...(headers ? { headers } : {}),

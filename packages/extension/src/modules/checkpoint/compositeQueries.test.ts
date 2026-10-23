@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { Connection } from 'jsforce';
 import { compositeOrg, orgError, stampedRows, type FakeOrgCall } from '../../test/compositeOrg.js';
@@ -408,6 +409,31 @@ describe('compositeReader: Stop', () => {
     await expect(busy.query('SELECT Id FROM Contact')).rejects.toBeInstanceOf(OrgReadStopped);
     await expect(reader.describe('Account')).rejects.toBeInstanceOf(OrgReadStopped);
     expect(org.calls).toEqual([]);
+  });
+
+  it('listens to the signal only while a read is open or a call is out, so readers made one after another under one signal leave no listener on it', async () => {
+    const org = orgOf(3);
+    const stop = new AbortController();
+    const listeners = () => getEventListeners(stop.signal, 'abort').length;
+
+    for (let n = 0; n < 3; n++) {
+      const reader = compositeReader(org.conn, stop.signal);
+      const lane = reader.lane();
+      expect(listeners()).toBe(1);
+      await lane.query('SELECT Id FROM Account');
+      lane.close();
+      await reader.describe('Account');
+      // The call that answered the describe settles it before it ends.
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(listeners()).toBe(0);
+    // Listening again for a read opened after the reader went idle.
+    const reader = compositeReader(org.conn, stop.signal);
+    const lane = reader.lane();
+    const asked = lane.query('SELECT Id FROM Contact');
+    stop.abort();
+    await expect(asked).rejects.toBeInstanceOf(OrgReadStopped);
   });
 
   it('refuses a second page asked before the first came back, and any page of a closed read', async () => {
