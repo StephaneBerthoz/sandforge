@@ -514,7 +514,8 @@ describe.skipIf(process.platform === 'win32')('SfdxBridge.loginWithRefreshToken'
   });
 });
 
-describe('SfdxBridge.findOrg', () => {
+// The argv read below is a POSIX spawn's; on Windows sf runs through cmd.exe.
+describe.skipIf(process.platform === 'win32')('SfdxBridge.findOrg', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

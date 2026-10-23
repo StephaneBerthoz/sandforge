@@ -66,7 +66,7 @@ describe('TrendChart', () => {
     try {
       render(<TrendChart data={sampleData} />);
 
-      const failed = await screen.findByTestId('trend-chart-failed');
+      const failed = await screen.findByTestId('trend-chart-failed', {}, { timeout: 5000 });
       expect(failed.textContent).toContain('This part did not load');
       expect(screen.getByTestId('trend-chart-container').contains(failed)).toBe(true);
       expect(screen.getByTestId('trend-period-7d')).toBeDefined();

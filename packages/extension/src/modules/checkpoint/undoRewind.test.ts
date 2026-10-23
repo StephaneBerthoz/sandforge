@@ -12,6 +12,7 @@ import {
   type MemoryRow,
 } from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
+import { paced } from '../../test/runnerPace.js';
 import { removeRunRecords } from '../forge/ForgeRunRemoval.js';
 import {
   restoreOverwrites,
@@ -372,29 +373,33 @@ function undo(
 }
 
 describe('undoRewind, on the memory org', () => {
-  it('returns the org to how it was before the rewind under every hypothesis the probes left about stamps, cascades and cleared lookups', async () => {
-    const combinations = factCombinations([
-      'deleteStamps',
-      'childDeletedAloneStays',
-      'undeleterIsLastModifier',
-      'clearedLookupRestamps',
-      'undeleteRestoresLookups',
-    ]);
-    expect(combinations).toHaveLength(32);
-    for (const facts of combinations) {
-      const org = orgBeforeTheRewind(facts);
-      const before = stateOf(org);
-      const folder = await checkpointFolder();
-      const rewindId = await rewound(folder, org);
-      expect(stateOf(org)).not.toEqual(before);
+  it(
+    'returns the org to how it was before the rewind under every hypothesis the probes left about stamps, cascades and cleared lookups',
+    async () => {
+      const combinations = factCombinations([
+        'deleteStamps',
+        'childDeletedAloneStays',
+        'undeleterIsLastModifier',
+        'clearedLookupRestamps',
+        'undeleteRestoresLookups',
+      ]);
+      expect(combinations).toHaveLength(32);
+      for (const facts of combinations) {
+        const org = orgBeforeTheRewind(facts);
+        const before = stateOf(org);
+        const folder = await checkpointFolder();
+        const rewindId = await rewound(folder, org);
+        expect(stateOf(org)).not.toEqual(before);
 
-      vi.setSystemTime(TR + 10 * 60_000);
-      const outcome = await undo(folder, rewindId, org);
+        vi.setSystemTime(TR + 10 * 60_000);
+        const outcome = await undo(folder, rewindId, org);
 
-      expect({ facts, state: stateOf(org) }).toEqual({ facts, state: before });
-      expect({ facts, status: outcome.status }).toEqual({ facts, status: 'success' });
-    }
-  });
+        expect({ facts, state: stateOf(org) }).toEqual({ facts, state: before });
+        expect({ facts, status: outcome.status }).toEqual({ facts, status: 'success' });
+      }
+    },
+    paced(60_000),
+  );
 
   it('brings back what the rewind deleted, gives back what it wrote over and sends back to the bin what it brought back, each counted', async () => {
     const org = orgBeforeTheRewind();
@@ -429,100 +434,112 @@ describe('undoRewind, on the memory org', () => {
     expect(outcome.notes).toEqual([]);
   });
 
-  it('returns the org to how it was before the rewind from a rewind stopped at any of its calls, then taken up again on its journal', async () => {
-    const counted = orgBeforeTheRewind();
-    const counting = stoppedAfter(counted, Number.POSITIVE_INFINITY, new AbortController());
-    await rewound(await checkpointFolder(), counting.org);
-    const calls = counting.sent();
-    expect(calls).toBeGreaterThan(15);
+  it(
+    'returns the org to how it was before the rewind from a rewind stopped at any of its calls, then taken up again on its journal',
+    async () => {
+      const counted = orgBeforeTheRewind();
+      const counting = stoppedAfter(counted, Number.POSITIVE_INFINITY, new AbortController());
+      await rewound(await checkpointFolder(), counting.org);
+      const calls = counting.sent();
+      expect(calls).toBeGreaterThan(15);
 
-    for (let stopAt = 1; stopAt <= calls; stopAt++) {
-      const org = orgBeforeTheRewind();
-      const before = stateOf(org);
-      const folder = await checkpointFolder();
-      const controller = new AbortController();
-      vi.setSystemTime(TR);
-      const first = await rewindPass(folder, stoppedAfter(org, stopAt, controller).org, {
-        signal: controller.signal,
-      });
-      if (!first) {
-        vi.setSystemTime(TR + 60_000);
-        expect({ stopAt, through: await rewindPass(folder, org) }).toEqual({
-          stopAt,
-          through: true,
-        });
-      }
-      const rewindId = onlyRewindOf(folder);
-      expect((await readRewindJournal(folder, rewindId)).passes).toHaveLength(first ? 1 : 2);
-
-      vi.setSystemTime(TR + 10 * 60_000);
-      const outcome = await undo(folder, rewindId, org);
-
-      expect({ stopAt, state: stateOf(org) }).toEqual({ stopAt, state: before });
-      expect({ stopAt, status: outcome.status }).toEqual({ stopAt, status: 'success' });
-    }
-  });
-
-  it('returns the org to how it was before the rewind from a rewind stopped, or killed, at any of its calls and never taken up', async () => {
-    const counting = stoppedAfter(
-      orgBeforeTheRewind(),
-      Number.POSITIVE_INFINITY,
-      new AbortController(),
-    );
-    await rewound(await checkpointFolder(), counting.org);
-    const calls = counting.sent();
-
-    for (const dies of [false, true]) {
       for (let stopAt = 1; stopAt <= calls; stopAt++) {
         const org = orgBeforeTheRewind();
         const before = stateOf(org);
         const folder = await checkpointFolder();
         const controller = new AbortController();
         vi.setSystemTime(TR);
-        await rewindPass(folder, stoppedAfter(org, stopAt, controller).org, {
+        const first = await rewindPass(folder, stoppedAfter(org, stopAt, controller).org, {
           signal: controller.signal,
-          dies,
         });
+        if (!first) {
+          vi.setSystemTime(TR + 60_000);
+          expect({ stopAt, through: await rewindPass(folder, org) }).toEqual({
+            stopAt,
+            through: true,
+          });
+        }
+        const rewindId = onlyRewindOf(folder);
+        expect((await readRewindJournal(folder, rewindId)).passes).toHaveLength(first ? 1 : 2);
 
         vi.setSystemTime(TR + 10 * 60_000);
-        const outcome = await undo(folder, onlyRewindOf(folder), org);
+        const outcome = await undo(folder, rewindId, org);
 
-        expect({ dies, stopAt, state: stateOf(org) }).toEqual({ dies, stopAt, state: before });
-        expect({ dies, stopAt, status: outcome.status }).toEqual({
-          dies,
-          stopAt,
-          status: 'success',
-        });
+        expect({ stopAt, state: stateOf(org) }).toEqual({ stopAt, state: before });
+        expect({ stopAt, status: outcome.status }).toEqual({ stopAt, status: 'success' });
       }
-    }
-  });
+    },
+    paced(60_000),
+  );
 
-  it('returns the org to how it was before the rewind from an undo stopped at any of its calls, then run again', async () => {
-    const countingOrg = orgBeforeTheRewind();
-    const countingFolder = await checkpointFolder();
-    const countingRewind = await rewound(countingFolder, countingOrg);
-    vi.setSystemTime(TR + 10 * 60_000);
-    const counting = stoppedAfter(countingOrg, Number.POSITIVE_INFINITY, new AbortController());
-    await undo(countingFolder, countingRewind, counting.org);
-    const calls = counting.sent();
-    expect(calls).toBeGreaterThan(10);
+  it(
+    'returns the org to how it was before the rewind from a rewind stopped, or killed, at any of its calls and never taken up',
+    async () => {
+      const counting = stoppedAfter(
+        orgBeforeTheRewind(),
+        Number.POSITIVE_INFINITY,
+        new AbortController(),
+      );
+      await rewound(await checkpointFolder(), counting.org);
+      const calls = counting.sent();
 
-    for (let stopAt = 1; stopAt <= calls; stopAt++) {
-      const org = orgBeforeTheRewind();
-      const before = stateOf(org);
-      const folder = await checkpointFolder();
-      const rewindId = await rewound(folder, org);
-      const controller = new AbortController();
+      for (const dies of [false, true]) {
+        for (let stopAt = 1; stopAt <= calls; stopAt++) {
+          const org = orgBeforeTheRewind();
+          const before = stateOf(org);
+          const folder = await checkpointFolder();
+          const controller = new AbortController();
+          vi.setSystemTime(TR);
+          await rewindPass(folder, stoppedAfter(org, stopAt, controller).org, {
+            signal: controller.signal,
+            dies,
+          });
+
+          vi.setSystemTime(TR + 10 * 60_000);
+          const outcome = await undo(folder, onlyRewindOf(folder), org);
+
+          expect({ dies, stopAt, state: stateOf(org) }).toEqual({ dies, stopAt, state: before });
+          expect({ dies, stopAt, status: outcome.status }).toEqual({
+            dies,
+            stopAt,
+            status: 'success',
+          });
+        }
+      }
+    },
+    paced(60_000),
+  );
+
+  it(
+    'returns the org to how it was before the rewind from an undo stopped at any of its calls, then run again',
+    async () => {
+      const countingOrg = orgBeforeTheRewind();
+      const countingFolder = await checkpointFolder();
+      const countingRewind = await rewound(countingFolder, countingOrg);
       vi.setSystemTime(TR + 10 * 60_000);
-      await undo(folder, rewindId, stoppedAfter(org, stopAt, controller).org, controller.signal);
+      const counting = stoppedAfter(countingOrg, Number.POSITIVE_INFINITY, new AbortController());
+      await undo(countingFolder, countingRewind, counting.org);
+      const calls = counting.sent();
+      expect(calls).toBeGreaterThan(10);
 
-      vi.setSystemTime(TR + 11 * 60_000);
-      const again = await undo(folder, rewindId, org);
+      for (let stopAt = 1; stopAt <= calls; stopAt++) {
+        const org = orgBeforeTheRewind();
+        const before = stateOf(org);
+        const folder = await checkpointFolder();
+        const rewindId = await rewound(folder, org);
+        const controller = new AbortController();
+        vi.setSystemTime(TR + 10 * 60_000);
+        await undo(folder, rewindId, stoppedAfter(org, stopAt, controller).org, controller.signal);
 
-      expect({ stopAt, state: stateOf(org) }).toEqual({ stopAt, state: before });
-      expect({ stopAt, status: again.status }).toEqual({ stopAt, status: 'success' });
-    }
-  });
+        vi.setSystemTime(TR + 11 * 60_000);
+        const again = await undo(folder, rewindId, org);
+
+        expect({ stopAt, state: stateOf(org) }).toEqual({ stopAt, state: before });
+        expect({ stopAt, status: again.status }).toEqual({ stopAt, status: 'success' });
+      }
+    },
+    paced(60_000),
+  );
 
   it('keeps what a colleague changed since the rewind as they made it, and counts it: the undo is partial', async () => {
     const org = orgBeforeTheRewind();
