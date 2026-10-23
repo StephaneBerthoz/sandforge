@@ -119,8 +119,9 @@ describe('sandbox refresh detection wiring', () => {
     await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1));
     const shown = String(vi.mocked(vscode.window.showWarningMessage).mock.calls[0][0]);
     expect(shown).toContain('la sandbox UAT a été rafraîchie');
+    // In the word the Checkpoints page names them by.
     expect(shown).toContain(
-      "Ses 2 checkpoint(s) gardés sur cette machine sont ceux de l'org d'avant le rafraîchissement",
+      "Ses 2 point(s) de contrôle conservés sur cette machine sont ceux de l'org d'avant le rafraîchissement",
     );
     expect(asked).toEqual([REGISTERED_ORG_ID.slice(0, 15)]);
   });
@@ -134,7 +135,7 @@ describe('sandbox refresh detection wiring', () => {
 
     await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(2));
     for (const [shown] of vi.mocked(vscode.window.showWarningMessage).mock.calls) {
-      expect(String(shown)).not.toContain('checkpoint');
+      expect(String(shown)).not.toContain('point(s) de contrôle');
     }
   });
 

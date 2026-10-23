@@ -55,6 +55,15 @@ const HELP_SECTIONS: HelpSection[] = [
     contentKey: 'help.seedContent',
     icon: '\uD83C\uDF31',
   },
+  // After Seed, as the side bar lists it after Seed and Forge: it says what a
+  // checkpoint is in the words its page opens on, and what a rewind leaves.
+  {
+    id: 'checkpoint',
+    titleKey: 'nav.checkpoint',
+    summaryKey: 'moduleSummary.checkpoint',
+    contentKey: 'help.checkpointContent',
+    icon: '\u23EA',
+  },
   { id: 'sync', titleKey: 'nav.sync', contentKey: 'help.syncContent', icon: '\uD83D\uDD04' },
   {
     id: 'compare',

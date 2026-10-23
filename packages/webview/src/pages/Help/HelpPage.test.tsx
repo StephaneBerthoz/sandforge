@@ -126,6 +126,50 @@ describe('HelpPage', () => {
     }
   });
 
+  it('covers Checkpoints after Seed, opening on the sentence the side panel and Home say', () => {
+    // The side bar lists it third, after Seed and Forge; Help had no word of it.
+    render(<HelpPage />);
+    const ids = screen
+      .getAllByTestId(/^help-section-/)
+      .map((section) => section.getAttribute('data-testid'));
+    expect(ids.indexOf('help-section-checkpoint')).toBe(ids.indexOf('help-section-seed') + 1);
+    fireEvent.click(screen.getByText('nav.checkpoint'));
+    expect(screen.getByTestId('help-summary-checkpoint').textContent).toBe(
+      'moduleSummary.checkpoint',
+    );
+    expect(screen.getByText('help.checkpointContent')).toBeDefined();
+  });
+
+  it('says what a checkpoint is in the words its page opens on, and what a rewind leaves, in every language', () => {
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      const [concept, ...limits] = bundle.help.checkpointContent.split('\n');
+      expect({ lng, opens: concept.startsWith(bundle.checkpoint.concept) }).toEqual({
+        lng,
+        opens: true,
+      });
+      // A DataOps backup, told apart from it.
+      expect(concept, lng).toContain('DataOps');
+      expect(limits, lng).toHaveLength(5);
+      expect(
+        limits.every((line) => line.startsWith('- ')),
+        lng,
+      ).toBe(true);
+      expect(limits[1].toLowerCase(), lng).toContain(bundle.nav.checkpoint.toLowerCase());
+      expect(limits[4], lng).toContain('30');
+    }
+    // What the guide says before anything else, in its order.
+    const english = en.help.checkpointContent.split('\n').slice(1);
+    for (const [line, says] of [
+      [0, "It undoes everyone's work since the checkpoint"],
+      [1, 'Never on a production org'],
+      [2, 'Data only: fields, flows'],
+      [3, 'Files are not covered'],
+      [4, "holds the records' values in clear, personal data among them, on this machine"],
+    ] as const) {
+      expect(english[line]).toContain(says);
+    }
+  });
+
   it('puts Forge first among the modules, right after Getting Started', () => {
     // Every other first-run surface leads with Forge; Help listed it eighth.
     render(<HelpPage />);

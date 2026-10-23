@@ -623,6 +623,9 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
     Seed: 'seed',
     Sync: 'sync',
     Forge: 'forge',
+    // The palette said "Ouvrir Checkpoints" under a side bar entry "Points de
+    // contrôle", and the same English word in four other languages.
+    Checkpoints: 'checkpoint',
     Frozen: 'frozen',
     Grappe: 'grappe',
     Autopilot: 'autopilot',
@@ -1143,5 +1146,131 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
     expect(touching.test(reads('SandForge: AIアシスタントを開く'))).toBe(true);
     expect(touching.test(reads('**SF CLIからインポート** をクリック'))).toBe(true);
     expect(touching.test(reads('B2C eコマース'))).toBe(false);
+  });
+});
+
+describe('Checkpoint & Rewind names each thing with one word, in each language', () => {
+  /* The page, its Home tile, the result parts it shares with Sync, the line of
+     Disconnect, the audit trail's two actions and Help: the values that speak
+     of a checkpoint, a rewind or its undo. */
+  const CHECKPOINT_KEY =
+    /^(?:checkpoint\.|home\.checkpoint\.|runRemoval\.rewind(?:Undo)?\.|org\.disconnectDeleteCheckpoints_|reports\.auditActions\.checkpoint_|nav\.checkpoint$|moduleSummary\.checkpoint$|help\.checkpointContent$)/;
+  const checkpointValues = (locale: string): [string, string][] =>
+    [...flatten(load(locale))].filter(([key]) => CHECKPOINT_KEY.test(key));
+  /** A catalogue value that the test expects to be there. */
+  const text = (catalogue: Catalogue, key: string): string => {
+    const value = lookup(catalogue, key);
+    expect(typeof value, key).toBe('string');
+    return value as string;
+  };
+
+  /**
+   * The word each language names a checkpoint by, as its side bar entry does;
+   * the host's notices write a plural they cannot choose as point(s).
+   */
+  const CHECKPOINT_WORD: Record<(typeof NON_EN)[number], RegExp> = {
+    fr: /points?(?:\(s\))? de contrôle/iu,
+    de: /Prüfpunkt/u,
+    es: /puntos?(?:\(s\))? de control/iu,
+    ja: /チェックポイント/u,
+    'pt-BR': /pontos?(?:\(s\))? de verificação/iu,
+  };
+  /** The English word, but in a command or file name such as sandforge-checkpoint. */
+  const ENGLISH_WORD = /(?<![\p{L}-])checkpoints?(?!\p{L})/iu;
+
+  /*
+   * The panels said "Points de contrôle", "Prüfpunkt" and チェックポイント, and
+   * the Command Palette and the notice of a refreshed sandbox said Checkpoints
+   * and checkpoint(s), in English, in the five languages.
+   */
+  it.each(NON_EN)('%s names a checkpoint in its own word on every surface', (locale) => {
+    const surfaces = [...everySurface(locale)];
+    expect(surfaces.filter(([, value]) => ENGLISH_WORD.test(value)).map(([key]) => key)).toEqual(
+      [],
+    );
+    const word = CHECKPOINT_WORD[locale];
+    expect(text(load(locale), 'nav.checkpoint')).toMatch(word);
+    expect(manifestOf(locale).get('command.openCheckpoints')).toMatch(word);
+    const refreshed = [...hostOf(locale)].filter(([key]) => /checkpoint/i.test(key));
+    expect(refreshed.length).toBeGreaterThan(0);
+    for (const [key, value] of refreshed) {
+      expect({ key, value }).toEqual({ key, value: expect.stringMatching(word) });
+    }
+    // Positive control: the walk reads the values that name one.
+    expect(surfaces.filter(([, value]) => word.test(value)).length).toBeGreaterThan(30);
+    // Controls: what shipped is refused, a command's name is not.
+    expect(ENGLISH_WORD.test('SandForge : Ouvrir Checkpoints')).toBe(true);
+    expect(ENGLISH_WORD.test('Ses {0} checkpoint(s) gardés sur cette machine')).toBe(true);
+    expect(ENGLISH_WORD.test('pnpm exec tsx cli/sandforge-checkpoint.ts')).toBe(false);
+  });
+
+  /*
+   * Japanese counted objects with 個 in every line of the take and the preview
+   * but one, which said 件のオブジェクト beside 件のレコード.
+   */
+  it('Japanese counts objects with 個 and records with 件', () => {
+    const ja = checkpointValues('ja');
+    const objectsBy件 = /件の\s*オブジェクト|オブジェクト\s*#\s*件/u;
+    const reads = (value: string) => value.replace(/\{\{[^}]*\}\}/g, '#');
+    expect(ja.filter(([, value]) => objectsBy件.test(reads(value))).map(([key]) => key)).toEqual(
+      [],
+    );
+    expect(
+      ja.filter(([, value]) => /個のオブジェクト|オブジェクト: \{\{\w+\}\} 個/u.test(value)).length,
+    ).toBeGreaterThan(5);
+    expect(objectsBy件.test(reads('{{formatted}} 件のオブジェクトを読み取れませんでした'))).toBe(
+      true,
+    );
+  });
+
+  /*
+   * The take filtered its objects with フィルター and Stop comparing its fields
+   * with 絞り込む, a page apart; DataOps' object picker, which the take
+   * mirrors, says 絞り込む.
+   */
+  it('Japanese filters a list with 絞り込む, as DataOps’ object picker does', () => {
+    const ja = load('ja');
+    const filters = checkpointValues('ja').filter(([key]) => /\.filter$/.test(key));
+    expect(filters.length).toBeGreaterThan(1);
+    for (const [key, value] of filters) {
+      expect({ key, value }).toEqual({ key, value: expect.stringMatching(/を絞り込む$/u) });
+    }
+    expect(text(ja, 'checkpoint.take.filter')).toBe(text(ja, 'dataops.objectPicker.filter'));
+  });
+
+  /*
+   * Japanese said 元に戻す for Undo on the button, the run, the result and the
+   * preview, and 巻き戻しの取り消し in the audit trail: 取り消す is what a Sync
+   * removal does to a run.
+   */
+  it('Japanese names Undo 元に戻す wherever the English says undo', () => {
+    const english = new Map(checkpointValues('en'));
+    const ja = checkpointValues('ja').filter(([key]) => /undo/i.test(english.get(key) ?? ''));
+    expect(ja.filter(([, value]) => /取り消/u.test(value)).map(([key]) => key)).toEqual([]);
+    // Positive control: the walk reads the values that name it.
+    expect(ja.filter(([, value]) => /元に戻/u.test(value)).length).toBeGreaterThan(15);
+    expect(text(load('ja'), 'reports.auditActions.checkpoint_undo')).toContain('元に戻す');
+  });
+
+  /*
+   * Spanish called a lead prospecto in the preview's converted leads, where
+   * the error for a converted lead, the Seed template and Salesforce's own
+   * Spanish say candidato.
+   */
+  it('Spanish names a lead candidato, as the converted-lead error does, on every surface', () => {
+    const es = [...everySurface('es')];
+    const otherWord = /(?<!\p{L})prospectos?(?!\p{L})/iu;
+    expect(es.filter(([, value]) => otherWord.test(value)).map(([key]) => key)).toEqual([]);
+    for (const key of [
+      'checkpoint.preview.cannot.convertedLead_one',
+      'checkpoint.preview.cannot.convertedLead_other',
+      'errors.convertedLead.explanation',
+    ]) {
+      expect({ key, value: text(load('es'), key) }).toEqual({
+        key,
+        value: expect.stringMatching(/candidatos?/u),
+      });
+    }
+    expect(otherWord.test('1 prospecto se convirtió desde entonces')).toBe(true);
   });
 });
