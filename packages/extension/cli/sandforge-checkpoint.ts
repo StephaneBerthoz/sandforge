@@ -161,11 +161,11 @@ and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stop
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still
 differs, and undo still returns the org to how it was before the rewind.
 
-What a rewind cannot undo, said by preview and counted by rewind: a record deleted since and no
-longer in the recycle bin; the values the org computes or keeps itself (formulas, roll-ups,
-auto-numbers, created and modified dates); a field added or removed since; a lead converted since;
-an activated contract; what left the org (emails, callouts, outbound messages, platform events);
-metadata; files.
+What a rewind cannot undo: a record deleted since and no longer in the recycle bin (preview
+counts them); a field added or removed since (preview names it); the values the org computes or
+keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); a lead converted
+since; an activated contract; what left the org (emails, callouts, outbound messages, platform
+events); metadata; files. A record the org refuses to put back is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
