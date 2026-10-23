@@ -393,8 +393,8 @@ describe('the English a panel loads', () => {
 
   it('loads every page, overlay and the sidebar the panel shows on demand with the English it renders', () => {
     const where = (part: LazyPart): string => `${label(part.file)} (loaded by ${label(part.from)})`;
-    // Seventeen pages, three overlays and the sidebar's dev-server branch.
-    expect(parts.length).toBe(21);
+    // Eighteen pages, three overlays and the sidebar's dev-server branch.
+    expect(parts.length).toBe(22);
     const offenders = parts.flatMap((part) => {
       const renders = needed(part);
       if (part.declared === null) {

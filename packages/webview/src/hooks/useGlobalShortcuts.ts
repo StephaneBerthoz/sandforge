@@ -10,7 +10,8 @@ const CHORD_TIMEOUT = 500;
  * Mnemonics where the initial was already taken:
  *   y = sYnc (s → seed), p = autoPilot (a → automation),
  *   n = migratioN (m → monitor), z = froZen (f → forge),
- *   i = ai (intelligence), l = heLp (h → home).
+ *   i = ai (intelligence), l = heLp (h → home),
+ *   k = checKpoint (c → compare).
  */
 const CHORD_MAP: Record<string, ModuleRoute> = {
   h: 'home',
@@ -27,6 +28,7 @@ const CHORD_MAP: Record<string, ModuleRoute> = {
   p: 'autopilot',
   n: 'migration',
   z: 'frozen',
+  k: 'checkpoint',
   i: 'ai',
   o: 'orgs',
   l: 'help',

@@ -36,6 +36,13 @@ describe('useGlobalShortcuts', () => {
     expect(useAppStore.getState().currentRoute).toBe('forge');
   });
 
+  it('navigates on G→K chord to checkpoints, C being Compare', () => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+    expect(useAppStore.getState().currentRoute).toBe('checkpoint');
+  });
+
   it('does not navigate if chord times out', () => {
     renderHook(() => useGlobalShortcuts());
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));

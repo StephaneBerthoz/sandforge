@@ -141,7 +141,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migration",
-    "help": "Hilfe"
+    "help": "Hilfe",
+    "checkpoint": "Prüfpunkte"
   },
   "org": {
     "title": "Organisationen",
@@ -2956,7 +2957,15 @@
     "openForge": "Forge öffnen",
     "openFrozen": "Eingefrorenes Dataset öffnen",
     "openMonitor": "Monitor öffnen",
-    "openSettings": "Einstellungen öffnen"
+    "openSettings": "Einstellungen öffnen",
+    "checkpoint": {
+      "latest": "Letzter Prüfpunkt: „{{name}}“, {{age}}",
+      "rewind": "Zurücksetzen…",
+      "none": "Erstellen Sie vor Ihrer nächsten Testsitzung einen Prüfpunkt von {{org}}",
+      "take": "Prüfpunkt erstellen",
+      "expiresSoon": "„{{name}}“ läuft {{when}} ab",
+      "keep": "Aufbewahren"
+    }
   },
   "commandPalette": {
     "placeholder": "Befehle suchen...",
@@ -5170,6 +5179,101 @@
   "moduleSummary": {
     "forge": "Einen echten Datensatz mit allem, was dazugehört, in eine andere Org kopieren",
     "autopilot": "Ganze Objekte von einer Org in eine andere kopieren",
-    "seed": "Eine Org mit realistischen erfundenen Daten füllen"
+    "seed": "Eine Org mit realistischen erfundenen Daten füllen",
+    "checkpoint": "Den Stand der Daten einer Org festhalten und die Org später darauf zurücksetzen"
+  },
+  "checkpoint": {
+    "concept": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat.",
+    "noOrgs": "Verbinden Sie eine Org, um einen Prüfpunkt von ihr zu erstellen",
+    "noOrg": "Wählen Sie eine Org, um ihre Prüfpunkte zu sehen oder einen zu erstellen.",
+    "orgPicker": "Org, deren Prüfpunkte angezeigt werden",
+    "production": "Prüfpunkte sind für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht: SandForge erstellt von einer Produktions-Org nie einen Prüfpunkt und setzt sie nie zurück.",
+    "name": "Name",
+    "nameRule": "Ein Name ist eine Textzeile mit höchstens 120 Zeichen.",
+    "keep": "Aufbewahren, bis ich ihn lösche",
+    "empty": {
+      "title": "Noch kein Prüfpunkt von {{org}}",
+      "description": "Erstellen Sie einen vor einer Testsitzung, einer Demo oder einer Schulung. Das Zurücksetzen bringt die Daten von {{org}} dann auf diesen Zeitpunkt zurück, egal wer sie geändert hat: Es löscht die seitdem erstellten Datensätze, gibt den seitdem geänderten Datensätzen ihre Werte zurück und holt die seitdem gelöschten Datensätze zurück."
+    },
+    "list": {
+      "title": "Prüfpunkte von {{org}}",
+      "taken": "Erstellt {{age}}",
+      "records_one": "{{formatted}} Datensatz",
+      "records_other": "{{formatted}} Datensätze",
+      "keptUntil": "Aufbewahrt bis {{date}}",
+      "keptForever": "Aufbewahrt, bis ich ihn lösche",
+      "rename": "Umbenennen",
+      "why": {
+        "damaged": "Seine Datei kann nicht gelesen werden: Dieser Prüfpunkt kann nur gelöscht werden.",
+        "taking": "Nicht fertig: Er wird gerade erstellt, oder eine Erstellung wurde vor ihrem Ende gestoppt. Er kann nur gelöscht werden.",
+        "failed": "Seine Erstellung ist fehlgeschlagen: Dieser Prüfpunkt kann nur gelöscht werden.",
+        "refreshed": "{{org}} wurde am {{date}} aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
+        "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
+        "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte können nur gelöscht werden."
+      }
+    },
+    "rename": {
+      "title": "„{{name}}“ umbenennen"
+    },
+    "delete": {
+      "title": "„{{name}}“ löschen?",
+      "description": "Löscht „{{name}}“ von diesem Rechner: {{org}} kann nicht mehr darauf zurückgesetzt werden. Die Org bleibt unberührt.",
+      "descriptionUndo": "Löscht „{{name}}“ von diesem Rechner: {{org}} kann nicht mehr darauf zurückgesetzt werden, und das Zurücksetzen vom {{date}} lässt sich nicht mehr rückgängig machen. Die Org bleibt unberührt."
+    },
+    "take": {
+      "open": "Prüfpunkt erstellen",
+      "title": "Prüfpunkt von {{org}} erstellen",
+      "running": "„{{name}}“ wird erstellt",
+      "chips": "Oder so nennen",
+      "chip": {
+        "beforeUat": "Vor dem UAT",
+        "beforeDemo": "Vor der Demo",
+        "cleanBaseline": "Saubere Ausgangsbasis"
+      },
+      "whatItKeeps": "Was er aufbewahrt",
+      "everything": "Alles, womit gearbeitet wird",
+      "picked": "Nur die Objekte, die ich auswähle",
+      "objects_one": "{{formatted}} Objekt",
+      "objects_other": "{{formatted}} Objekte",
+      "aboutRecords_one": "etwa {{formatted}} Datensatz",
+      "aboutRecords_other": "etwa {{formatted}} Datensätze",
+      "seeObjects": "Objekte anzeigen",
+      "holdRecords_one": "{{formatted}} enthält Datensätze",
+      "holdRecords_other": "{{formatted}} enthalten Datensätze",
+      "emptyObjects_one": "{{formatted}} ist leer: Was dort später erstellt wird, wird ebenfalls erfasst",
+      "emptyObjects_other": "{{formatted}} sind leer: Was dort später erstellt wird, wird ebenfalls erfasst",
+      "ofPackage_one": "{{formatted}} gehört zum Paket {{namespace}}",
+      "ofPackage_other": "{{formatted}} gehören zum Paket {{namespace}}",
+      "filter": "Objekte filtern",
+      "noMatch": "Kein Objekt passt.",
+      "moreObjects": "{{shown}} von {{total}} angezeigt: Filtern Sie, um die anderen zu finden.",
+      "pickedNone": "Wählen Sie die Objekte, die der Prüfpunkt aufbewahrt.",
+      "pickedCount_one": "{{formatted}} Objekt ausgewählt",
+      "pickedCount_other": "{{formatted}} Objekte ausgewählt",
+      "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, Chatter, Verlaufs- und Protokollobjekte, Dateien.",
+      "seeLeftOut_one": "Das ausgelassene Objekt und den Grund anzeigen",
+      "seeLeftOut_other": "Die {{formatted}} ausgelassenen Objekte und die Gründe anzeigen",
+      "beforeItRuns": "Vor dem Start",
+      "reading": "Es wird gelesen, was {{org}} enthält…",
+      "cost": "Etwa {{time}} · etwa {{requests}} API-Anfragen von den {{left}}, die heute noch bleiben · etwa {{size}} auf diesem Rechner, aufbewahrt bis {{until}}",
+      "costKept": "Etwa {{time}} · etwa {{requests}} API-Anfragen von den {{left}}, die heute noch bleiben · etwa {{size}} auf diesem Rechner, aufbewahrt, bis Sie ihn löschen",
+      "inClear": "Er enthält die Werte der Datensätze im Klartext, nur für Sie lesbar.",
+      "askToStop": "Bitten Sie alle, während der Erstellung nicht in {{org}} zu arbeiten.",
+      "withParent": "Gelöschte Datensätze von {{objects}} kommen nur mit ihrem übergeordneten Datensatz zurück.",
+      "encrypted_one": "{{fields}} ist verschlüsselt, und {{user}} kann verschlüsselte Daten nicht sehen: Der Prüfpunkt kann seine Werte nicht aufbewahren, daher lässt das Zurücksetzen es unberührt.",
+      "encrypted_other": "{{fields}} sind verschlüsselt, und {{user}} kann verschlüsselte Daten nicht sehen: Der Prüfpunkt kann ihre Werte nicht aufbewahren, daher lässt das Zurücksetzen sie unberührt.",
+      "hidden_one": "{{formatted}} Feld ist für {{user}} durch die Sicherheit auf Feldebene verborgen: Das Zurücksetzen gibt ihm seinen Wert nicht zurück.",
+      "hidden_other": "{{formatted}} Felder sind für {{user}} durch die Sicherheit auf Feldebene verborgen: Das Zurücksetzen gibt ihnen ihre Werte nicht zurück.",
+      "start": "Den Prüfpunkt erstellen",
+      "starting": "Wird gestartet…",
+      "progress": "Fortschritt der Erstellung",
+      "stop": "Stoppen",
+      "stopping": "Wird gestoppt: Eine gestoppte Erstellung wird nicht aufbewahrt.",
+      "stopped": "Gestoppt: Es wurde nichts aufbewahrt.",
+      "taken": "„{{name}}“ erstellt — {{records}}, {{objects}}, {{size}}",
+      "moved_one": "{{formatted}} Datensatz hat sich während der Erstellung geändert; ein Zurücksetzen behandelt ihn als seitdem geändert.",
+      "moved_other": "{{formatted}} Datensätze haben sich während der Erstellung geändert; ein Zurücksetzen behandelt sie als seitdem geändert.",
+      "done": "Fertig"
+    }
   }
 }

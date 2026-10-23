@@ -208,7 +208,7 @@ describe('SidePanel', () => {
     });
   });
 
-  it('renders module navigation items, Seed, Forge and Monitor first', () => {
+  it('renders module navigation items, Seed, Forge, Checkpoints and Monitor first', () => {
     render(<SidePanel />);
     const modules = screen.getByTestId('sidepanel-modules');
     const routes = [...modules.querySelectorAll('[data-testid^="sidepanel-nav-"]')].map((el) =>
@@ -217,6 +217,7 @@ describe('SidePanel', () => {
     expect(routes).toEqual([
       'sidepanel-nav-seed',
       'sidepanel-nav-forge',
+      'sidepanel-nav-checkpoint',
       'sidepanel-nav-monitor',
       'sidepanel-nav-sync',
       'sidepanel-nav-autopilot',
@@ -441,9 +442,9 @@ describe('SidePanel', () => {
     expect(useFavoritesStore.getState().favorites).toContain('monitor');
   });
 
-  it('posts sidebar:navigate for seed, forge, sync and autopilot entries', () => {
+  it('posts sidebar:navigate for seed, forge, checkpoint, sync and autopilot entries', () => {
     render(<SidePanel />);
-    for (const route of ['seed', 'forge', 'sync', 'autopilot']) {
+    for (const route of ['seed', 'forge', 'checkpoint', 'sync', 'autopilot']) {
       fireEvent.click(screen.getByTestId(`sidepanel-nav-${route}`));
       expect(mockPostMessage).toHaveBeenCalledWith({
         type: 'sidebar:navigate',

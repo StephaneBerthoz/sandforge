@@ -28,6 +28,7 @@ import { useSmartAction } from './useSmartAction';
 import { orgToFill } from '../../utils/orgToFill';
 import { useOrgHealthSummary } from './useOrgHealthSummary';
 import { SmartActionCard } from './SmartActionCard';
+import { CheckpointTile } from './CheckpointTile';
 
 /** Payload from org:list bridge query. */
 interface OrgListPayload {
@@ -415,6 +416,9 @@ export const HomePage: React.FC = () => {
             </div>
           </div>
         </BentoTile>
+
+        {/* Checkpoints of the selected org: none on a production org. */}
+        <CheckpointTile org={connectedOrgs.find((org) => org.id === selectedOrgId)} />
       </BentoGrid>
 
       {/* Health Summary — shown when orgs are connected */}

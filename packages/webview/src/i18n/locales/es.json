@@ -141,7 +141,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migración",
-    "help": "Ayuda"
+    "help": "Ayuda",
+    "checkpoint": "Puntos de control"
   },
   "org": {
     "title": "Organizaciones",
@@ -2956,7 +2957,15 @@
     "openForge": "Abrir Forge",
     "openFrozen": "Abrir Dataset congelado",
     "openMonitor": "Abrir Monitor",
-    "openSettings": "Abrir Configuración"
+    "openSettings": "Abrir Configuración",
+    "checkpoint": {
+      "latest": "Último punto de control: «{{name}}», {{age}}",
+      "rewind": "Retroceder…",
+      "none": "Cree un punto de control de {{org}} antes de su próxima sesión de pruebas",
+      "take": "Crear un punto de control",
+      "expiresSoon": "«{{name}}» caduca {{when}}",
+      "keep": "Conservar"
+    }
   },
   "commandPalette": {
     "placeholder": "Buscar comandos...",
@@ -5170,6 +5179,101 @@
   "moduleSummary": {
     "forge": "Copiar un registro real y todo lo que lo rodea a otra org",
     "autopilot": "Copiar objetos completos de una org a otra",
-    "seed": "Llenar una org con datos ficticios realistas"
+    "seed": "Llenar una org con datos ficticios realistas",
+    "checkpoint": "Guardar el estado de los datos de una org y devolver la org a ese estado más tarde"
+  },
+  "checkpoint": {
+    "concept": "Un punto de control es el estado de los datos de una org en un momento dado. Retroceder elimina después lo que se añadió desde entonces, devuelve sus valores a lo que cambió y recupera lo que se eliminó, quienquiera que lo hiciera.",
+    "noOrgs": "Conecte una org para crear un punto de control de ella",
+    "noOrg": "Elija una org para ver sus puntos de control o para crear uno.",
+    "orgPicker": "Org cuyos puntos de control se muestran",
+    "production": "Los puntos de control son para sandboxes, scratch orgs y orgs Developer Edition: SandForge nunca crea un punto de control de una org de producción ni la hace retroceder.",
+    "name": "Nombre",
+    "nameRule": "Un nombre es una línea de texto de 120 caracteres como máximo.",
+    "keep": "Conservar hasta que yo lo elimine",
+    "empty": {
+      "title": "Aún no hay ningún punto de control de {{org}}",
+      "description": "Cree uno antes de una sesión de pruebas, una demo o una formación. Retroceder devuelve entonces los datos de {{org}} a ese momento, quienquiera que los cambiara: elimina los registros creados desde entonces, devuelve sus valores a los registros modificados desde entonces y recupera los registros eliminados desde entonces."
+    },
+    "list": {
+      "title": "Puntos de control de {{org}}",
+      "taken": "Creado {{age}}",
+      "records_one": "{{formatted}} registro",
+      "records_other": "{{formatted}} registros",
+      "keptUntil": "Se conserva hasta el {{date}}",
+      "keptForever": "Se conserva hasta que yo lo elimine",
+      "rename": "Cambiar el nombre",
+      "why": {
+        "damaged": "Su archivo no se puede leer: este punto de control solo se puede eliminar.",
+        "taking": "Sin terminar: su creación está en curso, o una creación se detuvo antes de acabar. Solo se puede eliminar.",
+        "failed": "Su creación falló: este punto de control solo se puede eliminar.",
+        "refreshed": "{{org}} se actualizó el {{date}}: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
+        "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
+        "scratchExpired": "Esta scratch org caducó: sus puntos de control solo se pueden eliminar."
+      }
+    },
+    "rename": {
+      "title": "Cambiar el nombre de «{{name}}»"
+    },
+    "delete": {
+      "title": "¿Eliminar «{{name}}»?",
+      "description": "Elimina «{{name}}» de este equipo: {{org}} ya no podrá retroceder hasta él. La org no se modifica.",
+      "descriptionUndo": "Elimina «{{name}}» de este equipo: {{org}} ya no podrá retroceder hasta él, y el retroceso del {{date}} ya no se podrá deshacer. La org no se modifica."
+    },
+    "take": {
+      "open": "Crear un punto de control",
+      "title": "Crear un punto de control de {{org}}",
+      "running": "Creando «{{name}}»",
+      "chips": "O llámelo",
+      "chip": {
+        "beforeUat": "Antes de la UAT",
+        "beforeDemo": "Antes de la demo",
+        "cleanBaseline": "Base limpia"
+      },
+      "whatItKeeps": "Lo que conserva",
+      "everything": "Todo aquello con lo que se trabaja",
+      "picked": "Solo los objetos que yo elija",
+      "objects_one": "{{formatted}} objeto",
+      "objects_other": "{{formatted}} objetos",
+      "aboutRecords_one": "aproximadamente {{formatted}} registro",
+      "aboutRecords_other": "aproximadamente {{formatted}} registros",
+      "seeObjects": "Ver los objetos",
+      "holdRecords_one": "{{formatted}} tiene registros",
+      "holdRecords_other": "{{formatted}} tienen registros",
+      "emptyObjects_one": "{{formatted}} está vacío: lo que se cree allí después también se recoge",
+      "emptyObjects_other": "{{formatted}} están vacíos: lo que se cree allí después también se recoge",
+      "ofPackage_one": "{{formatted}} pertenece al paquete {{namespace}}",
+      "ofPackage_other": "{{formatted}} pertenecen al paquete {{namespace}}",
+      "filter": "Filtrar los objetos",
+      "noMatch": "Ningún objeto coincide.",
+      "moreObjects": "Se muestran {{shown}} de {{total}}: filtre para encontrar los demás.",
+      "pickedNone": "Elija los objetos que conserva el punto de control.",
+      "pickedCount_one": "{{formatted}} objeto elegido",
+      "pickedCount_other": "{{formatted}} objetos elegidos",
+      "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas, Chatter, objetos de historial y de logs, archivos.",
+      "seeLeftOut_one": "Ver el objeto que se deja fuera, y por qué",
+      "seeLeftOut_other": "Ver los {{formatted}} objetos que se dejan fuera, y por qué",
+      "beforeItRuns": "Antes de empezar",
+      "reading": "Leyendo lo que contiene {{org}}…",
+      "cost": "Alrededor de {{time}} · alrededor de {{requests}} solicitudes de API de las {{left}} que quedan hoy · alrededor de {{size}} en este equipo, conservado hasta el {{until}}",
+      "costKept": "Alrededor de {{time}} · alrededor de {{requests}} solicitudes de API de las {{left}} que quedan hoy · alrededor de {{size}} en este equipo, conservado hasta que usted lo elimine",
+      "inClear": "Contiene en claro los valores de los registros, legibles solo por usted.",
+      "askToStop": "Pida a los usuarios que dejen de trabajar en {{org}} mientras se crea.",
+      "withParent": "Los registros eliminados de {{objects}} solo vuelven con su registro padre.",
+      "encrypted_one": "{{fields}} está cifrado y {{user}} no puede ver datos cifrados: el punto de control no puede conservar sus valores, así que el retroceso no lo tocará.",
+      "encrypted_other": "{{fields}} están cifrados y {{user}} no puede ver datos cifrados: el punto de control no puede conservar sus valores, así que el retroceso no los tocará.",
+      "hidden_one": "{{formatted}} campo está oculto para {{user}} por la seguridad a nivel de campo: el retroceso no le devolverá su valor.",
+      "hidden_other": "{{formatted}} campos están ocultos para {{user}} por la seguridad a nivel de campo: el retroceso no les devolverá sus valores.",
+      "start": "Crear el punto de control",
+      "starting": "Iniciando…",
+      "progress": "Progreso de la creación",
+      "stop": "Detener",
+      "stopping": "Deteniendo: una creación detenida no se conserva.",
+      "stopped": "Creación detenida: no se conservó nada.",
+      "taken": "«{{name}}» creado — {{records}} en {{objects}}, {{size}}",
+      "moved_one": "{{formatted}} registro cambió durante la creación; un retroceso lo trata como modificado desde entonces.",
+      "moved_other": "{{formatted}} registros cambiaron durante la creación; un retroceso los trata como modificados desde entonces.",
+      "done": "Hecho"
+    }
   }
 }

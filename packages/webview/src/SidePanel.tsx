@@ -27,6 +27,7 @@ import {
   Rocket,
   FileUp,
   Download,
+  History,
 } from 'lucide-react';
 import { BrandMark } from './components/ui/BrandMark';
 import { cn } from './theme';
@@ -111,7 +112,8 @@ interface NavItem {
 
 /**
  * The modules a newcomer sees first: filling an org, cloning into one,
- * watching it, and the three that copy between two orgs.
+ * keeping its data's state to return to, watching it, and the three that
+ * copy between two orgs.
  *
  * The launcher listed eleven modules of equal weight, with Grappe, a page
  * that shows nothing until a setting is turned on, fourth: a newcomer read a
@@ -130,6 +132,12 @@ const PRIMARY_MODULES: NavItem[] = [
     labelKey: 'nav.forge',
     icon: <Flame className="w-4 h-4" />,
     accent: 'text-hue-orange',
+  },
+  {
+    id: 'checkpoint',
+    labelKey: 'nav.checkpoint',
+    icon: <History className="w-4 h-4" />,
+    accent: 'text-hue-indigo',
   },
   {
     id: 'monitor',

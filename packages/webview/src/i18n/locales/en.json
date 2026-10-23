@@ -141,7 +141,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migration",
-    "help": "Help"
+    "help": "Help",
+    "checkpoint": "Checkpoints"
   },
   "org": {
     "title": "Organizations",
@@ -2956,7 +2957,15 @@
     "openForge": "Open Forge",
     "openFrozen": "Open Frozen Dataset",
     "openMonitor": "Open Monitor",
-    "openSettings": "Open Settings"
+    "openSettings": "Open Settings",
+    "checkpoint": {
+      "latest": "Last checkpoint: “{{name}}”, {{age}}",
+      "rewind": "Rewind…",
+      "none": "Take a checkpoint of {{org}} before your next test session",
+      "take": "Take a checkpoint",
+      "expiresSoon": "“{{name}}” expires {{when}}",
+      "keep": "Keep"
+    }
   },
   "commandPalette": {
     "placeholder": "Search commands...",
@@ -5170,6 +5179,101 @@
   "moduleSummary": {
     "forge": "Copy a real record and everything around it into another org",
     "autopilot": "Copy whole objects from one org to another",
-    "seed": "Fill an org with realistic fake data"
+    "seed": "Fill an org with realistic fake data",
+    "checkpoint": "Save the state of an org's data, and return the org to it later"
+  },
+  "checkpoint": {
+    "concept": "A checkpoint is the state of an org's data at a moment. Rewind then deletes what was added since, gives back what changed and brings back what was deleted, whoever did it.",
+    "noOrgs": "Connect an org to take a checkpoint of it",
+    "noOrg": "Pick an org to see its checkpoints, or to take one.",
+    "orgPicker": "Org whose checkpoints are shown",
+    "production": "Checkpoints are for sandboxes, scratch orgs and Developer Edition orgs: SandForge never takes a checkpoint of, or rewinds, a production org.",
+    "name": "Name",
+    "nameRule": "A name is one line of text, of 120 characters at most.",
+    "keep": "Keep until I delete it",
+    "empty": {
+      "title": "No checkpoint of {{org}} yet",
+      "description": "Take one before a test session, a demo or a training. Rewind then returns {{org}}'s data to that moment, whoever changed it: it deletes the records created since, gives the records changed since their values back, and brings back the records deleted since."
+    },
+    "list": {
+      "title": "Checkpoints of {{org}}",
+      "taken": "Taken {{age}}",
+      "records_one": "{{formatted}} record",
+      "records_other": "{{formatted}} records",
+      "keptUntil": "Kept until {{date}}",
+      "keptForever": "Kept until I delete it",
+      "rename": "Rename",
+      "why": {
+        "damaged": "Its file cannot be read: this checkpoint can only be deleted.",
+        "taking": "Not finished: a take of it is under way, or one stopped before it ended. It can only be deleted.",
+        "failed": "Its take failed: this checkpoint can only be deleted.",
+        "refreshed": "{{org}} was refreshed on {{date}}: this checkpoint is of the org before it, and can only be deleted.",
+        "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and can only be deleted.",
+        "scratchExpired": "This scratch org has expired: its checkpoints can only be deleted."
+      }
+    },
+    "rename": {
+      "title": "Rename “{{name}}”"
+    },
+    "delete": {
+      "title": "Delete “{{name}}”?",
+      "description": "Deletes “{{name}}” from this machine: {{org}} can no longer be rewound to it. The org is not touched.",
+      "descriptionUndo": "Deletes “{{name}}” from this machine: {{org}} can no longer be rewound to it, and the rewind of {{date}} can no longer be undone. The org is not touched."
+    },
+    "take": {
+      "open": "Take a checkpoint",
+      "title": "Take a checkpoint of {{org}}",
+      "running": "Taking “{{name}}”",
+      "chips": "Or call it",
+      "chip": {
+        "beforeUat": "Before UAT",
+        "beforeDemo": "Before demo",
+        "cleanBaseline": "Clean baseline"
+      },
+      "whatItKeeps": "What it keeps",
+      "everything": "Everything people work in",
+      "picked": "Only the objects I pick",
+      "objects_one": "{{formatted}} object",
+      "objects_other": "{{formatted}} objects",
+      "aboutRecords_one": "about {{formatted}} record",
+      "aboutRecords_other": "about {{formatted}} records",
+      "seeObjects": "See the objects",
+      "holdRecords_one": "{{formatted}} holds records",
+      "holdRecords_other": "{{formatted}} hold records",
+      "emptyObjects_one": "{{formatted}} is empty: what is created there later is caught too",
+      "emptyObjects_other": "{{formatted}} are empty: what is created there later is caught too",
+      "ofPackage_one": "{{formatted}} belongs to the {{namespace}} package",
+      "ofPackage_other": "{{formatted}} belong to the {{namespace}} package",
+      "filter": "Filter the objects",
+      "noMatch": "No object matches.",
+      "moreObjects": "{{shown}} of {{total}} shown: filter to find the others.",
+      "pickedNone": "Pick the objects the checkpoint keeps.",
+      "pickedCount_one": "{{formatted}} object picked",
+      "pickedCount_other": "{{formatted}} objects picked",
+      "leftOutAlways": "Left out: users, permissions, setup, custom settings, Chatter, history and log objects, files.",
+      "seeLeftOut_one": "See the object left out, and why",
+      "seeLeftOut_other": "See the {{formatted}} objects left out, and why",
+      "beforeItRuns": "Before it runs",
+      "reading": "Reading what {{org}} holds…",
+      "cost": "About {{time}} · about {{requests}} API requests of the {{left}} left today · about {{size}} on this machine, kept until {{until}}",
+      "costKept": "About {{time}} · about {{requests}} API requests of the {{left}} left today · about {{size}} on this machine, kept until you delete it",
+      "inClear": "It holds the records' values in clear, readable by you alone.",
+      "askToStop": "Ask people to stop working in {{org}} while it is taken.",
+      "withParent": "Deleted records of {{objects}} come back only with their parent record.",
+      "encrypted_one": "{{fields}} is encrypted and {{user}} cannot view encrypted data: the checkpoint cannot hold its values, so Rewind will not touch it.",
+      "encrypted_other": "{{fields}} are encrypted and {{user}} cannot view encrypted data: the checkpoint cannot hold their values, so Rewind will not touch them.",
+      "hidden_one": "{{formatted}} field is hidden from {{user}} by field-level security: Rewind will not put it back.",
+      "hidden_other": "{{formatted}} fields are hidden from {{user}} by field-level security: Rewind will not put them back.",
+      "start": "Take the checkpoint",
+      "starting": "Starting…",
+      "progress": "Progress of the take",
+      "stop": "Stop",
+      "stopping": "Stopping: a stopped take is not kept.",
+      "stopped": "Stopped: nothing was kept.",
+      "taken": "“{{name}}” taken — {{records}} in {{objects}}, {{size}}",
+      "moved_one": "{{formatted}} record changed while it was being taken; a rewind treats it as changed since.",
+      "moved_other": "{{formatted}} records changed while it was being taken; a rewind treats them as changed since.",
+      "done": "Done"
+    }
   }
 }

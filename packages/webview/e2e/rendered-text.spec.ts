@@ -67,6 +67,7 @@ const ROUTES: readonly string[] = [
   'orgs',
   'forge',
   'frozen',
+  'checkpoint',
   'grappe',
   'monitor',
   'compare',

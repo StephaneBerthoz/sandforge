@@ -7,6 +7,7 @@ export type ModuleRoute =
   | 'orgs'
   | 'forge'
   | 'frozen'
+  | 'checkpoint'
   | 'grappe'
   | 'monitor'
   | 'seed'
@@ -28,6 +29,7 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'orgs',
   'forge',
   'frozen',
+  'checkpoint',
   'grappe',
   'monitor',
   'seed',
@@ -70,6 +72,8 @@ export interface NavigationIntent {
    * module on Home for one id.
    */
   recordId?: string;
+  /** Open Checkpoints on a take of the selected org: Home's "Take a checkpoint". */
+  takeCheckpoint?: true;
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

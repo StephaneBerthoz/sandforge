@@ -218,10 +218,12 @@ test.describe('Module launcher', () => {
     await expect(page.getByTestId('sidepanel-modules')).toBeVisible();
     await expect(page.getByTestId('sidepanel-tools')).toBeVisible();
 
-    // Seed, Forge and Monitor first: what a newcomer with one org needs.
+    // Seed, Forge and Monitor first: what a newcomer with one org needs, and
+    // Checkpoints beside them, the way back once an org is filled.
     expect(await entryRoutes(page, 'sidepanel-modules')).toEqual([
       'seed',
       'forge',
+      'checkpoint',
       'monitor',
       'sync',
       'autopilot',

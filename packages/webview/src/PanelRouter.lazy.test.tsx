@@ -18,6 +18,7 @@ vi.mock('./pages/Home/HomePage', () => stand('home', 'HomePage'));
 vi.mock('./pages/OrgManager/OrgManagerPage', () => stand('orgs', 'OrgManagerPage'));
 vi.mock('./pages/Forge/ForgePage', () => stand('forge', 'ForgePage'));
 vi.mock('./pages/Frozen/FrozenPage', () => stand('frozen', 'FrozenPage'));
+vi.mock('./pages/Checkpoint/CheckpointPage', () => stand('checkpoint', 'CheckpointPage'));
 vi.mock('./pages/Grappe/GrappePage', () => stand('grappe', 'GrappePage'));
 vi.mock('./pages/Monitor/MonitorPage', () => stand('monitor', 'MonitorPage'));
 vi.mock('./pages/Compare/ComparePage', () => stand('compare', 'ComparePage'));
@@ -47,5 +48,11 @@ describe('PanelRouter loading', () => {
     rerender(<PanelRouter moduleId="forge" />);
     expect(await screen.findByTestId('page-forge')).toBeDefined();
     expect([...evaluated].sort()).toEqual(['forge', 'orgs']);
+  });
+
+  it('mounts the Checkpoints page on its route', async () => {
+    render(<PanelRouter moduleId="checkpoint" />);
+    expect(await screen.findByTestId('page-checkpoint')).toBeDefined();
+    expect(screen.queryByTestId('panel-unknown')).toBeNull();
   });
 });

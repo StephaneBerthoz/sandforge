@@ -52,6 +52,7 @@ const MODULE_LABEL_KEYS: Readonly<Record<string, string>> = {
   sync: 'nav.sync',
   forge: 'nav.forge',
   frozen: 'nav.frozen',
+  checkpoint: 'nav.checkpoint',
   dataops: 'nav.dataops',
   autopilot: 'nav.autopilot',
   automation: 'nav.automation',

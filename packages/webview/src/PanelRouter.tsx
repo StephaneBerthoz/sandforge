@@ -54,6 +54,12 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'runRemoval',
     'runResults',
   ]),
+  checkpoint: page(() => import('./pages/Checkpoint/CheckpointPage'), 'CheckpointPage', [
+    'checkpoint',
+    'emptyState',
+    'errors',
+    'moduleSummary',
+  ]),
   grappe: page(() => import('./pages/Grappe/GrappePage'), 'GrappePage', ['grappe']),
   monitor: page(() => import('./pages/Monitor/MonitorPage'), 'MonitorPage', [
     'emptyState',

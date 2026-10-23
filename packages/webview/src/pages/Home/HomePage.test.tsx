@@ -29,6 +29,14 @@ let mockMonitorState = {
   refetch: mockRefetch,
 };
 
+/** Response state for the `checkpoint:list` query of the Checkpoints tile. */
+let mockCheckpointListState = {
+  data: null as { checkpoints: unknown[] } | null,
+  loading: false,
+  error: null as string | null,
+  refetch: mockRefetch,
+};
+
 /** Request types seen by useBridgeQuery, in call order. */
 const bridgeQueryCalls: Array<{ requestType: string; payload: unknown; skip: boolean }> = [];
 
@@ -39,6 +47,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     options?: { skip?: boolean },
   ) => {
     bridgeQueryCalls.push({ requestType, payload, skip: options?.skip ?? false });
+    if (requestType === 'checkpoint:list') return mockCheckpointListState;
     return requestType === 'monitor:refresh' ? mockMonitorState : mockOrgListState;
   },
 }));
@@ -139,6 +148,12 @@ describe('HomePage', () => {
       error: null,
       refetch: mockRefetch,
     };
+    mockCheckpointListState = {
+      data: null,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
     mockSmartActionState = {
       recommendation: null,
       loading: false,
@@ -148,6 +163,25 @@ describe('HomePage', () => {
       confirm: vi.fn(),
       cancelConfirm: vi.fn(),
     };
+  });
+
+  it('offers a checkpoint of the selected org, and none of a production org', () => {
+    mockCheckpointListState.data = { checkpoints: [] };
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    const { unmount } = render(<HomePage />);
+    expect(screen.getByTestId('checkpoint-tile-none').textContent).toBe(
+      'Take a checkpoint of DevSandbox before your next test session',
+    );
+    expect(bridgeQueryCalls).toContainEqual({
+      requestType: 'checkpoint:list',
+      payload: { orgId: 'org-1' },
+      skip: false,
+    });
+    unmount();
+
+    useOrgStore.setState({ orgs: [createMockOrg(PRODUCTION)], selectedOrgId: 'org-1' });
+    render(<HomePage />);
+    expect(screen.queryByTestId('checkpoint-tile')).toBeNull();
   });
 
   it('should render the home page', () => {

@@ -134,7 +134,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "移行",
-    "help": "ヘルプ"
+    "help": "ヘルプ",
+    "checkpoint": "チェックポイント"
   },
   "org": {
     "title": "組織",
@@ -2790,7 +2791,15 @@
     "openForge": "Forge を開く",
     "openFrozen": "凍結データセットを開く",
     "openMonitor": "モニターを開く",
-    "openSettings": "設定を開く"
+    "openSettings": "設定を開く",
+    "checkpoint": {
+      "latest": "最新のチェックポイント: 「{{name}}」、{{age}}",
+      "rewind": "巻き戻す…",
+      "none": "次のテストセッションの前に {{org}} のチェックポイントを作成してください",
+      "take": "チェックポイントを作成",
+      "expiresSoon": "「{{name}}」の有効期限: {{when}}",
+      "keep": "保持する"
+    }
   },
   "commandPalette": {
     "placeholder": "コマンドを検索...",
@@ -4887,6 +4896,90 @@
   "moduleSummary": {
     "forge": "実際のレコードとその周辺のすべてを別の組織にコピー",
     "autopilot": "オブジェクト全体を別の組織にコピー",
-    "seed": "組織をリアルな架空データで満たす"
+    "seed": "組織をリアルな架空データで満たす",
+    "checkpoint": "組織のデータの状態を保存し、後で組織をその状態に戻す"
+  },
+  "checkpoint": {
+    "concept": "チェックポイントは、ある時点の組織のデータの状態です。巻き戻すと、その後に追加されたものを削除し、変更されたものの値をその時点に戻し、削除されたものを復元します。誰が行った変更かは問いません。",
+    "noOrgs": "チェックポイントを作成するには組織に接続してください",
+    "noOrg": "組織を選択すると、そのチェックポイントを表示したり作成したりできます。",
+    "orgPicker": "チェックポイントを表示する組織",
+    "production": "チェックポイントの対象は Sandbox、スクラッチ組織、Developer Edition 組織です。SandForge が本番組織のチェックポイントを作成したり、本番組織を巻き戻したりすることはありません。",
+    "name": "名前",
+    "nameRule": "名前は 1 行のテキストで、120 文字以内にしてください。",
+    "keep": "削除するまで保持する",
+    "empty": {
+      "title": "{{org}} のチェックポイントはまだありません",
+      "description": "テストセッション、デモ、トレーニングの前に作成してください。巻き戻すと、誰が変更したかにかかわらず {{org}} のデータがその時点に戻ります。その後に作成されたレコードを削除し、その後に変更されたレコードの値を戻し、その後に削除されたレコードを復元します。"
+    },
+    "list": {
+      "title": "{{org}} のチェックポイント",
+      "taken": "作成: {{age}}",
+      "records_other": "{{formatted}} 件のレコード",
+      "keptUntil": "{{date}} まで保持",
+      "keptForever": "削除するまで保持",
+      "rename": "名前を変更",
+      "why": {
+        "damaged": "ファイルを読み取れません。このチェックポイントは削除のみできます。",
+        "taking": "完了していません。作成中か、作成が終了前に停止しました。削除のみできます。",
+        "failed": "作成に失敗しました。このチェックポイントは削除のみできます。",
+        "refreshed": "{{org}} は {{date}} にリフレッシュされました。このチェックポイントはリフレッシュ前の組織のもので、削除のみできます。",
+        "refreshedUndated": "{{org}} はその後リフレッシュされました。このチェックポイントはリフレッシュ前の組織のもので、削除のみできます。",
+        "scratchExpired": "このスクラッチ組織は期限切れです。チェックポイントは削除のみできます。"
+      }
+    },
+    "rename": {
+      "title": "「{{name}}」の名前を変更"
+    },
+    "delete": {
+      "title": "「{{name}}」を削除しますか？",
+      "description": "このマシンから「{{name}}」を削除します。{{org}} をこの時点に巻き戻すことはできなくなります。組織には変更を加えません。",
+      "descriptionUndo": "このマシンから「{{name}}」を削除します。{{org}} をこの時点に巻き戻すことはできなくなり、{{date}} の巻き戻しも元に戻せなくなります。組織には変更を加えません。"
+    },
+    "take": {
+      "open": "チェックポイントを作成",
+      "title": "{{org}} のチェックポイントを作成",
+      "running": "「{{name}}」を作成中",
+      "chips": "名前の候補",
+      "chip": {
+        "beforeUat": "UAT 前",
+        "beforeDemo": "デモ前",
+        "cleanBaseline": "クリーンなベースライン"
+      },
+      "whatItKeeps": "保持する内容",
+      "everything": "ユーザーが作業するすべてのオブジェクト",
+      "picked": "選択したオブジェクトのみ",
+      "objects_other": "{{formatted}} 個のオブジェクト",
+      "aboutRecords_other": "約 {{formatted}} 件のレコード",
+      "seeObjects": "オブジェクトを表示",
+      "holdRecords_other": "レコードがあるオブジェクト: {{formatted}} 個",
+      "emptyObjects_other": "空のオブジェクト: {{formatted}} 個 (後でそこに作成されたものも対象になります)",
+      "ofPackage_other": "{{namespace}} パッケージのオブジェクト: {{formatted}} 個",
+      "filter": "オブジェクトをフィルター",
+      "noMatch": "一致するオブジェクトはありません。",
+      "moreObjects": "{{total}} 個中 {{shown}} 個を表示しています。ほかのオブジェクトはフィルターで探してください。",
+      "pickedNone": "チェックポイントで保持するオブジェクトを選択してください。",
+      "pickedCount_other": "{{formatted}} 個のオブジェクトを選択済み",
+      "leftOutAlways": "対象外: ユーザー、権限、設定、カスタム設定、Chatter、履歴オブジェクトとログオブジェクト、ファイル。",
+      "seeLeftOut_other": "対象外の {{formatted}} 個のオブジェクトとその理由を表示",
+      "beforeItRuns": "実行前の確認",
+      "reading": "{{org}} の内容を読み取っています…",
+      "cost": "約 {{time}} · 今日残っている {{left}} 件のうち約 {{requests}} 件の API 要求 · このマシンで約 {{size}}、{{until}} まで保持",
+      "costKept": "約 {{time}} · 今日残っている {{left}} 件のうち約 {{requests}} 件の API 要求 · このマシンで約 {{size}}、削除するまで保持",
+      "inClear": "レコードの値を平文で保持し、読み取れるのはあなただけです。",
+      "askToStop": "作成中は {{org}} での作業を止めるよう、ユーザーに依頼してください。",
+      "withParent": "{{objects}} の削除されたレコードは、親レコードと一緒でなければ戻りません。",
+      "encrypted_other": "{{fields}} は暗号化されており、{{user}} は暗号化されたデータを参照できません。チェックポイントはその値を保持できないため、巻き戻しでは変更しません。",
+      "hidden_other": "{{formatted}} 個の項目が項目レベルセキュリティで {{user}} に非表示になっています。巻き戻しではその値を戻しません。",
+      "start": "チェックポイントを作成",
+      "starting": "開始しています…",
+      "progress": "作成の進行状況",
+      "stop": "停止",
+      "stopping": "停止中: 停止した作成は保持されません。",
+      "stopped": "停止しました。何も保持されていません。",
+      "taken": "「{{name}}」を作成しました — {{objects}}に {{records}}、{{size}}",
+      "moved_other": "作成中に {{formatted}} 件のレコードが変更されました。巻き戻しでは、作成後に変更されたものとして扱います。",
+      "done": "完了"
+    }
   }
 }

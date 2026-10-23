@@ -52,7 +52,7 @@ Top to bottom, the launcher gives you:
 - **Orgs / Ops** -- Two counters, connected orgs and recent operations. Collapsible, and collapsed for you on short viewports.
 - **Hero** -- With one sandbox, scratch org or Developer Edition org connected, and no other, **Fill \<alias\> with demo data** opens Seed's template gallery on it. From two connected orgs it is the orange **Forge** button, straight into the record-scoped clone journey, which copies from one org into another.
 - **Favorites** -- Only shown once you star something. Every module in the lists below has a star button.
-- **Modules** -- Seed, Forge, Monitor, Sync, Autopilot, Frozen Dataset.
+- **Modules** -- Seed, Forge, Checkpoints, Monitor, Sync, Autopilot, Frozen Dataset.
 - **Advanced** -- Folded until you open it: Compare Org, DataOps, Automation, Migration, AI Assistant, and Grappe while `sandforge.grappe.enabled` is on.
 - **Tools** -- Organizations, Settings, Help.
 - **Running / Last Operation** -- The operation in flight, or the last one to finish with its status and age.

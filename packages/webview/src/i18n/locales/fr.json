@@ -141,7 +141,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migration",
-    "help": "Aide"
+    "help": "Aide",
+    "checkpoint": "Points de contrôle"
   },
   "org": {
     "title": "Organisations",
@@ -2956,7 +2957,15 @@
     "openForge": "Ouvrir Forge",
     "openFrozen": "Ouvrir le Jeu de données figé",
     "openMonitor": "Ouvrir le Moniteur",
-    "openSettings": "Ouvrir les Paramètres"
+    "openSettings": "Ouvrir les Paramètres",
+    "checkpoint": {
+      "latest": "Dernier point de contrôle : « {{name}} », {{age}}",
+      "rewind": "Revenir à ce point…",
+      "none": "Créez un point de contrôle de {{org}} avant votre prochaine session de test",
+      "take": "Créer un point de contrôle",
+      "expiresSoon": "« {{name}} » expire {{when}}",
+      "keep": "Conserver"
+    }
   },
   "commandPalette": {
     "placeholder": "Rechercher des commandes...",
@@ -5170,6 +5179,101 @@
   "moduleSummary": {
     "forge": "Copier un enregistrement réel et tout ce qui l'entoure dans une autre org",
     "autopilot": "Copier des objets entiers d'une org vers une autre",
-    "seed": "Remplir une org de données fictives réalistes"
+    "seed": "Remplir une org de données fictives réalistes",
+    "checkpoint": "Enregistrer l'état des données d'une org, et y ramener l'org plus tard"
+  },
+  "checkpoint": {
+    "concept": "Un point de contrôle est l'état des données d'une org à un moment donné. Revenir à ce point supprime ensuite ce qui a été ajouté depuis, rend ses valeurs à ce qui a changé et rétablit ce qui a été supprimé, quel qu'en soit l'auteur.",
+    "noOrgs": "Connectez une org pour en créer un point de contrôle",
+    "noOrg": "Choisissez une org pour voir ses points de contrôle, ou pour en créer un.",
+    "orgPicker": "Org dont les points de contrôle sont affichés",
+    "production": "Les points de contrôle sont réservés aux sandboxes, aux scratch orgs et aux orgs Developer Edition : SandForge ne crée jamais de point de contrôle d'une org de production, et n'en fait jamais revenir une à un point de contrôle.",
+    "name": "Nom",
+    "nameRule": "Un nom tient sur une seule ligne de texte, de 120 caractères au plus.",
+    "keep": "Conserver jusqu'à ce que je le supprime",
+    "empty": {
+      "title": "Aucun point de contrôle de {{org}} pour l'instant",
+      "description": "Créez-en un avant une session de test, une démo ou une formation. Revenir à ce point ramène ensuite les données de {{org}} à ce moment, quel que soit l'auteur des changements : les enregistrements créés depuis sont supprimés, ceux modifiés depuis retrouvent leurs valeurs, et ceux supprimés depuis sont rétablis."
+    },
+    "list": {
+      "title": "Points de contrôle de {{org}}",
+      "taken": "Créé {{age}}",
+      "records_one": "{{formatted}} enregistrement",
+      "records_other": "{{formatted}} enregistrements",
+      "keptUntil": "Conservé jusqu'au {{date}}",
+      "keptForever": "Conservé jusqu'à ce que je le supprime",
+      "rename": "Renommer",
+      "why": {
+        "damaged": "Son fichier est illisible : ce point de contrôle ne peut qu'être supprimé.",
+        "taking": "Inachevé : sa création est en cours, ou une création s'est arrêtée avant la fin. Il ne peut qu'être supprimé.",
+        "failed": "Sa création a échoué : ce point de contrôle ne peut qu'être supprimé.",
+        "refreshed": "{{org}} a été rafraîchie le {{date}} : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
+        "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
+        "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne peuvent qu'être supprimés."
+      }
+    },
+    "rename": {
+      "title": "Renommer « {{name}} »"
+    },
+    "delete": {
+      "title": "Supprimer « {{name}} » ?",
+      "description": "Supprime « {{name}} » de cette machine : {{org}} ne pourra plus y revenir. L'org n'est pas modifiée.",
+      "descriptionUndo": "Supprime « {{name}} » de cette machine : {{org}} ne pourra plus y revenir, et le retour arrière du {{date}} ne pourra plus être annulé. L'org n'est pas modifiée."
+    },
+    "take": {
+      "open": "Créer un point de contrôle",
+      "title": "Créer un point de contrôle de {{org}}",
+      "running": "Création de « {{name}} »",
+      "chips": "Ou le nommer",
+      "chip": {
+        "beforeUat": "Avant la recette",
+        "beforeDemo": "Avant la démo",
+        "cleanBaseline": "Référence propre"
+      },
+      "whatItKeeps": "Ce qu'il conserve",
+      "everything": "Tout ce sur quoi les utilisateurs travaillent",
+      "picked": "Seulement les objets que je choisis",
+      "objects_one": "{{formatted}} objet",
+      "objects_other": "{{formatted}} objets",
+      "aboutRecords_one": "environ {{formatted}} enregistrement",
+      "aboutRecords_other": "environ {{formatted}} enregistrements",
+      "seeObjects": "Voir les objets",
+      "holdRecords_one": "{{formatted}} contient des enregistrements",
+      "holdRecords_other": "{{formatted}} contiennent des enregistrements",
+      "emptyObjects_one": "{{formatted}} est vide : ce qui y sera créé ensuite est aussi pris en compte",
+      "emptyObjects_other": "{{formatted}} sont vides : ce qui y sera créé ensuite est aussi pris en compte",
+      "ofPackage_one": "{{formatted}} appartient au package {{namespace}}",
+      "ofPackage_other": "{{formatted}} appartiennent au package {{namespace}}",
+      "filter": "Filtrer les objets",
+      "noMatch": "Aucun objet ne correspond.",
+      "moreObjects": "{{shown}} sur {{total}} affichés : filtrez pour trouver les autres.",
+      "pickedNone": "Choisissez les objets que le point de contrôle conserve.",
+      "pickedCount_one": "{{formatted}} objet choisi",
+      "pickedCount_other": "{{formatted}} objets choisis",
+      "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés, Chatter, objets d'historique et de journal, fichiers.",
+      "seeLeftOut_one": "Voir l'objet laissé de côté, et pourquoi",
+      "seeLeftOut_other": "Voir les {{formatted}} objets laissés de côté, et pourquoi",
+      "beforeItRuns": "Avant le lancement",
+      "reading": "Lecture de ce que contient {{org}}…",
+      "cost": "Environ {{time}} · environ {{requests}} requêtes d'API sur les {{left}} qu'il reste aujourd'hui · environ {{size}} sur cette machine, conservé jusqu'au {{until}}",
+      "costKept": "Environ {{time}} · environ {{requests}} requêtes d'API sur les {{left}} qu'il reste aujourd'hui · environ {{size}} sur cette machine, conservé jusqu'à ce que vous le supprimiez",
+      "inClear": "Il contient en clair les valeurs des enregistrements, lisibles par vous seul.",
+      "askToStop": "Demandez aux utilisateurs de cesser de travailler dans {{org}} pendant sa création.",
+      "withParent": "Les enregistrements supprimés de {{objects}} ne reviennent qu'avec leur enregistrement parent.",
+      "encrypted_one": "{{fields}} est chiffré et {{user}} ne peut pas voir les données chiffrées : le point de contrôle ne peut pas conserver ses valeurs, et le retour arrière n'y touchera donc pas.",
+      "encrypted_other": "{{fields}} sont chiffrés et {{user}} ne peut pas voir les données chiffrées : le point de contrôle ne peut pas conserver leurs valeurs, et le retour arrière n'y touchera donc pas.",
+      "hidden_one": "{{formatted}} champ est masqué à {{user}} par la sécurité au niveau du champ : le retour arrière ne lui rendra pas sa valeur.",
+      "hidden_other": "{{formatted}} champs sont masqués à {{user}} par la sécurité au niveau du champ : le retour arrière ne leur rendra pas leurs valeurs.",
+      "start": "Créer le point de contrôle",
+      "starting": "Démarrage…",
+      "progress": "Progression de la création",
+      "stop": "Arrêter",
+      "stopping": "Arrêt en cours : une création arrêtée n'est pas conservée.",
+      "stopped": "Création arrêtée : rien n'a été conservé.",
+      "taken": "« {{name}} » créé — {{records}} dans {{objects}}, {{size}}",
+      "moved_one": "{{formatted}} enregistrement a changé pendant la création ; un retour arrière le traite comme modifié depuis.",
+      "moved_other": "{{formatted}} enregistrements ont changé pendant la création ; un retour arrière les traite comme modifiés depuis.",
+      "done": "Terminé"
+    }
   }
 }

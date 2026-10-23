@@ -141,7 +141,8 @@
     "grappe": "Grappe",
     "autopilot": "Autopilot",
     "migration": "Migração",
-    "help": "Ajuda"
+    "help": "Ajuda",
+    "checkpoint": "Pontos de verificação"
   },
   "org": {
     "title": "Organizações",
@@ -2956,7 +2957,15 @@
     "openForge": "Abrir Forge",
     "openFrozen": "Abrir Dataset congelado",
     "openMonitor": "Abrir Monitor",
-    "openSettings": "Abrir Configurações"
+    "openSettings": "Abrir Configurações",
+    "checkpoint": {
+      "latest": "Último ponto de verificação: “{{name}}”, {{age}}",
+      "rewind": "Retroceder…",
+      "none": "Crie um ponto de verificação de {{org}} antes da sua próxima sessão de testes",
+      "take": "Criar um ponto de verificação",
+      "expiresSoon": "“{{name}}” expira {{when}}",
+      "keep": "Guardar"
+    }
   },
   "commandPalette": {
     "placeholder": "Buscar comandos...",
@@ -5170,6 +5179,101 @@
   "moduleSummary": {
     "forge": "Copiar um registro real e tudo ao redor dele para outra org",
     "autopilot": "Copiar objetos inteiros de uma org para outra",
-    "seed": "Preencher uma org com dados fictícios realistas"
+    "seed": "Preencher uma org com dados fictícios realistas",
+    "checkpoint": "Salvar o estado dos dados de uma org e fazer a org voltar a ele depois"
+  },
+  "checkpoint": {
+    "concept": "Um ponto de verificação é o estado dos dados de uma org em um momento. Retroceder depois exclui o que foi adicionado desde então, devolve ao que mudou os seus valores e recupera o que foi excluído, não importa quem o fez.",
+    "noOrgs": "Conecte uma org para criar um ponto de verificação dela",
+    "noOrg": "Escolha uma org para ver seus pontos de verificação ou para criar um.",
+    "orgPicker": "Org cujos pontos de verificação são exibidos",
+    "production": "Os pontos de verificação são para sandboxes, scratch orgs e orgs Developer Edition: o SandForge nunca cria um ponto de verificação de uma org de produção, nem a faz retroceder.",
+    "name": "Nome",
+    "nameRule": "Um nome é uma linha de texto de no máximo 120 caracteres.",
+    "keep": "Guardar até que eu o exclua",
+    "empty": {
+      "title": "Nenhum ponto de verificação de {{org}} ainda",
+      "description": "Crie um antes de uma sessão de testes, uma demo ou um treinamento. Retroceder depois devolve os dados de {{org}} àquele momento, não importa quem os alterou: exclui os registros criados desde então, devolve aos registros alterados desde então os seus valores e recupera os registros excluídos desde então."
+    },
+    "list": {
+      "title": "Pontos de verificação de {{org}}",
+      "taken": "Criado {{age}}",
+      "records_one": "{{formatted}} registro",
+      "records_other": "{{formatted}} registros",
+      "keptUntil": "Guardado até {{date}}",
+      "keptForever": "Guardado até que eu o exclua",
+      "rename": "Renomear",
+      "why": {
+        "damaged": "O arquivo dele não pode ser lido: este ponto de verificação só pode ser excluído.",
+        "taking": "Não concluído: a criação dele está em andamento, ou uma criação parou antes do fim. Só pode ser excluído.",
+        "failed": "A criação dele falhou: este ponto de verificação só pode ser excluído.",
+        "refreshed": "{{org}} foi atualizada em {{date}}: este ponto de verificação é da org de antes da atualização, e só pode ser excluído.",
+        "refreshedUndated": "{{org}} foi atualizada desde então: este ponto de verificação é da org de antes da atualização, e só pode ser excluído.",
+        "scratchExpired": "Esta scratch org expirou: seus pontos de verificação só podem ser excluídos."
+      }
+    },
+    "rename": {
+      "title": "Renomear “{{name}}”"
+    },
+    "delete": {
+      "title": "Excluir “{{name}}”?",
+      "description": "Exclui “{{name}}” desta máquina: {{org}} não poderá mais retroceder até ele. A org não é alterada.",
+      "descriptionUndo": "Exclui “{{name}}” desta máquina: {{org}} não poderá mais retroceder até ele, e o retrocesso de {{date}} não poderá mais ser desfeito. A org não é alterada."
+    },
+    "take": {
+      "open": "Criar um ponto de verificação",
+      "title": "Criar um ponto de verificação de {{org}}",
+      "running": "Criando “{{name}}”",
+      "chips": "Ou chame-o de",
+      "chip": {
+        "beforeUat": "Antes do UAT",
+        "beforeDemo": "Antes da demo",
+        "cleanBaseline": "Base limpa"
+      },
+      "whatItKeeps": "O que ele guarda",
+      "everything": "Tudo aquilo em que as pessoas trabalham",
+      "picked": "Só os objetos que eu escolher",
+      "objects_one": "{{formatted}} objeto",
+      "objects_other": "{{formatted}} objetos",
+      "aboutRecords_one": "cerca de {{formatted}} registro",
+      "aboutRecords_other": "cerca de {{formatted}} registros",
+      "seeObjects": "Ver os objetos",
+      "holdRecords_one": "{{formatted}} tem registros",
+      "holdRecords_other": "{{formatted}} têm registros",
+      "emptyObjects_one": "{{formatted}} está vazio: o que for criado nele depois também é capturado",
+      "emptyObjects_other": "{{formatted}} estão vazios: o que for criado neles depois também é capturado",
+      "ofPackage_one": "{{formatted}} pertence ao pacote {{namespace}}",
+      "ofPackage_other": "{{formatted}} pertencem ao pacote {{namespace}}",
+      "filter": "Filtrar os objetos",
+      "noMatch": "Nenhum objeto corresponde.",
+      "moreObjects": "{{shown}} de {{total}} exibidos: filtre para encontrar os outros.",
+      "pickedNone": "Escolha os objetos que o ponto de verificação guarda.",
+      "pickedCount_one": "{{formatted}} objeto escolhido",
+      "pickedCount_other": "{{formatted}} objetos escolhidos",
+      "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas, Chatter, objetos de histórico e de log, arquivos.",
+      "seeLeftOut_one": "Ver o objeto deixado de fora, e por quê",
+      "seeLeftOut_other": "Ver os {{formatted}} objetos deixados de fora, e por quê",
+      "beforeItRuns": "Antes de começar",
+      "reading": "Lendo o que {{org}} contém…",
+      "cost": "Cerca de {{time}} · cerca de {{requests}} solicitações de API das {{left}} que restam hoje · cerca de {{size}} nesta máquina, guardado até {{until}}",
+      "costKept": "Cerca de {{time}} · cerca de {{requests}} solicitações de API das {{left}} que restam hoje · cerca de {{size}} nesta máquina, guardado até que você o exclua",
+      "inClear": "Ele guarda em claro os valores dos registros, legíveis só por você.",
+      "askToStop": "Peça às pessoas que parem de trabalhar em {{org}} enquanto ele é criado.",
+      "withParent": "Os registros excluídos de {{objects}} só voltam com o registro pai.",
+      "encrypted_one": "{{fields}} está criptografado e {{user}} não pode ver dados criptografados: o ponto de verificação não pode guardar os valores dele, então o retrocesso não vai mexer nele.",
+      "encrypted_other": "{{fields}} estão criptografados e {{user}} não pode ver dados criptografados: o ponto de verificação não pode guardar os valores deles, então o retrocesso não vai mexer neles.",
+      "hidden_one": "{{formatted}} campo está oculto para {{user}} pela segurança em nível de campo: o retrocesso não vai devolver o valor dele.",
+      "hidden_other": "{{formatted}} campos estão ocultos para {{user}} pela segurança em nível de campo: o retrocesso não vai devolver os valores deles.",
+      "start": "Criar o ponto de verificação",
+      "starting": "Iniciando…",
+      "progress": "Progresso da criação",
+      "stop": "Parar",
+      "stopping": "Parando: uma criação interrompida não é guardada.",
+      "stopped": "Criação interrompida: nada foi guardado.",
+      "taken": "“{{name}}” criado — {{records}} em {{objects}}, {{size}}",
+      "moved_one": "{{formatted}} registro mudou durante a criação; um retrocesso o trata como alterado desde então.",
+      "moved_other": "{{formatted}} registros mudaram durante a criação; um retrocesso os trata como alterados desde então.",
+      "done": "Concluído"
+    }
   }
 }

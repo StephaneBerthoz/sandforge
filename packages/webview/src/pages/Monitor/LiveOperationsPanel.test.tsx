@@ -165,6 +165,7 @@ describe('LiveOperationsPanel rows of every write run', () => {
           makeOperation({ operationId: 'op-clone', module: 'clone' }),
           makeOperation({ operationId: 'op-csv', module: 'csv' }),
           makeOperation({ operationId: 'op-frozen', module: 'frozen' }),
+          makeOperation({ operationId: 'op-checkpoint', module: 'checkpoint' }),
           makeOperation({ operationId: 'op-other', module: 'backup' }),
         ]}
       />,
@@ -174,6 +175,7 @@ describe('LiveOperationsPanel rows of every write run', () => {
     expect(screen.getByTestId('live-op-op-clone').textContent).toContain('Record Clone');
     expect(screen.getByTestId('live-op-op-csv').textContent).toContain('CSV Import');
     expect(screen.getByTestId('live-op-op-frozen').textContent).toContain('Frozen Dataset');
+    expect(screen.getByTestId('live-op-op-checkpoint').textContent).toContain('Checkpoints');
     // A module the product has no name for shows as the extension sent it.
     expect(screen.getByTestId('live-op-op-other').textContent).toContain('backup');
   });
