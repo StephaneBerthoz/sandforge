@@ -5,6 +5,30 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.66.0] - 2026-10-23
+
+Checkpoints: keep an org's data as it is now, see what changed since, and put the org back as it was, whoever made the changes, then take the rewind back if you need to.
+
+### Added
+
+- **Checkpoints**: a new module, third in the side bar and on Home. Take a checkpoint of a sandbox, a scratch org or a Developer Edition org, of everything people work in or of the objects you pick, with what it will take before it runs; it keeps the records' values on this machine for 30 days, or until you delete it.
+- **Rewind**: the preview says what a rewind would delete, give back and bring back, object by object, who last changed it, what a rewind cannot take back and what Undo could not bring back, the records outside the checkpoint that would go with it, the automation it fires and what it costs. The rewind is confirmed by typing the org's alias, can be stopped and taken up again, reads the org again at the end and names every record that still differs, with why.
+- **Undo this rewind**: for 15 days, sooner if the recycle bin fills, takes back what the rewind deleted, wrote over and brought back; what anyone changed since stays, and is named.
+- **Take a checkpoint now**: on the result of a Seed run, a Forge clone and a Frozen load that wrote to a sandbox, a scratch org or a Developer Edition org.
+- **Command line**: `sandforge-checkpoint` takes, lists, previews, rewinds and undoes, with `--estimate`, `--dry-run`, `--fail-on-change` for a CI step, the typed alias or `--yes` with a named checkpoint, and the exit codes of the other tools.
+
+### Changed
+
+- **Confirmations and dialogs**: give the keyboard back to the button that opened them, on every page.
+- **Disconnect**: offers to delete the org's checkpoints too.
+- **Sandbox refresh notice**: names the checkpoints kept of the org before the refresh.
+
+### Fixed
+
+- **Sync removal**: the confirmation says what the target runs as the run is taken back, the Apex triggers after an undelete among it.
+
+Never a production org: a checkpoint, a preview, a rewind and an undo are refused there outright, whatever the setting or flag.
+
 ## [1.65.0] - 2026-10-22
 
 What a run would be refused is said before it writes, the command-line tools refuse production and stop on what they cannot read, and a run stays safe to take back across windows and runs.

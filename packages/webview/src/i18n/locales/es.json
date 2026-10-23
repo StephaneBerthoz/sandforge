@@ -2838,7 +2838,9 @@
       "automationHonest": "Ningún paso de pipeline informa de un trabajo que no hizo",
       "automationHonestDesc": "Trece de los quince tipos de paso no tenían nada detrás y devolvían éxito, y Delay esperaba cero segundos. Un pipeline con un paso que no puede ejecutarse ahora se marca como tal y se rechaza antes de empezar, en lugar de registrarse como terminado.",
       "monitorReads": "Monitor y Comparación muestran lo que contiene la org",
-      "monitorReadsDesc": "Ejecutados por primera vez contra orgs reales: el almacenamiento fallaba en todas las orgs, los objetos personalizados se contaban cuarenta y uno por cinco, las alertas de una org aparecían en otra y Comparación leía una parte distinta de los conjuntos de permisos de cada org. Ahora leen lo que muestran, y una señal de salud que no se puede leer lo dice en lugar de informar de una org sana."
+      "monitorReadsDesc": "Ejecutados por primera vez contra orgs reales: el almacenamiento fallaba en todas las orgs, los objetos personalizados se contaban cuarenta y uno por cinco, las alertas de una org aparecían en otra y Comparación leía una parte distinta de los conjuntos de permisos de cada org. Ahora leen lo que muestran, y una señal de salud que no se puede leer lo dice en lugar de informar de una org sana.",
+      "checkpoints1660": "Puntos de control: devolver una org a como estaba",
+      "checkpoints1660Desc": "Conserve un sandbox, una scratch org o una org Developer Edition tal como está ahora, vea lo que cambió desde entonces y retroceda: lo añadido se elimina, lo que cambió recupera sus valores y lo eliminado se recupera, quienquiera que lo hiciera. El retroceso se puede deshacer durante 15 días. Nunca una org de producción."
     },
     "heroTitle": "Rellene su sandbox a partir de un registro real",
     "heroDesc": "Apunte SandForge a un registro de cualquier org — clonará todo el grafo de relaciones en su sandbox. ¿Nada que copiar? Genere o reproduzca un dataset.",

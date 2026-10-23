@@ -2838,7 +2838,9 @@
       "automationHonest": "No pipeline step reports work it did not do",
       "automationHonestDesc": "Thirteen of the fifteen step types had nothing behind them and returned success, and Delay waited zero seconds. A pipeline holding a step that cannot run is now marked as such and refused before it starts, instead of being recorded as done.",
       "monitorReads": "Monitor and Compare show what the org holds",
-      "monitorReadsDesc": "Run against real orgs for the first time: storage failed on every org, custom objects were counted forty-one for five, one org's alerts showed on another, and Compare read a different slice of each org's permission sets. They now read what they show, and a health signal that cannot be read says so instead of reporting a healthy org."
+      "monitorReadsDesc": "Run against real orgs for the first time: storage failed on every org, custom objects were counted forty-one for five, one org's alerts showed on another, and Compare read a different slice of each org's permission sets. They now read what they show, and a health signal that cannot be read says so instead of reporting a healthy org.",
+      "checkpoints1660": "Checkpoints: put an org back as it was",
+      "checkpoints1660Desc": "Keep a sandbox, a scratch org or a Developer Edition org as it is now, see what changed since, and rewind it: what was added is deleted, what changed gets its values back and what was deleted comes back, whoever did it. Undo the rewind for 15 days. Never a production org."
     },
     "heroTitle": "Populate your sandbox from a real record",
     "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
