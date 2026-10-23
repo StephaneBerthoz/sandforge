@@ -47,6 +47,10 @@ export interface CheckpointScopeRequest extends BaseMessage {
     mode: CheckpointScopeMode;
     /** The objects picked; given with `picked` only. */
     objects?: string[];
+    /** Objects to leave out, in either mode. */
+    excluded?: string[];
+    /** The records the take would hold at most, all objects together; 500,000 unless given. */
+    maxTotal?: number;
   };
 }
 
@@ -62,6 +66,13 @@ export interface CheckpointTakeRequest extends BaseMessage {
     mode: CheckpointScopeMode;
     /** The objects picked; given with `picked` only. */
     objects?: string[];
+    /** Objects to leave out, in either mode. */
+    excluded?: string[];
+    /**
+     * The records it holds at most, all objects together; 500,000 unless
+     * given. Past it, the take is refused before a record is read.
+     */
+    maxTotal?: number;
     /** Days until it expires; 0 keeps it until it is deleted. */
     keepDays: number;
     /** Fields, `Object.Field`, not to compare nor write back. */

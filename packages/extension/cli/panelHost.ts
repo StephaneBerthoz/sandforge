@@ -119,6 +119,12 @@ export interface PanelHostOptions {
    * background composition here (see `forgeHost.ts`).
    */
   compose?: (wiring: PanelHostWiring) => void;
+  /**
+   * Told of each message the host posts to the panel, as it is posted: a long
+   * run's progress, which the command waiting on its answer prints as it
+   * comes rather than once the run has ended.
+   */
+  onPost?: (message: PostedMessage) => void;
 }
 
 /** What the host built, as a composition of a module is handed it: see `PanelHostOptions.compose`. */
@@ -295,6 +301,7 @@ export function createPanelHost(options: PanelHostOptions): PanelHost {
         posted.push(message);
         const line = problemLine(message);
         if (line) log(`  ${line}`);
+        options.onPost?.(message);
         for (const waiter of [...waiters]) waiter(message);
         return Promise.resolve(true);
       },

@@ -712,6 +712,29 @@ describe('checkpoint:* payloads', () => {
     }
   });
 
+  it('takes the objects to leave out and the limit of records the command line names, each checked', () => {
+    const asked = { excluded: ['Case', 'Task'], maxTotal: 250_000 };
+    expect(checkpointTakePayloadSchema.safeParse(take(asked)).success).toBe(true);
+    expect(
+      checkpointScopePayloadSchema.safeParse({ orgId: 'org-1', mode: 'everything', ...asked })
+        .success,
+    ).toBe(true);
+    for (const wrong of [
+      { excluded: [] },
+      { excluded: ['Case', 'Case'] },
+      { excluded: ['Case WHERE Id != null'] },
+      { maxTotal: 0 },
+      { maxTotal: 1.5 },
+      { maxTotal: '500000' },
+    ]) {
+      expect(checkpointTakePayloadSchema.safeParse(take(wrong)).success).toBe(false);
+      expect(
+        checkpointScopePayloadSchema.safeParse({ orgId: 'org-1', mode: 'everything', ...wrong })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   it('keeps a checkpoint for whole days, or until it is deleted with 0', () => {
     expect(checkpointTakePayloadSchema.safeParse(take({ keepDays: 0 })).success).toBe(true);
     for (const keepDays of [-1, 1.5, 3651, '30']) {

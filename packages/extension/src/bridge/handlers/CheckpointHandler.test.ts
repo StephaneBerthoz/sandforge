@@ -526,6 +526,70 @@ describe('CheckpointHandler — the scope', () => {
     expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
     expect(await h.store.list()).toEqual([]);
   });
+
+  it('leaves out the objects the request excludes and holds the take to the limit it names, as the command line asks', async () => {
+    const h = harness();
+
+    await h.send('wv-scope-1', 'checkpoint:scope', {
+      orgId: REGISTERED,
+      mode: 'everything',
+      excluded: ['Case'],
+      maxTotal: 2,
+    });
+    await h.send('wv-scope-2', 'checkpoint:scope', {
+      orgId: REGISTERED,
+      mode: 'everything',
+      maxTotal: 2,
+    });
+
+    const excluded = answerOf(h, 'wv-scope-1');
+    expect(excluded.type).toBe('checkpoint:scope:response');
+    expect(excluded.payload.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', records: 2 }),
+    ]);
+    expect(excluded.payload.leftOut).toContainEqual({
+      objectApiName: 'Case',
+      reason: 'Left out as asked.',
+    });
+    expect(excluded.payload.refusal).toBeUndefined();
+    // The three records of both objects, past the limit of two.
+    expect(answerOf(h, 'wv-scope-2').payload.refusal).toMatchObject({
+      code: 'TOO_MANY_RECORDS',
+      message: expect.stringContaining('hold 3 records in DEV-SB, past its limit of 2') as unknown,
+    });
+  });
+});
+
+describe('CheckpointHandler — what a take is asked beside its scope', () => {
+  it('refuses a take past the limit its request names before reading a record, and keeps nothing', async () => {
+    const h = harness();
+
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, maxTotal: 2 });
+
+    expect(answerOf(h, 'wv-take-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'TOO_MANY_RECORDS', retryable: false },
+    });
+    expect(await h.store.list()).toEqual([]);
+  });
+
+  it('takes the objects its request does not exclude, the excluded one named as left out', async () => {
+    const h = harness();
+
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, excluded: ['Case'], maxTotal: 2 });
+
+    const answer = answerOf(h, 'wv-take-1');
+    expect(answer.type).toBe('checkpoint:take:response');
+    const checkpoint = answer.payload.checkpoint as {
+      objects: Array<{ objectApiName: string }>;
+      scope: { leftOut: Array<{ objectApiName: string; reason: string }> };
+    };
+    expect(checkpoint.objects.map((object) => object.objectApiName)).toEqual(['Account']);
+    expect(checkpoint.scope.leftOut).toContainEqual({
+      objectApiName: 'Case',
+      reason: 'Left out as asked.',
+    });
+  });
 });
 
 describe('CheckpointHandler — the list', () => {

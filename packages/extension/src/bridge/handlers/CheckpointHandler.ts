@@ -382,13 +382,22 @@ export class CheckpointHandler implements DomainHandler {
     }
   }
 
-  /** What a take of the registered org is asked, beside its scope. */
+  /**
+   * What a take of the registered org is asked, beside what it is called and
+   * kept: its scope, the objects left out of it and the limit of its records,
+   * which the command line names (`--exclude-object`, `--max-total`).
+   */
   private takeRequestOf(
     org: SalesforceOrg,
-    mode: CheckpointScopeMode,
-    objects: readonly string[] | undefined,
+    scope: {
+      mode: CheckpointScopeMode;
+      objects?: readonly string[];
+      excluded?: readonly string[];
+      maxTotal?: number;
+    },
   ): TakeRequest {
     const expires = org.metadata?.expirationDate;
+    const { mode, objects, excluded, maxTotal } = scope;
     return {
       orgId: org.id,
       orgName: nameOf(org),
@@ -401,6 +410,8 @@ export class CheckpointHandler implements DomainHandler {
         : {}),
       mode,
       ...(objects !== undefined ? { objects } : {}),
+      ...(excluded !== undefined ? { excluded } : {}),
+      ...(maxTotal !== undefined ? { maxTotal } : {}),
     };
   }
 
@@ -571,7 +582,7 @@ export class CheckpointHandler implements DomainHandler {
             'No record was read.',
           ),
         },
-        this.takeRequestOf(org, parsed.mode, parsed.objects),
+        this.takeRequestOf(org, parsed),
       );
       this.respond(msg, 'checkpoint:scope:response', {
         orgId: parsed.orgId,
@@ -621,6 +632,8 @@ export class CheckpointHandler implements DomainHandler {
       name: string;
       mode: CheckpointScopeMode;
       objects?: string[];
+      excluded?: string[];
+      maxTotal?: number;
       keepDays: number;
       ignoredFields?: string[];
     },
@@ -671,7 +684,7 @@ export class CheckpointHandler implements DomainHandler {
           ),
         },
         {
-          ...this.takeRequestOf(org, asked.mode, asked.objects),
+          ...this.takeRequestOf(org, asked),
           name: asked.name,
           keepDays: asked.keepDays,
           ...(asked.ignoredFields ? { ignoredFields: asked.ignoredFields } : {}),

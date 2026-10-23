@@ -1124,11 +1124,20 @@ const OBJECTS_MATCH_MODE = {
 };
 
 export const checkpointListPayloadSchema = z.object({ orgId: orgIdSchema.optional() }).optional();
+/**
+ * The records a take holds at most, all objects together, when the request
+ * names a limit: the command line's `--max-total`, which the page does not
+ * send.
+ */
+const checkpointMaxTotalSchema = z.number().int().min(1);
+
 export const checkpointScopePayloadSchema = z
   .object({
     orgId: orgIdSchema,
     mode: checkpointScopeModeSchema,
     objects: checkpointObjectsSchema.optional(),
+    excluded: checkpointObjectsSchema.optional(),
+    maxTotal: checkpointMaxTotalSchema.optional(),
   })
   .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
 export const checkpointTakePayloadSchema = z
@@ -1137,6 +1146,8 @@ export const checkpointTakePayloadSchema = z
     name: checkpointNameSchema,
     mode: checkpointScopeModeSchema,
     objects: checkpointObjectsSchema.optional(),
+    excluded: checkpointObjectsSchema.optional(),
+    maxTotal: checkpointMaxTotalSchema.optional(),
     keepDays: z.number().int().min(0).max(MAX_CHECKPOINT_KEEP_DAYS),
     ignoredFields: checkpointIgnoredFieldsSchema.optional(),
   })

@@ -176,4 +176,37 @@ describe('createPanelHost', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('tells whoever runs it of each message as it is posted, before the answer comes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      const told: string[] = [];
+      let answered = false;
+      const host = createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        onPost: (message) => told.push(`${message.type}${answered ? ' after' : ''}`),
+      });
+
+      const run = await host.request({
+        type: 'pipeline:execute',
+        responseType: 'pipeline:run:response',
+        payload: {
+          pipeline: {
+            id: 'p-told',
+            name: 'Told',
+            steps: [{ id: 's1', name: 'Wait', type: 'delay', config: { seconds: 0 } }],
+          },
+        },
+      });
+      answered = true;
+
+      expect(run.outcome).toBe('answered');
+      expect(told).toEqual(host.posted.map((message) => message.type));
+      expect(told).toContain('pipeline:step');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
