@@ -211,6 +211,30 @@ describe('DataOpsHandler — the snapshot a checkpoint holds', () => {
     });
   });
 
+  it('hands the connection it reads through to the take before its first read, so every request of the snapshot can be counted', async () => {
+    const h = await harness();
+    const org = new MemoryRemovalOrg({}, { now: () => READ_AT });
+    org.add('Account', { Id: accountId(1), Name: 'Northwind' });
+    const { sent } = connectTo(org);
+    const handed: Array<{ connection: unknown; readBefore: number }> = [];
+
+    await h.handler.backupForPipeline({
+      operationId: 'ck-snap-conn',
+      orgId: 'org-1',
+      objects: ['Account'],
+      fields: new Map([['Account', ['Id', 'SystemModstamp', 'Name']]]),
+      origin: 'checkpoint',
+      failWhenTruncated: true,
+      onConnection: (connection) => handed.push({ connection, readBefore: sent.length }),
+    });
+
+    const opened: unknown = await vi.mocked(getJsforceConnection).mock.results[0]?.value;
+    expect(handed).toHaveLength(1);
+    expect(handed[0].connection).toBe(opened);
+    expect(handed[0].readBefore).toBe(0);
+    expect(sent.length).toBeGreaterThan(0);
+  });
+
   it('refuses, before reading anything, a field that is not a field name', async () => {
     const h = await harness();
 

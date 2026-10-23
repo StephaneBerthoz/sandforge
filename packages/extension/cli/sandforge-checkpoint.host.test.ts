@@ -325,6 +325,33 @@ describe('sandforge-checkpoint take', () => {
     );
   });
 
+  it('answers with the requests the take sent the org, phase by phase, beside what it estimated before reading a record', async () => {
+    const h = harness();
+
+    const { code, stdout, stderr } = await h.run('take', '--org', 'DEV-SB', '--json');
+
+    expect(code).toBe(0);
+    const answer = JSON.parse(stdout) as {
+      checkpoint: OrgCheckpoint;
+      requests: { total: number; byPhase: Record<string, number> };
+      estimate: { apiRequests: number; requestsByPhase: Record<string, number> };
+    };
+    expect(Object.keys(answer).sort()).toEqual(['checkpoint', 'estimate', 'requests']);
+    const phases = ['guard', 'scope', 'start', 'counts', 'bin', 'snapshot', 'stability'];
+    expect(Object.keys(answer.requests.byPhase)).toEqual(phases);
+    expect(Object.keys(answer.estimate.requestsByPhase)).toEqual(phases);
+    expect(answer.requests.total).toBe(
+      Object.values(answer.requests.byPhase).reduce((total, sent) => total + sent, 0),
+    );
+    expect(answer.estimate.apiRequests).toBe(
+      Object.values(answer.estimate.requestsByPhase).reduce((total, said) => total + said, 0),
+    );
+    // The composites of counts and of the recycle bin's reads go through the
+    // connection's requests, as jsforce's do: one each, as estimated.
+    expect(answer.requests.byPhase).toMatchObject({ counts: 1, bin: 1 });
+    expect(stderr).toMatch(/ {2}sent \d+ API requests to the org, about \d+ estimated: guard /);
+  });
+
   it('says what a take would hold and cost with --estimate, reading no record and keeping nothing', async () => {
     const h = harness();
     const asked: string[] = [];

@@ -170,7 +170,8 @@ function holderWords(holder: OrgLockHolder): string {
  *   the page's Stop, `execution:abort` with that id, stop it between two
  *   reads, and held under that id from the request on, so a Stop sent while
  *   the org is still being reached is taken too. A stopped take keeps
- *   nothing and answers `CANCELLED`.
+ *   nothing and answers `CANCELLED`. A take kept answers with the requests
+ *   it sent the org, phase by phase, beside what it estimated.
  * - `checkpoint:preview` — what a rewind would do, read from the org, nothing
  *   written (`previewCheckpoint`).
  * - `checkpoint:delete`, `checkpoint:keep`, `checkpoint:rename`,
@@ -706,7 +707,12 @@ export class CheckpointHandler implements DomainHandler {
         );
       }
       const { checkpoint } = outcome;
-      this.respond(msg, 'checkpoint:take:response', { checkpoint, operationId });
+      this.respond(msg, 'checkpoint:take:response', {
+        checkpoint,
+        operationId,
+        ...(outcome.requests ? { requests: outcome.requests } : {}),
+        estimate: outcome.estimate,
+      });
       sendOperationCompleted(this.deps, operationId, {
         status: 'success',
         objects: checkpoint.objects.length,

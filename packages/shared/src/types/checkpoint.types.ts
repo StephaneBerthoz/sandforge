@@ -268,12 +268,32 @@ export interface CheckpointScopeObject {
   leftOutFields: CheckpointLeftOutField[];
 }
 
+/**
+ * The phases of a take, in the order it runs them, as its requests are
+ * estimated and counted: the guard's reads and the day's limits, the
+ * describes of the scope, the user and T0, the counts, the recycle bin at
+ * T0, the snapshot, and T1 with what moved while it was taken.
+ */
+export type CheckpointTakePhase =
+  'guard' | 'scope' | 'start' | 'counts' | 'bin' | 'snapshot' | 'stability';
+
+/** The API requests a take sent the org, in all and phase by phase, SOAP calls among them. */
+export interface CheckpointTakeRequests {
+  total: number;
+  byPhase: Record<CheckpointTakePhase, number>;
+}
+
 /** What a take, a preview or a rewind would cost, said before it runs. */
 export interface CheckpointEstimate {
   /** Records it reads or writes. */
   records: number;
   /** API requests it takes, about. */
   apiRequests: number;
+  /**
+   * A take's requests phase by phase, which add up to {@link apiRequests}:
+   * what its count is held to once it ran. Absent for the other acts.
+   */
+  requestsByPhase?: Record<CheckpointTakePhase, number>;
   /** Requests the org had left today when the estimate was made. */
   apiRequestsLeft: number;
   /** About how long it runs, in seconds. */

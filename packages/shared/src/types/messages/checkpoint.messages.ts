@@ -6,6 +6,7 @@ import type {
   CheckpointRefusal,
   CheckpointScopeMode,
   CheckpointScopeObject,
+  CheckpointTakeRequests,
   OrgCheckpoint,
   RewindDiff,
   RewindResult,
@@ -184,10 +185,19 @@ export interface CheckpointScopeResponse extends BaseMessage {
   };
 }
 
-/** `checkpoint:take:response`. Extension -> WebView. The checkpoint, once kept. */
+/**
+ * `checkpoint:take:response`. Extension -> WebView. The checkpoint, once kept;
+ * the requests the take sent the org, when its connection counted them; and
+ * what the take estimated before it read a record.
+ */
 export interface CheckpointTakeResponse extends BaseMessage {
   type: 'checkpoint:take:response';
-  payload: { checkpoint: OrgCheckpoint; operationId: string };
+  payload: {
+    checkpoint: OrgCheckpoint;
+    operationId: string;
+    requests?: CheckpointTakeRequests;
+    estimate?: CheckpointEstimate;
+  };
 }
 
 /**

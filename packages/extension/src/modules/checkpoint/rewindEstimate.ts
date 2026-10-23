@@ -42,13 +42,15 @@
 import type {
   CheckpointEstimate,
   CheckpointObject,
+  CheckpointReadMode,
   CheckpointRefusal,
+  CheckpointTakePhase,
   RewindDiff,
   RewindDiffObject,
 } from '@sandforge/shared';
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { columnGroups } from '../../core/common/wideRead.js';
+import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
 import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
   apiBudgetCheckOf,
@@ -82,13 +84,42 @@ const JOURNAL_BYTES_PER_VALUES = 500;
 const JOURNAL_BYTES_PER_ID = 40;
 
 /**
- * Requests every take sends whatever it holds: the guard's Organization,
- * edition and permissions reads, the day's limits, the two global describes
- * (data and Tooling), the View Encrypted Data permission, the Automated
- * Process user, the user's own id, the clock at T0 and at T1, and the
- * snapshot's read of which org it is.
+ * Requests a take's guard phase sends whatever the org holds: the guard's
+ * reads of the org's Organization record and edition (one of them asked by
+ * the take itself of a sandbox, whose edition the guard does not read) and of
+ * the user's permissions, then the day's limits.
  */
-const TAKE_FIXED_REQUESTS = 12;
+const TAKE_GUARD_REQUESTS = 4;
+
+/**
+ * Requests a take's scope sends beside its object describes: the two global
+ * describes, the data API's and the Tooling API's, and the user's View
+ * Encrypted Data permission.
+ */
+const TAKE_SCOPE_REQUESTS = 3;
+
+/**
+ * Requests a take sends once its scope is read: the user it reads as and T0
+ * on the org's clock, both SOAP calls, and the org's Automated Process user.
+ */
+const TAKE_START_REQUESTS = 3;
+
+/**
+ * Requests a take's snapshot sends beside its pages: which org it read, asked
+ * once the objects are read. None when no object holds a record, as then no
+ * snapshot is read.
+ */
+const SNAPSHOT_ORG_REQUESTS = 1;
+
+/** Requests a take's last phase sends before its reads of what moved: T1 on the org's clock, a SOAP call. */
+const STABILITY_CLOCK_REQUESTS = 1;
+
+/**
+ * The term the reads by id of a snapshot read through the recycle bin keep
+ * to (DataOps' `LIVE_ROWS`): a Task's or an Event's other column groups name
+ * it beside their ids, which leaves room for fewer ids.
+ */
+const SNAPSHOT_LIVE_ROWS = 'IsDeleted = false';
 
 /**
  * Requests a rewind, and an undo, send whatever they hold before their first
@@ -136,12 +167,6 @@ const RESTORE_FIXED_REQUESTS = 2;
  * and the org's clock and the user it runs as, both SOAP calls.
  */
 const REMOVAL_FIXED_REQUESTS = 3;
-
-/**
- * Statements a page of a wide object's snapshot costs per column group past
- * the first: the page's ids read again by their ids, 500 a statement.
- */
-const STATEMENTS_PER_GROUP = 4;
 
 /**
  * Rows a page of a read takes, in an estimate. The org gives about as many,
@@ -228,7 +253,7 @@ function batches(records: number): number {
 }
 
 /** The column groups a read of `fields` names them in, the id and the stamp in every one. */
-export function readGroupsOf(fields: readonly string[]): number {
+function readGroupsOf(fields: readonly string[]): number {
   return columnGroups(fields, CARRIED_COLUMNS).length;
 }
 
@@ -244,47 +269,140 @@ function readsById(records: number, fields: readonly string[]): number {
 
 // ─── The take ────────────────────────────────────────────────────────────────
 
+/** One object a take holds, as its estimate reads it. */
+export interface TakenObject {
+  records: number;
+  /**
+   * For each of its column groups after the first, the ids one statement
+   * reading it by id names ({@link snapshotGroupReads}): none for an object
+   * one statement reads whole.
+   */
+  otherGroups?: readonly number[];
+}
+
 /** What a take's estimate is made from. */
 export interface TakeEstimateInput {
-  /** Objects described: the scope's candidates. */
+  /** Objects described: the scope's candidates, 25 a composite. */
   described: number;
-  /** Per object the take holds, its records and the column groups a page of it is read in. */
-  objects: ReadonlyArray<{ records: number; groups: number }>;
+  /** Of them, those whose describe a composite did not answer, each asked again alone. */
+  describedAlone?: number;
+  /**
+   * Objects counted: every object the scope kept once described, those the
+   * org then would not count whole and those past the limit for one object
+   * among them. As many as {@link objects} unless given.
+   */
+  counted?: number;
+  /** Of them, those whose count a composite did not answer, each asked again alone. */
+  countedAlone?: number;
+  /** Per object the take holds, its records and how its other column groups are read. */
+  objects: readonly TakenObject[];
   /** Rows a page of the snapshot reads: what the org's kind reads at a time. */
   pageRows: number;
 }
 
 /**
- * The API requests, time and disk a take costs, about. One composite costs
- * the org one request whatever it holds, so the describes go 25 a call, and
- * the counts, the recycle bin's reads and the checks of what moved five a
- * call; the snapshot reads a page a call, and a wide object's other column
- * groups by the page's ids. Further pages of the bin, and the reads of what
- * moved while it ran, are not known before.
+ * For each column group of a snapshot's object after the first, the ids one
+ * statement reading it by id names, as the snapshot's handler reads them
+ * (`readOtherColumnsAtOneStamp`): every group carries the id and the stamp,
+ * and an object read through the recycle bin keeps each read to its live
+ * rows. None for an object whose fields one statement names.
+ */
+export function snapshotGroupReads(
+  objectApiName: string,
+  fields: readonly string[],
+  readMode: CheckpointReadMode,
+): number[] {
+  const [, ...others] = columnGroups(fields, CARRIED_COLUMNS);
+  const where = readMode === 'scanAllLive' ? SNAPSHOT_LIVE_ROWS : undefined;
+  return others.map((group) => idsPerStatement(objectApiName, group, where));
+}
+
+/** Statements the reads by id of a page of `rows` rows send, one column group after another. */
+function groupReadsOf(rows: number, otherGroups: readonly number[]): number {
+  return otherGroups.reduce((total, ids) => total + callsFor(rows, Math.max(1, ids)), 0);
+}
+
+/**
+ * The snapshot's calls for one object: its pages, `pageRows` rows each and
+ * what is left on the last, a call each; and each page's other column groups
+ * read by its ids, as many a statement as the group leaves room for, so a
+ * page of fewer rows takes fewer statements and a group of many columns more.
+ */
+function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number; reads: number } {
+  if (object.records === 0) return { pages: 0, reads: 0 };
+  const full = Math.floor(object.records / pageRows);
+  const rest = object.records - full * pageRows;
+  const groups = object.otherGroups ?? [];
+  return {
+    pages: full + (rest > 0 ? 1 : 0),
+    reads: full * groupReadsOf(pageRows, groups) + groupReadsOf(rest, groups),
+  };
+}
+
+/**
+ * The API requests, time and disk a take costs, about, phase by phase as the
+ * take sends them, a composite one request whatever it holds:
+ *
+ * - `guard`: the org, its edition and the user's permissions, then the day's
+ *   limits;
+ * - `scope`: the two global describes, the objects' describes 25 a call and
+ *   again alone each one a call did not answer, the View Encrypted Data
+ *   permission;
+ * - `start`: the user, the Automated Process user and T0;
+ * - `counts`: every object kept once described, five a call, and again alone
+ *   each count a call did not answer — an object then left out, as the org
+ *   would not count it or as it holds more than one object may, was counted
+ *   all the same;
+ * - `bin`: the recycle bin at T0, each object's first page, five a call;
+ * - `snapshot`: a page a call, each page's other column groups by its ids,
+ *   and the read of which org the snapshot is of;
+ * - `stability`: T1, then each object's newest stamp, five a call.
+ *
+ * Not known before the take reads them, and left out: the recycle bin's
+ * further pages (an object holding more than a page of ids in the bin at T0
+ * takes a call per page past the first, for the longest of the five objects
+ * read with it); what moved in the five minutes before T0 or while the take
+ * ran (two reads an object that moved, five a call, followed to their end,
+ * and its count); the pages of an org that answers fewer rows than it is
+ * asked; and the rows a write moved between two column groups, read again.
  */
 export function takeEstimate(
   input: TakeEstimateInput,
 ): Omit<CheckpointEstimate, 'apiRequestsLeft'> {
-  const objects = input.objects.length;
-  const describeCalls = Math.ceil(input.described / SUBREQUESTS_PER_COMPOSITE);
-  const smallCalls = 3 * Math.ceil(objects / QUERIES_PER_COMPOSITE);
-  let pageCalls = 0;
+  const kept = input.objects.length;
+  const describeCalls = callsFor(input.described, SUBREQUESTS_PER_COMPOSITE);
+  const describedAlone = input.describedAlone ?? 0;
+  const counts = callsFor(input.counted ?? kept, QUERIES_PER_COMPOSITE) + (input.countedAlone ?? 0);
+  const fiveAtATime = callsFor(kept, QUERIES_PER_COMPOSITE);
+  let pages = 0;
+  let reads = 0;
   let records = 0;
   let bytes = 0;
   for (const object of input.objects) {
     records += object.records;
     bytes += object.records * BYTES_PER_RECORD + snapshotIndexBytes(object.records);
-    if (object.records === 0) continue;
-    const pages = Math.ceil(object.records / input.pageRows);
-    pageCalls += pages * (1 + Math.max(0, object.groups - 1) * STATEMENTS_PER_GROUP);
+    const calls = snapshotCallsOf(object, input.pageRows);
+    pages += calls.pages;
+    reads += calls.reads;
   }
+  const requestsByPhase: Record<CheckpointTakePhase, number> = {
+    guard: TAKE_GUARD_REQUESTS,
+    scope: TAKE_SCOPE_REQUESTS + describeCalls + describedAlone,
+    start: TAKE_START_REQUESTS,
+    counts,
+    bin: fiveAtATime,
+    snapshot: pages + reads + (pages > 0 ? SNAPSHOT_ORG_REQUESTS : 0),
+    stability: STABILITY_CLOCK_REQUESTS + fiveAtATime,
+  };
   return {
     records,
-    apiRequests: TAKE_FIXED_REQUESTS + describeCalls + smallCalls + pageCalls,
+    apiRequests: Object.values(requestsByPhase).reduce((total, phase) => total + phase, 0),
+    requestsByPhase,
     seconds: Math.ceil(
       describeCalls * SECONDS_PER_DESCRIBE_CALL +
-        smallCalls * SECONDS_PER_SMALL_CALL +
-        pageCalls * SECONDS_PER_PAGE,
+        (describedAlone + counts + 2 * fiveAtATime) * SECONDS_PER_SMALL_CALL +
+        pages * SECONDS_PER_PAGE +
+        reads * SECONDS_PER_READ,
     ),
     bytes,
   };

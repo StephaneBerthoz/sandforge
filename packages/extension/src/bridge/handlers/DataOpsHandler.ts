@@ -1544,6 +1544,12 @@ export class DataOpsHandler implements DomainHandler {
        * it failed part-way keeps nothing and fails.
        */
       failWhenTruncated?: boolean;
+      /**
+       * Given the connection the snapshot reads through, once it is open and
+       * before its first read: what a checkpoint's take counts the snapshot's
+       * requests on, the org's daily ones.
+       */
+      onConnection?: (connection: Connection) => void;
     },
     signal?: AbortSignal,
   ): Promise<BackupTaken> {
@@ -1557,6 +1563,7 @@ export class DataOpsHandler implements DomainHandler {
         ...(request.scanAll ? { scanAll: new Set(request.scanAll) } : {}),
         ...(request.origin ? { origin: request.origin } : {}),
         ...(request.failWhenTruncated === true ? { failWhenTruncated: true } : {}),
+        ...(request.onConnection ? { onConnection: request.onConnection } : {}),
       },
       request.origin === 'checkpoint' ? 'checkpoint:take' : 'pipeline:execute',
       signal,
@@ -1623,6 +1630,8 @@ export class DataOpsHandler implements DomainHandler {
       origin?: 'checkpoint';
       /** Every row of every object, or no snapshot: see `backupForPipeline`. */
       failWhenTruncated?: boolean;
+      /** Given the connection the snapshot reads through: see `backupForPipeline`. */
+      onConnection?: (connection: Connection) => void;
     },
     origin: string,
     signal?: AbortSignal,
@@ -1694,6 +1703,7 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
       connection = conn;
+      payload.onConnection?.(conn);
 
       // A page is as many rows as the org's tier reads at a time: 2,000 on a
       // sandbox, 500 on production. It used to be how many rows of each

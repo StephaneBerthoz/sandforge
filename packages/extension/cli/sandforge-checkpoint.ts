@@ -42,6 +42,7 @@ import {
   type CheckpointRefusal,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
+  type CheckpointTakeRequests,
   type ForgeTargetAutomation,
   type OrgCheckpoint,
   type RewindDiff,
@@ -124,8 +125,12 @@ JSON (--json), one value on stdout:
                        expiresSoon, binReachSince, lastRewind?, valid, why?, refreshedAt?}]
                      (name, org, takenAt, records and bytes are null for a damaged checkpoint;
                      expiresAt is null for one kept until deleted)
-  take               {checkpoint}: the checkpoint as kept (its checkpoint.json)
-  take --estimate    {mode, objects, leftOut, estimate, refusal?}
+  take               {checkpoint, requests?, estimate}: the checkpoint as kept (its
+                     checkpoint.json); requests, {total, byPhase}, the API requests the take sent
+                     the org, SOAP calls among them; estimate, what it said before reading a record
+  take --estimate    {mode, objects, leftOut, estimate, refusal?}: estimate.requestsByPhase splits
+                     the requests over a take's phases as requests.byPhase does: guard, scope,
+                     start, counts, bin, snapshot, stability
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       differs, diff, estimate, automation?, refusal?}: diff, estimate, automation
                      and refusal as the extension answers them; refusal is the one a rewind would
@@ -690,6 +695,22 @@ export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
     ...withParentLine(checkpoint.objects),
     `  it holds the records' values in clear, in files only you can read: ${folder}`,
   ];
+}
+
+/**
+ * The line a take prints of the API requests it sent the org, phase by phase,
+ * each beside what its estimate said when they differ.
+ */
+export function requestsLine(
+  requests: CheckpointTakeRequests,
+  estimate: Pick<CheckpointEstimate, 'apiRequests' | 'requestsByPhase'> | undefined,
+): string {
+  const phases = Object.entries(requests.byPhase).map(([phase, sent]) => {
+    const said = estimate?.requestsByPhase?.[phase as keyof CheckpointTakeRequests['byPhase']];
+    return said === undefined || said === sent ? `${phase} ${sent}` : `${phase} ${sent} (${said})`;
+  });
+  const said = estimate ? `, about ${count(estimate.apiRequests)} estimated` : '';
+  return `  sent ${count(requests.total)} API requests to the org${said}: ${phases.join(', ')}`;
 }
 
 /** What a rewind to a checkpoint would do, in the three numbers the preview leads with. */
@@ -1258,10 +1279,18 @@ async function take(
     }
     throw new Stop(refusal);
   }
-  const checkpoint = payloadOf(answer).checkpoint as OrgCheckpoint;
+  const taken = payloadOf(answer);
+  const checkpoint = taken.checkpoint as OrgCheckpoint;
+  const requests = taken.requests as CheckpointTakeRequests | undefined;
+  const estimate = taken.estimate as CheckpointEstimate | undefined;
   const folder = store.folderOf(checkpoint.org.organizationId, checkpoint.checkpointId).dir;
   for (const line of takeLines(checkpoint, folder)) say(line);
-  answerJson({ checkpoint });
+  if (requests) say(requestsLine(requests, estimate));
+  answerJson({
+    checkpoint,
+    ...(requests ? { requests } : {}),
+    ...(estimate ? { estimate } : {}),
+  });
 }
 
 /** `delete`: from this machine alone, after the question unless --yes. */

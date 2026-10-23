@@ -32,6 +32,12 @@
  * - T1 follows every read. What moved between T0 and T1 after its object was
  *   read is counted, the warning the take ends with: each record is held as it
  *   was read, and a rewind treats what moved since as changed since.
+ * - Every request the take sends the org is counted, phase by phase, the
+ *   snapshot's own connection's and the SOAP calls among them, and said beside
+ *   what the take estimated before it read a record. The org's own count of
+ *   its day trails the calls by a minute or two and takes in every call made
+ *   to it meanwhile: only the take's count tells which of its reads an
+ *   estimate prices short.
  *
  * A take that is stopped or fails keeps nothing: its folder goes, and the
  * records' values with it. One that never ends — its process killed — leaves
@@ -54,6 +60,8 @@ import {
   type CheckpointRefusal,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
+  type CheckpointTakePhase,
+  type CheckpointTakeRequests,
   type OrgCheckpoint,
   type OrgTypeAndEdition,
 } from '@sandforge/shared';
@@ -61,7 +69,7 @@ import { DataOpsHandler } from '../../bridge/handlers/DataOpsHandler.js';
 import type { HandlerDeps } from '../../bridge/handlers/HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getQueryLimits, resolveOrgTier } from '../../core/common/queryLimits.js';
-import type { TypedTarget } from '../../core/precheck/orgKindLive.js';
+import { countRequests, type TypedTarget } from '../../core/precheck/orgKindLive.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
 import { StepCancelledError } from '../automation/StepExecutor.js';
@@ -115,7 +123,13 @@ import {
   spooledRows,
   type ObjectChanges,
 } from './orgStreams.js';
-import { budgetRefusal, readBudget, readGroupsOf, takeEstimate } from './rewindEstimate.js';
+import {
+  budgetRefusal,
+  readBudget,
+  snapshotGroupReads,
+  takeEstimate,
+  type TakenObject,
+} from './rewindEstimate.js';
 import { SnapshotIndex, snapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 
 // ─── Limits and figures ──────────────────────────────────────────────────────
@@ -157,11 +171,27 @@ export interface TakeOrg extends CompositeQueryConnection {
   serverTime(): Promise<string>;
   /** The id of the user the connection reads as (SOAP `getUserInfo`). */
   userId(): Promise<string>;
+  /**
+   * The requests sent the org so far through this connection and through each
+   * one handed to {@link countAlso}, SOAP calls among them: each is one of the
+   * org's daily requests. Absent, the take does not say what it sent.
+   */
+  requestsSent?(): number;
+  /**
+   * Count among {@link requestsSent} what `connection` sends the org from now
+   * on: the connection the snapshot's own handler reads through.
+   */
+  countAlso?(connection: Connection): void;
 }
 
-/** A jsforce connection, as a take reads the org through it. */
+/**
+ * A jsforce connection, as a take reads the org through it. Every request it
+ * sends is counted from here on, and those of the connections handed to
+ * `countAlso`.
+ */
 export function takeOrgOf(conn: Connection): TakeOrg {
   const composite = compositeConnectionOf(conn);
+  const counts = [countRequests(conn)];
   return {
     get version() {
       return conn.version;
@@ -180,6 +210,10 @@ export function takeOrgOf(conn: Connection): TakeOrg {
     },
     serverTime: async () => (await conn.soap.getServerTimestamp()).timestamp,
     userId: async () => (await conn.soap.getUserInfo()).userId,
+    requestsSent: () => counts.reduce((total, count) => total + count(), 0),
+    countAlso: (connection) => {
+      counts.push(countRequests(connection));
+    },
   };
 }
 
@@ -258,6 +292,13 @@ export type TakeOutcome =
        * checkpoint holds them whole, and what moved there is not counted.
        */
       notChecked: NotChecked[];
+      /**
+       * The requests the take sent the org, phase by phase, as its org
+       * counted them; absent when the org does not count them.
+       */
+      requests?: CheckpointTakeRequests;
+      /** What the take estimated, phase by phase, before it read a record. */
+      estimate: CheckpointEstimate;
     }
   | { taken: false; refusal: CheckpointRefusal };
 
@@ -386,6 +427,8 @@ interface Described {
 interface DescribedScope {
   /** Objects described. */
   described: number;
+  /** Of them, those whose describe was asked again alone. */
+  describedAlone: number;
   objects: Described[];
   leftOut: ScopeLeftOut[];
 }
@@ -395,14 +438,22 @@ interface DescribedScope {
  * again alone: the org's refusal leaves it out in its words, and any other
  * failure fails the take — an object a dropped call left out would be one a
  * rewind never puts back, and nothing would say so.
+ *
+ * @returns The describes, the org's refusals, and how many were asked alone:
+ *   a request each beside the composites, which the estimate counts.
  */
 async function describeAll(
   org: TakeOrg,
   reader: CompositeReader,
   names: readonly string[],
-): Promise<{ describes: Map<string, CheckpointDescribe>; errors: Map<string, string> }> {
+): Promise<{
+  describes: Map<string, CheckpointDescribe>;
+  errors: Map<string, string>;
+  alone: number;
+}> {
   const describes = new Map<string, CheckpointDescribe>();
   const errors = new Map<string, string>();
+  let alone = 0;
   const answers = await Promise.allSettled(names.map((name) => reader.describe(name)));
   for (const [at, answer] of answers.entries()) {
     const name = names[at];
@@ -412,6 +463,7 @@ async function describeAll(
     } else if (answer.status === 'rejected' && answer.reason instanceof OrgReadStopped) {
       throw answer.reason;
     } else {
+      alone++;
       try {
         body = await org.request({
           method: 'GET',
@@ -432,7 +484,7 @@ async function describeAll(
     if (parsed.success) describes.set(name, parsed.data);
     else errors.set(name, 'its describe does not read as one');
   }
-  return { describes, errors };
+  return { describes, errors, alone };
 }
 
 /** The objects a take would hold, described, with the ones left out, from the org's describes. */
@@ -452,7 +504,7 @@ async function describeScope(
     },
     tooling,
   );
-  const { describes, errors } = await describeAll(org, reader, candidates.candidates);
+  const { describes, errors, alone } = await describeAll(org, reader, candidates.candidates);
   const scope = resolveScope(candidates, describes, errors);
   const encrypted = await viewsEncryptedData(async (soql) => (await org.query(soql)).records);
   const labels = new Map(
@@ -470,7 +522,12 @@ async function describeScope(
       capture: await objectCapture(describe, all, { viewsEncryptedData: encrypted }),
     });
   }
-  return { described: candidates.candidates.length, objects, leftOut: scope.leftOut };
+  return {
+    described: candidates.candidates.length,
+    describedAlone: alone,
+    objects,
+    leftOut: scope.leftOut,
+  };
 }
 
 function labelOf(object: GlobalObject): string {
@@ -483,13 +540,16 @@ function labelOf(object: GlobalObject): string {
  * composite did not answer is asked again alone: the org's refusal of an
  * unfiltered read leaves the object out in its words, and never fails the
  * take; any other failure does.
+ *
+ * @returns The counts, the org's refusals, and how many were asked alone: a
+ *   request each beside the composites, which the estimate counts.
  */
 async function countAll(
   org: TakeOrg,
   reader: CompositeReader,
   objects: readonly Described[],
   signal: AbortSignal | undefined,
-): Promise<{ counts: Map<string, number>; refused: Map<string, string> }> {
+): Promise<{ counts: Map<string, number>; refused: Map<string, string>; alone: number }> {
   const answers = await countRecords(
     reader,
     objects.map(({ capture }) => ({
@@ -500,12 +560,14 @@ async function countAll(
   );
   const counts = new Map<string, number>();
   const refused = new Map<string, string>();
+  let alone = 0;
   for (const [at, answer] of answers.entries()) {
     const { objectApiName, readMode } = objects[at].capture;
     if ('count' in answer) {
       counts.set(objectApiName, answer.count);
       continue;
     }
+    alone++;
     const read = countRead(objectApiName, readMode);
     try {
       const page = await org.query(read.soql, { scanAll: read.scanAll });
@@ -523,14 +585,14 @@ async function countAll(
       refused.set(objectApiName, refusal);
     }
   }
-  return { counts, refused };
+  return { counts, refused, alone };
 }
 
 /** One object a take holds, with what it records of it before reading it. */
 interface Planned extends Described {
   records: number;
-  /** The column groups a page of it is read in. */
-  groups: number;
+  /** For each of its column groups after the first, the ids a read of it by id names a statement. */
+  otherGroups: number[];
 }
 
 /** What a take would hold and cost, settled before any record is read. */
@@ -569,7 +631,7 @@ async function planOf(
     throw new RangeError(`Not a number of records: ${maxTotal}`);
   }
   const objectLimit = Math.min(maxTotal, OBJECT_ROWS_MAX);
-  const { counts, refused } = await countAll(org, reader, scope.objects, signal);
+  const { counts, refused, alone } = await countAll(org, reader, scope.objects, signal);
   const readable = withoutRefusedReads(
     {
       mode: request.mode,
@@ -594,7 +656,11 @@ async function planOf(
       ...object,
       scoped: { ...scoped, readOrder: objects.length },
       records,
-      groups: readGroupsOf(object.capture.fields),
+      otherGroups: snapshotGroupReads(
+        scoped.objectApiName,
+        object.capture.fields,
+        object.capture.readMode,
+      ),
     });
   }
   leftOut.sort((a, b) =>
@@ -602,7 +668,10 @@ async function planOf(
   );
   const cost = takeEstimate({
     described: scope.described,
-    objects,
+    describedAlone: scope.describedAlone,
+    counted: scope.objects.length,
+    countedAlone: alone,
+    objects: objects.map(({ records, otherGroups }): TakenObject => ({ records, otherGroups })),
     pageRows: pageRowsOf(request.registered),
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
@@ -688,6 +757,50 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
     if (stopped(err, deps.signal)) throw new CheckpointTakeStopped();
     throw err;
   }
+}
+
+// ─── What the take sends ─────────────────────────────────────────────────────
+
+/** The requests a take sends, phase by phase, as its org counts them. */
+interface PhaseCount {
+  /** Count from now on in `phase`: what was sent since the last phase began is that one's. */
+  enter(phase: CheckpointTakePhase): void;
+  /** What was sent so far, phase by phase; undefined when the org does not count. */
+  requests(): CheckpointTakeRequests | undefined;
+}
+
+/** A count of what the take sends `org`, in its first phase, the guard's. */
+function phaseCount(org: TakeOrg): PhaseCount {
+  const sent = org.requestsSent ? (): number => org.requestsSent?.() ?? 0 : undefined;
+  const byPhase: Record<CheckpointTakePhase, number> = {
+    guard: 0,
+    scope: 0,
+    start: 0,
+    counts: 0,
+    bin: 0,
+    snapshot: 0,
+    stability: 0,
+  };
+  let phase: CheckpointTakePhase = 'guard';
+  let at = sent?.() ?? 0;
+  const settle = (): void => {
+    if (!sent) return;
+    const now = sent();
+    byPhase[phase] += now - at;
+    at = now;
+  };
+  return {
+    enter(next) {
+      settle();
+      phase = next;
+    },
+    requests() {
+      if (!sent) return undefined;
+      settle();
+      const total = Object.values(byPhase).reduce((sum, requests) => sum + requests, 0);
+      return { total, byPhase: { ...byPhase } };
+    },
+  };
 }
 
 // ─── The take ────────────────────────────────────────────────────────────────
@@ -902,6 +1015,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     });
 
   report(0, `Checking ${request.orgName}`);
+  const count = phaseCount(org);
   const guard = await guardCheckpoint(guardConnectionOf(org), {
     act: 'take',
     orgName: request.orgName,
@@ -926,11 +1040,14 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     const edition = await editionOf(org, guard.org);
     const budget = await readBudget(org, request.orgName);
     report(2, `Reading the objects of ${request.orgName}`);
+    count.enter('scope');
     const scope = await describeScope(org, reader, request);
+    count.enter('start');
     const userId = await org.userId();
     const automatedProcessUserId = await automatedProcessUserOf(org);
     const readFrom = await org.serverTime();
     report(8, `Counting the records of ${scope.objects.length} objects`);
+    count.enter('counts');
     const plan = await planOf(org, reader, request, scope, budget, signal);
     if (plan.refusal !== undefined) return { taken: false, refusal: plan.refusal };
     if (plan.objects.length === 0) {
@@ -980,6 +1097,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     await store.write(taking);
 
     report(12, 'Reading the recycle bin as it was at the checkpoint');
+    count.enter('bin');
     const bin = await spoolReads(
       reader,
       plan.objects.map(({ scoped }) => ({
@@ -998,6 +1116,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       inBin.set(outcome.objectApiName, outcome.rows);
     }
 
+    count.enter('snapshot');
     const records = await snapshotOf(
       folder,
       snapshotId,
@@ -1009,6 +1128,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     );
 
     report(88, 'Reading the time on the org');
+    count.enter('stability');
     const takenAt = await org.serverTime();
     report(90, `Checking what changed in ${request.orgName} while it was read`);
     const { movedWhileTaken, notChecked } = await stabilityOf(
@@ -1050,7 +1170,14 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     };
     await store.write(checkpoint);
     report(100, `Checkpoint '${checkpoint.name}' taken`, objects.length, objects.length);
-    return { taken: true, checkpoint, notChecked };
+    const requests = count.requests();
+    return {
+      taken: true,
+      checkpoint,
+      notChecked,
+      ...(requests !== undefined ? { requests } : {}),
+      estimate: plan.estimate,
+    };
   } catch (err: unknown) {
     if (folder !== undefined) await discard(store, folder, taking, deps);
     if (stopped(err, signal)) throw new CheckpointTakeStopped();
@@ -1095,6 +1222,9 @@ async function snapshotOf(
           .map(({ scoped }) => scoped.objectApiName),
         origin: 'checkpoint',
         failWhenTruncated: true,
+        // The snapshot reads through a connection of its own: what it sends
+        // is counted with the take's.
+        onConnection: (connection) => deps.org.countAlso?.(connection),
       },
       deps.signal,
     );

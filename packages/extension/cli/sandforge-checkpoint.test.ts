@@ -15,6 +15,7 @@ import {
   previewExitCode,
   previewLines,
   previewTotals,
+  requestsLine,
   resolveCheckpoint,
 } from './sandforge-checkpoint.js';
 
@@ -212,6 +213,9 @@ describe('parseArgs', () => {
       'A production org is refused before anything is read or written, exit 1. No flag lifts it.',
       'JSON (--json), one value on stdout:',
       '[{id, name, org, organizationId, takenAt, records, bytes, expiresAt,',
+      '{checkpoint, requests?, estimate}: the checkpoint as kept',
+      'requests, {total, byPhase}, the API requests the take sent',
+      'estimate.requestsByPhase splits',
       '{checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,',
       '{refusal: {code, message}}',
       'Exit codes: 0 done',
@@ -433,6 +437,37 @@ function diffOf(objects: RewindDiffObject[], patch: Partial<RewindDiff> = {}): R
     ...patch,
   };
 }
+
+describe('requestsLine', () => {
+  const byPhase = {
+    guard: 4,
+    scope: 12,
+    start: 3,
+    counts: 41,
+    bin: 48,
+    snapshot: 12,
+    stability: 42,
+  };
+
+  it('says what the take sent, phase by phase, each beside what its estimate said where they differ', () => {
+    expect(
+      requestsLine(
+        { total: 162, byPhase },
+        { apiRequests: 155, requestsByPhase: { ...byPhase, bin: 41, stability: 42 } },
+      ),
+    ).toBe(
+      '  sent 162 API requests to the org, about 155 estimated: guard 4, scope 12, start 3, ' +
+        'counts 41, bin 48 (41), snapshot 12, stability 42',
+    );
+  });
+
+  it('says what it sent alone when no estimate came with it', () => {
+    expect(requestsLine({ total: 162, byPhase }, undefined)).toBe(
+      '  sent 162 API requests to the org: guard 4, scope 12, start 3, counts 41, bin 48, ' +
+        'snapshot 12, stability 42',
+    );
+  });
+});
 
 describe('previewTotals and orgDiffers', () => {
   it('counts the three numbers, every class of each', () => {

@@ -2,11 +2,13 @@ import { describe, it, expect, expectTypeOf } from 'vitest';
 import type * as z from 'zod';
 
 import type {
+  CheckpointEstimate,
   CheckpointLeftOutFieldReason,
   CheckpointOrgTier,
   CheckpointReadMode,
   CheckpointScopeMode,
   CheckpointStatus,
+  CheckpointTakeRequests,
   OrgCheckpoint,
   RewindResult,
   RewindStatus,
@@ -51,6 +53,15 @@ describe('the checkpoint file and its schema', () => {
     expectTypeOf<OrgCheckpoint['takenBy']['modifyAllData']>().toEqualTypeOf<true>();
     expectTypeOf<OrgCheckpoint['ignoredFields']>().toEqualTypeOf<string[]>();
     expectTypeOf<OrgCheckpoint['expiresAt']>().toEqualTypeOf<string | null>();
+  });
+});
+
+describe('the requests of a take', () => {
+  it('are estimated and counted over the same phases, each one a number', () => {
+    expectTypeOf<NonNullable<CheckpointEstimate['requestsByPhase']>>().toEqualTypeOf<
+      CheckpointTakeRequests['byPhase']
+    >();
+    expectTypeOf<CheckpointTakeRequests['byPhase']['snapshot']>().toEqualTypeOf<number>();
   });
 });
 

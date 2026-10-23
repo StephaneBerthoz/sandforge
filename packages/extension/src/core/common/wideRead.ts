@@ -218,6 +218,27 @@ function byIdStatements(
   return statements;
 }
 
+/** A record id as the API writes every one, eighteen characters: what a statement's room is measured with. */
+const SAMPLE_ID = '001000000000000AAA';
+
+/**
+ * The most ids one statement reading `group` of `objectApiName` by id names,
+ * as {@link readOtherColumns} writes it: {@link IDS_PER_STATEMENT}, or fewer
+ * when the group's columns leave less of the URI to them. What an estimate
+ * counts the reads of a wide object's other groups with.
+ *
+ * @param where - A term each statement holds its rows to beside their ids.
+ */
+export function idsPerStatement(
+  objectApiName: string,
+  group: readonly string[],
+  where?: string,
+): number {
+  const ids = Array.from({ length: IDS_PER_STATEMENT }, () => SAMPLE_ID);
+  const [first = ''] = byIdStatements(objectApiName, group, ids, where);
+  return first.split(`'${SAMPLE_ID}'`).length - 1;
+}
+
 /**
  * Read the groups of columns after the first for `rows`, the rows the first
  * statement of `wide` returned, by their ids, and merge them into the rows.

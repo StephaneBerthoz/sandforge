@@ -23,6 +23,7 @@ import {
   removalCost,
   restoreCost,
   rewindEstimate,
+  snapshotGroupReads,
   streamedReadsCost,
   takeEstimate,
   undeleteCost,
@@ -91,26 +92,91 @@ function held(objectApiName: string, records: number, fields = ['Name']): Estima
 }
 
 describe('takeEstimate', () => {
-  it('counts a composite as one request — 25 describes, or five counts, bin reads or checks — and the snapshot a page a request, more for a wide object', () => {
+  it('counts a composite as one request — 25 describes, or five counts, bin reads or checks — and the snapshot a page a request, phase by phase', () => {
     const estimate = takeEstimate({
       described: 30,
-      objects: [
-        { records: 4_500, groups: 1 },
-        { records: 0, groups: 1 },
-        { records: 2_000, groups: 3 },
-      ],
+      objects: [{ records: 4_500 }, { records: 0 }, { records: 2_000, otherGroups: [268, 500] }],
       pageRows: 2_000,
     });
 
-    // 12 every take sends, 2 calls of describes, 3 of counts, bin reads and
-    // checks, 3 pages of the first object, 1 page of the wide one read in 1
-    // statement and 4 per group past the first.
+    // The guard, the org, its edition, the permissions and the limits; the
+    // two global describes, 2 calls of describes and the encryption right;
+    // the user, the Automated Process user and T0; a call of counts, one of
+    // the bin's first pages; 3 pages of the first object and 1 of the wide
+    // one, whose page of 2,000 rows is read again by its ids, 268 then 500
+    // a statement, and which org the snapshot is of; T1 and a call of checks.
+    expect(estimate.requestsByPhase).toEqual({
+      guard: 4,
+      scope: 3 + 2,
+      start: 3,
+      counts: 1,
+      bin: 1,
+      snapshot: 3 + (1 + 8 + 4) + 1,
+      stability: 1 + 1,
+    });
     expect(estimate).toEqual({
       records: 6_500,
-      apiRequests: 12 + 2 + 3 + 3 + (1 + 2 * 4),
-      seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 12),
+      apiRequests: 4 + 5 + 3 + 1 + 1 + 17 + 2,
+      requestsByPhase: estimate.requestsByPhase,
+      seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 4 + 12 * 0.5),
       bytes: 6_500 * 1_000 + (8 + 4_500 * 35) + 8 + (8 + 2_000 * 35),
     });
+  });
+
+  it('reads a wide object’s other column groups by the ids a statement of each holds, a full page and the last apart', () => {
+    const snapshot = (records: number, otherGroups: number[]): number =>
+      takeEstimate({ described: 1, objects: [{ records, otherGroups }], pageRows: 2_000 })
+        .requestsByPhase?.snapshot ?? Number.NaN;
+
+    // Two pages, 2,000 rows then 600: the full one read again in 8
+    // statements of 268 ids and 4 of 500, the last in 3 and 2; and the org.
+    expect(snapshot(2_600, [268, 500])).toBe(2 + (8 + 4) + (3 + 2) + 1);
+    // Three records take one statement a group, not as many as a full page.
+    expect(snapshot(3, [268])).toBe(1 + 1 + 1);
+    // One statement reads an object whose fields fit it.
+    expect(snapshot(4_001, [])).toBe(3 + 1);
+  });
+
+  it('counts every object it counts, those it then leaves out among them, and again alone each describe and count a composite did not answer', () => {
+    const estimate = takeEstimate({
+      described: 26,
+      describedAlone: 2,
+      counted: 6,
+      countedAlone: 1,
+      objects: Array.from({ length: 5 }, () => ({ records: 0 })),
+      pageRows: 2_000,
+    });
+
+    expect(estimate.requestsByPhase).toEqual({
+      guard: 4,
+      scope: 3 + 2 + 2,
+      start: 3,
+      counts: 2 + 1,
+      bin: 1,
+      // Nothing to read: no page, and no snapshot to ask which org it is of.
+      snapshot: 0,
+      stability: 1 + 1,
+    });
+    expect(estimate.apiRequests).toBe(4 + 7 + 3 + 3 + 1 + 0 + 2);
+  });
+
+  it('tells, of a snapshot’s object, the ids a read by id of each column group after the first names, fewer through the recycle bin', () => {
+    const narrow = ['Id', 'SystemModstamp', 'Name'];
+    const wide = [
+      'Id',
+      'SystemModstamp',
+      ...Array.from({ length: 900 }, (_, n) => `Customer_Field_${String(n).padStart(4, '0')}__c`),
+    ];
+
+    expect(snapshotGroupReads('Account', narrow, 'query')).toEqual([]);
+    const query = snapshotGroupReads('Task', wide, 'query');
+    const throughBin = snapshotGroupReads('Task', wide, 'scanAllLive');
+    expect(query.length).toBeGreaterThan(1);
+    expect(query.every((ids) => ids > 0 && ids <= 500)).toBe(true);
+    expect(Math.min(...query)).toBeLessThan(500);
+    expect(throughBin).toHaveLength(query.length);
+    throughBin.forEach((ids, at) => expect(ids).toBeLessThanOrEqual(query[at]));
+    expect(throughBin.some((ids, at) => ids < query[at])).toBe(true);
   });
 });
 
@@ -594,7 +660,7 @@ describe('rewindEstimate', () => {
 
     const take = takeEstimate({
       described: 300,
-      objects: objects.map((object) => ({ records: object.records, groups: 1 })),
+      objects: objects.map((object) => ({ records: object.records })),
       pageRows: 500,
     });
     const preview = diffEstimate({ objects, diff }).apiRequests;

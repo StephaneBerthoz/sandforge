@@ -4,6 +4,7 @@ import {
   MAX_STATEMENT_URI_CHARS,
   columnGroups,
   firstColumns,
+  idsPerStatement,
   pagesColumnsApart,
   readColumnsApart,
   readOtherColumns,
@@ -141,6 +142,69 @@ describe('wideStatement', () => {
     expect(wide?.first.startsWith('SELECT Id, SystemModstamp, Name, ')).toBe(true);
     for (const group of [wide?.firstGroup ?? [], ...(wide?.others ?? [])]) {
       expect(group.slice(0, 2)).toEqual(['Id', 'SystemModstamp']);
+    }
+  });
+});
+
+/** How many ids each statement of `sent` reading `group` of `objectApiName` by id named, in order. */
+function idsByStatement(
+  sent: readonly string[],
+  objectApiName: string,
+  group: readonly string[],
+): number[] {
+  const prefix = `SELECT ${group.join(', ')} FROM ${objectApiName} WHERE `;
+  return sent
+    .filter((statement) => statement.startsWith(prefix) && statement.includes('Id IN ('))
+    .map((statement) => [...statement.matchAll(/'[^']+'/g)].length);
+}
+
+describe('idsPerStatement', () => {
+  it('names as many ids as each read of a group by id names a statement: 500 for a short group, fewer for one whose columns take half the URI', async () => {
+    const fields = wideFields(900);
+    const org = fakeOrg(rowsOf(fields, 1_200));
+    const wide = wideStatement(`SELECT ${fields.join(', ')} FROM Account`);
+    if (!wide) throw new Error('Not split');
+
+    await readOtherColumns(await org.read(wide.first), wide, org.read);
+
+    const per = wide.others.map((group) => idsPerStatement('Account', group));
+    for (const [at, group] of wide.others.entries()) {
+      const sent = idsByStatement(org.sent, 'Account', group);
+      expect(sent[0]).toBe(per[at]);
+      expect(sent).toHaveLength(Math.ceil(1_200 / per[at]));
+      expect(sent.reduce((total, ids) => total + ids, 0)).toBe(1_200);
+    }
+    // A group of columns that fill their half of the URI leaves room for
+    // fewer ids than the 500 a statement names at most.
+    expect(Math.min(...per)).toBeLessThan(500);
+    expect(idsPerStatement('Account', ['Id', 'Name'])).toBe(500);
+  });
+
+  it('counts the term each read by id keeps its rows to beside their ids', async () => {
+    const fields = ['Id', 'SystemModstamp', ...wideFields(900).slice(1)];
+    const rows = Array.from({ length: 700 }, (_, n) => ({
+      ...Object.fromEntries(fields.map((field) => [field, 'v1'])),
+      Id: idOf(n + 1),
+      SystemModstamp: '2026-10-22T10:00:00.000+0000',
+    }));
+    const org = stampedOrg(rows);
+    const wide = wideStatement(`SELECT ${fields.join(', ')} FROM Account`, [
+      'Id',
+      'SystemModstamp',
+    ]);
+    if (!wide) throw new Error('Not split');
+
+    await readOtherColumnsAtOneStamp(await org.read(wide.first), wide, org.read, {
+      stamp: 'SystemModstamp',
+      idsWhere: 'IsDeleted = false',
+    });
+
+    for (const group of wide.others) {
+      const per = idsPerStatement('Account', group, 'IsDeleted = false');
+      const sent = idsByStatement(org.sent, 'Account', group);
+      expect(sent[0]).toBe(Math.min(per, 700));
+      expect(sent).toHaveLength(Math.ceil(700 / per));
+      expect(per).toBeLessThanOrEqual(idsPerStatement('Account', group));
     }
   });
 });

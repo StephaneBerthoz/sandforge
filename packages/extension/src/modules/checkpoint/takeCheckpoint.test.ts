@@ -128,6 +128,15 @@ const CHILDREN: Record<string, MemoryChild[]> = {
   Contact: [{ childSObject: 'Case', field: 'ContactId' }],
 };
 
+/** The data objects described above, as the org lists them. */
+const DATA_OBJECTS: Record<string, Record<string, unknown>> = {
+  Account: {},
+  Case: {},
+  Contact: {},
+  Lead: {},
+  Task: {},
+};
+
 /** The objects the org lists, beyond the data objects described above. */
 const LISTED_ELSEWHERE: Record<string, Record<string, unknown>> = {
   FeedItem: {},
@@ -145,10 +154,26 @@ class TakeTestOrg extends MemoryRemovalOrg implements TakeOrg {
   readonly asked: string[] = [];
   /** Called with each call's path or statement before it is answered: what a test fails a call from. */
   failing?: (what: string) => Error | undefined;
+  /**
+   * The subrequests of a composite the org answers with an error of its own,
+   * by their address: asked alone, they are answered.
+   */
+  refusedInComposite?: (url: string) => boolean;
 
   constructor(private readonly listed: Record<string, Record<string, unknown>>) {
     super(CHILDREN, { now: () => clock });
     for (const [name, fields] of Object.entries(FIELDS)) this.changeSchema(name, fields);
+  }
+
+  /** The Tooling API's global describe: a request, which lists no object here. */
+  async toolingObjects(): Promise<string[]> {
+    this.requests++;
+    return [];
+  }
+
+  /** Every request the org answered, SOAP calls among them, the snapshot's handler's too. */
+  requestsSent(): number {
+    return this.requests + this.soapCalls;
   }
 
   override async describeGlobal(): Promise<unknown> {
@@ -189,7 +214,25 @@ class TakeTestOrg extends MemoryRemovalOrg implements TakeOrg {
       this.requests++;
       return { DailyApiRequests: this.limits };
     }
-    return super.request(request);
+    const answer = await super.request(request);
+    const refused = this.refusedInComposite;
+    if (refused === undefined || request.method !== 'POST' || !request.url.endsWith('/composite')) {
+      return answer;
+    }
+    const asked = (JSON.parse(body) as { compositeRequest: Array<{ url: string }> })
+      .compositeRequest;
+    const { compositeResponse } = answer as { compositeResponse: Array<Record<string, unknown>> };
+    return {
+      compositeResponse: compositeResponse.map((sub, at) =>
+        refused(decodeURIComponent(asked[at].url))
+          ? {
+              ...sub,
+              httpStatusCode: 500,
+              body: [{ errorCode: 'UNKNOWN_EXCEPTION', message: 'An unexpected error occurred.' }],
+            }
+          : sub,
+      ),
+    };
   }
 }
 
@@ -227,14 +270,7 @@ interface OrgSays {
 
 function harness(
   says: OrgSays = {},
-  listed: Record<string, Record<string, unknown>> = {
-    Account: {},
-    Case: {},
-    Contact: {},
-    Lead: {},
-    Task: {},
-    ...LISTED_ELSEWHERE,
-  },
+  listed: Record<string, Record<string, unknown>> = { ...DATA_OBJECTS, ...LISTED_ELSEWHERE },
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-take-'));
   dirs.push(dir);
@@ -263,6 +299,8 @@ function harness(
       sent.push({ soql, scanAll: options?.scanAll === true });
       hook(soql);
       if (soql === 'SELECT Id FROM Organization') {
+        // Answered here, as the org the handler reached says; a request all the same.
+        org.requests++;
         return {
           totalSize: 1,
           done: true,
@@ -911,7 +949,7 @@ describe('scopeCheckpoint', () => {
     expect(scope.estimate).toEqual({
       ...takeEstimate({
         described: 5,
-        objects: [1, 3, 2, 0, 2].map((records) => ({ records, groups: 1 })),
+        objects: [1, 3, 2, 0, 2].map((records) => ({ records, otherGroups: [] })),
         pageRows: 2_000,
       }),
       apiRequestsLeft: 14_000,
@@ -947,28 +985,174 @@ describe('scopeCheckpoint', () => {
       other.lock.release();
     }
   });
+});
 
-  it('estimates every request the take then sends the org, its SOAP calls and its snapshot’s reads counted', async () => {
+describe('takeCheckpoint — the requests it sends', () => {
+  /** The phases of a take whose figures differ between what it sent and what it estimated. */
+  function differing(outcome: Extract<TakeOutcome, { taken: true }>): Record<string, number> {
+    const estimated = outcome.estimate.requestsByPhase;
+    const counted = outcome.requests?.byPhase;
+    if (!estimated || !counted) throw new Error('not counted or not estimated by phase');
+    return Object.fromEntries(
+      Object.entries(counted)
+        .map(([phase, sent]) => [phase, sent - estimated[phase as keyof typeof estimated]])
+        .filter(([, more]) => more !== 0),
+    );
+  }
+
+  it('counts every request it sends, phase by phase, its SOAP calls and its snapshot’s among them, each phase as its estimate said', async () => {
     const h = harness();
     seed(h.org);
     const scope = await scopeCheckpoint(h.deps, request());
-    h.org.requests = 0;
-    h.org.soapCalls = 0;
-    const sentBefore = h.sent.length;
+    const before = { all: h.org.requestsSent(), soap: h.org.soapCalls };
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome.requests).toEqual({
+      total: h.org.requestsSent() - before.all,
+      byPhase: {
+        // The org, its edition, the permissions, the limits.
+        guard: 4,
+        // The two global describes, one composite of describes, the encryption right.
+        scope: 4,
+        // The user, the Automated Process user, T0.
+        start: 3,
+        counts: 1,
+        bin: 1,
+        // Four objects of a page each, and which org the snapshot is of.
+        snapshot: 5,
+        // T1 and one composite of checks: nothing moved.
+        stability: 2,
+      },
+    });
+    // The clock twice and the user: SOAP calls, each a request of the day's.
+    expect(h.org.soapCalls - before.soap).toBe(3);
+    expect(outcome.estimate).toEqual(scope.estimate);
+    expect(outcome.requests?.total).toBe(scope.estimate.apiRequests);
+    expect(differing(outcome)).toEqual({});
+  });
+
+  it('prices a wide object’s other column groups by the ids each statement of them holds, a full page and the last apart', async () => {
+    const h = harness();
+    seed(h.org);
+    const custom = Array.from(
+      { length: 600 },
+      (_, n) => `Customer_Field_${String(n).padStart(4, '0')}__c`,
+    );
+    h.org.changeSchema('Account', [
+      ...STAMP_FIELDS,
+      writable('Name'),
+      ...custom.map((name) => writable(name)),
+    ]);
+    clock = LONG_AGO;
+    for (let n = 10; n < 2_608; n++) h.org.add('Account', { Id: accountId(n), Name: `Wide ${n}` });
+    clock = T0;
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    const account = outcome.checkpoint.objects.find((o) => o.objectApiName === 'Account');
+    expect(account?.records).toBe(2_600);
+    // Read in three groups: a page of 2,000 rows, then one of 600, each read
+    // again by its ids in the two other groups.
+    const statements = h.sent.filter(({ soql }) => soql.includes('FROM Account WHERE Id IN ('));
+    expect(statements.length).toBeGreaterThan(2 * 2 * 4);
+    expect(outcome.requests?.byPhase.snapshot).toBe(
+      2 + statements.length + 1 + 3, // its pages, its reads by id, the org, the other objects
+    );
+    expect(differing(outcome)).toEqual({});
+  });
+
+  it('prices again alone each describe and each count a composite did not answer, as the take asks them again', async () => {
+    const h = harness();
+    seed(h.org);
+    h.org.refusedInComposite = (url) =>
+      url.includes('sobjects/Case/describe') || url.includes('SELECT COUNT() FROM Lead');
+    const scope = await scopeCheckpoint(h.deps, request());
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome.checkpoint.objects.map((object) => object.objectApiName)).toContain('Case');
+    expect(scope.estimate.requestsByPhase).toMatchObject({ scope: 3 + 1 + 1, counts: 1 + 1 });
+    expect(outcome.requests?.byPhase).toEqual(scope.estimate.requestsByPhase);
+  });
+
+  it('counts the objects it counts, one it then leaves out past the limit for one object among them', async () => {
+    const h = harness({}, { ...DATA_OBJECTS, Opportunity: {}, ...LISTED_ELSEWHERE });
+    seed(h.org);
+    h.org.changeSchema('Opportunity', [...STAMP_FIELDS, writable('Name')]);
+    clock = LONG_AGO;
+    for (let n = 0; n < 30; n++) {
+      h.org.add('Opportunity', { Id: `006${String(n).padStart(12, '0')}AAA`, Name: `Big ${n}` });
+    }
+    clock = T0;
+
+    const outcome = taken(await takeCheckpoint(h.deps, request({ maxTotal: 20 })));
+
+    expect(outcome.checkpoint.objects).toHaveLength(5);
+    expect(outcome.checkpoint.scope.leftOut.map((out) => out.objectApiName)).toContain(
+      'Opportunity',
+    );
+    // Six objects counted, two composites; five kept, one composite of bin
+    // reads and one of checks.
+    expect(outcome.requests?.byPhase).toMatchObject({ counts: 2, bin: 1, stability: 2 });
+    expect(differing(outcome)).toEqual({});
+  });
+
+  it('counts the recycle bin’s further pages, which no estimate knows before it reads the bin', async () => {
+    const h = harness();
+    seed(h.org);
+    clock = LONG_AGO;
+    for (let n = 0; n < 4_500; n++) {
+      const id = `00Q${String(n).padStart(12, '0')}AAA`;
+      h.org.add('Lead', { Id: id, LastName: `Gone ${n}` });
+      h.org.trash('Lead', id);
+    }
+    clock = T0;
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome.checkpoint.objects.find((o) => o.objectApiName === 'Lead')?.inBin).toBe(4_500);
+    // Three pages of ids: the first with the other objects', two more alone.
+    expect(differing(outcome)).toEqual({ bin: 2 });
+  });
+
+  it('counts the reads of what moved while it was taken, which no estimate knows before', async () => {
+    const h = harness();
+    seed(h.org);
+    h.before((soql) => {
+      if (!soql.includes('FROM Account')) return;
+      clock = T0 + 30_000;
+      h.org.edit('Contact', contactId(1), { LastName: 'Ada (edited)' });
+    });
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome.checkpoint.movedWhileTaken.changed).toBe(1);
+    // The Contacts moved: their L and D in one composite, their count in another.
+    expect(differing(outcome)).toEqual({ stability: 2 });
+  });
+
+  it('says nothing of what it sent when its org does not count it', async () => {
+    const h = harness();
+    seed(h.org);
+    Object.assign(h.org, { requestsSent: undefined });
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome).not.toHaveProperty('requests');
+    expect(outcome.estimate.requestsByPhase?.guard).toBe(4);
+  });
+
+  it('hands its org the connection the snapshot reads through, whose requests it counts with its own', async () => {
+    const h = harness();
+    seed(h.org);
+    const handed: unknown[] = [];
+    Object.assign(h.org, { countAlso: (connection: unknown) => handed.push(connection) });
 
     taken(await takeCheckpoint(h.deps, request()));
 
-    // The snapshot's own handler reads which org it is through its own
-    // connection, which the org of the test does not answer.
-    const snapshotOrgReads = h.sent
-      .slice(sentBefore)
-      .filter(({ soql }) => soql === 'SELECT Id FROM Organization').length;
-    const sent = h.org.requests + h.org.soapCalls + snapshotOrgReads;
-    // The clock twice and the user: SOAP calls, each a request of the day's.
-    expect(h.org.soapCalls).toBe(3);
-    // All of them, but the Tooling API's global describe, which the org of
-    // the test does not offer.
-    expect(sent).toBe(scope.estimate.apiRequests - 1);
+    expect(handed).toHaveLength(1);
+    expect(handed[0]).toBe(await vi.mocked(getJsforceConnection).mock.results[0]?.value);
   });
 });
 
@@ -1000,5 +1184,34 @@ describe('takeOrgOf', () => {
     expect(await org.toolingObjects?.()).toEqual(['ApexClass']);
     conn.tooling.describeGlobal.mockRejectedValueOnce(new Error('no Tooling API for this user'));
     expect(await org.toolingObjects?.()).toEqual([]);
+  });
+
+  it('counts every request its connection sends from then on, SOAP calls among them, and those of a connection handed to it', async () => {
+    const soap = '/services/Soap/u/66.0/00D000000000001';
+    const transportOf = () => ({ httpRequest: vi.fn(async (_request: { url: string }) => ({})) });
+    const transport = transportOf();
+    const conn = {
+      version: '66.0',
+      _transport: transport,
+      request: vi.fn(async () => ({})),
+      soap: {
+        getServerTimestamp: async () => {
+          await transport.httpRequest({ url: `https://example.my.salesforce.com${soap}` });
+          return { timestamp: '2026-10-22T14:05:12.731Z' };
+        },
+      },
+    };
+    const org = takeOrgOf(conn as unknown as Connection);
+
+    await org.request({ method: 'POST', url: '/composite', body: '{}' });
+    await org.serverTime();
+    expect(org.requestsSent?.()).toBe(2);
+
+    const snapshot = { request: vi.fn(async () => ({})), _transport: transportOf() };
+    org.countAlso?.(snapshot as unknown as Connection);
+    await snapshot.request();
+    await snapshot.request();
+    await snapshot._transport.httpRequest({ url: `https://example.my.salesforce.com${soap}` });
+    expect(org.requestsSent?.()).toBe(5);
   });
 });
