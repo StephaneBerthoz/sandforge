@@ -1966,8 +1966,8 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
-    // `safety.requireProdConfirmation`: explicit user consent before
-    // writing to a production org.
+    // Production Guard's question, which every write to a production org is
+    // asked and no setting turns off: the user's explicit consent.
     if (decision === 'declined') {
       sendHandlerError(
         this.deps,

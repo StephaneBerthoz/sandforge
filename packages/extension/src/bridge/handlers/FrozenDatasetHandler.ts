@@ -82,6 +82,7 @@ import {
   frozenLoadPayloadSchema,
   frozenRemovePayloadSchema,
   frozenRemoveSweepPayloadSchema,
+  frozenRulesClearPayloadSchema,
   frozenVerifyPayloadSchema,
 } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -151,6 +152,7 @@ import {
   requiredFieldsLeftEmpty,
   schemaStampOf,
   whyNotReused,
+  withFieldsCleared,
   withSchemaDefaults,
   writeDiscoveryToSas,
   writeSelectionToSas,
@@ -207,6 +209,7 @@ const FROZEN_TYPES = new Set([
   'frozen:remove',
   'frozen:remove:sweep',
   'frozen:status',
+  'frozen:rules:clear',
 ]);
 
 /** ConfigStore category for all frozen-dataset data. */
@@ -812,6 +815,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       case 'frozen:status':
         await this.handleStatus(msg);
         return true;
+      case 'frozen:rules:clear':
+        await this.handleRulesClear(msg);
+        return true;
       default:
         return false;
     }
@@ -857,6 +863,17 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   private resolveDatasetDir(config: FrozenProjectConfig | null): string {
     return config?.datasetDir ?? path.join(this.resolveSasDir(config), 'dataset');
+  }
+
+  /**
+   * The pseudonymization rules file, absolute: where the configuration
+   * points, else `rules.json` in the sas. The extraction reads it and the
+   * panel's "clear these" writes it, so both name the same file.
+   */
+  private resolveRulesPath(config: FrozenProjectConfig): string {
+    return path.resolve(
+      config.rulesFilePath ?? path.join(this.resolveSasDir(config), DEFAULT_RULES_FILE_NAME),
+    );
   }
 
   // ── Engine wiring ──────────────────────────────────────────────────────
@@ -1659,7 +1676,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         return;
       }
       const tokens = await this.loadTokens(sasDir, guard);
-      const rulesPath = config.rulesFilePath ?? path.join(sasDir, DEFAULT_RULES_FILE_NAME);
+      const rulesPath = this.resolveRulesPath(config);
       if (!(await pathExists(rulesPath))) {
         throw new LoadConfigError(
           `Pseudonymization rules file not found at ${rulesPath} — it is the source of truth ` +
@@ -1837,6 +1854,64 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendHandlerError(this.deps, 'frozen:extract', 'frozen:extract:error', msg, err, {
         code: this.errorCodeFor(err, 'EXTRACT_ERROR'),
         retryable: err instanceof TimeoutError,
+      });
+    }
+  }
+
+  // ── frozen:rules:clear ─────────────────────────────────────────────────
+
+  /**
+   * Write a `clear` rule into the rules file for each field the panel names:
+   * the fields an extraction kept in clear text without a rule, which its
+   * result lists for review. The dataset already written keeps them as it
+   * holds them; the next extraction clears them.
+   *
+   * The panel only showed what a dataset kept without a rule in its manifest
+   * and on the command line, and clearing one meant editing the rules file by
+   * hand. The file is written whole once its new content is complete, so an
+   * interrupted write leaves the rules as they were.
+   */
+  private async handleRulesClear(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenRulesClearPayloadSchema,
+      msg,
+      'frozen:rules:clear:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:rules:clear:error');
+    if (!config) return;
+    try {
+      const rulesPath = this.resolveRulesPath(config);
+      if (!(await pathExists(rulesPath))) {
+        throw new LoadConfigError(
+          `Pseudonymization rules file not found at ${rulesPath} — nothing was written. Create ` +
+            'it, or set rulesFilePath in the configuration.',
+        );
+      }
+      const result = withFieldsCleared(
+        JSON.parse(await fs.readFile(rulesPath, 'utf8')),
+        parsed.fields,
+      );
+      if (result.cleared.length > 0) {
+        const pending = `${rulesPath}.${process.pid}.writing`;
+        await fs.writeFile(pending, `${JSON.stringify(result.payload, null, 2)}\n`, 'utf8');
+        await fs.rename(pending, rulesPath);
+        this.deps.log(
+          `[INFO] frozen: ${result.cleared.length} field(s) given a clear rule in ${rulesPath} ` +
+            `(rules ${result.rulesVersion}): ${result.cleared.join(', ')}`,
+        );
+      }
+      const response = buildResponse(this.deps, msg, 'frozen:rules:clear:response', {
+        rulesPath,
+        rulesVersion: result.rulesVersion,
+        cleared: result.cleared,
+        alreadyRuled: result.alreadyRuled,
+      });
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'frozen:rules:clear', 'frozen:rules:clear:error', msg, err, {
+        code: this.errorCodeFor(err, 'RULES_CLEAR_ERROR'),
       });
     }
   }

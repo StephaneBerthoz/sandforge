@@ -388,3 +388,68 @@ export function requiredFieldsLeftEmpty(
   }
   return left.sort();
 }
+
+/** The note a rule written by {@link withFieldsCleared} carries, for whoever reads the file next. */
+const CLEARED_ON_REVIEW =
+  'Cleared on review of the extraction result: kept in clear text without a rule before.';
+
+/** What {@link withFieldsCleared} makes of a rules file. */
+export interface ClearedRules {
+  /** The file's JSON as it was read, with the rules it gained and its version moved on. */
+  payload: Record<string, unknown>;
+  /** The version the file carries now. */
+  rulesVersion: string;
+  /** The fields given a `clear` rule, sorted. */
+  cleared: string[];
+  /** The fields the file already declared a rule for, left as declared, sorted. */
+  alreadyRuled: string[];
+}
+
+/**
+ * A `clear` rule for each of `fields` the rules file declares nothing for:
+ * what a review of {@link keptWithoutARule} decides when a field the
+ * extraction kept in clear text is someone's data after all — a restricted
+ * picklist of a gender, a status that says too much of a person.
+ *
+ * Written into the file's JSON as it was read, every other key and rule kept,
+ * so nothing the user wrote is lost to the rewrite. The minor number of
+ * `rulesVersion` moves on when a rule is added: the manifest names the rules
+ * a dataset was frozen with, and the same version on other rules would say
+ * the next dataset was frozen with these. A field the file already rules is
+ * left as declared. A required picklist cleared leaves the load to ask a value
+ * for it, which the next extraction names (`requiredFieldsLeftEmpty`).
+ *
+ * @throws {RulesFileError} When the payload is not a valid rules file, or a
+ *   field is not named `Object.Field`.
+ */
+export function withFieldsCleared(payload: unknown, fields: readonly string[]): ClearedRules {
+  const parsed = parsePseudonymRules(payload);
+  const malformed = fields.filter((field) => !RULE_KEY_REGEX.test(field));
+  if (malformed.length > 0) {
+    throw new RulesFileError(
+      'Fields to clear must be named "ObjectApiName.FieldApiName"',
+      malformed.map((field) => JSON.stringify(field)),
+    );
+  }
+  const raw = payload as Record<string, unknown>;
+  const rules: Record<string, unknown> = { ...(raw.rules as Record<string, unknown>) };
+  const cleared: string[] = [];
+  const alreadyRuled: string[] = [];
+  for (const field of [...new Set(fields)].sort()) {
+    if (parsed.rules[field] !== undefined) {
+      alreadyRuled.push(field);
+      continue;
+    }
+    rules[field] = { generator: 'clear', comment: CLEARED_ON_REVIEW };
+    cleared.push(field);
+  }
+  const rulesVersion =
+    cleared.length > 0 ? nextMinorVersion(parsed.rulesVersion) : parsed.rulesVersion;
+  return { payload: { ...raw, rulesVersion, rules }, rulesVersion, cleared, alreadyRuled };
+}
+
+/** `1.4.2` → `1.5.0`. */
+function nextMinorVersion(version: string): string {
+  const [major, minor] = version.split('.').map(Number);
+  return `${major}.${minor + 1}.0`;
+}

@@ -28,11 +28,9 @@ import type {
   ReplacedOrgRestoreQuestion,
   UndeletableRemovalQuestion,
 } from '../bridge/handlers/HandlerTypes';
-import type { Services } from '../services.js';
 
 /** Inputs required to build the infrastructure/background service layer. */
 export interface BackgroundCompositionDeps {
-  services: Services;
   configStore: ConfigStore;
   /** The alias of a registered org, which the production question names it by. */
   orgNameOf?: (orgId: string) => string | undefined;
@@ -971,16 +969,14 @@ export const L10N_QUESTION_WORDS: QuestionWords = {
 export function createBackgroundComposition(
   deps: BackgroundCompositionDeps,
 ): BackgroundComposition {
-  const { services, configStore } = deps;
+  const { configStore } = deps;
 
   const performanceTracker = new PerformanceTracker();
-  // Safety settings are read live so toggling them takes effect without reload:
-  // `safety.requireProdConfirmation` gates the modal confirmation shown before
-  // any write to a production org. `safety.auditLogging` is read where the
-  // decisions are kept, by the audit trail.
+  // Every write to a production org asks through the modal below, and no
+  // setting turns that off: `safety.requireProdConfirmation` is no longer
+  // read. `safety.auditLogging` is read where the decisions are kept, by the
+  // audit trail.
   const productionGuard = new ProductionGuard({
-    isProdConfirmationRequired: () =>
-      services.getSandforgeSetting('safety.requireProdConfirmation', true),
     orgNameOf: deps.orgNameOf,
     questionWords: L10N_QUESTION_WORDS,
     requestConfirmation: async (impactSummary, orgTier, question) => {
@@ -1012,7 +1008,7 @@ export function createBackgroundComposition(
     },
     // A run's own questions — what fires as a clone inserts, what it is
     // about to write — go through the same kind of modal. No setting turns
-    // them off: `safety.requireProdConfirmation` is the production one's.
+    // them off either.
     requestRunConfirmation: confirmRun,
   });
   const offlineManager = new OfflineManager(configStore);

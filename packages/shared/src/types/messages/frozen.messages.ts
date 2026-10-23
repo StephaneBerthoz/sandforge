@@ -139,6 +139,27 @@ export interface FrozenStatusRequest extends BaseMessage {
   type: 'frozen:status';
 }
 
+/**
+ * `frozen:rules:clear`. WebView -> Extension. Write a `clear` rule into the
+ * pseudonymization rules file for each field named, `Object.Field`: the
+ * fields an extraction kept in clear text without a rule, which its result
+ * lists for review. The next extraction clears them.
+ */
+export interface FrozenRulesClearRequest extends BaseMessage {
+  type: 'frozen:rules:clear';
+  payload: { fields: string[] };
+}
+
+/**
+ * `frozen:rules:clear:response`. Extension -> WebView. The rules file written
+ * to, the version it carries now, the fields given a `clear` rule, and those
+ * it already ruled, left as declared.
+ */
+export interface FrozenRulesClearResponse extends BaseMessage {
+  type: 'frozen:rules:clear:response';
+  payload: { rulesPath: string; rulesVersion: string; cleared: string[]; alreadyRuled: string[] };
+}
+
 /** `frozen:config:get:response`. Extension -> WebView. */
 export interface FrozenConfigGetResponse extends BaseMessage {
   type: 'frozen:config:get:response';
@@ -316,5 +337,15 @@ export interface FrozenRemoveErrorMessage extends BaseMessage {
  */
 export interface FrozenRemoveSweepErrorMessage extends BaseMessage {
   type: 'frozen:remove:sweep:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:rules:clear:error`. Extension -> WebView. No configuration saved
+ * (`CONFIG_MISSING`), no rules file where the configuration points
+ * (`LOAD_CONFIG`), or a file that could not be read, parsed or written.
+ */
+export interface FrozenRulesClearErrorMessage extends BaseMessage {
+  type: 'frozen:rules:clear:error';
   payload: { message: string; code: string; retryable: boolean };
 }

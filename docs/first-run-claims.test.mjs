@@ -350,6 +350,18 @@ test('both READMEs and the Autopilot guide sell Autopilot as the copy it is', ()
   assert.match(guide, /copies whole tables/i);
   assert.match(guide, /Masking is off by default/);
   assert.match(guide, /Emails and phone numbers are neutralized/);
+  // The default stays None, and the review step says what that leaves in clear.
+  assert.match(guide, /\*\*None\*\* is the default, on the review step and on the command line/);
+  assert.match(
+    read(...EXT, 'cli', 'sandforge-autopilot.ts'),
+    /get\('--compliance', 'none'\) \?\? 'none'/,
+    'the command line masks by default now — the guide says None is its default',
+  );
+  assert.match(
+    read(...WEBVIEW_SRC, 'pages', 'Autopilot', 'AutopilotWizard', 'Step4_Review.tsx'),
+    /complianceFramework === 'none' && \([\s\S]{0,200}?'autopilot\.step4\.noFrameworkHint'/,
+    'the review step no longer says what no framework leaves in clear',
+  );
   assert.match(guide, /A run cannot be removed/);
   assert.ok(
     guide.includes(`**${label('autopilot.step4.contactPoints')}**`),

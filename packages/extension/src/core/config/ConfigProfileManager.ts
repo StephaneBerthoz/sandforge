@@ -28,7 +28,7 @@ export type ConfigCategory = 'syncMappings' | 'forgePlans' | 'pipelines' | 'anon
  * exported instead. VS Code shares them already, through Settings Sync or a
  * workspace's `.vscode/settings.json`, and some are the user's own consent or
  * safety switches (`sandforge.telemetry`, `sandforge.ai.enabled`,
- * `sandforge.safety.requireProdConfirmation`), which a file received from
+ * `sandforge.safety.auditLogging`), which a file received from
  * someone else must not flip. A profile that still lists the category is
  * read, and the category passed over.
  */

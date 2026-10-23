@@ -422,7 +422,8 @@
         "sandforge.safety.requireProdConfirmation": {
           "type": "boolean",
           "default": true,
-          "description": "%config.safety.requireProdConfirmation.description%"
+          "description": "%config.safety.requireProdConfirmation.description%",
+          "deprecationMessage": "%config.safety.requireProdConfirmation.deprecation%"
         },
         "sandforge.safety.auditLogging": {
           "type": "boolean",

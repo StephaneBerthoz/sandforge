@@ -373,12 +373,6 @@ export type RunConfirmationAnswer = 'confirmed' | 'declined' | 'unavailable';
 /** Optional runtime configuration for {@link ProductionGuard}. */
 export interface ProductionGuardOptions {
   /**
-   * Mirrors the `sandforge.safety.requireProdConfirmation` setting
-   * (manifest default true). When off, production-tier writes no longer
-   * request an explicit confirmation. Read at call time.
-   */
-  isProdConfirmationRequired?: () => boolean;
-  /**
    * UI callback invoked by {@link confirmIfNeeded} when a check result
    * requires explicit user confirmation. Resolves to the user's consent.
    * Wired in extension.ts to a modal `showWarningMessage`; absent in tests
@@ -570,11 +564,6 @@ export class ProductionGuard {
     return (await this.options.requestRunConfirmation(question)) ? 'confirmed' : 'declined';
   }
 
-  /** Whether production operations require an explicit confirmation (setting-backed). */
-  private requireProdConfirmation(): boolean {
-    return this.options.isProdConfirmationRequired?.() ?? true;
-  }
-
   /** The org a refusal names: by the alias the user knows it by, else by its id. */
   private orgPhrase(request: OperationRequest, words: QuestionWords): string {
     const name = this.options.orgNameOf?.(request.orgId);
@@ -629,9 +618,14 @@ export class ProductionGuard {
       warnings.push('Production override is active — destructive operation permitted');
     }
 
+    // Every write to a production org is asked about, and no setting turns
+    // the question off. `sandforge.safety.requireProdConfirmation` did: once
+    // false, Seed, Sync, Autopilot and DataOps wrote into production without
+    // a word, where their command lines refuse a production target outright
+    // and Forge refuses it in the panel too.
     return {
       allowed: true,
-      requiresConfirmation: this.requireProdConfirmation(),
+      requiresConfirmation: true,
       warnings,
       impactSummary: buildImpactSummary(request),
     };

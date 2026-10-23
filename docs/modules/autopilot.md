@@ -28,7 +28,7 @@ Before you start, know three things:
 ## Masking
 
 - **Emails and phone numbers** are neutralized by default, whatever the framework: every email address is written under `.invalid` and every phone number as a fictional one, so the target's automation reaches no one. Untick **Neutralize emails and phone numbers (recommended)** to copy them as the source holds them.
-- **A compliance framework** -- GDPR, CCPA, HIPAA or PCI-DSS -- anonymizes the personal fields it covers. None is picked unless you pick one: with **None**, nothing is anonymized beyond the emails and phone numbers. The review step says, per object, which personal fields no rule of the framework covers, which would be copied as the source holds them, and the run ends with a **Compliance Report** you can export as JSON.
+- **A compliance framework** -- GDPR, CCPA, HIPAA or PCI-DSS -- anonymizes the personal fields it covers. **None** is the default, on the review step and on the command line, and stays so: a copy holds the source's records as they are, its emails and phone numbers neutralized as a Sync run writes them. With **None**, nothing is anonymized beyond the emails and phone numbers, and the review step says so beside the framework picker: names, addresses and the other personal fields are copied as the source holds them until you pick a framework. The review step says, per object, which personal fields no rule of the framework covers, which would be copied as the source holds them, and the run ends with a **Compliance Report** you can export as JSON.
 
 ## Before a run writes
 

@@ -23,6 +23,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenCoverageNotes } from './FrozenCoverageNotes';
+import { FrozenKeptWithoutARule } from './FrozenKeptWithoutARule';
 
 /** Draft row for one coverage axis. */
 interface AxisDraft {
@@ -597,6 +598,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 exclusionCosts={extractMutation.data.manifest.coverage?.exclusionCosts}
                 requiredLeftEmpty={extractMutation.data.manifest.coverage?.requiredLeftEmpty}
                 testId="frozen-extract-coverage"
+              />
+              <FrozenKeptWithoutARule
+                fields={extractMutation.data.manifest.coverage?.keptWithoutARule ?? []}
               />
             </>
           )}

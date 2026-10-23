@@ -638,6 +638,8 @@ const FrozenMessages = [
   msg('frozen:remove:sweep:response'),
   msg('frozen:status'),
   msg('frozen:status:response'),
+  msg('frozen:rules:clear'),
+  msg('frozen:rules:clear:response'),
   // Error channels for frozen config-save / select / extract / load / verify.
   msg('frozen:config:save:error'),
   msg('frozen:select:error'),
@@ -647,6 +649,7 @@ const FrozenMessages = [
   msg('frozen:verify:error'),
   msg('frozen:remove:error'),
   msg('frozen:remove:sweep:error'),
+  msg('frozen:rules:clear:error'),
 ] as const;
 export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);
 

@@ -166,6 +166,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           <CompliancePicker selectedFramework={complianceFramework} onSelect={onFrameworkChange} />
         </div>
       </details>
+      {/* No framework is the default, kept so: the copy is the source as it
+          holds it, its emails and phone numbers neutralized as a Sync run
+          writes them. Said outside the folded picker, where the default
+          could otherwise be read as masking the names too. */}
+      {complianceFramework === 'none' && (
+        <p className="text-xs text-text-secondary" data-testid="step4-no-framework">
+          {t('autopilot.step4.noFrameworkHint', {
+            advanced: t('autopilot.step4.advancedCompliance'),
+          })}
+        </p>
+      )}
       {planning && (
         <p role="status" className="text-xs text-text-secondary" data-testid="step4-planning">
           {t('autopilot.status.planning')}

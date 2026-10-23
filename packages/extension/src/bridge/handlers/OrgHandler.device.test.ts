@@ -429,35 +429,17 @@ describe.skipIf(process.platform === 'win32')(
 
     beforeEach(() => {
       sfRuns = [];
-      // isCliAvailable and `sf org list` go through promisify(exec).
+      // isCliAvailable goes through promisify(exec).
       vi.mocked(exec).mockImplementation(((
-        command: string,
+        _command: string,
         _options: unknown,
         callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
       ) => {
-        const stdout =
-          command === 'sf org list --json'
-            ? JSON.stringify({
-                status: 0,
-                result: {
-                  nonScratchOrgs: [
-                    {
-                      orgId: '00D000000000001AAA',
-                      username: 'jane@example.com',
-                      alias: 'uat',
-                      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
-                      accessToken: '00D000000000001AAA!cli-session',
-                      connectedStatus: 'Connected',
-                      isSandbox: true,
-                    },
-                  ],
-                },
-              })
-            : '@salesforce/cli/2.150.6';
-        callback(null, { stdout, stderr: '' });
+        callback(null, { stdout: '@salesforce/cli/2.150.6', stderr: '' });
         return {};
       }) as never);
-      // The hand-off goes through execFile, its URL on stdin.
+      // The hand-off goes through execFile, its URL on stdin, and so does the
+      // display of the org it signed in to, its token shown.
       vi.mocked(execFile).mockImplementation(((
         file: string,
         args: string[],
@@ -466,20 +448,22 @@ describe.skipIf(process.platform === 'win32')(
       ) => {
         const run = { argv: [file, ...args], stdin: '' };
         sfRuns.push(run);
-        setImmediate(() =>
-          callback(
-            null,
-            JSON.stringify({
-              status: 0,
-              result: {
+        const result =
+          args[1] === 'display'
+            ? {
+                id: '00D000000000001AAA',
+                username: 'jane@example.com',
+                alias: 'uat',
+                instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+                accessToken: '00D000000000001AAA!cli-session',
+                connectedStatus: 'Connected',
+              }
+            : {
                 username: 'jane@example.com',
                 orgId: '00D000000000001AAA',
                 instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
-              },
-            }),
-            '',
-          ),
-        );
+              };
+        setImmediate(() => callback(null, JSON.stringify({ status: 0, result }), ''));
         return {
           pid: 1,
           stdin: {
@@ -493,7 +477,10 @@ describe.skipIf(process.platform === 'win32')(
     });
 
     it('gives the refresh token to sf on its stdin and to nothing else, then saves the org', async () => {
-      const deps = { ...createDeps(), sfdxBridge: new SfdxBridge() };
+      const deps = {
+        ...createDeps(),
+        sfdxBridge: new SfdxBridge(undefined, async () => ({ sandbox: true })),
+      };
       const endpoint = tokenEndpoint([{ status: 200, body: CODE_ANSWER }, APPROVED]);
       const handler = new OrgHandler(deps, {
         browser: browserThat(true).browser,
@@ -509,6 +496,10 @@ describe.skipIf(process.platform === 'win32')(
         {
           argv: ['sf', 'org', 'login', 'sfdx-url', '--alias', 'uat', '--json', '--sfdx-url-stdin'],
           stdin: `force://${CLIENT_ID}::${REFRESH_SENTINEL}@acme--uat.sandbox.my.salesforce.com\n`,
+        },
+        {
+          argv: ['sf', 'org', 'display', '--target-org', 'jane@example.com', '--json'],
+          stdin: '',
         },
       ]);
       const elsewhere = JSON.stringify([

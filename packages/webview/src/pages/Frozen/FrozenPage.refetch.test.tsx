@@ -253,3 +253,67 @@ describe('FrozenPage — the status it reads again', () => {
     expect(answerStatuses(before)).toBe(1);
   });
 });
+
+describe('FrozenPage — what an extraction kept in clear text with no rule', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useOrgStore.setState({ orgs: [DEV], selectedOrgId: DEV.id });
+    useFrozenStore.setState({
+      tab: 'extract',
+      status: null,
+      lastError: null,
+      controlReport: null,
+      selection: {
+        combinations: [{ combinationKey: 'stage=Won', axisValues: { stage: 'Won' } }],
+        uncovered: [],
+        volumetry: { measured: { Opportunity: 1 }, total: 1, budgetMax: 2500 },
+        selectedAt: '2026-09-24T09:00:00.000Z',
+        selectionPath: '/sas/selection.json',
+      },
+    });
+    render(<FrozenPage />);
+    answerStatuses(0);
+  });
+
+  it('shows the list on the extraction result, and clears it in one click through the rules file', () => {
+    fireEvent.click(screen.getByTestId('frozen-extract-run'));
+    const extract = sentAll('frozen:extract').pop();
+    if (!extract) throw new Error("no 'frozen:extract' was sent");
+    answer(extract, 'frozen:extract:response', {
+      datasetDir: '/sas/dataset',
+      files: ['manifest.json'],
+      recordCount: 3,
+      manifest: {
+        ...STATUS.manifest,
+        coverage: {
+          objects: 2,
+          truncated: false,
+          maxNodes: 200,
+          unboundedObjects: [],
+          filesLeftOut: [],
+          keptWithoutARule: ['Opportunity.StageName'],
+        },
+      },
+    });
+
+    expect(screen.getByTestId('frozen-kept-without-rule-list').textContent).toContain(
+      'Opportunity.StageName',
+    );
+    fireEvent.click(screen.getByTestId('frozen-kept-without-rule-clear'));
+    const clear = sentAll('frozen:rules:clear').pop();
+    if (!clear) throw new Error("no 'frozen:rules:clear' was sent");
+    expect(clear.payload).toEqual({ fields: ['Opportunity.StageName'] });
+
+    answer(clear, 'frozen:rules:clear:response', {
+      rulesPath: '/sas/rules.json',
+      rulesVersion: '1.1.0',
+      cleared: ['Opportunity.StageName'],
+      alreadyRuled: [],
+    });
+
+    expect(screen.getByTestId('frozen-kept-without-rule-written').textContent).toBe(
+      'Written to /sas/rules.json (rules 1.1.0): Opportunity.StageName will be cleared. Run ' +
+        'the extraction again for the dataset to clear them.',
+    );
+  });
+});

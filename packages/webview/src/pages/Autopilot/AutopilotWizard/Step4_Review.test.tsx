@@ -44,6 +44,21 @@ describe('Step4_Review', () => {
     expect(onFrameworkChange).toHaveBeenCalledWith('hipaa');
   });
 
+  it('says, with no framework picked, that names go in as the source holds them and where to pick one', () => {
+    // None is the default, as the store and the command line keep it: only
+    // the emails and phone numbers are neutralized, and the picker that would
+    // mask the names sits folded away.
+    const { rerender } = render(<Step4Review {...defaultProps} complianceFramework="none" />);
+    expect(screen.getByTestId('step4-no-framework').textContent).toBe(
+      'No compliance framework is picked: names, addresses and the other personal fields are ' +
+        'copied as the source holds them. Pick one under "Advanced: compliance framework" to ' +
+        'anonymize those it covers.',
+    );
+
+    rerender(<Step4Review {...defaultProps} complianceFramework="gdpr" />);
+    expect(screen.queryByTestId('step4-no-framework')).toBeNull();
+  });
+
   it('says before Execute that SandForge cannot take back what the run writes', () => {
     // Only the FAQ said it: a run keeps no list of what it writes.
     render(<Step4Review {...defaultProps} />);

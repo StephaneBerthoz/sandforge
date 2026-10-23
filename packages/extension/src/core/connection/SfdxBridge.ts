@@ -3,6 +3,8 @@ import { SF_LIMITS, orgRegistrationOf, orgTypeOf } from '@sandforge/shared';
 import * as z from 'zod';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 import { parseSalesforceLoginUrl } from '../common/salesforceLoginHost.js';
+import { typeTarget } from '../precheck/orgKindLive.js';
+import type { TypedTarget } from '../precheck/orgKindLive.js';
 import { isUsableAccessToken, refreshTokenViaCli } from './ConnectionHelper.js';
 import type { CliCredentials } from './ConnectionHelper.js';
 
@@ -19,6 +21,12 @@ const CLI_LOGIN_TIMEOUT_MS = 60_000;
  * opens. The page that asked waits 180 s for the whole connection.
  */
 const CLI_WEB_LOGIN_TIMEOUT_MS = 120_000;
+
+/**
+ * Longest `sf org display` may run: a CLI start, a session refresh and one
+ * call to the org it shows, the same bound the token reads have.
+ */
+const CLI_DISPLAY_TIMEOUT_MS = 30_000;
 
 /**
  * How many orgs may have their token read from the CLI at once. A read runs
@@ -201,6 +209,65 @@ const cliJsonSchema = z
     status: z.number().optional(),
     result: z.unknown().optional(),
     message: z.string().optional(),
+    /** The error's name on a failure: `NamedOrgNotFoundError` for a user the CLI does not hold. */
+    name: z.string().optional(),
+  })
+  .loose();
+
+/** A `--json` document, or undefined when stdout holds none the CLI could have written. */
+function cliDocumentOf(run: SfRun): z.infer<typeof cliJsonSchema> | undefined {
+  try {
+    const parsed = cliJsonSchema.safeParse(JSON.parse(extractJson(run.stdout)));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Why a run failed, in the CLI's words when it gave any: its JSON message,
+ * else that it ran out of time, else the first line of stderr.
+ */
+function cliFailureOf(
+  run: SfRun,
+  document: z.infer<typeof cliJsonSchema> | undefined,
+  command: string,
+  timeoutMs: number,
+): Error {
+  const cliMessage = document?.message?.trim();
+  if (cliMessage) return new Error(cliMessage);
+  if (run.failure?.killed) {
+    return new Error(`${command} did not finish within ${timeoutMs / 1000} s.`);
+  }
+  const firstStderrLine = run.stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return new Error(
+    firstStderrLine ?? run.failure?.message ?? `${command} failed without saying why.`,
+  );
+}
+
+/**
+ * The fields of `sf org display --json` read of one org. A scratch org's carry
+ * its Dev Hub's word (`devHubId`, `status`, `expirationDate`, `edition`) in
+ * place of `connectedStatus`; no answer says whether the org is a sandbox, nor
+ * the edition of an org that is not a scratch org, which `sf org list` read
+ * from the CLI's own files.
+ */
+const cliDisplayResultSchema = z
+  .object({
+    id: z.string().min(1),
+    username: z.string().min(1),
+    instanceUrl: z.string().min(1),
+    accessToken: z.string().nullish(),
+    alias: z.string().nullish(),
+    connectedStatus: z.string().nullish(),
+    apiVersion: z.string().nullish(),
+    devHubId: z.string().nullish(),
+    status: z.string().nullish(),
+    expirationDate: z.string().nullish(),
+    edition: z.string().nullish(),
   })
   .loose();
 
@@ -224,27 +291,9 @@ const cliLoginResultSchema = z
  * @param timeoutMs - How long the run was allowed, for the message when it ran out.
  */
 function readLogin(run: SfRun, command: string, timeoutMs = CLI_LOGIN_TIMEOUT_MS): CliLogin {
-  let document: z.infer<typeof cliJsonSchema> | undefined;
-  try {
-    const parsed = cliJsonSchema.safeParse(JSON.parse(extractJson(run.stdout)));
-    if (parsed.success) document = parsed.data;
-  } catch {
-    document = undefined;
-  }
-
+  const document = cliDocumentOf(run);
   if (run.failure || document?.status !== 0) {
-    const cliMessage = document?.message?.trim();
-    if (cliMessage) throw new Error(cliMessage);
-    if (run.failure?.killed) {
-      throw new Error(`${command} did not finish within ${timeoutMs / 1000} s.`);
-    }
-    const firstStderrLine = run.stderr
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0);
-    throw new Error(
-      firstStderrLine ?? run.failure?.message ?? `${command} failed without saying why.`,
-    );
+    throw cliFailureOf(run, document, command, timeoutMs);
   }
 
   const login = cliLoginResultSchema.safeParse(document.result);
@@ -294,7 +343,8 @@ function extractJson(raw: string): string {
 }
 
 /**
- * One org entry of `sf org list --json`, as the CLI writes it.
+ * One org entry of `sf org list --json`, as the CLI writes it, or what
+ * `sf org display --json` says of one org ({@link SfdxBridge.findOrg}).
  *
  * The flag is `isScratch`: an `isScratchOrg` key was read here that no entry
  * carries, so a scratch org was typed from `isSandbox` alone and came in as
@@ -366,6 +416,33 @@ export interface SfdxImportResult {
 /** Reads, through the CLI, a live access token for one of the users it holds. */
 export type CliTokenReader = (username: string) => Promise<CliCredentials>;
 
+/** A session of one org, as the org is asked what it is with. */
+export interface OrgSession {
+  instanceUrl: string;
+  accessToken: string;
+  apiVersion?: string;
+}
+
+/** Asks one org whether it is a sandbox, and its edition when it is not. */
+export type OrgKindReader = (
+  session: OrgSession,
+) => Promise<Pick<TypedTarget, 'sandbox' | 'edition'>>;
+
+/**
+ * The org's own answer (`typeTarget`): `IsSandbox`, then the edition of an org
+ * that is not a sandbox. Two queries of the org signed in to, and of no other.
+ */
+async function readKindFromTheOrg(session: OrgSession): Promise<TypedTarget> {
+  // Lazy boundary — see jsforceEntry.ts.
+  const { jsforce } = await import('./jsforceEntry.js');
+  const conn = new jsforce.Connection({
+    instanceUrl: session.instanceUrl,
+    accessToken: session.accessToken,
+    ...(session.apiVersion ? { version: session.apiVersion } : {}),
+  });
+  return typeTarget(conn);
+}
+
 /**
  * An org the CLI lists that an import leaves out: one it lists as connected
  * but gave no access token for (`noToken`), or one it cannot reach — a ping
@@ -436,8 +513,13 @@ export class SfdxBridge {
    * @param readToken - Reads a live token for an org whose listed one is
    *   hidden; by default the CLI refresh the connection helper recovers an
    *   expired session with.
+   * @param readKind - Asks the org {@link findOrg} found what it is; by
+   *   default, its Organization record.
    */
-  constructor(private readonly readToken: CliTokenReader = refreshTokenViaCli) {}
+  constructor(
+    private readonly readToken: CliTokenReader = refreshTokenViaCli,
+    private readonly readKind: OrgKindReader = readKindFromTheOrg,
+  ) {}
 
   /** Verify that sf CLI is available on PATH */
   async isCliAvailable(): Promise<boolean> {
@@ -511,26 +593,103 @@ export class SfdxBridge {
 
   /**
    * The org the CLI holds for `username`, mapped as {@link listOrgs} maps it,
-   * or undefined when the CLI does not list it as usable.
+   * or undefined when the CLI does not hold that user or cannot reach its org.
    *
-   * Looked up before any dedupe: two users of one org share its orgId, and the
-   * dedupe in listOrgs keeps whichever the CLI listed first — not necessarily
-   * the user who just signed in.
+   * Read with `sf org display --target-org <username> --json`, which calls
+   * that org alone. A sign-in read the user back from `sf org list`, which
+   * calls every org the CLI holds — production and client orgs included — to
+   * keep one. The display names the user asked for, so no other user of the
+   * same org can be taken for it either.
    *
-   * @throws When the CLI lists the user but gives no access token for it.
+   * The display does not say whether the org is a sandbox, nor the edition of
+   * one that is not a scratch org: the org itself is asked
+   * ({@link OrgKindReader}). One that will not say is typed as the guard
+   * reads such an org, production.
+   *
+   * @throws When the CLI holds the user but gives no access token for it, or
+   *   fails for another reason than not holding it; the message says why.
    */
   async findOrg(username: string): Promise<SfdxImportResult | undefined> {
-    const wanted = username.toLowerCase();
-    const entry = (await this.readOrgEntries()).find(
-      (candidate) => candidate.username?.toLowerCase() === wanted && isUsable(candidate),
-    );
-    if (!entry) return undefined;
+    const shown = await this.displayOrg(username);
+    if (!shown || !isUsable(shown)) return undefined;
+    let entry: SfdxOrgEntry;
     try {
-      return this.mapToSalesforceOrg(await this.withUsableToken(entry));
+      entry = await this.withUsableToken(shown);
     } catch (err: unknown) {
       throw new Error(
-        `The Salesforce CLI gave no access token for ${entry.username}: ${extractErrorMessage(err)}`,
+        `The Salesforce CLI gave no access token for ${shown.username}: ${extractErrorMessage(err)}`,
       );
+    }
+    return this.mapToSalesforceOrg(await this.typedByTheOrg(entry));
+  }
+
+  /**
+   * `sf org display --target-org <username> --json`, as an org entry; undefined
+   * when the CLI holds no such user.
+   */
+  private async displayOrg(username: string): Promise<SfdxOrgEntry | undefined> {
+    // The same characters ConnectionHelper accepts of a username it hands the
+    // CLI, and no leading dash, which the CLI would read as a flag.
+    if (!/^[\w.@+-]+$/.test(username) || username.startsWith('-')) {
+      throw new Error(`Invalid username format: "${username}"`);
+    }
+    const run = await runSf(
+      [
+        { value: 'org', role: 'command' },
+        { value: 'display', role: 'command' },
+        { value: '--target-org', role: 'flag' },
+        { value: username, role: 'username' },
+        { value: '--json', role: 'flag' },
+      ],
+      { timeoutMs: CLI_DISPLAY_TIMEOUT_MS },
+    );
+    const document = cliDocumentOf(run);
+    if (document?.name === 'NamedOrgNotFoundError') return undefined;
+    if (run.failure || document?.status !== 0) {
+      throw cliFailureOf(run, document, 'sf org display', CLI_DISPLAY_TIMEOUT_MS);
+    }
+    const shown = cliDisplayResultSchema.safeParse(document.result);
+    if (!shown.success) {
+      throw new Error('sf org display succeeded but did not say which org it shows.');
+    }
+    const org = shown.data;
+    const scratch = typeof org.devHubId === 'string' && org.devHubId !== '';
+    return {
+      orgId: org.id,
+      username: org.username,
+      instanceUrl: org.instanceUrl,
+      ...(org.alias ? { alias: org.alias } : {}),
+      ...(org.accessToken ? { accessToken: org.accessToken } : {}),
+      ...(org.connectedStatus ? { connectedStatus: org.connectedStatus } : {}),
+      ...(org.apiVersion ? { instanceApiVersion: org.apiVersion } : {}),
+      ...(scratch ? { isScratch: true } : {}),
+      ...(scratch && org.status ? { status: org.status } : {}),
+      ...(scratch && org.expirationDate ? { expirationDate: org.expirationDate } : {}),
+      ...(scratch && org.edition ? { orgEdition: org.edition } : {}),
+    };
+  }
+
+  /**
+   * `entry` with what the org says it is: a sandbox or not, and the edition
+   * of one that is not. A scratch org is one by its Dev Hub's word already.
+   * An org that cannot be asked keeps what the display said, which types it
+   * a production org — as the guard reads one it cannot tell.
+   */
+  private async typedByTheOrg(entry: SfdxOrgEntry): Promise<SfdxOrgEntry> {
+    if (entry.isScratch === true || entry.accessToken === undefined) return entry;
+    try {
+      const kind = await this.readKind({
+        instanceUrl: entry.instanceUrl,
+        accessToken: entry.accessToken,
+        ...(entry.instanceApiVersion ? { apiVersion: entry.instanceApiVersion } : {}),
+      });
+      return {
+        ...entry,
+        isSandbox: kind.sandbox,
+        ...(kind.edition ? { orgEdition: kind.edition } : {}),
+      };
+    } catch {
+      return entry;
     }
   }
 

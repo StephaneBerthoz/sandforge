@@ -107,7 +107,7 @@ What a restore does, in order:
 
 - Refuses a backup taken from a different org than the one selected
 - Passes through Production Guard like every other write path: a blocked
-  operation stops, and `safety.requireProdConfirmation` asks first
+  operation stops, and a write to a production org asks first
 - Asks before writing when the org now answers with another org id than the
   one the backup recorded, as a sandbox does once refreshed: the records the
   backup saved belonged to the org it was, and the restore cannot put them

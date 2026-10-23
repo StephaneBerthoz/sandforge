@@ -216,7 +216,6 @@ export async function createForgeHost(options: ForgeHostOptions): Promise<ForgeH
     ...options,
     compose: (wiring) => {
       const infra = createBackgroundComposition({
-        services: wiring.services,
         configStore: wiring.configStore,
         orgNameOf: (orgId) => wiring.orgManager.getOrg(orgId)?.alias,
       });

@@ -1005,6 +1005,7 @@ export class ExtensionHandlers {
         'frozen:remove',
         'frozen:remove:sweep',
         'frozen:status',
+        'frozen:rules:clear',
       ],
       this.frozenHandler,
     );

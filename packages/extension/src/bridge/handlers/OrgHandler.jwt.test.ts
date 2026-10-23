@@ -32,31 +32,44 @@ const SIGNED_IN = {
   instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
 };
 
-const ORG_LIST = {
-  status: 0,
-  result: {
-    nonScratchOrgs: [
-      {
-        orgId: '00D000000000001AAA',
-        username: 'admin@example.com',
-        alias: 'uat-admin',
-        instanceUrl: SIGNED_IN.instanceUrl,
-        accessToken: '00D000000000001AAA!admin-session',
-        connectedStatus: 'Connected',
-        isSandbox: true,
-      },
-      {
-        orgId: '00D000000000001AAA',
-        username: 'integration@example.com',
-        alias: 'ci-sandbox',
-        instanceUrl: SIGNED_IN.instanceUrl,
-        accessToken: '00D000000000001AAA!integration-session',
-        connectedStatus: 'Connected',
-        isSandbox: true,
-      },
-    ],
+/**
+ * What `sf org display --target-org <user> --json` prints of each user the CLI
+ * holds: another user of the same org, and the one signed in as. The token is
+ * shown, as with `SF_TEMP_SHOW_SECRETS`, so no further read is needed.
+ */
+const DISPLAYED: Record<string, Record<string, unknown>> = {
+  'admin@example.com': {
+    id: '00D000000000001AAA',
+    username: 'admin@example.com',
+    alias: 'uat-admin',
+    instanceUrl: SIGNED_IN.instanceUrl,
+    accessToken: '00D000000000001AAA!admin-session',
+    connectedStatus: 'Connected',
+  },
+  'integration@example.com': {
+    id: '00D000000000001AAA',
+    username: 'integration@example.com',
+    alias: 'ci-sandbox',
+    instanceUrl: SIGNED_IN.instanceUrl,
+    accessToken: '00D000000000001AAA!integration-session',
+    connectedStatus: 'Connected',
   },
 };
+
+/** The display's answer for `username`: the org, or the CLI's refusal of a user it does not hold. */
+function displayAnswer(username: string): { stdout: string; error?: Error } {
+  const shown = DISPLAYED[username];
+  return shown
+    ? { stdout: JSON.stringify({ status: 0, result: shown }) }
+    : {
+        stdout: JSON.stringify({
+          status: 1,
+          name: 'NamedOrgNotFoundError',
+          message: `No authorization information found for ${username}.`,
+        }),
+        error: new Error('Command failed: sf org display'),
+      };
+}
 
 type ExecCallback = (error: Error | null, result: { stdout: string; stderr: string }) => void;
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
@@ -75,7 +88,7 @@ function wireCli(): void {
   sfCommands = [];
   cliPresent = true;
   jwtAnswer = { stdout: JSON.stringify({ status: 0, result: SIGNED_IN }) };
-  // isCliAvailable and `sf org list` go through promisify(exec).
+  // isCliAvailable goes through promisify(exec).
   vi.mocked(exec).mockImplementation(((
     command: string,
     _options: unknown,
@@ -85,14 +98,13 @@ function wireCli(): void {
     if (command === 'sf --version') {
       if (cliPresent) callback(null, { stdout: '@salesforce/cli/2.150.6', stderr: '' });
       else callback(new Error('spawn sf ENOENT'), { stdout: '', stderr: '' });
-    } else if (command === 'sf org list --json') {
-      callback(null, { stdout: JSON.stringify(ORG_LIST), stderr: '' });
     } else {
       callback(new Error(`unexpected command: ${command}`), { stdout: '', stderr: '' });
     }
     return {};
   }) as never);
-  // The login itself goes through execFile, with argv.
+  // The login and the display of the org it signed in to go through
+  // execFile, with argv.
   vi.mocked(execFile).mockImplementation(((
     file: string,
     args: string[],
@@ -100,7 +112,11 @@ function wireCli(): void {
     callback: ExecFileCallback,
   ) => {
     sfArgv.push([file, ...args]);
-    setImmediate(() => callback(jwtAnswer.error ?? null, jwtAnswer.stdout, ''));
+    const answer =
+      args.slice(0, 3).join(' ') === 'org display --target-org'
+        ? displayAnswer(args[3])
+        : jwtAnswer;
+    setImmediate(() => callback(answer.error ?? null, answer.stdout, ''));
     return { pid: 1, stdin: { once: vi.fn(), end: vi.fn() } };
   }) as never);
 }
@@ -120,7 +136,8 @@ function createDeps(): HandlerDeps {
     configStore: {} as HandlerDeps['configStore'],
     secretVault: {} as HandlerDeps['secretVault'],
     authProvider: {} as HandlerDeps['authProvider'],
-    sfdxBridge: new SfdxBridge(),
+    // The org asked what it is answers as a sandbox does.
+    sfdxBridge: new SfdxBridge(undefined, async () => ({ sandbox: true })),
     nextId: vi.fn().mockReturnValue('gen-id'),
   };
 }
@@ -297,6 +314,17 @@ describe.skipIf(process.platform === 'win32')('org:connect with JWT', () => {
     });
     // The CLI keeps the key; SandForge stores neither it nor its path.
     expect(JSON.stringify(credentials)).not.toContain('server key');
+    // Read back from the org signed in to alone: `sf org list` calls every org
+    // the CLI holds, production and client orgs included.
+    expect(sfArgv).toContainEqual([
+      'sf',
+      'org',
+      'display',
+      '--target-org',
+      'integration@example.com',
+      '--json',
+    ]);
+    expect(sfCommands.filter((command) => command.includes('org list'))).toEqual([]);
 
     const replies = posted(deps).filter((m) => m.type === 'org:statusChanged');
     expect(replies).toEqual([
@@ -369,7 +397,7 @@ describe.skipIf(process.platform === 'win32')('org:connect with JWT', () => {
     );
   });
 
-  it('fails the request when sf org list does not list the org it just signed in to', async () => {
+  it('fails the request when sf org display does not show the org it just signed in to', async () => {
     jwtAnswer = {
       stdout: JSON.stringify({
         status: 0,
@@ -382,7 +410,7 @@ describe.skipIf(process.platform === 'win32')('org:connect with JWT', () => {
     expect(deps.orgRegistry.saveOrg).not.toHaveBeenCalled();
     const error = posted(deps).find((m) => m.type === 'org:error');
     expect(error?.payload.message).toBe(
-      'Signed in as ghost@example.com, but "sf org list" does not list that org as connected.',
+      'Signed in as ghost@example.com, but "sf org display" does not show that org as connected.',
     );
   });
 });

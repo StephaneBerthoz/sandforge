@@ -195,7 +195,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // 3. Infrastructure services + background operation registry
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
     createBackgroundComposition({
-      services,
       configStore,
       orgNameOf: (orgId) => orgManager.getOrg(orgId)?.alias,
     });

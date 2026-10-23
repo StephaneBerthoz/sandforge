@@ -1063,6 +1063,13 @@ export const frozenConfigSavePayloadSchema = z.object({
   config: frozenProjectConfigPayloadSchema,
 });
 export const frozenSelectPayloadSchema = z.object({ sourceOrgId: orgIdSchema });
+/**
+ * The fields an extraction kept in clear text without a rule, to be given a
+ * `clear` rule: `Object.Field` keys, as the rules file names them.
+ */
+export const frozenRulesClearPayloadSchema = z.object({
+  fields: z.array(objectFieldKeySchema).min(1).max(2000),
+});
 export const frozenExtractPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
   author: z.string().min(1).max(120).optional(),

@@ -5791,6 +5791,7 @@ for (const theme of SCANNED_THEMES) {
         'step4-scope-followed-by-default',
         'step4-scope-cut-short',
         'step4-not-covered',
+        'step4-no-framework',
       ]) {
         expect(await contrastMeasuredIn(page, review, `[data-testid="${testId}"]`)).toBeGreaterThan(
           0,
@@ -11217,6 +11218,67 @@ for (const theme of STATE_THEMES) {
         'OpportunityLineItem (3) → PricebookEntry',
         { timeout: 10_000 },
       );
+
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen dataset extraction listing what it kept in clear text with no rule, then the rules Clear these wrote', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-select-run').click();
+      await bridge.waitForMessage('frozen:select', { timeout: 10_000 });
+      await answerAll(page, 'frozen:select', 'frozen:select:response', {
+        selection: {
+          combinations: [{ combinationKey: 'stage=Won', axisValues: { stage: 'Won' } }],
+          uncovered: [],
+          volumetry: { measured: { Opportunity: 1 }, total: 1, budgetMax: 2500 },
+          selectedAt: '2026-09-20T09:00:00.000Z',
+          selectionPath: '/home/qa/.sandforge-sas/selection.json',
+        },
+      });
+      await expect(page.getByTestId('frozen-extract-run')).toBeEnabled({ timeout: 10_000 });
+      await page.getByTestId('frozen-extract-run').click();
+      await bridge.waitForMessage('frozen:extract', { timeout: 10_000 });
+      await answerAll(page, 'frozen:extract', 'frozen:extract:response', {
+        datasetDir: '/home/qa/.sandforge-sas/dataset',
+        files: ['manifest.json'],
+        recordCount: 9,
+        manifest: {
+          ...FROZEN_STATUS_WITH_DATASET.manifest,
+          coverage: {
+            objects: 4,
+            truncated: false,
+            maxNodes: 200,
+            unboundedObjects: [],
+            filesLeftOut: [],
+            requiredLeftEmpty: ['OpportunityLineItem.Quantity'],
+            keptWithoutARule: ['Contact.GenderIdentity', 'Opportunity.StageName'],
+          },
+        },
+      });
+      await expect(page.getByTestId('frozen-kept-without-rule-list')).toContainText(
+        'Contact.GenderIdentity, Opportunity.StageName',
+        { timeout: 10_000 },
+      );
+      await expectReadable(page, theme);
+
+      await page.getByTestId('frozen-kept-without-rule-clear').click();
+      await bridge.waitForMessage('frozen:rules:clear', { timeout: 10_000 });
+      await answerAll(page, 'frozen:rules:clear', 'frozen:rules:clear:response', {
+        rulesPath: '/home/qa/.sandforge-sas/rules.json',
+        rulesVersion: '1.1.0',
+        cleared: ['Contact.GenderIdentity'],
+        alreadyRuled: ['Opportunity.StageName'],
+      });
+      await expect(page.getByTestId('frozen-kept-without-rule-written')).toContainText(
+        'rules 1.1.0',
+        { timeout: 10_000 },
+      );
+      await expect(page.getByTestId('frozen-kept-without-rule-already')).toBeVisible();
 
       await expectReadable(page, theme);
     });

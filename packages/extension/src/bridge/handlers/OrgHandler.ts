@@ -804,10 +804,12 @@ export class OrgHandler implements DomainHandler {
 
   /**
    * Register the org a CLI sign-in just authorized, the way an SFDX import
-   * registers it: read back from `sf org list`, typed and tiered from the
-   * CLI's entry, and left to the CLI to refresh — which is also why it is
-   * recorded as an SFDX import, so Reconnect imports it again. Only this org
-   * is saved; the other orgs the CLI holds wait for an import the user asks for.
+   * registers it: read back from `sf org display`, which calls that org alone
+   * where `sf org list` calls every org the CLI holds; typed and tiered from
+   * what the org says it is; and left to the CLI to refresh, which is also
+   * why it is recorded as an SFDX import, so Reconnect imports it again. Only
+   * this org is saved; the other orgs the CLI holds wait for an import the
+   * user asks for.
    *
    * @param via - The sign-in's name, for the success toast title.
    */
@@ -819,7 +821,7 @@ export class OrgHandler implements DomainHandler {
     const imported = await this.deps.sfdxBridge.findOrg(login.username);
     if (!imported) {
       throw new Error(
-        `Signed in as ${login.username}, but "sf org list" does not list that org as connected.`,
+        `Signed in as ${login.username}, but "sf org display" does not show that org as connected.`,
       );
     }
     // A sandbox signed into again after a refresh keeps its entry, as an

@@ -2769,6 +2769,87 @@ describe('FrozenDatasetHandler', () => {
       expect(manifest.coverage.keptWithoutARule).toEqual(['Opportunity.StageName']);
     });
 
+    it('clears on the next extraction what "clear these" wrote a rule for, the rules file kept and versioned on', async () => {
+      // The panel showed what a dataset kept without a rule nowhere: only the
+      // manifest and the command line said it, and clearing one meant
+      // editing the rules file by hand.
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const real = FrozenDatasetAnonymizer.prototype.anonymize;
+      let frozen: FrozenDataset | undefined;
+      const anonymize = vi
+        .spyOn(FrozenDatasetAnonymizer.prototype, 'anonymize')
+        .mockImplementation(function (this: FrozenDatasetAnonymizer, options) {
+          frozen = real.call(this, options);
+          return frozen;
+        });
+      onTestFinished(() => anonymize.mockRestore());
+      const { conn } = fakeOrg(false, true);
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig();
+      await readyToExtract(config);
+      const rulesPath = path.join(config.sasDir as string, 'rules.json');
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+      const first = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { keptWithoutARule?: string[] };
+      };
+      expect(first.coverage.keptWithoutARule).toEqual(['Opportunity.StageName']);
+
+      await handler.handle(
+        buildMsg('frozen:rules:clear', { fields: first.coverage.keptWithoutARule }),
+      );
+
+      expect(posted(deps, 'frozen:rules:clear:error')).toEqual([]);
+      expect(posted(deps, 'frozen:rules:clear:response')[0].payload).toEqual({
+        rulesPath,
+        rulesVersion: '1.1.0',
+        cleared: ['Opportunity.StageName'],
+        alreadyRuled: [],
+      });
+      const written = JSON.parse(fs.readFileSync(rulesPath, 'utf8')) as {
+        rulesVersion: string;
+        rules: Record<string, { generator: string }>;
+      };
+      expect(written.rulesVersion).toBe('1.1.0');
+      expect(written.rules['Opportunity.Name'].generator).toBe('companyName');
+      expect(written.rules['Opportunity.StageName'].generator).toBe('clear');
+      expect(fs.readdirSync(config.sasDir as string).filter((f) => f.endsWith('.writing'))).toEqual(
+        [],
+      );
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      const second = posted(deps, 'frozen:extract:response')[1].payload.manifest as {
+        rulesVersion: string;
+        coverage: { keptWithoutARule?: string[]; requiredLeftEmpty?: string[] };
+      };
+      const opportunity = frozen?.objects.find((o) => o.objectApiName === 'Opportunity');
+      expect(opportunity?.records[0].fields.StageName).not.toBe('Won');
+      expect(second.rulesVersion).toBe('1.1.0');
+      expect(second.coverage.keptWithoutARule).toBeUndefined();
+      // Required, the stage cleared is a value the load will ask for: said now.
+      expect(second.coverage.requiredLeftEmpty).toContain('Opportunity.StageName');
+    });
+
+    it('writes no rule and says why when the rules file is missing, or a field is not Object.Field', async () => {
+      const config = realConfig();
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:rules:clear', { fields: ['Case.Status'] }));
+      await handler.handle(buildMsg('frozen:rules:clear', { fields: ['Status'] }));
+      await handler.handle(buildMsg('frozen:rules:clear', { fields: [] }));
+
+      expect(posted(deps, 'frozen:rules:clear:error').map((m) => m.payload.code)).toEqual([
+        'LOAD_CONFIG',
+        'INVALID_PAYLOAD',
+        'INVALID_PAYLOAD',
+      ]);
+      expect(posted(deps, 'frozen:rules:clear:response')).toEqual([]);
+      expect(fs.existsSync(path.join(config.sasDir as string, 'rules.json'))).toBe(false);
+    });
+
     it('records in the manifest the tracked change it left out, which no load could write', async () => {
       // Loaded, the platform refuses a tracked change from a copy: "Cannot
       // directly insert FeedItem with type TrackedChange".

@@ -241,6 +241,15 @@ describe('HelpPage', () => {
     );
   });
 
+  it('names no setting that turns the production question off, in six languages', () => {
+    // It named sandforge.safety.requireProdConfirmation, which turned the
+    // question off; every write to a production org now asks, whatever it says.
+    for (const [lng, bundle] of Object.entries(LOCALES)) {
+      expect(bundle.help.faqContent, lng).not.toContain('requireProdConfirmation');
+    }
+    expect(en.help.faqContent).toContain('no setting turns that question off');
+  });
+
   it('should render the new troubleshooting and release notes sections', () => {
     render(<HelpPage />);
     expect(screen.getByTestId('help-section-troubleshooting')).toBeDefined();

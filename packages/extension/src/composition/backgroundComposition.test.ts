@@ -33,7 +33,6 @@ import {
   wireOfflineNotifications,
   wireOfflineReplay,
 } from './backgroundComposition';
-import type { Services } from '../services';
 import type {
   AutomationConfirmation,
   ReadConfirmation,
@@ -165,10 +164,6 @@ describe('wireOfflineNotifications', () => {
 });
 
 describe('production confirmation modal (localized)', () => {
-  const services = {
-    getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
-  } as unknown as Services;
-
   /** A check result that actually reaches the confirmation UI. */
   const needsConfirmation: SafetyCheckResult = {
     allowed: true,
@@ -190,7 +185,6 @@ describe('production confirmation modal (localized)', () => {
     );
 
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     const confirmed = await productionGuard.confirmIfNeeded(needsConfirmation, 'production');
@@ -202,12 +196,40 @@ describe('production confirmation modal (localized)', () => {
     expect(call[call.length - 1]).toBe('Exécuter');
   });
 
+  it('asks before every write to a production org, whatever sandforge.safety.requireProdConfirmation says', async () => {
+    // Off, the setting let Seed, Sync, Autopilot and DataOps write into
+    // production without a word. A settings source that says false is handed
+    // over as the composition once read it, and the question is put anyway.
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+    const { productionGuard } = createBackgroundComposition({
+      configStore: createMockConfigStore(),
+      services: {
+        getSandforgeSetting: <T>(key: string, fallback: T): T =>
+          (key === 'safety.requireProdConfirmation' ? false : fallback) as T,
+      },
+    } as Parameters<typeof createBackgroundComposition>[0]);
+
+    for (const operation of ['insert', 'update', 'upsert'] as const) {
+      const check = productionGuard.check({
+        orgId: '00D000000000001AAA',
+        orgTier: 'production',
+        operation,
+        objectName: 'Account',
+        recordCount: 3,
+        module: 'seed',
+      });
+      expect(check.allowed).toBe(true);
+      expect(check.requiresConfirmation).toBe(true);
+      await expect(productionGuard.confirmIfNeeded(check, 'production')).resolves.toBe(false);
+    }
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(3);
+  });
+
   it('still declines when the user dismisses the modal', async () => {
     l10nBundle.current = { Execute: 'Exécuter' };
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
 
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
 
@@ -224,7 +246,6 @@ describe('production confirmation modal (localized)', () => {
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
 
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     await productionGuard.confirmIfNeeded(needsConfirmation, 'production');
@@ -244,7 +265,6 @@ describe('production confirmation modal (localized)', () => {
     // was the whole question: an internal object name, a raw id, a tag.
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
       orgNameOf: (orgId) => (orgId === 'org-prod-1' ? 'Acme Prod' : undefined),
     });
@@ -277,7 +297,6 @@ describe('production confirmation modal (localized)', () => {
     ) as Record<string, string>;
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
       orgNameOf: () => 'Acme Prod',
     });
@@ -318,7 +337,6 @@ describe('production confirmation modal (localized)', () => {
         readFileSync(join(__dirname, '..', '..', 'l10n', `bundle.l10n.${locale}.json`), 'utf8'),
       ) as Record<string, string>;
       const { productionGuard } = createBackgroundComposition({
-        services,
         configStore: createMockConfigStore(),
         orgNameOf: () => 'Acme Prod',
       });
@@ -344,7 +362,6 @@ describe('production confirmation modal (localized)', () => {
       readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
     ) as Record<string, string>;
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
       orgNameOf: () => 'Acme Prod',
     });
@@ -372,7 +389,6 @@ describe('production confirmation modal (localized)', () => {
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
 
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     await productionGuard.confirmIfNeeded(needsConfirmation, 'staging');
@@ -390,10 +406,6 @@ describe('production confirmation modal (localized)', () => {
 });
 
 describe("a run's questions, in the production confirmation's modal (localized)", () => {
-  const services = {
-    getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
-  } as unknown as Services;
-
   const automation: AutomationConfirmation = {
     stage: 'automation',
     org: 'DEV',
@@ -578,7 +590,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     const command =
       'sf org assign permset --name Data_Load --target-org DEV --on-behalf-of user@example.com';
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
 
@@ -616,7 +627,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     // Execute goes on; there is no command to copy.
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     await expect(productionGuard.confirmRun(read)).resolves.toBe('confirmed');
@@ -649,7 +659,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
 
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     await expect(productionGuard.confirmRun(autopilot)).resolves.toBe('confirmed');
@@ -676,7 +685,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
 
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue('Execute' as never);
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
     await expect(productionGuard.confirmRun(sync)).resolves.toBe('confirmed');
@@ -954,7 +962,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
     );
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
 
@@ -969,13 +976,9 @@ describe("a run's questions, in the production confirmation's modal (localized)"
     expect(button).toBe('Exécuter');
   });
 
-  it('declines when the user dismisses it, whatever the production setting says', async () => {
+  it('declines when the user dismisses it', async () => {
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
     const { productionGuard } = createBackgroundComposition({
-      services: {
-        getSandforgeSetting: <T>(key: string, fallback: T): T =>
-          (key === 'safety.requireProdConfirmation' ? false : fallback) as T,
-      } as unknown as Services,
       configStore: createMockConfigStore(),
     });
 
@@ -1047,7 +1050,6 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
     );
     const { productionGuard } = createBackgroundComposition({
-      services,
       configStore: createMockConfigStore(),
     });
 

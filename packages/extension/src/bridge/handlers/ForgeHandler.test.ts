@@ -2557,13 +2557,12 @@ describe('ForgeHandler', () => {
         .filter((m) => m.type === 'forge:execute:error');
     }
 
-    it('refuses a production target before anything is read, whatever the production setting says', async () => {
+    it('refuses a production target before anything is read', async () => {
       // The panel wrote to production behind a modal the setting turned off;
       // the command line and the Frozen load refuse such an org outright.
       const requestConfirmation = vi.fn().mockResolvedValue(true);
       const requestRunConfirmation = vi.fn().mockResolvedValue(true);
       const guard = new ProductionGuard({
-        isProdConfirmationRequired: () => false,
         requestConfirmation,
         requestRunConfirmation,
       });

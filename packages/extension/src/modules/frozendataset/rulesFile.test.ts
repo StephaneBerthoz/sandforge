@@ -10,6 +10,7 @@ import {
   resolveGenerator,
   RulesFileError,
   serializePseudonymRules,
+  withFieldsCleared,
   withSchemaDefaults,
   type RuleSchemaField,
 } from './rulesFile.js';
@@ -530,5 +531,60 @@ describe('serializePseudonymRules', () => {
     const serialized = serializePseudonymRules(file);
     expect(serialized.indexOf('Account.Name')).toBeLessThan(serialized.indexOf('Contact.Email'));
     expect(parsePseudonymRules(JSON.parse(serialized))).toEqual(file);
+  });
+});
+
+describe('withFieldsCleared', () => {
+  /** A rules file as a user keeps it: a note of their own beside the rules. */
+  const onDisk = {
+    $comment: 'Reviewed with the data protection officer.',
+    rulesVersion: '1.4.2',
+    rules: {
+      'Contact.LastName': { generator: 'lastName', comment: 'their own note' },
+      'Case.Origin': { generator: 'keep', approved: true },
+    },
+  };
+
+  it('gives each field kept without a rule a clear rule, which the next extraction applies', () => {
+    const result = withFieldsCleared(onDisk, ['Case.Status', 'Contact.GenderIdentity']);
+
+    expect(result.cleared).toEqual(['Case.Status', 'Contact.GenderIdentity']);
+    expect(result.alreadyRuled).toEqual([]);
+    const rules = parsePseudonymRules(result.payload);
+    expect(rules.rules['Case.Status'].generator).toBe('clear');
+    expect(rules.rules['Contact.GenderIdentity'].generator).toBe('clear');
+    // A picklist the source restricts was kept by its schema; the rule wins.
+    const kept = withSchemaDefaults(
+      rules,
+      new Map([['Case', [{ name: 'Status', type: 'picklist', restrictedPicklist: true }]]]),
+      new PIIDetector(),
+    );
+    expect(resolveGenerator(kept, 'Case', 'Status')).toBe('clear');
+  });
+
+  it('keeps every other key and rule of the file, and moves its version on', () => {
+    const result = withFieldsCleared(onDisk, ['Case.Status']);
+
+    expect(result.payload.$comment).toBe('Reviewed with the data protection officer.');
+    expect(result.payload.rules).toMatchObject(onDisk.rules);
+    expect(result.rulesVersion).toBe('1.5.0');
+    expect(result.payload.rulesVersion).toBe('1.5.0');
+    // The file it was read from is left as it was.
+    expect(onDisk.rulesVersion).toBe('1.4.2');
+    expect(Object.keys(onDisk.rules)).toEqual(['Contact.LastName', 'Case.Origin']);
+  });
+
+  it('leaves a field the file already rules as declared, and the version with it when nothing is added', () => {
+    const result = withFieldsCleared(onDisk, ['Case.Origin', 'Case.Origin']);
+
+    expect(result.cleared).toEqual([]);
+    expect(result.alreadyRuled).toEqual(['Case.Origin']);
+    expect(result.rulesVersion).toBe('1.4.2');
+    expect(parsePseudonymRules(result.payload).rules['Case.Origin'].generator).toBe('keep');
+  });
+
+  it('refuses a field not named Object.Field, and a file that is not a rules file', () => {
+    expect(() => withFieldsCleared(onDisk, ['Status'])).toThrow(RulesFileError);
+    expect(() => withFieldsCleared({ rules: {} }, ['Case.Status'])).toThrow(RulesFileError);
   });
 });

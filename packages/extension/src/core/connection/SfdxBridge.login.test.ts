@@ -1,11 +1,30 @@
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SfdxBridge } from './SfdxBridge';
-import type { CliTokenReader, JwtLoginRequest } from './SfdxBridge';
+import type { CliTokenReader, JwtLoginRequest, OrgKindReader, OrgSession } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
   execFile: vi.fn(),
+}));
+
+/** The connection the default org-kind reader opens, through the lazy boundary. */
+const jsforceConnection = vi.hoisted(() => ({
+  options: undefined as unknown,
+  query: async (_soql: string): Promise<unknown> => ({ records: [] }),
+}));
+
+vi.mock('./jsforceEntry.js', () => ({
+  jsforce: {
+    Connection: class {
+      constructor(options: unknown) {
+        jsforceConnection.options = options;
+      }
+      query(soql: string): Promise<unknown> {
+        return jsforceConnection.query(soql);
+      }
+    },
+  },
 }));
 
 import { exec, execFile } from 'child_process';
@@ -500,68 +519,182 @@ describe('SfdxBridge.findOrg', () => {
     vi.clearAllMocks();
   });
 
-  /** `sf org list --json` answered through exec, as listOrgs reads it. */
-  function orgList(result: Record<string, unknown>): void {
-    vi.mocked(exec).mockImplementation(((
-      _command: string,
-      _options: unknown,
-      callback: (error: null, out: { stdout: string; stderr: string }) => void,
-    ) => {
-      callback(null, { stdout: JSON.stringify({ status: 0, result }), stderr: '' });
-    }) as never);
+  /** What `sf org display --target-org <user> --json` prints of an org it holds. */
+  function displayed(result: Record<string, unknown>): FakeRun {
+    return {
+      stdout: JSON.stringify({
+        status: 0,
+        result: {
+          accessToken: "[REDACTED] Use 'sf org auth show-access-token' to view",
+          clientId: 'PlatformCLI',
+          ...result,
+        },
+        warnings: ["Secrets are now hidden from 'sf org display' command output."],
+      }),
+    };
   }
 
-  const ADMIN = {
-    orgId: '00D000000000001AAA',
-    username: 'admin@example.com',
-    alias: 'uat-admin',
-    instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
-    accessToken: '00D000000000001AAA!admin-session',
-    connectedStatus: 'Connected',
-    isSandbox: true,
-  };
   const INTEGRATION = {
-    ...ADMIN,
+    id: '00D000000000001AAA',
     username: 'integration@example.com',
     alias: 'uat-ci',
-    accessToken: '00D000000000001AAA!integration-session',
+    instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+    apiVersion: '66.0',
+    connectedStatus: 'Connected',
   };
 
-  it('finds the user who signed in, even when another user of the same org is listed first', async () => {
-    orgList({ nonScratchOrgs: [ADMIN, INTEGRATION], sandboxes: [ADMIN, INTEGRATION] });
+  /** The token the stand-in CLI reads for the user found. */
+  const readToken = vi.fn<CliTokenReader>(async () => ({
+    accessToken: '00D000000000001AAA!live-session',
+  }));
 
-    const found = await new SfdxBridge().findOrg('Integration@Example.com');
+  /** The org's own answer, as a sandbox gives it. */
+  const aSandbox = vi.fn<OrgKindReader>(async () => ({ sandbox: true }));
 
-    expect(found?.org.username).toBe('integration@example.com');
-    expect(found?.org.alias).toBe('uat-ci');
-    expect(found?.org.orgType).toBe('Sandbox');
-    expect(found?.org.authMethod).toBe('sfdx_import');
+  it('reads the user signed in to with sf org display, which calls that org alone, and never sf org list', async () => {
+    const calls = scriptCli([displayed(INTEGRATION)]);
+
+    const found = await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com');
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['org', 'display', '--target-org', 'integration@example.com', '--json'],
+    ]);
+    // `sf org list` calls every org the CLI holds, production and client orgs
+    // included: a sign-in no longer runs it, through exec or otherwise.
+    expect(vi.mocked(exec)).not.toHaveBeenCalled();
+    expect(found?.org).toMatchObject({
+      id: '00D000000000001AAA',
+      username: 'integration@example.com',
+      alias: 'uat-ci',
+      orgType: 'Sandbox',
+      authMethod: 'sfdx_import',
+    });
+    expect(found?.org.metadata.apiVersion).toBe('66.0');
+  });
+
+  it('types the org from what the org says it is, which the display does not say', async () => {
+    const asked: OrgSession[] = [];
+    const kinds: Array<[Awaited<ReturnType<OrgKindReader>>, string]> = [
+      [{ sandbox: true }, 'Sandbox'],
+      [{ sandbox: false, edition: 'Developer Edition' }, 'Developer'],
+      [{ sandbox: false, edition: 'Enterprise Edition' }, 'Production'],
+      [{ sandbox: false }, 'Production'],
+    ];
+    for (const [kind, orgType] of kinds) {
+      scriptCli([displayed(INTEGRATION)]);
+      const readKind = vi.fn<OrgKindReader>(async (session) => {
+        asked.push(session);
+        return kind;
+      });
+
+      const found = await new SfdxBridge(readToken, readKind).findOrg('integration@example.com');
+
+      expect(found?.org.orgType, JSON.stringify(kind)).toBe(orgType);
+    }
+    // Asked with the session the CLI gave, of the org it showed.
+    expect(asked[0]).toEqual({
+      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+      accessToken: '00D000000000001AAA!live-session',
+      apiVersion: '66.0',
+    });
+  });
+
+  it('types an org that cannot be asked as a production org, as the guard reads one it cannot tell', async () => {
+    scriptCli([displayed(INTEGRATION)]);
+    const unreachable = vi.fn<OrgKindReader>(async () => {
+      throw new Error('API_DISABLED_FOR_ORG');
+    });
+
+    const found = await new SfdxBridge(readToken, unreachable).findOrg('integration@example.com');
+
+    expect(found?.org.orgType).toBe('Production');
+    expect(found?.org.safetyTier).toBe('critical');
+  });
+
+  it('takes a scratch org at its Dev Hub word, without asking the org', async () => {
+    scriptCli([
+      displayed({
+        ...INTEGRATION,
+        connectedStatus: undefined,
+        devHubId: 'hub@example.com',
+        status: 'Active',
+        expirationDate: '2026-11-20',
+        edition: 'Developer',
+      }),
+    ]);
+
+    const found = await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com');
+
+    expect(found?.org.orgType).toBe('Scratch');
+    expect(found?.org.metadata.expirationDate).toBe('2026-11-20');
+    expect(aSandbox).not.toHaveBeenCalled();
+  });
+
+  it('finds nothing for a scratch org its Dev Hub reports expired', async () => {
+    scriptCli([
+      displayed({
+        ...INTEGRATION,
+        connectedStatus: undefined,
+        devHubId: 'hub@example.com',
+        status: 'Expired',
+      }),
+    ]);
+
+    expect(
+      await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com'),
+    ).toBeUndefined();
   });
 
   it('finds nothing for a user the CLI cannot reach', async () => {
-    orgList({ nonScratchOrgs: [{ ...INTEGRATION, connectedStatus: 'Unable to refresh session' }] });
+    scriptCli([displayed({ ...INTEGRATION, connectedStatus: 'Unable to refresh session' })]);
 
-    expect(await new SfdxBridge().findOrg('integration@example.com')).toBeUndefined();
+    expect(
+      await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com'),
+    ).toBeUndefined();
+    expect(readToken).not.toHaveBeenCalled();
   });
 
   it('finds nothing for a user the CLI does not hold', async () => {
-    orgList({ nonScratchOrgs: [ADMIN] });
+    scriptCli([
+      {
+        stdout: JSON.stringify({
+          status: 1,
+          name: 'NamedOrgNotFoundError',
+          message: 'No authorization information found for integration@example.com.',
+        }),
+        error: Object.assign(new Error('Command failed'), { code: 1 }),
+      },
+    ]);
 
-    expect(await new SfdxBridge().findOrg('integration@example.com')).toBeUndefined();
+    expect(
+      await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com'),
+    ).toBeUndefined();
   });
 
-  it('reads through the CLI the token of the user found when the listing hides it', async () => {
-    orgList({
-      nonScratchOrgs: [
-        ADMIN,
-        { ...INTEGRATION, accessToken: "[REDACTED] Use 'sf org auth show-access-token' to view" },
-      ],
-    });
-    const readToken = vi.fn<CliTokenReader>(async () => ({
-      accessToken: '00D000000000001AAA!live-session',
-    }));
+  it("says what went wrong, in the CLI's words, when the display fails for another reason", async () => {
+    scriptCli([
+      {
+        stdout: JSON.stringify({
+          status: 1,
+          name: 'RefreshTokenAuthError',
+          message:
+            'Error authenticating with the refresh token due to: expired access/refresh token',
+        }),
+        error: Object.assign(new Error('Command failed'), { code: 1 }),
+      },
+    ]);
 
-    const found = await new SfdxBridge(readToken).findOrg('integration@example.com');
+    await expect(
+      new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com'),
+    ).rejects.toThrow(
+      'Error authenticating with the refresh token due to: expired access/refresh token',
+    );
+  });
+
+  it('reads through the CLI the token the display hides, for the user found', async () => {
+    scriptCli([displayed(INTEGRATION)]);
+
+    const found = await new SfdxBridge(readToken, aSandbox).findOrg('integration@example.com');
 
     expect(readToken).toHaveBeenCalledTimes(1);
     expect(readToken).toHaveBeenCalledWith('integration@example.com');
@@ -569,13 +702,48 @@ describe('SfdxBridge.findOrg', () => {
   });
 
   it('says which user it could not get a token for, and why, instead of finding it', async () => {
-    orgList({ nonScratchOrgs: [{ ...INTEGRATION, accessToken: undefined }] });
-    const readToken = vi.fn<CliTokenReader>(async () => {
+    scriptCli([displayed(INTEGRATION)]);
+    const noToken = vi.fn<CliTokenReader>(async () => {
       throw new Error('sf did not answer within 30 s — check the Salesforce CLI');
     });
 
-    await expect(new SfdxBridge(readToken).findOrg('integration@example.com')).rejects.toThrow(
+    await expect(
+      new SfdxBridge(noToken, aSandbox).findOrg('integration@example.com'),
+    ).rejects.toThrow(
       'The Salesforce CLI gave no access token for integration@example.com: sf did not answer within 30 s',
     );
+  });
+
+  it('refuses a username the CLI would read as a flag before it runs', async () => {
+    const calls = scriptCli([]);
+
+    await expect(new SfdxBridge(readToken, aSandbox).findOrg('--json')).rejects.toThrow(
+      'Invalid username format: "--json"',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('asks the org itself, by default, with two Organization queries and nothing else', async () => {
+    scriptCli([displayed(INTEGRATION)]);
+    const queries: string[] = [];
+    jsforceConnection.query = async (soql: string) => {
+      queries.push(soql);
+      return soql.includes('IsSandbox')
+        ? { records: [{ Id: '00D000000000001AAA', IsSandbox: false }] }
+        : { records: [{ OrganizationType: 'Developer Edition' }] };
+    };
+
+    const found = await new SfdxBridge(readToken).findOrg('integration@example.com');
+
+    expect(queries).toEqual([
+      'SELECT Id, IsSandbox FROM Organization LIMIT 1',
+      'SELECT OrganizationType FROM Organization LIMIT 1',
+    ]);
+    expect(jsforceConnection.options).toEqual({
+      instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+      accessToken: '00D000000000001AAA!live-session',
+      version: '66.0',
+    });
+    expect(found?.org.orgType).toBe('Developer');
   });
 });

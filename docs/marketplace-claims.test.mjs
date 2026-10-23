@@ -974,7 +974,7 @@ test('anchor: Forge refuses a production target before it runs or rehearses', ()
  * they link first, and the FAQ's "Does SandForge modify production data?".
  * "Double confirmation" was sold there since the first release; a Forge run
  * now refuses a production target, and every other module's write to one is
- * one modal, which a setting turns off. The FAQ answer was rewritten by hand
+ * one modal, which no setting turns off. The FAQ answer was rewritten by hand
  * once already, outside any gate, so it is held to the same claim.
  */
 const PRODUCTION_SURFACES = () => [

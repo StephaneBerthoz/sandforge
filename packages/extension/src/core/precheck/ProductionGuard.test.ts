@@ -6,7 +6,7 @@ import {
   confirmationQuestionOf,
   largeVolumeThreshold,
 } from './ProductionGuard';
-import type { OperationRequest, RunConfirmation } from './ProductionGuard';
+import type { OperationRequest, ProductionGuardOptions, RunConfirmation } from './ProductionGuard';
 
 function createRequest(overrides?: Partial<OperationRequest>): OperationRequest {
   return {
@@ -555,13 +555,19 @@ describe('ProductionGuard', () => {
   });
 
   describe('safety settings wiring', () => {
-    it('requiresConfirmation follows isProdConfirmationRequired=false', () => {
-      const noConfirmGuard = new ProductionGuard({ isProdConfirmationRequired: () => false });
-      const result = noConfirmGuard.check(
-        createRequest({ orgTier: 'production', operation: 'insert' }),
-      );
-      expect(result.allowed).toBe(true);
-      expect(result.requiresConfirmation).toBe(false);
+    it('asks before every write to a production org: no option turns the question off', () => {
+      // `isProdConfirmationRequired` mirrored `sandforge.safety.requireProdConfirmation`,
+      // and false let a production write through unasked. Handed over as it
+      // was, it changes nothing.
+      const options = {
+        isProdConfirmationRequired: () => false,
+      } as unknown as ProductionGuardOptions;
+      const optioned = new ProductionGuard(options);
+      for (const operation of ['insert', 'update', 'upsert'] as const) {
+        const result = optioned.check(createRequest({ orgTier: 'production', operation }));
+        expect(result.allowed).toBe(true);
+        expect(result.requiresConfirmation).toBe(true);
+      }
     });
 
     it('requiresConfirmation stays true by default (no options)', () => {
@@ -643,16 +649,6 @@ describe('ProductionGuard', () => {
     it('never lets a run through when there is nobody to ask', async () => {
       // confirmIfNeeded proceeds on such a host; a run's own question does not.
       await expect(guard.confirmRun(question)).resolves.toBe('unavailable');
-    });
-
-    it('is not the production confirmation: the setting that removes that one leaves it', async () => {
-      const ask = vi.fn().mockResolvedValue(false);
-      const uiGuard = new ProductionGuard({
-        isProdConfirmationRequired: () => false,
-        requestRunConfirmation: ask,
-      });
-
-      await expect(uiGuard.confirmRun(question)).resolves.toBe('declined');
     });
   });
 });
