@@ -9,6 +9,7 @@
   "command.openSeed": "SandForge: Seed を開く",
   "command.openSync": "SandForge: Sync を開く",
   "command.openForge": "SandForge: Forge を開く",
+  "command.openCheckpoints": "SandForge: Checkpoints を開く",
   "command.openFrozen": "SandForge: 凍結データセットを開く",
   "command.openGrappe": "SandForge: Grappe を開く（パーティション進捗）",
   "command.openAutopilot": "SandForge: Autopilot を開く",

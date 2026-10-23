@@ -96,6 +96,15 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     channel: 'sync:config:delete',
     reason: 'Nothing deletes a saved sync configuration yet.',
   },
+  {
+    channel: 'checkpoint:preview',
+    reason:
+      'The Checkpoints page lists and takes checkpoints; nothing asks for the preview of a rewind yet.',
+  },
+  {
+    channel: 'checkpoint:ignore-fields',
+    reason: 'Nothing on the Checkpoints page stops comparing a field of a checkpoint yet.',
+  },
 ];
 
 function repoPath(...parts: string[]): string {

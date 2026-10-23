@@ -100,10 +100,14 @@ const ACT_FIXED_REQUESTS = 4;
 
 /**
  * Requests a read of what changed since a checkpoint sends whatever it finds:
- * the moment it reads from, on the org's clock (a SOAP call), and the names
- * of the users who last changed what it finds.
+ * the moment it reads from, on the org's clock (a SOAP call). The names of
+ * the users who last changed what it finds are read only when it finds some,
+ * two hundred a read.
  */
-const DIFF_FIXED_REQUESTS = 2;
+const DIFF_FIXED_REQUESTS = 1;
+
+/** Users whose names one read of `User` asks, by their ids. */
+const USERS_PER_READ = 200;
 
 /**
  * SOAP calls one call of `undeleteRunDeletions` sends whatever it brings
@@ -390,6 +394,15 @@ export interface ObjectRelationships {
   dependents: number;
   /** Child relationships the org deletes along: the children that come back with a record. */
   cascades: number;
+  /**
+   * Of the child relationships the org deletes along, those to an object
+   * outside the checkpoint, and of them those to an object a person works
+   * in. A read of what changed since describes the org's objects once when
+   * an object it would delete records of has the first, and reads the
+   * second under every two hundred of those records. Absent, both are
+   * counted from the objects outside the last read found records in.
+   */
+  outside?: { all: number; worked: number };
 }
 
 const childRelationshipsSchema = z
@@ -398,6 +411,7 @@ const childRelationshipsSchema = z
       .array(
         z
           .object({
+            childSObject: z.string().optional(),
             cascadeDelete: z.boolean().optional(),
             restrictedDelete: z.boolean().optional(),
           })
@@ -407,18 +421,41 @@ const childRelationshipsSchema = z
   })
   .loose();
 
+/** What is outside a checkpoint, as {@link relationshipsOf} tells an object's children. */
+export interface CheckpointBounds {
+  /** The checkpoint's objects, by API name in lower case. */
+  inCheckpoint: ReadonlySet<string>;
+  /**
+   * The objects a person works in (`workedObjects`), by API name; none known
+   * when the org's objects were not described.
+   */
+  worked?: ReadonlySet<string>;
+}
+
 /**
  * An object's relationships as its describe lists them: every one the org
  * deletes along or restricts a delete by. The dependents check reads those
- * whose child people work in only, so this is the most it reads.
+ * whose child people work in only, so this is the most it reads. Given the
+ * checkpoint's bounds, those it deletes along to an object outside them too.
  */
-export function relationshipsOf(describe: unknown): ObjectRelationships {
+export function relationshipsOf(describe: unknown, bounds?: CheckpointBounds): ObjectRelationships {
   const children = childRelationshipsSchema.parse(describe).childRelationships ?? [];
-  return {
+  const relationships: ObjectRelationships = {
     dependents: children.filter((r) => r.cascadeDelete === true || r.restrictedDelete === true)
       .length,
     cascades: children.filter((r) => r.cascadeDelete === true).length,
   };
+  if (bounds === undefined) return relationships;
+  const outside = children.filter(
+    (r) =>
+      r.cascadeDelete === true &&
+      r.childSObject !== undefined &&
+      !bounds.inCheckpoint.has(r.childSObject.toLowerCase()),
+  );
+  const worked = outside.filter(
+    (r) => r.childSObject !== undefined && bounds.worked?.has(r.childSObject) === true,
+  );
+  return { ...relationships, outside: { all: outside.length, worked: worked.length } };
 }
 
 /** The relationships of `objectApiName` given, or the most read for one object when none were. */
@@ -466,8 +503,14 @@ export function removalCost(objects: ReadonlyArray<{ records: number; dependents
 
 // ─── A read of what changed since a checkpoint ───────────────────────────────
 
-/** An object of a checkpoint, as an estimate reads it. */
-export type EstimatedObject = Pick<CheckpointObject, 'objectApiName' | 'records' | 'fields'>;
+/**
+ * An object of a checkpoint, as an estimate reads it. Whether Salesforce
+ * undeletes its records on their own tells, of its records gone for good,
+ * those a read found by scanning its ids from those it named so as they lay
+ * in the recycle bin: absent, it does.
+ */
+export type EstimatedObject = Pick<CheckpointObject, 'objectApiName' | 'records' | 'fields'> &
+  Partial<Pick<CheckpointObject, 'undeletable'>>;
 
 /** What the reads of what changed since a checkpoint are estimated from. */
 export interface DiffEstimateInput {
@@ -475,6 +518,15 @@ export interface DiffEstimateInput {
   objects: readonly EstimatedObject[];
   /** What the last read found: the objects that moved, and those it could not read. */
   diff: Pick<RewindDiff, 'objects' | 'unread'>;
+  /**
+   * Per object, its relationships as its describe lists them
+   * ({@link relationshipsOf}). One not given, of an object the rewind
+   * deletes from or brings back to, is counted at the most a removal was
+   * seen to read for one object; and what a read counts outside the
+   * checkpoint under its records to delete, from the objects outside the
+   * last read found records in.
+   */
+  relationships?: ReadonlyMap<string, ObjectRelationships>;
 }
 
 /** Records created or brought back since that a rewind deletes, in its first pass. */
@@ -519,35 +571,92 @@ function goneForGood(object: RewindDiffObject): number {
 }
 
 /**
+ * Calls the reads of what lies outside the checkpoint under `records`
+ * records to delete take: a chunk of {@link SNAPSHOT_CHUNK_IDS} at a time, a
+ * read of each of `relationships` per 200 of them, five reads a call.
+ */
+function outsideReads(records: number, relationships: number): number {
+  let reads = 0;
+  for (let left = records; left > 0 && relationships > 0; left -= SNAPSHOT_CHUNK_IDS) {
+    const chunk = Math.min(left, SNAPSHOT_CHUNK_IDS);
+    reads += callsFor(relationships * batches(chunk), QUERIES_PER_COMPOSITE);
+  }
+  return reads;
+}
+
+/**
  * What one read of the org since the checkpoint costs — a preview, a
  * rewind's fresh diff, its convergence pass and its verify read it alike — as
- * the last read found the org: its clock and the names of the users found;
- * the drift describes, 25 a call; the change reads, of the objects that moved
- * and of those the last read could not read, in the checkpoint's order; the
- * values of the records changed since, read by id in each object's column
- * groups; the records outside the checkpoint counted under each 200 the
- * rewind deletes, five a call; and, in each object some of whose records are
- * gone for good, every id of it, streamed as the change reads are.
+ * the last read found the org, each part as `rewindDiff` sends it:
+ *
+ * - its clock;
+ * - the drift describes, 25 a call;
+ * - the change reads, of the objects that moved and of those the last read
+ *   could not read, in the checkpoint's order;
+ * - the values of the records changed since, and of those that come back
+ *   with a parent — their lookup names a record brought back, so they are
+ *   read whatever their stamps — by id, in each object's column groups;
+ * - the describes of the objects it brings records back to, 25 a call, which
+ *   tell the lookups that name them; then the describe of each object it
+ *   deletes records of that none of those was; the org's objects, described
+ *   once, when one of them deletes records along outside the checkpoint; and
+ *   a read of each such relationship to an object a person works in, per 200
+ *   records to delete, five a call;
+ * - every id of each object some of whose records it found gone for good, an
+ *   object at a time;
+ * - the names of the users who last changed what it found, 200 a read, five
+ *   reads a call; none when it found nothing to delete or give back.
+ *
+ * A drift describe that came back whole — the object's fields changed in the
+ * day before the take or since, which its drift tells — answers for its
+ * relationships too, and the object is not described again.
  */
 export function diffEstimate(input: DiffEstimateInput): Cost {
   const found = new Map(input.diff.objects.map((object) => [object.objectApiName, object]));
   const unread = new Set(input.diff.unread.map((object) => object.objectApiName));
   const moved: MovedObject[] = [];
-  const scans: number[] = [];
+  const scans: Cost[] = [];
+  /** The objects it brings records back to: their relationships are described up front. */
+  const backTo = new Set<string>();
   let values = 0;
-  let outsideCounts = 0;
-  for (const { objectApiName, records, fields } of input.objects) {
+  for (const { objectApiName, records, fields, undeletable } of input.objects) {
     const object = found.get(objectApiName);
     if (object === undefined) {
       if (unread.has(objectApiName)) moved.push({ objectApiName, live: 0, deleted: 0 });
       continue;
     }
     moved.push({ objectApiName, live: liveRows(object), deleted: deletedRows(object) });
-    values += readsById(object.toGiveBack.records + object.touched, fields);
-    outsideCounts +=
-      object.outside.length * batches(deletedFirst(object) + object.toDelete.comesBackWithParent);
-    if (goneForGood(object) > 0) scans.push(pagesOf(records));
+    values += readsById(
+      object.toGiveBack.records + object.touched + object.toBringBack.withParent,
+      fields,
+    );
+    // A record of an object Salesforce undeletes only with its parent, found
+    // in the bin with its parent staying, is gone for good: brought back by
+    // nothing, it was still read as one coming back. Of any other object, a
+    // record gone for good was found by scanning the object's ids.
+    const gone = goneForGood(object);
+    if (broughtBack(object) > 0 || (undeletable === false && gone > 0)) backTo.add(objectApiName);
+    if (gone > 0 && undeletable !== false) scans.push(streamedReadsCost([pagesOf(records)]));
   }
+  const whole = (object: RewindDiffObject): boolean => object.schemaDrift !== undefined;
+  const describedFirst = input.diff.objects.filter(
+    (object) => backTo.has(object.objectApiName) && !whole(object),
+  ).length;
+  let describedAfter = 0;
+  let describesGlobal = false;
+  let outside = 0;
+  for (const { objectApiName } of input.objects) {
+    const object = found.get(objectApiName);
+    if (object === undefined || deletedFirst(object) === 0) continue;
+    if (!whole(object) && !backTo.has(objectApiName)) describedAfter++;
+    const relationships = input.relationships?.get(objectApiName)?.outside ?? {
+      all: object.outside.length,
+      worked: object.outside.length,
+    };
+    if (relationships.all > 0) describesGlobal = true;
+    outside += outsideReads(deletedFirst(object), relationships.worked);
+  }
+  const users = new Set(input.diff.objects.flatMap((object) => Object.keys(object.lastChangedBy)));
   return sum(
     calls(DIFF_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
     calls(callsFor(input.objects.length, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
@@ -559,8 +668,15 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
       moved,
     }),
     calls(values, SECONDS_PER_READ),
-    calls(callsFor(outsideCounts, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
-    scans.length > 0 ? streamedReadsCost(scans) : NOTHING,
+    calls(callsFor(describedFirst, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
+    calls(describedAfter, SECONDS_PER_SMALL_CALL),
+    calls(describesGlobal ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
+    calls(outside, SECONDS_PER_SMALL_CALL),
+    ...scans,
+    calls(
+      callsFor(callsFor(users.size, USERS_PER_READ), QUERIES_PER_COMPOSITE),
+      SECONDS_PER_SMALL_CALL,
+    ),
   );
 }
 
@@ -574,13 +690,6 @@ export interface RewindEstimateInput extends DiffEstimateInput {
    * writes. 0 when the preview read none.
    */
   automationRequests: number;
-  /**
-   * Per object, its relationships as its describe lists them
-   * ({@link relationshipsOf}). One not given, of an object the rewind
-   * deletes from or brings back to, is counted at the most a removal was
-   * seen to read for one object.
-   */
-  relationships?: ReadonlyMap<string, ObjectRelationships>;
   /**
    * The rewind acts on the diff the command line just showed, read in the
    * same command, and reads no fresh one.

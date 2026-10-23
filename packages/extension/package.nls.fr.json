@@ -9,6 +9,7 @@
   "command.openSeed": "SandForge : Ouvrir Seed",
   "command.openSync": "SandForge : Ouvrir Sync",
   "command.openForge": "SandForge : Ouvrir Forge",
+  "command.openCheckpoints": "SandForge : Ouvrir Checkpoints",
   "command.openFrozen": "SandForge : Ouvrir le Jeu de données figé",
   "command.openGrappe": "SandForge : Ouvrir Grappe (progression par partition)",
   "command.openAutopilot": "SandForge : Ouvrir Autopilot",

@@ -9,6 +9,7 @@
   "command.openSeed": "SandForge: Seed öffnen",
   "command.openSync": "SandForge: Sync öffnen",
   "command.openForge": "SandForge: Forge öffnen",
+  "command.openCheckpoints": "SandForge: Checkpoints öffnen",
   "command.openFrozen": "SandForge: Eingefrorenes Dataset öffnen",
   "command.openGrappe": "SandForge: Grappe öffnen (Partitionsfortschritt)",
   "command.openAutopilot": "SandForge: Autopilot öffnen",

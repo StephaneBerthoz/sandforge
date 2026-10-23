@@ -323,7 +323,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // A refreshed sandbox is a new org behind the same registered one. Every
   // validated connection says which org it reached, the startup check of
   // each org included, so this is wired before that check runs (step 10b).
-  context.subscriptions.push(wireSandboxRefreshDetection(handlers.sandboxRefreshes, orgManager));
+  // Its notice names the checkpoints kept of the org the sandbox was before.
+  context.subscriptions.push(
+    wireSandboxRefreshDetection(handlers.sandboxRefreshes, orgManager, (refresh) =>
+      handlers.checkpointsKeptBefore(refresh),
+    ),
+  );
 
   // Start the sync schedule tick loop (wires SyncScheduleHandler.onExecute
   // to SyncOpsHandler.executeScheduled; idempotent, stops in deactivate()).
@@ -364,6 +369,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // already true and writing it raises no configuration event.
   services.reinitAI = createAIReinit({ services, run: runAI, log });
   eventBroker.onFirstWebview(() => {
+    // Checkpoints past their date, and the journals of rewinds that can no
+    // longer be undone, go as the panels open: each is named in the log.
+    void handlers.sweepCheckpoints();
     lateCompositions = Promise.allSettled([
       initForgeComposition({
         handlers,

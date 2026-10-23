@@ -20,6 +20,11 @@ import { getJsforceConnection } from '../core/connection/ConnectionHelper';
 import { PipelineOrchestrator } from '../modules/automation/PipelineOrchestrator';
 import type { Services } from '../services';
 import { emptyCounts, recordWriteRun } from '../modules/audit/auditTrail';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore';
+import type { CheckpointHandler, WindowWriters } from './handlers/CheckpointHandler';
 
 /**
  * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
@@ -286,6 +291,69 @@ describe('ExtensionHandlers', () => {
 
       expect(autopilot).not.toHaveBeenCalled();
       expect(frozen).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the Checkpoints page', () => {
+    const inner = () =>
+      handlers as unknown as {
+        checkpointHandler: Pick<CheckpointHandler, 'setRunFiles'> & {
+          writers: WindowWriters;
+        };
+        syncHandler: { isRunning: (runId: string) => boolean };
+        seedCloneHandler: { isRunning: (runId: string) => boolean };
+        forgeHandler: { isWritingTo: (orgId: string) => boolean };
+      };
+
+    it('routes its requests to the checkpoints kept on this machine', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sandforge-handlers-checkpoints-'));
+      try {
+        const opened = openCheckpointStore({
+          root: join(dir, 'store'),
+          locksDir: join(dir, 'locks'),
+        });
+        if ('refusal' in opened) throw new Error(opened.refusal.reason);
+        // The store a command line names, kept in place of the default one.
+        handlers.setCheckpointStore(opened.store);
+
+        broker['dispatch'](msg('checkpoint:list', { orgId: 'org-x' }, 'wv-list-1'));
+
+        await vi.waitFor(() =>
+          expect(posted).toContainEqual(
+            expect.objectContaining({
+              type: 'checkpoint:list:response',
+              correlationId: 'wv-list-1',
+              payload: { checkpoints: [] },
+            }),
+          ),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses a take of an org a run of this window writes to: a Sync, a Seed, a clone or a Forge run', () => {
+      const { checkpointHandler, syncHandler, seedCloneHandler, forgeHandler } = inner();
+      vi.spyOn(syncHandler, 'isRunning').mockImplementation((id) => id === 'sync-1');
+      vi.spyOn(seedCloneHandler, 'isRunning').mockImplementation((id) => id === 'clone-1');
+      vi.spyOn(forgeHandler, 'isWritingTo').mockImplementation((orgId) => orgId === 'org-x');
+
+      expect(checkpointHandler.writers.isRunning?.('sync-1')).toBe(true);
+      expect(checkpointHandler.writers.isRunning?.('clone-1')).toBe(true);
+      expect(checkpointHandler.writers.isRunning?.('other')).toBe(false);
+      expect(checkpointHandler.writers.forgeWritingTo?.('org-x')).toBe(true);
+      expect(checkpointHandler.writers.forgeWritingTo?.('org-y')).toBe(false);
+
+      // And reads the files of the Sync and Seed runs, which name the org they write to.
+      const files = vi.spyOn(checkpointHandler, 'setRunFiles');
+      const syncRuns = {} as Parameters<ExtensionHandlers['setSyncRunCreations']>[0];
+      const seedRuns = {} as Parameters<ExtensionHandlers['setSeedRunCreations']>[0];
+      handlers.setSyncRunCreations(syncRuns);
+      handlers.setSeedRunCreations(seedRuns);
+      expect(files.mock.calls).toEqual([
+        ['sync', syncRuns],
+        ['seed', seedRuns],
+      ]);
     });
   });
 

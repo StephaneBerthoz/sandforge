@@ -58,6 +58,9 @@ import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
+import { CheckpointHandler } from './handlers/CheckpointHandler.js';
+import type { DetectedSandboxRefresh } from '../modules/monitor/SandboxRefreshDetector.js';
+import type { OrgCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore.js';
 import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
@@ -161,6 +164,7 @@ export class ExtensionHandlers {
   private readonly autopilotHandler: AutopilotHandler;
   private readonly forgeHandler: ForgeHandler;
   private readonly frozenHandler: FrozenDatasetHandler;
+  private readonly checkpointHandler: CheckpointHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
   private readonly governanceHandler: GovernanceOpsHandler;
@@ -252,6 +256,17 @@ export class ExtensionHandlers {
     // The salt kept in VS Code's secret storage, made on the first extraction;
     // SANDFORGE_FROZEN_SALT wins where it is set.
     this.frozenHandler.setSaltKeeper(secretStorageSaltKeeper(deps.secretVault));
+    // A checkpoint of an org a run of this window writes to is refused: it
+    // would hold the run's records half written. A Sync or Seed run is told
+    // by its file and the handler writing it, a Forge run by its handler.
+    this.checkpointHandler = new CheckpointHandler(this.handlerDeps, {
+      isRunning: (runId) =>
+        this.syncHandler.isRunning(runId) ||
+        this.seedHandler.isRunning(runId) ||
+        this.seedCsvHandler.isRunning(runId) ||
+        this.seedCloneHandler.isRunning(runId),
+      forgeWritingTo: (orgId) => this.forgeHandler.isWritingTo(orgId),
+    });
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -372,6 +387,9 @@ export class ExtensionHandlers {
     this.seedCsvHandler.setLiveOperationTracker(tracker);
     this.frozenHandler.setLiveOperationTracker(tracker);
     this.autopilotHandler.setLiveOperationTracker(tracker);
+    // A checkpoint's take writes nothing to the org, and is listed all the
+    // same: it reads every record of it, and its Cancel keeps nothing.
+    this.checkpointHandler.setLiveOperationTracker(tracker);
     // A backup, a restore and a masking run; a Cleanup delete and a subject
     // request's erasure; a pipeline run; a real-time session. They were in the
     // registry alone, which Live Operations does not list: their Cancel was
@@ -400,6 +418,8 @@ export class ExtensionHandlers {
     this.syncRemovalHandler.setRunCreations(store);
     // A restore of a Sync run's backup reads when the run last wrote.
     this.dataOpsHandler.setSyncRuns(store);
+    // A take refuses an org a run whose file has no end still writes to.
+    this.checkpointHandler.setRunFiles('sync', store);
   }
 
   /**
@@ -413,6 +433,32 @@ export class ExtensionHandlers {
     this.seedCsvHandler.setRunCreations(store);
     this.seedCloneHandler.setRunCreations(store);
     this.seedRemovalHandler.setRunCreations(store);
+    this.checkpointHandler.setRunFiles('seed', store);
+  }
+
+  /**
+   * Delete the checkpoints whose day has passed, and the journals of rewinds
+   * that can no longer be undone, each named in the log. Call as the first
+   * SandForge view opens, off the activation path.
+   */
+  sweepCheckpoints(): Promise<void> {
+    return this.checkpointHandler.sweep();
+  }
+
+  /**
+   * Keep the checkpoints in `store`, in place of the one `SANDFORGE_JOURNAL_DIR`
+   * or the home directory names: the store a command line is told to use.
+   */
+  setCheckpointStore(store: OrgCheckpointStore): void {
+    this.checkpointHandler.setStore(store);
+  }
+
+  /**
+   * How many checkpoints this machine keeps of the org a refreshed sandbox
+   * was before the refresh: the notice of the refresh names them.
+   */
+  checkpointsKeptBefore(refresh: DetectedSandboxRefresh): Promise<number> {
+    return this.checkpointHandler.keptBefore(refresh);
   }
 
   /**
@@ -943,6 +989,21 @@ export class ExtensionHandlers {
         'frozen:status',
       ],
       this.frozenHandler,
+    );
+
+    // Checkpoint & Rewind
+    route(
+      [
+        'checkpoint:list',
+        'checkpoint:scope',
+        'checkpoint:take',
+        'checkpoint:preview',
+        'checkpoint:delete',
+        'checkpoint:keep',
+        'checkpoint:rename',
+        'checkpoint:ignore-fields',
+      ],
+      this.checkpointHandler,
     );
 
     // Migration

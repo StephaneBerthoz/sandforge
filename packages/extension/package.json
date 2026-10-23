@@ -132,6 +132,11 @@
         "icon": "$(flame)"
       },
       {
+        "command": "sandforge.openCheckpoints",
+        "title": "%command.openCheckpoints%",
+        "icon": "$(history)"
+      },
+      {
         "command": "sandforge.openFrozen",
         "title": "%command.openFrozen%",
         "icon": "$(snowflake)"

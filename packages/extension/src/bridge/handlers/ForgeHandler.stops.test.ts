@@ -655,4 +655,30 @@ describe('ForgeHandler stops and discoveries, with two panels', () => {
       expect(taken(panelA, 'forge:execute:response')).toHaveLength(1);
     });
   });
+
+  describe('the org a run writes to, as a checkpoint of it asks', () => {
+    it('says a run writes to its target while it runs and no longer once it ended; a simulation writes to none', async () => {
+      expect(handler.isWritingTo('tgt-org')).toBe(false);
+      const run = send(panelA, 'wv-run-a', 'forge:execute', {
+        graph: graphOf('Account'),
+        config: CONFIG,
+      });
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(1));
+
+      expect(handler.isWritingTo('tgt-org')).toBe(true);
+      expect(handler.isWritingTo('src-org')).toBe(false);
+      finishRun(RESULT);
+      await run;
+      expect(handler.isWritingTo('tgt-org')).toBe(false);
+
+      const simulation = send(panelA, 'wv-run-b', 'forge:execute', {
+        graph: graphOf('Contact'),
+        config: { ...CONFIG, dryRun: true },
+      });
+      await vi.waitFor(() => expect(orchestrator.execute).toHaveBeenCalledTimes(2));
+      expect(handler.isWritingTo('tgt-org')).toBe(false);
+      finishRun(RESULT);
+      await simulation;
+    });
+  });
 });

@@ -485,7 +485,7 @@ describe('extension', () => {
 
     activate(context);
 
-    // 17 module commands (Home among them) + 1 cheers + 1 sandforge.ai config-change listener
+    // 18 module commands (Home and Checkpoints among them) + 1 cheers + 1 sandforge.ai config-change listener
     // + 1 sandforge.forge.graphView config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + openOrgInBrowser command + AI token budget reset command
@@ -493,8 +493,8 @@ describe('extension', () => {
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker
     // + performanceTracker + sandbox refresh detection + pipeline triggers
-    // + the context the walkthrough's Connect step completes on = 39
-    expect(context.subscriptions.length).toBe(39);
+    // + the context the walkthrough's Connect step completes on = 40
+    expect(context.subscriptions.length).toBe(40);
   });
 
   it('tells the editor at activation that no org is registered yet, which Get Started reads', async () => {

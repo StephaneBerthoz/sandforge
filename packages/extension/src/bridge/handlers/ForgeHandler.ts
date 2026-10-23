@@ -1106,6 +1106,12 @@ export class ForgeHandler implements DomainHandler {
      recorded as completed, so a clone the user stopped was listed as finished
      in Live Operations and announced as one. A discovery's is kept with it. */
   private executeOperationId: string | null = null;
+  /**
+   * The org the run under way writes to; none while it only simulates, or
+   * when no run is under way. A checkpoint of it is refused meanwhile: it
+   * would hold the run's records half written.
+   */
+  private writingTo: string | null = null;
   private orchestrator?: ForgeOrchestrator;
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
@@ -1326,6 +1332,11 @@ export class ForgeHandler implements DomainHandler {
     );
     registry.register(operationId, 'forge', description, tracked, stop);
     return settle;
+  }
+
+  /** Whether a run of this window writes to the org now: a simulation writes to none. */
+  isWritingTo(orgId: string): boolean {
+    return this.writingTo === orgId;
   }
 
   /**
@@ -2065,6 +2076,7 @@ export class ForgeHandler implements DomainHandler {
     // through the registry, as a Sync or a Seed run is.
     this.liveTracker?.register(operationId, 'forge', operationLabel);
     this.executeOperationId = operationId;
+    this.writingTo = dryRun ? null : config.targetOrgId;
     this.stops.beginRun(msg.id, runController);
     /** When the executor was handed the run: a run it stopped is recorded from then. */
     let startedAt = Date.now();
@@ -2601,7 +2613,10 @@ export class ForgeHandler implements DomainHandler {
       // already, before the run's answer, unless the answer itself threw.
       await endJournal();
       releaseRun(runError);
-      if (this.executeOperationId === operationId) this.executeOperationId = null;
+      if (this.executeOperationId === operationId) {
+        this.executeOperationId = null;
+        this.writingTo = null;
+      }
       this.stops.endRun(msg.id);
       // Unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.

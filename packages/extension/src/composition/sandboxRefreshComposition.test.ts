@@ -107,6 +107,37 @@ describe('sandbox refresh detection wiring', () => {
     expect(shown).toContain('la sandbox UAT a été rafraîchie');
   });
 
+  it('names, in the editor language, the checkpoints kept of the org the sandbox was before', async () => {
+    const asked: string[] = [];
+    wireSandboxRefreshDetection(detector, orgManager, (refresh) => {
+      asked.push(refresh.previousOrganizationId ?? '');
+      return Promise.resolve(2);
+    });
+
+    identityObservers.current?.(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID });
+
+    await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1));
+    const shown = String(vi.mocked(vscode.window.showWarningMessage).mock.calls[0][0]);
+    expect(shown).toContain('la sandbox UAT a été rafraîchie');
+    expect(shown).toContain(
+      "Ses 2 checkpoint(s) gardés sur cette machine sont ceux de l'org d'avant le rafraîchissement",
+    );
+    expect(asked).toEqual([REGISTERED_ORG_ID.slice(0, 15)]);
+  });
+
+  it('names no checkpoint when none is kept of the org before, or they cannot be counted', async () => {
+    const counts = [Promise.resolve(0), Promise.reject(new Error('store refused'))];
+    wireSandboxRefreshDetection(detector, orgManager, () => counts.shift() ?? Promise.resolve(0));
+
+    identityObservers.current?.(REGISTERED_ORG_ID, { organizationId: REFRESHED_ORG_ID });
+    identityObservers.current?.(REGISTERED_ORG_ID, { organizationId: '00Dxx00000PqRsT5D4' });
+
+    await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(2));
+    for (const [shown] of vi.mocked(vscode.window.showWarningMessage).mock.calls) {
+      expect(String(shown)).not.toContain('checkpoint');
+    }
+  });
+
   it('says nothing of a sandbox that still answers as the org it was registered with', () => {
     wireSandboxRefreshDetection(detector, orgManager);
 
