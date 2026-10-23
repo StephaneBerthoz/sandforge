@@ -306,6 +306,9 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
   notDescribed: 'Left out: the org would not describe it.',
   noSystemModstamp:
     'Left out: it has no SystemModstamp, so nothing would tell a record changed since.',
+  noRecycleBin:
+    'Left out: the org deletes its records for good, with no recycle bin, so nothing would ' +
+    'tell one deleted since, nor bring it back.',
   unreadable: 'Left out: the org refuses to read it whole.',
 };
 

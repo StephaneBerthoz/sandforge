@@ -82,6 +82,11 @@ export type ScopeLeftOutReason =
   | 'notDescribed'
   /** No `SystemModstamp`: nothing would tell a record that moved since. */
   | 'noSystemModstamp'
+  /**
+   * No `IsDeleted`: the org deletes its records for good, with no recycle bin,
+   * so nothing would tell one deleted since, nor bring it back.
+   */
+  | 'noRecycleBin'
   /** The org refuses to read it whole. */
   | 'unreadable';
 
@@ -378,6 +383,8 @@ export function resolveScope(
       });
     } else if (!described.fields.some((field) => field.name === 'SystemModstamp')) {
       leftOut.push({ objectApiName: name, reason: 'noSystemModstamp' });
+    } else if (!described.fields.some((field) => field.name === 'IsDeleted')) {
+      leftOut.push({ objectApiName: name, reason: 'noRecycleBin' });
     } else {
       kept.push(name);
     }

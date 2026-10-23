@@ -31,6 +31,7 @@ function described(
     name,
     fields: [
       { name: 'Id', type: 'id' },
+      { name: 'IsDeleted', type: 'boolean' },
       { name: 'SystemModstamp', type: 'datetime' },
     ],
     childRelationships: children,
@@ -266,13 +267,26 @@ describe('resolveScope', () => {
     expect(scope.leftOut).toEqual(candidates.leftOut);
   });
 
-  it('leaves out an object without a SystemModstamp, and one the org would not describe, with its words', () => {
-    const candidates = scopeCandidates([data('Account'), data('Odd__c'), data('Case')], {
-      mode: 'everything',
-    });
+  it('leaves out an object without a SystemModstamp, one without a recycle bin, and one the org would not describe, with its words', () => {
+    const candidates = scopeCandidates(
+      [data('Account'), data('Odd__c'), data('Case'), data('CaseTeamMember')],
+      { mode: 'everything' },
+    );
     const describes = new Map([
       ['Account', described('Account')],
       ['Odd__c', { name: 'Odd__c', fields: [{ name: 'Id', type: 'id' }] }],
+      // As the org describes it: a stamp, and no IsDeleted, since its records
+      // are deleted for good.
+      [
+        'CaseTeamMember',
+        {
+          name: 'CaseTeamMember',
+          fields: [
+            { name: 'Id', type: 'id' },
+            { name: 'SystemModstamp', type: 'datetime' },
+          ],
+        },
+      ],
     ]);
 
     const scope = resolveScope(
@@ -288,6 +302,7 @@ describe('resolveScope', () => {
         reason: 'notDescribed',
         detail: 'INVALID_TYPE: sObject type Case is not supported',
       },
+      { objectApiName: 'CaseTeamMember', reason: 'noRecycleBin' },
       { objectApiName: 'Odd__c', reason: 'noSystemModstamp' },
     ]);
   });
