@@ -65,6 +65,7 @@ import { ForgeRunGateNotice } from './ForgeRunGateNotice';
 import { useForgeRunGateStore } from './runGate';
 import { createdTargets, objectResultsCsv, rootCopyOf } from './forgeResultsExport';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 
 /**
  * Whether a failure's samples name a required field left empty: the refusal
@@ -786,9 +787,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         : undefined,
     [result, simulated, config],
   );
-  const targetOrgName = useOrgStore(
-    (s) => s.orgs.find((o) => o.id === (config?.targetOrgId ?? result?.targetOrgId))?.alias,
-  );
+  /** The org the run wrote to: its config's target, else its history entry's. */
+  const targetOrgId = config?.targetOrgId ?? result?.targetOrgId;
+  const targetOrgName = useOrgStore((s) => s.orgs.find((o) => o.id === targetOrgId)?.alias);
 
   /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
@@ -1553,6 +1554,13 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           {t('forgeRun.retryWithParentsHint')}
         </p>
       )}
+      {/* The target as the clone filled it, kept before the testers start:
+          a simulation wrote nothing there. */}
+      <TakeCheckpointNow
+        orgId={targetOrgId}
+        wrote={!simulated && inserted + (result?.updatedCount ?? 0) > 0}
+        testId="forge-results-checkpoint-now"
+      />
       {/* What the run created read back once the target has settled: a
           simulation wrote nothing to verify. */}
       {result && !simulated && <ForgeResultsVerify run={result} />}

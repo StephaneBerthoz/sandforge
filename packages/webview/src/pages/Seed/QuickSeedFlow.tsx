@@ -15,6 +15,7 @@ import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import { SeedLocalePicker } from './SeedLocalePicker';
 import { refusedForEmails, useSeedAutomation } from './useSeedAutomation';
@@ -330,6 +331,13 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                   {t('seed.quickSeed.seedAgain')}
                 </Button>
               </div>
+
+              {/* The org as the template filled it, kept before the testers start. */}
+              <TakeCheckpointNow
+                orgId={quickSeed.selectedOrgId}
+                wrote={quickSeed.executionResult.totalRecordsCreated > 0}
+                testId="quick-seed-checkpoint-now"
+              />
             </>
           ) : (
             <div className="text-center py-8 text-xs text-(--sf-text-secondary)">

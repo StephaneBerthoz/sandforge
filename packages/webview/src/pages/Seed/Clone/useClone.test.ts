@@ -666,6 +666,22 @@ describe('useClone', () => {
       expect(result.current.step).toBe('objects');
     });
 
+    it('names the org a result was written to, which stays the run’s once another is selected', () => {
+      const { result, rerender } = previewed();
+      expect(result.current.resultTargetOrgId).toBeUndefined();
+      act(() => {
+        result.current.handleExecute();
+      });
+      expect(result.current.resultTargetOrgId).toBeUndefined();
+      mockExecuteState = { ...mockExecuteState, data: { status: 'success' } };
+      rerender();
+      expect(result.current.resultTargetOrgId).toBe('target-1');
+      selectedTarget = 'target-2';
+      rerender();
+      expect(result.current.targetOrgId).toBe('target-2');
+      expect(result.current.resultTargetOrgId).toBe('target-1');
+    });
+
     it('says in words that the extension refused a run its preview was not made for, and drops that preview', () => {
       const { result, rerender } = previewed();
       act(() => {

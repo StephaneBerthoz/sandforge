@@ -11,6 +11,7 @@ import type { DataTableColumn } from '../../../components/ui/DataTable';
 import { Pagination } from '../../../components/ui/Pagination';
 import { ForgeContactPointsResult } from '../../Forge/ForgeContactPointsResult';
 import { SeedRunRemoval } from '../SeedRunRemoval';
+import { TakeCheckpointNow } from '../../../components/ui/TakeCheckpointNow';
 
 /** Page size for ID mapping tables. */
 const MAPPING_PAGE_SIZE = 25;
@@ -36,6 +37,8 @@ const STATUS_LABEL: Record<CloneExecutionResult['status'], string> = {
 export interface CloneResultsPanelProps {
   /** Clone execution result. */
   result: CloneExecutionResult;
+  /** The org the clone wrote to, by its id in the registry. */
+  targetOrgId?: string;
   /** Callback when user clicks Done. */
   onDone: () => void;
 }
@@ -44,7 +47,11 @@ export interface CloneResultsPanelProps {
  * Displays clone execution results: overall status, per-object
  * results with ID mapping tables, error lists, and an export button.
  */
-export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, onDone }) => {
+export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
+  result,
+  targetOrgId,
+  onDone,
+}) => {
   const { save } = useFileSave();
   const { t } = useTranslation();
 
@@ -370,6 +377,14 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
           })}`,
           content: buildObjectContent(objResult),
         }))}
+      />
+
+      {/* The target as the clone filled it, kept before the testers start:
+          above Done, which leaves the results. */}
+      <TakeCheckpointNow
+        orgId={targetOrgId}
+        wrote={result.totalInserted > 0}
+        testId="clone-checkpoint-now"
       />
 
       {/* Actions */}

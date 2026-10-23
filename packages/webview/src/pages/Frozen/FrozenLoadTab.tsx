@@ -26,6 +26,7 @@ import { ProgressBar } from '../../components/ui/ProgressBar';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenLoadRemoval } from './FrozenLoadRemoval';
+import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { failureReasons, purgeFailureReasons } from './frozenFailureReasons';
 import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
@@ -67,6 +68,19 @@ function sumPerObject(
   pick: (o: FrozenLoadReportInfo['perObject'][number]) => number,
 ): number {
   return report.perObject.reduce((sum, o) => sum + pick(o), 0);
+}
+
+/**
+ * Whether a load changed the org: it inserted a record, or its reload purged
+ * one — deleted or deactivated it. Pass 2 and the statuses only update what
+ * the load itself inserted.
+ */
+function loadWrote(report: FrozenLoadReportInfo): boolean {
+  const purged = [
+    ...Object.values(report.purge.deleted),
+    ...Object.values(report.purge.deactivated),
+  ];
+  return sumPerObject(report, (o) => o.inserted) > 0 || purged.some((count) => count > 0);
 }
 
 /** The rows of a table of failure reasons, one per object, status code and message. */
@@ -1081,6 +1095,13 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     </ul>
                   </div>
                 )}
+              {/* The target as the load filled it, kept before the testers
+                  start: the org the report is of, whichever is picked now. */}
+              <TakeCheckpointNow
+                orgId={loadReport.orgId}
+                wrote={loadWrote(loadReport)}
+                testId="frozen-report-checkpoint-now"
+              />
             </div>
           </CardBody>
         </Card>

@@ -17,6 +17,7 @@ import { CsvPreview } from './CsvPreview';
 import { CsvColumnMapper } from './CsvColumnMapper';
 import { CsvValidationPanel } from './CsvValidationPanel';
 import { SeedRunRemoval } from '../SeedRunRemoval';
+import { TakeCheckpointNow } from '../../../components/ui/TakeCheckpointNow';
 import { useCsvImport } from './useCsvImport';
 import type { CsvImportStep } from './useCsvImport';
 
@@ -385,6 +386,14 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack, onRunn
                     <SeedRunRemoval runId={csv.executionResult.runId} />
                   </div>
                 )}
+                {/* The org as the import filled it, kept before the testers
+                    start: above Done, which leaves the results. */}
+                <TakeCheckpointNow
+                  orgId={csv.targetOrgId}
+                  wrote={csv.executionResult.insertedCount > 0}
+                  testId="csv-checkpoint-now"
+                  className="self-stretch max-w-md mx-auto w-full"
+                />
                 <Button variant="primary" size="sm" onClick={onBack} data-testid="done-button">
                   {t('seed.csv.wizard.done')}
                 </Button>

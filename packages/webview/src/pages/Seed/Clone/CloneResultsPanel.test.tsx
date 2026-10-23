@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import i18n from '../../../i18n';
 import fr from '../../../i18n/locales/fr.json';
+import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
+import { developerOrg, productionOrg } from '../../Checkpoint/testing/checkpointFixtures';
 import { CloneResultsPanel } from './CloneResultsPanel';
 import type { CloneExecutionResult } from '@sandforge/shared';
 
@@ -533,5 +536,46 @@ describe('CloneResultsPanel', () => {
     render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     expect(screen.queryByTestId('seed-removal-of')).toBeNull();
+  });
+
+  describe('Take a checkpoint now', () => {
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [developerOrg(), productionOrg()], selectedOrgId: 'org-dev' });
+      useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+    });
+    afterEach(() => {
+      useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    });
+
+    it('offers, above Done, a checkpoint of the org the clone filled, opening its take', () => {
+      render(
+        <CloneResultsPanel result={mockSuccessResult} targetOrgId="org-dev" onDone={vi.fn()} />,
+      );
+      const offer = screen.getByTestId('clone-checkpoint-now');
+      expect(
+        offer.compareDocumentPosition(screen.getByTestId('clone-results-done')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      fireEvent.click(within(offer).getByRole('button', { name: 'Take a checkpoint now' }));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-dev',
+      });
+    });
+
+    it('offers none after a clone that inserted nothing', () => {
+      render(
+        <CloneResultsPanel result={mockManyErrorsResult} targetOrgId="org-dev" onDone={vi.fn()} />,
+      );
+      expect(screen.queryByTestId('clone-checkpoint-now')).toBeNull();
+    });
+
+    it('offers none for a production org, which a checkpoint refuses', () => {
+      render(
+        <CloneResultsPanel result={mockSuccessResult} targetOrgId="org-prod" onDone={vi.fn()} />,
+      );
+      expect(screen.queryByTestId('clone-checkpoint-now')).toBeNull();
+    });
   });
 });

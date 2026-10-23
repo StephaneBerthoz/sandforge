@@ -296,6 +296,7 @@ describe('docs/modules/checkpoint.md', () => {
       'checkpoint.undo.open',
       'checkpoint.undo.acceptAutomation',
       'home.checkpoint.rewind',
+      'runResults.checkpointNow.take',
     ];
     const missing = keys.filter((key) => !DOC.includes(`**${asWritten(label(key))}**`));
     expect(missing).toEqual([]);
@@ -398,6 +399,35 @@ describe('docs/modules/checkpoint.md', () => {
       'The preview counts a lead converted since among what a rewind cannot undo, and the result ' +
         'names it kept; an activated contract the preview does not count',
     );
+  });
+
+  it('names the results that offer a take of the org they filled, and what is never offered one', () => {
+    // Positive control: each result renders the offer, of the org the run wrote to.
+    const RESULTS = {
+      'packages/webview/src/pages/Seed/QuickSeedFlow.tsx': 'quick-seed-checkpoint-now',
+      'packages/webview/src/pages/Seed/SeedResultsStep.tsx': 'seed-checkpoint-now',
+      'packages/webview/src/pages/Seed/CsvUpload/CsvUploadWizard.tsx': 'csv-checkpoint-now',
+      'packages/webview/src/pages/Seed/Clone/CloneResultsPanel.tsx': 'clone-checkpoint-now',
+      'packages/webview/src/pages/Forge/ForgeResults.tsx': 'forge-results-checkpoint-now',
+      'packages/webview/src/pages/Frozen/FrozenLoadTab.tsx': 'frozen-report-checkpoint-now',
+    };
+    for (const [path, testId] of Object.entries(RESULTS)) {
+      expect({ path, offers: source(path).includes(`testId="${testId}"`) }).toEqual({
+        path,
+        offers: true,
+      });
+    }
+    const offer = source('packages/webview/src/components/ui/TakeCheckpointNow.tsx');
+    expect(offer).toContain('!isDevelopmentOrg(org)) return null');
+    expect(offer).toContain(
+      "navigate('checkpoint', { takeCheckpoint: true, targetOrgId: org.id })",
+    );
+
+    const take = section(DOC, '## Taking a checkpoint');
+    expect(take).toContain(
+      'The results of a Seed run (a template, the wizard, a CSV import or a clone from another org), of a Forge clone and of a Frozen load that wrote to a sandbox, a scratch org or a Developer Edition offer',
+    );
+    expect(take).toContain('It is not offered for a production org, nor after a run');
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {

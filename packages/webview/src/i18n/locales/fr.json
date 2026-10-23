@@ -4598,6 +4598,10 @@
       "byValidationRule": "refusé par une règle de validation",
       "byRestrictedPicklist": "valeur refusée par une liste de sélection restreinte",
       "byLookupFilter": "enregistrement désigné refusé par un filtre de recherche"
+    },
+    "checkpointNow": {
+      "why": "Avant que vos testeurs ne commencent, gardez {{org}} telle qu'elle est maintenant comme point où revenir. Revenir à ce point l'y ramène ensuite, quel que soit l'auteur des changements à venir.",
+      "take": "Créer un point de contrôle maintenant"
     }
   },
   "grappe": {

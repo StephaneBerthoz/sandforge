@@ -2376,6 +2376,10 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-save-id-map')).toBeVisible();
       await expect(page.getByTestId('forge-retry-parents')).toBeVisible();
       await expect(page.getByTestId('forge-results-remove')).toBeVisible();
+      // The target as the run filled it, offered as a checkpoint: scanned with the rest.
+      await expect(page.getByTestId('forge-results-checkpoint-now')).toContainText(
+        `keep ${QA_SANDBOX.alias} as it is now`,
+      );
       expectNoViolations(await checkAccessibility(page));
 
       await page.getByTestId('forge-id-mapping-open').first().click();
@@ -10455,6 +10459,7 @@ for (const theme of STATE_THEMES) {
       expect(lines[1]).toBe(
         '"Account","100","100","0","001000000000001AAA 001000000000002AAA","98"',
       );
+      await expect(page.getByTestId('seed-checkpoint-now')).toBeVisible();
 
       await expectReadable(page, theme, '[data-testid="seed-step-results-content"]');
     });
@@ -10656,6 +10661,7 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('seed-result-errors-Contact').waitFor({ timeout: 10_000 });
       await answerAll(page, 'seed:removal:info', 'seed:removal:info:response', { info: null });
       await page.getByTestId('btn-seed-open-record').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('quick-seed-checkpoint-now')).toBeVisible();
 
       await expectReadable(page, theme, '[data-testid="quick-seed-results"]');
     });
@@ -10968,6 +10974,10 @@ for (const theme of STATE_THEMES) {
       await expect(
         page.getByTestId('frozen-report-written-without-fields').locator('tbody tr'),
       ).toHaveCount(2, { timeout: 10_000 });
+      // The report closes on a checkpoint of the org the load filled.
+      await expect(page.getByTestId('frozen-report-checkpoint-now')).toContainText(
+        `keep ${QA_SANDBOX.alias} as it is now`,
+      );
 
       await expectReadable(page, theme);
     });

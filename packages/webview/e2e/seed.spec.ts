@@ -1034,6 +1034,61 @@ test.describe('Seed — the start, and a template seeded from its one confirmati
   });
 });
 
+test.describe('Seed — the org a template filled, kept as a checkpoint from its results', () => {
+  test('opens Checkpoints on a take of the org the run wrote to, not of the org selected before', async ({
+    page,
+  }) => {
+    // The moment worth keeping is right after the fill, before the testers
+    // start: the results offer it, of the org the template went into.
+    const bridge = await openSeedStart(page);
+    const cards = page.getByTestId('template-gallery').locator('[data-testid^="template-card-"]');
+    await cards.first().getByTestId('btn-use-template').click();
+    await expect(page.getByTestId('quick-seed-org-selector')).toHaveValue('org-src-1');
+    await page.getByTestId('quick-seed-org-selector').selectOption('org-tgt-1');
+    await page.getByTestId('btn-quick-seed-start').click();
+    const request = await bridge.waitForMessage('seed:execute', { timeout: 10_000 });
+    expect((request.payload as { orgId: string }).orgId).toBe('org-tgt-1');
+    await respondToAll(page, 'seed:execute', 'seed:execute:response', {
+      templateId: 'prebuilt-crm-starter',
+      operationId: String(request.id),
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 50,
+          recordsFailed: 0,
+          createdIds: ['001000000000001AAA'],
+          errors: [],
+        },
+      ],
+      totalRecordsCreated: 50,
+      totalRecordsFailed: 0,
+      duration: 2_000,
+      timestamp: '2026-10-23T08:00:00.000Z',
+    });
+
+    const offer = page.getByTestId('quick-seed-checkpoint-now');
+    await expect(offer).toBeVisible({ timeout: 10_000 });
+    await expect(offer).toContainText('keep QASandbox as it is now');
+    const take = offer.getByRole('button', { name: 'Take a checkpoint now' });
+    await expect(take).toHaveAccessibleDescription(/point to come back to/);
+    await take.click();
+
+    // The org is selected everywhere, then the take opens on it.
+    await expect
+      .poll(async () => (await outgoing(page, 'org:select')).map((message) => message.payload))
+      .toContainEqual({ orgId: 'org-tgt-1' });
+    await expect(page.getByTestId('checkpoint-page')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByTestId('checkpoint-take').getByRole('heading', {
+        name: 'Take a checkpoint of QASandbox',
+      }),
+    ).toBeVisible({ timeout: 10_000 });
+    const scope = await bridge.waitForMessage('checkpoint:scope', { timeout: 10_000 });
+    expect(scope.payload).toMatchObject({ orgId: 'org-tgt-1' });
+  });
+});
+
 /**
  * What a Developer Edition runs as contacts are created: a workflow rule and
  * a flow that email each one unless the user holds the bypass, a flow that

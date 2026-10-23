@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { SeedGenerateFlow } from './SeedGenerateFlow';
 
 const mockPostMessage = vi.fn();
@@ -148,5 +150,45 @@ describe('SeedGenerateFlow', () => {
     expect(screen.getByTestId('btn-seed-open-record').textContent).toBe(
       'Open a created Invoice in dev1',
     );
+  });
+
+  it('offers on its results a checkpoint of the org the wizard wrote to, not of the org selected', () => {
+    wizard.step = 3;
+    wizard.result = {
+      templateId: 'tpl-1',
+      operationId: 'op-1',
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 2,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+        },
+      ],
+      totalRecordsCreated: 2,
+      totalRecordsFailed: 0,
+      duration: 100,
+      timestamp: '2026-10-01T10:00:00.000Z',
+    };
+    useOrgStore.setState({
+      orgs: [{ ...ORG, id: 'org-2', alias: 'dev2' }, ORG],
+      selectedOrgId: 'org-2',
+    });
+    useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+
+    render(<SeedGenerateFlow active onBack={vi.fn()} />);
+
+    expect(screen.getByTestId('seed-checkpoint-now').textContent).toContain(
+      'keep dev1 as it is now',
+    );
+    fireEvent.click(screen.getByTestId('seed-checkpoint-now-action'));
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'checkpoint',
+      takeCheckpoint: true,
+      targetOrgId: 'org-1',
+    });
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
   });
 });

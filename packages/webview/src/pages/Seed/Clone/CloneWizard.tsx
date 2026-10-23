@@ -272,7 +272,11 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({
                 )}
               </div>
             ) : clone.executionResult ? (
-              <CloneResultsPanel result={clone.executionResult} onDone={onBack} />
+              <CloneResultsPanel
+                result={clone.executionResult}
+                targetOrgId={clone.resultTargetOrgId}
+                onDone={onBack}
+              />
             ) : null}
           </>
         )}

@@ -13,6 +13,8 @@ import type {
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 import { FORGE_GUIDE_URL } from '@sandforge/shared';
 import { useForgeRunGateStore } from './runGate';
@@ -2835,6 +2837,60 @@ describe('ForgeResults', () => {
       render(<ForgeResults />);
 
       expect(screen.queryByTestId('forge-retry-failed')).toBeNull();
+    });
+  });
+
+  describe('Take a checkpoint now', () => {
+    const TARGET = developerOrg({ id: 'org-target', alias: 'QA-SANDBOX', orgType: 'Sandbox' });
+
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [TARGET, productionOrg()], selectedOrgId: 'org-source' });
+      useAppStore.setState({ currentRoute: 'forge', navigationIntent: null });
+    });
+
+    it('offers, under the run’s next steps, a checkpoint of the target the clone filled', () => {
+      render(<ForgeResults />);
+      const offer = screen.getByTestId('forge-results-checkpoint-now');
+      expect(
+        screen.getByTestId('forge-again').compareDocumentPosition(offer) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(offer.textContent).toContain('keep QA-SANDBOX as it is now');
+      fireEvent.click(within(offer).getByRole('button', { name: 'Take a checkpoint now' }));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-target',
+      });
+      expect(useOrgStore.getState().selectedOrgId).toBe('org-target');
+    });
+
+    it('offers one after a run that only wrote over records an upsert matched', () => {
+      mockResult = { ...makeMockResult(), createdCount: 0, updatedCount: 3 } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.getByTestId('forge-results-checkpoint-now')).toBeDefined();
+    });
+
+    it('offers none after a run that wrote nothing', () => {
+      mockResult = { ...makeMockResult(), createdCount: 0 } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-checkpoint-now')).toBeNull();
+    });
+
+    it('offers none after a simulation, which wrote nothing', () => {
+      mockResult = {
+        ...makeMockResult(),
+        dryRun: true,
+        wouldInsertCount: 7,
+      } as typeof mockResult;
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-checkpoint-now')).toBeNull();
+    });
+
+    it('offers none for a production target, which a checkpoint refuses', () => {
+      mockConfig = { ...RUN_CONFIG, targetOrgId: 'org-prod' };
+      render(<ForgeResults />);
+      expect(screen.queryByTestId('forge-results-checkpoint-now')).toBeNull();
     });
   });
 });

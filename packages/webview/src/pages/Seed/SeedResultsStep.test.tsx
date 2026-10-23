@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { SeedExecutionResult, SeedObjectResult, SeedTemplate } from '@sandforge/shared';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { developerOrg, productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { SeedResultsStep } from './SeedResultsStep';
 
 const saveTemplateMutate = vi.hoisted(() => vi.fn());
@@ -235,6 +238,67 @@ describe('SeedResultsStep', () => {
     expect(screen.getByTestId('seed-result-errors-listed-Contact').textContent).toBe(
       'Grouped from the first 10 of the 1200 records refused.',
     );
+  });
+
+  describe('Take a checkpoint now', () => {
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [developerOrg(), productionOrg()], selectedOrgId: 'org-dev' });
+      useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+    });
+
+    it('offers, under the run’s next steps, a checkpoint of the org it filled, opening its take', () => {
+      render(
+        <SeedResultsStep
+          orgName="DEV-SB"
+          orgId="org-dev"
+          executionResult={executionResult([objectResult()])}
+          onSeedAgain={vi.fn()}
+          template={seedTemplate()}
+        />,
+      );
+      const buttons = screen.getAllByRole('button').map((b) => b.getAttribute('data-testid'));
+      expect(buttons.indexOf('btn-seed-again')).toBeLessThan(
+        buttons.indexOf('seed-checkpoint-now-action'),
+      );
+      expect(screen.getByTestId('seed-checkpoint-now').textContent).toContain(
+        'keep DEV-SB as it is now',
+      );
+      fireEvent.click(screen.getByTestId('seed-checkpoint-now-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-dev',
+      });
+    });
+
+    it('offers none after a run that created nothing', () => {
+      render(
+        <SeedResultsStep
+          orgName="DEV-SB"
+          orgId="org-dev"
+          executionResult={{
+            ...executionResult([objectResult({ recordsCreated: 0, recordsFailed: 10 })]),
+            totalRecordsCreated: 0,
+          }}
+          onSeedAgain={vi.fn()}
+          template={seedTemplate()}
+        />,
+      );
+      expect(screen.queryByTestId('seed-checkpoint-now')).toBeNull();
+    });
+
+    it('offers none for a production org, which a checkpoint refuses', () => {
+      render(
+        <SeedResultsStep
+          orgName="PROD"
+          orgId="org-prod"
+          executionResult={executionResult([objectResult()])}
+          onSeedAgain={vi.fn()}
+          template={seedTemplate()}
+        />,
+      );
+      expect(screen.queryByTestId('seed-checkpoint-now')).toBeNull();
+    });
   });
 
   it('offers no removal for a run that created nothing', () => {

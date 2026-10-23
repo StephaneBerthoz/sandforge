@@ -14,6 +14,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import type { ObjectLabels } from '../../utils/objectLabels';
 
 const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
@@ -63,6 +64,8 @@ export interface SeedResultsStepProps {
   template: SeedTemplate | null;
   /** How the org the run wrote to is named: its alias, or its username. */
   orgName: string;
+  /** The org the run wrote to, by its id in the registry. */
+  orgId?: string;
   /** The labels of the org's objects, from the describes the wizard read. */
   objectLabels?: ObjectLabels;
   /** Restart the wizard at the select step. */
@@ -74,6 +77,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   executionResult,
   template,
   orgName,
+  orgId,
   objectLabels,
   onSeedAgain,
 }) => {
@@ -251,6 +255,13 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
               </span>
             )}
           </div>
+
+          {/* The org as the run filled it, kept before the testers start. */}
+          <TakeCheckpointNow
+            orgId={orgId}
+            wrote={executionResult.totalRecordsCreated > 0}
+            testId="seed-checkpoint-now"
+          />
         </>
       )}
     </div>

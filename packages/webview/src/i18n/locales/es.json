@@ -4598,6 +4598,10 @@
       "byValidationRule": "rechazado por una regla de validación",
       "byRestrictedPicklist": "valor rechazado por una lista de selección restringida",
       "byLookupFilter": "registro indicado rechazado por un filtro de búsqueda"
+    },
+    "checkpointNow": {
+      "why": "Antes de que empiecen sus evaluadores, conserve {{org}} tal como está ahora como el punto al que volver. Retroceder la devuelve después a ese punto, quienquiera que la cambie a continuación.",
+      "take": "Crear un punto de control ahora"
     }
   },
   "grappe": {

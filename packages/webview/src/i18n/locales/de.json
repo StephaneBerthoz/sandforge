@@ -4598,6 +4598,10 @@
       "byValidationRule": "von einer Validierungsregel abgelehnt",
       "byRestrictedPicklist": "Wert von einer eingeschränkten Auswahlliste abgelehnt",
       "byLookupFilter": "genannter Datensatz von einem Suchfilter abgelehnt"
+    },
+    "checkpointNow": {
+      "why": "Bevor Ihre Tester beginnen, halten Sie {{org}} im jetzigen Stand als Punkt fest, zu dem Sie zurückkehren können. Das Zurücksetzen bringt die Org dann dorthin zurück, egal wer sie danach ändert.",
+      "take": "Jetzt einen Prüfpunkt erstellen"
     }
   },
   "grappe": {

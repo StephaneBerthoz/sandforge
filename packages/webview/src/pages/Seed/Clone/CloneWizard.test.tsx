@@ -5,6 +5,7 @@ import en from '../../../i18n/locales/en.json';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { CloneExecutionResult, ClonePreviewResult, SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
 import { CloneWizard } from './CloneWizard';
 
 /* ------------------------------------------------------------------ */
@@ -475,6 +476,25 @@ describe('CloneWizard', () => {
 
       expect(screen.getByTestId('clone-results-panel')).toBeDefined();
       expect(mockExecuteMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers on its results a checkpoint of the org it wrote to, another selected since', () => {
+      useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+      const view = previewShown();
+      fireEvent.click(screen.getByTestId('clone-preview-execute'));
+      executeAnswer = RESULT;
+      view.rerender(<CloneWizard onBack={vi.fn()} />);
+      act(() => useOrgStore.setState({ selectedOrgId: 'org-2' }));
+
+      expect(screen.getByTestId('clone-checkpoint-now').textContent).toContain(
+        'keep dev1 as it is now',
+      );
+      fireEvent.click(screen.getByTestId('clone-checkpoint-now-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-1',
+      });
     });
 
     it('dismisses only the banner of a failed run: its preview stays, to run again', () => {

@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
 import en from '../../../i18n/locales/en.json';
+import { useOrgStore } from '../../../stores/useOrgStore';
+import { useAppStore } from '../../../stores/useAppStore';
+import { developerOrg, productionOrg } from '../../Checkpoint/testing/checkpointFixtures';
 import type { CsvImportState } from './useCsvImport';
 
 /*
@@ -96,6 +99,53 @@ describe('CsvUploadWizard, once the import is asked to run', () => {
       '2 records created in org-1',
     );
     expect(screen.getByTestId('seed-removal-remove')).toBeDefined();
+  });
+
+  describe('Take a checkpoint now', () => {
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: [developerOrg(), productionOrg()], selectedOrgId: null });
+      useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+    });
+
+    it('offers, above Done, a checkpoint of the org the import filled, opening its take', () => {
+      csvState = executeStep({
+        targetOrgId: 'org-dev',
+        executionStatus: 'complete',
+        executionResult: { insertedCount: 2, failedCount: 0, errors: [] },
+      });
+      render(<CsvUploadWizard onBack={vi.fn()} />);
+      const offer = screen.getByTestId('csv-checkpoint-now');
+      expect(
+        offer.compareDocumentPosition(screen.getByTestId('done-button')) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      fireEvent.click(screen.getByTestId('csv-checkpoint-now-action'));
+      expect(useAppStore.getState().navigationIntent).toEqual({
+        route: 'checkpoint',
+        takeCheckpoint: true,
+        targetOrgId: 'org-dev',
+      });
+    });
+
+    it('offers none after an import that inserted nothing', () => {
+      csvState = executeStep({
+        targetOrgId: 'org-dev',
+        executionStatus: 'complete',
+        executionResult: { insertedCount: 0, failedCount: 1, errors: ['REQUIRED_FIELD_MISSING'] },
+      });
+      render(<CsvUploadWizard onBack={vi.fn()} />);
+      expect(screen.queryByTestId('csv-checkpoint-now')).toBeNull();
+    });
+
+    it('offers none for a production org, which a checkpoint refuses', () => {
+      csvState = executeStep({
+        targetOrgId: 'org-prod',
+        executionStatus: 'complete',
+        executionResult: { insertedCount: 2, failedCount: 0, errors: [] },
+      });
+      render(<CsvUploadWizard onBack={vi.fn()} />);
+      expect(screen.queryByTestId('csv-checkpoint-now')).toBeNull();
+    });
   });
 
   it('offers no removal of an import that created nothing', () => {

@@ -1150,11 +1150,12 @@ describe('each locale reads as Salesforce’s own UI in that language, consisten
 });
 
 describe('Checkpoint & Rewind names each thing with one word, in each language', () => {
-  /* The page, its Home tile, the result parts it shares with Sync, the line of
-     Disconnect, the audit trail's two actions and Help: the values that speak
-     of a checkpoint, a rewind or its undo. */
+  /* The page, its Home tile, the result parts it shares with Sync, the offer
+     on the results of Seed, Forge and Frozen, the line of Disconnect, the
+     audit trail's two actions and Help: the values that speak of a
+     checkpoint, a rewind or its undo. */
   const CHECKPOINT_KEY =
-    /^(?:checkpoint\.|home\.checkpoint\.|runRemoval\.rewind(?:Undo)?\.|org\.disconnectDeleteCheckpoints_|reports\.auditActions\.checkpoint_|nav\.checkpoint$|moduleSummary\.checkpoint$|help\.checkpointContent$)/;
+    /^(?:checkpoint\.|home\.checkpoint\.|runRemoval\.rewind(?:Undo)?\.|runResults\.checkpointNow\.|org\.disconnectDeleteCheckpoints_|reports\.auditActions\.checkpoint_|nav\.checkpoint$|moduleSummary\.checkpoint$|help\.checkpointContent$)/;
   const checkpointValues = (locale: string): [string, string][] =>
     [...flatten(load(locale))].filter(([key]) => CHECKPOINT_KEY.test(key));
   /** A catalogue value that the test expects to be there. */
@@ -1203,6 +1204,23 @@ describe('Checkpoint & Rewind names each thing with one word, in each language',
     expect(ENGLISH_WORD.test('Ses {0} checkpoint(s) gardés sur cette machine')).toBe(true);
     expect(ENGLISH_WORD.test('pnpm exec tsx cli/sandforge-checkpoint.ts')).toBe(false);
   });
+
+  /*
+   * The offer on a run's results opens the take: it names the take as the
+   * page's own button does, the word "now" aside, in every language.
+   */
+  it.each(['en', ...NON_EN])(
+    '%s names the take offered on a run’s results as the page’s button names it',
+    (locale) => {
+      const catalogue = load(locale);
+      expect(text(catalogue, 'runResults.checkpointNow.take')).toContain(
+        text(catalogue, 'checkpoint.take.open'),
+      );
+      expect(checkpointValues(locale).map(([key]) => key)).toEqual(
+        expect.arrayContaining(['runResults.checkpointNow.take', 'runResults.checkpointNow.why']),
+      );
+    },
+  );
 
   /*
    * Japanese counted objects with 個 in every line of the take and the preview

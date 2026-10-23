@@ -449,4 +449,32 @@ describe('CheckpointPage', () => {
     expect(await screen.findByTestId('checkpoint-take')).toBeInTheDocument();
     expect(useAppStore.getState().navigationIntent).toBeNull();
   });
+
+  it('opens on a take of the org a run’s Take a checkpoint now named and selected', async () => {
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', takeCheckpoint: true, targetOrgId: 'org-dev' },
+    });
+    render(<CheckpointPage />);
+    expect(await screen.findByTestId('checkpoint-take')).toBeInTheDocument();
+    expect(host.current?.lastPayload('checkpoint:scope')).toMatchObject({ orgId: 'org-dev' });
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  it('opens on the list of the org selected when it is not the org the take was asked for', () => {
+    useOrgStore.setState({
+      orgs: [developerOrg(), developerOrg({ id: 'org-other', alias: 'OTHER-SB' })],
+      selectedOrgId: 'org-dev',
+    });
+    useAppStore.setState({
+      currentRoute: 'checkpoint',
+      navigationIntent: { route: 'checkpoint', takeCheckpoint: true, targetOrgId: 'org-other' },
+    });
+    render(<CheckpointPage />);
+    expect(screen.queryByTestId('checkpoint-take')).toBeNull();
+    expect(host.current?.sent('checkpoint:scope')).toEqual([]);
+    answerList();
+    expect(screen.getByRole('heading', { name: 'Checkpoints of DEV-SB' })).toBeInTheDocument();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
 });

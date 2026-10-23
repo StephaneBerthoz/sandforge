@@ -277,6 +277,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               executionResult={state.executionResult}
               template={state.lastTemplate}
               orgName={wizardOrgName}
+              orgId={state.selectedOrgId}
               objectLabels={objectLabels}
               onSeedAgain={handleSeedAgain}
             />

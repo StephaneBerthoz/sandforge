@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { productionOrg } from '../Checkpoint/testing/checkpointFixtures';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -465,6 +468,50 @@ describe('QuickSeedFlow', () => {
       expect(posted('seed:open-record').map((m) => m.payload)).toEqual([
         { runId: 'op-1', recordId: fakeId('001', 1) },
       ]);
+    });
+
+    describe('Take a checkpoint now', () => {
+      beforeEach(() => {
+        useOrgStore.setState({ orgs: [...mockOrgs, productionOrg()], selectedOrgId: null });
+        useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });
+      });
+
+      it('offers, under the run’s next steps, a checkpoint of the org the template filled', () => {
+        render(<QuickSeedFlow quickSeed={results} orgs={mockOrgs} />);
+        const offer = screen.getByTestId('quick-seed-checkpoint-now');
+        expect(
+          screen.getByTestId('quick-seed-result-actions').compareDocumentPosition(offer) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(offer.textContent).toContain('keep dev1 as it is now');
+        fireEvent.click(screen.getByTestId('quick-seed-checkpoint-now-action'));
+        expect(useAppStore.getState().navigationIntent).toEqual({
+          route: 'checkpoint',
+          takeCheckpoint: true,
+          targetOrgId: 'org-1',
+        });
+        expect(useOrgStore.getState().selectedOrgId).toBe('org-1');
+      });
+
+      it('offers none after a run that created nothing', () => {
+        render(
+          <QuickSeedFlow
+            quickSeed={{
+              ...results,
+              executionResult: { ...mockExecutionResult, totalRecordsCreated: 0 },
+            }}
+            orgs={mockOrgs}
+          />,
+        );
+        expect(screen.queryByTestId('quick-seed-checkpoint-now')).toBeNull();
+      });
+
+      it('offers none for a production org, which a checkpoint refuses', () => {
+        render(
+          <QuickSeedFlow quickSeed={{ ...results, selectedOrgId: 'org-prod' }} orgs={mockOrgs} />,
+        );
+        expect(screen.queryByTestId('quick-seed-checkpoint-now')).toBeNull();
+      });
     });
 
     it('groups the refusals of an object by reason, with a count, in place of a line each', () => {

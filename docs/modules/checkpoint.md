@@ -26,6 +26,8 @@ The whole round trip on a Developer Edition org, in about a minute:
 
 **Take a checkpoint** opens the take. Nothing of the org's records is read until you start it: what it shows before is read from the org's descriptions and counts.
 
+The moment worth keeping is often right after filling an org. The results of a Seed run (a template, the wizard, a CSV import or a clone from another org), of a Forge clone and of a Frozen load that wrote to a sandbox, a scratch org or a Developer Edition offer **Take a checkpoint now**, which opens this take on that org, ready: the org as the run left it becomes the point to come back to before your testers start. The run itself is taken back from its own results; the checkpoint takes back what everyone does next. It is not offered for a production org, nor after a run, a simulation among them, that wrote nothing.
+
 - **The name**: the date and time unless you write one, or one of the three names offered. A name is one line of 120 characters at most. **Keep until I delete it** keeps the checkpoint past its 30 days; **Clean baseline** ticks it for you.
 - **What it keeps**:
   - **Everything people work in**, the default: every object of the org the user may query, create, edit and delete, empty ones included, so that what is created there later is caught too. **See the objects** lists them, how many hold records and how many are empty, and the objects of each managed package, which stay: a party of an industry package is data like an account.

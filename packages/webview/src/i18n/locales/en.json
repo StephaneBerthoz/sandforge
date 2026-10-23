@@ -4598,6 +4598,10 @@
       "byValidationRule": "a validation rule refused it",
       "byRestrictedPicklist": "a restricted picklist refused its value",
       "byLookupFilter": "a lookup filter refused the record it names"
+    },
+    "checkpointNow": {
+      "why": "Before your testers start, keep {{org}} as it is now: it becomes the point to come back to, and a rewind returns it there, whoever changes it next.",
+      "take": "Take a checkpoint now"
     }
   },
   "grappe": {

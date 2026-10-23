@@ -57,7 +57,7 @@ export interface NavigationIntent {
   seedMode?: 'clone' | 'quick-seed';
   /** Org to read from (clone source, sync source). */
   sourceOrgId?: string;
-  /** Org to write to (clone target, sync target). */
+  /** Org to write to (clone target, sync target), or the one a checkpoint is to be taken of. */
   targetOrgId?: string;
   /**
    * What Organizations starts as it opens: an import from the Salesforce CLI
@@ -72,7 +72,11 @@ export interface NavigationIntent {
    * module on Home for one id.
    */
   recordId?: string;
-  /** Open Checkpoints on a take of the selected org: Home's "Take a checkpoint". */
+  /**
+   * Open Checkpoints on a take of the selected org: Home's "Take a checkpoint",
+   * and "Take a checkpoint now" on the result of a run that filled an org,
+   * which selects that org and names it in `targetOrgId`.
+   */
   takeCheckpoint?: true;
   /**
    * Open Checkpoints on what a rewind of the selected org to this checkpoint

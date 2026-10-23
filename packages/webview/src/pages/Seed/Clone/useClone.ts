@@ -121,6 +121,12 @@ export interface UseCloneReturn {
   executionStatus: CloneExecutionStatus;
   /** Final execution result after clone completes. */
   executionResult: CloneExecutionResult | null;
+  /**
+   * The org that result was written to: the target of the preview the run
+   * followed, which stays the run's when another org is selected after it.
+   * Undefined without a result, or once that preview is set aside.
+   */
+  resultTargetOrgId: string | undefined;
   /** Current wizard step. */
   step: CloneStep;
   /** Whether source objects are loading. */
@@ -500,6 +506,7 @@ export function useClone(targetOrgId: string, initialSourceOrgId?: string): UseC
     previewResult,
     executionStatus,
     executionResult,
+    resultTargetOrgId: executionResult ? previewedFor?.targetOrgId : undefined,
     step,
     loadingSource: describeMutation.loading,
     loadingPreview: previewMutation.loading,

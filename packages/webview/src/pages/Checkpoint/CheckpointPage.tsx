@@ -68,9 +68,12 @@ export const CheckpointPage: React.FC = () => {
 
   // Home's "Take a checkpoint" opens the page on a take of the org it named,
   // and its "Rewind…" on the preview of that org's latest checkpoint, that
-  // once: the org picked here afterwards opens on its list.
+  // once: the org picked here afterwards opens on its list. A run's "Take a
+  // checkpoint now" selects the org it wrote to and names it: the take is
+  // ready for that org alone, and the list of any other opens instead.
   const [arrival, setArrival] = useState<Arrival>(() =>
-    navigationIntent?.route !== 'checkpoint'
+    navigationIntent?.route !== 'checkpoint' ||
+    (navigationIntent.targetOrgId !== undefined && navigationIntent.targetOrgId !== currentOrg?.id)
       ? null
       : navigationIntent.takeCheckpoint === true
         ? { take: true }
