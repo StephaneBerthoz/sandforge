@@ -2412,7 +2412,15 @@ interface DependentRelationship {
   childSObject: string;
   field: string;
   restricted: boolean;
+  /**
+   * The contacts of accounts, in an org with person accounts: a person
+   * account's own contact is read as such, and goes with its account.
+   */
+  personContacts?: true;
 }
+
+/** The person account's flag, on an account and on its contact, in an org that has them. */
+const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
 
 /** A file attached to a record: its document's key, and its title or its id. */
 interface AttachedFile {
@@ -2483,6 +2491,10 @@ class DependentsCheck {
     try {
       const described = describedObjectSchema.parse(await this.org.describe(objectApiName));
       const worked = await this.workedObjects();
+      // An account's describe lists the person flag only in an org with person accounts.
+      const persons =
+        objectApiName === 'Account' &&
+        described.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG);
       relationships = (described.childRelationships ?? [])
         .filter(
           (r) =>
@@ -2492,6 +2504,9 @@ class DependentsCheck {
           childSObject: r.childSObject,
           field: r.field,
           restricted: r.cascadeDelete !== true,
+          ...(persons && r.childSObject === 'Contact' && r.field === 'AccountId'
+            ? { personContacts: true as const }
+            : {}),
         }));
     } catch (err: unknown) {
       verdict.reason = extractErrorMessage(err);
@@ -2575,7 +2590,12 @@ class DependentsCheck {
     const [list] = idLists(chunk, chunk.length);
     // A record the platform adds is read with the ends that tie it to the
     // run, whichever one the relationship follows: see `PLATFORM_ADDED`.
-    const columns = new Set(['Id', field, ...(PLATFORM_ADDED[child]?.ends ?? [])]);
+    const columns = new Set([
+      'Id',
+      field,
+      ...(PLATFORM_ADDED[child]?.ends ?? []),
+      ...(relationship.personContacts ? [PERSON_ACCOUNT_FLAG] : []),
+    ]);
     const first = this.datesKept.get(child) ?? 0;
     for (let tried = first; tried < DEPENDENT_DATE_COLUMNS.length; tried++) {
       const dates = DEPENDENT_DATE_COLUMNS[tried];
@@ -2604,7 +2624,9 @@ class DependentsCheck {
         if (child === FILE_LINK && field === 'LinkedEntityId') this.noteFile(row);
         // Locked under this very record, the row stays because the record does.
         if (this.lockedUnder.get(recordKey(row.Id)) === recordKey(parent)) continue;
-        if (this.stays(row, child, relationship.restricted)) holding.add(recordKey(parent));
+        if (this.stays(row, child, relationship.restricted, relationship.personContacts)) {
+          holding.add(recordKey(parent));
+        }
       }
       return { holding, unchecked: false };
     }
@@ -2914,11 +2936,26 @@ class DependentsCheck {
    * A record that has the org refuse the delete of the one it points at,
    * rather than go with it, stays whatever its dates, unless it is the run's.
    *
+   * A person account's own contact is the account's other half: the org
+   * creates, deletes and brings it back with its account, never on its own.
+   * It goes with its account whatever its creation date, unless changed
+   * since the run. Read by its dates as any contact, one older than the run
+   * kept its account: a rewind brought back from the recycle bin a person
+   * account deleted since, its contact with it, and could then neither delete
+   * it again nor have its undo send it back.
+   *
    * @param object - The record's object.
    * @param restricted - Whether the org refuses the delete of the record it
    *   points at over it.
+   * @param personContacts - Whether the record is a contact read under its
+   *   account in an org with person accounts.
    */
-  private stays(row: Record<string, unknown>, object: string, restricted = false): boolean {
+  private stays(
+    row: Record<string, unknown>,
+    object: string,
+    restricted = false,
+    personContacts = false,
+  ): boolean {
     const key = recordKey(row.Id as string);
     const {
       runRecords,
@@ -2933,6 +2970,11 @@ class DependentsCheck {
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
     if (restricted) return true;
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
+    if (personContacts && row[PERSON_ACCOUNT_FLAG] === true) {
+      // A date that cannot be read cannot show the contact was left alone.
+      const modified = epochOf(row.LastModifiedDate ?? row.SystemModstamp);
+      return !(modified <= runEnd) && !includeChanged;
+    }
     const dated =
       'CreatedDate' in row ? 'CreatedDate' : 'SystemModstamp' in row ? 'SystemModstamp' : undefined;
     if (!dated) return true;

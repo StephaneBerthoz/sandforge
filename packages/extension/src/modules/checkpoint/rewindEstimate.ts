@@ -61,6 +61,7 @@ import {
 } from '../forge/ForgeRunGate.js';
 import { QUERIES_PER_COMPOSITE, SUBREQUESTS_PER_COMPOSITE } from './compositeQueries.js';
 import { SNAPSHOT_CHUNK_IDS, snapshotIndexBytes } from './snapshotIndex.js';
+import { RUN_RECORDS_PAGE } from './spooledRunRecords.js';
 
 // ─── Figures ─────────────────────────────────────────────────────────────────
 
@@ -141,18 +142,21 @@ const DIFF_FIXED_REQUESTS = 1;
 const USERS_PER_READ = 200;
 
 /**
- * SOAP calls one call of `undeleteRunDeletions` sends whatever it brings
- * back: the org's clock as it begins, and the user it writes as, read once
- * for the stamps it says back.
+ * Requests per batch of 200 `undeleteRunDeletions` sends when it is asked
+ * for no stamps: the batch read in the recycle bin, then among the live
+ * records, and the undelete itself (a SOAP call). Asked for none, it reads
+ * neither the org's clock nor its user.
  */
-const UNDELETE_FIXED_REQUESTS = 2;
+const UNDELETE_REQUESTS_PER_BATCH = 3;
 
 /**
- * Requests per batch of 200 an undelete sends: the batch read in the recycle
- * bin, then among the live records, the undelete itself (a SOAP call), and
- * the stamps it left read back.
+ * Requests per batch of 200 a rewind sends beside the undelete's own: what
+ * the undelete left on its records, read back by their ids.
  */
-const UNDELETE_REQUESTS_PER_BATCH = 4;
+const REWIND_UNDELETE_STAMPS_PER_BATCH = 1;
+
+/** The user a rewind writes as, a SOAP call, read once it will write. */
+const REWIND_USER_REQUESTS = 1;
 
 /**
  * SOAP calls one call of `restoreOverwrites` sends for one object, whatever
@@ -468,17 +472,49 @@ export function changeReadsCost(input: {
 }
 
 /**
- * What one call of `undeleteRunDeletions` costs, per object the records it
- * brings back: its clock and its user, then, per batch of 200, the bin read,
- * the live read, the undelete and the stamps read back.
+ * What `undeleteRunDeletions` costs when it is asked for no stamps, per
+ * object the records it brings back: per batch of 200, the bin read, the
+ * live read and the undelete.
  */
 export function undeleteCost(records: readonly number[]): Cost {
   const batchCount = records.reduce((total, count) => total + batches(count), 0);
-  if (batchCount === 0) return NOTHING;
   return sum(
-    calls(UNDELETE_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
     calls(batchCount * (UNDELETE_REQUESTS_PER_BATCH - 1), SECONDS_PER_READ),
     calls(batchCount, SECONDS_PER_WRITE),
+  );
+}
+
+/** An object a rewind brings records back to, as its bring back reads it. */
+export interface BroughtBackObject {
+  /** Records sent to the undelete: those that come back with a parent are not. */
+  records: number;
+  /** Child relationships it deletes along: the children that come back with each batch. */
+  cascades: number;
+  /** Whether the read the rewind acts on described it: one it did not is described first. */
+  described: boolean;
+}
+
+/**
+ * What a rewind's bring back costs (`rewindOrg`): per object, its describe
+ * when the read it acts on gave none — the relationships its children come
+ * back through —; per batch of 200, the undelete's own three requests, the
+ * children the recycle bin holds of the batch read through each of those
+ * relationships before it goes, five reads a call, and what the undelete
+ * left on its records read back.
+ */
+export function bringBackCost(objects: readonly BroughtBackObject[]): Cost {
+  return sum(
+    ...objects
+      .filter((object) => object.records > 0)
+      .map(({ records, cascades, described }) => {
+        const batchCount = batches(records);
+        return sum(
+          calls(described ? 0 : 1, SECONDS_PER_DESCRIBE_CALL),
+          undeleteCost([records]),
+          calls(batchCount * callsFor(cascades, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+          calls(batchCount * REWIND_UNDELETE_STAMPS_PER_BATCH, SECONDS_PER_READ),
+        );
+      }),
   );
 }
 
@@ -503,6 +539,33 @@ export function restoreCost(records: number, fields: readonly string[]): Cost {
   return cost;
 }
 
+/**
+ * What a rewind's bring back costs beyond its own for the `records` records
+ * of one object of the checkpoint that come back with a parent it brings
+ * back: their describe when the read it acts on gave none, then, as each
+ * batch of what it brings back is named, the records the bin holds under
+ * them through each of the object's `cascades`, five a call, 200 of them at
+ * a time — at most a part-full read per batch it brings back
+ * (`topBatches`), and one per 200 of them. Under records outside the
+ * checkpoint that come back with a parent, what the bin holds is read as it
+ * is found, and not counted.
+ */
+function cameBackUnderCost(
+  records: number,
+  cascades: number,
+  topBatches: number,
+  described: boolean,
+): Cost {
+  if (records === 0 || topBatches === 0) return NOTHING;
+  return sum(
+    calls(described ? 0 : 1, SECONDS_PER_DESCRIBE_CALL),
+    calls(
+      (topBatches + batches(records)) * callsFor(cascades, QUERIES_PER_COMPOSITE),
+      SECONDS_PER_SMALL_CALL,
+    ),
+  );
+}
+
 /** The relationships of an object, as its describe lists them, that a rewind reads through. */
 export interface ObjectRelationships {
   /**
@@ -512,6 +575,12 @@ export interface ObjectRelationships {
   dependents: number;
   /** Child relationships the org deletes along: the children that come back with a record. */
   cascades: number;
+  /**
+   * The objects of those children, by API name: a record of one the rewind
+   * deletes may hold values of this one's in place. Absent, any object read
+   * before this one in the checkpoint's order may.
+   */
+  cascadeChildren?: string[];
   /**
    * Of the child relationships the org deletes along, those to an object
    * outside the checkpoint, and of them those to an object a person works
@@ -558,10 +627,14 @@ export interface CheckpointBounds {
  */
 export function relationshipsOf(describe: unknown, bounds?: CheckpointBounds): ObjectRelationships {
   const children = childRelationshipsSchema.parse(describe).childRelationships ?? [];
+  const cascading = children.filter((r) => r.cascadeDelete === true);
   const relationships: ObjectRelationships = {
     dependents: children.filter((r) => r.cascadeDelete === true || r.restrictedDelete === true)
       .length,
-    cascades: children.filter((r) => r.cascadeDelete === true).length,
+    cascades: cascading.length,
+    cascadeChildren: [
+      ...new Set(cascading.flatMap((r) => (r.childSObject === undefined ? [] : [r.childSObject]))),
+    ],
   };
   if (bounds === undefined) return relationships;
   const outside = children.filter(
@@ -600,15 +673,28 @@ function relationshipsFor(
  * Which records a record that stays holds is known only once the rest has
  * gone: those it holds are checked again then, and what the removal leaves
  * is read back, a few requests per 200 records held that are not counted.
+ *
+ * @param pageRecords - The records of an object the removal is handed a page
+ *   at a time, and checks its dependents for a page at a time: a rewind's
+ *   spooled plan comes in pages of 2,000 (`RUN_RECORDS_PAGE`), each of more
+ *   than one batch asking its relationships again whether anything points
+ *   through them. A plan held in memory is one page.
  */
-export function removalCost(objects: ReadonlyArray<{ records: number; dependents: number }>): Cost {
+export function removalCost(
+  objects: ReadonlyArray<{ records: number; dependents: number }>,
+  pageRecords = Number.POSITIVE_INFINITY,
+): Cost {
   const removed = objects.filter((object) => object.records > 0);
   if (removed.length === 0) return NOTHING;
   return sum(
     calls(REMOVAL_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
     ...removed.map(({ records, dependents }) => {
       const batchCount = batches(records);
-      const anyPointing = batchCount > 1 ? dependents : 0;
+      let pagesOfMore = 0;
+      for (let left = records; left > 0; left -= pageRecords) {
+        if (Math.min(left, pageRecords) > RECORDS_PER_CALL) pagesOfMore++;
+      }
+      const anyPointing = pagesOfMore * dependents;
       return sum(
         calls(1, SECONDS_PER_SMALL_CALL),
         calls(batchCount, SECONDS_PER_READ),
@@ -625,17 +711,24 @@ export function removalCost(objects: ReadonlyArray<{ records: number; dependents
  * An object of a checkpoint, as an estimate reads it. Whether Salesforce
  * undeletes its records on their own tells, of its records gone for good,
  * those a read found by scanning its ids from those it named so as they lay
- * in the recycle bin: absent, it does.
+ * in the recycle bin: absent, it does. Its place in the checkpoint's order
+ * and its fields a parent's delete takes it along by tell which objects its
+ * records may hold values of in place: absent, any object.
  */
 export type EstimatedObject = Pick<CheckpointObject, 'objectApiName' | 'records' | 'fields'> &
-  Partial<Pick<CheckpointObject, 'undeletable'>>;
+  Partial<Pick<CheckpointObject, 'undeletable' | 'readOrder' | 'cascadeParents'>>;
 
 /** What the reads of what changed since a checkpoint are estimated from. */
 export interface DiffEstimateInput {
   /** The checkpoint's objects (`OrgCheckpoint.objects`). */
   objects: readonly EstimatedObject[];
-  /** What the last read found: the objects that moved, and those it could not read. */
-  diff: Pick<RewindDiff, 'objects' | 'unread'>;
+  /**
+   * What the last read found: the objects that moved, those it could not
+   * read, and, of the records to delete of objects Salesforce undeletes only
+   * with their parent, those deleted on their own — the rest go with their
+   * parent, never sent. Not told, every record to delete is counted sent.
+   */
+  diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'undoCannot'>>;
   /**
    * Per object, its relationships as its describe lists them
    * ({@link relationshipsOf}). One not given, of an object the rewind
@@ -671,16 +764,6 @@ function givenBack(object: RewindDiffObject): number {
   return object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent;
 }
 
-/** Records the change reads find stamped since, among the live ones. */
-function liveRows(object: RewindDiffObject): number {
-  return object.toGiveBack.records + object.touched + deletedFirst(object) + object.unexplained;
-}
-
-/** Records the change reads find deleted since. */
-function deletedRows(object: RewindDiffObject): number {
-  return broughtBack(object) + object.toDelete.comesBackWithParent;
-}
-
 /** Records deleted since that the recycle bin no longer holds. */
 function goneForGood(object: RewindDiffObject): number {
   return object.cannotUndo
@@ -702,10 +785,95 @@ function outsideReads(records: number, relationships: number): number {
   return reads;
 }
 
+/** One object of the checkpoint as a read of what changed since reads it. */
+interface ObjectRead {
+  objectApiName: string;
+  /** Rows of its read of what moved, among the live records (L). */
+  live: number;
+  /** Rows of its read of what was deleted (D). */
+  deleted: number;
+  /** Records whose current values it reads by id. */
+  valued: number;
+  /** Whether it is described up front: it has records to bring back, or read coming back. */
+  backTo: boolean;
+  /** Records it finds to delete: its describe after, and what lies outside under them. */
+  deletes: number;
+  /** Whether every id of it is scanned for the records gone for good. */
+  scans: boolean;
+  /** Whether its drift describe came back whole, answering for its relationships. */
+  whole: boolean;
+  /** Its relationships to objects outside the checkpoint, as described or as last found. */
+  outside: { all: number; worked: number };
+}
+
 /**
- * What one read of the org since the checkpoint costs — a preview, a
- * rewind's fresh diff, its convergence pass and its verify read it alike — as
- * the last read found the org, each part as `rewindDiff` sends it:
+ * How a read finds `object`, as the last read found it: what moved, which
+ * values it reads, what it describes. A record of an object Salesforce
+ * undeletes only with its parent, found in the bin with its parent staying,
+ * is gone for good: brought back by nothing, it was still read as one coming
+ * back. Of any other object, a record gone for good was found by scanning the
+ * object's ids.
+ */
+function readOf(
+  object: RewindDiffObject,
+  held: EstimatedObject,
+  relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
+): ObjectRead {
+  const gone = goneForGood(object);
+  return {
+    objectApiName: object.objectApiName,
+    live: object.toGiveBack.records + object.touched + deletedFirst(object) + object.unexplained,
+    deleted: broughtBack(object) + object.toDelete.comesBackWithParent,
+    valued: object.toGiveBack.records + object.touched + object.toBringBack.withParent,
+    backTo: broughtBack(object) > 0 || (held.undeletable === false && gone > 0),
+    deletes: deletedFirst(object),
+    scans: gone > 0 && held.undeletable !== false,
+    whole: object.schemaDrift !== undefined,
+    outside: relationships?.get(object.objectApiName)?.outside ?? {
+      all: object.outside.length,
+      worked: object.outside.length,
+    },
+  };
+}
+
+/**
+ * How a read finds `object` once a pass of the rewind went through, as the
+ * last read found it: what it gave back and brought back moved since and holds
+ * its checkpoint values — its values read, nothing to do —, what it deleted is
+ * in the recycle bin, what came back with a parent waits for the second pass
+ * until it deletes it, and what it does not touch is found as before. A
+ * record brought back that was deleted while the checkpoint was taken is live
+ * and not in the snapshot: found, and left, as one the checkpoint does not
+ * explain.
+ */
+function readAfterPass(
+  object: RewindDiffObject,
+  held: EstimatedObject,
+  relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
+  secondPassThrough: boolean,
+): ObjectRead {
+  const first = readOf(object, held, relationships);
+  const back = object.toBringBack;
+  const waiting = secondPassThrough ? 0 : object.toDelete.comesBackWithParent;
+  return {
+    ...first,
+    live:
+      object.toGiveBack.records +
+      object.touched +
+      object.unexplained +
+      broughtBack(object) +
+      waiting,
+    deleted: deletedFirst(object) + object.toDelete.comesBackWithParent - waiting,
+    valued: object.toGiveBack.records + object.touched + back.inBin + back.withParent,
+    backTo: held.undeletable === false && goneForGood(object) > 0,
+    deletes: waiting,
+  };
+}
+
+/**
+ * What one read of the org since the checkpoint costs, each part as
+ * `rewindDiff` sends it, given how it finds each object (`reads`), the
+ * objects it reads again for being unread last time, and the users it names:
  *
  * - its clock;
  * - the drift describes, 25 a call;
@@ -729,60 +897,40 @@ function outsideReads(records: number, relationships: number): number {
  * day before the take or since, which its drift tells — answers for its
  * relationships too, and the object is not described again.
  */
-export function diffEstimate(input: DiffEstimateInput): Cost {
-  const found = new Map(input.diff.objects.map((object) => [object.objectApiName, object]));
-  const unread = new Set(input.diff.unread.map((object) => object.objectApiName));
+function readCost(
+  objects: readonly EstimatedObject[],
+  reads: ReadonlyMap<string, ObjectRead>,
+  unread: ReadonlySet<string>,
+  users: number,
+): Cost {
   const moved: MovedObject[] = [];
   const scans: Cost[] = [];
-  /** The objects it brings records back to: their relationships are described up front. */
-  const backTo = new Set<string>();
   let values = 0;
-  for (const { objectApiName, records, fields, undeletable } of input.objects) {
-    const object = found.get(objectApiName);
-    if (object === undefined) {
-      if (unread.has(objectApiName)) moved.push({ objectApiName, live: 0, deleted: 0 });
-      continue;
-    }
-    moved.push({ objectApiName, live: liveRows(object), deleted: deletedRows(object) });
-    values += readsById(
-      object.toGiveBack.records + object.touched + object.toBringBack.withParent,
-      fields,
-    );
-    // A record of an object Salesforce undeletes only with its parent, found
-    // in the bin with its parent staying, is gone for good: brought back by
-    // nothing, it was still read as one coming back. Of any other object, a
-    // record gone for good was found by scanning the object's ids.
-    const gone = goneForGood(object);
-    if (broughtBack(object) > 0 || (undeletable === false && gone > 0)) backTo.add(objectApiName);
-    if (gone > 0 && undeletable !== false) scans.push(streamedReadsCost([pagesOf(records)]));
-  }
-  const whole = (object: RewindDiffObject): boolean => object.schemaDrift !== undefined;
-  const describedFirst = input.diff.objects.filter(
-    (object) => backTo.has(object.objectApiName) && !whole(object),
-  ).length;
+  let describedFirst = 0;
   let describedAfter = 0;
   let describesGlobal = false;
   let outside = 0;
-  for (const { objectApiName } of input.objects) {
-    const object = found.get(objectApiName);
-    if (object === undefined || deletedFirst(object) === 0) continue;
-    if (!whole(object) && !backTo.has(objectApiName)) describedAfter++;
-    const relationships = input.relationships?.get(objectApiName)?.outside ?? {
-      all: object.outside.length,
-      worked: object.outside.length,
-    };
-    if (relationships.all > 0) describesGlobal = true;
-    outside += outsideReads(deletedFirst(object), relationships.worked);
+  for (const { objectApiName, records, fields } of objects) {
+    const read = reads.get(objectApiName);
+    if (read === undefined) {
+      if (unread.has(objectApiName)) moved.push({ objectApiName, live: 0, deleted: 0 });
+      continue;
+    }
+    moved.push({ objectApiName, live: read.live, deleted: read.deleted });
+    values += readsById(read.valued, fields);
+    if (read.backTo && !read.whole) describedFirst++;
+    if (read.scans) scans.push(streamedReadsCost([pagesOf(records)]));
+    if (read.deletes === 0) continue;
+    if (!read.whole && !read.backTo) describedAfter++;
+    if (read.outside.all > 0) describesGlobal = true;
+    outside += outsideReads(read.deletes, read.outside.worked);
   }
-  const users = new Set(input.diff.objects.flatMap((object) => Object.keys(object.lastChangedBy)));
   return sum(
     calls(DIFF_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    calls(callsFor(input.objects.length, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
+    calls(callsFor(objects.length, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
     changeReadsCost({
-      objects: input.objects.length,
-      held: input.objects
-        .filter((object) => object.records > 0)
-        .map((object) => object.objectApiName),
+      objects: objects.length,
+      held: objects.filter((object) => object.records > 0).map((object) => object.objectApiName),
       moved,
     }),
     calls(values, SECONDS_PER_READ),
@@ -791,10 +939,57 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
     calls(describesGlobal ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
     calls(outside, SECONDS_PER_SMALL_CALL),
     ...scans,
-    calls(
-      callsFor(callsFor(users.size, USERS_PER_READ), QUERIES_PER_COMPOSITE),
-      SECONDS_PER_SMALL_CALL,
+    calls(callsFor(callsFor(users, USERS_PER_READ), QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+  );
+}
+
+/** The checkpoint's objects the last read found, by name, each with how a read finds it. */
+function readsOf(
+  input: DiffEstimateInput,
+  find: (object: RewindDiffObject, held: EstimatedObject) => ObjectRead,
+): Map<string, ObjectRead> {
+  const found = new Map(input.diff.objects.map((object) => [object.objectApiName, object]));
+  const reads = new Map<string, ObjectRead>();
+  for (const held of input.objects) {
+    const object = found.get(held.objectApiName);
+    if (object) reads.set(held.objectApiName, find(object, held));
+  }
+  return reads;
+}
+
+/**
+ * What one read of the org since the checkpoint costs as the last read found
+ * the org — a preview, a rewind's fresh diff — each part as `rewindDiff`
+ * sends it: see {@link readCost}.
+ */
+export function diffEstimate(input: DiffEstimateInput): Cost {
+  const users = new Set(input.diff.objects.flatMap((object) => Object.keys(object.lastChangedBy)));
+  return readCost(
+    input.objects,
+    readsOf(input, (object, held) => readOf(object, held, input.relationships)),
+    new Set(input.diff.unread.map((object) => object.objectApiName)),
+    users.size,
+  );
+}
+
+/**
+ * What a read of the org costs once a pass of the rewind went through, as the
+ * last read found it (`readAfterPass`): the read after the first pass, which
+ * plans the second, or the verify, once the second deleted what came back
+ * with a parent. Before the second, the records that came back with a parent
+ * are to delete, and the users who last changed them named.
+ */
+function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean): Cost {
+  const waiting =
+    !secondPassThrough &&
+    input.diff.objects.some((object) => object.toDelete.comesBackWithParent > 0);
+  return readCost(
+    input.objects,
+    readsOf(input, (object, held) =>
+      readAfterPass(object, held, input.relationships, secondPassThrough),
     ),
+    new Set(input.diff.unread.map((object) => object.objectApiName)),
+    waiting ? 1 : 0,
   );
 }
 
@@ -810,7 +1005,8 @@ export interface RewindEstimateInput extends DiffEstimateInput {
   automationRequests: number;
   /**
    * The rewind acts on the diff the command line just showed, read in the
-   * same command, and reads no fresh one.
+   * same command, and reads no fresh one: the objects it brings records back
+   * to are then described as it brings them back.
    */
   reusesPreview?: boolean;
 }
@@ -821,27 +1017,223 @@ function journalBytes(given: number, ids: number): number {
 }
 
 /**
+ * What one more call of `restoreOverwrites` over some records of an object
+ * costs beyond what one over all of them costs: its clock and its user, and
+ * a part-full read of each column group, update and stamps read.
+ */
+function splitCost(fields: readonly string[]): Cost {
+  return sum(
+    calls(RESTORE_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
+    calls(readGroupsOf(fields), SECONDS_PER_READ),
+    calls(1, SECONDS_PER_WRITE),
+    calls(1, SECONDS_PER_READ),
+  );
+}
+
+/** How a rewind may give an object's records back, as far as the diff tells. */
+interface GivenBackWays {
+  /** After its deletes: records of an object it deletes may hold values of these in place. */
+  held: boolean;
+  /** Before them as well: records of an object it deletes may be parents of these. */
+  twice: boolean;
+  /** In its second pass: records of an object that comes back with a parent may hold them. */
+  nextPass: boolean;
+}
+
+/**
+ * What giving `records` records of one object back costs, as `rewindOrg`
+ * gives them, a chunk of 2,000 a call (`restoreCost`):
+ *
+ * - an order's status, alone, before its other fields: a call of its own per
+ *   chunk, on the orders that were Draft at the checkpoint;
+ * - records it gives back after its deletes — values the records it deletes
+ *   held in place — kept first, read by id before the pass writes, and given
+ *   back in calls of their own;
+ * - of those, records it gives back before its deletes as well, children of
+ *   records it deletes: given back before in calls of their own too;
+ * - records whose children come back with a parent, given back by the second
+ *   pass after it deleted those: kept first, and given back there.
+ *
+ * Which of an object's records each of these takes is known once the rewind
+ * plans its pass: an object that may take some is counted as if each took
+ * all of its records, so the count is the most it sends.
+ */
+function givenBackCost(
+  objectApiName: string,
+  records: number,
+  fields: readonly string[],
+  ways: GivenBackWays,
+): Cost {
+  if (records === 0) return NOTHING;
+  const status =
+    objectApiName === 'Order'
+      ? fields.find((field) => field.toLowerCase() === 'status')
+      : undefined;
+  const statusFields = status === undefined ? [] : [status];
+  const phase = (count: number): Cost =>
+    sum(restoreCost(count, fields), status ? restoreCost(count, statusFields) : NOTHING);
+  const split = sum(splitCost(fields), status ? splitCost(statusFields) : NOTHING);
+  const keptFirst = calls(readsById(records, fields), SECONDS_PER_READ);
+  return sum(
+    phase(records),
+    ways.held ? sum(keptFirst, split) : NOTHING,
+    ways.held && ways.twice ? sum(phase(records), split) : NOTHING,
+    ways.nextPass ? sum(keptFirst, split) : NOTHING,
+  );
+}
+
+/**
+ * Whether records of `child` may hold values of `parent`'s in place: the
+ * describe of `parent` lists `child` among the objects its delete takes along;
+ * or, not described, `child` is held by some parent's delete and read before
+ * `parent` in the checkpoint's order, children first.
+ */
+function mayHangFrom(
+  child: EstimatedObject | undefined,
+  childName: string,
+  parent: EstimatedObject,
+  relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
+): boolean {
+  const children = relationships?.get(parent.objectApiName)?.cascadeChildren;
+  if (children !== undefined) return children.includes(childName);
+  if (child?.cascadeParents !== undefined && child.cascadeParents.length === 0) return false;
+  if (child?.readOrder !== undefined && parent.readOrder !== undefined) {
+    return child.readOrder < parent.readOrder;
+  }
+  return true;
+}
+
+/**
+ * What a rewind sends once it has read the org and found something to write,
+ * each part as `rewindOrg` sends it:
+ *
+ * - the user it writes as;
+ * - pass 1: the bring back, parents first (`bringBackCost`); the give-back,
+ *   before and after the deletes (`givenBackCost`); the removal of what was
+ *   created or brought back since (`removalCost`);
+ * - the read after it, which plans pass 2 and is the verify when pass 2 has
+ *   nothing to do;
+ * - pass 2 and the verify after it, when records come back with a parent:
+ *   pass 2 deletes them, and gives back what they held in place.
+ *
+ * The read after a pass finds the org as the rewind leaves it, never a
+ * preview's worth of work. Not counted: a record sent again without a field
+ * the org refused, what the org's automation does in answer, a second pass
+ * for what the first left refused, and the records the first leaves for one
+ * of these reasons, which the read after it finds.
+ */
+export function rewindWritesCost(input: RewindEstimateInput): Cost {
+  const objects = input.diff.objects;
+  const heldOf = new Map(input.objects.map((object) => [object.objectApiName, object]));
+  const relationships = (objectApiName: string): ObjectRelationships =>
+    relationshipsFor(input.relationships, objectApiName);
+  const alone = input.diff.undoCannot
+    ? new Map(input.diff.undoCannot.map(({ objectApiName, count }) => [objectApiName, count]))
+    : undefined;
+  /**
+   * Records the first pass hands its removal: of an object Salesforce
+   * undeletes only with its parent, those deleted on their own, but those
+   * that come back with a parent, which the second pass deletes; the rest go
+   * with their parent, and hold nothing given back in place.
+   */
+  const sentFirst = (object: RewindDiffObject): number => {
+    if (alone === undefined || heldOf.get(object.objectApiName)?.undeletable !== false) {
+      return deletedFirst(object);
+    }
+    const own = (alone.get(object.objectApiName) ?? 0) - object.toDelete.comesBackWithParent;
+    return Math.max(0, Math.min(deletedFirst(object), own));
+  };
+  const deleting = objects.filter((object) => sentFirst(object) > 0);
+  const comingBack = objects.filter((object) => object.toDelete.comesBackWithParent > 0);
+  /** Whether records of one of `children` may hang from records of `parent`. */
+  const holds = (parent: EstimatedObject, children: readonly RewindDiffObject[]): boolean =>
+    children.some(
+      (child) =>
+        child.objectApiName !== parent.objectApiName &&
+        mayHangFrom(
+          heldOf.get(child.objectApiName),
+          child.objectApiName,
+          parent,
+          input.relationships,
+        ),
+    );
+  /** Whether records of `child` may hang from records of one of `parents`. */
+  const hangs = (child: EstimatedObject, parents: readonly RewindDiffObject[]): boolean =>
+    parents.some((parent) => {
+      const held = heldOf.get(parent.objectApiName);
+      return (
+        held !== undefined &&
+        parent.objectApiName !== child.objectApiName &&
+        mayHangFrom(child, child.objectApiName, held, input.relationships)
+      );
+    });
+  const topBatches = objects.reduce((total, object) => total + batches(sentBack(object)), 0);
+  const passOne = sum(
+    bringBackCost(
+      objects.map((object) => ({
+        records: sentBack(object),
+        cascades: relationships(object.objectApiName).cascades,
+        described: input.reusesPreview !== true,
+      })),
+    ),
+    ...objects.map((object) =>
+      cameBackUnderCost(
+        object.toBringBack.withParent,
+        relationships(object.objectApiName).cascades,
+        topBatches,
+        input.reusesPreview !== true,
+      ),
+    ),
+    ...objects.map((object) => {
+      const held = heldOf.get(object.objectApiName);
+      if (held === undefined) return NOTHING;
+      return givenBackCost(object.objectApiName, givenBack(object), held.fields, {
+        held: holds(held, deleting),
+        twice: hangs(held, deleting),
+        nextPass: holds(held, comingBack),
+      });
+    }),
+    removalCost(
+      objects.map((object) => ({
+        records: sentFirst(object),
+        dependents: relationships(object.objectApiName).dependents,
+      })),
+      RUN_RECORDS_PAGE,
+    ),
+  );
+  const passTwo =
+    comingBack.length > 0
+      ? sum(
+          removalCost(
+            comingBack.map((object) => ({
+              records: object.toDelete.comesBackWithParent,
+              dependents: relationships(object.objectApiName).dependents,
+            })),
+            RUN_RECORDS_PAGE,
+          ),
+          readAfterPassCost(input, true),
+        )
+      : NOTHING;
+  return sum(
+    calls(REWIND_USER_REQUESTS, SECONDS_PER_SMALL_CALL),
+    passOne,
+    readAfterPassCost(input, false),
+    passTwo,
+  );
+}
+
+/**
  * The API requests, time and disk a rewind costs, about, from what the
- * preview found, in the order a rewind goes:
- *
- * - the guard and the day's limits; the fresh diff, unless it acts on the
- *   one the command line just read;
- * - once it has something to write, the automation read; pass 1 — bring
- *   back, parents first, with the reads of the children that came back
- *   through each relationship the org deletes along; the give-back, by
- *   chunks of 2,000; the removal of what was created or brought back since —;
- *   pass 2, a diff read and the removal of what came back with its parent;
- *   and the verify, a diff read.
- *
- * Pass 2 runs only when pass 1 made progress, and is counted whenever the
- * rewind writes. The records counted are the three numbers of the preview;
- * the bytes, what the journal keeps of them.
+ * preview found, in the order a rewind goes: the guard and the day's limits;
+ * the fresh diff, unless it acts on the one the command line just read; and,
+ * once it has something to write, the automation read and its writes
+ * (`rewindWritesCost`). The records counted are the three numbers of the
+ * preview; the bytes, what the journal keeps of them.
  */
 export function rewindEstimate(
   input: RewindEstimateInput,
 ): Omit<CheckpointEstimate, 'apiRequestsLeft'> {
   const objects = input.diff.objects;
-  const fieldsOf = new Map(input.objects.map((object) => [object.objectApiName, object.fields]));
   const toDelete = objects.reduce(
     (total, object) => total + deletedFirst(object) + object.toDelete.comesBackWithParent,
     0,
@@ -849,10 +1241,9 @@ export function rewindEstimate(
   const toGiveBack = objects.reduce((total, object) => total + object.toGiveBack.records, 0);
   const toBringBack = objects.reduce((total, object) => total + broughtBack(object), 0);
   const records = toDelete + toGiveBack + toBringBack;
-  const diff = diffEstimate(input);
   const reads = sum(
     calls(ACT_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    input.reusesPreview === true ? NOTHING : diff,
+    input.reusesPreview === true ? NOTHING : diffEstimate(input),
   );
   if (records === 0) {
     return {
@@ -862,42 +1253,10 @@ export function rewindEstimate(
       bytes: 0,
     };
   }
-
-  const relationships = (objectApiName: string): ObjectRelationships =>
-    relationshipsFor(input.relationships, objectApiName);
-  const childrenBack = objects.reduce(
-    (total, object) =>
-      total + relationships(object.objectApiName).cascades * batches(sentBack(object)),
-    0,
-  );
-  const passOne = sum(
-    undeleteCost(objects.map(sentBack)),
-    calls(childrenBack, SECONDS_PER_READ),
-    ...objects.map((object) =>
-      restoreCost(givenBack(object), fieldsOf.get(object.objectApiName) ?? []),
-    ),
-    removalCost(
-      objects.map((object) => ({
-        records: deletedFirst(object),
-        dependents: relationships(object.objectApiName).dependents,
-      })),
-    ),
-  );
-  const passTwo = sum(
-    diff,
-    removalCost(
-      objects.map((object) => ({
-        records: object.toDelete.comesBackWithParent,
-        dependents: relationships(object.objectApiName).dependents,
-      })),
-    ),
-  );
   const cost = sum(
     reads,
     calls(input.automationRequests, SECONDS_PER_READ),
-    passOne,
-    passTwo,
-    diff,
+    rewindWritesCost(input),
   );
   return {
     records,
@@ -919,15 +1278,13 @@ export interface RewoundObject {
   broughtBack: number;
   /** Records it gave values back: an undo gives them the values it wrote over. */
   givenBack: number;
+  /**
+   * Of {@link givenBack}, those whose values records it deleted held in
+   * place: an undo gives them back in calls of their own, before those
+   * records come back. Absent when there is none.
+   */
+  givenBackHeld?: number;
 }
-
-/**
- * Requests per batch of 200 an undo's bring back sends: the batch read in the
- * recycle bin, then among the live records, and the undelete itself (a SOAP
- * call). It says back no stamps — an undo taken up again plans only what the
- * one before left — so it reads neither the clock nor its user.
- */
-const UNDO_UNDELETE_REQUESTS_PER_BATCH = 3;
 
 /**
  * SOAP calls one call of `restoreOverwrites` sends in an undo, whatever it
@@ -937,24 +1294,12 @@ const UNDO_UNDELETE_REQUESTS_PER_BATCH = 3;
 const UNDO_RESTORE_FIXED_REQUESTS = 1;
 
 /**
- * What an undo's bring back costs, per object the records it brings back:
- * per batch of 200, the bin read, the live read and the undelete.
- */
-function undoUndeleteCost(records: readonly number[]): Cost {
-  const batchCount = records.reduce((total, count) => total + batches(count), 0);
-  return sum(
-    calls(batchCount * (UNDO_UNDELETE_REQUESTS_PER_BATCH - 1), SECONDS_PER_READ),
-    calls(batchCount, SECONDS_PER_WRITE),
-  );
-}
-
-/**
  * What an undo's give-back of `records` records of one object costs, a chunk
  * of {@link SNAPSHOT_CHUNK_IDS} a call of `restoreOverwrites`: per chunk, its
  * clock, the org's values read by id in the object's column groups, the
- * updates; then the records read again by id, once the undo is through.
+ * updates.
  */
-function undoRestoreCost(records: number, fields: readonly string[]): Cost {
+function undoGiveBackCalls(records: number, fields: readonly string[]): Cost {
   let cost = NOTHING;
   for (let left = records; left > 0; left -= SNAPSHOT_CHUNK_IDS) {
     const chunk = Math.min(left, SNAPSHOT_CHUNK_IDS);
@@ -963,10 +1308,31 @@ function undoRestoreCost(records: number, fields: readonly string[]): Cost {
       calls(UNDO_RESTORE_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
       calls(readsById(chunk, fields), SECONDS_PER_READ),
       calls(runRequestsEstimate([{ rows: chunk }]), SECONDS_PER_WRITE),
-      calls(readsById(chunk, fields), SECONDS_PER_READ),
     );
   }
   return cost;
+}
+
+/**
+ * What an undo's give-back of one object's records costs: those held in
+ * place given back in calls of their own, before the records that held them
+ * come back, the rest after (`undoGiveBackCalls`); then every one read again
+ * by id, a chunk at a time, once the undo is through.
+ */
+function undoRestoreCost(object: RewoundObject, fields: readonly string[]): Cost {
+  const held = Math.min(object.givenBackHeld ?? 0, object.givenBack);
+  let reread = NOTHING;
+  for (let left = object.givenBack; left > 0; left -= SNAPSHOT_CHUNK_IDS) {
+    reread = sum(
+      reread,
+      calls(readsById(Math.min(left, SNAPSHOT_CHUNK_IDS), fields), SECONDS_PER_READ),
+    );
+  }
+  return sum(
+    undoGiveBackCalls(held, fields),
+    undoGiveBackCalls(object.givenBack - held, fields),
+    reread,
+  );
 }
 
 /** What an undo's estimate is made from. */
@@ -1017,9 +1383,11 @@ export function undoEstimate(
         dependents: relationshipsFor(input.relationships, object.objectApiName).dependents,
       })),
     ),
-    undoUndeleteCost(input.rewound.map((object) => object.deleted)),
+    // Saying back no stamps — an undo taken up again plans only what the one
+    // before left — it reads neither the clock nor its user.
+    undeleteCost(input.rewound.map((object) => object.deleted)),
     ...input.rewound.map((object) =>
-      undoRestoreCost(object.givenBack, fieldsOf.get(object.objectApiName) ?? []),
+      undoRestoreCost(object, fieldsOf.get(object.objectApiName) ?? []),
     ),
   );
   return { records, apiRequests: cost.apiRequests, seconds: Math.ceil(cost.seconds), bytes: 0 };

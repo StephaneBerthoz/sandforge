@@ -1,40 +1,58 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ForgeTargetAutomation, OrgCheckpoint, RewindDiff } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { MEMORY_ORG_USER, factCombinations } from '../../test/memoryRemovalOrg.js';
 import {
-  MEMORY_ORG_USER,
-  factCombinations,
-  type MemoryChild,
-  type MemoryOrgFacts,
-  type MemoryOrgRequest,
-  type MemoryRow,
-} from '../../test/memoryRemovalOrg.js';
-import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
-import {
-  openCheckpointStore,
-  rewindDirOf,
-  type CheckpointFolder,
-  type OrgCheckpointStore,
-} from './OrgCheckpointStore.js';
+  AUTOMATED_PROCESS,
+  COLLEAGUE,
+  FIELDS,
+  ORG_ID,
+  PERSON_FLAG,
+  PICKED,
+  PREVIEWED,
+  PRICE_BOOK_HELD,
+  RewindTestOrg,
+  SINCE,
+  STAMP_FIELDS,
+  T0,
+  account,
+  automationOf,
+  baseRecords,
+  book,
+  changedSince,
+  clock,
+  contact,
+  journalKinds,
+  line,
+  liveIds,
+  opportunity,
+  order,
+  previewed,
+  removeTaken,
+  request,
+  resultOf,
+  rewound,
+  spent,
+  stateOf,
+  stoppedAfter,
+  taken,
+  undone,
+  writable,
+  type OrgState,
+  type Taken,
+} from '../../test/rewindTestOrg.js';
+import { rewindDirOf } from './OrgCheckpointStore.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { readRewindJournal } from './rewindJournal.js';
 import {
   REWIND_RESIDUAL_IDS,
   RewindStopped,
   inRewindWords,
-  rewindOrg,
   rewindOrgOf,
-  type RewindDeps,
   type RewindOutcome,
-  type RewindRequest,
 } from './rewindOrg.js';
-import { takeCheckpoint, type TakeOrg } from './takeCheckpoint.js';
-import { undoRewind } from './undoRewind.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -51,409 +69,17 @@ vi.mock('../../logger.js', () => ({
  * and its verify. The org counts a composite as one request and every SOAP
  * call apart, as the orgs were seen to; its clock moves a second each time
  * it is read once the checkpoint is taken, so what the rewind writes is
- * dated after Tr, as on a real org.
+ * dated after Tr, as on a real org (`src/test/rewindTestOrg.ts`).
  */
-
-const ORG_ID = '00D000000000001AAA';
-const AUTOMATED_PROCESS = '005000000000002AAA';
-const COLLEAGUE = '005000000000003AAA';
-
-/** T0 on the org's clock, with its milliseconds. */
-const T0 = Date.parse('2026-10-22T14:05:12.731Z');
-/** Long before the checkpoint: the records and the fields the org held. */
-const LONG_AGO = Date.parse('2026-10-01T09:00:00.000Z');
-/** When people worked in the org after the checkpoint. */
-const SINCE = T0 + 60_000;
-/** When the user previewed the rewind. */
-const PREVIEWED = T0 + 120_000;
-/** When the rewind begins. */
-const REWOUND = T0 + 180_000;
-
-let clock = T0;
-
-const id = (prefix: string, n: number): string => `${prefix}${String(n).padStart(12, '0')}AAA`;
-const account = (n: number): string => id('001', n);
-const contact = (n: number): string => id('003', n);
-const opportunity = (n: number): string => id('006', n);
-const line = (n: number): string => id('00k', n);
-const book = (n: number): string => id('01s', n);
-const order = (n: number): string => id('801', n);
-
-/** The audit fields and the id, as the org describes them: no one writes them. */
-const STAMP_FIELDS = [
-  { name: 'Id', label: 'Id', type: 'id', permissionable: false },
-  { name: 'SystemModstamp', label: 'System Modstamp', type: 'datetime', permissionable: false },
-  { name: 'CreatedDate', label: 'Created Date', type: 'datetime', permissionable: false },
-  {
-    name: 'CreatedById',
-    label: 'Created By',
-    type: 'reference',
-    referenceTo: ['User'],
-    permissionable: false,
-  },
-  {
-    name: 'LastModifiedDate',
-    label: 'Last Modified Date',
-    type: 'datetime',
-    permissionable: false,
-  },
-  {
-    name: 'LastModifiedById',
-    label: 'Last Modified By',
-    type: 'reference',
-    referenceTo: ['User'],
-    permissionable: false,
-  },
-  { name: 'IsDeleted', label: 'Deleted', type: 'boolean', permissionable: false },
-];
-
-function writable(name: string, type = 'string', extra: Record<string, unknown> = {}) {
-  return { name, label: name, type, createable: true, updateable: true, nillable: true, ...extra };
-}
-
-const FIELDS: Record<string, unknown[]> = {
-  Account: [...STAMP_FIELDS, writable('Name'), writable('Industry')],
-  Contact: [
-    ...STAMP_FIELDS,
-    writable('LastName'),
-    writable('AccountId', 'reference', { referenceTo: ['Account'] }),
-  ],
-  Opportunity: [
-    ...STAMP_FIELDS,
-    writable('Name'),
-    writable('AccountId', 'reference', { referenceTo: ['Account'] }),
-    writable('Pricebook2Id', 'reference', { referenceTo: ['Pricebook2'] }),
-  ],
-  // A product is made under its opportunity and stays there.
-  OpportunityLineItem: [
-    ...STAMP_FIELDS,
-    writable('Quantity', 'double'),
-    writable('OpportunityId', 'reference', { referenceTo: ['Opportunity'], updateable: false }),
-  ],
-  Order: [...STAMP_FIELDS, writable('Status'), writable('Description')],
-};
-
-/** An account's contacts and opportunities go with it, an opportunity's products with it. */
-const CHILDREN: Record<string, MemoryChild[]> = {
-  Account: [
-    { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
-    { childSObject: 'Opportunity', field: 'AccountId', cascadeDelete: true },
-  ],
-  Opportunity: [
-    { childSObject: 'OpportunityLineItem', field: 'OpportunityId', cascadeDelete: true },
-  ],
-};
-
-/** The objects the checkpoint holds. */
-const PICKED = ['Account', 'Contact', 'Opportunity', 'OpportunityLineItem'];
-
-/** What an opportunity's price book is refused for, live, while it has products. */
-const PRICE_BOOK_HELD = {
-  objectApiName: 'Opportunity',
-  fields: ['Pricebook2Id'],
-  childSObject: 'OpportunityLineItem',
-  field: 'OpportunityId',
-  statusCode: 'FIELD_INTEGRITY_EXCEPTION',
-  message: 'Cannot change pricebook on opportunity with line items',
-};
-
-/**
- * The memory org as a take, a preview and a rewind read it: a global
- * describe of objects a person works in, `/limits`, the org's own record and
- * its user's permissions, on a Developer Edition org.
- */
-class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
-  limits = { Max: 15_000, Remaining: 14_000 };
-  /** Whether each read of its clock moves it a second, as time passes during a rewind. */
-  ticking = false;
-  /** Told of every query the take's snapshot reads through, before it is answered. */
-  onSnapshotRead?: (soql: string) => void;
-
-  constructor(
-    options: { facts?: Partial<MemoryOrgFacts>; fields?: Record<string, unknown[]> } = {},
-  ) {
-    super(CHILDREN, { now: () => clock, ...(options.facts ? { facts: options.facts } : {}) });
-    clock = LONG_AGO;
-    for (const [name, fields] of Object.entries(options.fields ?? FIELDS)) {
-      this.changeSchema(name, fields);
-    }
-    this.comesBackOnlyWithParent.add('OpportunityLineItem');
-    this.add('Organization', {
-      Id: ORG_ID,
-      IsSandbox: false,
-      OrganizationType: 'Developer Edition',
-    });
-    this.add('UserPermissionAccess', {
-      Id: '0Up000000000001AAA',
-      PermissionsViewAllData: true,
-      PermissionsModifyAllData: true,
-      PermissionsViewEncryptedData: false,
-    });
-    this.add('User', { Id: AUTOMATED_PROCESS, UserType: 'AutomatedProcess' });
-    this.add('User', { Id: MEMORY_ORG_USER, Name: 'Ada Admin' });
-    this.add('User', { Id: COLLEAGUE, Name: 'Grace Tester' });
-  }
-
-  override async describeGlobal(): Promise<unknown> {
-    this.requests++;
-    return {
-      sobjects: Object.keys(FIELDS).map((name) => ({
-        name,
-        label: name,
-        queryable: true,
-        createable: true,
-        updateable: true,
-        deletable: true,
-        layoutable: true,
-      })),
-    };
-  }
-
-  override async request(request: MemoryOrgRequest): Promise<unknown> {
-    if (request.method === 'GET' && request.url.endsWith('/limits')) {
-      this.requests++;
-      return { DailyApiRequests: this.limits };
-    }
-    return super.request(request);
-  }
-
-  override async serverTime(): Promise<string> {
-    if (this.ticking) clock += 1_000;
-    return super.serverTime();
-  }
-
-  /** An update, a person account's name then made of its person's, as the org makes it. */
-  override async update(
-    objectApiName: string,
-    records: Array<Record<string, unknown>>,
-  ): Promise<unknown> {
-    const answer = await super.update(objectApiName, records);
-    if (objectApiName === 'Account') {
-      for (const row of this.all('Account')) {
-        if (row.IsPersonAccount !== true) continue;
-        row.Name = [row.FirstName, row.LastName]
-          .filter((part) => typeof part === 'string')
-          .join(' ');
-      }
-    }
-    return answer;
-  }
-}
-
-/** Everything the memory org answered: its REST requests, a composite one, and its SOAP calls. */
-function spent(org: MemoryRestoreOrg): number {
-  return org.requests + org.soapCalls;
-}
-
-const dirs: string[] = [];
 
 beforeEach(() => {
-  clock = T0;
+  clock.now = T0;
 });
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  removeTaken();
   vi.mocked(getJsforceConnection).mockReset();
 });
-
-interface Taken {
-  org: RewindTestOrg;
-  store: OrgCheckpointStore;
-  checkpoint: OrgCheckpoint;
-  folder: CheckpointFolder;
-  /** The live records as the checkpoint holds them. */
-  atCheckpoint: OrgState;
-}
-
-/** What the org holds of what a test compares, live and in the recycle bin: no stamp. */
-interface OrgState {
-  live: Record<string, unknown[]>;
-  bin: Record<string, unknown[]>;
-}
-
-const COMPARED = [
-  'Name',
-  'Industry',
-  'LastName',
-  'AccountId',
-  'Pricebook2Id',
-  'Quantity',
-  'OpportunityId',
-  'Status',
-  'Description',
-];
-
-function stateOf(org: MemoryRestoreOrg, objects = [...PICKED, 'Order']): OrgState {
-  const pick = (row: MemoryRow): Record<string, unknown> =>
-    Object.fromEntries([
-      ['Id', row.Id],
-      ...COMPARED.filter((field) => field in row).map((field) => [field, row[field] ?? null]),
-    ]);
-  const sorted = (rows: MemoryRow[]): unknown[] =>
-    rows.map(pick).sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
-  return {
-    live: Object.fromEntries(objects.map((name) => [name, sorted(org.all(name))])),
-    bin: Object.fromEntries(objects.map((name) => [name, sorted(org.inBin(name))])),
-  };
-}
-
-/**
- * Records long before the checkpoint, then the checkpoint, taken at T0 of the
- * picked objects as a take takes it, through a snapshot handler reading the
- * same org.
- */
-async function taken(
-  build: (org: RewindTestOrg) => void = baseRecords,
-  org = new RewindTestOrg(),
-  objects = PICKED,
-): Promise<Taken> {
-  const dir = mkdtempSync(join(tmpdir(), 'sandforge-rewind-'));
-  dirs.push(dir);
-  const opened = openCheckpointStore({ root: join(dir, 'store'), locksDir: join(dir, 'locks') });
-  if ('refusal' in opened) throw new Error(`no store: ${opened.refusal.reason}`);
-  clock = LONG_AGO;
-  build(org);
-  clock = T0;
-  vi.mocked(getJsforceConnection).mockResolvedValue({
-    query: (soql: string, options?: { scanAll?: boolean }) => {
-      org.onSnapshotRead?.(soql);
-      return org.query(soql, options);
-    },
-    queryMore: (nextRecordsUrl: string) => org.queryMore(nextRecordsUrl),
-    describe: (objectApiName: string) => org.describe(objectApiName),
-  } as never);
-  const outcome = await takeCheckpoint(
-    {
-      org,
-      store: opened.store,
-      handler: {
-        log: () => undefined,
-        orgManager: { getOrg: () => ({ orgType: 'Developer' }) } as never,
-        orgRegistry: {} as never,
-      },
-      now: () => new Date(T0),
-    },
-    {
-      orgId: 'org-1',
-      orgName: 'DEV-ED',
-      alias: 'DEV-ED',
-      username: 'tester@example.com',
-      instanceUrl: 'https://example.my.salesforce.com',
-      registered: { orgType: 'Developer' },
-      mode: 'picked',
-      objects,
-      name: 'Before UAT',
-    },
-  );
-  if (!outcome.taken) throw new Error(`refused: ${outcome.refusal.message}`);
-  org.onSnapshotRead = undefined;
-  const folder = opened.store.folderOf(ORG_ID, outcome.checkpoint.checkpointId);
-  return {
-    org,
-    store: opened.store,
-    checkpoint: outcome.checkpoint,
-    folder,
-    atCheckpoint: stateOf(org),
-  };
-}
-
-/** The records of the org long before the checkpoint. */
-function baseRecords(org: RewindTestOrg): void {
-  org.add('Account', { Id: account(1), Name: 'Account one', Industry: 'Energy' });
-  org.add('Account', { Id: account(2), Name: 'Account two', Industry: 'Energy' });
-  org.add('Account', { Id: account(3), Name: 'Account three', Industry: 'Energy' });
-  org.add('Contact', { Id: contact(1), LastName: 'One', AccountId: account(2) });
-  org.add('Contact', { Id: contact(2), LastName: 'Two', AccountId: account(2) });
-  org.add('Contact', { Id: contact(3), LastName: 'Three', AccountId: account(1) });
-  org.add('Opportunity', {
-    Id: opportunity(1),
-    Name: 'Deal',
-    AccountId: account(1),
-    Pricebook2Id: book(1),
-  });
-}
-
-/**
- * What a colleague did since the checkpoint: an account renamed, two created
- * with a contact under one, and an account deleted with its two contacts.
- */
-function changedSince(org: RewindTestOrg): void {
-  clock = SINCE;
-  org.edit('Account', account(1), { Name: 'Renamed' }, COLLEAGUE);
-  org.add('Account', { Id: account(4), Name: 'New one', LastModifiedById: COLLEAGUE });
-  org.add('Account', { Id: account(5), Name: 'New two', LastModifiedById: COLLEAGUE });
-  org.add('Contact', {
-    Id: contact(4),
-    LastName: 'New',
-    AccountId: account(4),
-    LastModifiedById: COLLEAGUE,
-  });
-  org.edit('Account', account(2), { Industry: 'Retail' }, COLLEAGUE);
-  org.trash('Account', account(2), COLLEAGUE);
-}
-
-/** The preview the user confirms, read at PREVIEWED. */
-async function previewed(t: Taken): Promise<RewindDiff> {
-  clock = PREVIEWED;
-  const outcome = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
-  if (!outcome.previewed) throw new Error(outcome.refusal.message);
-  return outcome.diff;
-}
-
-const request = (t: Taken) => ({
-  checkpoint: t.checkpoint,
-  folder: t.folder,
-  orgName: 'DEV-ED',
-  registered: { orgType: 'Developer' as const },
-  username: 'tester@example.com',
-});
-
-/** The rewind of `t` to its checkpoint, acting on the preview `previewId`, at REWOUND unless the clock is later. */
-async function rewound(
-  t: Taken,
-  previewId: string,
-  options: { deps?: Partial<RewindDeps>; request?: Partial<RewindRequest> } = {},
-): Promise<RewindOutcome> {
-  clock = Math.max(clock, REWOUND);
-  t.org.ticking = true;
-  const read = await t.store.read(t.checkpoint.checkpointId);
-  if (!read?.checkpoint) throw new Error('the checkpoint is gone');
-  try {
-    return await rewindOrg(
-      {
-        org: t.org,
-        undelete: (ids) => t.org.undelete(ids),
-        store: t.store,
-        ...options.deps,
-      },
-      {
-        ...request(t),
-        checkpoint: read.checkpoint,
-        previewId,
-        acceptAutomation: false,
-        acceptNoUndo: false,
-        acceptOutside: false,
-        ...options.request,
-      },
-    );
-  } finally {
-    t.org.ticking = false;
-  }
-}
-
-/** The result of a rewind that ran, or a failed test. */
-function resultOf(outcome: RewindOutcome) {
-  if (!outcome.rewound) throw new Error(`refused: ${outcome.refusal.message}`);
-  return outcome.result;
-}
-
-/** The kinds of the lines of a rewind's journal, in order. */
-function journalKinds(folder: CheckpointFolder, rewindId: string): string[] {
-  return readFileSync(join(rewindDirOf(folder, rewindId), 'journal.ndjson'), 'utf8')
-    .split('\n')
-    .filter((text) => text !== '')
-    .map((text) => (JSON.parse(text) as { kind: string }).kind);
-}
 
 describe('rewindOrg, on the memory org', () => {
   it('puts the org back as the checkpoint holds it: brings back what was deleted since with what went with it, gives back what changed, deletes what was created, then reads the org again and finds nothing that differs', async () => {
@@ -510,94 +136,10 @@ describe('rewindOrg, on the memory org', () => {
   });
 });
 
-/** The calls to the org a stop is counted in. */
-const CALLS = new Set([
-  'query',
-  'queryMore',
-  'queryDeleted',
-  'request',
-  'update',
-  'destroy',
-  'undelete',
-  'serverTime',
-  'userId',
-  'describe',
-  'describeGlobal',
-]);
-
-/**
- * The org, stopped once it has answered `calls` calls: the signal is aborted
- * as the last of them goes, and the rewind stops before its next one.
- */
-function stoppedAfter(
-  org: RewindTestOrg,
-  calls: number,
-  controller: AbortController,
-): RewindTestOrg {
-  let sent = 0;
-  return new Proxy(org, {
-    get(target, property) {
-      const value: unknown = Reflect.get(target, property, target);
-      if (typeof value !== 'function') return value;
-      const call = value as (...args: unknown[]) => unknown;
-      if (typeof property !== 'string' || !CALLS.has(property)) return call.bind(target);
-      return (...args: unknown[]) => {
-        sent++;
-        const answer = call.apply(target, args);
-        if (sent >= calls) controller.abort();
-        return answer;
-      };
-    },
-  });
-}
-
-/** The ids of a live object's records, sorted. */
-function liveIds(org: MemoryRestoreOrg, objectApiName: string): string[] {
-  return org
-    .all(objectApiName)
-    .map((row) => row.Id)
-    .sort();
-}
-
-/** A read of the org's automation that sends nothing, finding what `found` says. */
-function automationOf(
-  found: Partial<ForgeTargetAutomation> = {},
-): () => Promise<ForgeTargetAutomation> {
-  return () =>
-    Promise.resolve({
-      objectsRead: [],
-      objects: [],
-      unread: [],
-      conditionsNotRead: 0,
-      conditionsBound: 0,
-      requests: 0,
-      ...found,
-    });
-}
-
-/** Undo the rewind `rewindId` of `t`, a minute on, under the org's lock. */
-async function undone(t: Taken, rewindId: string) {
-  const held = t.store.lock(ORG_ID, 'undo');
-  if (!('lock' in held)) throw new Error('the org’s lock is held');
-  clock += 60_000;
-  try {
-    return await undoRewind({
-      folder: t.folder,
-      rewindId,
-      lock: held.lock,
-      objects: t.checkpoint.objects,
-      org: t.org,
-      undelete: (ids) => t.org.undelete(ids),
-    });
-  } finally {
-    held.lock.release();
-  }
-}
-
 describe('rewindOrg: what a pass writes, in its order', () => {
   /** An opportunity whose price book changed since, as a product was added under it. */
   function heldInPlace(org: RewindTestOrg): void {
-    clock = SINCE;
+    clock.now = SINCE;
     org.edit('Opportunity', opportunity(1), { Pricebook2Id: book(2) }, COLLEAGUE);
     org.add('OpportunityLineItem', {
       Id: line(1),
@@ -721,7 +263,7 @@ describe('rewindOrg: what a pass writes, in its order', () => {
       new RewindTestOrg(),
       [...PICKED, 'Order'],
     );
-    clock = SINCE;
+    clock.now = SINCE;
     t.org.edit('Order', order(1), { Status: 'Activated', Description: 'Changed' }, COLLEAGUE);
     const diff = await previewed(t);
 
@@ -735,7 +277,6 @@ describe('rewindOrg: what a pass writes, in its order', () => {
   });
 
   it('never sends a person account’s name, which the org computes from its person’s', async () => {
-    const personFlag = { name: 'IsPersonAccount', label: 'Is Person Account', type: 'boolean' };
     const fields = {
       ...FIELDS,
       Account: [
@@ -743,13 +284,13 @@ describe('rewindOrg: what a pass writes, in its order', () => {
         writable('Name'),
         writable('FirstName'),
         writable('LastName'),
-        personFlag,
+        PERSON_FLAG,
       ],
       Contact: [
         ...STAMP_FIELDS,
         writable('LastName'),
         writable('AccountId', 'reference', { referenceTo: ['Account'] }),
-        personFlag,
+        PERSON_FLAG,
       ],
     };
     const t = await taken((org) => {
@@ -759,7 +300,7 @@ describe('rewindOrg: what a pass writes, in its order', () => {
         contact(9),
       );
     }, new RewindTestOrg({ fields }));
-    clock = SINCE;
+    clock.now = SINCE;
     t.org.edit('Account', account(9), { Name: 'Ada Byron', LastName: 'Byron' }, COLLEAGUE);
     const diff = await previewed(t);
 
@@ -783,7 +324,7 @@ describe('rewindOrg: what a pass writes, in its order', () => {
         org.add('Contact', { Id: contact(100 + n), LastName: `Alone ${n}` });
       }
     });
-    clock = SINCE;
+    clock.now = SINCE;
     for (let n = 0; n < count; n++) {
       t.org.edit('Account', account(100 + n), { Industry: 'Retail' }, COLLEAGUE);
       t.org.trash('Contact', contact(100 + n), COLLEAGUE);
@@ -807,7 +348,7 @@ describe('rewindOrg: what a pass writes, in its order', () => {
 describe('rewindOrg: the second pass and the verify', () => {
   it('deletes in a second pass what came back with a parent it brought back and what its own automation made in answer to the first', async () => {
     const t = await taken();
-    clock = SINCE;
+    clock.now = SINCE;
     t.org.add('Contact', {
       Id: contact(5),
       LastName: 'Made since',
@@ -970,7 +511,7 @@ describe('rewindOrg: the second pass and the verify', () => {
     const t = await taken();
     changedSince(t.org);
     const diff = await previewed(t);
-    clock = PREVIEWED + 10_000;
+    clock.now = PREVIEWED + 10_000;
     t.org.add('Account', {
       Id: account(7),
       Name: 'Since the preview',
@@ -1103,7 +644,7 @@ describe('rewindOrg: what it refuses before it writes', () => {
 
   it('refuses to delete records Undo couldn’t bring back unless that was accepted', async () => {
     const t = await taken();
-    clock = SINCE;
+    clock.now = SINCE;
     t.org.add('OpportunityLineItem', {
       Id: line(1),
       Quantity: 1,
@@ -1256,7 +797,7 @@ describe('rewindOrg: what it costs', () => {
         Pricebook2Id: book(1),
       });
     });
-    clock = SINCE;
+    clock.now = SINCE;
     t.org.edit('Account', account(1), { Name: 'Renamed' }, COLLEAGUE);
     t.org.add('Account', { Id: account(4), Name: 'New one', LastModifiedById: COLLEAGUE });
     t.org.add('Contact', {
@@ -1278,7 +819,7 @@ describe('rewindOrg: what it costs', () => {
       LastModifiedById: COLLEAGUE,
     });
     t.org.trash('Account', account(2), COLLEAGUE);
-    clock = PREVIEWED;
+    clock.now = PREVIEWED;
     const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
     if (!preview.previewed) throw new Error(preview.refusal.message);
     const asked = spent(t.org);
@@ -1294,7 +835,7 @@ describe('rewindOrg: what it costs', () => {
 
   it('sends exactly what the estimate counts when there is nothing to write: the guard, the limits and the fresh read', async () => {
     const t = await taken();
-    clock = PREVIEWED;
+    clock.now = PREVIEWED;
     const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
     if (!preview.previewed) throw new Error(preview.refusal.message);
     const asked = spent(t.org);

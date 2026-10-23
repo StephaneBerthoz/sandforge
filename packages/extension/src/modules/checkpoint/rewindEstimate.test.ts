@@ -14,6 +14,7 @@ import { undeleteRunDeletions } from '../sync/SyncRunUndelete.js';
 import { compositeReader } from './compositeQueries.js';
 import { readChanges } from './orgStreams.js';
 import {
+  bringBackCost,
   budgetGate,
   budgetRefusal,
   changeReadsCost,
@@ -23,6 +24,7 @@ import {
   removalCost,
   restoreCost,
   rewindEstimate,
+  rewindWritesCost,
   snapshotGroupReads,
   streamedReadsCost,
   takeEstimate,
@@ -222,7 +224,7 @@ describe('the bricks, as they send their requests to the org', () => {
     expect(spent(org) - before).toBe(cost.apiRequests);
   });
 
-  it('counts an undelete as it sends it: its clock and its user, then four requests per 200 records, the undelete itself a SOAP call', async () => {
+  it('counts an undelete asked for no stamps as it sends it: three requests per 200 records, the undelete itself a SOAP call, and neither the clock nor the user', async () => {
     const org = new MemoryRemovalOrg({}, { now: () => T0 });
     const accounts = ids('001', 450);
     const contacts = ids('003', 30);
@@ -241,14 +243,23 @@ describe('the bricks, as they send their requests to the org', () => {
         { objectApiName: 'Contact', ids: contacts },
       ],
       undelete: (batch) => org.undelete(batch),
-      stampsFor: () => true,
     });
 
     expect(outcome.objects.map((object) => object.undeleted)).toEqual([450, 30]);
-    expect(undeleteCost([450, 30]).apiRequests).toBe(2 + 4 * (3 + 1));
+    expect(undeleteCost([450, 30]).apiRequests).toBe(3 * (3 + 1));
     expect(spent(org) - before).toBe(undeleteCost([450, 30]).apiRequests);
-    // Its clock, its user and four undeletes: what a count of REST requests misses.
-    expect(org.soapCalls - soapBefore).toBe(2 + 4);
+    // Four undeletes: what a count of REST requests misses.
+    expect(org.soapCalls - soapBefore).toBe(4);
+  });
+
+  it('counts a rewind’s bring back: per batch of 200 the undelete’s three, the children the bin holds of it read five relationships a call, and the stamps read back; and the describe of an object the read it acts on did not describe', () => {
+    expect(
+      bringBackCost([
+        { records: 450, cascades: 6, described: true },
+        { records: 30, cascades: 0, described: false },
+        { records: 0, cascades: 3, described: false },
+      ]).apiRequests,
+    ).toBe(3 * (3 + 2 + 1) + (1 + 3 + 0 + 1));
   });
 
   it('counts a give-back as it sends it, a chunk of 2,000 a call: its clock and its user, the reads by id, the updates and the stamps read back', async () => {
@@ -366,8 +377,12 @@ describe('the bricks, as they send their requests to the org', () => {
           { childSObject: 'Task', field: 'WhatId' },
         ],
       }),
-    ).toEqual({ dependents: 3, cascades: 2 });
-    expect(relationshipsOf({ childRelationships: null })).toEqual({ dependents: 0, cascades: 0 });
+    ).toEqual({ dependents: 3, cascades: 2, cascadeChildren: ['Contact', 'Note'] });
+    expect(relationshipsOf({ childRelationships: null })).toEqual({
+      dependents: 0,
+      cascades: 0,
+      cascadeChildren: [],
+    });
   });
 
   it('tells, given the checkpoint’s bounds, the relationships deleted along to objects outside it, and of them those a person works in', () => {
@@ -385,7 +400,12 @@ describe('the bricks, as they send their requests to the org', () => {
         inCheckpoint: new Set(['account', 'contact']),
         worked: new Set(['Account', 'Contact', 'Opportunity', 'Case']),
       }),
-    ).toEqual({ dependents: 4, cascades: 3, outside: { all: 2, worked: 1 } });
+    ).toEqual({
+      dependents: 4,
+      cascades: 3,
+      cascadeChildren: ['Contact', 'Opportunity', 'AccountFeed'],
+      outside: { all: 2, worked: 1 },
+    });
     // The org's objects not described: none known to be worked in.
     expect(relationshipsOf(describe, { inCheckpoint: new Set(['account']) }).outside).toEqual({
       all: 3,
@@ -408,11 +428,6 @@ const FOUND = [
     toBringBack: { inBin: 0, withParent: 5, deletedWhileTaken: 0 },
   }),
 ];
-const RELATIONSHIPS = new Map<string, ObjectRelationships>([
-  ['Account', { dependents: 2, cascades: 1 }],
-  ['Contact', { dependents: 0, cascades: 0 }],
-]);
-
 describe('diffEstimate', () => {
   it('counts a read of what changed since: its clock, the drift describes, the change reads, the values of what changed and of what comes back with a parent, and the describes of what it brings back', () => {
     const cost = diffEstimate({ objects: CHECKPOINT, diff: { objects: FOUND, unread: [] } });
@@ -525,43 +540,86 @@ describe('diffEstimate', () => {
 });
 
 describe('rewindEstimate', () => {
+  /** Accounts take their contacts along; contacts take nothing. */
+  const DESCRIBED = new Map<string, ObjectRelationships>([
+    ['Account', { dependents: 2, cascades: 1, cascadeChildren: ['Contact'] }],
+    ['Contact', { dependents: 0, cascades: 0, cascadeChildren: [] }],
+  ]);
   const input = {
     objects: CHECKPOINT,
     diff: { objects: FOUND, unread: [] },
     automationRequests: 7,
-    relationships: RELATIONSHIPS,
+    relationships: DESCRIBED,
   };
 
-  it('counts the guard and the day’s limits, the fresh diff, the automation, pass 1, pass 2 and the verify, each brick as it sends', () => {
+  it('counts the guard and the day’s limits, the fresh diff, the automation, the user it writes as, pass 1 and the read after it, each brick as it sends', () => {
     const estimate = rewindEstimate(input);
 
     // As the first diffEstimate case counts it.
     const diff = 8;
     const passOne =
-      // Bring back the 3 accounts: clock, user, 4 for their batch.
-      2 +
-      4 +
-      // The children that came back with them, through Account's 1 cascade.
+      // Bring back the 3 accounts: the undelete's 3 for their batch, the
+      // children it holds through Account's 1 cascade, the stamps read back.
+      3 +
       1 +
-      // Give back 13 accounts and the 5 contacts that came back with them:
-      // a chunk each, of clock, user, a read, an update and a stamps read.
+      1 +
+      // Give back 13 accounts: a chunk, of clock, user, a read, an update and
+      // a stamps read; the contacts the rewind deletes may hang from some,
+      // which are then kept first, read by id, and given back after the
+      // deletes in calls of their own: a read, and the clock, user, a read,
+      // an update and a stamps read more.
       5 +
+      (1 + 5) +
+      // Give back the 5 contacts that came back with their account: a chunk.
       5 +
       // Delete 4 accounts (2 relationships) and 450 contacts.
       (3 + (1 + 1 + 2 + 1) + (1 + 3 + 0 + 3));
-    expect(estimate.apiRequests).toBe(4 + diff + 7 + passOne + diff + diff);
+    // The org read again once pass 1 went through: the clock, the describes,
+    // the pre-checks, the four reads of what moved and was deleted, the
+    // counts, and the values of the 15 accounts and 5 contacts given back or
+    // brought back — what was deleted is in the bin, and nothing is left to do.
+    const after = 1 + 1 + 1 + 1 + 1 + (1 + 1);
+    expect(estimate.apiRequests).toBe(4 + diff + 7 + 1 + passOne + after);
     // The preview's three numbers: 454 to delete, 10 to give back, 8 to bring back.
     expect(estimate.records).toBe(454 + 10 + 8);
     // The journal: the values of the 18 records given back, the ids of the 462 deleted or brought back.
     expect(estimate.bytes).toBe(18 * 500 + 462 * 40);
-    // Each of the three reads of the org describes what it brings back, about 2.5 s a call.
-    expect(estimate.seconds).toBe(44);
   });
 
-  it('reads no fresh diff when the command line rewinds from the preview it just read', () => {
+  it('reads no fresh diff when the command line rewinds from the preview it just read, and describes what it brings records back to, and what comes back with them, as it brings them back', () => {
+    // The accounts it brings back, and the contacts that come back with them.
     expect(rewindEstimate({ ...input, reusesPreview: true }).apiRequests).toBe(
-      rewindEstimate(input).apiRequests - diffEstimate(input).apiRequests,
+      rewindEstimate(input).apiRequests - diffEstimate(input).apiRequests + 1 + 1,
     );
+  });
+
+  it('reads, as it names each batch it brings back, what the bin holds under the records that come back with it, through their own cascades', () => {
+    const under = (withParent: number): number =>
+      rewindWritesCost({
+        objects: [held('Account', 10), held('Opportunity', 900)],
+        diff: {
+          objects: [
+            found('Account', { toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 } }),
+            found('Opportunity', {
+              toBringBack: { inBin: 0, withParent, deletedWhileTaken: 0 },
+            }),
+          ],
+          unread: [],
+        },
+        automationRequests: 0,
+        relationships: new Map([
+          ['Account', { dependents: 1, cascades: 1, cascadeChildren: ['Opportunity'] }],
+          [
+            'Opportunity',
+            { dependents: 2, cascades: 2, cascadeChildren: ['OpportunityLineItem', 'Line__c'] },
+          ],
+        ]),
+      }).apiRequests;
+    // 450 opportunities back with their account: under them, 2 cascades read
+    // in one call, for the account's one batch and for each 200 of them;
+    // given back, a chunk of clock, user, 3 reads, 3 updates, 3 stamps reads;
+    // and their values read again by id once the pass went through.
+    expect(under(450) - under(0)).toBe((1 + 3) * 1 + (2 + 3 + 3 + 3) + 3);
   });
 
   it('counts the records that come back with their parent as read back and given back, never sent to the recycle bin alone', () => {
@@ -583,16 +641,15 @@ describe('rewindEstimate', () => {
         unread: [],
       },
     });
-    // No undelete of their own: the call's clock, user and the 4 of their
-    // batch. But each of the three reads of the org — the fresh diff, pass 2
-    // and the verify — reads them by id, as their lookup names a parent
-    // brought back.
-    expect(alone.apiRequests - withParent.apiRequests).toBe(2 + 4 - 3);
+    // No undelete of their own: the 3 of their batch and the stamps read
+    // back. But the fresh diff reads them by id, as their lookup names a
+    // parent brought back; the read after pass 1 reads either by id.
+    expect(alone.apiRequests - withParent.apiRequests).toBe(3 + 1 - 1);
     expect(withParent.records).toBe(5);
   });
 
-  it('deletes in pass 2 what comes back with its parent, after a second diff', () => {
-    const later = rewindEstimate({
+  it('deletes in pass 2 what comes back with its parent, reading the org after each pass, and names who last changed what it then finds to delete', () => {
+    const comesBack = {
       ...input,
       diff: {
         objects: [
@@ -602,29 +659,160 @@ describe('rewindEstimate', () => {
         ],
         unread: [],
       },
-    });
-    const diff = diffEstimate({
-      objects: CHECKPOINT,
-      diff: {
-        objects: [
-          found('Contact', {
-            toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 3 },
-          }),
-        ],
-        unread: [],
-      },
-    }).apiRequests;
-    // The guard and the limits, the fresh diff, the automation, nothing in
-    // pass 1; pass 2's diff and removal of the 3; the verify.
-    expect(later.apiRequests).toBe(4 + diff + 7 + (diff + 3 + 1 + 1 + 0 + 1) + diff);
+    };
+    const later = rewindEstimate(comesBack);
+    const diff = diffEstimate(comesBack).apiRequests;
+    // After pass 1: the clock, the describes, the pre-checks, the reads of
+    // what moved, the counts, the contacts described as records to delete,
+    // and who last changed them; after pass 2, the verify finds them in the bin.
+    const afterOne = 1 + 1 + 1 + 1 + 1 + 1 + 1;
+    const verify = 1 + 1 + 1 + 1 + 1;
+    // The guard and the limits, the fresh diff, the automation, the user,
+    // nothing in pass 1; pass 2's removal of the 3.
+    expect(later.apiRequests).toBe(4 + diff + 7 + 1 + afterOne + (3 + 1 + 1 + 0 + 1) + verify);
   });
 
-  it('counts an object whose describe was not read at the most relationships a removal was seen to read for one', () => {
+  it('gives an order its status back alone, in calls of its own, before its other fields', () => {
+    const orders = (objectApiName: string): number =>
+      rewindEstimate({
+        objects: [held(objectApiName, 450, ['Status', 'Description'])],
+        diff: {
+          objects: [
+            found(objectApiName, { toGiveBack: { records: 450, fields: 2, clearedLookups: 0 } }),
+          ],
+          unread: [],
+        },
+        automationRequests: 0,
+      }).apiRequests;
+
+    // Per chunk of 450: the clock and the user, 3 reads, 3 updates, 3 stamps reads.
+    expect(orders('Order') - orders('Contract')).toBe(2 + 3 + 3 + 3);
+  });
+
+  it('counts the records of an object it gives back as waiting for the deletes of records that may hang from them, and as given back before those of records they may hang from too: the most it sends', () => {
+    // Records of B may hang from A's, read after B's children first; A's may
+    // hang from C's. None of their describes was read.
+    const objects: EstimatedObject[] = [
+      { ...held('B', 300), readOrder: 0, cascadeParents: ['A__c'] },
+      { ...held('A', 900), readOrder: 1, cascadeParents: ['C__c'] },
+      { ...held('C', 10), readOrder: 2, cascadeParents: [] },
+    ];
+    const relationships = new Map<string, ObjectRelationships>(
+      ['A', 'B', 'C'].map((name) => [name, { dependents: 0, cascades: 0 }]),
+    );
+    const toGiveBack = { records: 450, fields: 1, clearedLookups: 0 };
+    const created = (count: number): Partial<RewindDiffObject> => ({
+      toDelete: { createdSince: count, broughtBackSince: 0, comesBackWithParent: 0 },
+    });
+    const cost = (objectsFound: RewindDiffObject[]): number =>
+      rewindWritesCost({
+        objects,
+        diff: { objects: objectsFound, unread: [] },
+        automationRequests: 0,
+        relationships,
+      }).apiRequests;
+
+    const alone = cost([found('A', { toGiveBack })]);
+    const waiting = cost([found('B', created(5)), found('A', { toGiveBack })]);
+    const twice = cost([
+      found('B', created(5)),
+      found('A', { toGiveBack }),
+      found('C', created(1)),
+    ]);
+
+    // A call of its own over part of them: its clock and user, and a part-full
+    // read, update and stamps read.
+    const split = 2 + 1 + 1 + 1;
+    // Waiting for B's deletes, A's 450 are kept first, 3 reads, and given back
+    // apart; B's 5 are deleted: the removal's global describe, clock and user,
+    // B's describe, read and delete. Read again after, B moved in the same call.
+    expect(waiting - alone).toBe(3 + split + (3 + 1 + 1 + 1));
+    // Before C's deletes as well, A's 450 are given back once more apart: the
+    // clock, the user, 3 reads, 3 updates, 3 stamps reads. C's 1 is deleted,
+    // and read again after in a call more.
+    expect(twice - waiting).toBe(2 + 3 + 3 + 3 + split + (1 + 1 + 1) + 1);
+    // Known to hang from nothing, B's records hold none of A's in place.
+    expect(
+      rewindWritesCost({
+        objects: [{ ...objects[0], cascadeParents: [] }, objects[1], objects[2]],
+        diff: { objects: [found('B', created(5)), found('A', { toGiveBack })], unread: [] },
+        automationRequests: 0,
+        relationships,
+      }).apiRequests,
+    ).toBe(waiting - 3 - split);
+  });
+
+  it('counts the deletes of records Salesforce undeletes only with their parent alone: the rest go with their parent, never sent', () => {
+    const objects: EstimatedObject[] = [
+      {
+        ...held('OpportunityLineItem', 0),
+        undeletable: false,
+        readOrder: 0,
+        cascadeParents: ['OpportunityId'],
+      },
+      { ...held('Opportunity', 0), readOrder: 1, cascadeParents: [] },
+    ];
+    const cost = (undoCannot: number): number =>
+      rewindWritesCost({
+        objects,
+        diff: {
+          objects: [
+            found('OpportunityLineItem', {
+              toDelete: { createdSince: 450, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+            found('Opportunity', {
+              toDelete: { createdSince: 300, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+          unread: [],
+          undoCannot:
+            undoCannot > 0 ? [{ objectApiName: 'OpportunityLineItem', count: undoCannot }] : [],
+        },
+        automationRequests: 0,
+        relationships: new Map([
+          ['OpportunityLineItem', { dependents: 0, cascades: 0, cascadeChildren: [] }],
+          ['Opportunity', { dependents: 1, cascades: 1, cascadeChildren: ['OpportunityLineItem'] }],
+        ]),
+      }).apiRequests;
+
+    // Deleted on their own, the 450 products: their describe, 3 reads and 3 deletes.
+    expect(cost(450) - cost(0)).toBe(1 + 3 + 3);
+  });
+
+  it('asks again, for each page of 2,000 records a rewind hands its removal, whether anything points through each relationship', () => {
+    const cost = (records: number): number =>
+      removalCost([{ records, dependents: 2 }], 2_000).apiRequests -
+      removalCost([{ records, dependents: 0 }], 2_000).apiRequests;
+    // 2,500 records: a page of 2,000 and one of 500, each of more than a batch.
+    expect(cost(2_500)).toBe(2 * 2 + 2 * 13);
+    // A plan held in memory is one page.
+    expect(
+      removalCost([{ records: 2_500, dependents: 2 }]).apiRequests -
+        removalCost([{ records: 2_500, dependents: 0 }]).apiRequests,
+    ).toBe(2 + 2 * 13);
+  });
+
+  it('counts an object whose describe was not read at the most relationships a removal was seen to read for one, and as one whose records any other may hang from', () => {
     const described = rewindEstimate(input).apiRequests;
     const undescribed = rewindEstimate({ ...input, relationships: undefined }).apiRequests;
-    // Accounts: 23 dependents for 2 in one batch, 23 cascades for 1; contacts:
-    // 23 dependents for none, asked once and read for each of 3 batches.
-    expect(undescribed - described).toBe(21 + 22 + (23 + 23 * 3));
+    expect(undescribed - described).toBe(
+      // The accounts' 23 cascades read five a call for their batch, not 1;
+      // and the contacts' 23 read under the 5 that come back with them, for
+      // that batch and for their own, where they hold none.
+      4 +
+        2 * 5 +
+        // The accounts may hang from contacts the rewind deletes: given back
+        // before as well, apart, 5 and a split.
+        (5 + 5) +
+        // The contacts may wait for the accounts' deletes, and hang from them:
+        // kept first and given back apart, then before as well.
+        (1 + 5) +
+        (5 + 5) +
+        // Accounts: 23 dependents for 2 in one batch; contacts: 23 dependents
+        // for none, asked once for their page and read for each of 3 batches.
+        21 +
+        (23 + 23 * 3),
+    );
   });
 
   it('reads the org and writes nothing when nothing differs: the guard, the limits and the fresh diff', () => {
@@ -638,7 +826,7 @@ describe('rewindEstimate', () => {
     });
   });
 
-  it('lands near the figures planned for a Developer Edition org: a take of about 250 requests, a preview of about 100, a rewind of about 500, about 400 from the command line', () => {
+  it('lands under the figures planned for a Developer Edition org: a take of about 250 requests, a preview of about 100, a rewind of at most about 500, about 100 fewer from the command line', () => {
     // 300 objects, 40 holding 2,500 records; 10 moved since: 60 records to
     // give back, 12 to bring back, 140 to delete.
     const objects = Array.from({ length: 300 }, (_, n) =>
@@ -672,19 +860,34 @@ describe('rewindEstimate', () => {
       relationships,
       reusesPreview: true,
     });
+    // Known to hang from nothing, no object's records wait for another's deletes.
+    const placed = rewindEstimate({
+      objects: objects.map((object, readOrder) => ({ ...object, readOrder, cascadeParents: [] })),
+      diff,
+      automationRequests: 20,
+      relationships,
+    });
 
     expect(take.apiRequests).toBeGreaterThan(200);
     expect(take.apiRequests).toBeLessThan(300);
     expect(preview).toBeGreaterThan(80);
     expect(preview).toBeLessThan(120);
-    expect(rewind.apiRequests).toBeGreaterThan(400);
-    expect(rewind.apiRequests).toBeLessThan(600);
-    expect(fromCli.apiRequests).toBe(rewind.apiRequests - preview);
+    expect(rewind.apiRequests).toBeGreaterThan(300);
+    expect(rewind.apiRequests).toBeLessThan(550);
+    expect(placed.apiRequests).toBeLessThan(rewind.apiRequests);
+    // From the command line: no fresh diff, and the 3 objects it brings
+    // records back to described as it brings them back.
+    expect(fromCli.apiRequests).toBe(rewind.apiRequests - preview + 3);
     expect(rewind.records).toBe(60 + 12 + 140);
   });
 });
 
 describe('undoEstimate', () => {
+  const RELATIONSHIPS = new Map<string, ObjectRelationships>([
+    ['Account', { dependents: 2, cascades: 1 }],
+    ['Contact', { dependents: 0, cascades: 0 }],
+  ]);
+
   it('counts the guard and the limits, the automation, the removal of what the rewind brought back, the bring back of what it deleted, the give-back and one verify by id of what it gave back', () => {
     const estimate = undoEstimate({
       objects: CHECKPOINT,

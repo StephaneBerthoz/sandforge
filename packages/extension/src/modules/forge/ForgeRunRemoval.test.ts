@@ -674,6 +674,90 @@ describe('removeRunRecords', () => {
     expect(org.has('Task', id('00T', 1))).toBe(false);
   });
 
+  it('lets a person account of the run go with its own contact, however old, unless the contact changed since the run; a business contact older than the run keeps its account', async () => {
+    // Person accounts a rewind brought back from the recycle bin: the contact
+    // the org made with each is as old as its account.
+    const org = new FakeOrg();
+    org.relationships.set('Account', ACCOUNT_CHILDREN);
+    org.fields.set('Account', ['Id', 'Name', 'IsPersonAccount']);
+    org.add(
+      'Account',
+      runRow(id('001', 1), { IsPersonAccount: true }),
+      runRow(id('001', 2), { IsPersonAccount: true }),
+      runRow(id('001', 3), { IsPersonAccount: false }),
+    );
+    org.add(
+      'Contact',
+      {
+        Id: id('003', 1),
+        AccountId: id('001', 1),
+        IsPersonAccount: true,
+        CreatedDate: BEFORE_RUN,
+        LastModifiedDate: DURING_RUN,
+      },
+      {
+        Id: id('003', 2),
+        AccountId: id('001', 2),
+        IsPersonAccount: true,
+        CreatedDate: BEFORE_RUN,
+        LastModifiedDate: AFTER_RUN,
+      },
+      {
+        Id: id('003', 3),
+        AccountId: id('001', 3),
+        IsPersonAccount: false,
+        CreatedDate: BEFORE_RUN,
+        LastModifiedDate: BEFORE_RUN,
+      },
+    );
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'Account', ids: [id('001', 1), id('001', 2), id('001', 3)] }],
+      options(),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({
+      deleted: 1,
+      keptDependents: 2,
+      heldBy: ['Contact'],
+    });
+    expect(org.has('Account', id('001', 1))).toBe(false);
+    expect(org.has('Contact', id('003', 1))).toBe(false);
+    // Changed since the run, the person's contact keeps its account, as any record would.
+    expect(org.has('Account', id('001', 2))).toBe(true);
+    expect(org.has('Account', id('001', 3))).toBe(true);
+  });
+
+  it('asks no person flag of the contacts of an org without person accounts', async () => {
+    const org = new FakeOrg();
+    org.relationships.set('Account', ACCOUNT_CHILDREN);
+    // The org refuses a column it does not have: a contact has no person flag here.
+    org.columns.set('Contact', [
+      'Id',
+      'AccountId',
+      'CreatedDate',
+      'LastModifiedDate',
+      'CreatedById',
+    ]);
+    org.add('Account', runRow(id('001', 1)));
+    org.add('Contact', {
+      Id: id('003', 1),
+      AccountId: id('001', 1),
+      CreatedDate: BEFORE_RUN,
+      LastModifiedDate: BEFORE_RUN,
+    });
+
+    const outcome = await removeRunRecords(
+      org,
+      [{ objectApiName: 'Account', ids: [id('001', 1)] }],
+      options(),
+    );
+
+    expect(outcome.objects[0]).toMatchObject({ deleted: 0, keptDependents: 1, unchecked: [] });
+    expect(org.queries.filter((soql) => soql.includes('IsPersonAccount'))).toEqual([]);
+  });
+
   it('reads only the relationships the org deletes along, to objects a person works with', async () => {
     const { org, plan } = accountWithContacts();
     org.relationships.set('Account', [

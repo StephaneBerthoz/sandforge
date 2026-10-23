@@ -337,6 +337,26 @@ describe('the journal, read back', () => {
     ]);
   });
 
+  it('holds what was given back once the deletes it waited for were through, with the objects that held it, and names nothing for an object held by none', async () => {
+    const journal = await journalOpened();
+    await journal.heldInPlace('Opportunity', ['OpportunityLineItem'], [id('006', 1), id('006', 2)]);
+    await journal.heldInPlace('Opportunity', ['Line__c'], [id('006', 2).slice(0, 15)]);
+    await journal.heldInPlace('Account', [], [account(1)]);
+    await journal.close();
+
+    expect(linesOn(journal).filter((line) => line.kind === 'heldInPlace')).toHaveLength(2);
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.heldInPlace).toEqual([
+      {
+        objectApiName: 'Opportunity',
+        ids: [id('006', 1), id('006', 2)],
+        by: ['OpportunityLineItem', 'Line__c'],
+      },
+    ]);
+    // Naming them writes nothing to the org: the last write is not moved.
+    expect(read.lastWriteAt).toBeUndefined();
+  });
+
   it('dates the rewind’s last write by its write lines, never by a pass taken up later, which wrote nothing by being taken up', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.parse('2026-10-22T15:00:05.000Z'));
@@ -628,6 +648,33 @@ describe('undoPlans', () => {
 
     expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
     expect(plans.bringBack).toEqual([]);
+  });
+
+  it('names, of what it gives back, the records held in place by records the rewind deleted, and counts them apart for the estimate', () => {
+    const plans = undoPlans(
+      readOf(
+        {
+          deleted: [{ objectApiName: 'Contact', ids: [contact(1)] }],
+          givenBack: [{ objectApiName: 'Account', ids: [account(1), account(2), account(3)] }],
+          heldInPlace: [
+            // One the undo before it gave back already, and one never given back.
+            {
+              objectApiName: 'Account',
+              ids: [account(1), account(2), account(4)],
+              by: ['Contact'],
+            },
+          ],
+        },
+        { restoreLeft: [account(1), account(3)] },
+      ),
+      OBJECTS,
+    );
+
+    expect(plans.held).toEqual([{ objectApiName: 'Account', ids: [account(1)], by: ['Contact'] }]);
+    expect(rewoundObjects(plans)).toEqual([
+      { objectApiName: 'Contact', deleted: 1, broughtBack: 0, givenBack: 0 },
+      { objectApiName: 'Account', deleted: 0, broughtBack: 0, givenBack: 2, givenBackHeld: 1 },
+    ]);
   });
 
   it('takes up only what the undo before it left of each plan', () => {

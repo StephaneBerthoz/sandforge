@@ -17,11 +17,13 @@
  * It names, before each write: the ids of each batch it brings back from the
  * recycle bin, and the children that come back with a parent; the records of
  * each update of its give-back, once the values they hold are kept
- * (`storeOverwriteBackup`, which a Sync run keeps what it writes over with);
- * and the records it sets out to delete, then, once the removal answered,
- * those it left. After a crash, what it set out to delete stands, and the
- * undo finds out which of them the recycle bin holds. What its removals left
- * on records, and when they ran, is kept beside, for its next pass.
+ * (`storeOverwriteBackup`, which a Sync run keeps what it writes over with),
+ * and of them those it gives back once the records hanging from them that it
+ * deletes are gone; and the records it sets out to delete, then, once the
+ * removal answered, those it left. After a crash, what it set out to delete
+ * stands, and the undo finds out which of them the recycle bin holds. What
+ * its removals left on records, and when they ran, is kept beside, for its
+ * next pass.
  *
  * A rewind stopped part way is taken up again on its journal: a new journal
  * starts only once the checkpoint's last rewind has ended, or been undone, so
@@ -151,6 +153,20 @@ const stepIdsLineSchema = z.object({
   at: instantSchema,
 });
 
+/**
+ * Records of one object the rewind gives back once the records of `by`
+ * hanging from them that it deletes are gone: values those records held in
+ * place. Their undo gives those values back before the records of `by` come
+ * back.
+ */
+const heldLineSchema = z.object({
+  kind: z.literal('heldInPlace'),
+  objectApiName: objectSchema,
+  by: z.array(objectSchema).min(1).max(100),
+  ids: idsSchema,
+  at: instantSchema,
+});
+
 /** A removal answered: what it left of the step is named before this line. */
 const deletedLineSchema = z.object({
   kind: z.literal('deleted'),
@@ -183,6 +199,7 @@ const lineSchema = z.discriminatedUnion('kind', [
   headLineSchema,
   resumedLineSchema,
   idsLineSchema,
+  heldLineSchema,
   stepIdsLineSchema,
   deletedLineSchema,
   removalLineSchema,
@@ -242,6 +259,16 @@ export interface RewindJournalDid {
   deleted: ObjectIds[];
   /** Written over by its give-back, their values from before kept in {@link RewindJournalHead.backup}. */
   givenBack: ObjectIds[];
+  /**
+   * Of what it gave back, the records given back once the records of `by`
+   * hanging from them that it deleted were gone. Absent when there is none.
+   */
+  heldInPlace?: HeldIds[];
+}
+
+/** Records of one object that held values in place, and the objects whose records held them. */
+export interface HeldIds extends ObjectIds {
+  by: string[];
 }
 
 /** A journal, read back. */
@@ -273,6 +300,12 @@ export interface RewindUndoPlans {
   bringBack: ObjectIds[];
   /** What the rewind wrote over, given back the values it held before. */
   giveBack: Array<ObjectIds & { backup: string }>;
+  /**
+   * Of {@link giveBack}, the records whose values records of `by` the rewind
+   * deleted held in place: given back before those records come back.
+   * Absent when there is none.
+   */
+  held?: HeldIds[];
 }
 
 // ─── Writing ─────────────────────────────────────────────────────────────────
@@ -309,6 +342,14 @@ export interface RewindJournal {
    * removal keeps a record that records older than it depend on.
    */
   withParent(objectApiName: string, ids: readonly string[]): Promise<void>;
+  /**
+   * Records the rewind gives back once the records of `by` hanging from them
+   * that it deletes are gone, named before anything of the pass is written:
+   * their undo gives their values back before those records come back from
+   * the bin — seen live, a price book cannot change while an opportunity has
+   * products.
+   */
+  heldInPlace(objectApiName: string, by: readonly string[], ids: readonly string[]): Promise<void>;
   /** Name what a removal sets out to delete, before it is handed the plan. */
   deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void>;
   /** The removal of the last {@link deleting} answered: name what it left. */
@@ -568,6 +609,17 @@ class JournalFile implements RewindJournal {
     await this.appendIds('withParent', objectApiName, ids);
   }
 
+  async heldInPlace(
+    objectApiName: string,
+    by: readonly string[],
+    ids: readonly string[],
+  ): Promise<void> {
+    if (by.length === 0) return;
+    for (const chunk of chunksOf(ids)) {
+      await this.append({ kind: 'heldInPlace', objectApiName, by: [...by], ids: chunk });
+    }
+  }
+
   async deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void> {
     const step = ++this.step;
     this.openStep = step;
@@ -754,6 +806,9 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
   const passes = [{ startedAt: head.startedAt, userId: head.userId }];
   const broughtBack = new IdsByObject();
   const givenBack = new IdsByObject();
+  const held = new IdsByObject();
+  /** Per object held in place, the objects whose records held it, in the order named. */
+  const heldBy = new Map<string, Set<string>>();
   /** Per step: what it set out to delete, what it left, and whether its removal answered. */
   const steps = new Map<number, { deleting: IdsByObject; left: Set<string>; answered: boolean }>();
   const stepOf = (
@@ -786,6 +841,13 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
       case 'givingBack':
         givenBack.add(line.objectApiName, line.ids);
         break;
+      case 'heldInPlace': {
+        held.add(line.objectApiName, line.ids);
+        const by = heldBy.get(line.objectApiName) ?? new Set<string>();
+        for (const object of line.by) by.add(object);
+        heldBy.set(line.objectApiName, by);
+        break;
+      }
       case 'deleting':
         stepOf(line.step).deleting.add(line.objectApiName, line.ids);
         break;
@@ -818,10 +880,20 @@ function journalOf(lines: readonly Line[]): RewindJournalRead {
       deleted.add(objectApiName, ids);
     }
   }
+  const heldInPlace = held.list().map(({ objectApiName, ids }) => ({
+    objectApiName,
+    ids,
+    by: [...(heldBy.get(objectApiName) ?? [])],
+  }));
   return {
     head,
     passes,
-    did: { broughtBack: broughtBack.list(), deleted: deleted.list(), givenBack: givenBack.list() },
+    did: {
+      broughtBack: broughtBack.list(),
+      deleted: deleted.list(),
+      givenBack: givenBack.list(),
+      ...(heldInPlace.length > 0 ? { heldInPlace } : {}),
+    },
     ...(Number.isFinite(lastWrite) ? { lastWriteAt: new Date(lastWrite).toISOString() } : {}),
     ...(endedAt !== undefined ? { endedAt } : {}),
     rewind: foldState(rewindStates),
@@ -1044,7 +1116,10 @@ export async function reopenRewindJournal(
  * - `bringBack`: what it deleted, parents first — the undelete follows the
  *   order it is given, and a child the bin holds without its parent stays
  *   there;
- * - `giveBack`: what it wrote over, from the values kept before.
+ * - `giveBack`: what it wrote over, from the values kept before;
+ * - `held`: of those, the records it gave back once the records hanging from
+ *   them that it deleted were gone — values those records held in place, which
+ *   the undo gives back before they come back.
  *
  * A record it brought back and deleted again — one that came back with its
  * parent and that a second pass deleted — is in the recycle bin as it was
@@ -1090,7 +1165,12 @@ export function undoPlans(
     const kept = ids.filter((id) => restoreLeft(recordKey(id)));
     return kept.length > 0 ? [{ objectApiName, ids: kept, backup: read.head.backup }] : [];
   });
-  return { remove, bringBack, giveBack };
+  const givingBack = new Set(giveBack.flatMap(({ ids }) => ids.map(recordKey)));
+  const held = (read.did.heldInPlace ?? []).flatMap(({ objectApiName, ids, by }) => {
+    const kept = ids.filter((id) => givingBack.has(recordKey(id)));
+    return kept.length > 0 ? [{ objectApiName, ids: kept, by: [...by] }] : [];
+  });
+  return { remove, bringBack, giveBack, ...(held.length > 0 ? { held } : {}) };
 }
 
 /** What an undo's plans take back, per object: what its estimate is made from (`undoEstimate`). */
@@ -1107,5 +1187,9 @@ export function rewoundObjects(plans: RewindUndoPlans): RewoundObject[] {
   for (const { objectApiName, ids } of plans.bringBack) of(objectApiName).deleted += ids.length;
   for (const { objectApiName, ids } of plans.remove) of(objectApiName).broughtBack += ids.length;
   for (const { objectApiName, ids } of plans.giveBack) of(objectApiName).givenBack += ids.length;
+  for (const { objectApiName, ids } of plans.held ?? []) {
+    const object = of(objectApiName);
+    object.givenBackHeld = (object.givenBackHeld ?? 0) + ids.length;
+  }
   return [...byObject.values()];
 }

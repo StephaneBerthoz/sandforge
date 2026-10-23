@@ -11,6 +11,10 @@
  * deleted comes back, parents first — a record it wrote over may name one of
  * them — then what it wrote over gets its values back, a chunk of 2,000 a
  * call, as the rewind gave them; then the removal deletes, children first.
+ * What the rewind gave back once records hanging from it that it deleted were
+ * gone — values they held in place — gets its values back before those
+ * records come back (`heldInPlaceOrder`): the org takes a value a child needs
+ * before the child, and refuses one a child forbids while it is there.
  * Each brick holds the records to the rewind's span, from its first pass's
  * start to its last write, and leaves one changed after it as it is
  * (`includeChanged: false`): a colleague's change made since the rewind stays
@@ -238,6 +242,86 @@ async function giveBack(
   return merged;
 }
 
+/**
+ * The order an undo's sweep writes in, from its plans: what the rewind
+ * deleted, parents first, then what it wrote over — but the records whose
+ * values records it deleted held in place (`RewindUndoPlans.held`) are given
+ * back before those records come back from the bin, once every object
+ * brought back before the first of them is back.
+ *
+ * Seen live, the rewind gave an opportunity its price book and amount back
+ * once the product created since under it was gone: an opportunity's price
+ * book cannot change while it has products, and its amount is theirs to add
+ * up. Its undo brought the product back first, then could not give the
+ * opportunity back the values the product needs.
+ */
+export function heldInPlaceOrder(plans: RewindUndoPlans): {
+  /** Brought back first: the objects before the first whose records held values in place. */
+  bringFirst: RewindUndoPlans['bringBack'];
+  /** Given back next: the records held in place. */
+  giveHeld: RewindUndoPlans['giveBack'];
+  /** Brought back then: the records that held them, and the objects after them. */
+  bringAfter: RewindUndoPlans['bringBack'];
+  /** Given back last: the rest of what the rewind wrote over. */
+  giveRest: RewindUndoPlans['giveBack'];
+} {
+  const held = new Set((plans.held ?? []).flatMap(({ ids }) => ids.map(recordKey)));
+  const holders = new Set((plans.held ?? []).flatMap(({ by }) => by));
+  const first = plans.bringBack.findIndex(({ objectApiName }) => holders.has(objectApiName));
+  const split = first < 0 || held.size === 0 ? plans.bringBack.length : first;
+  const giveWhere = (keep: (key: string) => boolean): RewindUndoPlans['giveBack'] =>
+    plans.giveBack.flatMap((object) => {
+      const ids = object.ids.filter((id) => keep(recordKey(id)));
+      return ids.length > 0 ? [{ ...object, ids }] : [];
+    });
+  return {
+    bringFirst: plans.bringBack.slice(0, split),
+    giveHeld: giveWhere((key) => held.has(key)),
+    bringAfter: plans.bringBack.slice(split),
+    giveRest: giveWhere((key) => !held.has(key)),
+  };
+}
+
+/** What two bring-backs of an undo did, as one: their objects are apart. */
+function mergedUndelete(
+  into: SyncUndeleteOutcome | undefined,
+  from: SyncUndeleteOutcome,
+): SyncUndeleteOutcome {
+  if (!into) return from;
+  return {
+    objects: [...into.objects, ...from.objects],
+    left: [...into.left, ...from.left],
+    wrote: into.wrote || from.wrote,
+    cancelled: into.cancelled || from.cancelled,
+    stamps: { ...into.stamps, ...from.stamps },
+  };
+}
+
+/** What two give-backs of an undo did, as one: an object given back in both counted once. */
+function mergedRestore(
+  into: SyncRestoreOutcome | undefined,
+  from: SyncRestoreOutcome,
+): SyncRestoreOutcome {
+  if (!into) return from;
+  const objects = into.objects.map((object) => ({ ...object, reasons: [...object.reasons] }));
+  for (const object of from.objects) {
+    const same = objects.find((held) => held.objectApiName === object.objectApiName);
+    if (!same) {
+      objects.push(object);
+      continue;
+    }
+    same.planned += object.planned;
+    addTally(same, object);
+  }
+  return {
+    objects,
+    left: [...into.left, ...from.left],
+    wrote: into.wrote || from.wrote,
+    cancelled: into.cancelled || from.cancelled,
+    stamps: { ...into.stamps, ...from.stamps },
+  };
+}
+
 /** The values from before of `ids`, by key: each field once, as first kept. */
 async function valuesBefore(
   values: BackupReader,
@@ -371,26 +455,44 @@ async function undoFrom(
   const stamps = Object.keys(stampsBefore).length > 0 ? stampsBefore : undefined;
   const spansBefore = [...(read.rewind.removalSpans ?? []), ...(read.undo.removalSpans ?? [])];
 
+  const order = heldInPlaceOrder(plans);
   let undeleted: SyncUndeleteOutcome | undefined;
   let restored: SyncRestoreOutcome | undefined;
-  const sweep = async (): Promise<boolean> => {
-    // What it deleted first: a record it wrote over may name one of them.
-    if (plans.bringBack.length > 0) {
-      undeleted = await undeleteRunDeletions({
+  const bringBack = async (plan: RewindUndoPlans['bringBack']): Promise<boolean> => {
+    if (plan.length === 0) return true;
+    undeleted = mergedUndelete(
+      undeleted,
+      await undeleteRunDeletions({
         org,
-        plan: plans.bringBack,
+        plan,
         undelete: input.undelete,
         ...(signal ? { signal } : {}),
-      });
-      if (undeleted.cancelled || signal?.aborted) return undeleted.wrote;
-    }
-    if (plans.giveBack.length > 0) {
-      restored = await giveBack(org, plans.giveBack, journal.values, {
+      }),
+    );
+    return !undeleted.cancelled && signal?.aborted !== true;
+  };
+  const giveBackOf = async (plan: RewindUndoPlans['giveBack']): Promise<boolean> => {
+    if (plan.length === 0) return true;
+    restored = mergedRestore(
+      restored,
+      await giveBack(org, plan, journal.values, {
         ...(read.lastWriteAt !== undefined ? { lastWriteAt: read.lastWriteAt } : {}),
         ...(stamps ? { stamps } : {}),
         ...(signal ? { signal } : {}),
-      });
-    }
+      }),
+    );
+    return !restored.cancelled && signal?.aborted !== true;
+  };
+  const sweep = async (): Promise<boolean> => {
+    // What it deleted first, parents first: a record it wrote over may name
+    // one of them. But values the records it deleted held in place go back
+    // before those records come back: the org refuses them while they are
+    // there, or refuses them under values they never had.
+    const through =
+      (await bringBack(order.bringFirst)) &&
+      (await giveBackOf(order.giveHeld)) &&
+      (await bringBack(order.bringAfter));
+    if (through) await giveBackOf(order.giveRest);
     return (undeleted?.wrote ?? false) || (restored?.wrote ?? false);
   };
 

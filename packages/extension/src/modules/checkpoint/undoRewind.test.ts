@@ -32,7 +32,7 @@ import {
   undoPlans,
 } from './rewindJournal.js';
 import { relationshipsOf, undoEstimate, type EstimatedObject } from './rewindEstimate.js';
-import { undoRewind, type UndoRewindOutcome } from './undoRewind.js';
+import { heldInPlaceOrder, undoRewind, type UndoRewindOutcome } from './undoRewind.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -655,6 +655,74 @@ describe('undoRewind, on the memory org', () => {
     );
     // The clock, once a chunk: no removal read the clock and the user.
     expect(org.soapCalls - soapBefore).toBe(2);
+  });
+
+  it('gives back the values the records it deleted held in place before those records come back, and sends exactly what its estimate counts', async () => {
+    vi.setSystemTime(LONG_AGO);
+    const org = new MemoryRestoreOrg(CHILDREN, { now: () => Date.now() });
+    // The org refuses an account's name while a contact names the account.
+    org.heldByChildren.push({
+      objectApiName: 'Account',
+      fields: ['Name'],
+      childSObject: 'Contact',
+      field: 'AccountId',
+      statusCode: 'FIELD_INTEGRITY_EXCEPTION',
+      message: 'The name is held by its contacts',
+    });
+    org.add('Account', { Id: A1, Name: 'At the checkpoint' });
+    org.add('Account', { Id: A2, Name: 'A2 at the checkpoint' });
+    vi.setSystemTime(SINCE);
+    org.edit('Account', A1, { Name: 'Before the rewind' }, COLLEAGUE);
+    org.add('Contact', { Id: N1C, LastName: 'Created since', AccountId: A1 });
+    org.edit('Account', A2, { Name: 'A2 before the rewind' }, COLLEAGUE);
+    const before = stateOf(org);
+    const folder = await checkpointFolder();
+    // The rewind: the contact deleted, then the account given back its name.
+    vi.setSystemTime(TR);
+    const journal = await openRewindJournal({
+      folder,
+      lock,
+      startedAt: new Date().toISOString(),
+      userId: MEMORY_ORG_USER,
+    });
+    await journal.heldInPlace('Account', ['Contact'], [A1]);
+    await journal.keep('Account', [
+      { Id: A1, Name: 'Before the rewind' },
+      { Id: A2, Name: 'A2 before the rewind' },
+    ]);
+    org.edit('Account', A2, { Name: 'A2 at the checkpoint' });
+    await journal.deleting([{ objectApiName: 'Contact', ids: [N1C] }]);
+    org.trash('Contact', N1C);
+    await journal.deleted({ left: async function* () {} });
+    org.edit('Account', A1, { Name: 'At the checkpoint' });
+    await journal.end();
+    await journal.close();
+    const plans = undoPlans(await readRewindJournal(folder, journal.rewindId), READ_ORDER);
+    expect(heldInPlaceOrder(plans)).toEqual({
+      bringFirst: [],
+      giveHeld: [{ objectApiName: 'Account', ids: [A1], backup: journal.backup }],
+      bringAfter: [{ objectApiName: 'Contact', ids: [N1C] }],
+      giveRest: [{ objectApiName: 'Account', ids: [A2], backup: journal.backup }],
+    });
+    const estimate = undoEstimate({
+      objects: OBJECTS,
+      rewound: rewoundObjects(plans),
+      automationRequests: 0,
+    });
+    const actFixed = undoEstimate({ objects: OBJECTS, rewound: [], automationRequests: 0 });
+    const sentBefore = org.requests + org.soapCalls;
+
+    vi.setSystemTime(TR + 10 * 60_000);
+    const outcome = await undo(folder, journal.rewindId, org);
+
+    expect(outcome.status).toBe('success');
+    expect(stateOf(org)).toEqual(before);
+    expect(outcome.restored).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', planned: 2, restored: 2, refused: 0 }),
+    ]);
+    expect(org.requests + org.soapCalls - sentBefore).toBe(
+      estimate.apiRequests - actFixed.apiRequests,
+    );
   });
 
   it('gives back, of a record written over by two passes, the values it held before the first', async () => {

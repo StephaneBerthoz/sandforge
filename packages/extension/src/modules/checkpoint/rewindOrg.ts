@@ -27,17 +27,21 @@
  * seen live, an opportunity's price book cannot change while it has products,
  * and its amount is theirs to add up — is given back once the pass's deletes
  * are through, and its refusal, when the org still refuses, says it waited for
- * them (`heldInPlaceReason`).
+ * them (`heldInPlaceReason`). Those records are named so in the journal before
+ * the pass writes: their undo gives their values back before the records
+ * that held them come back.
  *
  * - Brought back: a page of 2,000 ids at a time, the undelete's own batches
  *   of 200. Before each batch goes, the children the recycle bin holds of
  *   each of its records, through every relationship its object deletes
- *   along, are named in the journal as coming back with it: named after the
- *   undelete, a stop between the two would lose them, and its undo would keep
- *   the parent they hang from. After it, what the undelete left on its
- *   records is read, whoever the org names their last modifier: the dates an
- *   undelete moves are the rewind's own doing, and the children that came
- *   back with a record were dated in the same second.
+ *   along, and their children, as deep as the bin holds them, are named in
+ *   the journal as coming back with it: named after the undelete, a stop
+ *   between the two would lose them, and its undo would keep the parent they
+ *   hang from. A person account's own contact is not named: it goes back to
+ *   the bin with its account, never on its own. After the undelete, what it
+ *   left on its records is read, whoever the org names their last modifier:
+ *   the dates an undelete moves are the rewind's own doing, and the records
+ *   that came back with a record were dated in the same second.
  * - Given back: a chunk of 2,000 records a call, each chunk's values read
  *   from the snapshot by their offsets, the org's values read just before its
  *   writes. Only the fields the checkpoint compares and the org still has are
@@ -61,7 +65,8 @@
  * **The verify** names each record that still differs, by object and reason:
  * gone for good; changed during the rewind by another user (the rewind is
  * then unstable); changed since the preview; kept by your automation — last
- * changed after Tr by the rewind's own users —; kept as the rewind had to;
+ * changed after Tr by the rewind's own users —; kept as the rewind had to,
+ * among them a record to delete that records it does not delete hang from;
  * refused, in the org's words. A record deleted while the checkpoint was
  * taken and brought back by the rewind reads, live and not in the snapshot,
  * as unexplained: it is the rewind's own, and never named.
@@ -73,7 +78,8 @@
  * is sent again, and its undo reaches the org as it was before the first
  * pass; one whose work the fresh read finds done is taken up only to end it.
  * Once through, the journal ends, and the checkpoint's last rewind says when,
- * and until when Undo can bring back what it deleted. A rewind that finds
+ * and until when Undo can bring back what it deleted; what Undo couldn't
+ * bring back is counted from the journal, every pass of it. A rewind that finds
  * nothing to write keeps no journal, and sends the org no more than the
  * guard, the day's limits and its one read.
  */
@@ -148,7 +154,7 @@ import {
   budgetRefusal,
   readBudget,
   relationshipsOf,
-  rewindEstimate,
+  rewindWritesCost,
   type ObjectRelationships,
 } from './rewindEstimate.js';
 import { openRewindJournal, type RewindJournal } from './rewindJournal.js';
@@ -217,11 +223,38 @@ const KEPT_WORDS: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
     "Kept: Undo couldn't bring it back once deleted on its own, and that was not accepted.",
 };
 
+/**
+ * Why a rewind kept a record it set out to delete: records it does not delete
+ * hang from it — they existed at the checkpoint, were made while it was
+ * taken, or someone changed them since the rewind began — and its delete
+ * would take them along.
+ */
+function keptForWords(holders: readonly string[]): string {
+  return (
+    `Kept: records it does not delete hang from it (${holders.join(', ')}), and its deletion ` +
+    'would take them along.'
+  );
+}
+
 /** What the verify says of a record it cannot tell a reason for. */
 const STILL_DIFFERS = 'It still differs from the checkpoint once the org was read again.';
 
 /** What a refusal before the first write did not do. */
 const NOTHING_WRITTEN = 'No record was written.';
+
+const ACCOUNT = 'Account';
+const CONTACT = 'Contact';
+
+/**
+ * A relationship whose children come back with a parent: the child object,
+ * its field that names the parent, and, for an account's contacts in an org
+ * with person accounts, that a person account's own contact is told apart.
+ */
+interface Cascade {
+  child: string;
+  field: string;
+  persons?: true;
+}
 
 // ─── What a rewind works with ────────────────────────────────────────────────
 
@@ -921,6 +954,8 @@ class Rewind {
   private readonly kept: ReturnType<typeof keepingDescribes>;
   /** The org's objects, described once when a read needs them. */
   private global: Promise<unknown> | undefined;
+  /** Per object of records that came back with a parent, the cascades of their own children. */
+  private readonly cascadesOfObject = new Map<string, Promise<Cascade[]>>();
   /** Every date a write of the rewind left on a record, by id: its own doing, whoever the org names. */
   private readonly stamps: Record<string, string> = {};
   /** The same dates, by the record's key, in milliseconds. */
@@ -1083,12 +1118,14 @@ class Rewind {
       // Read through the host's own reader: counted as it says it sent them.
       this.count.add(automation.requests);
     }
-    const rest = rewindEstimate({
+    // What it sent so far, its reads and the automation's, and what its
+    // writes and the reads after them take.
+    const rest = rewindWritesCost({
       objects: checkpoint.objects,
       diff: fresh.diff,
       automationRequests: 0,
       relationships: await this.relationships(),
-      reusesPreview: true,
+      ...(reused ? { reusesPreview: true } : {}),
     });
     const overBudget = budgetRefusal(
       'rewind',
@@ -1238,12 +1275,7 @@ class Rewind {
         );
       }
     }
-    const undoCannot = new Map<string, number>();
-    for (const { plan } of made) {
-      for (const { objectApiName, count } of plan.undoCannot) {
-        undoCannot.set(objectApiName, (undoCannot.get(objectApiName) ?? 0) + count);
-      }
-    }
+    const undoCannot = await this.undoCannotOf(journal);
     return {
       rewound: true,
       result: this.resultOf({
@@ -1261,6 +1293,33 @@ class Rewind {
       }),
       notes: this.notes,
     };
+  }
+
+  /**
+   * Per object, the records the rewind deleted that Undo couldn't bring back,
+   * as its journal says, every pass and every rewind taken up on it counted:
+   * of an object Salesforce undeletes only with its parent, a record its
+   * removal was handed went on its own — one that goes with its parent is
+   * never handed over — but for one it had brought back first, which its undo
+   * leaves in the bin it came from. Counted from the passes of this call
+   * alone, a rewind taken up after a stop said Undo could bring back the
+   * products the stopped pass had deleted.
+   */
+  private async undoCannotOf(journal: RewindJournal): Promise<Map<string, number>> {
+    const alone = new Set(
+      this.request.checkpoint.objects
+        .filter((object) => !object.undeletable)
+        .map((object) => object.objectApiName),
+    );
+    const read = await journal.read();
+    const back = new Set(read.did.broughtBack.flatMap(({ ids }) => ids.map(keyOf)));
+    const cannot = new Map<string, number>();
+    for (const { objectApiName, ids } of read.did.deleted) {
+      if (!alone.has(objectApiName)) continue;
+      const count = ids.filter((id) => !back.has(keyOf(id))).length;
+      if (count > 0) cannot.set(objectApiName, (cannot.get(objectApiName) ?? 0) + count);
+    }
+    return cannot;
   }
 
   private resultOf(parts: {
@@ -1318,8 +1377,12 @@ class Rewind {
     const allowOf = this.allowLists(diff);
     const afterKeys = new RecordKeySet();
     for (const { objectApiName } of plan.giveBack.afterDeletes.objects) {
+      const by = plan.giveBack.heldBy.find((held) => held.objectApiName === objectApiName)?.by;
       for await (const ids of plan.giveBack.afterDeletes.pages(objectApiName)) {
         for (const id of ids) afterKeys.add(id);
+        // Named before anything is written: their undo gives these values
+        // back before the records that held them come back.
+        if (by) await journal.heldInPlace(objectApiName, by, ids);
       }
     }
     // What the records given back after the deletions hold, kept before
@@ -1499,20 +1562,32 @@ class Rewind {
     }
   }
 
-  /** The children of an object's records that come back with them: every relationship it deletes along. */
-  private async cascadesOf(
-    objectApiName: string,
-  ): Promise<Array<{ child: string; field: string }>> {
+  /**
+   * The children of an object's records that come back with them: every
+   * relationship it deletes along. An account's contacts, in an org with
+   * person accounts — its describe lists the flag — are read with it.
+   */
+  private async cascadesOf(objectApiName: string): Promise<Cascade[]> {
     let body = this.kept.bodies.get(objectApiName);
     if (body === undefined) {
+      // Kept by the reader: described once, however often its records come back.
       const answer = await this.kept.reader.describe(objectApiName);
       body = 'body' in answer ? answer.body : undefined;
     }
     const parsed = checkpointDescribeSchema.safeParse(body);
     if (!parsed.success) throw new Error(`The org gave no describe of ${objectApiName}.`);
+    const persons =
+      objectApiName === ACCOUNT &&
+      parsed.data.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG);
     return (parsed.data.childRelationships ?? [])
       .filter((relation) => relation.cascadeDelete === true)
-      .map((relation) => ({ child: relation.childSObject, field: relation.field }));
+      .map((relation) => ({
+        child: relation.childSObject,
+        field: relation.field,
+        ...(persons && relation.childSObject === CONTACT && relation.field === 'AccountId'
+          ? { persons: true as const }
+          : {}),
+      }));
   }
 
   /**
@@ -1534,7 +1609,7 @@ class Rewind {
         tally.cancelled = true;
         continue;
       }
-      let cascades: Array<{ child: string; field: string }>;
+      let cascades: Cascade[];
       try {
         cascades = await this.cascadesOf(objectApiName);
       } catch (err: unknown) {
@@ -1586,49 +1661,101 @@ class Rewind {
   }
 
   /**
-   * Name in the journal the children the recycle bin holds of `parents`,
+   * Name in the journal the records the recycle bin holds under `parents`,
    * through each of `cascades`, before they come back with them: the
    * children deleted with them, and those deleted on their own before them,
-   * which the org may bring back too. By parent, the children named.
+   * which the org may bring back too; and under those, through their own
+   * object's cascades, their children, as deep as the bin holds them. The org
+   * brings back with a record everything its delete took along: an account
+   * comes back with its opportunity and the opportunity's lines, and an undo
+   * that knew of the opportunity alone kept it for its lines, and the account
+   * with it. By parent, every record named under it.
+   *
+   * A person account's own contact is not named: the org deletes it with its
+   * account alone, never on its own, and an undo that sent it back to the bin
+   * on its own was refused, and kept its account for it. It goes back to the
+   * bin with its account, as the removal reads it.
    */
   private async nameChildren(
     journal: RewindJournal,
     reader: CompositeReader,
-    cascades: ReadonlyArray<{ child: string; field: string }>,
+    cascades: readonly Cascade[],
     objectApiName: string,
     parents: readonly string[],
   ): Promise<Map<string, string[]>> {
     const byParent = new Map<string, string[]>();
-    if (cascades.length === 0 || parents.length === 0) return byParent;
-    const [list] = idLists(parents, RECORDS_PER_CALL);
-    const reads = cascades.map(({ child, field }) => ({
-      objectApiName: child,
-      soql:
-        `SELECT Id, ${assertSoqlIdentifier(field)} FROM ${assertSoqlIdentifier(child)} ` +
-        `WHERE ${field} IN (${list}) AND IsDeleted = true`,
-      scanAll: true,
-    }));
+    const seen = new Set(parents.map(keyOf));
+    /** Per record named, the record of `parents` it hangs from. */
+    const rootOf = new Map(parents.map((id) => [keyOf(id), keyOf(id)]));
     const found = new Map<string, string[]>();
-    const outcomes = await readStreams(reader, reads, (index, rows) => {
-      const { child, field } = cascades[index];
-      for (const row of rows) {
-        const parent = row[field];
-        if (typeof row.Id !== 'string' || typeof parent !== 'string') continue;
-        found.set(child, [...(found.get(child) ?? []), row.Id]);
-        const key = keyOf(parent);
-        byParent.set(key, [...(byParent.get(key) ?? []), row.Id]);
+    let level: Array<{ objectApiName: string; cascades: readonly Cascade[]; ids: string[] }> = [
+      { objectApiName, cascades, ids: [...parents] },
+    ];
+    while (level.length > 0) {
+      /** The records found at this level, per object: the parents of the next. */
+      const next = new Map<string, string[]>();
+      for (const { objectApiName: parentObject, cascades: relations, ids } of level) {
+        if (relations.length === 0) continue;
+        for (const list of idLists(ids, RECORDS_PER_CALL)) {
+          const reads = relations.map(({ child, field, persons }) => ({
+            objectApiName: child,
+            soql:
+              `SELECT Id, ${assertSoqlIdentifier(field)}${persons ? `, ${PERSON_ACCOUNT_FLAG}` : ''} ` +
+              `FROM ${assertSoqlIdentifier(child)} WHERE ${field} IN (${list}) AND IsDeleted = true`,
+            scanAll: true,
+          }));
+          const outcomes = await readStreams(reader, reads, (index, rows) => {
+            const { child, field, persons } = relations[index];
+            for (const row of rows) {
+              const parent = row[field];
+              if (typeof row.Id !== 'string' || typeof parent !== 'string') continue;
+              const key = keyOf(row.Id);
+              const root = rootOf.get(keyOf(parent));
+              if (root === undefined || seen.has(key)) continue;
+              seen.add(key);
+              rootOf.set(key, root);
+              byParent.set(root, [...(byParent.get(root) ?? []), row.Id]);
+              if (persons && row[PERSON_ACCOUNT_FLAG] === true) continue;
+              found.set(child, [...(found.get(child) ?? []), row.Id]);
+              next.set(child, [...(next.get(child) ?? []), row.Id]);
+            }
+          });
+          outcomes.forEach((outcome, index) => {
+            if (outcome.read) return;
+            this.notes.push(
+              `The ${relations[index].child} records that come back with ${parentObject} could ` +
+                `not be read (${outcome.reason}): Undo may not send those ${objectApiName} ` +
+                'records back to the recycle bin.',
+            );
+          });
+        }
       }
-    });
-    outcomes.forEach((outcome, index) => {
-      if (outcome.read) return;
-      this.notes.push(
-        `The ${cascades[index].child} records that come back with ${objectApiName} could not be ` +
-          `read (${outcome.reason}): Undo may not send those ${objectApiName} records back to the ` +
-          'recycle bin.',
-      );
-    });
+      level = [];
+      for (const [child, ids] of next) {
+        level.push({ objectApiName: child, cascades: await this.cascadesUnder(child), ids });
+      }
+    }
     for (const [child, ids] of found) await journal.withParent(child, ids);
     return byParent;
+  }
+
+  /**
+   * The cascades of an object whose records came back with a parent, read
+   * once: none, said, when the org gives no describe of it.
+   */
+  private cascadesUnder(objectApiName: string): Promise<Cascade[]> {
+    let cascades = this.cascadesOfObject.get(objectApiName);
+    if (!cascades) {
+      cascades = this.cascadesOf(objectApiName).catch((err: unknown) => {
+        this.notes.push(
+          `The records that come back with ${objectApiName} records could not be told ` +
+            `(${extractErrorMessage(err)}): Undo may not send them back to the recycle bin.`,
+        );
+        return [];
+      });
+      this.cascadesOfObject.set(objectApiName, cascades);
+    }
+    return cascades;
   }
 
   /**
@@ -1839,6 +1966,11 @@ class Rewind {
           continue;
         }
         const brick = BRICK_OF[cls];
+        const heldBy = brick === 'removal' ? this.keptForDependents(tallies, name, id) : undefined;
+        if (heldBy !== undefined) {
+          add(name, 'kept', id, { message: keptForWords(heldBy) });
+          continue;
+        }
         add(name, 'refused', id, {
           message: brick ? this.refusalOf(tallies, brick, name, id) : STILL_DIFFERS,
         });
@@ -1906,6 +2038,29 @@ class Rewind {
         return KEPT_WORDS[entries[0].reason];
       return undefined;
     };
+  }
+
+  /**
+   * The objects whose records, staying, held a record the last pass to leave
+   * it set out to delete — records that existed at the checkpoint, were made
+   * while it was taken, or were changed since the rewind began — when that
+   * pass's removal kept every record of the object it left for them, and the
+   * org refused none: the rewind's own choice, never the org's refusal.
+   * Undefined for any other record.
+   */
+  private keptForDependents(
+    tallies: readonly PassTally[],
+    objectApiName: string,
+    id: string,
+  ): string[] | undefined {
+    for (const tally of tallies) {
+      if (tally.left.removal.get(objectApiName)?.has(id) !== true) continue;
+      const result = tally.deleted.get(objectApiName);
+      return result && result.refused === 0 && result.keptDependents > 0 && result.heldBy.length > 0
+        ? result.heldBy
+        : undefined;
+    }
+    return undefined;
   }
 
   /** The words a brick refused a record in, from the last pass that left it; generic when none says. */
