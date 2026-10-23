@@ -75,6 +75,13 @@
  * records the bin let go of without a stamp — whatever the org does with a
  * hard delete — is counted for that alone, even when nothing in it moved.
  *
+ * A record gone for good, or that the bin keeps for good, is one a rewind
+ * makes again, with the snapshot's values and a new Id (`toRecreate`) —
+ * unless the snapshot holds no body of its object's files, which a record
+ * made again would be without: those stay gone for good. A record made again
+ * is held by its new Id from then on (`Recreated`), and its old Id, still in
+ * the bin or purged since, is neither deleted since nor gone.
+ *
  * Tasks and Events the org archives (closed tasks and past events older than
  * about a year) leave plain queries: each of their reads, the values' too,
  * goes through the recycle bin and keeps to the live records, so an activity
@@ -195,10 +202,14 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from '
  * - `unexplained`: live, not held, dated before the checkpoint: left, named;
  * - `inBin`, `withParent`, `deletedWhileTaken`: to bring back, on its own,
  *   with its parent, or with the values it had when deleted;
- * - `goneForGood`: deleted since and no longer in the bin, in it in an
+ * - `toRecreate`: deleted since and no longer in the bin, in it in an
  *   object Salesforce undeletes only with a parent that is not coming back,
- *   or in it where Salesforce keeps it for good (`stuckOf`): named, it cannot
- *   come back with its id;
+ *   or in it where Salesforce keeps it for good (`stuckOf`), held by the
+ *   snapshot: it cannot come back with its id, and is made again with a new
+ *   one, the snapshot's values its own;
+ * - `goneForGood`: the same, of an object whose files' bodies the snapshot
+ *   does not hold, or not held by the snapshot — deleted while the
+ *   checkpoint was taken — which nothing could make again: named;
  * - `convertedLead`: a lead converted since, which Salesforce cannot
  *   unconvert and refuses any update of: named, never given back;
  * - `activatedContract`: a contract activated since, which Salesforce will
@@ -225,6 +236,7 @@ export type RewindClass =
   | 'inBin'
   | 'withParent'
   | 'deletedWhileTaken'
+  | 'toRecreate'
   | 'goneForGood'
   | 'convertedLead'
   | 'activatedContract'
@@ -243,6 +255,7 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'inBin',
   'withParent',
   'deletedWhileTaken',
+  'toRecreate',
   'goneForGood',
   'convertedLead',
   'activatedContract',
@@ -346,6 +359,16 @@ function isEmpty(value: unknown): boolean {
 function heldField(fields: readonly string[], name: string): string | undefined {
   const wanted = name.toLowerCase();
   return fields.find((field) => field.toLowerCase() === wanted);
+}
+
+/**
+ * Whether a rewind can make a record of `object` again from the snapshot: not
+ * one of an object of files, whose body the snapshot leaves out
+ * (`ContentVersion.VersionData`, `Attachment.Body`, `Document.Body`) — made
+ * again, the record would hold no file.
+ */
+export function recreatable(object: Pick<CheckpointObject, 'leftOutFields'>): boolean {
+  return !object.leftOutFields.some((field) => field.reason === 'base64');
 }
 
 /** The ids of one class of one object, written to the preview's folder as they are told. */
@@ -706,6 +729,9 @@ async function toBringBackOf(
           parents: keysOf(cascadeParents),
           restricts: keysOf(restrictParents),
         });
+        // Made again under a new Id: its old one stays in the bin, never
+        // brought back over the record that stands for it.
+        if (index.retired(row.Id)) continue;
         if (!index.has(row.Id)) {
           if (await inBinAtCheckpoint(key)) continue;
           if (dateMs(row.CreatedDate) >= context.t0s) created.set(key, record());
@@ -921,6 +947,10 @@ async function diffObject(
     const holdsPersons =
       objectApiName === CONTACT && heldField(object.fields, PERSON_ACCOUNT_FLAG) !== undefined;
     const isPerson = (row: OrgRow): boolean => holdsPersons && isPersonContact(objectApiName, row);
+    // A record the snapshot holds that cannot come back with its id is made
+    // again, with a new one — but a file, whose body the snapshot does not
+    // hold, which a record made again would be without.
+    const lostAs: RewindClass = recreatable(object) ? 'toRecreate' : 'goneForGood';
     const sameSecondFrom = t0s - ORG_DATE_GRAIN_MS;
     const tally: Tally = { fields: 0, cleared: 0, liveNotHeld: 0, deletedHeld: 0 };
     const recordOf = (row: OrgRow): { id: string; key: string } => {
@@ -978,7 +1008,9 @@ async function diffObject(
     const lookups = context.lookups.get(objectApiName) ?? [];
     if (lookups.length > 0 && index.size > 0) {
       const file = snapshotFileOf(folder, checkpoint.snapshotId, objectApiName);
-      for await (const row of spooledRows(file)) {
+      for await (const held of spooledRows(file)) {
+        // As the org names the records now: one made again by its new Id.
+        const row = index.recreated.rowAsNow(held);
         if (isPerson(row)) continue;
         const key = keyOf(row.Id);
         if (key === undefined) continue;
@@ -1122,20 +1154,22 @@ async function diffObject(
     if (changes.deleted) {
       for await (const row of spooledRows(changes.deleted.file)) {
         const { id, key } = recordOf(row);
+        // Made again under a new Id, which stands for it now.
+        if (index.retired(id)) continue;
         // Brought back with its account, which alone is sent.
         const person = isPerson(row);
         if (index.has(id)) {
           tally.deletedHeld++;
           if (person) continue;
           // Salesforce keeps it in the bin for good.
-          if (stuck.has(key)) await spool('goneForGood').add({ Id: id });
+          if (stuck.has(key)) await spool(lostAs).add({ Id: id });
           else if (wentWithParent(row, key)) await spool('withParent').add({ Id: id });
           else if (wentWithCreatedParent(row, key)) {
             await spool('deletedWithCreatedParent').add({ Id: id });
           } else if (object.undeletable) await spool('inBin').add({ Id: id });
           // Salesforce brings it back with its parent only, and its parent
           // is not coming back.
-          else await spool('goneForGood').add({ Id: id });
+          else await spool(lostAs).add({ Id: id });
           continue;
         }
         if (person || (await inBinAtCheckpoint(key))) continue;
@@ -1187,7 +1221,7 @@ async function diffObject(
           }
         }
         for (const id of ids) {
-          if (!persons.has(id.slice(0, 15))) await spool('goneForGood').add({ Id: id });
+          if (!persons.has(id.slice(0, 15))) await spool(lostAs).add({ Id: id });
         }
         ids = [];
       };
@@ -1199,6 +1233,7 @@ async function diffObject(
     }
 
     for (const held of spools.values()) await held.flush();
+    const toRecreate = countOf('toRecreate');
     const goneForGood = countOf('goneForGood');
     const convertedSince = countOf('convertedLead');
     const activatedSince = countOf('activatedContract');
@@ -1220,6 +1255,7 @@ async function diffObject(
         withParent: countOf('withParent'),
         deletedWhileTaken: countOf('deletedWhileTaken'),
       },
+      ...(toRecreate > 0 ? { toRecreate } : {}),
       cannotUndo: [
         ...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),
         ...(convertedSince > 0
@@ -1501,6 +1537,7 @@ function differs(diff: RewindDiffObject): boolean {
       toBringBack.inBin +
       toBringBack.withParent +
       toBringBack.deletedWhileTaken +
+      (diff.toRecreate ?? 0) +
       diff.touched +
       diff.unexplained +
       diff.cannotUndo.reduce((sum, item) => sum + item.count, 0) >

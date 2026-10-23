@@ -309,6 +309,54 @@ describe('the journal, before each write', () => {
   });
 });
 
+describe('the journal of what a rewind makes again', () => {
+  it('names the records it makes again by the Ids the checkpoint holds them by before the insert, then by the Ids the org gave them beside those, and reads them back as made', async () => {
+    const journal = await journalOpened();
+    try {
+      await journal.recreating('Account', [account(1), account(2)]);
+      await journal.recreated('Account', [{ from: account(1), id: account(91) }]);
+
+      const lines = linesOn(journal).slice(1);
+      expect(
+        lines.map(({ kind, objectApiName, ids, from }) => ({ kind, objectApiName, ids, from })),
+      ).toEqual([
+        {
+          kind: 'recreating',
+          objectApiName: 'Account',
+          ids: [account(1), account(2)],
+          from: undefined,
+        },
+        { kind: 'recreated', objectApiName: 'Account', ids: [account(91)], from: [account(1)] },
+      ]);
+      const read = await journal.read();
+      expect(read.did.recreated).toEqual([{ objectApiName: 'Account', ids: [account(91)] }]);
+      // Each a write about to go, or one answered.
+      expect(read.lastWriteAt).toBeDefined();
+    } finally {
+      await journal.close();
+    }
+  });
+
+  it('refuses as damaged a line of records made again that names fewer Ids they had than records', async () => {
+    const journal = await journalOpened();
+    await journal.close();
+    appendFileSync(
+      join(journal.dir, 'journal.ndjson'),
+      `${JSON.stringify({
+        kind: 'recreated',
+        objectApiName: 'Account',
+        ids: [account(91), account(92)],
+        from: [account(1)],
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+
+    await expect(readRewindJournal(folder, journal.rewindId)).rejects.toMatchObject({
+      code: 'damaged',
+    });
+  });
+});
+
 describe('the journal, read back', () => {
   it('says the removal deleted what it set out to less what it left, once it answered; all of it when it never did', async () => {
     const journal = await journalOpened();
@@ -688,6 +736,7 @@ describe('the undo’s plans, kept on disk', () => {
     givenBack?: ObjectIds[];
     heldInPlace?: Array<ObjectIds & { by: string[] }>;
     withParents?: Array<ObjectIds & { parents: string[] }>;
+    recreated?: Array<ObjectIds & { from: string[] }>;
   }
 
   /**
@@ -702,6 +751,7 @@ describe('the undo’s plans, kept on disk', () => {
     const lines: Array<Record<string, unknown>> = [
       ...(did.broughtBack ?? []).map((o) => ({ kind: 'bringingBack', ...o, at })),
       ...(did.withParents ?? []).map((o) => ({ kind: 'withParent', ...o, at })),
+      ...(did.recreated ?? []).map((o) => ({ kind: 'recreated', ...o, at })),
       ...(did.deleted ?? []).map((o) => ({ kind: 'deleting', step: 1, ...o, at })),
       ...((did.deleted ?? []).length > 0 ? [{ kind: 'deleted', step: 1, at }] : []),
       ...(did.givenBack ?? []).map((o) => ({ kind: 'givingBack', ...o, at })),
@@ -797,6 +847,30 @@ describe('the undo’s plans, kept on disk', () => {
         },
       ],
     });
+  });
+
+  it('sends to the recycle bin what the rewind made again with new Ids, children first, beside what it brought back: it was not there before the rewind', async () => {
+    const { plans, rewound } = await plansOf({
+      broughtBack: [{ objectApiName: 'Account', ids: [account(2)] }],
+      recreated: [
+        { objectApiName: 'Account', ids: [account(91)], from: [account(1)] },
+        {
+          objectApiName: 'Contact',
+          ids: [contact(91), contact(92)],
+          from: [contact(1), contact(2)],
+        },
+      ],
+    });
+
+    expect(plans.remove).toEqual([
+      { objectApiName: 'Contact', ids: [contact(91), contact(92)] },
+      { objectApiName: 'Account', ids: [account(2), account(91)] },
+    ]);
+    expect(plans.bringBack).toEqual([]);
+    expect(rewound).toEqual([
+      { objectApiName: 'Contact', deleted: 0, broughtBack: 2, givenBack: 0 },
+      { objectApiName: 'Account', deleted: 0, broughtBack: 2, givenBack: 0 },
+    ]);
   });
 
   it('leaves out of both what the rewind brought back and deleted again: it is in the recycle bin as it was', async () => {

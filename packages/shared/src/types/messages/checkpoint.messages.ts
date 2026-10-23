@@ -107,6 +107,11 @@ export interface CheckpointRewindRequest extends BaseMessage {
     /** Rewind even though Undo couldn't bring back records it deletes. */
     acceptNoUndo: boolean;
     /**
+     * Make again, with new Ids, the records deleted since that the recycle bin
+     * no longer gives back. Without it, a rewind that would writes nothing.
+     */
+    acceptRecreate: boolean;
+    /**
      * A checkpoint of picked objects: delete too the records outside it created
      * under records it deletes. Without it, those parents stay, named.
      */

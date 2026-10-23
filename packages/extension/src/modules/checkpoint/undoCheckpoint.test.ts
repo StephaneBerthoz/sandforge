@@ -297,6 +297,7 @@ async function rewound(): Promise<Rewound> {
       previewId: preview.diff.previewId,
       acceptAutomation: false,
       acceptNoUndo: false,
+      acceptRecreate: false,
       acceptOutside: false,
     },
   );

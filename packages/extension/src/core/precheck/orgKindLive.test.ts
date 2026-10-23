@@ -172,4 +172,80 @@ describe('countRequests, under the whole of jsforce down to the wire', () => {
     // reached the transport, and each SOAP call once.
     expect(sent()).toBe(3);
   });
+
+  /**
+   * A connection whose transport answers a Bulk API 2.0 delete job as the
+   * org does, call by call, its job in progress at the first read of its
+   * state and complete at the second, and the URL of each call that reached
+   * it.
+   */
+  function bulkConnection(): { conn: Connection; wire: string[] } {
+    const conn = new jsforce.Connection({
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'live-session-token',
+      version: '66.0',
+    });
+    const wire: string[] = [];
+    const job = { id: '750000000000001AAA', operation: 'delete', object: 'Account' };
+    let reads = 0;
+    conn._transport.httpRequest = ((request: { method: string; url: string }) => {
+      wire.push(`${request.method} ${request.url}`);
+      const json = (body: unknown) => ({
+        statusCode: 200,
+        headers: { 'content-type': 'application/json;charset=UTF-8' },
+        body: JSON.stringify(body),
+      });
+      const csv = (body: string) => ({
+        statusCode: 200,
+        headers: { 'content-type': 'text/csv' },
+        body,
+      });
+      const path = new URL(request.url).pathname;
+      const response = path.endsWith('/successfulResults')
+        ? csv(`"sf__Id","sf__Created","Id"\n"${RECORD_ID}","false","${RECORD_ID}"\n`)
+        : path.endsWith('/failedResults')
+          ? csv('"sf__Id","sf__Error","Id"\n')
+          : path.endsWith('/unprocessedrecords')
+            ? csv('"Id"\n')
+            : path.endsWith('/batches')
+              ? { statusCode: 201, headers: {}, body: '' }
+              : request.method === 'GET' && path.endsWith(job.id)
+                ? json({ ...job, state: ++reads < 2 ? 'InProgress' : 'JobComplete' })
+                : request.method === 'PATCH'
+                  ? json({ ...job, state: 'UploadComplete' })
+                  : json({ ...job, state: 'Open' });
+      return Object.assign(Promise.resolve(response), { stream: () => new PassThrough() });
+    }) as unknown as Connection['_transport']['httpRequest'];
+    return { conn, wire };
+  }
+
+  it("counts each call of a Bulk API 2.0 job, which jsforce sends past the connection's request, once each", async () => {
+    const { conn, wire } = bulkConnection();
+    const sent = countRequests(conn);
+
+    const job = conn.bulk2.createJob({ object: 'Account', operation: 'delete' });
+    await job.open();
+    await job.uploadData([{ Id: RECORD_ID }]);
+    await job.close();
+    await job.check();
+    await job.check();
+    const results = await job.getAllResults();
+
+    expect(results.successfulResults).toHaveLength(1);
+    // Opened, its CSV sent, closed, its state read twice, its results read
+    // three ways: eight calls the org counts, the record none.
+    expect(wire).toHaveLength(8);
+    expect(sent()).toBe(8);
+  });
+
+  it("counts a job's call sent through the connection's request once, though it reaches the transport too", async () => {
+    const { conn, wire } = bulkConnection();
+    const sent = countRequests(conn);
+
+    await conn.request('/services/data/v66.0/jobs/ingest/750000000000001AAA');
+    await conn.request('/jobs/ingest/750000000000001AAA');
+
+    expect(wire).toHaveLength(2);
+    expect(sent()).toBe(2);
+  });
 });

@@ -668,6 +668,8 @@ describe('bulkDeleteJob', () => {
         { success: true },
         { success: false, error: 'DELETE_FAILED:held by a case:--' },
       ],
+      // Opened, sent, closed, its state read once, its results three ways.
+      requests: 7,
     });
   });
 
@@ -684,6 +686,7 @@ describe('bulkDeleteJob', () => {
     expect(await bulkDeleteJob(connection, 'Contact', ids)).toEqual({
       kind: 'untouched',
       reason: 'InvalidBatch : bad CSV',
+      requests: 7,
     });
   });
 
@@ -715,6 +718,7 @@ describe('bulkDeleteJob', () => {
     expect(await bulkDeleteJob(connection, 'Thing__c', ids)).toEqual({
       kind: 'untouched',
       reason: "Entity 'Thing__c' is not supported by the Bulk API",
+      requests: 1,
     });
   });
 
@@ -727,7 +731,40 @@ describe('bulkDeleteJob', () => {
     const answer = await org.bulkDestroy?.('Contact', ids);
 
     expect(opened.map((job) => job.operation)).toEqual(['delete']);
-    expect(answer).toEqual({ kind: 'answered', rows: ids.map(() => ({ success: true })) });
+    expect(answer).toEqual({
+      kind: 'answered',
+      rows: ids.map(() => ({ success: true })),
+      requests: 7,
+    });
+  });
+
+  it('counts every read of the state of a job the org took a while over, each one of its requests', async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = fakeBulk({
+        results: { successfulResults: ids.map((Id) => ({ sf__Id: Id, sf__Created: 'false', Id })) },
+      });
+      const states: Array<BulkJobCheckResult['state']> = [
+        'InProgress',
+        'InProgress',
+        'JobComplete',
+      ];
+      const create = connection.bulk2.createJob.bind(connection.bulk2);
+      connection.bulk2.createJob = (options) => ({
+        ...create(options),
+        check: async () => ({ state: states.shift() ?? 'JobComplete', numberRecordsProcessed: 3 }),
+      });
+
+      const answering = bulkDeleteJob(connection, 'Contact', ids);
+      await vi.runAllTimersAsync();
+      const answer = await answering;
+
+      expect(answer.kind).toBe('answered');
+      // Opened, sent, closed, three reads of its state, its results three ways.
+      expect(answer.requests).toBe(9);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('aborts a job stopped before it was closed, and says nothing of it was deleted', async () => {
@@ -737,6 +774,8 @@ describe('bulkDeleteJob', () => {
 
     expect(await bulkDeleteJob(connection, 'Contact', ids, stop.signal)).toEqual({
       kind: 'aborted',
+      // Opened, then aborted: nothing sent for the org to process.
+      requests: 2,
     });
     expect(opened[0]).toMatchObject({ operation: 'delete', aborted: true });
   });

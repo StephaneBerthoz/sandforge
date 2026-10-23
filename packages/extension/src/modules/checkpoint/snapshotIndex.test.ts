@@ -20,10 +20,12 @@ import {
   defaultCheckpointLocksDir,
   indexFileOf,
   openCheckpointStore,
+  recreatedFileOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
 import {
   GoneForGood,
+  Recreated,
   SNAPSHOT_CHUNK_IDS,
   SnapshotIndex,
   snapshotFileOf,
@@ -517,6 +519,90 @@ describe('SnapshotIndex.chunk', () => {
     expect(outcome.objects[0].reasons.join(' ')).toMatch(
       /file changed since the checkpoint was taken/,
     );
+  });
+});
+
+describe('records a rewind made again, under new Ids', () => {
+  const [kept, made, parent] = [accountId(1), accountId(2), accountId(3)];
+  const madeNow = accountId(92);
+  const parentNow = accountId(93);
+
+  it('holds a record made again by its Id now, its stamp and row the snapshot’s, and the Id it had no more', async () => {
+    const folder = await folderOf();
+    await indexed(folder, [
+      rowOf(kept, { Name: 'Kept' }),
+      rowOf(made, { Name: 'Made again', ParentId: parent }),
+      rowOf(parent, { Name: 'Parent' }),
+    ]);
+    await Recreated.add(folder, [
+      { objectApiName: 'Account', from: made, to: madeNow },
+      { objectApiName: 'Account', from: parent, to: parentNow },
+    ]);
+
+    const index = await SnapshotIndex.read(folder, SNAPSHOT, 'Account');
+
+    expect(index.size).toBe(3);
+    expect(index.has(madeNow)).toBe(true);
+    expect(index.has(madeNow.slice(0, 15))).toBe(true);
+    expect(index.stampOf(madeNow)).toBe(STAMP_MS);
+    expect(index.has(made)).toBe(false);
+    expect(index.retired(made)).toBe(true);
+    expect(index.retired(kept)).toBe(false);
+    expect(index.retired(madeNow)).toBe(false);
+    expect(index.idAt(index.rowOf(madeNow))).toBe(madeNow);
+    expect(index.snapshotIdOf(madeNow)).toBe(made);
+    // Read under its Id now, its lookup naming the new Id of the record it named.
+    const [batch] = await batchesOf(index, [madeNow], 10);
+    expect(batch).toEqual([
+      { ...rowOf(made, { Name: 'Made again', ParentId: parentNow }), Id: madeNow },
+    ]);
+  });
+
+  it('names a record made again twice by its latest Id', async () => {
+    const folder = await folderOf();
+    await indexed(folder, [rowOf(made)]);
+    await Recreated.add(folder, [{ objectApiName: 'Account', from: made, to: madeNow }]);
+    await Recreated.add(folder, [{ objectApiName: 'Account', from: made, to: parentNow }]);
+
+    const index = await SnapshotIndex.read(folder, SNAPSHOT, 'Account');
+
+    expect(index.has(parentNow)).toBe(true);
+    expect(index.has(madeNow)).toBe(false);
+    expect(index.idAt(0)).toBe(parentNow);
+  });
+
+  it('marks gone for good by its Id now: a record made again that the org holds is not gone', async () => {
+    const folder = await folderOf();
+    await indexed(folder, [rowOf(kept), rowOf(made)]);
+    await Recreated.add(folder, [{ objectApiName: 'Account', from: made, to: madeNow }]);
+    const index = await SnapshotIndex.read(folder, SNAPSHOT, 'Account');
+    const gone = new GoneForGood(index);
+
+    gone.mark(madeNow);
+
+    expect([...gone.ids()]).toEqual([kept]);
+  });
+
+  it('keeps the pairs in a file of its owner’s alone, drops a last line a crash cut short, and refuses one that is no pair as damaged', async () => {
+    const folder = await folderOf();
+    await indexed(folder, [rowOf(made)]);
+    await Recreated.add(folder, [{ objectApiName: 'Account', from: made, to: madeNow }]);
+    const file = recreatedFileOf(folder);
+    if (POSIX) expect(statSync(file).mode & 0o777).toBe(0o600);
+
+    await appendFile(file, '{"objectApiName":"Account","from":"001');
+    expect((await Recreated.read(folder)).currentOf(made.slice(0, 15))).toBe(madeNow);
+
+    writeFileSync(file, 'not a pair\n');
+    expect(await rejection(Recreated.read(folder))).toMatchObject({ code: 'damaged' });
+  });
+
+  it('reads none when no record was made again', async () => {
+    const folder = await folderOf();
+    const none = await Recreated.read(folder);
+
+    expect(none.empty).toBe(true);
+    expect(none.remapped(made)).toBe(made);
   });
 });
 

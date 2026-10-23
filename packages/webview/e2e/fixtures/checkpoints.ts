@@ -265,6 +265,7 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
           toDelete: { createdSince: 5, broughtBackSince: 1, comesBackWithParent: 2 },
           toGiveBack: { records: 2, fields: 3, clearedLookups: 1 },
           toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 1 },
+          toRecreate: 2,
           cannotUndo: [{ reason: 'deletedWithCreatedParent', count: 3 }],
           touched: 4,
           unexplained: 1,

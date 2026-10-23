@@ -1066,6 +1066,7 @@ export class CheckpointHandler implements DomainHandler {
               ...(reused ? { reusesPreview: reused } : {}),
               acceptAutomation: parsed.acceptAutomation,
               acceptNoUndo: parsed.acceptNoUndo,
+              acceptRecreate: parsed.acceptRecreate,
               acceptOutside: parsed.acceptOutside,
             },
           );

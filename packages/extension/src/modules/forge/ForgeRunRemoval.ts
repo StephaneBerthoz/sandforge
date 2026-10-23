@@ -63,6 +63,12 @@ export const BULK_DELETE_THRESHOLD = 10_000;
 export const BULK_DELETE_JOB_RECORDS = 50_000;
 
 /**
+ * Reads of a Bulk API 2.0 job's results once it is through: its successful,
+ * failed and unprocessed records, each a call of its own.
+ */
+export const BULK_RESULT_READS = 3;
+
+/**
  * Reads of an object's dependents sent at once. Each answers in a quarter of a
  * second on a scratch org, most of it the way there and back, and a contact
  * lists 23 relationships the check reads per 200 records: 12 000 contacts took
@@ -343,11 +349,18 @@ export type RemovalOrg = Pick<
  * of them — the job could not be handed over, an object the Bulk API does not
  * take, or it failed whole before it processed a record — which leaves them
  * to be deleted over REST, which answers each one.
+ *
+ * Each says how many calls the job sent the org (`requests`): opened, its CSV
+ * sent, closed or aborted, each read of its state, its results read three
+ * ways. The org counts each against its daily requests, and the records none
+ * (asked live: a job of 200 deletes cost five). Absent from an answer that
+ * does not say, which counts as one.
  */
-export type BulkDeleteAnswer =
+export type BulkDeleteAnswer = (
   | { kind: 'answered'; rows: ReadonlyArray<{ success: true } | { success: false; error: string }> }
   | { kind: 'aborted' }
-  | { kind: 'untouched'; reason: string };
+  | { kind: 'untouched'; reason: string }
+) & { requests?: number };
 
 /**
  * Delete `ids` of one object through one Bulk API 2.0 `delete` job, as
@@ -371,6 +384,12 @@ export async function bulkDeleteJob(
   let last: { state?: string; message?: string } = {};
   /** Rows the job's results answer, written or refused: none, and it processed nothing. */
   let processed = 0;
+  /** The calls the job sent the org, each one of its daily requests. */
+  let requests = 0;
+  const sent = <T>(calls: number, call: () => Promise<T>): Promise<T> => {
+    requests += calls;
+    return call();
+  };
   // The job, told what the org did with it: jsforce's handle, as the executor drives it.
   const tracked: BulkApiConnection = {
     bulk2: {
@@ -380,20 +399,21 @@ export async function bulkDeleteJob(
           get id() {
             return job.id;
           },
-          open: () => job.open(),
-          uploadData: (csv) => job.uploadData(csv),
+          open: () => sent(1, () => job.open()),
+          uploadData: (csv) => sent(1, () => job.uploadData(csv)),
           close: async () => {
-            await job.close();
+            await sent(1, () => job.close());
             closed = true;
           },
-          abort: () => job.abort(),
+          abort: () => sent(1, () => job.abort()),
           check: async () => {
-            const status = await job.check();
+            const status = await sent(1, () => job.check());
             last = { state: status.state, message: status.errorMessage };
             return status;
           },
           getAllResults: async () => {
-            const results = await job.getAllResults();
+            // Its successful, failed and unprocessed records: three reads.
+            const results = await sent(BULK_RESULT_READS, () => job.getAllResults());
             processed = Array.isArray(results)
               ? results.length
               : (results.successfulResults?.length ?? 0) + (results.failedResults?.length ?? 0);
@@ -414,16 +434,21 @@ export async function bulkDeleteJob(
       ids.map((Id) => ({ Id })),
     );
   } catch (err: unknown) {
-    if (!closed) return { kind: 'untouched', reason: extractErrorMessage(err) };
+    if (!closed) return { kind: 'untouched', reason: extractErrorMessage(err), requests };
     throw err;
   }
-  if (result.aborted) return { kind: 'aborted' };
+  if (result.aborted) return { kind: 'aborted', requests };
   if (last.state !== 'JobComplete' && processed === 0) {
-    return { kind: 'untouched', reason: last.message || `job ${last.state ?? 'not complete'}` };
+    return {
+      kind: 'untouched',
+      reason: last.message || `job ${last.state ?? 'not complete'}`,
+      requests,
+    };
   }
   const byRow = new Map(result.outcomes.map((outcome) => [outcome.recordIndex, outcome]));
   return {
     kind: 'answered',
+    requests,
     rows: ids.map((_, at) => {
       const outcome = byRow.get(at);
       if (outcome?.success) return { success: true };

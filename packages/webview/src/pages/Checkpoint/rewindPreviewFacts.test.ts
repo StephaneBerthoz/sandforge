@@ -11,6 +11,7 @@ import {
   keptChangedSinceRewind,
   lastChangers,
   outsideLines,
+  recreateLines,
   residualGroups,
   residualTotal,
   rewindPhases,
@@ -47,14 +48,25 @@ describe('rewindPreviewFacts', () => {
       // Cleared lookups are records given back already: counted once.
       toGiveBack: 4,
       toBringBack: 14,
+      toRecreate: 0,
       cannotUndo: 5,
     });
+    expect(rowOf(diffObject('Contact', { toRecreate: 3 })).toRecreate).toBe(3);
   });
 
   it('adds the objects into the three numbers, and a rewind writes when one is above zero', () => {
     const diff = previewDiff();
-    expect(rewindTotals(diff)).toEqual({ toDelete: 8, toGiveBack: 6, toBringBack: 1 });
+    expect(rewindTotals(diff)).toEqual({
+      toDelete: 8,
+      toGiveBack: 6,
+      toBringBack: 1,
+      toRecreate: 0,
+    });
     expect(rewindWrites(diff)).toBe(true);
+    // Records to make again with new Ids are writes too, on their own.
+    expect(rewindWrites(previewDiff({ objects: [diffObject('Account', { toRecreate: 1 })] }))).toBe(
+      true,
+    );
     expect(rewindWrites(previewDiff({ objects: [diffObject('Account', { touched: 3 })] }))).toBe(
       false,
     );
@@ -143,9 +155,23 @@ describe('rewindPreviewFacts', () => {
   it('names the objects each step of a rewind writes: brought back, given back, deleted', () => {
     expect(rewindSteps(previewDiff())).toEqual({
       bringBack: ['Account'],
+      recreate: [],
       giveBack: ['Contact', 'Account'],
       delete: ['Contact', 'Account'],
     });
+    expect(
+      rewindSteps(previewDiff({ objects: [diffObject('Account', { toRecreate: 2 })] })).recreate,
+    ).toEqual(['Account']);
+  });
+
+  it('names the records to make again with new Ids, object by object, only the objects that have some', () => {
+    expect(
+      recreateLines(
+        previewDiff({
+          objects: [diffObject('Account', { toRecreate: 2 }), diffObject('Contact', {})],
+        }),
+      ),
+    ).toEqual([{ objectApiName: 'Account', count: 2 }]);
   });
 });
 

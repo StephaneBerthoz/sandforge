@@ -71,6 +71,12 @@
  *
  * **What is brought back** goes parents first: the checkpoint's reading order
  * is children first, and the undelete follows the order it is given.
+ *
+ * **What is made again** — records the recycle bin no longer gives back,
+ * which come back with new Ids — goes parents first too, once what is brought
+ * back is back: a record made again names its parent by the Id the parent has
+ * then. It is made only once that its Ids are new was accepted, and left
+ * otherwise (`recreateNotAccepted`).
  */
 
 import { appendFile, readdir } from 'node:fs/promises';
@@ -116,7 +122,8 @@ type ActedClass =
   | 'giveBack'
   | 'inBin'
   | 'withParent'
-  | 'deletedWhileTaken';
+  | 'deletedWhileTaken'
+  | 'toRecreate';
 
 const ACTED: readonly ActedClass[] = [
   'createdSince',
@@ -126,6 +133,7 @@ const ACTED: readonly ActedClass[] = [
   'inBin',
   'withParent',
   'deletedWhileTaken',
+  'toRecreate',
 ];
 
 /** A class as a flag of the records confirmed in it. */
@@ -137,6 +145,7 @@ const CLASS_FLAG: Readonly<Record<ActedClass, number>> = {
   inBin: 16,
   withParent: 32,
   deletedWhileTaken: 64,
+  toRecreate: 128,
 };
 
 /** Set on a record confirmed once the fresh diff found it where it was confirmed. */
@@ -158,6 +167,7 @@ const CONFIRMED_AS: Readonly<Record<ActedClass, number>> = {
   inBin: CLASS_FLAG.inBin,
   withParent: CLASS_FLAG.withParent,
   deletedWhileTaken: CLASS_FLAG.deletedWhileTaken,
+  toRecreate: CLASS_FLAG.toRecreate,
 };
 
 /** The classes a pass deletes. */
@@ -180,7 +190,9 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   back was not accepted;
  * - `beforeParentNotAccepted`: it would be deleted on its own before a record
  *   it points at that the pass deletes next, which leaves it in the recycle
- *   bin for good, and that Undo couldn't bring it back was not accepted.
+ *   bin for good, and that Undo couldn't bring it back was not accepted;
+ * - `recreateNotAccepted`: the recycle bin no longer gives it back, it would
+ *   be made again with a new Id, and that its Id is new was not accepted.
  */
 export type RewindPlanLeftReason =
   | 'changedSincePreview'
@@ -188,7 +200,8 @@ export type RewindPlanLeftReason =
   | 'outsideNotAccepted'
   | 'holdsLeft'
   | 'noUndoNotAccepted'
-  | 'beforeParentNotAccepted';
+  | 'beforeParentNotAccepted'
+  | 'recreateNotAccepted';
 
 /** The reasons, each as a flag of the records left for it. */
 const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
@@ -198,6 +211,7 @@ const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
   holdsLeft: 8,
   noUndoNotAccepted: 16,
   beforeParentNotAccepted: 32,
+  recreateNotAccepted: 64,
 };
 
 /** Records of one object a plan left for one reason. */
@@ -226,6 +240,8 @@ export interface RewindPlanObject {
   broughtBack: number;
   /** Records expected back with their parent, sent nothing of their own. */
   backWithParent: number;
+  /** Records the recycle bin no longer gives back, made again with new Ids. */
+  recreated: number;
   /**
    * Records given back before the deletions; a record moved under a parent
    * this pass deletes is among them, and among those given back after too.
@@ -261,6 +277,8 @@ export interface RewindPlanInput {
   acceptOutside: boolean;
   /** Records Undo couldn't bring back may be deleted. */
   acceptNoUndo: boolean;
+  /** Records the recycle bin no longer gives back may be made again, with new Ids. */
+  acceptRecreate: boolean;
   /** What earlier removals of the rewind left on records, by id: see `RunRemovalOptions.removalStamps`. */
   removalStamps?: Readonly<Record<string, string>>;
   /** When earlier removals of the rewind ran, and as whom: see `RunRemovalOptions.removalSpans`. */
@@ -283,6 +301,8 @@ export interface RewindPlan {
     Pick<RunRemovalOptions, 'removalStamps' | 'removalSpans'>;
   /** What is brought back from the recycle bin, parents first. */
   bringBack: IdSpool;
+  /** What is made again with new Ids, parents first, by the Ids the records had. */
+  recreate: IdSpool;
   /** What is given its checkpoint values back, a chunk at a time. */
   giveBack: {
     beforeDeletes: IdSpool;
@@ -428,6 +448,7 @@ function emptyCounts(objectApiName: string): RewindPlanObject {
     nextPassDeleted: 0,
     broughtBack: 0,
     backWithParent: 0,
+    recreated: 0,
     givenBackFirst: 0,
     givenBackAfter: 0,
     givenBackNextPass: 0,
@@ -543,6 +564,11 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
           if (DELETED.has(cls)) kept.add(id, LEFT_FLAG[reason]);
           continue;
         }
+        // A record made again gets a new Id: made only once that was accepted.
+        if (cls === 'toRecreate' && !input.acceptRecreate) {
+          left.add(name, 'recreateNotAccepted', id);
+          continue;
+        }
         await lineOf(cls).add(cls === 'giveBack' ? row : { Id: id });
         if (DELETED.has(cls)) toDelete.add(id);
         else if (cls === 'comesBackWithParent') {
@@ -550,6 +576,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
           tally.nextPassDeleted++;
         } else if (cls === 'inBin' || cls === 'deletedWhileTaken') tally.broughtBack++;
         else if (cls === 'withParent') tally.backWithParent++;
+        else if (cls === 'toRecreate') tally.recreated++;
         // What comes back from the bin comes back with the values it had
         // when deleted: given back once it is back.
         if (cls === 'inBin' || cls === 'withParent') await lineOf('giveBack').add({ Id: id });
@@ -744,13 +771,16 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     if (by.size > 0) heldBy.push({ objectApiName: name, by: [...by] });
   }
 
-  // ─── What is brought back, parents first ───
+  // ─── What is brought back, and made again, parents first ───
   const back = new IdSpoolWriter(`${dir}/bringBack`);
+  const made = new IdSpoolWriter(`${dir}/recreate`);
   for (const object of parentsFirst) {
     for (const cls of ['inBin', 'deletedWhileTaken'] as const) {
       const file = classFileOf(dir, object.objectApiName, cls);
       for await (const row of rowsOf(file)) await back.add(object.objectApiName, idOf(row, file));
     }
+    const file = classFileOf(dir, object.objectApiName, 'toRecreate');
+    for await (const row of rowsOf(file)) await made.add(object.objectApiName, idOf(row, file));
   }
 
   const removalStamps = { ...input.removalStamps, ...stamps };
@@ -770,6 +800,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         : {}),
     },
     bringBack: await back.finish(),
+    recreate: await made.finish(),
     giveBack: { beforeDeletes: await first.finish(), afterDeletes: await last.finish(), heldBy },
     restore: {
       changedAfter: input.readAt,

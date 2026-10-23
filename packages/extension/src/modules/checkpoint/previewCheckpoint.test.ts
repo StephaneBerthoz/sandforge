@@ -301,7 +301,7 @@ describe('previewCheckpoint', () => {
     // The scenario reaches every part of the read: a record given back of
     // two objects, two created since with a record outside the checkpoint
     // under one, an account brought back with the two contacts that went
-    // with it, a contact gone for good, and two users.
+    // with it, a contact gone from the bin, made again, and two users.
     const byObject = new Map(outcome.diff.objects.map((o) => [o.objectApiName, o]));
     expect(byObject.get('Account')).toMatchObject({
       toDelete: { createdSince: 2 },
@@ -311,7 +311,8 @@ describe('previewCheckpoint', () => {
     });
     expect(byObject.get('Contact')).toMatchObject({
       toBringBack: { withParent: 2 },
-      cannotUndo: [{ reason: 'goneForGood', count: 1 }],
+      toRecreate: 1,
+      cannotUndo: [],
     });
     expect(byObject.get('Task')).toMatchObject({ toGiveBack: { records: 1 } });
     expect(Object.keys(outcome.diff.userNames).sort()).toEqual([MEMORY_ORG_USER, COLLEAGUE].sort());

@@ -228,7 +228,7 @@ describe('CheckpointList', () => {
   it('says from which date records deleted can no longer come back, once the store says so', () => {
     renderList([listEntry(readyCheckpoint(), { binReachSince: '2026-10-07T14:06:03.000Z' })]);
     expect(screen.getByTestId(`checkpoint-bin-reach-${ID}`).textContent).toBe(
-      'Records deleted before Oct 7, 2026 cannot come back: the recycle bin keeps them 15 days, less if it fills.',
+      'Records deleted before Oct 7, 2026 cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.',
     );
   });
 

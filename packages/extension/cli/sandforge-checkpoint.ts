@@ -130,6 +130,10 @@ rewind:
   --accept-no-undo               rewind even when undo could not bring back some records it deletes
                                  (objects Salesforce undeletes only with their parent, such as
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
+  --accept-recreate              make again, with new Ids, the records deleted since that the
+                                 recycle bin no longer gives back: what outside Salesforce names
+                                 their old Ids no longer finds them; without it such a rewind
+                                 writes nothing, exit 1
   --accept-outside               (a checkpoint of picked objects) also delete the records outside it
                                  created under records it deletes; without it those parents stay
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
@@ -164,12 +168,16 @@ and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stop
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still
 differs, and undo still returns the org to how it was before the rewind.
 
-What a rewind cannot undo: a record deleted since and no longer in the recycle bin, a lead
-converted since, a contract activated since, a record deleted with one created since (preview
-counts them); a field added or removed since (preview names it); the values the org computes or
-keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
-(emails, callouts, outbound messages, platform events); metadata; files. A record the org refuses
-to put back is named by rewind, with its words.
+A record deleted since that the recycle bin no longer gives back is made again from the
+checkpoint, with a new Id, once --accept-recreate says so: the lookups the checkpoint holds that
+named it name the new Id, and undo deletes it again.
+What a rewind cannot undo: a file deleted since and no longer in the recycle bin, whose body the
+checkpoint does not hold, a lead converted since, a contract activated since, a record deleted
+with one created since (preview counts them); a field added or removed since (preview names it);
+the values the org computes or keeps itself (formulas, roll-ups, auto-numbers, created and
+modified dates); what left the org (emails, callouts, outbound messages, platform events);
+metadata; files. A record the org refuses to put back, or to make again, is named by rewind, with
+its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -183,14 +191,14 @@ JSON (--json), one value on stdout:
                      the requests over a take's phases as requests.byPhase does: guard, scope,
                      start, counts, bin, snapshot, stability
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
-                      differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
+                      toRecreate, differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
                      automation and refusal as the extension answers them; refusal is the one a
                      rewind would meet now; emails, one per daily limit its writes send against:
                      {limit, emails, verdict, remaining?, max?, alertsCounted?, objects:
                      [{objectApiName, write, records, perRecord, sentBy}]}
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
-                      broughtBack (each {planned, done, left}), cannotUndo: [{object, reason,
+                      broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object, reason,
                       count}], undo?: {until, cannot: [{object, count, reason?}]}, verify:
                       {differences, stable, passes, notCompared}, residual: [{object, reason,
                       by?, count, message?}], unread: [{object, reason}], objects: [{object,
@@ -199,7 +207,7 @@ JSON (--json), one value on stdout:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
                      before a record they point at, which the rewind deleted next
-  undo               as rewind, without cannotUndo and undo
+  undo               as rewind, without recreated, cannotUndo and undo
   delete             {deleted: [id], kept: [id]}
   refused or failed  {refusal: {code, message}}
   A bad command line (exit 2) prints nothing on stdout.
@@ -208,13 +216,14 @@ Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: 
 org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
-without --accept-no-undo, more than --max-total records, more API requests or emails than the org
+without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
+--max-total records, more API requests or emails than the org
 has left today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge
 run writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes); 3 partial (rewind and undo: records still differ, each said with why; with
---fail-on-change, the org differs: records to delete, give back or bring back, records the rewind
-cannot take back or the checkpoint does not hold although they are dated before it, an object that
+--fail-on-change, the org differs: records to delete, give back, bring back or make again,
+records the rewind cannot take back or the checkpoint does not hold although they are dated before it, an object that
 could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
 records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
 SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches
@@ -263,6 +272,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--dry-run',
       '--accept-automation',
       '--accept-no-undo',
+      '--accept-recreate',
       '--accept-outside',
       '--yes',
     ],
@@ -319,6 +329,7 @@ export type CliArgs =
       dryRun: boolean;
       acceptAutomation: boolean;
       acceptNoUndo: boolean;
+      acceptRecreate: boolean;
       acceptOutside: boolean;
       /** Fields, `Object.Field`, to stop comparing from now on. */
       ignoreFields: string[];
@@ -492,6 +503,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         dryRun: args.includes('--dry-run'),
         acceptAutomation: args.includes('--accept-automation'),
         acceptNoUndo: args.includes('--accept-no-undo'),
+        acceptRecreate: args.includes('--accept-recreate'),
         acceptOutside: args.includes('--accept-outside'),
         ignoreFields,
         yes: args.includes('--yes'),
@@ -771,8 +783,8 @@ export function listLines(entries: readonly CheckpointListEntry[], store: string
     }
     if (entry.binReachSince) {
       lines.push(
-        `  records deleted before ${entry.binReachSince.slice(0, 10)} can't come back (recycle ` +
-          'bin), sooner if the bin fills',
+        `  records deleted before ${entry.binReachSince.slice(0, 10)} can't come back with their ` +
+          'Id (recycle bin), sooner if the bin fills: a rewind makes them again, with new Ids',
       );
     }
     if (entry.undo) {
@@ -877,11 +889,15 @@ export function requestsLine(
   return `  sent ${count(requests.total)} API requests to the org${said}: ${phases.join(', ')}`;
 }
 
-/** What a rewind to a checkpoint would do, in the three numbers the preview leads with. */
+/**
+ * What a rewind to a checkpoint would do, in the three numbers the preview
+ * leads with, and the records it would make again with new Ids.
+ */
 export interface PreviewTotals {
   toDelete: number;
   toGiveBack: number;
   toBringBack: number;
+  toRecreate: number;
 }
 
 const toDeleteOf = (o: RewindDiffObject): number =>
@@ -890,11 +906,13 @@ const toBringBackOf = (o: RewindDiffObject): number =>
   o.toBringBack.inBin + o.toBringBack.withParent + o.toBringBack.deletedWhileTaken;
 const cannotUndoOf = (o: RewindDiffObject): number =>
   o.cannotUndo.reduce((total, line) => total + line.count, 0);
+const toRecreateOf = (o: RewindDiffObject): number => o.toRecreate ?? 0;
 
 /**
  * The three numbers: records to delete (created since, brought back from the
  * bin since, and those that come back with a parent and go again), to give
- * their values back, and to bring back from the recycle bin.
+ * their values back, and to bring back from the recycle bin; and the records
+ * the recycle bin no longer gives back, to make again with new Ids.
  */
 export function previewTotals(diff: Pick<RewindDiff, 'objects'>): PreviewTotals {
   return diff.objects.reduce<PreviewTotals>(
@@ -902,14 +920,16 @@ export function previewTotals(diff: Pick<RewindDiff, 'objects'>): PreviewTotals 
       toDelete: totals.toDelete + toDeleteOf(object),
       toGiveBack: totals.toGiveBack + object.toGiveBack.records,
       toBringBack: totals.toBringBack + toBringBackOf(object),
+      toRecreate: totals.toRecreate + toRecreateOf(object),
     }),
-    { toDelete: 0, toGiveBack: 0, toBringBack: 0 },
+    { toDelete: 0, toGiveBack: 0, toBringBack: 0, toRecreate: 0 },
   );
 }
 
 /**
  * Whether the org differs from the checkpoint, among the objects and fields
- * it holds: records a rewind would delete, give back or bring back; records
+ * it holds: records a rewind would delete, give back, bring back or make
+ * again; records
  * it cannot take back, or that the checkpoint does not hold although they are
  * dated before it; or an object that could not be read, which is never taken
  * for one that did not change.
@@ -917,7 +937,7 @@ export function previewTotals(diff: Pick<RewindDiff, 'objects'>): PreviewTotals 
 export function orgDiffers(diff: Pick<RewindDiff, 'objects' | 'unread'>): boolean {
   const totals = previewTotals(diff);
   return (
-    totals.toDelete + totals.toGiveBack + totals.toBringBack > 0 ||
+    totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0 ||
     diff.objects.some((object) => cannotUndoOf(object) > 0 || object.unexplained > 0) ||
     diff.unread.length > 0
   );
@@ -925,7 +945,9 @@ export function orgDiffers(diff: Pick<RewindDiff, 'objects' | 'unread'>): boolea
 
 /** What a rewind cannot take back of an object, as the preview says it. */
 const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
-  goneForGood: 'deleted since and no longer in the recycle bin: they can’t come back with their Id',
+  goneForGood:
+    'deleted since and no longer in the recycle bin, and not made again — a file, whose body ' +
+    'the checkpoint does not hold, or a record deleted while it was taken: they can’t come back',
   convertedLead: 'leads converted since: Salesforce can’t unconvert a lead',
   activatedContract: 'contracts activated since: Salesforce won’t set them back to Draft',
   deletedWithCreatedParent:
@@ -1061,7 +1083,8 @@ export function previewLines(
   const lines = [
     `Rewind ${orgName} to '${checkpoint.name}' (${when(checkpoint.takenAt)}), read at ${whenExactly(diff.readAt)}:`,
     `  ${count(totals.toDelete)} to delete · ${count(totals.toGiveBack)} to give back · ` +
-      `${count(totals.toBringBack)} to bring back`,
+      `${count(totals.toBringBack)} to bring back` +
+      (totals.toRecreate > 0 ? ` · ${count(totals.toRecreate)} to make again` : ''),
   ];
   if (!orgDiffers(diff)) {
     lines.push(
@@ -1070,7 +1093,9 @@ export function previewLines(
     );
   }
   const shown = diff.objects.filter(
-    (o) => toDeleteOf(o) + o.toGiveBack.records + toBringBackOf(o) + cannotUndoOf(o) > 0,
+    (o) =>
+      toDeleteOf(o) + o.toGiveBack.records + toBringBackOf(o) + toRecreateOf(o) + cannotUndoOf(o) >
+      0,
   );
   if (shown.length > 0) {
     const width = Math.max(6, ...shown.map((o) => o.objectApiName.length));
@@ -1128,6 +1153,16 @@ export function previewLines(
   for (const [reason, objects] of cannot) {
     lines.push(
       `  can't be taken back: ${someOf(objects)} — ${CANNOT_UNDO_WORDS[reason] ?? reason}`,
+    );
+  }
+  const remade = diff.objects.filter((o) => toRecreateOf(o) > 0);
+  if (remade.length > 0) {
+    lines.push(
+      `  to make again, with new Ids: ${someOf(
+        remade.map((o) => `${o.objectApiName} ${count(toRecreateOf(o))}`),
+      )} — deleted since and no longer in the recycle bin: made again from the checkpoint, the ` +
+        'lookups it holds that named them naming the new Ids; anything outside Salesforce that ' +
+        'names their old Ids no longer finds them',
     );
   }
   const unexplained = diff.objects.filter((o) => o.unexplained > 0);
@@ -1234,6 +1269,7 @@ export function rewindStepsOf(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSt
   const deleted = diff.objects.filter((o) => toDeleteOf(o) > 0).map((o) => o.objectApiName);
   return {
     bringBack: diff.objects.filter((o) => toBringBackOf(o) > 0).map((o) => o.objectApiName),
+    recreate: diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
     giveBack: diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
     setToDraft: deleted.filter((name) => name === 'Order'),
     delete: deleted,
@@ -1244,12 +1280,14 @@ export function rewindStepsOf(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSt
 export interface RewindAccepted {
   acceptAutomation: boolean;
   acceptNoUndo: boolean;
+  acceptRecreate: boolean;
 }
 
 /**
  * The refusal a rewind of what `answer` previewed would meet before it
  * writes, for want of a flag: deletions Undo couldn't bring back without
- * `--accept-no-undo`, automation its writes fire — or that could not all be
+ * `--accept-no-undo`, records to make again with new Ids without
+ * `--accept-recreate`, automation its writes fire — or that could not all be
  * read — without `--accept-automation`. Said before the question, as the page
  * holds its button until the box is ticked; the rewind itself refuses the
  * same, whatever this says.
@@ -1276,14 +1314,30 @@ export function acceptanceRefusal(
         'No record was written.',
     };
   }
+  const remade = diff.objects.filter((o) => toRecreateOf(o) > 0);
+  if (remade.length > 0 && !accepted.acceptRecreate) {
+    const records = remade.reduce((total, o) => total + toRecreateOf(o), 0);
+    return {
+      code: 'RECREATE',
+      message:
+        `${count(records)} ${remade.map((o) => o.objectApiName).join(', ')} record(s) deleted ` +
+        'since are no longer in the recycle bin, or Salesforce keeps them there for good: this ' +
+        'rewind makes them again from the checkpoint, with new Ids. Anything outside Salesforce ' +
+        'that names their old Ids — an integration, a link, a report filter — no longer finds ' +
+        'them. Rewind refused; give --accept-recreate to rewind all the same. No record was ' +
+        'written.',
+    };
+  }
   if (!automation || accepted.acceptAutomation) return undefined;
-  const fired = firedOnRemovalStepsOf(automation, rewindStepsOf(diff));
+  const steps = rewindStepsOf(diff);
+  const fired = firedOnRemovalStepsOf(automation, steps);
   if (fired.length === 0 && !blindedBy(automation.unread)) return undefined;
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
+  const makes = (steps.recreate ?? []).length > 0 ? 'makes them again, ' : '';
   const what =
     fired.length > 0
       ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
-        'rewind brings records back, gives them their values back or deletes them'
+        `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   return {
     code: 'AUTOMATION',
@@ -1300,12 +1354,17 @@ export function rewindQuestion(
   diff: Pick<RewindDiff, 'objects'>,
 ): string {
   const totals = previewTotals(diff);
+  const remade =
+    totals.toRecreate > 0
+      ? `, and makes ${count(totals.toRecreate)} record(s) the recycle bin no longer holds again, ` +
+        'with new Ids'
+      : '';
   return (
     `Rewind ${orgName} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
     `record(s) created since ${when(checkpoint.takenAt)}, gives ${count(totals.toGiveBack)} ` +
     `record(s) their values from then back, and brings back ${count(totals.toBringBack)} ` +
-    'record(s) from the recycle bin — whoever made these changes. What it changes is kept, so ' +
-    `it can be undone. Type ${orgName} to rewind it:`
+    `record(s) from the recycle bin${remade} — whoever made these changes. What it changes is ` +
+    `kept, so it can be undone. Type ${orgName} to rewind it:`
   );
 }
 
@@ -1350,6 +1409,14 @@ function talliesOf(result: Pick<RewindResult, 'deleted' | 'restored' | 'undelete
   };
 }
 
+/** What a rewind made again with new Ids, all objects together. */
+function recreatedTally(result: Pick<RewindResult, 'recreated'>): Tally {
+  const made = result.recreated ?? [];
+  const planned = sumOf(made, (o) => o.planned);
+  const done = sumOf(made, (o) => o.created);
+  return { planned, done, left: Math.max(0, planned - done) };
+}
+
 /** A user, by the name the preview read for them, else by their id. */
 function userOf(userId: string | undefined, names: Readonly<Record<string, string>>): string {
   if (userId === undefined) return 'another user';
@@ -1375,7 +1442,10 @@ function residualWords(
     case 'refused':
       return `refused: ${residual.message ?? 'the org gave no reason'}`;
     case 'goneForGood':
-      return "deleted since and no longer in the recycle bin: they can't come back with their Id";
+      return (
+        'deleted since and no longer in the recycle bin, and not made again (a file, whose body ' +
+        "the checkpoint does not hold, or a record deleted while it was taken): they can't come back"
+      );
     case 'kept':
       return residual.message ?? 'kept as they are';
   }
@@ -1427,6 +1497,12 @@ export function rewindLines(
       `  brought back ${count(tallies.broughtBack.done - cameBack)} record(s) deleted since the ` +
         'checkpoint, with their original Ids' +
         (cameBack > 0 ? `, and ${count(cameBack)} that came back with them` : ''),
+    );
+  }
+  const remade = recreatedTally(result);
+  if (remade.done > 0) {
+    lines.push(
+      `  made again ${count(remade.done)} record(s) the recycle bin no longer held, with new Ids`,
     );
   }
   lines.push(...followingLines('rewind', result, names));
@@ -1568,6 +1644,7 @@ export function resultJson(
     of(o.objectApiName).broughtBack += o.undeleted + o.alreadyBack;
     of(o.objectApiName).refused += o.refused;
   }
+  for (const o of result.recreated ?? []) of(o.objectApiName).refused += o.refused;
   const unread = (result.unread ?? []).map((u) => ({ object: u.objectApiName, reason: u.reason }));
   return {
     checkpoint: {
@@ -1581,6 +1658,7 @@ export function resultJson(
     ...talliesOf(result),
     ...(act === 'rewind'
       ? {
+          recreated: recreatedTally(result),
           cannotUndo: (diff?.objects ?? []).flatMap((o) =>
             o.cannotUndo
               .filter((line) => line.count > 0)
@@ -2187,6 +2265,7 @@ async function rewind(
           previewId: preview.diff.previewId,
           acceptAutomation: args.acceptAutomation,
           acceptNoUndo: args.acceptNoUndo,
+          acceptRecreate: args.acceptRecreate,
           acceptOutside: args.acceptOutside,
         },
         timeoutMs: WRITE_TIMEOUT_MS,

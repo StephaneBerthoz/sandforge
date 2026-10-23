@@ -177,6 +177,7 @@ function connectionOf(org: HandlerTestOrg, onQuery?: (soql: string) => void) {
     tooling: { describeGlobal: () => Promise.resolve({ sobjects: [] }) },
     sobject: (objectApiName: string) => ({
       update: (records: Array<Record<string, unknown>>) => org.update(objectApiName, records),
+      create: (records: Array<Record<string, unknown>>) => org.create(objectApiName, records),
       destroy: (ids: string[]) => org.destroy(objectApiName, ids),
     }),
     soap: {
@@ -968,6 +969,7 @@ function rewindOf(checkpointId: string, previewId: string, accepted: Record<stri
     previewId,
     acceptAutomation: false,
     acceptNoUndo: false,
+    acceptRecreate: false,
     acceptOutside: false,
     ...accepted,
   };
@@ -1191,6 +1193,36 @@ describe('CheckpointHandler — the rewind and its undo', () => {
       rewindOf(checkpointId, previewId, { acceptAutomation: true }),
     );
     expect(resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response').status).toBe('success');
+  });
+
+  it('passes on whether the records the recycle bin no longer gives back may be made again with new Ids: refused without it, writing nothing, made with it', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.trash('Case', id('500', 1), COLLEAGUE);
+    h.org.purge(id('500', 1));
+    clock = T0 + 120_000;
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const before = stateOf(h.org);
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'RECREATE',
+      retryable: false,
+    });
+    expect(stateOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptRecreate: true }),
+    );
+    const result = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    expect(result.status).toBe('success');
+    expect(h.org.all('Case')).toHaveLength(1);
   });
 
   it('refuses a rewind and an undo while a run of this window writes to the org, as its handler says, writing nothing; each goes once the run has ended', async () => {

@@ -21,6 +21,9 @@ import {
   diffEstimate,
   readBudget,
   relationshipsOf,
+  bulkJobRequests,
+  bulkJobStateReads,
+  recreateCost,
   removalCost,
   restoreCost,
   rewindEstimate,
@@ -347,10 +350,36 @@ describe('the bricks, as they send their requests to the org', () => {
     expect(await run(false)).toBeLessThan(cost.apiRequests);
   });
 
-  it('prices no Bulk call: the deletes past 10,000 records of an object are counted as the REST calls of 200 they stand for', () => {
+  it('prices a Bulk API job by the calls it sends, as the org counted one live: a job of 200 deletes with two reads of its state cost five', () => {
+    // P9, on a scratch org: opened, its CSV sent, closed, its state read
+    // twice, its results never read — five of the day's requests, the
+    // /limits delta the same.
+    expect(bulkJobRequests({ stateReads: 2, resultReads: 0 })).toBe(5);
+    // A removal's job reads its results three ways once through.
+    expect(bulkJobRequests({ stateReads: 2 })).toBe(8);
+  });
+
+  it('reads the state of a job once as it is closed, then once every five seconds of its time', () => {
+    // 24 seconds of waiting, then 750 deletes a second: 12,000 take 40.
+    expect(bulkJobStateReads(12_000)).toBe(1 + 8);
+    expect(bulkJobStateReads(50_000)).toBe(1 + Math.ceil((24 + 50_000 / 750) / 5));
+  });
+
+  it('prices the deletes past 10,000 records of an object as the Bulk API jobs the removal sends them in, never as the REST calls of 200 they stand for', () => {
     const cost = removalCost([{ records: 12_000, dependents: 0 }]);
-    // 3 for the call; a describe, 60 reads by id, 60 deletes of 200.
-    expect(cost.apiRequests).toBe(3 + 1 + 60 + 60);
+    // 3 for the call; a describe, 60 reads by id, one job: opened, sent,
+    // closed, nine reads of its state, its results read three ways.
+    expect(cost.apiRequests).toBe(3 + 1 + 60 + (3 + 9 + 3));
+    // 50,500 go as two jobs of 25,250, as the removal cuts them.
+    const two = removalCost([{ records: 50_500, dependents: 0 }]);
+    const job = bulkJobRequests({ stateReads: bulkJobStateReads(25_250) });
+    expect(two.apiRequests).toBe(3 + 1 + 253 + 2 * job);
+    // Under 10,000, and a file's versions whatever their number, by REST.
+    expect(removalCost([{ records: 9_999, dependents: 0 }]).apiRequests).toBe(3 + 1 + 50 + 50);
+    expect(
+      removalCost([{ objectApiName: 'ContentVersion', records: 12_000, dependents: 0 }])
+        .apiRequests,
+    ).toBe(3 + 1 + 60 + 60);
   });
 
   it('gives back in chunks of 2,000, each a call with its clock and its user, and reads a wide object a quarter as many ids a statement', () => {
@@ -587,6 +616,28 @@ describe('rewindEstimate', () => {
     expect(estimate.records).toBe(454 + 10 + 8);
     // The journal: the values of the 18 records given back, the ids of the 462 deleted or brought back.
     expect(estimate.bytes).toBe(18 * 500 + 462 * 40);
+  });
+
+  it('counts what it makes again with new Ids: a describe of each object, an insert of 200 a call, its records among the act’s and journaled twice, and the scan of their ids the diff read them by', () => {
+    expect(recreateCost([0, 201, 3]).apiRequests).toBe(1 + 2 + (1 + 1));
+    const making = {
+      objects: [held('Account', 50)],
+      diff: { objects: [found('Account', { toRecreate: 201 })], unread: [] },
+      automationRequests: 0,
+      relationships: DESCRIBED,
+    };
+    const nothing = { ...making, diff: { objects: [found('Account')], unread: [] } };
+    const estimate = rewindEstimate(making);
+
+    expect(estimate.records).toBe(201);
+    expect(estimate.bytes).toBe(2 * 201 * 40);
+    // The fresh diff scans the object's ids for what left the bin; the user
+    // the rewind writes as; the describe and two inserts; the read after the
+    // pass finds the 201 live, their values read by id, nothing scanned.
+    expect(diffEstimate(making).apiRequests).toBeGreaterThan(diffEstimate(nothing).apiRequests);
+    expect(estimate.apiRequests).toBeGreaterThan(
+      4 + diffEstimate(making).apiRequests + 1 + (1 + 2),
+    );
   });
 
   it('reads no fresh diff when the command line rewinds from the preview it just read, and describes what it brings records back to, and what comes back with them, as it brings them back', () => {

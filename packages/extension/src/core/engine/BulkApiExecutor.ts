@@ -91,6 +91,12 @@ const NOT_PROCESSED = 'Record not processed by Bulk API job';
 const UNMATCHED_IDS_NAMED = 10;
 
 /**
+ * How long a job is left between two reads of its state: each read is one of
+ * the org's daily requests, so a job's reads are its time over this, and one.
+ */
+export const BULK_POLL_INTERVAL_MS = 5_000;
+
+/**
  * The `sf__Created` column of a successful row: what an upsert did with the
  * record. A result read as CSV holds it as text.
  */
@@ -515,7 +521,7 @@ export class BulkApiExecutor {
       while (status.state === 'InProgress' || status.state === 'UploadComplete') {
         deps.bulkManager.updateJobState(jobId, status.state);
         deps.onProgress?.(status.numberRecordsProcessed ?? 0, records.length);
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, BULK_POLL_INTERVAL_MS));
         status = await job.check();
       }
 

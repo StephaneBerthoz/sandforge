@@ -58,6 +58,87 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
     });
   }
 
+  /** Every insert asked, object and records, in order. */
+  readonly creates: Array<{ objectApiName: string; records: Array<Record<string, unknown>> }> = [];
+  /**
+   * Why the org refuses to make a record, as a test says, or nothing: a
+   * validation rule added since, say.
+   */
+  refuseCreate?: (
+    objectApiName: string,
+    record: Readonly<Record<string, unknown>>,
+  ) => { statusCode: string; message: string } | undefined;
+  /** Records made, to number the ids the org gives them. */
+  private made = 0;
+
+  /**
+   * Insert records as a REST collection does, one answer per record in their
+   * order: each made with a new id of its object's prefix, dated now, to the
+   * second, as created and last modified by the session's user. A lookup
+   * naming a record of an object the org holds that is no longer live is
+   * refused, as the org refuses one: `INVALID_CROSS_REFERENCE_KEY`.
+   */
+  async create(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown> {
+    this.requests++;
+    this.creates.push({ objectApiName, records: records.map((record) => ({ ...record })) });
+    const prefix = this.prefixOf(objectApiName);
+    return records.map((record) => {
+      const told = this.refuseCreate?.(objectApiName, record);
+      if (told) return { success: false, errors: [told] };
+      const dangling = Object.entries(record).find(
+        ([, value]) => this.namesKnownRecord(value) && !this.isLive(String(value)),
+      );
+      if (dangling) {
+        return {
+          success: false,
+          errors: [
+            {
+              statusCode: 'INVALID_CROSS_REFERENCE_KEY',
+              message: `invalid cross reference id`,
+              fields: [dangling[0]],
+            },
+          ],
+        };
+      }
+      const id = `${prefix}N${String(++this.made).padStart(11, '0')}AAA`;
+      this.add(objectApiName, {
+        ...record,
+        Id: id,
+        CreatedById: MEMORY_ORG_USER,
+        LastModifiedById: MEMORY_ORG_USER,
+      });
+      return { id, success: true, errors: [] };
+    });
+  }
+
+  /** The key prefix of an object's records, from one it holds or held. */
+  private prefixOf(objectApiName: string): string {
+    const held = [...this.all(objectApiName), ...this.inBin(objectApiName)][0];
+    return held ? held.Id.slice(0, 3) : 'a0X';
+  }
+
+  /** Whether `value` is an id of an object whose records the org holds or held. */
+  private namesKnownRecord(value: unknown): boolean {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(value)) {
+      return false;
+    }
+    return this.knownPrefixes().has(value.slice(0, 3));
+  }
+
+  /** The prefixes of the records the org holds, live or in the bin. */
+  private knownPrefixes(): Set<string> {
+    const prefixes = new Set<string>();
+    for (const name of this.objectNames()) {
+      for (const row of [...this.all(name), ...this.inBin(name)]) prefixes.add(row.Id.slice(0, 3));
+    }
+    return prefixes;
+  }
+
+  /** Whether a record of any object is live, by either length of its id. */
+  private isLive(id: string): boolean {
+    return this.objectNames().some((name) => this.liveRow(name, id) !== undefined);
+  }
+
   override async update(
     objectApiName: string,
     records: Array<Record<string, unknown>>,

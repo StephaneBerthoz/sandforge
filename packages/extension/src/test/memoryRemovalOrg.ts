@@ -416,6 +416,16 @@ export class MemoryRemovalOrg implements RemovalOrg {
     this.add('Contact', { Id: contactId, AccountId: account.Id, [PERSON_ACCOUNT]: true }, at);
   }
 
+  /** The objects the org holds records of, live or in the recycle bin. */
+  objectNames(): string[] {
+    return [
+      ...new Set([
+        ...this.rows.keys(),
+        ...[...this.binned.values()].map((held) => held.objectApiName),
+      ]),
+    ];
+  }
+
   /** The rows of an object still in the org. */
   all(objectApiName: string): MemoryRow[] {
     return [...(this.rows.get(objectApiName)?.values() ?? [])];
@@ -738,9 +748,16 @@ export class MemoryRemovalOrg implements RemovalOrg {
     }
   }
 
-  /** Empty a row from the recycle bin: gone for good. */
+  /**
+   * Empty a row from the recycle bin, with what its delete took along: gone
+   * for good, all of them, as emptying a record from the bin empties what
+   * went with it.
+   */
   purge(id: string): void {
-    this.binned.delete(keyOf(id));
+    const key = keyOf(id);
+    for (const [other, held] of this.binned) {
+      if (other === key || held.deletedWith === key) this.binned.delete(other);
+    }
   }
 
   /** Take rows out of the recycle bin, as `conn.soap.undelete` does: one answer per id. */

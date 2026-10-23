@@ -31,6 +31,7 @@ import {
   id,
   journalKinds,
   line,
+  liveAsHeld,
   liveIds,
   opportunity,
   order,
@@ -54,6 +55,7 @@ import { readRewindJournal } from './rewindJournal.js';
 import {
   REWIND_RESIDUAL_IDS,
   RewindStopped,
+  counted,
   inRewindWords,
   rewindOrgOf,
   type RewindOutcome,
@@ -579,11 +581,15 @@ describe('rewindOrg: the second pass and the verify', () => {
         const diff = await previewed(t);
         const said = JSON.stringify(facts);
 
-        const result = resultOf(await rewound(t, diff.previewId));
+        // Where a delete left its stamps, refuted live, what it deleted reads
+        // as gone from the bin: made again, with new Ids, as accepted.
+        const result = resultOf(
+          await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+        );
 
         expect(result.status, said).not.toBe('unstable');
         const named = new Set(result.residual.flatMap(({ ids }) => ids));
-        const now = stateOf(t.org).live;
+        const now = liveAsHeld(stateOf(t.org), t.folder);
         for (const [objectApiName, rows] of Object.entries(t.atCheckpoint.live)) {
           const held = new Map(
             (rows as Array<{ Id: string }>).map((row) => [row.Id, JSON.stringify(row)]),
@@ -865,6 +871,321 @@ describe('rewindOrg: what it refuses before it writes', () => {
   });
 });
 
+describe('rewindOrg: records the recycle bin no longer gives back, made again under new Ids', () => {
+  /** A colleague deleted the second account — its two contacts going with it — and emptied it from the bin. */
+  function emptiedFromTheBin(org: RewindTestOrg): void {
+    clock.now = SINCE;
+    org.trash('Account', account(2), COLLEAGUE);
+    org.purge(account(2));
+  }
+
+  /** The record the org made again of `held`, by the values it holds now. */
+  function madeOf(org: RewindTestOrg, objectApiName: string, name: string): string {
+    const field = objectApiName === 'Account' ? 'Name' : 'LastName';
+    const row = org.all(objectApiName).find((each) => each[field] === name);
+    if (!row) throw new Error(`no ${objectApiName} ${name} was made again`);
+    return row.Id;
+  }
+
+  it('refuses to make them again until it is accepted that their Ids are new, saying what a new Id breaks, having written nothing', async () => {
+    const t = await taken();
+    emptiedFromTheBin(t.org);
+    const diff = await previewed(t);
+    expect(diff.objects.map((object) => [object.objectApiName, object.toRecreate])).toEqual([
+      ['Contact', 2],
+      ['Account', 1],
+    ]);
+    const before = stateOf(t.org);
+
+    const outcome = await rewound(t, diff.previewId);
+
+    expect(outcome).toMatchObject({ rewound: false, refusal: { code: 'RECREATE' } });
+    if (outcome.rewound) return;
+    expect(outcome.refusal.message).toMatch(/3 Contact, Account record\(s\) deleted since/);
+    expect(outcome.refusal.message).toMatch(/new Ids/);
+    expect(outcome.refusal.message).toMatch(/outside Salesforce/);
+    expect(t.org.creates).toEqual([]);
+    expect(stateOf(t.org)).toEqual(before);
+    expect(existsSync(t.folder.rewindsDir) ? readdirSync(t.folder.rewindsDir) : []).toEqual([]);
+  });
+
+  it('makes them again from the checkpoint, parents first, what it makes naming the new Ids, and leaves the org as the checkpoint holds it but for their Ids, within its estimate', async () => {
+    const t = await taken();
+    emptiedFromTheBin(t.org);
+    clock.now = PREVIEWED;
+    const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
+    if (!preview.previewed) throw new Error(preview.refusal.message);
+    const asked = spent(t.org);
+
+    const result = resultOf(
+      await rewound(t, preview.diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Account', planned: 1, created: 1, refused: 0, reasons: [] },
+      { objectApiName: 'Contact', planned: 2, created: 2, refused: 0, reasons: [] },
+    ]);
+    expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account', 'Contact']);
+    const made = madeOf(t.org, 'Account', 'Account two');
+    expect(made).not.toBe(account(2));
+    expect(
+      t.org
+        .all('Contact')
+        .filter((row) => row.LastName === 'One' || row.LastName === 'Two')
+        .map((row) => row.AccountId),
+    ).toEqual([made, made]);
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+    // Named before each insert by the Ids they had, after it by their new ones.
+    const kinds = journalKinds(t.folder, result.rewindId);
+    expect(kinds.filter((kind) => kind === 'recreating' || kind === 'recreated')).toEqual([
+      'recreating',
+      'recreated',
+      'recreating',
+      'recreated',
+    ]);
+    expect(result.apiRequests.used).toBe(spent(t.org) - asked);
+    expect(result.apiRequests.used).toBeLessThanOrEqual(preview.estimate.apiRequests);
+  });
+
+  it('gives a record of the checkpoint whose lookup named a record made again the record’s new Id', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('Contact', { Id: contact(7), LastName: 'Boss', AccountId: account(1) });
+        org.edit('Contact', contact(1), { ReportsToId: contact(7) });
+      },
+      new RewindTestOrg({
+        fields: {
+          ...FIELDS,
+          Contact: [
+            ...(FIELDS.Contact ?? []),
+            writable('ReportsToId', 'reference', { referenceTo: ['Contact'] }),
+          ],
+        },
+        children: {
+          ...CHILDREN,
+          Contact: [{ childSObject: 'Contact', field: 'ReportsToId' }],
+        },
+      }),
+    );
+    clock.now = SINCE;
+    // The delete empties the lookup that named the boss, and restamps its contact.
+    t.org.trash('Contact', contact(7), COLLEAGUE);
+    t.org.purge(contact(7));
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    const boss = madeOf(t.org, 'Contact', 'Boss');
+    expect(t.org.all('Contact').find((row) => row.Id === contact(1))?.ReportsToId).toBe(boss);
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+
+    // Undone: what it made goes to the bin, and the lookup it gave the new Id is emptied again.
+    const before = stateOf(t.org, ['Contact'], ['LastName', 'AccountId', 'ReportsToId']);
+    expect(before.live.Contact).toContainEqual(
+      expect.objectContaining({ Id: contact(1), ReportsToId: boss }),
+    );
+    const undo = await undone(t, result.rewindId);
+    expect(undo.status).toBe('success');
+    expect(t.org.all('Contact').map((row) => row.Id)).not.toContain(boss);
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toContain(boss);
+    expect(t.org.all('Contact').find((row) => row.Id === contact(1))?.ReportsToId).toBeNull();
+  });
+
+  it('fills in a lookup to a record of the same object made after the one that names it, once both are made', async () => {
+    const t = await taken(
+      (org) => {
+        org.add('Account', { Id: account(1), Name: 'Child' });
+        org.add('Account', { Id: account(2), Name: 'Parent' });
+        org.edit('Account', account(1), { ParentId: account(2) });
+        // Live throughout: the org knows its accounts' Ids, and refuses one gone.
+        org.add('Account', { Id: account(3), Name: 'Kept' });
+      },
+      new RewindTestOrg({
+        fields: {
+          ...FIELDS,
+          Account: [
+            ...(FIELDS.Account ?? []),
+            writable('ParentId', 'reference', { referenceTo: ['Account'] }),
+          ],
+        },
+        children: { ...CHILDREN, Account: [{ childSObject: 'Account', field: 'ParentId' }] },
+      }),
+    );
+    clock.now = SINCE;
+    for (const id of [account(1), account(2)]) {
+      t.org.trash('Account', id, COLLEAGUE);
+      t.org.purge(id);
+    }
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    const child = madeOf(t.org, 'Account', 'Child');
+    const parent = madeOf(t.org, 'Account', 'Parent');
+    // Made in one insert, the child without its parent, then filled in.
+    expect(t.org.creates).toHaveLength(1);
+    expect(t.org.updates).toContainEqual({
+      objectApiName: 'Account',
+      records: [{ Id: child, ParentId: parent }],
+    });
+    expect(t.org.all('Account').find((row) => row.Id === child)?.ParentId).toBe(parent);
+  });
+
+  it('names a record made in an earlier insert of the same object by its new Id: 201 accounts under the first, made 200 a call', async () => {
+    const fields = {
+      ...FIELDS,
+      Account: [
+        ...(FIELDS.Account ?? []),
+        writable('ParentId', 'reference', { referenceTo: ['Account'] }),
+      ],
+    };
+    const t = await taken(
+      (org) => {
+        org.add('Account', { Id: account(1), Name: 'Head' });
+        for (let n = 2; n <= 201; n++) {
+          org.add('Account', { Id: account(n), Name: `Branch ${n}`, ParentId: account(1) });
+        }
+        org.add('Account', { Id: account(300), Name: 'Kept' });
+      },
+      new RewindTestOrg({
+        fields,
+        children: { ...CHILDREN, Account: [{ childSObject: 'Account', field: 'ParentId' }] },
+      }),
+      PICKED,
+      { objects: ['Account'], fields: ['Name', 'ParentId'] },
+    );
+    clock.now = SINCE;
+    for (let n = 1; n <= 201; n++) {
+      t.org.trash('Account', account(n), COLLEAGUE);
+      t.org.purge(account(n));
+    }
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(t.org.creates.map(({ records }) => records.length)).toEqual([200, 1]);
+    const head = madeOf(t.org, 'Account', 'Head');
+    const last = t.org.all('Account').find((row) => row.Name === 'Branch 201');
+    // Sent in the second insert, naming the head the first one made.
+    expect(t.org.creates[1].records[0]).toMatchObject({ Name: 'Branch 201', ParentId: head });
+    expect(last?.ParentId).toBe(head);
+    expect(liveAsHeld(stateOf(t.org, ['Account'], ['Name', 'ParentId']), t.folder)).toEqual(
+      t.atCheckpoint.live,
+    );
+  });
+
+  it('names a record the org refuses to make, in its words, the rest made', async () => {
+    const t = await taken();
+    emptiedFromTheBin(t.org);
+    t.org.refuseCreate = (objectApiName, record) =>
+      objectApiName === 'Contact' && record.LastName === 'Two'
+        ? { statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION', message: 'A phone is required' }
+        : undefined;
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('partial');
+    expect(result.residual).toEqual([
+      {
+        objectApiName: 'Contact',
+        reason: 'refused',
+        count: 1,
+        ids: [contact(2)],
+        message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: A phone is required',
+      },
+    ]);
+    // Tried once more by the second pass, which the org refused again.
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Account', planned: 1, created: 1, refused: 0, reasons: [] },
+      {
+        objectApiName: 'Contact',
+        planned: 2,
+        created: 1,
+        refused: 1,
+        reasons: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: A phone is required'],
+      },
+    ]);
+    expect(t.org.all('Contact').map((row) => row.LastName)).toContain('One');
+  });
+
+  it('rewound again, makes nothing a second time: what it made is the checkpoint’s', async () => {
+    const t = await taken();
+    emptiedFromTheBin(t.org);
+    resultOf(
+      await rewound(t, (await previewed(t)).previewId, { request: { acceptRecreate: true } }),
+    );
+    const made = t.org.creates.length;
+
+    clock.now += 60_000;
+    const again = await previewed(t);
+    expect(again.objects.some((object) => (object.toRecreate ?? 0) > 0)).toBe(false);
+    const result = resultOf(
+      await rewound(t, again.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.recreated).toBeUndefined();
+    expect(t.org.creates).toHaveLength(made);
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+  });
+
+  it('stopped once an insert answered, then rewound again, makes no record twice', async () => {
+    const t = await taken();
+    emptiedFromTheBin(t.org);
+    const diff = await previewed(t);
+    const controller = new AbortController();
+    const stopping = new Proxy(t.org, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== 'function') return value;
+        const call = value as (...args: unknown[]) => unknown;
+        if (property !== 'create') return call.bind(target);
+        return async (...args: unknown[]) => {
+          const answer = await call.apply(target, args);
+          controller.abort();
+          return answer;
+        };
+      },
+    });
+
+    const stopped = resultOf(
+      await rewound(t, diff.previewId, {
+        request: { acceptRecreate: true },
+        deps: {
+          org: stopping,
+          undelete: (ids) => stopping.undelete(ids),
+          signal: controller.signal,
+        },
+      }),
+    );
+    expect(stopped.status).toBe('cancelled');
+    expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account']);
+
+    clock.now += 60_000;
+    const result = resultOf(
+      await rewound(t, (await previewed(t)).previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account', 'Contact']);
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+  });
+});
+
 describe('rewindOrg: stopped, and taken up again', () => {
   it(
     'stopped at any call, leaves its journal open; the next rewind takes it up, sends again nothing it did, ends where a whole rewind ends, and Undo returns the org to how it was before the first pass',
@@ -1004,6 +1325,44 @@ describe('rewindOrg: what it costs', () => {
   });
 });
 
+describe('counted', () => {
+  it('counts a Bulk API job by the calls it says it sent, as the org counts them, and one when it does not say', async () => {
+    const org = new RewindTestOrg();
+    const answers = [
+      { kind: 'answered' as const, rows: [{ success: true as const }], requests: 5 },
+      { kind: 'answered' as const, rows: [{ success: true as const }] },
+    ];
+    const count = counted(
+      {
+        ...org,
+        get version() {
+          return org.version;
+        },
+        request: (asked) => org.request(asked),
+        query: (soql, options) => org.query(soql, options),
+        queryMore: (url) => org.queryMore(url),
+        describeGlobal: () => org.describeGlobal(),
+        serverTime: () => org.serverTime(),
+        userId: () => org.userId(),
+        describe: (name) => org.describe(name),
+        update: (name, records) => org.update(name, records),
+        create: (name, records) => org.create(name, records),
+        destroy: (name, ids) => org.destroy(name, ids),
+        queryDeleted: (soql) => org.queryDeleted(soql),
+        bulkDestroy: () => Promise.resolve(answers.shift() ?? { kind: 'aborted' }),
+      },
+      (ids) => org.undelete(ids),
+    );
+
+    // P9, live: a job of 200 deletes, opened, sent, closed, its state read
+    // twice, took five of the day's requests.
+    await count.org.bulkDestroy?.('Account', [account(1)]);
+    expect(count.used()).toBe(5);
+    await count.org.bulkDestroy?.('Account', [account(2)]);
+    expect(count.used()).toBe(6);
+  });
+});
+
 describe('inRewindWords', () => {
   it('words what a rewind leaves as left as it is, never as the run wrote it', () => {
     expect(
@@ -1065,6 +1424,10 @@ describe('rewindOrgOf', () => {
           calls.push(`update ${name}`);
           return Promise.resolve([]);
         },
+        create: (_records: unknown, options?: { headers?: Record<string, string> }) => {
+          calls.push(`create ${name} ${Object.keys(options?.headers ?? {}).join(',')}`);
+          return Promise.resolve([]);
+        },
         destroy: () => {
           calls.push(`destroy ${name}`);
           return Promise.resolve([]);
@@ -1086,6 +1449,7 @@ describe('rewindOrgOf', () => {
     await org.describeGlobal();
     await org.request({ method: 'GET', url: '/limits' });
     await org.update('Account', [{ Id: account(1) }]);
+    await org.create('Account', [{ Name: 'Made again' }]);
     await org.destroy('Account', [account(1)]);
     expect(await org.serverTime()).toBe('2026-10-22T14:05:12.000Z');
     expect(await org.userId()).toBe(MEMORY_ORG_USER);
@@ -1097,6 +1461,8 @@ describe('rewindOrgOf', () => {
       'global',
       'request /limits',
       'update Account',
+      // Sent as every write is: a duplicate rule lets it save, the owner it had kept.
+      'create Account Sforce-Duplicate-Rule-Header,Sforce-Auto-Assign',
       'destroy Account',
     ]);
   });

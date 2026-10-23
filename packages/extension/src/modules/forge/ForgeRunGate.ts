@@ -1528,6 +1528,7 @@ export function removalAutomationLines(
 /** What a step of a removal that takes a whole run back does to the record it fires on, as the command line says it. */
 const REMOVAL_STEP_WORDS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
   bringBack: 'brought back from the recycle bin',
+  recreate: 'made again with a new Id',
   giveBack: 'given back its values from before the run',
   setToDraft: 'set back to Draft before its delete',
 };

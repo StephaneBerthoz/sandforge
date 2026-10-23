@@ -90,4 +90,37 @@ describe('MemoryRestoreOrg', () => {
     expect(written).toEqual([{ id: opportunity, success: true, errors: [] }]);
     expect(org.all('Opportunity')[0]).toMatchObject({ Pricebook2Id: '01s000000000001AAA' });
   });
+
+  it('makes records under new ids of their object’s prefix, dated now as the session’s user, refusing one a test names and one whose lookup names a record no longer live', async () => {
+    const org = new MemoryRestoreOrg({}, { now: () => Date.parse('2026-10-22T20:17:26.731Z') });
+    org.add('Account', { Id: A1, Name: 'Live' });
+    org.add('Account', { Id: A2, Name: 'Gone' });
+    org.trash('Account', A2);
+    org.refuseCreate = (_objectApiName, record) =>
+      record.LastName === 'Refused'
+        ? { statusCode: 'DUPLICATES_DETECTED', message: 'dup' }
+        : undefined;
+
+    const answer = (await org.create('Contact', [
+      { LastName: 'Made', AccountId: A1 },
+      { LastName: 'Refused', AccountId: A1 },
+      { LastName: 'Orphan', AccountId: A2 },
+    ])) as Array<{ id?: string; success: boolean; errors: unknown[] }>;
+
+    expect(answer.map(({ success }) => success)).toEqual([true, false, false]);
+    expect(answer[1].errors).toEqual([{ statusCode: 'DUPLICATES_DETECTED', message: 'dup' }]);
+    expect(answer[2].errors).toEqual([
+      expect.objectContaining({ statusCode: 'INVALID_CROSS_REFERENCE_KEY', fields: ['AccountId'] }),
+    ]);
+    const [made] = org.all('Contact');
+    expect(made).toMatchObject({
+      Id: answer[0].id,
+      LastName: 'Made',
+      CreatedDate: '2026-10-22T20:17:26.000Z',
+      SystemModstamp: '2026-10-22T20:17:26.000Z',
+      LastModifiedById: MEMORY_ORG_USER,
+    });
+    expect(org.creates).toHaveLength(1);
+    expect(org.requests).toBe(1);
+  });
 });

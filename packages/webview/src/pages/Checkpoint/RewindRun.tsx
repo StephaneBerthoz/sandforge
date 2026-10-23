@@ -14,6 +14,7 @@ import { rewindPhases, type RewindPhase } from './rewindPreviewFacts';
 /** What each phase of a rewind that writes says it does, with the records it acts on. */
 const PHASE_KEYS: Readonly<Record<Exclude<RewindPhase, 'check'>, string>> = {
   bringBack: 'checkpoint.run.phase.bringBack',
+  recreate: 'checkpoint.run.phase.recreate',
   giveBack: 'checkpoint.run.phase.giveBack',
   delete: 'checkpoint.run.phase.delete',
 };

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import type {
   OrgCheckpoint,
+  RewindRecreatedObject,
   RewindResidualReason,
   RewindResult as RewindOutcome,
   RewindUndoCannotReason,
@@ -104,6 +105,49 @@ const UNDO_RESTORED: RestoredResultWords = {
   keptChanged: 'checkpoint.result.undo.keptChanged',
 };
 
+/**
+ * What a rewind made again with new Ids, object by object: those the recycle
+ * bin no longer gave back, and of them what the org refused, in its words, or
+ * a stop left.
+ */
+const RecreatedResult: React.FC<{
+  recreated: readonly RewindRecreatedObject[];
+  orgName: string;
+}> = ({ recreated, orgName }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-result-recreated"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.result.recreated.title', { org: orgName })}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {recreated.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`checkpoint-result-recreated-${object.objectApiName}`}
+          >
+            {t('checkpoint.result.recreated.line', {
+              object: object.objectApiName,
+              created: formatNumber(object.created),
+              planned: formatNumber(object.planned),
+            })}
+            {object.refused > 0 &&
+              ` · ${t('checkpoint.result.refused', { org: orgName, n: formatNumber(object.refused) })}` +
+                (object.reasons[0] ? ` (${object.reasons[0]})` : '')}
+            {(object.notReached ?? 0) > 0 &&
+              ` · ${t('checkpoint.result.notReached', { n: formatNumber(object.notReached ?? 0) })}`}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
 /** Props for {@link RewindResult}. */
 export interface RewindResultProps {
   kind: RunKind;
@@ -132,7 +176,8 @@ export interface RewindResultProps {
  * comparing, what someone else changed during the rewind, left as they made
  * it, what changed since the preview, what the org refused and what the
  * recycle bin no longer holds — then object by object what it brought back,
- * gave back and deleted, what it cost, and until when it can be undone.
+ * made again with new Ids, gave back and deleted, what it cost, and until
+ * when it can be undone.
  */
 export const RewindResult: React.FC<RewindResultProps> = ({
   kind,
@@ -201,6 +246,9 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           words={rewinding ? REWIND_UNDELETED : UNDO_UNDELETED}
           testId="checkpoint-result-undeleted"
         />
+      )}
+      {rewinding && (result.recreated?.length ?? 0) > 0 && (
+        <RecreatedResult recreated={result.recreated ?? []} orgName={orgName} />
       )}
       {result.restored.length > 0 && (
         <RestoredResult

@@ -41,6 +41,7 @@ import {
   heldAsItWas,
   lastChangers,
   outsideLines,
+  recreateLines,
   rewindSteps,
   rewindTotals,
   rewindWrites,
@@ -65,13 +66,14 @@ const DAY_MS = 86_400_000;
 
 /**
  * The refusals the preview's boxes lift: what the org runs as a rewind
- * writes, and the records Undo could not bring back. Any other the preview
- * names — a SandForge run writing to the org, too few API requests left
- * today — holds the rewind whatever is ticked.
+ * writes, the records Undo could not bring back, and the records made again
+ * with new Ids. Any other the preview names — a SandForge run writing to the
+ * org, too few API requests left today — holds the rewind whatever is ticked.
  */
-const LIFTED_BY: Partial<Record<CheckpointRefusalCode, 'automation' | 'noUndo'>> = {
+const LIFTED_BY: Partial<Record<CheckpointRefusalCode, 'automation' | 'noUndo' | 'recreate'>> = {
   AUTOMATION: 'automation',
   NO_UNDO: 'noUndo',
+  RECREATE: 'recreate',
 };
 
 /** What the preview's automation section says, as a rewind writes. */
@@ -90,6 +92,7 @@ const AUTOMATION_WORDS: RemovalAutomationWords = {
  */
 const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
   bringBack: 'checkpoint.preview.automation.broughtBack',
+  recreate: 'runRemoval.automation.recreated',
   giveBack: 'checkpoint.preview.automation.givenBack',
   setToDraft: 'runRemoval.automation.drafted',
 };
@@ -132,6 +135,7 @@ export interface RewindAcceptances {
   previewId: string;
   acceptAutomation: boolean;
   acceptNoUndo: boolean;
+  acceptRecreate: boolean;
   acceptOutside: boolean;
 }
 
@@ -155,6 +159,7 @@ export interface RewindPreviewProps {
 interface Ticked {
   automation: boolean;
   noUndo: boolean;
+  recreate: boolean;
   outside: boolean;
 }
 
@@ -170,8 +175,10 @@ interface Ticked {
  * Every number is the extension's diff's: the page adds an object's classes
  * into a column and the objects into a total, and counts nothing itself.
  *
- * What Undo could not bring back, and the automation the org runs as the
- * rewind writes, are each accepted with a box before Rewind can be pressed;
+ * What Undo could not bring back, the records the recycle bin no longer gives
+ * back, which the rewind makes again with new Ids, and the automation the org
+ * runs as the rewind writes, are each accepted with a box before Rewind can be
+ * pressed;
  * in a checkpoint of
  * picked objects, the records outside it that its deletions take along go
  * only when their box is ticked, and their parents stay otherwise. A box is
@@ -351,9 +358,11 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const orgName = org.alias || org.username;
   const { diff, automation, emails, estimate, refusal } = answer;
   const undoCannotId = useId();
+  const recreateId = useId();
   const [ticked, setTicked] = useState<Ticked>({
     automation: false,
     noUndo: false,
+    recreate: false,
     outside: false,
   });
   // What Rewind accepted as it was pressed, while the org's name is typed.
@@ -378,6 +387,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const automationFound =
     automation !== undefined && (fired.length > 0 || blindedBy(automation.unread));
   const outside = outsideLines(diff);
+  const remade = recreateLines(diff);
   const picked = checkpoint.scope.mode === 'picked';
 
   const lifted = refusal ? LIFTED_BY[refusal.code] : undefined;
@@ -387,6 +397,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     !readingAgain &&
     !refused &&
     (diff.undoCannot.length === 0 || ticked.noUndo) &&
+    (remade.length === 0 || ticked.recreate) &&
     (!automationFound || ticked.automation);
 
   const rewind = (): void => {
@@ -395,6 +406,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       previewId: diff.previewId,
       acceptAutomation: automationFound && ticked.automation,
       acceptNoUndo: diff.undoCannot.length > 0 && ticked.noUndo,
+      acceptRecreate: remade.length > 0 && ticked.recreate,
       // A checkpoint of everything people work in takes them along, as the
       // preview said: only a checkpoint of picked objects asks.
       acceptOutside: outside.length > 0 && (!picked || ticked.outside),
@@ -491,6 +503,39 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </section>
       )}
 
+      {remade.length > 0 && (
+        <section
+          aria-labelledby={recreateId}
+          className="flex flex-col gap-1.5"
+          data-testid="checkpoint-preview-recreate"
+        >
+          <h3 id={recreateId} className="text-sm font-semibold">
+            {t('checkpoint.preview.recreate.title')}
+          </h3>
+          <ul className="ml-4 list-disc">
+            {remade.map((line) => (
+              <li
+                key={line.objectApiName}
+                data-testid={`checkpoint-preview-recreate-${line.objectApiName}`}
+              >
+                {t('checkpoint.preview.recreate.line', {
+                  count: line.count,
+                  formatted: formatNumber(line.count),
+                  object: line.objectApiName,
+                })}
+              </li>
+            ))}
+          </ul>
+          <p>{t('checkpoint.preview.recreate.newIds')}</p>
+          <Box
+            checked={ticked.recreate}
+            onChange={(value) => tick('recreate', value)}
+            label={t('checkpoint.preview.recreate.accept')}
+            testId="checkpoint-preview-accept-recreate"
+          />
+        </section>
+      )}
+
       {outside.length > 0 && (
         <OutsideBox
           lines={outside}
@@ -577,7 +622,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 /**
  * What the typed confirmation of a rewind says it does: to what moment it
  * returns the org, and only the parts of it that apply — the records it
- * deletes, gives back and brings back — whoever made the changes.
+ * deletes, gives back, brings back and makes again — whoever made the changes.
  */
 function confirmDescription(
   t: TFunction,
@@ -590,6 +635,7 @@ function confirmDescription(
     [totals.toDelete, 'checkpoint.preview.confirm.delete'],
     [totals.toGiveBack, 'checkpoint.preview.confirm.giveBack'],
     [totals.toBringBack, 'checkpoint.preview.confirm.bringBack'],
+    [totals.toRecreate, 'checkpoint.preview.confirm.recreate'],
   ];
   const changes = parts
     .filter(([count]) => count > 0)
@@ -642,6 +688,17 @@ const Numbers: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
       count: totals.toBringBack,
       testId: 'bring-back',
     },
+    // Only when some are: most rewinds bring everything back from the bin.
+    ...(totals.toRecreate > 0
+      ? [
+          {
+            key: 'checkpoint.preview.toRecreate',
+            hint: 'checkpoint.preview.toRecreateHint',
+            count: totals.toRecreate,
+            testId: 'recreate',
+          },
+        ]
+      : []),
   ];
   return (
     <ul className="flex flex-wrap gap-2" data-testid="checkpoint-preview-numbers">
@@ -707,9 +764,12 @@ const People: React.FC<{ diff: RewindDiff; checkpoint: OrgCheckpoint; org: Sales
   );
 };
 
-/** Object by object: what a rewind deletes, gives back, brings back and cannot undo. */
+/** Object by object: what a rewind deletes, gives back, brings back, makes again and cannot undo. */
 const ObjectTable: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
   const { t } = useTranslation();
+  const rows = diff.objects.map(rowOf);
+  // A column of its own only when the rewind makes any record again.
+  const remakes = rows.some((row) => row.toRecreate > 0);
   const cell = 'py-1 pr-3';
   const header = `${cell} font-medium text-text-secondary`;
   const number = `${cell} text-right tabular-nums`;
@@ -730,13 +790,18 @@ const ObjectTable: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
           <th scope="col" className={`${header} text-right`}>
             {t('checkpoint.preview.table.bringBack')}
           </th>
+          {remakes && (
+            <th scope="col" className={`${header} text-right`}>
+              {t('checkpoint.preview.table.recreate')}
+            </th>
+          )}
           <th scope="col" className={`${header} text-right`}>
             {t('checkpoint.preview.table.cannotUndo')}
           </th>
         </tr>
       </thead>
       <tbody>
-        {diff.objects.map(rowOf).map((row) => (
+        {rows.map((row) => (
           <tr
             key={row.objectApiName}
             className="border-b border-subtle last:border-0"
@@ -748,6 +813,7 @@ const ObjectTable: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
             <td className={number}>{formatNumber(row.toDelete)}</td>
             <td className={number}>{formatNumber(row.toGiveBack)}</td>
             <td className={number}>{formatNumber(row.toBringBack)}</td>
+            {remakes && <td className={number}>{formatNumber(row.toRecreate)}</td>}
             <td className={number}>{formatNumber(row.cannotUndo)}</td>
           </tr>
         ))}

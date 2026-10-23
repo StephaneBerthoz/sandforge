@@ -185,6 +185,7 @@ describe('parseArgs', () => {
       dryRun: false,
       acceptAutomation: false,
       acceptNoUndo: false,
+      acceptRecreate: false,
       acceptOutside: false,
       ignoreFields: [],
       yes: false,
@@ -203,6 +204,7 @@ describe('parseArgs', () => {
           '--dry-run',
           '--accept-automation',
           '--accept-no-undo',
+          '--accept-recreate',
           '--accept-outside',
           '--ignore-field',
           'Case.Last_Touched__c',
@@ -216,6 +218,7 @@ describe('parseArgs', () => {
       dryRun: true,
       acceptAutomation: true,
       acceptNoUndo: true,
+      acceptRecreate: true,
       acceptOutside: true,
       ignoreFields: ['Case.Last_Touched__c'],
       json: true,
@@ -328,6 +331,7 @@ describe('parseArgs', () => {
       '--dry-run                      the preview, then stop',
       '--accept-automation            rewind even when the org runs flows, Apex triggers, processes or',
       '--accept-no-undo               rewind even when undo could not bring back some records it deletes',
+      '--accept-recreate              make again, with new Ids, the records deleted since that the',
       '--accept-outside               (a checkpoint of picked objects) also delete the records outside it',
       '--ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint',
       '--yes                          do not ask before writing; without it and with no terminal — a CI',
@@ -343,7 +347,7 @@ describe('parseArgs', () => {
       '{refusal: {code, message}}',
       '  rewind --dry-run   as preview',
       '  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,',
-      '  undo               as rewind, without cannotUndo and undo',
+      '  undo               as rewind, without recreated, cannotUndo and undo',
       'Exit codes: 0 done',
       'rewind or undo with --yes and no checkpoint named, or a question with no terminal',
       '--fail-on-change, the org differs',
@@ -605,8 +609,28 @@ describe('previewTotals and orgDiffers', () => {
       }),
       object({ objectApiName: 'Case', toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } }),
     ]);
-    expect(previewTotals(diff)).toEqual({ toDelete: 6, toGiveBack: 6, toBringBack: 7 });
+    expect(previewTotals(diff)).toEqual({
+      toDelete: 6,
+      toGiveBack: 6,
+      toBringBack: 7,
+      toRecreate: 0,
+    });
     expect(orgDiffers(diff)).toBe(true);
+  });
+
+  it('counts the records to make again with new Ids apart, and the org differs for them', () => {
+    const diff = diffOf([
+      object({ toRecreate: 2 }),
+      object({ objectApiName: 'Case', toRecreate: 1 }),
+    ]);
+    expect(previewTotals(diff)).toEqual({
+      toDelete: 0,
+      toGiveBack: 0,
+      toBringBack: 0,
+      toRecreate: 3,
+    });
+    expect(orgDiffers(diff)).toBe(true);
+    expect(previewExitCode(diff, true)).toBe(3);
   });
 
   it('says the org differs for what a rewind cannot take back, records it does not hold dated before it, and an object it could not read', () => {
@@ -615,7 +639,12 @@ describe('previewTotals and orgDiffers', () => {
       diffOf([object({ unexplained: 1 })]),
       diffOf([], { unread: [{ objectApiName: 'Case', reason: 'its read ended early' }] }),
     ]) {
-      expect(previewTotals(diff)).toEqual({ toDelete: 0, toGiveBack: 0, toBringBack: 0 });
+      expect(previewTotals(diff)).toEqual({
+        toDelete: 0,
+        toGiveBack: 0,
+        toBringBack: 0,
+        toRecreate: 0,
+      });
       expect(orgDiffers(diff)).toBe(true);
       expect(previewExitCode(diff, true)).toBe(3);
       expect(previewExitCode(diff, false)).toBe(0);
@@ -632,6 +661,17 @@ describe('previewTotals and orgDiffers', () => {
 describe('previewLines', () => {
   const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
   const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+
+  it('counts beside the three numbers the records to make again with new Ids, and says what a new Id breaks', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ objectApiName: 'Contact', toRecreate: 2 })]),
+      estimate,
+    });
+    expect(lines[1]).toBe('  0 to delete · 0 to give back · 0 to bring back · 2 to make again');
+    expect(lines).toContain(
+      '  to make again, with new Ids: Contact 2 — deleted since and no longer in the recycle bin: made again from the checkpoint, the lookups it holds that named them naming the new Ids; anything outside Salesforce that names their old Ids no longer finds them',
+    );
+  });
 
   it('leads with the three numbers, then each object and who last changed it', () => {
     const lines = previewLines('DEV-SB', checkpoint, {
@@ -770,7 +810,7 @@ function triggerOn(objectApiName: string, events: Array<'afterInsert' | 'afterUp
   return { objectApiName, flows: [], triggers: [{ name: `${objectApiName}Audit`, events }] };
 }
 
-const NOTHING_ACCEPTED = { acceptAutomation: false, acceptNoUndo: false };
+const NOTHING_ACCEPTED = { acceptAutomation: false, acceptNoUndo: false, acceptRecreate: false };
 
 describe('rewindStepsOf and acceptanceRefusal', () => {
   const diff = diffOf([
@@ -788,10 +828,32 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
   it('says which objects each step of a rewind writes, an order deleted set back to Draft first', () => {
     expect(rewindStepsOf(diff)).toEqual({
       bringBack: ['Case'],
+      recreate: [],
       giveBack: ['Account'],
       setToDraft: ['Order'],
       delete: ['Order'],
     });
+  });
+
+  it('refuses without --accept-recreate a rewind that makes records again with new Ids, saying what a new Id breaks', () => {
+    const remade = diffOf([object({ objectApiName: 'Contact', toRecreate: 2 })]);
+    expect(rewindStepsOf(remade).recreate).toEqual(['Contact']);
+    expect(acceptanceRefusal('DEV-SB', { diff: remade }, NOTHING_ACCEPTED)).toEqual({
+      code: 'RECREATE',
+      message:
+        '2 Contact record(s) deleted since are no longer in the recycle bin, or Salesforce keeps ' +
+        'them there for good: this rewind makes them again from the checkpoint, with new Ids. ' +
+        'Anything outside Salesforce that names their old Ids — an integration, a link, a report ' +
+        'filter — no longer finds them. Rewind refused; give --accept-recreate to rewind all the ' +
+        'same. No record was written.',
+    });
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff: remade },
+        { acceptAutomation: false, acceptNoUndo: false, acceptRecreate: true },
+      ),
+    ).toBeUndefined();
   });
 
   it('refuses deletions Undo couldn’t bring back without --accept-no-undo, before anything else', () => {
@@ -811,7 +873,7 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
       acceptanceRefusal(
         'DEV-SB',
         { diff: { ...diff, undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }] } },
-        { acceptAutomation: false, acceptNoUndo: true },
+        { acceptAutomation: false, acceptNoUndo: true, acceptRecreate: false },
       ),
     ).toBeUndefined();
   });
@@ -851,7 +913,7 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
       acceptanceRefusal(
         'DEV-SB',
         { diff: { ...diff, undoCannot: [before] } },
-        { acceptAutomation: false, acceptNoUndo: true },
+        { acceptAutomation: false, acceptNoUndo: true, acceptRecreate: false },
       ),
     ).toBeUndefined();
   });
@@ -874,7 +936,7 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
         acceptanceRefusal(
           'DEV-SB',
           { diff, automation: found },
-          { acceptAutomation: true, acceptNoUndo: false },
+          { acceptAutomation: true, acceptNoUndo: false, acceptRecreate: false },
         ),
       ).toBeUndefined();
     }
@@ -1036,7 +1098,7 @@ describe('rewindLines, undoLines and resultJson', () => {
       expect.arrayContaining([
         '  Case 2 — kept by your automation, which sets them again on save: rewind --ignore-field <Object.Field> stops comparing such a field',
         '  Case 1 — refused: Locked',
-        "  Account 1 — deleted since and no longer in the recycle bin: they can't come back with their Id",
+        "  Account 1 — deleted since and no longer in the recycle bin, and not made again (a file, whose body the checkpoint does not hold, or a record deleted while it was taken): they can't come back",
         '  Account 1 — changed since the preview: rewind again to take them',
         '  could not be read again: Task — its read ended early (never taken for unchanged)',
       ]),
@@ -1119,6 +1181,7 @@ describe('rewindLines, undoLines and resultJson', () => {
       deleted: { planned: 2, done: 1, left: 1 },
       givenBack: { planned: 3, done: 2, left: 1 },
       broughtBack: { planned: 3, done: 3, left: 0 },
+      recreated: { planned: 0, done: 0, left: 0 },
       cannotUndo: [{ object: 'Account', reason: 'goneForGood', count: 2 }],
       undo: { until: '2026-11-06T17:00:00.000Z', cannot: [] },
       verify: { differences: 1, stable: true, passes: 1, notCompared: ['Case.Last_Touched__c'] },
@@ -1136,6 +1199,36 @@ describe('rewindLines, undoLines and resultJson', () => {
     const undone = resultJson('undo', 'DEV-SB', checkpoint, resultOf());
     expect(undone).not.toHaveProperty('cannotUndo');
     expect(undone).not.toHaveProperty('undo');
+    expect(undone).not.toHaveProperty('recreated');
+  });
+
+  it('says what a rewind made again with new Ids, counts it in its JSON, and names an insert the org refused', () => {
+    const result = resultOf({
+      ...DID,
+      status: 'partial',
+      recreated: [
+        {
+          objectApiName: 'Contact',
+          planned: 3,
+          created: 2,
+          refused: 1,
+          reasons: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: A phone is required'],
+        },
+      ],
+    });
+
+    expect(rewindLines('DEV-SB', checkpoint, result)).toContain(
+      '  made again 2 record(s) the recycle bin no longer held, with new Ids',
+    );
+    const json = resultJson('rewind', 'DEV-SB', checkpoint, result);
+    expect(json.recreated).toEqual({ planned: 3, done: 2, left: 1 });
+    expect(json.objects).toContainEqual({
+      object: 'Contact',
+      deleted: 0,
+      givenBack: 0,
+      broughtBack: 0,
+      refused: 1,
+    });
   });
 });
 

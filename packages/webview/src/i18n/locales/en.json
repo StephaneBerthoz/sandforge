@@ -4417,7 +4417,8 @@
       "none": "Nothing {{org}} automates runs as these records are deleted.",
       "error": "What {{org}} runs as these records go could not be read: {{reason}}",
       "givenBack": "as the removal gives it back its values from before the run",
-      "broughtBack": "after undelete, as the removal brings it back from the recycle bin"
+      "broughtBack": "after undelete, as the removal brings it back from the recycle bin",
+      "recreated": "as the rewind makes it again, with a new Id"
     },
     "sync": {
       "title": "What this run created",
@@ -5290,7 +5291,7 @@
       },
       "expiresSoon": "Expires {{when}}",
       "keepIt": "Keep",
-      "binReach": "Records deleted before {{date}} cannot come back: the recycle bin keeps them 15 days, less if it fills.",
+      "binReach": "Records deleted before {{date}} cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.",
       "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
       "rewoundUndated": "Rewound: it can be undone until {{until}}, sooner if the recycle bin fills.",
       "stopComparing": "Stop comparing fields…"
@@ -5381,7 +5382,8 @@
         "delete": "Delete",
         "giveBack": "Give back",
         "bringBack": "Bring back",
-        "cannotUndo": "Cannot undo"
+        "cannotUndo": "Cannot undo",
+        "recreate": "Make again"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} record deleted while the checkpoint was taken comes back with the values it had then.",
@@ -5405,8 +5407,8 @@
       "unread_other": "{{formatted}} objects could not be read: a rewind leaves them as they are",
       "cannot": {
         "title": "What a rewind cannot undo",
-        "goneForGood_one": "{{formatted}} record deleted since cannot come back with its Id: the recycle bin no longer holds it ({{objects}}).",
-        "goneForGood_other": "{{formatted}} records deleted since cannot come back with their Id: the recycle bin no longer holds them ({{objects}}).",
+        "goneForGood_one": "{{formatted}} record deleted since cannot come back: the recycle bin no longer holds it, and the rewind cannot make it again — a file, whose body the checkpoint does not hold, or a record deleted while the checkpoint was taken ({{objects}}).",
+        "goneForGood_other": "{{formatted}} records deleted since cannot come back: the recycle bin no longer holds them, and the rewind cannot make them again — files, whose bodies the checkpoint does not hold, or records deleted while the checkpoint was taken ({{objects}}).",
         "deletedWithCreatedParent_one": "{{formatted}} record deleted with a parent created since cannot come back on its own ({{objects}}).",
         "deletedWithCreatedParent_other": "{{formatted}} records deleted with a parent created since cannot come back on their own ({{objects}}).",
         "convertedLead_one": "{{formatted}} lead was converted since: Salesforce cannot unconvert a lead. What the conversion made is deleted, and the lead stays converted.",
@@ -5470,7 +5472,19 @@
         "giveBack_one": "gives {{formatted}} record its values from then back",
         "giveBack_other": "gives {{formatted}} records their values from then back",
         "bringBack_one": "brings back {{formatted}} record from the recycle bin",
-        "bringBack_other": "brings back {{formatted}} records from the recycle bin"
+        "bringBack_other": "brings back {{formatted}} records from the recycle bin",
+        "recreate_one": "makes {{formatted}} record the recycle bin no longer holds again, with a new Id",
+        "recreate_other": "makes {{formatted}} records the recycle bin no longer holds again, with new Ids"
+      },
+      "toRecreate_one": "{{formatted}} to make again",
+      "toRecreate_other": "{{formatted}} to make again",
+      "toRecreateHint": "gone from the recycle bin: new Ids",
+      "recreate": {
+        "title": "Made again, with new Ids",
+        "line_one": "{{formatted}} {{object}} record deleted since that the recycle bin no longer gives back.",
+        "line_other": "{{formatted}} {{object}} records deleted since that the recycle bin no longer gives back.",
+        "newIds": "The rewind makes them again from the checkpoint, with new Ids, and the lookups the checkpoint holds that named them name the new Ids. Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them. Undo deletes them again.",
+        "accept": "Make them again, with new Ids"
       }
     },
     "run": {
@@ -5484,7 +5498,9 @@
         "giveBack_other": "Give {{formatted}} records their values back",
         "delete_one": "Delete {{formatted}} record added since, children first",
         "delete_other": "Delete {{formatted}} records added since, children first",
-        "check": "Check: read {{org}} again"
+        "check": "Check: read {{org}} again",
+        "recreate_one": "Make again {{formatted}} record the recycle bin no longer holds, with a new Id",
+        "recreate_other": "Make again {{formatted}} records the recycle bin no longer holds, with new Ids"
       },
       "progress": "Progress of the rewind",
       "undoProgress": "Progress of the undo",
@@ -5538,8 +5554,8 @@
         },
         "goneForGood": {
           "title": "Gone for good",
-          "line_one": "{{object}}: {{formatted}} record deleted since cannot come back with its Id: the recycle bin no longer holds it",
-          "line_other": "{{object}}: {{formatted}} records deleted since cannot come back with their Id: the recycle bin no longer holds them"
+          "line_one": "{{object}}: {{formatted}} record deleted since cannot come back: the recycle bin no longer holds it, and it could not be made again — a file, or a record deleted while the checkpoint was taken",
+          "line_other": "{{object}}: {{formatted}} records deleted since cannot come back: the recycle bin no longer holds them, and they could not be made again — files, or records deleted while the checkpoint was taken"
         },
         "kept": {
           "title": "Kept on purpose",
@@ -5572,6 +5588,10 @@
         "restoredTitle": "What the rewind wrote over, given back its values from before in {{org}}",
         "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",
         "keptChanged": "changed since the rewind, left as they are now: {{n}}"
+      },
+      "recreated": {
+        "title": "Made again in {{org}}, with new Ids",
+        "line": "{{object}}: {{created}} of {{planned}} made again"
       }
     },
     "undo": {

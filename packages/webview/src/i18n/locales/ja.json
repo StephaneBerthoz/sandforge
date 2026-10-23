@@ -4170,7 +4170,8 @@
       "none": "これらのレコードを削除しても、{{org}} の自動化は何も実行されません。",
       "error": "これらのレコードを削除するときに {{org}} が実行するものを読み取れませんでした: {{reason}}",
       "givenBack": "実行前の値に戻すとき",
-      "broughtBack": "ごみ箱から復元した後"
+      "broughtBack": "ごみ箱から復元した後",
+      "recreated": "巻き戻しで新しい Id で再作成するとき"
     },
     "sync": {
       "title": "この実行が作成したもの",
@@ -5000,7 +5001,7 @@
       },
       "expiresSoon": "{{when}}に期限切れ",
       "keepIt": "保持する",
-      "binReach": "{{date}} より前に削除されたレコードはもう戻せません。ごみ箱が保持するのは 15 日間で、いっぱいになるとそれより短くなります。",
+      "binReach": "{{date}} より前に削除されたレコードは、同じ Id ではもう戻せません。ごみ箱が保持するのは 15 日間で、いっぱいになるとそれより短くなります。巻き戻しは、これらを新しい Id で再作成します。",
       "rewound": "{{date}} に巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
       "rewoundUndated": "巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
       "stopComparing": "項目の比較をやめる…"
@@ -5078,7 +5079,8 @@
         "delete": "削除",
         "giveBack": "値を戻す",
         "bringBack": "復元",
-        "cannotUndo": "巻き戻し不可"
+        "cannotUndo": "巻き戻し不可",
+        "recreate": "再作成"
       },
       "detail": {
         "deletedWhileTaken_other": "{{object}}: チェックポイントの作成中に削除された {{formatted}} 件のレコードは、当時の値で戻ります。",
@@ -5093,7 +5095,7 @@
       "unread_other": "{{formatted}} 個のオブジェクトを読み取れませんでした。巻き戻しではそのまま残します",
       "cannot": {
         "title": "巻き戻しで取り戻せないもの",
-        "goneForGood_other": "その後に削除された {{formatted}} 件のレコードは、ごみ箱にもうないため、同じ Id では戻せません ({{objects}})。",
+        "goneForGood_other": "その後に削除された {{formatted}} 件のレコードは戻せません。ごみ箱にもうなく、巻き戻しでも再作成できないためです (チェックポイントに中身がないファイル、またはチェックポイントの作成中に削除されたレコード) ({{objects}})。",
         "deletedWithCreatedParent_other": "その後に作成された親と一緒に削除された {{formatted}} 件のレコードは、単独では戻せません ({{objects}})。",
         "convertedLead_other": "その後に {{formatted}} 件のリードが取引開始されました。Salesforce はリードの取引開始を取り消せません。取引開始で作成されたものは削除し、リードは取引開始済みのまま残ります。",
         "activatedContract_other": "その後に {{formatted}} 件の契約が有効化されました。Salesforce はドラフトに戻さないため、有効なまま残ります。",
@@ -5145,7 +5147,16 @@
         "description": "この巻き戻しは {{org}} を {{date}} の状態に戻します: {{changes}}。誰が変更したかは問いません。",
         "delete_other": "その後に追加されたレコード {{formatted}} 件を削除",
         "giveBack_other": "レコード {{formatted}} 件の値を当時に戻す",
-        "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元"
+        "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元",
+        "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成"
+      },
+      "toRecreate_other": "再作成 {{formatted}} 件",
+      "toRecreateHint": "ごみ箱にもうないもの: 新しい Id",
+      "recreate": {
+        "title": "新しい Id で再作成するもの",
+        "line_other": "その後に削除され、ごみ箱からもう復元できない {{object}} の {{formatted}} 件のレコード。",
+        "newIds": "巻き戻しはこれらをチェックポイントから新しい Id で再作成し、チェックポイントにあるこれらを指していた参照項目は新しい Id を指します。Salesforce の外で古い Id を指しているもの (連携、リンク、レポート条件など) は、これらを見つけられなくなります。元に戻すと、これらは再び削除されます。",
+        "accept": "新しい Id で再作成する"
       }
     },
     "run": {
@@ -5156,7 +5167,8 @@
         "bringBack_other": "その後に削除されたレコード {{formatted}} 件を復元",
         "giveBack_other": "レコード {{formatted}} 件の値を戻す",
         "delete_other": "その後に追加されたレコード {{formatted}} 件を削除 (子から先に)",
-        "check": "確認: {{org}} をもう一度読み取る"
+        "check": "確認: {{org}} をもう一度読み取る",
+        "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成"
       },
       "progress": "巻き戻しの進捗",
       "undoProgress": "元に戻す操作の進捗",
@@ -5202,7 +5214,7 @@
         },
         "goneForGood": {
           "title": "完全に失われたもの",
-          "line_other": "{{object}}: その後に削除されたレコード {{formatted}} 件は、ごみ箱にもうないため、同じ Id では戻せません"
+          "line_other": "{{object}}: その後に削除されたレコード {{formatted}} 件は戻せません。ごみ箱にもうなく、再作成もできませんでした (ファイル、またはチェックポイントの作成中に削除されたレコード)"
         },
         "kept": {
           "title": "意図的に残したもの",
@@ -5233,6 +5245,10 @@
         "restoredTitle": "巻き戻しで上書きしたもの ({{org}} で以前の値に戻したもの)",
         "restoredLine": "{{object}}: {{planned}} 件中 {{restored}} 件を巻き戻し前の値に戻しました",
         "keptChanged": "巻き戻し後に変更されたため、現在のまま残したもの: {{n}} 件"
+      },
+      "recreated": {
+        "title": "{{org}} に新しい Id で再作成したもの",
+        "line": "{{object}}: {{planned}} 件中 {{created}} 件を再作成"
       }
     },
     "undo": {

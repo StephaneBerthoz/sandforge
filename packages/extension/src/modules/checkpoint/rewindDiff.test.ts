@@ -36,7 +36,7 @@ import {
   type CheckpointFolder,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
-import { writeSnapshotIndex } from './snapshotIndex.js';
+import { Recreated, writeSnapshotIndex } from './snapshotIndex.js';
 import { classFileOf, rewindDiff, type RewindClass } from './rewindDiff.js';
 
 const ORG = '00Dxx0000001234EAA';
@@ -90,6 +90,8 @@ interface Held {
   restrictParents?: string[];
   /** Its fields as the take described them: each of {@link fields} a text unless told. */
   described?: FingerprintField[];
+  /** Its fields the snapshot holds no value of, with why: none unless told. */
+  leftOutFields?: CheckpointObject['leftOutFields'];
 }
 
 /** Fields as a describe lists them, each a text the user may create and edit unless told. */
@@ -138,6 +140,13 @@ const CASE: Held = {
   restrictParents: ['AccountId'],
 };
 const caseId = (n: number): string => idOf('500', n);
+/** A file kept as an attachment: the snapshot holds its name, never its body. */
+const ATTACHMENT: Held = {
+  objectApiName: 'Attachment',
+  fields: [...STAMPS, 'Name'],
+  leftOutFields: [{ field: 'Body', reason: 'base64' }],
+};
+const attachmentId = (n: number): string => idOf('00P', n);
 /** The account's describe, as the org lists that lookup. */
 const RESTRICTING = {
   Account: [{ childSObject: 'Case', field: 'AccountId', restrictedDelete: true }],
@@ -201,6 +210,7 @@ const CLASSES: RewindClass[] = [
   'inBin',
   'withParent',
   'deletedWhileTaken',
+  'toRecreate',
   'goneForGood',
   'convertedLead',
   'activatedContract',
@@ -320,7 +330,7 @@ async function take(scenario: Scenario, facts?: Partial<MemoryOrgFacts>): Promis
       ...(object.restrictParents ? { restrictParents: object.restrictParents } : {}),
       fingerprint: prints[object.objectApiName].digest,
       fields: object.fields,
-      leftOutFields: [],
+      leftOutFields: object.leftOutFields ?? [],
     });
   }
   await checkpoints.writeFingerprints(folder, prints);
@@ -390,6 +400,7 @@ type Extras = Partial<
 function objectOf(objectApiName: string, classes: Classes, extras: Extras = {}): RewindDiffObject {
   const count = (cls: RewindClass): number => classes[cls]?.length ?? 0;
   const gone = count('goneForGood');
+  const recreate = count('toRecreate');
   const givenBack = classes.giveBack ?? [];
   return {
     objectApiName,
@@ -408,6 +419,7 @@ function objectOf(objectApiName: string, classes: Classes, extras: Extras = {}):
       withParent: count('withParent'),
       deletedWhileTaken: count('deletedWhileTaken'),
     },
+    ...(recreate > 0 ? { toRecreate: recreate } : {}),
     cannotUndo: gone > 0 ? [{ reason: 'goneForGood', count: gone }] : [],
     outside: extras.outside ?? [],
     touched: count('touched'),
@@ -553,13 +565,13 @@ const ROWS: Row[] = [
     expect: () => ({ Account: { inBin: lines(SUBJECT) } }),
   },
   {
-    name: 'deleted since on its own, of an object Salesforce undeletes only with its parent, no parent coming back: it cannot come back with its id, named (C4, C3)',
+    name: 'deleted since on its own, of an object Salesforce undeletes only with its parent, no parent coming back: it cannot come back with its id, and is made again with a new one (C4, C3, Q2)',
     scenario: {
       objects: [ACCOUNT, LINE],
       before: (org) => org.add('OpportunityLineItem', { Id: lineId(1), Quantity: 2 }),
       since: (org) => org.trash('OpportunityLineItem', lineId(1)),
     },
-    expect: () => ({ OpportunityLineItem: { goneForGood: lines(lineId(1)) } }),
+    expect: () => ({ OpportunityLineItem: { toRecreate: lines(lineId(1)) } }),
   },
   {
     name: 'live at the checkpoint and deleted before its object was read: brought back with the values it had, named (C10, M5)',
@@ -597,7 +609,7 @@ const ROWS: Row[] = [
     expect: () => ({}),
   },
   {
-    name: 'deleted since and emptied from the recycle bin, beside a record created since: gone for good, named; the one created since to delete (C3)',
+    name: 'deleted since and emptied from the recycle bin, beside a record created since: made again with a new Id; the one created since to delete (C3, Q2)',
     scenario: {
       before: (org) => org.add('Account', subject()),
       since: (org) => {
@@ -607,11 +619,11 @@ const ROWS: Row[] = [
       },
     },
     expect: () => ({
-      Account: { createdSince: lines(OTHER), goneForGood: lines(SUBJECT) },
+      Account: { createdSince: lines(OTHER), toRecreate: lines(SUBJECT) },
     }),
   },
   {
-    name: 'hard-deleted since: gone for good, or to bring back where the org still lists it in the bin, which its undelete then names gone (F29)',
+    name: 'hard-deleted since: made again with a new Id, or to bring back where the org still lists it in the bin, which its undelete then names gone (F29, Q2)',
     scenario: {
       before: (org) => org.add('Account', subject()),
       since: (org) => org.hardDelete('Account', SUBJECT),
@@ -619,7 +631,7 @@ const ROWS: Row[] = [
     expect: (facts) => ({
       Account: facts.hardDeleteInQueryAll
         ? { inBin: lines(SUBJECT) }
-        : { goneForGood: lines(SUBJECT) },
+        : { toRecreate: lines(SUBJECT) },
     }),
   },
   {
@@ -642,7 +654,7 @@ const ROWS: Row[] = [
     extras: () => ({ Account: bySession(1), Contact: bySession(1) }),
   },
   {
-    name: 'children deleted since with their parent come back with it, never promised alone; one deleted on its own before its parent, which Salesforce then keeps in the bin for good, is gone for good, never to bring back (C2, F9, F41)',
+    name: 'children deleted since with their parent come back with it, never promised alone; one deleted on its own before its parent, which Salesforce then keeps in the bin for good, is made again with a new Id, never brought back (C2, F9, F41, Q2)',
     scenario: {
       objects: [CASCADE_CONTACT, ACCOUNT],
       children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
@@ -659,12 +671,12 @@ const ROWS: Row[] = [
       Account: { inBin: lines(SUBJECT) },
       Contact: {
         withParent: lines(contactId(1), contactId(2)),
-        goneForGood: lines(contactId(3)),
+        toRecreate: lines(contactId(3)),
       },
     }),
   },
   {
-    name: 'a case deleted on its own since, then the account it points at through a lookup that restricts the account’s delete: gone for good, never to bring back, the account brought back (F41, a case under its account, live)',
+    name: 'a case deleted on its own since, then the account it points at through a lookup that restricts the account’s delete: made again with a new Id, never brought back, the account brought back (F41, a case under its account, live)',
     scenario: {
       objects: [CASE, ACCOUNT],
       children: RESTRICTING,
@@ -681,7 +693,7 @@ const ROWS: Row[] = [
     },
     expect: () => ({
       Account: { inBin: lines(SUBJECT) },
-      Case: { goneForGood: lines(caseId(1)), inBin: lines(caseId(2)) },
+      Case: { toRecreate: lines(caseId(1)), inBin: lines(caseId(2)) },
     }),
   },
   {
@@ -698,7 +710,7 @@ const ROWS: Row[] = [
     expect: () => ({ Contact: { inBin: lines(contactId(3)) } }),
   },
   {
-    name: 'what was deleted with a record Salesforce keeps in the bin for good stays with it: gone for good, never promised back with that record (F41)',
+    name: 'what was deleted with a record Salesforce keeps in the bin for good stays with it: made again with a new Id with that record, never promised back with it (F41, Q2)',
     scenario: {
       objects: [NOTE, CASCADE_CONTACT, ACCOUNT],
       children: {
@@ -715,8 +727,8 @@ const ROWS: Row[] = [
     },
     expect: () => ({
       Account: { inBin: lines(SUBJECT) },
-      Contact: { goneForGood: lines(contactId(3)) },
-      Note__c: { goneForGood: lines(noteId(1)) },
+      Contact: { toRecreate: lines(contactId(3)) },
+      Note__c: { toRecreate: lines(noteId(1)) },
     }),
   },
   {
@@ -742,7 +754,7 @@ const ROWS: Row[] = [
     extras: (facts) => ({ Contact: facts.clearedLookupRestamps ? bySession(1) : {} }),
   },
   {
-    name: 'a Task archived since is neither deleted nor gone for good, one changed then archived is given back, and only one emptied from the bin is gone (C11, M6)',
+    name: 'a Task archived since is neither deleted nor gone for good, one changed then archived is given back, and only one emptied from the bin is made again (C11, M6, Q2)',
     scenario: {
       objects: [ACCOUNT, TASK],
       before: (org) => {
@@ -761,10 +773,22 @@ const ROWS: Row[] = [
     expect: () => ({
       Task: {
         giveBack: [{ Id: taskId(2), fields: ['Subject'] }],
-        goneForGood: lines(taskId(3)),
+        toRecreate: lines(taskId(3)),
       },
     }),
     extras: () => ({ Task: bySession(1) }),
+  },
+  {
+    name: 'a file emptied from the recycle bin since, whose body the snapshot does not hold: gone for good, never made again without it (Q2)',
+    scenario: {
+      objects: [ACCOUNT, ATTACHMENT],
+      before: (org) => org.add('Attachment', { Id: attachmentId(1), Name: 'Contract.pdf' }),
+      since: (org) => {
+        org.trash('Attachment', attachmentId(1));
+        org.purge(attachmentId(1));
+      },
+    },
+    expect: () => ({ Attachment: { goneForGood: lines(attachmentId(1)) } }),
   },
 ];
 
@@ -879,7 +903,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     expect(lost.org.requests - atLost).toBe(5);
   });
 
-  it('counts an object whose records left without a stamp even though nothing in it moved, and names them gone for good (F29)', async () => {
+  it('counts an object whose records left without a stamp even though nothing in it moved, and makes them again with new Ids (F29, Q2)', async () => {
     const taken = await take(
       {
         background: false,
@@ -898,11 +922,11 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     // The pre-check saw nothing move: the describes, no change read, the
     // count, the scan.
     expect(taken.org.requests - before).toBe(4);
-    expect(await classesOf(taken.folder, 'Account')).toEqual({ goneForGood: lines(SUBJECT) });
-    expect(diff.objects).toEqual([objectOf('Account', { goneForGood: lines(SUBJECT) })]);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ toRecreate: lines(SUBJECT) });
+    expect(diff.objects).toEqual([objectOf('Account', { toRecreate: lines(SUBJECT) })]);
   });
 
-  it('never reads a record deleted since as unchanged, even where a delete would leave its stamps (F2 off, contradicted live): it is named gone for good', async () => {
+  it('never reads a record deleted since as unchanged, even where a delete would leave its stamps (F2 off, contradicted live): it is made again with a new Id', async () => {
     const taken = await take(
       {
         background: false,
@@ -917,8 +941,8 @@ describe('rewindDiff: what it reads, and what it sends', () => {
 
     const diff = await diffOf(taken);
 
-    expect(await classesOf(taken.folder, 'Account')).toEqual({ goneForGood: lines(SUBJECT) });
-    expect(diff.objects).toEqual([objectOf('Account', { goneForGood: lines(SUBJECT) })]);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ toRecreate: lines(SUBJECT) });
+    expect(diff.objects).toEqual([objectOf('Account', { toRecreate: lines(SUBJECT) })]);
   });
 
   it('compares the fields the checkpoint compares only: a field its owner chose not to compare never makes a record given back, and is named not compared', async () => {
@@ -1158,7 +1182,7 @@ describe('rewindDiff: what it says beside the classes', () => {
         giveBack: [{ Id: accountId(30), fields: ['PersonEmail'] }],
         createdSince: lines(accountId(32)),
         inBin: lines(accountId(31)),
-        goneForGood: lines(accountId(33)),
+        toRecreate: lines(accountId(33)),
       };
       const contact: Classes = { giveBack: [{ Id: contactId(40), fields: ['LastName'] }] };
       expect(await classesOf(taken.folder, 'Account')).toEqual(account);
@@ -1412,7 +1436,7 @@ describe('rewindDiff: what it says beside the classes', () => {
       createdSince: lines(l1, l2),
       comesBackWithParent: lines(l3),
       withParent: lines(l5),
-      goneForGood: lines(l4),
+      toRecreate: lines(l4),
       undoCannot: lines(l1, l3),
     };
     const opportunities: Classes = { createdSince: lines(o3), inBin: lines(o2) };
@@ -1810,5 +1834,107 @@ describe('rewindDiff: an object it cannot read whole is named, never read as unc
     stop.abort();
 
     await expect(diffOf(taken, { signal: stop.signal })).rejects.toBeInstanceOf(OrgReadStopped);
+  });
+});
+
+describe('rewindDiff: records a rewind made again, under new Ids', () => {
+  /** The Id the org gave the subject when a rewind made it again. */
+  const MADE = accountId(90);
+  /** The Id it gave it the second time, once the first was purged too. */
+  const MADE_AGAIN = accountId(91);
+
+  it('holds a record made again by its new Id: neither created since to delete, nor its old Id to make again', async () => {
+    const taken = await take({
+      background: false,
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.trash('Account', SUBJECT);
+        org.purge(SUBJECT);
+      },
+      later: (org) => org.add('Account', subject({ Id: MADE })),
+    });
+    await Recreated.add(taken.folder, [{ objectApiName: 'Account', from: SUBJECT, to: MADE }]);
+
+    const diff = await diffOf(taken);
+
+    // Stamped since over its checkpoint values: nothing to give back.
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ touched: lines(MADE) });
+    expect(diff.objects).toEqual([objectOf('Account', { touched: lines(MADE) })]);
+  });
+
+  it('never brings back the old Id of a record made again, which the bin keeps for good', async () => {
+    const taken = await take({
+      background: false,
+      before: (org) => org.add('Account', subject()),
+      since: (org) => org.trash('Account', SUBJECT),
+      later: (org) => org.add('Account', subject({ Id: MADE })),
+    });
+    await Recreated.add(taken.folder, [{ objectApiName: 'Account', from: SUBJECT, to: MADE }]);
+
+    await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ touched: lines(MADE) });
+  });
+
+  it('gives back a record made again its checkpoint values, its lookups compared by the new Ids of the records they named', async () => {
+    const taken = await take({
+      objects: [CONTACT, ACCOUNT],
+      background: false,
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Contact', { Id: contactId(1), LastName: 'Kept', AccountId: SUBJECT });
+      },
+      since: (org) => {
+        org.trash('Contact', contactId(1));
+        org.purge(contactId(1));
+        org.trash('Account', SUBJECT);
+        org.purge(SUBJECT);
+      },
+      later: (org) => {
+        org.add('Account', subject({ Id: MADE, Industry: 'Retail' }));
+        org.add('Contact', { Id: contactId(91), LastName: 'Kept', AccountId: MADE });
+      },
+    });
+    await Recreated.add(taken.folder, [
+      { objectApiName: 'Account', from: SUBJECT, to: MADE },
+      { objectApiName: 'Contact', from: contactId(1), to: contactId(91) },
+    ]);
+
+    await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Contact')).toEqual({ touched: lines(contactId(91)) });
+    expect(await classesOf(taken.folder, 'Account')).toEqual({
+      giveBack: [{ Id: MADE, fields: ['Industry'] }],
+    });
+  });
+
+  it('makes a record made again once more, by its Id now, when the bin let that one go too', async () => {
+    const taken = await take({
+      background: false,
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.trash('Account', SUBJECT);
+        org.purge(SUBJECT);
+        org.add('Account', subject({ Id: MADE }));
+      },
+      later: (org) => {
+        org.trash('Account', MADE);
+        org.purge(MADE);
+      },
+    });
+    await Recreated.add(taken.folder, [{ objectApiName: 'Account', from: SUBJECT, to: MADE }]);
+
+    const diff = await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ toRecreate: lines(MADE) });
+    expect(diff.objects[0]?.toRecreate).toBe(1);
+    // Made again under another Id, the latest pair stands.
+    await Recreated.add(taken.folder, [
+      { objectApiName: 'Account', from: SUBJECT, to: MADE_AGAIN },
+    ]);
+    taken.org.add('Account', subject({ Id: MADE_AGAIN }));
+    rmSync(previewDirOf(taken.folder, PREVIEW), { recursive: true, force: true });
+    await diffOf(taken);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ touched: lines(MADE_AGAIN) });
   });
 });

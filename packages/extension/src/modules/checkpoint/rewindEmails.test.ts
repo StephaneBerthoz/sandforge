@@ -68,6 +68,7 @@ function diffObject(
     },
     toGiveBack: { records: counts.giveBack ?? 0, fields: 0, clearedLookups: 0 },
     toBringBack: { inBin: counts.inBin ?? 0, withParent: 0, deletedWhileTaken: 0 },
+    ...(counts.toRecreate ? { toRecreate: counts.toRecreate } : {}),
     cannotUndo: [],
     outside: [],
     touched: 0,
@@ -91,6 +92,25 @@ describe('what a rewind and an undo write, per object and write', () => {
     ]);
   });
 
+  it('counts what a rewind makes again with new Ids as inserted, after what it brings back, and the emails that sends', () => {
+    const written = writtenByDiff([diffObject('Contact', { inBin: 1, toRecreate: 3 })]);
+    expect(written).toEqual([
+      { objectApiName: 'Contact', write: 'undelete', records: 1 },
+      { objectApiName: 'Contact', write: 'insert', records: 3 },
+      { objectApiName: 'Contact', write: 'update', records: 1 },
+    ]);
+    const [single] = checkpointEmails(
+      written,
+      automationOf({ Contact: [flow('Welcome', 'create', ['SingleEmail'])] }),
+      SANDBOX,
+    );
+    expect(single).toMatchObject({
+      limit: 'SingleEmail',
+      emails: 3,
+      objects: [{ objectApiName: 'Contact', write: 'insert', records: 3, perRecord: 1 }],
+    });
+  });
+
   it('counts of a plan what it sends and what goes or comes back with a parent', () => {
     expect(
       writtenByPlan([
@@ -102,6 +122,7 @@ describe('what a rewind and an undo write, per object and write', () => {
           nextPassDeleted: 0,
           broughtBack: 1,
           backWithParent: 2,
+          recreated: 0,
           givenBackFirst: 4,
           givenBackAfter: 1,
           givenBackNextPass: 0,

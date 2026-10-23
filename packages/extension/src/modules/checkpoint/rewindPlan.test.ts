@@ -242,6 +242,7 @@ class World {
       ownWriters: [MEMORY_ORG_USER],
       acceptOutside: false,
       acceptNoUndo: false,
+      acceptRecreate: false,
       dir: join(rewindDirOf(this.folder, REWIND), `plan-${++this.plans}`),
       ...rest,
     });
@@ -391,6 +392,7 @@ function counts(objectApiName: string, some: Partial<RewindPlanObject>): RewindP
     nextPassDeleted: 0,
     broughtBack: 0,
     backWithParent: 0,
+    recreated: 0,
     givenBackFirst: 0,
     givenBackAfter: 0,
     givenBackNextPass: 0,
@@ -553,6 +555,58 @@ describe('a rewind’s plan: confirmed ∩ fresh (m5)', () => {
     await expect(world.plan({ freshDir: fresh.dir, signal: stop.signal })).rejects.toBeInstanceOf(
       OrgReadStopped,
     );
+  });
+});
+
+describe('a rewind’s plan: records the recycle bin no longer gives back (Q2)', () => {
+  /** An account and its contact, both emptied from the bin since, the contact first. */
+  async function emptied(): Promise<{ world: World; dir: string }> {
+    const world = await take({
+      objects: [CONTACT, ACCOUNT],
+      children: { Account: [ACCOUNT_CONTACTS] },
+      before: (org) => {
+        org.add('Account', { Id: accountId(1), Name: 'Gone', Industry: 'Energy' });
+        org.add('Contact', { Id: contactId(1), LastName: 'Gone', AccountId: accountId(1) });
+      },
+    });
+    world.at(SINCE, (org) => {
+      org.trash('Account', accountId(1));
+      org.purge(accountId(1));
+    });
+    const fresh = await world.diff(PV1, TR);
+    return { world, dir: fresh.dir };
+  }
+
+  it('makes them again once it is accepted, parents first, by the Ids the checkpoint holds them by', async () => {
+    const { world, dir } = await emptied();
+
+    const plan = await world.plan({ freshDir: dir, acceptRecreate: true });
+
+    expect(plan.recreate.objects.map(({ objectApiName }) => objectApiName)).toEqual([
+      'Account',
+      'Contact',
+    ]);
+    expect(await idsOf(plan.recreate)).toEqual({
+      Account: [accountId(1)],
+      Contact: [contactId(1)],
+    });
+    expect(plan.left).toEqual([]);
+    expect(plan.objects).toEqual([
+      counts('Contact', { recreated: 1 }),
+      counts('Account', { recreated: 1 }),
+    ]);
+  });
+
+  it('leaves and names them unless that their Ids are new was accepted, making none', async () => {
+    const { world, dir } = await emptied();
+
+    const plan = await world.plan({ freshDir: dir });
+
+    expect(plan.recreate.count).toBe(0);
+    expect(plan.left).toEqual([
+      { objectApiName: 'Contact', reason: 'recreateNotAccepted', count: 1, ids: [contactId(1)] },
+      { objectApiName: 'Account', reason: 'recreateNotAccepted', count: 1, ids: [accountId(1)] },
+    ]);
   });
 });
 

@@ -298,6 +298,7 @@ describe('CheckpointPage', () => {
         previewId: 'pv-1',
         acceptAutomation: false,
         acceptNoUndo: false,
+        acceptRecreate: false,
         acceptOutside: false,
       });
       const run = await screen.findByTestId('checkpoint-run');

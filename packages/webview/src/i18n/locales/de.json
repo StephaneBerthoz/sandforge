@@ -4417,7 +4417,8 @@
       "none": "Nichts, was {{org}} automatisiert, läuft beim Löschen dieser Datensätze.",
       "error": "Was {{org}} beim Entfernen dieser Datensätze ausführt, konnte nicht gelesen werden: {{reason}}",
       "givenBack": "wenn das Entfernen ihm seine Werte von vor dem Lauf zurückgibt",
-      "broughtBack": "nach dem Wiederherstellen, wenn das Entfernen ihn aus dem Papierkorb zurückholt"
+      "broughtBack": "nach dem Wiederherstellen, wenn das Entfernen ihn aus dem Papierkorb zurückholt",
+      "recreated": "wenn das Zurücksetzen ihn mit einer neuen Id neu anlegt"
     },
     "sync": {
       "title": "Was dieser Lauf erstellt hat",
@@ -5290,7 +5291,7 @@
       },
       "expiresSoon": "Läuft {{when}} ab",
       "keepIt": "Aufbewahren",
-      "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt.",
+      "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr mit ihrer Id zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt. Ein Zurücksetzen legt sie mit neuen Ids neu an.",
       "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
       "rewoundUndated": "Zurückgesetzt: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
       "stopComparing": "Felder nicht mehr vergleichen…"
@@ -5381,7 +5382,8 @@
         "delete": "Löschen",
         "giveBack": "Werte zurückgeben",
         "bringBack": "Zurückholen",
-        "cannotUndo": "Nicht umkehrbar"
+        "cannotUndo": "Nicht umkehrbar",
+        "recreate": "Neu anlegen"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} Datensatz, der beim Erstellen des Prüfpunkts gelöscht wurde, kommt mit den Werten zurück, die er damals hatte.",
@@ -5405,8 +5407,8 @@
       "unread_other": "{{formatted}} Objekte konnten nicht gelesen werden: Das Zurücksetzen lässt sie, wie sie sind",
       "cannot": {
         "title": "Was das Zurücksetzen nicht umkehren kann",
-        "goneForGood_one": "{{formatted}} seitdem gelöschter Datensatz kann nicht mit seiner Id zurückkommen: Der Papierkorb enthält ihn nicht mehr ({{objects}}).",
-        "goneForGood_other": "{{formatted}} seitdem gelöschte Datensätze können nicht mit ihrer Id zurückkommen: Der Papierkorb enthält sie nicht mehr ({{objects}}).",
+        "goneForGood_one": "{{formatted}} seitdem gelöschter Datensatz kann nicht zurückkommen: Der Papierkorb enthält ihn nicht mehr, und das Zurücksetzen kann ihn nicht neu anlegen — eine Datei, deren Inhalt der Prüfpunkt nicht enthält, oder ein Datensatz, der gelöscht wurde, während der Prüfpunkt erstellt wurde ({{objects}}).",
+        "goneForGood_other": "{{formatted}} seitdem gelöschte Datensätze können nicht zurückkommen: Der Papierkorb enthält sie nicht mehr, und das Zurücksetzen kann sie nicht neu anlegen — Dateien, deren Inhalt der Prüfpunkt nicht enthält, oder Datensätze, die gelöscht wurden, während der Prüfpunkt erstellt wurde ({{objects}}).",
         "deletedWithCreatedParent_one": "{{formatted}} Datensatz, der mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurde, kann nicht allein zurückkommen ({{objects}}).",
         "deletedWithCreatedParent_other": "{{formatted}} Datensätze, die mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurden, können nicht allein zurückkommen ({{objects}}).",
         "convertedLead_one": "{{formatted}} Lead wurde seitdem konvertiert: Salesforce kann die Konvertierung eines Leads nicht aufheben. Was die Konvertierung erstellt hat, wird gelöscht, und der Lead bleibt konvertiert.",
@@ -5470,7 +5472,19 @@
         "giveBack_one": "gibt {{formatted}} Datensatz seine damaligen Werte zurück",
         "giveBack_other": "gibt {{formatted}} Datensätzen ihre damaligen Werte zurück",
         "bringBack_one": "holt {{formatted}} Datensatz aus dem Papierkorb zurück",
-        "bringBack_other": "holt {{formatted}} Datensätze aus dem Papierkorb zurück"
+        "bringBack_other": "holt {{formatted}} Datensätze aus dem Papierkorb zurück",
+        "recreate_one": "legt {{formatted}} Datensatz, den der Papierkorb nicht mehr enthält, mit einer neuen Id neu an",
+        "recreate_other": "legt {{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu an"
+      },
+      "toRecreate_one": "{{formatted}} neu anzulegen",
+      "toRecreate_other": "{{formatted}} neu anzulegen",
+      "toRecreateHint": "nicht mehr im Papierkorb: neue Ids",
+      "recreate": {
+        "title": "Neu angelegt, mit neuen Ids",
+        "line_one": "{{formatted}} seitdem gelöschter {{object}}-Datensatz, den der Papierkorb nicht mehr zurückgibt.",
+        "line_other": "{{formatted}} seitdem gelöschte {{object}}-Datensätze, die der Papierkorb nicht mehr zurückgibt.",
+        "newIds": "Das Zurücksetzen legt sie aus dem Prüfpunkt neu an, mit neuen Ids, und die Lookup-Felder des Prüfpunkts, die auf sie verwiesen, verweisen auf die neuen Ids. Was außerhalb von Salesforce ihre alten Ids nennt — eine Integration, ein Link, ein Berichtsfilter —, findet sie nicht mehr. Das Rückgängigmachen löscht sie wieder.",
+        "accept": "Neu anlegen, mit neuen Ids"
       }
     },
     "run": {
@@ -5484,7 +5498,9 @@
         "giveBack_other": "{{formatted}} Datensätzen ihre Werte zurückgeben",
         "delete_one": "{{formatted}} seitdem hinzugekommenen Datensatz löschen, untergeordnete zuerst",
         "delete_other": "{{formatted}} seitdem hinzugekommene Datensätze löschen, untergeordnete zuerst",
-        "check": "Prüfen: {{org}} erneut lesen"
+        "check": "Prüfen: {{org}} erneut lesen",
+        "recreate_one": "{{formatted}} Datensatz, den der Papierkorb nicht mehr enthält, mit einer neuen Id neu anlegen",
+        "recreate_other": "{{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu anlegen"
       },
       "progress": "Fortschritt des Zurücksetzens",
       "undoProgress": "Fortschritt des Rückgängigmachens",
@@ -5538,8 +5554,8 @@
         },
         "goneForGood": {
           "title": "Endgültig weg",
-          "line_one": "{{object}}: {{formatted}} seitdem gelöschter Datensatz kann nicht mit seiner Id zurückkommen: Der Papierkorb enthält ihn nicht mehr",
-          "line_other": "{{object}}: {{formatted}} seitdem gelöschte Datensätze können nicht mit ihrer Id zurückkommen: Der Papierkorb enthält sie nicht mehr"
+          "line_one": "{{object}}: {{formatted}} seitdem gelöschter Datensatz kann nicht zurückkommen: Der Papierkorb enthält ihn nicht mehr, und er konnte nicht neu angelegt werden — eine Datei oder ein Datensatz, der gelöscht wurde, während der Prüfpunkt erstellt wurde",
+          "line_other": "{{object}}: {{formatted}} seitdem gelöschte Datensätze können nicht zurückkommen: Der Papierkorb enthält sie nicht mehr, und sie konnten nicht neu angelegt werden — Dateien oder Datensätze, die gelöscht wurden, während der Prüfpunkt erstellt wurde"
         },
         "kept": {
           "title": "Bewusst belassen",
@@ -5572,6 +5588,10 @@
         "restoredTitle": "Was das Zurücksetzen überschrieben hat, mit seinen vorherigen Werten in {{org}}",
         "restoredLine": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Zurücksetzen zurück",
         "keptChanged": "seit dem Zurücksetzen geändert, belassen, wie sie jetzt sind: {{n}}"
+      },
+      "recreated": {
+        "title": "In {{org}} neu angelegt, mit neuen Ids",
+        "line": "{{object}}: {{created}} von {{planned}} neu angelegt"
       }
     },
     "undo": {

@@ -361,14 +361,18 @@ export function removalBypassesOf(
 
 /**
  * The objects whose records each step of a removal that takes a whole run
- * back writes: those it brings back from the recycle bin, those it gives back
- * their values from before the run, those past Draft it sets back to Draft
- * before deleting them, and those it deletes. A Sync run's removal makes the
- * four; a step it does not make is absent or empty.
+ * back writes: those it brings back from the recycle bin, those it makes
+ * again with new Ids, those it gives back their values from before the run,
+ * those past Draft it sets back to Draft before deleting them, and those it
+ * deletes. A Sync run's removal makes four, never the second, which only a
+ * rewind to a checkpoint makes, of records the recycle bin no longer gives
+ * back; a step it does not make is absent or empty.
  */
 export interface ForgeRemovalSteps {
   /** Undeleted: what the run deleted. */
   bringBack?: readonly string[];
+  /** Inserted: what was deleted and the recycle bin no longer gives back, made again with new Ids. */
+  recreate?: readonly string[];
   /** Updated: what the run wrote over. */
   giveBack?: readonly string[];
   /** Updated: what the run created past Draft, an activated order, which the platform deletes no other way. */
@@ -388,6 +392,7 @@ export interface ForgeFiredOnRemovalStep extends ForgeFiredOnWrite {
 /** The write each step makes, in the order the removal makes them. */
 const REMOVAL_STEPS: ReadonlyArray<readonly [ForgeRemovalStep, ForgeAutomationWrite]> = [
   ['bringBack', 'undelete'],
+  ['recreate', 'insert'],
   ['giveBack', 'update'],
   ['setToDraft', 'update'],
   ['delete', 'delete'],
@@ -395,8 +400,8 @@ const REMOVAL_STEPS: ReadonlyArray<readonly [ForgeRemovalStep, ForgeAutomationWr
 
 /**
  * What fires in the target as a removal takes a whole run back, step by step
- * in the order it writes — it brings back, gives back, sets back to Draft,
- * then deletes — on the objects each step writes, per object as the read
+ * in the order it writes — it brings back, makes again, gives back, sets back
+ * to Draft, then deletes — on the objects each step writes, per object as the read
  * lists them. The undelete fires the Apex triggers that run after one: a Sync
  * run's removal brought records back from the recycle bin, and what its
  * `after undelete` triggers would run was never said.

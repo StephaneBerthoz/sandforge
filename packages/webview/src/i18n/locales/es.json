@@ -4417,7 +4417,8 @@
       "none": "Nada de lo que {{org}} automatiza se ejecuta al eliminar estos registros.",
       "error": "No se pudo leer lo que {{org}} ejecuta cuando se van estos registros: {{reason}}",
       "givenBack": "cuando la eliminación le devuelve sus valores de antes de la ejecución",
-      "broughtBack": "tras recuperarlo, cuando la eliminación lo recupera de la papelera"
+      "broughtBack": "tras recuperarlo, cuando la eliminación lo recupera de la papelera",
+      "recreated": "cuando el retroceso lo crea de nuevo, con un Id nuevo"
     },
     "sync": {
       "title": "Lo que creó esta ejecución",
@@ -5290,7 +5291,7 @@
       },
       "expiresSoon": "Caduca {{when}}",
       "keepIt": "Conservar",
-      "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver: la papelera los guarda 15 días, menos si se llena.",
+      "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver con su Id: la papelera los guarda 15 días, menos si se llena. Un retroceso los crea de nuevo, con Id nuevos.",
       "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
       "rewoundUndated": "Retroceso hecho: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
       "stopComparing": "Dejar de comparar campos…"
@@ -5381,7 +5382,8 @@
         "delete": "Eliminar",
         "giveBack": "Devolver valores",
         "bringBack": "Recuperar",
-        "cannotUndo": "No reversible"
+        "cannotUndo": "No reversible",
+        "recreate": "Volver a crear"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} registro eliminado mientras se creaba el punto de control vuelve con los valores que tenía entonces.",
@@ -5405,8 +5407,8 @@
       "unread_other": "{{formatted}} objetos no se pudieron leer: el retroceso los deja como están",
       "cannot": {
         "title": "Lo que un retroceso no puede deshacer",
-        "goneForGood_one": "{{formatted}} registro eliminado desde entonces no puede volver con su Id: la papelera ya no lo contiene ({{objects}}).",
-        "goneForGood_other": "{{formatted}} registros eliminados desde entonces no pueden volver con su Id: la papelera ya no los contiene ({{objects}}).",
+        "goneForGood_one": "{{formatted}} registro eliminado desde entonces no puede volver: la papelera ya no lo contiene, y el retroceso no puede crearlo de nuevo — un archivo, cuyo contenido el punto de control no guarda, o un registro eliminado mientras se tomaba el punto de control ({{objects}}).",
+        "goneForGood_other": "{{formatted}} registros eliminados desde entonces no pueden volver: la papelera ya no los contiene, y el retroceso no puede crearlos de nuevo — archivos, cuyo contenido el punto de control no guarda, o registros eliminados mientras se tomaba el punto de control ({{objects}}).",
         "deletedWithCreatedParent_one": "{{formatted}} registro eliminado con un padre creado desde entonces no puede volver por sí solo ({{objects}}).",
         "deletedWithCreatedParent_other": "{{formatted}} registros eliminados con un padre creado desde entonces no pueden volver por sí solos ({{objects}}).",
         "convertedLead_one": "{{formatted}} candidato se convirtió desde entonces: Salesforce no puede deshacer la conversión de un candidato. Lo que creó la conversión se elimina, y el candidato sigue convertido.",
@@ -5470,7 +5472,19 @@
         "giveBack_one": "devuelve a {{formatted}} registro sus valores de entonces",
         "giveBack_other": "devuelve a {{formatted}} registros sus valores de entonces",
         "bringBack_one": "recupera {{formatted}} registro de la papelera",
-        "bringBack_other": "recupera {{formatted}} registros de la papelera"
+        "bringBack_other": "recupera {{formatted}} registros de la papelera",
+        "recreate_one": "crea de nuevo {{formatted}} registro que la papelera ya no contiene, con un Id nuevo",
+        "recreate_other": "crea de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos"
+      },
+      "toRecreate_one": "{{formatted}} por volver a crear",
+      "toRecreate_other": "{{formatted}} por volver a crear",
+      "toRecreateHint": "fuera de la papelera: Id nuevos",
+      "recreate": {
+        "title": "Creados de nuevo, con Id nuevos",
+        "line_one": "{{formatted}} registro de {{object}} eliminado desde entonces que la papelera ya no devuelve.",
+        "line_other": "{{formatted}} registros de {{object}} eliminados desde entonces que la papelera ya no devuelve.",
+        "newIds": "El retroceso los crea de nuevo a partir del punto de control, con Id nuevos, y los campos de búsqueda del punto de control que los nombraban nombran los Id nuevos. Lo que fuera de Salesforce nombra sus Id antiguos — una integración, un enlace, un filtro de informe — ya no los encuentra. Deshacer los elimina de nuevo.",
+        "accept": "Crearlos de nuevo, con Id nuevos"
       }
     },
     "run": {
@@ -5484,7 +5498,9 @@
         "giveBack_other": "Devolver a {{formatted}} registros sus valores",
         "delete_one": "Eliminar {{formatted}} registro añadido desde entonces, los hijos primero",
         "delete_other": "Eliminar {{formatted}} registros añadidos desde entonces, los hijos primero",
-        "check": "Comprobar: leer {{org}} de nuevo"
+        "check": "Comprobar: leer {{org}} de nuevo",
+        "recreate_one": "Crear de nuevo {{formatted}} registro que la papelera ya no contiene, con un Id nuevo",
+        "recreate_other": "Crear de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos"
       },
       "progress": "Progreso del retroceso",
       "undoProgress": "Progreso de Deshacer",
@@ -5538,8 +5554,8 @@
         },
         "goneForGood": {
           "title": "Perdidos para siempre",
-          "line_one": "{{object}}: {{formatted}} registro eliminado desde entonces no puede volver con su Id: la papelera ya no lo contiene",
-          "line_other": "{{object}}: {{formatted}} registros eliminados desde entonces no pueden volver con su Id: la papelera ya no los contiene"
+          "line_one": "{{object}}: {{formatted}} registro eliminado desde entonces no puede volver: la papelera ya no lo contiene, y no se pudo crear de nuevo — un archivo, o un registro eliminado mientras se tomaba el punto de control",
+          "line_other": "{{object}}: {{formatted}} registros eliminados desde entonces no pueden volver: la papelera ya no los contiene, y no se pudieron crear de nuevo — archivos, o registros eliminados mientras se tomaba el punto de control"
         },
         "kept": {
           "title": "Mantenidos a propósito",
@@ -5572,6 +5588,10 @@
         "restoredTitle": "Lo que el retroceso sobrescribió, con sus valores de antes en {{org}}",
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes del retroceso",
         "keptChanged": "modificados desde el retroceso, dejados como están ahora: {{n}}"
+      },
+      "recreated": {
+        "title": "Creados de nuevo en {{org}}, con Id nuevos",
+        "line": "{{object}}: {{created}} de {{planned}} creados de nuevo"
       }
     },
     "undo": {

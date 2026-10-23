@@ -22,7 +22,7 @@
  * Lives under `src/test/`: a helper, not a suite.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,7 @@ import type { ForgeTargetAutomation, OrgCheckpoint, RewindDiff } from '@sandforg
 import { getJsforceConnection } from '../core/connection/ConnectionHelper.js';
 import {
   openCheckpointStore,
+  recreatedFileOf,
   rewindDirOf,
   type CheckpointFolder,
   type OrgCheckpointStore,
@@ -468,6 +469,7 @@ export async function rewound(
         previewId,
         acceptAutomation: false,
         acceptNoUndo: false,
+        acceptRecreate: false,
         acceptOutside: false,
         ...options.request,
       },
@@ -500,6 +502,7 @@ export const CALLS = new Set([
   'queryDeleted',
   'request',
   'update',
+  'create',
   'destroy',
   'undelete',
   'serverTime',
@@ -532,6 +535,55 @@ export function stoppedAfter(
       };
     },
   });
+}
+
+/**
+ * The records a rewind of the checkpoint in `folder` made again, by the Id
+ * each has now: the Id the checkpoint holds it by.
+ */
+export function recreatedOf(folder: CheckpointFolder): Map<string, string> {
+  const file = recreatedFileOf(folder);
+  const held = new Map<string, string>();
+  if (!existsSync(file)) return held;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line === '') continue;
+    const { from, to } = JSON.parse(line) as { from: string; to: string };
+    held.set(to, from);
+  }
+  return held;
+}
+
+/**
+ * `rows` as the checkpoint names their records: a record a rewind made
+ * again by the Id it had, and a lookup naming one by that Id too, so the org
+ * once rewound compares with the checkpoint, new Ids aside.
+ */
+export function asHeld<T extends Record<string, unknown>>(
+  rows: readonly T[],
+  recreated: ReadonlyMap<string, string>,
+): T[] {
+  return rows
+    .map(
+      (row) =>
+        Object.fromEntries(
+          Object.entries(row).map(([field, value]) => [
+            field,
+            typeof value === 'string' ? (recreated.get(value) ?? value) : value,
+          ]),
+        ) as T,
+    )
+    .sort((a, b) => String(a.Id).localeCompare(String(b.Id)));
+}
+
+/** The live records of `state` as the checkpoint in `folder` names them: see {@link asHeld}. */
+export function liveAsHeld(state: OrgState, folder: CheckpointFolder): OrgState['live'] {
+  const recreated = recreatedOf(folder);
+  return Object.fromEntries(
+    Object.entries(state.live).map(([objectApiName, rows]) => [
+      objectApiName,
+      asHeld(rows as Array<Record<string, unknown>>, recreated),
+    ]),
+  );
 }
 
 /** The ids of a live object's records, sorted. */

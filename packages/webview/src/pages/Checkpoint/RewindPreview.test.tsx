@@ -241,7 +241,7 @@ describe('RewindPreview', () => {
       .getAllByRole('listitem')
       .map((item) => item.textContent);
     expect(lines).toEqual([
-      '2 records deleted since cannot come back with their Id: the recycle bin no longer holds them (Case).',
+      '2 records deleted since cannot come back: the recycle bin no longer holds them, and the rewind cannot make them again — files, whose bodies the checkpoint does not hold, or records deleted while the checkpoint was taken (Case).',
       '1 lead was converted since: Salesforce cannot unconvert a lead. What the conversion made is deleted, and the lead stays converted.',
       'Case.Region__c was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.',
       'Case.Score__c was added since: its values stay.',
@@ -280,7 +280,13 @@ describe('RewindPreview', () => {
     expect(screen.getByTestId('danger-confirm-btn')).toBeDisabled();
     confirmRewind();
     expect(onRewind).toHaveBeenCalledWith(
-      { previewId: 'pv-1', acceptAutomation: false, acceptNoUndo: false, acceptOutside: false },
+      {
+        previewId: 'pv-1',
+        acceptAutomation: false,
+        acceptNoUndo: false,
+        acceptRecreate: false,
+        acceptOutside: false,
+      },
       previewAnswer().diff,
     );
     // The preview writes nothing itself: the rewind is its page's to start.
@@ -351,6 +357,49 @@ describe('RewindPreview', () => {
       expect.objectContaining({ acceptNoUndo: true }),
       expect.anything(),
     );
+  });
+
+  it('counts the records the recycle bin no longer gives back, says they are made again with new Ids and what that breaks, and holds Rewind until it is accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [...previewDiff().objects, diffObject('Case', { toRecreate: 2 })],
+      }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-number-recreate').textContent).toBe(
+      '2 to make again',
+    );
+    expect(screen.getByTestId('checkpoint-preview-row-Case').textContent).toContain('2');
+    expect(screen.getByRole('columnheader', { name: 'Make again' })).toBeInTheDocument();
+    const section = screen.getByTestId('checkpoint-preview-recreate');
+    expect(within(section).getByRole('heading').textContent).toBe('Made again, with new Ids');
+    expect(screen.getByTestId('checkpoint-preview-recreate-Case').textContent).toBe(
+      '2 Case records deleted since that the recycle bin no longer gives back.',
+    );
+    expect(section.textContent).toContain(
+      'Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them.',
+    );
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Make them again, with new Ids' }));
+    expect(rewind).toBeEnabled();
+    fireEvent.click(rewind);
+    expect(screen.getByRole('dialog').textContent).toContain(
+      'makes 2 records the recycle bin no longer holds again, with new Ids',
+    );
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptRecreate: true, acceptNoUndo: false }),
+      expect.anything(),
+    );
+  });
+
+  it('shows no number nor column for records to make again when there is none', () => {
+    renderPreview();
+    answerPreview();
+    expect(screen.queryByTestId('checkpoint-preview-number-recreate')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Make again' })).toBeNull();
+    expect(screen.queryByTestId('checkpoint-preview-recreate')).toBeNull();
   });
 
   it('says in a sentence of its own the records the rewind deletes before a record they point at, which it deletes next, and holds Rewind until that is accepted too (F41)', () => {
@@ -621,7 +670,7 @@ describe('RewindPreview', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      '1 record deleted since cannot come back with its Id: the recycle bin no longer holds it (Case).',
+      '1 record deleted since cannot come back: the recycle bin no longer holds it, and the rewind cannot make it again — a file, whose body the checkpoint does not hold, or a record deleted while the checkpoint was taken (Case).',
     ]);
     expect(screen.queryByTestId('checkpoint-preview-rewind')).toBeNull();
   });

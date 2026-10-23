@@ -24,11 +24,15 @@
  * - pages are not all of a size — 2,000 rows, then 1,972 — so an estimate
  *   takes 2,000 a page where nothing reads one into a page.
  *
- * Whether a Bulk API call counts against the daily requests is not known. No
- * estimate prices one: a removal past 10,000 records of an object
- * (`BULK_DELETE_THRESHOLD`) deletes them through a Bulk job of a handful of
- * calls, and they are counted as the REST calls of 200 records the job stands
- * for, which is more, so the gate errs toward refusing.
+ * - a Bulk API 2.0 job costs one request per call it sends, its records none:
+ *   asked live, a job of 200 deletes — opened, its CSV sent, closed, its state
+ *   read twice — took five off the day, as many as it sent. A removal deletes
+ *   an object's records past 10,000 (`BULK_DELETE_THRESHOLD`) through such
+ *   jobs, which also read their results three ways once through; each job is
+ *   priced by those calls (`bulkJobRequests`), its reads of its state as many
+ *   as its time leaves room for, one every five seconds
+ *   (`BULK_POLL_INTERVAL_MS`). Priced as the REST calls of 200 records it
+ *   stands for, a job of 50,000 deletes was counted 250 requests for some 25.
  *
  * An act's requests are what it sends whatever it holds, each named, and what
  * each brick it goes through sends per call and per record, counted as the
@@ -52,7 +56,13 @@ import type {
 import * as z from 'zod';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { columnGroups, idsPerStatement } from '../../core/common/wideRead.js';
+import { BULK_POLL_INTERVAL_MS } from '../../core/engine/BulkApiExecutor.js';
 import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import {
+  BULK_DELETE_JOB_RECORDS,
+  BULK_DELETE_THRESHOLD,
+  BULK_RESULT_READS,
+} from '../forge/ForgeRunRemoval.js';
 import {
   apiBudgetCheckOf,
   readApiBudget,
@@ -222,6 +232,25 @@ const SECONDS_PER_DEPENDENTS_READ = 0.25;
  * in 8.6 s by ten calls.
  */
 const SECONDS_PER_WRITE = 0.86;
+
+/**
+ * Seconds a Bulk API job waits its turn in the org before it deletes a record,
+ * about: on a scratch org, 24 of the 25.6 seconds a job of 2,000 contacts took.
+ */
+const BULK_JOB_WAIT_SECONDS = 24;
+
+/**
+ * Records a Bulk API job deletes a second once under way, about: 12,000 in 33
+ * seconds, fifty thousand in about a minute and a half, the slower of the two
+ * taken, so a job is read as often as it may be.
+ */
+const BULK_JOB_RECORDS_PER_SECOND = 750;
+
+/** Calls a Bulk API job sends whatever it holds: opened, its CSV sent, closed. */
+const BULK_JOB_FIXED_CALLS = 3;
+
+/** The file version, whose records a removal deletes by their document, never by a job. */
+const FILE_VERSION = 'ContentVersion';
 
 // ─── Counting ────────────────────────────────────────────────────────────────
 
@@ -666,12 +695,58 @@ function relationshipsFor(
 }
 
 /**
+ * The calls one Bulk API 2.0 job sends the org, each one of its daily
+ * requests: opened, its CSV sent, closed, each read of its state, and its
+ * results read three ways once it is through, unless told how many.
+ */
+export function bulkJobRequests(job: { stateReads: number; resultReads?: number }): number {
+  return BULK_JOB_FIXED_CALLS + job.stateReads + (job.resultReads ?? BULK_RESULT_READS);
+}
+
+/** Seconds a Bulk API job of `records` deletes takes, about: its wait, then the deletes. */
+function bulkJobSeconds(records: number): number {
+  return BULK_JOB_WAIT_SECONDS + records / BULK_JOB_RECORDS_PER_SECOND;
+}
+
+/**
+ * Reads of its state a Bulk API job of `records` deletes takes: one as it is
+ * closed, then one each time the executor waits for it, as long as its time.
+ */
+export function bulkJobStateReads(records: number): number {
+  return 1 + Math.ceil((bulkJobSeconds(records) * 1000) / BULK_POLL_INTERVAL_MS);
+}
+
+/**
+ * What deleting `records` records of one object costs, as the removal sends
+ * them (`deleteRounds`): past {@link BULK_DELETE_THRESHOLD}, jobs of one size
+ * of up to {@link BULK_DELETE_JOB_RECORDS} records, each priced by the calls
+ * it sends; else, and for a file's versions, REST calls of 200.
+ */
+function deletesCost(records: number, objectApiName: string | undefined): Cost {
+  if (records < BULK_DELETE_THRESHOLD || objectApiName === FILE_VERSION) {
+    return calls(runRequestsEstimate([{ rows: records }]), SECONDS_PER_WRITE);
+  }
+  const jobs = Math.ceil(records / BULK_DELETE_JOB_RECORDS);
+  const size = Math.ceil(records / jobs);
+  let cost = NOTHING;
+  for (let left = records; left > 0; left -= size) {
+    const job = Math.min(left, size);
+    cost = sum(cost, {
+      apiRequests: bulkJobRequests({ stateReads: bulkJobStateReads(job) }),
+      seconds: bulkJobSeconds(job),
+    });
+  }
+  return cost;
+}
+
+/**
  * What one call of `removeRunRecords` costs, per object the records it
  * deletes: the global describe, its clock and its user; per object, its
  * describe, its records read by id, the reads of what depends on them — each
  * relationship asked once whether anything points through it when the object
  * has more than one batch, then read per batch — and the deletes, as REST
- * calls of 200, never priced as a Bulk job.
+ * calls of 200 or, past 10,000 records of an object, as the Bulk API jobs the
+ * removal sends them in (`deletesCost`).
  *
  * Which records a record that stays holds is known only once the rest has
  * gone: those it holds are checked again then, and what the removal leaves
@@ -684,14 +759,14 @@ function relationshipsFor(
  *   through them. A plan held in memory is one page.
  */
 export function removalCost(
-  objects: ReadonlyArray<{ records: number; dependents: number }>,
+  objects: ReadonlyArray<{ records: number; dependents: number; objectApiName?: string }>,
   pageRecords = Number.POSITIVE_INFINITY,
 ): Cost {
   const removed = objects.filter((object) => object.records > 0);
   if (removed.length === 0) return NOTHING;
   return sum(
     calls(REMOVAL_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    ...removed.map(({ records, dependents }) => {
+    ...removed.map(({ records, dependents, objectApiName }) => {
       const batchCount = batches(records);
       let pagesOfMore = 0;
       for (let left = records; left > 0; left -= pageRecords) {
@@ -702,7 +777,7 @@ export function removalCost(
         calls(1, SECONDS_PER_SMALL_CALL),
         calls(batchCount, SECONDS_PER_READ),
         calls(anyPointing + dependents * batchCount, SECONDS_PER_DEPENDENTS_READ),
-        calls(runRequestsEstimate([{ rows: records }]), SECONDS_PER_WRITE),
+        deletesCost(records, objectApiName),
       );
     }),
   );
@@ -770,11 +845,25 @@ function givenBack(object: RewindDiffObject): number {
   return object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent;
 }
 
-/** Records deleted since that the recycle bin no longer holds. */
+/** Records deleted since that the recycle bin no longer holds, and that a rewind cannot make again. */
 function goneForGood(object: RewindDiffObject): number {
   return object.cannotUndo
     .filter((cannot) => cannot.reason === 'goneForGood')
     .reduce((total, cannot) => total + cannot.count, 0);
+}
+
+/** Records a rewind makes again with new Ids: those the recycle bin no longer gives back. */
+function toRecreate(object: RewindDiffObject): number {
+  return object.toRecreate ?? 0;
+}
+
+/**
+ * Records deleted since that the recycle bin no longer gives back, which a
+ * read finds by scanning their object's ids: those made again, and those
+ * that cannot be.
+ */
+function lost(object: RewindDiffObject): number {
+  return goneForGood(object) + toRecreate(object);
 }
 
 /**
@@ -825,7 +914,7 @@ function readOf(
   held: EstimatedObject,
   relationships: ReadonlyMap<string, ObjectRelationships> | undefined,
 ): ObjectRead {
-  const gone = goneForGood(object);
+  const gone = lost(object);
   return {
     objectApiName: object.objectApiName,
     live: object.toGiveBack.records + object.touched + deletedFirst(object) + object.unexplained,
@@ -850,7 +939,9 @@ function readOf(
  * until it deletes it, and what it does not touch is found as before. A
  * record brought back that was deleted while the checkpoint was taken is live
  * and not in the snapshot: found, and left, as one the checkpoint does not
- * explain.
+ * explain. A record made again is live under its new Id, which the checkpoint
+ * holds it by: stamped since, its values read; only what could not be made
+ * again is still scanned for.
  */
 function readAfterPass(
   object: RewindDiffObject,
@@ -868,10 +959,17 @@ function readAfterPass(
       object.touched +
       object.unexplained +
       broughtBack(object) +
+      toRecreate(object) +
       waiting,
     deleted: deletedFirst(object) + object.toDelete.comesBackWithParent - waiting,
-    valued: object.toGiveBack.records + object.touched + back.inBin + back.withParent,
+    valued:
+      object.toGiveBack.records +
+      object.touched +
+      back.inBin +
+      back.withParent +
+      toRecreate(object),
     backTo: held.undeletable === false && goneForGood(object) > 0,
+    scans: goneForGood(object) > 0 && held.undeletable !== false,
     deletes: waiting,
   };
 }
@@ -1017,6 +1115,23 @@ export interface RewindEstimateInput extends DiffEstimateInput {
   reusesPreview?: boolean;
 }
 
+/**
+ * What making records again costs, per object the records it makes: its
+ * describe, which tells the fields a new record takes, and an insert of 200
+ * records a call. A lookup to a record made after the one that names it — a
+ * record pointing at one of its own object — is filled in by an update of its
+ * own, not counted.
+ */
+export function recreateCost(perObject: readonly number[]): Cost {
+  return sum(
+    ...perObject
+      .filter((records) => records > 0)
+      .map((records) =>
+        sum(calls(1, SECONDS_PER_SMALL_CALL), calls(batches(records), SECONDS_PER_WRITE)),
+      ),
+  );
+}
+
 /** Bytes, about, a rewind keeps in its journal for 15 days. */
 function journalBytes(given: number, ids: number): number {
   return given * JOURNAL_BYTES_PER_VALUES + ids * JOURNAL_BYTES_PER_ID;
@@ -1115,9 +1230,10 @@ function mayHangFrom(
  *
  * - the user it writes as;
  * - pass 1: the bring back, parents first (`bringBackCost`), and the org's
- *   objects described for it unless the read before did; the give-back,
- *   before and after the deletes (`givenBackCost`); the removal of what was
- *   created or brought back since (`removalCost`);
+ *   objects described for it unless the read before did; what it makes again
+ *   (`recreateCost`); the give-back, before and after the deletes
+ *   (`givenBackCost`); the removal of what was created or brought back since
+ *   (`removalCost`);
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
  *   nothing to do;
  * - pass 2 and the verify after it, when records come back with a parent:
@@ -1230,8 +1346,10 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
         nextPass: holds(held, comingBack),
       });
     }),
+    recreateCost(objects.map(toRecreate)),
     removalCost(
       objects.map((object) => ({
+        objectApiName: object.objectApiName,
         records: sentFirst(object),
         dependents: relationships(object.objectApiName).dependents,
       })),
@@ -1243,6 +1361,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
       ? sum(
           removalCost(
             comingBack.map((object) => ({
+              objectApiName: object.objectApiName,
               records: object.toDelete.comesBackWithParent,
               dependents: relationships(object.objectApiName).dependents,
             })),
@@ -1265,7 +1384,8 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
  * the fresh diff, unless it acts on the one the command line just read; and,
  * once it has something to write, the automation read and its writes
  * (`rewindWritesCost`). The records counted are the three numbers of the
- * preview; the bytes, what the journal keeps of them.
+ * preview and the records it makes again; the bytes, what the journal keeps
+ * of them.
  */
 export function rewindEstimate(
   input: RewindEstimateInput,
@@ -1277,7 +1397,8 @@ export function rewindEstimate(
   );
   const toGiveBack = objects.reduce((total, object) => total + object.toGiveBack.records, 0);
   const toBringBack = objects.reduce((total, object) => total + broughtBack(object), 0);
-  const records = toDelete + toGiveBack + toBringBack;
+  const recreated = objects.reduce((total, object) => total + toRecreate(object), 0);
+  const records = toDelete + toGiveBack + toBringBack + recreated;
   const reads = sum(
     calls(ACT_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
     input.reusesPreview === true ? NOTHING : diffEstimate(input),
@@ -1299,9 +1420,11 @@ export function rewindEstimate(
     records,
     apiRequests: cost.apiRequests,
     seconds: Math.ceil(cost.seconds),
+    // A record made again is journaled twice: before its insert, by the Id
+    // it had, and after, by its new one.
     bytes: journalBytes(
       objects.reduce((total, object) => total + givenBack(object), 0),
-      toDelete + toBringBack,
+      toDelete + toBringBack + 2 * recreated,
     ),
   };
 }
@@ -1449,6 +1572,7 @@ export function undoEstimate(
     restamped,
     removalCost(
       input.rewound.map((object) => ({
+        objectApiName: object.objectApiName,
         records: object.broughtBack,
         dependents: relationshipsFor(input.relationships, object.objectApiName).dependents,
       })),

@@ -204,6 +204,15 @@ export function indexFileOf(folder: CheckpointFolder, objectApiName: string): st
   return join(folder.indexDir, `${objectSegment(objectApiName)}.idx`);
 }
 
+/**
+ * Where a checkpoint keeps the records of its snapshot a rewind made again,
+ * each under the new Id the org gave it: the snapshot holds them by the Ids
+ * they had, and every read of it names them by the Ids they have now.
+ */
+export function recreatedFileOf(folder: CheckpointFolder): string {
+  return join(folder.indexDir, 'recreated.ndjson');
+}
+
 /** Where the ids of an object that were in the recycle bin when the take began are. */
 export function binFileOf(folder: CheckpointFolder, objectApiName: string): string {
   return join(folder.binDir, `${objectSegment(objectApiName)}.ids`);

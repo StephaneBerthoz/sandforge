@@ -47,7 +47,7 @@ export interface WrittenRecords {
 }
 
 /** The writes of an act, in the order it makes them. */
-const WRITES: readonly CheckpointWrite[] = ['undelete', 'update', 'delete'];
+const WRITES: readonly CheckpointWrite[] = ['undelete', 'insert', 'update', 'delete'];
 
 /** How each daily email limit is said. */
 const LIMIT_WORDS: Readonly<Record<ForgeEmailLimit, string>> = {
@@ -63,8 +63,9 @@ const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string
 
 /**
  * What a rewind would write, per object and write, as its preview counts it:
- * what it brings back, what it gives back — what it brings back among it, the
- * values it had when deleted given back once it is back — and what it deletes.
+ * what it brings back, what it makes again with new Ids, what it gives back —
+ * what it brings back among it, the values it had when deleted given back
+ * once it is back — and what it deletes.
  */
 export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -73,6 +74,7 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
         object.toBringBack.inBin +
         object.toBringBack.withParent +
         object.toBringBack.deletedWhileTaken,
+      insert: object.toRecreate ?? 0,
       update: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
       delete:
         object.toDelete.createdSince +
@@ -91,6 +93,7 @@ export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenReco
   return objects.flatMap((object) =>
     written(object.objectApiName, {
       undelete: object.broughtBack + object.backWithParent,
+      insert: object.recreated,
       update: object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass,
       delete: object.deleted + object.withParentDeleted + object.nextPassDeleted,
     }),
@@ -100,8 +103,8 @@ export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenReco
 /**
  * What an undo writes, per object and write, from what its rewind did: it
  * brings back what the rewind deleted, gives back what it wrote over, and
- * sends back to the bin what it brought back — what goes with a parent among
- * it (`along`).
+ * sends back to the bin what it brought back and what it made again — what
+ * goes with a parent among it (`along`).
  */
 export function writtenByUndo(
   rewound: readonly RewoundObject[],
@@ -116,6 +119,7 @@ export function writtenByUndo(
     const object = rewound.find((o) => o.objectApiName === objectApiName);
     return written(objectApiName, {
       undelete: object?.deleted ?? 0,
+      insert: 0,
       update: object?.givenBack ?? 0,
       delete: (object?.broughtBack ?? 0) + (alongOf.get(objectApiName) ?? 0),
     });

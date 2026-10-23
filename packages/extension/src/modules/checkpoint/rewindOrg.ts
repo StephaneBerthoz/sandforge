@@ -33,6 +33,20 @@
  * the pass writes: their undo gives their values back before the records
  * that held them come back.
  *
+ * - Made again: the records the recycle bin no longer gives back, which the
+ *   snapshot holds, once what is brought back is back, parents first, 200 an
+ *   insert, with the snapshot's values of the fields the org lets the user
+ *   set on a new record, and new Ids. A lookup that named a record made again
+ *   names its new Id: one made before it as it is made, one made after it —
+ *   a record pointing at a record of its own object, as an account at its
+ *   parent account — empty at first, filled in once that one is made. Each
+ *   insert's records are named in the journal before it goes, by the Ids the
+ *   checkpoint holds them by, and once it answered by the Ids the org gave
+ *   them, beside the checkpoint (`Recreated`): its undo deletes them, and
+ *   every read of the checkpoint from then on names them by their new Ids, so
+ *   the give-back that follows points every lookup the checkpoint holds that
+ *   named one at its new Id. A record the org refuses to make is named, in
+ *   its words, and left gone.
  * - Brought back: a page of 2,000 ids at a time, the undelete's own batches
  *   of 200. Before each batch goes, the children the recycle bin holds of
  *   each of its records, through every relationship its object deletes
@@ -66,7 +80,8 @@
  * pass that wrote is the verify.
  *
  * **The verify** names each record that still differs, by object and reason:
- * gone for good; changed during the rewind by another user (the rewind is
+ * gone for good — a file, whose body the checkpoint does not hold, or a
+ * record deleted while it was taken —; changed during the rewind by another user (the rewind is
  * then unstable); changed since the preview; kept by your automation — last
  * changed after Tr by the rewind's own users —; kept as the rewind had to,
  * among them a record to delete that records it does not delete hang from,
@@ -106,9 +121,11 @@ import {
   type ForgeUndoObjectResult,
   type OrgCheckpoint,
   type OrgTypeAndEdition,
+  recordWriteHeaders,
   type RewindDiff,
   type RewindResidual,
   type RewindResidualReason,
+  type RewindRecreatedObject,
   type RewindResult,
   type RewindStatus,
   type RewindUndoCannot,
@@ -175,7 +192,12 @@ import {
   type RewindPlanLeft,
   type RewindPlanLeftReason,
 } from './rewindPlan.js';
-import { SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
+import {
+  Recreated,
+  SNAPSHOT_CHUNK_IDS,
+  SnapshotIndex,
+  type RecreatedPair,
+} from './snapshotIndex.js';
 import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
 import { settleNotInBin } from './undoRewind.js';
@@ -203,6 +225,7 @@ const ACTED: readonly RewindClass[] = [
   'inBin',
   'withParent',
   'deletedWhileTaken',
+  'toRecreate',
 ];
 
 /** What the verify names: the classes a pass acts on, and what cannot come back or be given back. */
@@ -237,10 +260,11 @@ const BRICK_OF: Readonly<Partial<Record<RewindClass, Brick>>> = {
   inBin: 'undelete',
   withParent: 'undelete',
   deletedWhileTaken: 'undelete',
+  toRecreate: 'recreate',
 };
 
 /** The bricks a pass writes through. */
-type Brick = 'restore' | 'undelete' | 'removal';
+type Brick = 'restore' | 'undelete' | 'recreate' | 'removal';
 
 /** Why a plan keeps a record it would otherwise act on: the rewind's choice, never the org's. */
 const KEPT_WORDS: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
@@ -315,6 +339,12 @@ export interface RewindOrg extends TakeOrg {
   ): Promise<CountedPage & { totalSize: number }>;
   describe(objectApiName: string): Promise<unknown>;
   update(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown>;
+  /**
+   * Insert records of one object, 200 at most, each answered in their order:
+   * what a rewind makes again of the records the recycle bin no longer gives
+   * back.
+   */
+  create(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown>;
   destroy(objectApiName: string, ids: string[]): Promise<unknown>;
   /** A query that reads the recycle bin too: one page. */
   queryDeleted(soql: string): Promise<{ records: unknown[] }>;
@@ -340,6 +370,9 @@ export function rewindOrgOf(conn: Connection): RewindOrg {
     userId: () => take.userId(),
     describe: (objectApiName) => removal.describe(objectApiName),
     update: (objectApiName, records) => removal.update(objectApiName, records),
+    // A duplicate rule may hold a record made again for the one it was.
+    create: (objectApiName, records) =>
+      conn.sobject(objectApiName).create(records, { headers: recordWriteHeaders() }),
     destroy: (objectApiName, ids) => removal.destroy(objectApiName, ids),
     queryDeleted: (soql) => removal.queryDeleted(soql),
     ...(bulkDestroy
@@ -352,7 +385,8 @@ export function rewindOrgOf(conn: Connection): RewindOrg {
 }
 
 /** The phase a rewind is in, as its progress says it. */
-export type RewindPhase = 'reading' | 'bringingBack' | 'givingBack' | 'deleting' | 'checking';
+export type RewindPhase =
+  'reading' | 'bringingBack' | 'recreating' | 'givingBack' | 'deleting' | 'checking';
 
 /** How far a rewind is. */
 export interface RewindProgress {
@@ -412,6 +446,8 @@ export interface RewindRequest {
   acceptAutomation: boolean;
   /** Delete records Undo couldn't bring back. */
   acceptNoUndo: boolean;
+  /** Make again, with new Ids, the records deleted since that the recycle bin no longer gives back. */
+  acceptRecreate: boolean;
   /** A checkpoint of picked objects: delete too the records outside it that hang from what it deletes. */
   acceptOutside: boolean;
 }
@@ -521,6 +557,24 @@ function noUndoRefusal(left: readonly RewindPlanLeft[]): CheckpointRefusal {
   };
 }
 
+/**
+ * The refusal of a rewind that would make records again with new Ids, not
+ * accepted: how many, of which objects, and what a new Id breaks.
+ */
+function recreateRefusal(left: readonly RewindPlanLeft[]): CheckpointRefusal {
+  const count = left.reduce((sum, entry) => sum + entry.count, 0);
+  const objects = [...new Set(left.map((entry) => entry.objectApiName))].join(', ');
+  return {
+    code: 'RECREATE',
+    message:
+      `${count} ${objects} record(s) deleted since are no longer in the recycle bin, or ` +
+      'Salesforce keeps them there for good: this rewind makes them again from the ' +
+      'checkpoint, with new Ids. Anything outside Salesforce that names their old Ids — an ' +
+      'integration, a link, a report filter — no longer finds them. Rewind refused; accept ' +
+      `that they get new Ids to rewind all the same. ${NOTHING_WRITTEN}`,
+  };
+}
+
 /** The refusal of a rewind whose writes fire the org's automation, not accepted. */
 function automationRefusal(
   orgName: string,
@@ -529,10 +583,11 @@ function automationRefusal(
 ): CheckpointRefusal {
   const fired = firedOnRemovalStepsOf(automation, steps);
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
+  const makes = (steps.recreate ?? []).length > 0 ? 'makes them again, ' : '';
   const what =
     fired.length > 0
       ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
-        'rewind brings records back, gives them their values back or deletes them'
+        `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
   return {
     code: 'AUTOMATION',
@@ -654,6 +709,18 @@ function addUndelete(into: SyncUndeleteObjectResult, from: SyncUndeleteObjectRes
   for (const reason of from.reasons) addReason(into.reasons, reason);
 }
 
+function emptyRecreated(objectApiName: string): RewindRecreatedObject {
+  return { objectApiName, planned: 0, created: 0, refused: 0, reasons: [] };
+}
+
+function addRecreated(into: RewindRecreatedObject, from: RewindRecreatedObject): void {
+  into.planned += from.planned;
+  into.created += from.created;
+  into.refused += from.refused;
+  if (from.notReached) into.notReached = (into.notReached ?? 0) + from.notReached;
+  for (const reason of from.reasons) addReason(into.reasons, reason);
+}
+
 function addDeleted(into: ForgeUndoObjectResult, from: ForgeUndoObjectResult): void {
   into.planned += from.planned;
   into.deleted += from.deleted;
@@ -680,11 +747,13 @@ function addDeleted(into: ForgeUndoObjectResult, from: ForgeUndoObjectResult): v
 class PassTally {
   readonly restored = new Map<string, SyncRestoreObjectResult>();
   readonly undeleted = new Map<string, SyncUndeleteObjectResult>();
+  readonly recreated = new Map<string, RewindRecreatedObject>();
   readonly deleted = new Map<string, ForgeUndoObjectResult>();
   /** Per brick and object, the records it left: what the verify quotes its reasons for, and what the next pass retries. */
   readonly left: Record<Brick, Map<string, RecordKeySet>> = {
     restore: new Map(),
     undelete: new Map(),
+    recreate: new Map(),
     removal: new Map(),
   };
   /**
@@ -714,6 +783,12 @@ class PassTally {
     const into = this.undeleted.get(from.objectApiName) ?? emptyUndelete(from.objectApiName);
     addUndelete(into, from);
     this.undeleted.set(from.objectApiName, into);
+  }
+
+  recreate(from: RewindRecreatedObject): void {
+    const into = this.recreated.get(from.objectApiName) ?? emptyRecreated(from.objectApiName);
+    addRecreated(into, from);
+    this.recreated.set(from.objectApiName, into);
   }
 
   delete(objects: readonly ForgeUndoObjectResult[]): void {
@@ -778,6 +853,7 @@ async function passesTally(
   deleted: ForgeUndoObjectResult[];
   restored: SyncRestoreObjectResult[];
   undeleted: SyncUndeleteObjectResult[];
+  recreated: RewindRecreatedObject[];
 }> {
   const first = firstPass.tally;
   const deleted = new Map(
@@ -788,6 +864,9 @@ async function passesTally(
   );
   const undeleted = new Map(
     [...first.undeleted].map(([name, result]) => [name, structuredClone(result)]),
+  );
+  const recreated = new Map(
+    [...first.recreated].map(([name, result]) => [name, structuredClone(result)]),
   );
   if (second) {
     const { tally, plan } = second;
@@ -824,6 +903,16 @@ async function passesTally(
       addUndelete(into, from);
       undeleted.set(name, into);
     }
+    // What the second pass makes again the first could not: its refusals settled.
+    const recreateRetried = await retriedOf([plan.recreate], [firstPass.plan.recreate]);
+    for (const [name, from] of tally.recreated) {
+      const into = recreated.get(name) ?? emptyRecreated(name);
+      const retried = recreateRetried.get(name) ?? 0;
+      settle(into, ['refused', 'notReached', 'created'], retried);
+      into.planned -= Math.min(retried, into.planned);
+      addRecreated(into, from);
+      recreated.set(name, into);
+    }
     const removalRetried = await retriedOf([plan.deletes.spool], [firstPass.plan.deletes.spool]);
     for (const [name, from] of tally.deleted) {
       const into = deleted.get(name);
@@ -849,6 +938,7 @@ async function passesTally(
     deleted: [...deleted.values()],
     restored: [...restored.values()],
     undeleted: [...undeleted.values()],
+    recreated: [...recreated.values()],
   };
 }
 
@@ -901,6 +991,9 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
     bringBack: objects
       .filter((object) => object.broughtBack + object.backWithParent > 0)
       .map((object) => object.objectApiName),
+    recreate: objects
+      .filter((object) => object.recreated > 0)
+      .map((object) => object.objectApiName),
     giveBack: objects
       .filter(
         (object) => object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass > 0,
@@ -918,6 +1011,7 @@ function writes(plan: RewindPlan): boolean {
   return (
     plan.deletes.spool.count +
       plan.bringBack.count +
+      plan.recreate.count +
       plan.giveBack.beforeDeletes.count +
       plan.giveBack.afterDeletes.count >
     0
@@ -930,7 +1024,9 @@ function writes(plan: RewindPlan): boolean {
  * The calls a rewind, or an undo of one, sends the org through `org`,
  * counted: a composite is one request, whatever it holds, and every SOAP call
  * one more — the clock, the user, each undelete — which a count of the
- * connection's REST requests does not see.
+ * connection's REST requests does not see. A Bulk API job counts the calls it
+ * says it sent (`BulkDeleteAnswer.requests`): opened, sent, closed, each read
+ * of its state and of its results, one request each, as the org counted them.
  */
 export function counted(
   org: RewindOrg,
@@ -955,12 +1051,25 @@ export function counted(
       userId: () => one(() => org.userId()),
       describe: (objectApiName) => one(() => org.describe(objectApiName)),
       update: (objectApiName, records) => one(() => org.update(objectApiName, records)),
+      create: (objectApiName, records) => one(() => org.create(objectApiName, records)),
       destroy: (objectApiName, ids) => one(() => org.destroy(objectApiName, ids)),
       queryDeleted: (soql) => one(() => org.queryDeleted(soql)),
       ...(bulkDestroy
         ? {
-            bulkDestroy: (objectApiName: string, ids: readonly string[], signal?: AbortSignal) =>
-              one(() => bulkDestroy(objectApiName, ids, signal)),
+            bulkDestroy: async (
+              objectApiName: string,
+              ids: readonly string[],
+              signal?: AbortSignal,
+            ) => {
+              let calls = 1;
+              try {
+                const answer = await bulkDestroy(objectApiName, ids, signal);
+                calls = answer.requests ?? 1;
+                return answer;
+              } finally {
+                used += calls;
+              }
+            },
           }
         : {}),
     },
@@ -1098,6 +1207,7 @@ class Rewind {
       ownWriters: rewindWriters(this.request.checkpoint.takenBy, this.userId),
       acceptOutside: this.request.acceptOutside,
       acceptNoUndo: this.request.acceptNoUndo,
+      acceptRecreate: this.request.acceptRecreate,
       ...(pass === 2 && Object.keys(this.stamps).length > 0
         ? { removalStamps: { ...this.stamps } }
         : {}),
@@ -1164,6 +1274,8 @@ class Rewind {
     // ─── What it refuses before it writes ───
     const noUndo = first.plan.left.filter((entry) => NO_UNDO_LEFT.has(entry.reason));
     if (noUndo.length > 0) return { rewound: false, refusal: noUndoRefusal(noUndo) };
+    const notMade = first.plan.left.filter((entry) => entry.reason === 'recreateNotAccepted');
+    if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };
     // A rewind stopped part way that wrote, whose work the fresh read finds
     // done: its journal is taken up to end it, and its Undo stays offered.
     const last = checkpoint.lastRewind;
@@ -1177,6 +1289,7 @@ class Rewind {
       const objects = [
         ...new Set([
           ...(steps.bringBack ?? []),
+          ...(steps.recreate ?? []),
           ...(steps.giveBack ?? []),
           ...(steps.setToDraft ?? []),
           ...(steps.delete ?? []),
@@ -1260,7 +1373,7 @@ class Rewind {
       result: this.resultOf({
         rewindId: newFolderId('rw', this.now()),
         status: residual.length > 0 || fresh.diff.unread.length > 0 ? 'partial' : 'success',
-        tally: { deleted: [], restored: [], undeleted: [] },
+        tally: { deleted: [], restored: [], undeleted: [], recreated: [] },
         residual,
         unread: fresh.diff.unread,
         passes: 1,
@@ -1330,7 +1443,8 @@ class Rewind {
     const did =
       tally.deleted.some((object) => object.deleted > 0) ||
       tally.restored.some((object) => object.restored + (object.restoredWithout ?? 0) > 0) ||
-      tally.undeleted.some((object) => object.undeleted > 0);
+      tally.undeleted.some((object) => object.undeleted > 0) ||
+      tally.recreated.some((object) => object.created > 0);
     const status: RewindStatus = cancelled
       ? 'cancelled'
       : residual.some((entry) => entry.reason === 'changedDuringRewind')
@@ -1434,6 +1548,7 @@ class Rewind {
       deleted: parts.tally.deleted,
       restored: parts.tally.restored,
       undeleted: parts.tally.undeleted,
+      ...(parts.tally.recreated.length > 0 ? { recreated: parts.tally.recreated } : {}),
       residual: parts.residual,
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
       passes: parts.passes,
@@ -1492,6 +1607,20 @@ class Rewind {
         );
         await this.bringBack(journal, plan.bringBack, tally, stamp);
       }
+      if (!tally.cancelled && !this.stopped() && plan.recreate.count > 0) {
+        this.progress(
+          'recreating',
+          pass,
+          pass === 1 ? 32 : 81,
+          'Making again what the recycle bin no longer holds',
+        );
+        await this.recreate(journal, plan.recreate, tally);
+      } else if (plan.recreate.count > 0) {
+        for (const { objectApiName, count } of plan.recreate.objects) {
+          tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
+        }
+        tally.cancelled = true;
+      }
       if (!tally.cancelled && !this.stopped() && plan.giveBack.beforeDeletes.count > 0) {
         this.progress(
           'givingBack',
@@ -1546,7 +1675,9 @@ class Rewind {
         includeChanged: plan.removal.includeChanged,
         ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
         ...(spans.length > 0 ? { removalSpans: spans } : {}),
-        ...(plan.bringBack.count + plan.giveBack.beforeDeletes.count > 0 ? { sweep } : {}),
+        ...(plan.bringBack.count + plan.recreate.count + plan.giveBack.beforeDeletes.count > 0
+          ? { sweep }
+          : {}),
         ...(this.deps.onUndeletable ? { onUndeletable: this.deps.onUndeletable } : {}),
         ...(this.signal ? { signal: this.signal } : {}),
         onProgress: (settled, total, objectApiName) =>
@@ -1739,6 +1870,221 @@ class Rewind {
       },
     );
     return this.unqueried;
+  }
+
+  /**
+   * The fields a record of `objectApiName` is made again with, as its
+   * describe says now: of those the checkpoint compares, the ones the org
+   * still has and lets the user set on a new record; and of them, the
+   * lookups, whose value names a record that may have been made again.
+   *
+   * @throws When the org would not describe it.
+   */
+  private async insertFieldsOf(
+    objectApiName: string,
+  ): Promise<{ fields: string[]; lookups: string[] }> {
+    let body = this.kept.bodies.get(objectApiName);
+    if (body === undefined) {
+      const answer = await this.kept.reader.describe(objectApiName);
+      body = 'body' in answer ? answer.body : undefined;
+    }
+    const parsed = checkpointDescribeSchema.safeParse(body);
+    if (!parsed.success) throw new Error(`The org gave no describe of ${objectApiName}.`);
+    const byName = new Map(parsed.data.fields.map((field) => [field.name.toLowerCase(), field]));
+    const held = this.request.checkpoint.objects.find(
+      (object) => object.objectApiName === objectApiName,
+    );
+    const fields = comparedFields(
+      objectApiName,
+      held?.fields ?? [],
+      this.request.checkpoint.ignoredFields,
+    ).filter((field) => byName.get(field.toLowerCase())?.createable === true);
+    const lookups = fields.filter((field) => byName.get(field.toLowerCase())?.type === 'reference');
+    return { fields: fields.map(assertSoqlIdentifier), lookups };
+  }
+
+  /**
+   * Make again what the recycle bin no longer gives back, parents first, from
+   * the snapshot's values, 200 an insert: see the module's comment. A lookup
+   * to a record still to be made — one later in the order, or of the same
+   * object — goes empty, and is filled in once both are made.
+   */
+  private async recreate(journal: RewindJournal, spool: IdSpool, tally: PassTally): Promise<void> {
+    const { checkpoint, folder } = this.request;
+    /** By key, the records of the plan, by the Ids the reads name them by. */
+    const planned = new RecordKeySet();
+    for (const { objectApiName } of spool.objects) {
+      for await (const ids of spool.pages(objectApiName)) for (const id of ids) planned.add(id);
+    }
+    let made = await Recreated.read(folder);
+    /** The keys the checkpoint holds the records made by this pass by. */
+    const madeNow = new Set<string>();
+    /** The key the checkpoint holds a record by, whichever Id names it. */
+    const heldKeyOf = (id: string): string => made.originalOf(id.slice(0, 15)) ?? id.slice(0, 15);
+    /** Lookups left empty for a record not made yet, by the keys the checkpoint holds both by. */
+    const owed: Array<{ objectApiName: string; from: string; field: string; target: string }> = [];
+    for (const { objectApiName, count } of spool.objects) {
+      if (tally.cancelled || this.stopped()) {
+        tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
+        tally.cancelled = true;
+        continue;
+      }
+      let insert: { fields: string[]; lookups: string[] };
+      try {
+        insert = await this.insertFieldsOf(objectApiName);
+      } catch (err: unknown) {
+        if (err instanceof OrgReadStopped) {
+          tally.cancelled = true;
+          tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
+          continue;
+        }
+        const reason = extractErrorMessage(err);
+        tally.recreate({
+          ...emptyRecreated(objectApiName),
+          planned: count,
+          refused: count,
+          reasons: [reason],
+        });
+        for await (const ids of spool.pages(objectApiName))
+          tally.leftBy('recreate', objectApiName, ids);
+        continue;
+      }
+      for await (const ids of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
+        if (tally.cancelled || this.stopped()) {
+          tally.recreate({
+            ...emptyRecreated(objectApiName),
+            planned: ids.length,
+            notReached: ids.length,
+          });
+          tally.cancelled = true;
+          continue;
+        }
+        // Read with what is made so far: a lookup to a record made before
+        // this one names its new Id.
+        const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName, made);
+        const rows: OrgRow[] = [];
+        const batches = await index
+          .chunk(ids)
+          .batches(checkpoint.snapshotId, objectApiName, RECORDS_PER_CALL);
+        for await (const batch of batches ?? []) rows.push(...batch);
+        const result = { ...emptyRecreated(objectApiName), planned: ids.length };
+        const found = new RecordKeySet();
+        for (const row of rows) if (typeof row.Id === 'string') found.add(row.Id);
+        const missing = ids.filter((id) => !found.has(id));
+        if (missing.length > 0) {
+          result.refused += missing.length;
+          addReason(result.reasons, 'The checkpoint holds no values of it.');
+          tally.leftBy('recreate', objectApiName, missing);
+        }
+        for (let at = 0; at < rows.length; at += RECORDS_PER_CALL) {
+          if (this.stopped()) {
+            const left = rows.length - at;
+            result.notReached = (result.notReached ?? 0) + left;
+            tally.leftBy(
+              'recreate',
+              objectApiName,
+              rows.slice(at).map((row) => String(row.Id)),
+            );
+            tally.cancelled = true;
+            break;
+          }
+          const batch = rows.slice(at, at + RECORDS_PER_CALL);
+          const from = batch.map((row) => index.snapshotIdOf(String(row.Id)));
+          const records = batch.map((row, place) => {
+            const written = rowToWriteBack(objectApiName, row, insert.fields);
+            delete written.Id;
+            for (const field of insert.lookups) {
+              const target = written[field];
+              if (typeof target !== 'string' || target.length < 15 || !planned.has(target)) {
+                continue;
+              }
+              const held = heldKeyOf(target);
+              // Made by an insert since this page was read: its new Id.
+              const now = madeNow.has(held) ? made.currentOf(held) : undefined;
+              if (now !== undefined) {
+                written[field] = now;
+                continue;
+              }
+              // Named by a record of the plan not made yet: empty for now.
+              owed.push({ objectApiName, from: from[place].slice(0, 15), field, target: held });
+              written[field] = null;
+            }
+            return written;
+          });
+          await journal.recreating(objectApiName, from);
+          const answers = saveAnswersOf(await this.org.create(objectApiName, records));
+          const pairs: RecreatedPair[] = [];
+          batch.forEach((row, place) => {
+            const answer = answers[place];
+            if (answer?.success === true && typeof answer.id === 'string') {
+              pairs.push({ objectApiName, from: from[place], to: answer.id });
+              return;
+            }
+            result.refused++;
+            addReason(result.reasons, answer?.error ?? 'The org gave no answer for it.');
+            tally.leftBy('recreate', objectApiName, [String(row.Id)]);
+          });
+          if (pairs.length > 0) {
+            // Beside the checkpoint first, then in the journal: read again,
+            // the checkpoint names them by their new Ids from now on.
+            await Recreated.add(folder, pairs);
+            await journal.recreated(
+              objectApiName,
+              pairs.map((pair) => ({ from: pair.from, id: pair.to })),
+            );
+            await journal.wrote();
+            tally.wrote = true;
+            result.created += pairs.length;
+            for (const pair of pairs) madeNow.add(pair.from.slice(0, 15));
+            made = await Recreated.read(folder);
+          }
+        }
+        tally.recreate(result);
+      }
+    }
+    await this.fillOwed(owed, made, madeNow, tally);
+  }
+
+  /**
+   * Fill in the lookups a record was made again without, for a record made
+   * after it: once both are made, 200 an update. One the org refuses is said
+   * in the record's result.
+   */
+  private async fillOwed(
+    owed: ReadonlyArray<{ objectApiName: string; from: string; field: string; target: string }>,
+    made: Recreated,
+    madeNow: ReadonlySet<string>,
+    tally: PassTally,
+  ): Promise<void> {
+    const byObject = new Map<string, Map<string, Record<string, unknown>>>();
+    for (const { objectApiName, from, field, target } of owed) {
+      if (!madeNow.has(from) || !madeNow.has(target)) continue;
+      const id = made.currentOf(from);
+      const to = made.currentOf(target);
+      if (id === undefined || to === undefined) continue;
+      const updates = byObject.get(objectApiName) ?? new Map<string, Record<string, unknown>>();
+      updates.set(id, { ...updates.get(id), Id: id, [field]: to });
+      byObject.set(objectApiName, updates);
+    }
+    for (const [objectApiName, updates] of byObject) {
+      const records = [...updates.values()];
+      for (let at = 0; at < records.length; at += RECORDS_PER_CALL) {
+        if (this.stopped()) return;
+        const batch = records.slice(at, at + RECORDS_PER_CALL);
+        const answers = saveAnswersOf(await this.org.update(objectApiName, batch));
+        const result = tally.recreated.get(objectApiName);
+        answers.forEach((answer, place) => {
+          if (answer.success) return;
+          if (result) {
+            addReason(
+              result.reasons,
+              `Made again, but a lookup to a record made after it was refused: ${answer.error}`,
+            );
+          }
+          tally.leftBy('recreate', objectApiName, [String(batch[place].Id)]);
+        });
+      }
+    }
   }
 
   /**
@@ -2273,7 +2619,9 @@ class Rewind {
           ? tally.restored.get(objectApiName)?.reasons
           : brick === 'undelete'
             ? tally.undeleted.get(objectApiName)?.reasons
-            : tally.deleted.get(objectApiName)?.reasons;
+            : brick === 'recreate'
+              ? tally.recreated.get(objectApiName)?.reasons
+              : tally.deleted.get(objectApiName)?.reasons;
       const words = reasons?.find((reason) => reason !== waited);
       if (words === undefined) continue;
       return waited ? `${words} — ${waited}` : words;
@@ -2310,4 +2658,52 @@ function writtenBack(
       };
     },
   };
+}
+
+/** One record's answer to an insert or an update, as the org gives it in a collection call. */
+interface SaveAnswer {
+  success: boolean;
+  id?: string;
+  /** The org's words, `CODE: message`, for a record it refused. */
+  error?: string;
+}
+
+const saveAnswerSchema = z
+  .object({
+    success: z.boolean(),
+    id: z.string().nullish(),
+    errors: z
+      .array(
+        z.union([
+          z.string(),
+          z.object({ statusCode: z.string().optional(), message: z.string().optional() }).loose(),
+        ]),
+      )
+      .optional(),
+  })
+  .loose();
+
+/**
+ * The answers of a collection insert or update, one per record in their
+ * order; an answer that is not one reads as a refusal without words.
+ */
+function saveAnswersOf(answer: unknown): SaveAnswer[] {
+  const list = Array.isArray(answer) ? answer : [answer];
+  return list.map((item): SaveAnswer => {
+    const parsed = saveAnswerSchema.safeParse(item);
+    if (!parsed.success) return { success: false };
+    const { success, id, errors } = parsed.data;
+    const words = (errors ?? [])
+      .map((error) =>
+        typeof error === 'string'
+          ? error
+          : [error.statusCode, error.message].filter((part) => part).join(': '),
+      )
+      .filter((word) => word !== '');
+    return {
+      success,
+      ...(typeof id === 'string' ? { id } : {}),
+      ...(words.length > 0 ? { error: words.join('; ') } : {}),
+    };
+  });
 }

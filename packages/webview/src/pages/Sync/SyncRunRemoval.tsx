@@ -92,6 +92,8 @@ const AUTOMATION_WORDS: RemovalAutomationWords = {
 /** Why a step of the removal other than its delete writes the record it fires on. */
 const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> = {
   bringBack: 'runRemoval.automation.broughtBack',
+  // A Sync run's removal makes nothing again: only a rewind to a checkpoint does.
+  recreate: 'runRemoval.automation.recreated',
   giveBack: 'runRemoval.automation.givenBack',
   setToDraft: 'runRemoval.automation.drafted',
 };

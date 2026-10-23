@@ -4417,7 +4417,8 @@
       "none": "Nada do que {{org}} automatiza é executado ao excluir estes registros.",
       "error": "Não foi possível ler o que {{org}} executa quando estes registros saem: {{reason}}",
       "givenBack": "quando a remoção lhe devolve seus valores de antes da execução",
-      "broughtBack": "depois da restauração, quando a remoção o recupera da lixeira"
+      "broughtBack": "depois da restauração, quando a remoção o recupera da lixeira",
+      "recreated": "quando o retrocesso o recria, com um Id novo"
     },
     "sync": {
       "title": "O que esta execução criou",
@@ -5290,7 +5291,7 @@
       },
       "expiresSoon": "Expira {{when}}",
       "keepIt": "Guardar",
-      "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar: a lixeira os guarda por 15 dias, menos se encher.",
+      "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar com o seu Id: a lixeira os guarda por 15 dias, menos se encher. Um retrocesso os recria, com Ids novos.",
       "rewound": "Retrocesso feito em {{date}}: pode ser desfeito até {{until}}, antes se a lixeira encher.",
       "rewoundUndated": "Retrocesso feito: pode ser desfeito até {{until}}, antes se a lixeira encher.",
       "stopComparing": "Parar de comparar campos…"
@@ -5381,7 +5382,8 @@
         "delete": "Excluir",
         "giveBack": "Devolver valores",
         "bringBack": "Recuperar",
-        "cannotUndo": "Irreversível"
+        "cannotUndo": "Irreversível",
+        "recreate": "Recriar"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} registro excluído enquanto o ponto de verificação era criado volta com os valores que tinha então.",
@@ -5405,8 +5407,8 @@
       "unread_other": "{{formatted}} objetos não puderam ser lidos: o retrocesso os deixa como estão",
       "cannot": {
         "title": "O que um retrocesso não pode desfazer",
-        "goneForGood_one": "{{formatted}} registro excluído desde então não pode voltar com o seu Id: a lixeira não o contém mais ({{objects}}).",
-        "goneForGood_other": "{{formatted}} registros excluídos desde então não podem voltar com o seu Id: a lixeira não os contém mais ({{objects}}).",
+        "goneForGood_one": "{{formatted}} registro excluído desde então não pode voltar: a lixeira não o contém mais, e o retrocesso não pode recriá-lo — um arquivo, cujo conteúdo o ponto de verificação não guarda, ou um registro excluído enquanto o ponto de verificação era criado ({{objects}}).",
+        "goneForGood_other": "{{formatted}} registros excluídos desde então não podem voltar: a lixeira não os contém mais, e o retrocesso não pode recriá-los — arquivos, cujo conteúdo o ponto de verificação não guarda, ou registros excluídos enquanto o ponto de verificação era criado ({{objects}}).",
         "deletedWithCreatedParent_one": "{{formatted}} registro excluído com um pai criado desde então não pode voltar sozinho ({{objects}}).",
         "deletedWithCreatedParent_other": "{{formatted}} registros excluídos com um pai criado desde então não podem voltar sozinhos ({{objects}}).",
         "convertedLead_one": "{{formatted}} lead foi convertido desde então: o Salesforce não pode desfazer a conversão de um lead. O que a conversão criou é excluído, e o lead continua convertido.",
@@ -5470,7 +5472,19 @@
         "giveBack_one": "devolve a {{formatted}} registro os seus valores de então",
         "giveBack_other": "devolve a {{formatted}} registros os seus valores de então",
         "bringBack_one": "recupera {{formatted}} registro da lixeira",
-        "bringBack_other": "recupera {{formatted}} registros da lixeira"
+        "bringBack_other": "recupera {{formatted}} registros da lixeira",
+        "recreate_one": "recria {{formatted}} registro que a lixeira não contém mais, com um Id novo",
+        "recreate_other": "recria {{formatted}} registros que a lixeira não contém mais, com Ids novos"
+      },
+      "toRecreate_one": "{{formatted}} a recriar",
+      "toRecreate_other": "{{formatted}} a recriar",
+      "toRecreateHint": "fora da lixeira: Ids novos",
+      "recreate": {
+        "title": "Recriados, com Ids novos",
+        "line_one": "{{formatted}} registro de {{object}} excluído desde então que a lixeira não devolve mais.",
+        "line_other": "{{formatted}} registros de {{object}} excluídos desde então que a lixeira não devolve mais.",
+        "newIds": "O retrocesso os recria a partir do ponto de verificação, com Ids novos, e os campos de pesquisa do ponto de verificação que os nomeavam nomeiam os Ids novos. O que fora do Salesforce nomeia os Ids antigos — uma integração, um link, um filtro de relatório — não os encontra mais. Desfazer os exclui de novo.",
+        "accept": "Recriá-los, com Ids novos"
       }
     },
     "run": {
@@ -5484,7 +5498,9 @@
         "giveBack_other": "Devolver a {{formatted}} registros os seus valores",
         "delete_one": "Excluir {{formatted}} registro adicionado desde então, os filhos primeiro",
         "delete_other": "Excluir {{formatted}} registros adicionados desde então, os filhos primeiro",
-        "check": "Verificar: ler {{org}} de novo"
+        "check": "Verificar: ler {{org}} de novo",
+        "recreate_one": "Recriar {{formatted}} registro que a lixeira não contém mais, com um Id novo",
+        "recreate_other": "Recriar {{formatted}} registros que a lixeira não contém mais, com Ids novos"
       },
       "progress": "Progresso do retrocesso",
       "undoProgress": "Progresso de Desfazer",
@@ -5538,8 +5554,8 @@
         },
         "goneForGood": {
           "title": "Perdidos de vez",
-          "line_one": "{{object}}: {{formatted}} registro excluído desde então não pode voltar com o seu Id: a lixeira não o contém mais",
-          "line_other": "{{object}}: {{formatted}} registros excluídos desde então não podem voltar com o seu Id: a lixeira não os contém mais"
+          "line_one": "{{object}}: {{formatted}} registro excluído desde então não pode voltar: a lixeira não o contém mais, e não pôde ser recriado — um arquivo, ou um registro excluído enquanto o ponto de verificação era criado",
+          "line_other": "{{object}}: {{formatted}} registros excluídos desde então não podem voltar: a lixeira não os contém mais, e não puderam ser recriados — arquivos, ou registros excluídos enquanto o ponto de verificação era criado"
         },
         "kept": {
           "title": "Mantidos de propósito",
@@ -5572,6 +5588,10 @@
         "restoredTitle": "O que o retrocesso sobrescreveu, com os seus valores de antes em {{org}}",
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaram os seus valores de antes do retrocesso",
         "keptChanged": "alterados desde o retrocesso, deixados como estão agora: {{n}}"
+      },
+      "recreated": {
+        "title": "Recriados em {{org}}, com Ids novos",
+        "line": "{{object}}: {{created}} de {{planned}} recriados"
       }
     },
     "undo": {

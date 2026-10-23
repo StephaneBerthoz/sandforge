@@ -12,7 +12,9 @@
  * the org on every field the checkpoint keeps, live and in the recycle bin.
  * The one hypothesis under which a rewind misses a record, refuted live,
  * is named in a test of its own; under the one an undo cannot always meet,
- * still open, it says what it kept.
+ * still open, it says what it kept. Where records left the recycle bin, the
+ * rewind makes them again under new Ids, and the org is compared with the
+ * checkpoint by the Ids the checkpoint holds them by.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -45,6 +47,7 @@ import {
   line,
   opportunity,
   previewed,
+  recreatedOf,
   removeTaken,
   request,
   resultOf,
@@ -59,7 +62,12 @@ import {
 import { comparedFields } from './checkpointFields.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { relationshipsOf, rewindEstimate } from './rewindEstimate.js';
-import { RewindStopped, type RewindDeps, type RewindOutcome } from './rewindOrg.js';
+import {
+  RewindStopped,
+  type RewindDeps,
+  type RewindOutcome,
+  type RewindRequest,
+} from './rewindOrg.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -234,6 +242,30 @@ function keptOf(org: RewindTestOrg, checkpoint: OrgCheckpoint): KeptState {
       .sort();
   }
   return state;
+}
+
+/**
+ * `state` as the checkpoint names its records: a record a rewind made again
+ * by the Id it had, and every lookup naming one by that Id too.
+ */
+function asHeldOf(state: KeptState, t: Pick<Taken, 'folder'>): KeptState {
+  const recreated = recreatedOf(t.folder);
+  if (recreated.size === 0) return state;
+  const held = (value: unknown): unknown =>
+    typeof value === 'string' ? (recreated.get(value) ?? value) : value;
+  return {
+    live: Object.fromEntries(
+      Object.entries(state.live).map(([objectApiName, rows]) => [
+        objectApiName,
+        rows
+          .map((row) =>
+            Object.fromEntries(Object.entries(row).map(([field, value]) => [field, held(value)])),
+          )
+          .sort((a, b) => String(a.Id).localeCompare(String(b.Id))),
+      ]),
+    ),
+    bin: state.bin,
+  };
 }
 
 /** The records whose kept fields differ between two states, live. */
@@ -516,7 +548,7 @@ function expectNamed(
   message: string,
 ): void {
   const named = new Set(residual.flatMap(({ ids }) => ids));
-  for (const record of differing(t.kept, keptOf(t.org, t.checkpoint))) {
+  for (const record of differing(t.kept, asHeldOf(keptOf(t.org, t.checkpoint), t))) {
     const through = t.personOf.get(record) ?? record;
     expect({ message, record, named: named.has(through) }).toEqual({
       message,
@@ -527,9 +559,18 @@ function expectNamed(
 }
 
 /** A rewind of `t` accepting what Undo could not bring back, acting on a preview read now. */
-async function rewindNow(t: Taken, deps: Partial<RewindDeps> = {}): Promise<RewindOutcome> {
+async function rewindNow(
+  t: Taken,
+  deps: Partial<RewindDeps> = {},
+  request: Partial<RewindRequest> = {},
+): Promise<RewindOutcome> {
   const diff = await previewed(t);
-  return rewound(t, diff.previewId, { deps, request: { acceptNoUndo: true } });
+  return rewound(t, diff.previewId, { deps, request: { acceptNoUndo: true, ...request } });
+}
+
+/** A rewind of `t` accepting too that what left the recycle bin is made again with new Ids. */
+async function rewindMaking(t: Taken): Promise<RewindOutcome> {
+  return rewindNow(t, {}, { acceptRecreate: true });
 }
 
 /** The facts and the history, said beside an assertion that fails. */
@@ -789,19 +830,40 @@ describe('a rewind on the memory org, over random histories since the checkpoint
   );
 
   it(
-    'with records gone for good — emptied from the bin, or hard-deleted whether or not the bin still shows them — names them, ends rewound again where it ended, and its undo returns the org',
+    'with records gone for good — emptied from the bin, or hard-deleted whether or not the bin still shows them — makes them again under new Ids, the org then the checkpoint’s by its Ids or each record that differs named; rewound again it ends where it ended, and its undo deletes what it made and returns the org',
     async () => {
-      for (const facts of factCombinations(['hardDeleteInQueryAll'])) {
+      // Every history starts with a contact deleted, then emptied from the
+      // bin — the second of the bin's contacts, the first there since the
+      // checkpoint — and a deal hard-deleted: each run makes records again.
+      const gone: Step[] = [
+        { kind: 'trash', object: 1, pick: 3 },
+        { kind: 'purge', object: 1, pick: 1 },
+        { kind: 'hardDelete', object: 2, pick: 1 },
+      ];
+      for (const facts of factCombinations(['hardDeleteInQueryAll', 'clearedLookupRestamps'])) {
         await fc.assert(
-          fc.asyncProperty(historyArb(true), async (history) => {
+          fc.asyncProperty(historyArb(true), async (random) => {
+            const history = [...gone, ...random];
             const t = await since(facts, history);
             const before = keptOf(t.org, t.checkpoint);
-            const first = resultOf(await rewindNow(t));
+            expect(await rewindNow(t), said(facts, history)).toMatchObject({
+              rewound: false,
+              refusal: { code: 'RECREATE' },
+            });
+            expect(keptOf(t.org, t.checkpoint), said(facts, history)).toEqual(before);
+            const first = resultOf(await rewindMaking(t));
             const message = said(facts, history, { status: first.status });
+            expect(
+              (first.recreated ?? []).reduce((sum, object) => sum + object.created, 0),
+              message,
+            ).toBeGreaterThan(0);
             const once = keptOf(t.org, t.checkpoint);
             expectNamed(t, first.residual, message);
-            resultOf(await rewindNow(t));
+            const second = resultOf(await rewindMaking(t));
             expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
+            expect(second.recreated ?? [], message).toEqual(
+              (second.recreated ?? []).filter((object) => object.created === 0),
+            );
             if (first.undo === undefined) return;
             await undone(t, first.rewindId);
             const after = keptOf(t.org, t.checkpoint);
@@ -982,21 +1044,22 @@ describe('a rewind on the memory org, under the one hypothesis that breaks it', 
    */
   const unstamped = { ...FACT_DEFAULTS, deleteStamps: false };
 
-  it('reads a record deleted since as gone for good, and names it so, though the bin holds it', async () => {
+  it('reads a record deleted since as gone from the bin, though the bin holds it, and makes it again under a new Id, the one in the bin left there', async () => {
     const t = await since(unstamped, [{ kind: 'trash', object: 2, pick: 0 }]);
 
-    const result = resultOf(await rewindNow(t));
+    expect(await rewindNow(t)).toMatchObject({
+      rewound: false,
+      refusal: { code: 'RECREATE' },
+    });
+    const result = resultOf(await rewindMaking(t));
 
-    expect(result.residual).toEqual(
+    expect(result.recreated).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          objectApiName: 'Opportunity',
-          reason: 'goneForGood',
-          ids: [opportunity(1)],
-        }),
+        expect.objectContaining({ objectApiName: 'Opportunity', created: 1, refused: 0 }),
       ]),
     );
     expect(t.org.inBin('Opportunity').map((row) => row.Id)).toContain(opportunity(1));
+    expect(t.org.all('Opportunity').map((row) => row.Name)).toContain('Deal one');
   });
 
   it('leaves emptied, and unnamed, a lookup such a delete emptied without a stamp', async () => {
@@ -1005,7 +1068,7 @@ describe('a rewind on the memory org, under the one hypothesis that breaks it', 
       { kind: 'trash', object: 1, pick: 2 },
     ]);
 
-    const result = resultOf(await rewindNow(t));
+    const result = resultOf(await rewindMaking(t));
 
     expect(t.org.all('Contact').find((row) => row.Id === contact(4))?.ReportsToId).toBeNull();
     expect(result.residual.flatMap(({ ids }) => ids)).not.toContain(contact(4));

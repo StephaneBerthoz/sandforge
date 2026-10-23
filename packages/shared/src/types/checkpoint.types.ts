@@ -318,9 +318,9 @@ export interface CheckpointEstimate {
  * Modify All Data (`PERMISSIONS`), a SandForge run or another take, rewind or
  * undo writing to the org (`RUN_WRITING`), more API requests than the org has
  * left today, more records than the take's limit, automation not accepted,
- * deletions Undo could not bring back not accepted (`NO_UNDO`), and more
- * emails than the org has left today of a daily limit (`EMAILS`), which
- * nothing lifts either.
+ * deletions Undo could not bring back not accepted (`NO_UNDO`), records to
+ * make again with new Ids not accepted (`RECREATE`), and more emails than the
+ * org has left today of a daily limit (`EMAILS`), which nothing lifts either.
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
@@ -332,10 +332,14 @@ export type CheckpointRefusalCode =
   | 'TOO_MANY_RECORDS'
   | 'AUTOMATION'
   | 'NO_UNDO'
+  | 'RECREATE'
   | 'EMAILS';
 
-/** A write a rewind or an undo makes, as the org's automation fires on it. */
-export type CheckpointWrite = 'update' | 'delete' | 'undelete';
+/**
+ * A write a rewind or an undo makes, as the org's automation fires on it:
+ * `insert` for a record a rewind makes again, with a new Id.
+ */
+export type CheckpointWrite = 'insert' | 'update' | 'delete' | 'undelete';
 
 /**
  * The emails a rewind's or an undo's writes make the org send against one of
@@ -383,7 +387,9 @@ export interface CheckpointRefusal {
 
 /**
  * What a rewind cannot take back of an object, named in the preview: records
- * deleted since that the recycle bin no longer holds, leads converted since,
+ * deleted since that the recycle bin no longer holds and that a rewind cannot
+ * make again either — a file, whose body the checkpoint does not hold, or a
+ * record the checkpoint holds no values of — leads converted since,
  * contracts activated since, and records deleted since with a parent created
  * since, which cannot come back on their own.
  */
@@ -449,6 +455,16 @@ export interface RewindDiffObject {
    * values they had when deleted.
    */
   toBringBack: { inBin: number; withParent: number; deletedWhileTaken: number };
+  /**
+   * Records deleted since that the recycle bin no longer gives back — gone
+   * from it, or kept there for good — whose values the checkpoint holds: a
+   * rewind makes them again, with the checkpoint's values and new Ids, and
+   * points at the new Ids every lookup the checkpoint holds that named the old
+   * ones. Anything outside Salesforce that names an old Id — an integration,
+   * a link, a report filter — no longer finds the record. Absent from a diff
+   * read before records were made again.
+   */
+  toRecreate?: number;
   cannotUndo: Array<{ reason: RewindCannotUndoReason; count: number }>;
   /**
    * Records outside the checkpoint, created under records of this object the
@@ -522,8 +538,9 @@ export type RewindStatus = 'success' | 'partial' | 'failure' | 'unstable' | 'can
 /**
  * Why a record still differs once the rewind verified: the org's automation
  * set it again, another user changed it during the rewind, it changed after
- * the preview the rewind acted on, the org refused the write, the recycle
- * bin no longer holds it, or the rewind kept it as it had to — records
+ * the preview the rewind acted on, the org refused the write — the insert of
+ * a record made again among them — the recycle bin no longer holds it and it
+ * could not be made again, or the rewind kept it as it had to — records
  * outside a checkpoint of picked objects hang from it and their deletion was
  * not accepted, a record the rewind left hangs from it, or Undo couldn't
  * bring it back and that was not accepted — which its `message` says.
@@ -545,6 +562,24 @@ export interface RewindResidual {
   message?: string;
 }
 
+/**
+ * Records of one object a rewind made again, with new Ids, from the
+ * checkpoint's values: those the recycle bin no longer gave back.
+ */
+export interface RewindRecreatedObject {
+  objectApiName: string;
+  /** Records it set out to make again. */
+  planned: number;
+  /** Records made again, each under a new Id. */
+  created: number;
+  /** Records the org refused to make, its reasons in {@link reasons}. */
+  refused: number;
+  /** Records a stop left before they were sent. */
+  notReached?: number;
+  /** The org's reasons, a few at most. */
+  reasons: string[];
+}
+
 /** What a rewind, or an undo of one, did, object by object. */
 export interface RewindResult {
   checkpointId: string;
@@ -556,6 +591,12 @@ export interface RewindResult {
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
   undeleted: SyncUndeleteObjectResult[];
+  /**
+   * What it made again with new Ids, per object, parents first: records the
+   * recycle bin no longer gave back. Absent when it made none, and from an
+   * undo's result, which deletes what a rewind made.
+   */
+  recreated?: RewindRecreatedObject[];
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
   /**

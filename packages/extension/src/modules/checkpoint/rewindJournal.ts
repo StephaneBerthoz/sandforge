@@ -21,9 +21,13 @@
  * and of them those it gives back once the records hanging from them that it
  * deletes are gone; the records it deletes on their own before a record they
  * point at that it deletes too, each beside that record, which Undo couldn't
- * bring back once both went; and the records it sets out to delete, then, once
- * the removal answered, those it left. After a crash, what it set out to delete
- * stands, and the undo finds out which of them the recycle bin holds. What
+ * bring back once both went; the records it makes again, those the recycle bin
+ * no longer gives back, by the Ids they had before each insert and by the Ids
+ * the org gave them once it answered; and the records it sets out to delete,
+ * then, once the removal answered, those it left. After a crash, what it set
+ * out to delete stands, and the undo finds out which of them the recycle bin
+ * holds; a record an insert made that a crash kept from being named is the
+ * next rewind's to delete, made since and held by nothing. What
  * its removals left on records, and when they ran, is kept beside, for its
  * next pass.
  *
@@ -35,7 +39,8 @@
  *
  * Read back, the journal is three plans for its undo: what to bring back
  * from the recycle bin, what to give back its values, and what to send back
- * there. A record the rewind brought back and then deleted again, or the
+ * there — what it brought back, and what it made again. A record the rewind
+ * brought back and then deleted again, or the
  * other way round, is where it was before: in none of them. The journal is
  * read a line at a time, never whole, and the plans are written to files of
  * their own, object by object (`spoolUndoPlans`): a rewind of a million
@@ -158,6 +163,30 @@ const idsLineSchema = z.object({
   at: instantSchema,
 });
 
+/**
+ * Records of one object the rewind is about to make again, by the Ids the
+ * checkpoint holds them by: named before the insert goes.
+ */
+const recreatingLineSchema = z.object({
+  kind: z.literal('recreating'),
+  objectApiName: objectSchema,
+  ids: idsSchema,
+  at: instantSchema,
+});
+
+/**
+ * Records of one object the rewind made again, by the Ids the org gave them,
+ * `from[i]` the Id the checkpoint holds `ids[i]` by: its undo sends them to
+ * the recycle bin.
+ */
+const recreatedLineSchema = z.object({
+  kind: z.literal('recreated'),
+  objectApiName: objectSchema,
+  ids: idsSchema,
+  from: idsSchema,
+  at: instantSchema,
+});
+
 /** Ids of one object a removal set out to delete, or left, in the step it was journaled as. */
 const stepIdsLineSchema = z.object({
   kind: z.enum(['deleting', 'deleteLeft']),
@@ -229,6 +258,8 @@ const lineSchema = z.discriminatedUnion('kind', [
   idsLineSchema,
   heldLineSchema,
   beforeParentLineSchema,
+  recreatingLineSchema,
+  recreatedLineSchema,
   stepIdsLineSchema,
   deletedLineSchema,
   removalLineSchema,
@@ -251,6 +282,8 @@ const WRITE_LINES: ReadonlySet<Line['kind']> = new Set([
   'bringingBack',
   'withParent',
   'givingBack',
+  'recreating',
+  'recreated',
   'deleting',
   'deleteLeft',
   'deleted',
@@ -308,6 +341,11 @@ export interface RewindJournalDid {
    * written before it named them.
    */
   withParents?: ParentedIds[];
+  /**
+   * Made again with new Ids, those the recycle bin no longer gave back, by
+   * the Ids the org gave them. Absent when there is none.
+   */
+  recreated?: ObjectIds[];
 }
 
 /** Records of one object, each beside the record they came back with. */
@@ -397,6 +435,16 @@ export interface RewindJournal {
   beforeParent(
     objectApiName: string,
     pairs: ReadonlyArray<{ id: string; parent: string }>,
+  ): Promise<void>;
+  /** Records of one object about to be made again, by the Ids the checkpoint holds them by, before the insert. */
+  recreating(objectApiName: string, ids: readonly string[]): Promise<void>;
+  /**
+   * Records of one object an insert made again, each the Id the org gave it
+   * beside the one the checkpoint holds it by: its undo sends them to the bin.
+   */
+  recreated(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ from: string; id: string }>,
   ): Promise<void>;
   /** Name what a removal sets out to delete, before it is handed the plan. */
   deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void>;
@@ -703,6 +751,27 @@ class JournalFile implements RewindJournal {
     }
   }
 
+  async recreating(objectApiName: string, ids: readonly string[]): Promise<void> {
+    for (const chunk of chunksOf(ids)) {
+      await this.append({ kind: 'recreating', objectApiName, ids: chunk });
+    }
+  }
+
+  async recreated(
+    objectApiName: string,
+    pairs: ReadonlyArray<{ from: string; id: string }>,
+  ): Promise<void> {
+    for (let at = 0; at < pairs.length; at += IDS_PER_LINE) {
+      const chunk = pairs.slice(at, at + IDS_PER_LINE);
+      await this.append({
+        kind: 'recreated',
+        objectApiName,
+        ids: chunk.map(({ id }) => id),
+        from: chunk.map(({ from }) => from),
+      });
+    }
+  }
+
   async deleting(plan: readonly ForgeRunObjectRecords[] | RunRecords): Promise<void> {
     const step = ++this.step;
     this.openStep = step;
@@ -846,6 +915,12 @@ async function eachLine(
 
 /** A line that names each of its records beside another record must name as many: damage otherwise. */
 function pairedOrDamaged(line: Line): void {
+  if (line.kind === 'recreated' && line.from.length !== line.ids.length) {
+    throw new CheckpointStoreError(
+      'damaged',
+      'The rewind’s journal names records made again without the Ids they had.',
+    );
+  }
   if (line.kind === 'beforeParent' && line.parents.length !== line.ids.length) {
     throw new CheckpointStoreError(
       'damaged',
@@ -1004,6 +1079,7 @@ class FactsFold {
 /** What a journal says the rewind did, folded a line at a time, held in memory: see {@link RewindJournalDid}. */
 class DidFold {
   private readonly broughtBack = new IdsByObject();
+  private readonly recreated = new IdsByObject();
   private readonly givenBack = new IdsByObject();
   private readonly held = new IdsByObject();
   /** Per object held in place, the objects whose records held it, in the order named. */
@@ -1044,6 +1120,9 @@ class DidFold {
         break;
       case 'givingBack':
         this.givenBack.add(line.objectApiName, line.ids);
+        break;
+      case 'recreated':
+        this.recreated.add(line.objectApiName, line.ids);
         break;
       case 'heldInPlace': {
         this.held.add(line.objectApiName, line.ids);
@@ -1111,6 +1190,7 @@ class DidFold {
       object.parents.push(parent);
       parented.set(objectApiName, object);
     }
+    const recreated = this.recreated.list();
     return {
       broughtBack: this.broughtBack.list(),
       deleted: deleted.list(),
@@ -1118,6 +1198,7 @@ class DidFold {
       ...(heldInPlace.length > 0 ? { heldInPlace } : {}),
       ...(deletedBeforeParent.length > 0 ? { deletedBeforeParent } : {}),
       ...(parented.size > 0 ? { withParents: [...parented.values()] } : {}),
+      ...(recreated.length > 0 ? { recreated } : {}),
     };
   }
 }
@@ -1443,7 +1524,11 @@ function pairsFileOf(dir: string, objectApiName: string): string {
  * record.
  */
 export interface SpooledUndoPlans {
-  /** What the rewind brought back, which goes back to the recycle bin on its own, children first. */
+  /**
+   * What the rewind brought back, which goes back to the recycle bin on its
+   * own, and what it made again with new Ids, which goes there too: children
+   * first.
+   */
   remove: SpooledRunRecords;
   /** What the rewind deleted, which comes back from the recycle bin, parents first. */
   bringBack: IdSpool;
@@ -1501,7 +1586,7 @@ function readingOrder(
  * a time — four reads of its file, none held whole:
  *
  * - `remove`: what the rewind brought back from the recycle bin, and what came
- *   back with it, children first;
+ *   back with it, and what it made again with new Ids, children first;
  * - `bringBack`: what it deleted, parents first — the undelete follows the
  *   order it is given, and a child the bin holds without its parent stays
  *   there;
@@ -1559,6 +1644,7 @@ export async function spoolUndoPlans(
       switch (line.kind) {
         case 'bringingBack':
         case 'withParent':
+        case 'recreated':
           for (const id of line.ids) brought.add(id);
           break;
         case 'deleteLeft': {
@@ -1622,6 +1708,13 @@ export async function spoolUndoPlans(
         if (line.kind === 'givingBack') {
           for (const id of line.ids) {
             if (restoreLeft(recordKey(id))) await given.add(line.objectApiName, id);
+          }
+          return;
+        }
+        if (line.kind === 'recreated') {
+          // Made by the rewind: deleted by its undo, as it was not there before.
+          for (const id of line.ids) {
+            if (removing(recordKey(id))) await remove.add(line.objectApiName, id);
           }
           return;
         }

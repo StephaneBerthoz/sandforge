@@ -31,11 +31,22 @@
  * its rows are read at their offsets, never the whole file, and each line is
  * checked to be the record, as read, that the index says is there. A file
  * changed since the take would otherwise give one record's values to another.
+ *
+ * A record the recycle bin no longer gave back, which a rewind made again
+ * from its row, lives under a new Id: the checkpoint keeps the pair beside
+ * the index (`Recreated`), never rewriting the snapshot, and an index read
+ * names the record by the Id it has now — held, stamped and read under it,
+ * its row's lookups that named a record made again pointing at that record's
+ * new Id — and holds the Id it had no more. Read so, a later preview finds
+ * the record made again where the checkpoint has it, never as one created
+ * since to delete, and its old Id, still in the bin or purged, never as one
+ * to bring back or make again.
  */
 
 import { randomBytes } from 'node:crypto';
 import { open, readFile, rename, rm, type FileHandle } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import * as z from 'zod';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import type { BackupRecord } from '../dataops/BackupRecordStore.js';
 import { hashA } from '../forge/ForgeRunStore.js';
@@ -45,6 +56,7 @@ import {
   CHECKPOINT_FILE_MODE,
   CheckpointStoreError,
   indexFileOf,
+  recreatedFileOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
 
@@ -404,6 +416,164 @@ export async function writeSnapshotIndex(
   return { rows: rows.size, bytes: content.length };
 }
 
+// ─── Records made again ──────────────────────────────────────────────────────
+
+/** A record of a snapshot a rewind made again: its object, the Id it had, the Id it has now. */
+export interface RecreatedPair {
+  objectApiName: string;
+  from: string;
+  to: string;
+}
+
+const recreatedLineSchema = z.object({
+  objectApiName: z.string().regex(OBJECT_NAME).max(80),
+  from: z.string().regex(RECORD_ID),
+  to: z.string().regex(RECORD_ID),
+});
+
+/** Fsync a folder, so a file made in it is there after a crash. Some systems do not let a folder be. */
+async function syncFolder(dir: string): Promise<void> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(dir, 'r');
+    await handle.sync();
+  } catch {
+    // Windows does not open a folder to flush it; its file system journals the entry itself.
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+/**
+ * The records of a checkpoint's snapshot a rewind made again, each Id it had
+ * paired with the Id it has now, every object together: an Id names one
+ * record of one object, whatever the object. A record made again twice —
+ * made again, then purged from the bin once more — has its latest Id.
+ *
+ * Read whole from the checkpoint's folder, a line a pair, and added to as a
+ * rewind makes records, each line flushed before the rewind goes on: the
+ * pairs of a rewind of thousands of records made again are a few hundred
+ * kilobytes.
+ */
+export class Recreated {
+  private constructor(
+    /** By the key the snapshot holds a record by, the Id it has now. */
+    private readonly current: ReadonlyMap<string, string>,
+    /** By the key of the Id a record made again has now, the key the snapshot holds it by. */
+    private readonly original: ReadonlyMap<string, string>,
+  ) {}
+
+  /** No record made again. */
+  static readonly none = new Recreated(new Map(), new Map());
+
+  /** Pairs as given, the later of two of one record standing. */
+  static of(pairs: Iterable<Pick<RecreatedPair, 'from' | 'to'>>): Recreated {
+    const current = new Map<string, string>();
+    for (const { from, to } of pairs) current.set(from.slice(0, KEY_BYTES), to);
+    const original = new Map<string, string>();
+    for (const [from, to] of current) original.set(to.slice(0, KEY_BYTES), from);
+    return new Recreated(current, original);
+  }
+
+  /**
+   * The pairs a checkpoint's folder keeps: none when it keeps none. A last
+   * line no line break ends was being written as a process stopped: its
+   * record is not known to have been made, and the line is left out.
+   *
+   * @throws {CheckpointStoreError} `damaged`, at any other line that is not a
+   *   pair: a record taken for another would be deleted, or made a second time.
+   */
+  static async read(folder: CheckpointFolder): Promise<Recreated> {
+    let text: string;
+    try {
+      text = await readFile(recreatedFileOf(folder), 'utf8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return Recreated.none;
+      throw err;
+    }
+    const whole = text.split('\n').slice(0, -1);
+    const pairs: RecreatedPair[] = [];
+    for (const [at, line] of whole.entries()) {
+      if (line === '') continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        value = undefined;
+      }
+      const pair = recreatedLineSchema.safeParse(value);
+      if (!pair.success) {
+        throw new CheckpointStoreError(
+          'damaged',
+          `The checkpoint’s list of the records a rewind made again is damaged at line ${at + 1}.`,
+        );
+      }
+      pairs.push(pair.data);
+    }
+    return Recreated.of(pairs);
+  }
+
+  /**
+   * Add pairs to a checkpoint's folder, flushed to the disk before it
+   * answers, its owner's alone to read.
+   */
+  static async add(folder: CheckpointFolder, pairs: readonly RecreatedPair[]): Promise<void> {
+    if (pairs.length === 0) return;
+    const file = recreatedFileOf(folder);
+    const text = pairs
+      .map(({ objectApiName, from, to }) => `${JSON.stringify({ objectApiName, from, to })}\n`)
+      .join('');
+    const handle = await open(file, 'a', CHECKPOINT_FILE_MODE);
+    let made = false;
+    try {
+      made = (await handle.stat()).size === 0;
+      await handle.appendFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (made) await syncFolder(dirname(file));
+  }
+
+  /** Whether no record was made again. */
+  get empty(): boolean {
+    return this.current.size === 0;
+  }
+
+  /** The Id the record the snapshot holds by `key` has now, or undefined when it was not made again. */
+  currentOf(key: string): string | undefined {
+    return this.current.get(key);
+  }
+
+  /** The key the snapshot holds the record by whose Id is now `key`, or undefined. */
+  originalOf(key: string): string | undefined {
+    return this.original.get(key);
+  }
+
+  /** Whether `id` is an Id the snapshot holds a record by that lives under another now. */
+  retired(id: unknown): boolean {
+    return typeof id === 'string' && RECORD_ID.test(id) && this.current.has(id.slice(0, KEY_BYTES));
+  }
+
+  /** `value` as a lookup names the record now: the new Id of a record made again, else as it is. */
+  remapped(value: unknown): unknown {
+    if (typeof value !== 'string' || !RECORD_ID.test(value)) return value;
+    return this.current.get(value.slice(0, KEY_BYTES)) ?? value;
+  }
+
+  /** A row of the snapshot as the org knows its record now: its Id and its lookups. */
+  rowAsNow(record: BackupRecord): BackupRecord {
+    if (this.empty) return record;
+    const now: Record<string, unknown> = { ...record };
+    for (const [field, value] of Object.entries(record)) {
+      if (field === 'attributes') continue;
+      const remapped = this.remapped(value);
+      if (remapped !== value) now[field] = remapped;
+    }
+    return now as BackupRecord;
+  }
+}
+
 // ─── Reading the index ───────────────────────────────────────────────────────
 
 /**
@@ -418,11 +588,16 @@ export class SnapshotIndex {
     private readonly snapshotFile: string,
     private readonly rows: IndexRows,
     private readonly byKey: RowsByKey,
+    /** The records a rewind made again, every object's: see {@link Recreated}. */
+    readonly recreated: Recreated,
   ) {}
 
   /**
    * The index of `objectApiName` in a checkpoint's folder, whose values are in
    * the snapshot `snapshotId`.
+   *
+   * The records a rewind made again are named by their Ids now, as the
+   * checkpoint's folder pairs them (`Recreated`), unless `recreated` is given.
    *
    * @throws {CheckpointStoreError} `damaged`, when it is not there, is not an
    *   index, or holds a record twice: a preview never reads part of an object
@@ -432,6 +607,7 @@ export class SnapshotIndex {
     folder: CheckpointFolder,
     snapshotId: string,
     objectApiName: string,
+    recreated?: Recreated,
   ): Promise<SnapshotIndex> {
     const file = indexFileOf(folder, objectApiName);
     const snapshotFile = snapshotFileOf(folder, snapshotId, objectApiName);
@@ -458,7 +634,14 @@ export class SnapshotIndex {
       if (!rows.wellFormed(row)) throw damaged(`is damaged at row ${row + 1}`);
       if (byKey.add(row) >= 0) throw damaged(`holds record ${rows.keyAt(row)} twice`);
     }
-    return new SnapshotIndex(objectApiName, snapshotId, snapshotFile, rows, byKey);
+    return new SnapshotIndex(
+      objectApiName,
+      snapshotId,
+      snapshotFile,
+      rows,
+      byKey,
+      recreated ?? (await Recreated.read(folder)),
+    );
   }
 
   /** Records the snapshot holds: `|S|`. */
@@ -466,10 +649,34 @@ export class SnapshotIndex {
     return this.rows.size;
   }
 
-  /** The row of the record `id`, of either length, in the snapshot's order; -1 when it holds none. */
+  /**
+   * The row of the record `id`, of either length, in the snapshot's order; -1
+   * when it holds none. A record made again is held by its Id now, never by
+   * the one it had.
+   */
   rowOf(id: unknown): number {
     if (typeof id !== 'string' || !RECORD_ID.test(id)) return -1;
-    return this.byKey.find(id.slice(0, KEY_BYTES));
+    const key = id.slice(0, KEY_BYTES);
+    const original = this.recreated.originalOf(key);
+    if (original !== undefined) return this.byKey.find(original);
+    if (this.recreated.retired(id)) return -1;
+    return this.byKey.find(key);
+  }
+
+  /**
+   * Whether `id` is one the snapshot holds a record by that a rewind made
+   * again, under another Id now: neither held, nor a record to bring back.
+   */
+  retired(id: unknown): boolean {
+    return this.recreated.retired(id) && this.byKey.find(String(id).slice(0, KEY_BYTES)) >= 0;
+  }
+
+  /** The Id the snapshot holds the record now named `id` by: the one it had before it was made again. */
+  snapshotIdOf(id: string): string {
+    const row = this.rowOf(id);
+    if (row < 0) return id;
+    const key = this.rows.keyAt(row);
+    return canonicalRecordId(key) ?? key;
   }
 
   /** Whether the snapshot holds the record `id`: `id ∈ S`. */
@@ -486,10 +693,10 @@ export class SnapshotIndex {
     return row < 0 ? undefined : this.rows.stampAt(row);
   }
 
-  /** The id of the record at row `row`, in its 18-character form. */
+  /** The id of the record at row `row`, in its 18-character form: its Id now, for one made again. */
   idAt(row: number): string {
     const key = this.rows.keyAt(row);
-    return canonicalRecordId(key) ?? key;
+    return this.recreated.currentOf(key) ?? canonicalRecordId(key) ?? key;
   }
 
   /**
@@ -497,7 +704,9 @@ export class SnapshotIndex {
    * chunk (`restoreOverwrites`): it answers for this object of this snapshot
    * only, and reads each record the snapshot holds at its line's offset, in
    * the file's order, when it is gone through. An id the snapshot does not
-   * hold is left out, as one whose values were not kept.
+   * hold is left out, as one whose values were not kept. A record made again
+   * is read under its Id now, its lookups that named a record made again
+   * naming that record's new Id.
    *
    * @throws {RangeError} For more than {@link SNAPSHOT_CHUNK_IDS} ids.
    */
@@ -552,7 +761,7 @@ export class SnapshotIndex {
               `${this.idAt(row)} where its index says: the file changed since the checkpoint was taken.`,
           );
         }
-        batch.push(record);
+        batch.push(this.recreated.rowAsNow(record));
         if (batch.length === size) {
           yield batch;
           batch = [];

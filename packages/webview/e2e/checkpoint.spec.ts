@@ -259,6 +259,7 @@ async function rewindFromPreview(
     previewId,
     acceptAutomation: false,
     acceptNoUndo: false,
+    acceptRecreate: false,
     acceptOutside: false,
   });
   return rewind;
@@ -455,7 +456,7 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-expires-ck-expiring')).toContainText('Expires in');
       await expect(page.getByTestId('checkpoint-keep-now-ck-expiring')).toHaveText('Keep');
       await expect(page.getByTestId('checkpoint-bin-reach-ck-rewound')).toContainText(
-        'cannot come back: the recycle bin keeps them 15 days, less if it fills.',
+        'cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills.',
       );
       await expect(page.getByTestId('checkpoint-rewound-ck-rewound')).toContainText(
         'sooner if the recycle bin fills.',
@@ -551,6 +552,9 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-preview-number-bring-back')).toHaveText(
         '4 to bring back',
       );
+      await expect(page.getByTestId('checkpoint-preview-number-recreate')).toHaveText(
+        '2 to make again',
+      );
       await expect(page.getByTestId('checkpoint-preview-last-changed')).toHaveText(
         `Last changed by: Integration User 16 · Alice Martin 11 · ${USERS.unnamed} 2`,
       );
@@ -559,7 +563,10 @@ for (const theme of THEMES) {
         CHECKPOINT_ORG.username,
       );
       await expect(page.getByTestId('checkpoint-preview-row-Contact')).toHaveText(
-        ['Contact', '8', '2', '1', '3'].join(''),
+        ['Contact', '8', '2', '1', '2', '3'].join(''),
+      );
+      await expect(page.getByTestId('checkpoint-preview-recreate-Contact')).toHaveText(
+        '2 Contact records deleted since that the recycle bin no longer gives back.',
       );
       await expect(page.getByTestId('checkpoint-preview-details')).toContainText(
         'Contact: 1 record deleted while the checkpoint was taken comes back with the values it had then.',
@@ -605,7 +612,10 @@ for (const theme of THEMES) {
       await page.getByTestId('checkpoint-preview-accept-outside').check();
       await expect(rewind).toBeDisabled();
       await page.getByTestId('checkpoint-preview-accept-automation').check();
+      await expect(rewind).toBeDisabled();
+      await page.getByTestId('checkpoint-preview-accept-recreate').check();
       await expect(rewind).toBeEnabled();
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-recreate"]');
       await expect(page.getByTestId('checkpoint-preview-outside-otherwise')).toHaveCount(0);
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-outside"]');
 
@@ -613,7 +623,7 @@ for (const theme of THEMES) {
       await rewind.click();
       await expect(page.getByTestId('danger-title')).toHaveText(`Rewind ${ORG} to “Before UAT”?`);
       await expect(page.getByRole('dialog')).toContainText(
-        'it deletes the 14 records added since, gives 18 records their values from then back and brings back 4 records from the recycle bin, whoever made these changes.',
+        'it deletes the 14 records added since, gives 18 records their values from then back, brings back 4 records from the recycle bin and makes 2 records the recycle bin no longer holds again, with new Ids, whoever made these changes.',
       );
       await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
       await page.getByTestId('danger-input').fill(ORG.slice(0, -1));
@@ -633,6 +643,7 @@ for (const theme of THEMES) {
         previewId: 'pv-everything',
         acceptAutomation: true,
         acceptNoUndo: true,
+        acceptRecreate: true,
         acceptOutside: true,
       });
 
@@ -641,6 +652,7 @@ for (const theme of THEMES) {
       ).toBeFocused();
       await expect(page.getByTestId('checkpoint-run-phases').getByRole('listitem')).toHaveText([
         'Bring back 4 records deleted since',
+        'Make again 2 records the recycle bin no longer holds, with new Ids',
         'Give 18 records their values back',
         'Delete 14 records added since, children first',
         `Check: read ${ORG} again`,
@@ -705,7 +717,7 @@ for (const theme of THEMES) {
         'Nothing to rewind: what still differs is named below, and a rewind cannot put it back.',
       );
       await expect(page.getByTestId('checkpoint-preview-cannot-goneForGood')).toContainText(
-        '4 records deleted since cannot come back with their Id',
+        '4 records deleted since cannot come back: the recycle bin no longer holds them',
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-preview-cannot"]');
     });

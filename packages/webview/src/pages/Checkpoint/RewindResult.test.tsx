@@ -134,6 +134,33 @@ describe('RewindResult', () => {
     );
   });
 
+  it('says what it made again with new Ids, object by object, and what the org refused to make, in its words', () => {
+    renderResult(
+      rewindResult({
+        recreated: [
+          { objectApiName: 'Account', planned: 1, created: 1, refused: 0, reasons: [] },
+          {
+            objectApiName: 'Contact',
+            planned: 3,
+            created: 2,
+            refused: 1,
+            reasons: ['FIELD_CUSTOM_VALIDATION_EXCEPTION: A phone is required'],
+          },
+        ],
+      }),
+    );
+    const recreated = screen.getByTestId('checkpoint-result-recreated');
+    expect(within(recreated).getByRole('heading').textContent).toBe(
+      'Made again in DEV-SB, with new Ids',
+    );
+    expect(screen.getByTestId('checkpoint-result-recreated-Account').textContent).toBe(
+      'Account: 1 of 1 made again',
+    );
+    expect(screen.getByTestId('checkpoint-result-recreated-Contact').textContent).toBe(
+      'Contact: 2 of 3 made again · refused by DEV-SB: 1 (FIELD_CUSTOM_VALIDATION_EXCEPTION: A phone is required)',
+    );
+  });
+
   it('says what each left, and names records changed by someone else during the rewind as theirs', () => {
     renderResult(
       rewindResult({
@@ -199,7 +226,7 @@ describe('RewindResult', () => {
       'Lead: 2 records' + 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Close date must be in the future',
     );
     expect(screen.getByTestId('checkpoint-result-residual-goneForGood-Case').textContent).toBe(
-      'Case: 1 record deleted since cannot come back with its Id: the recycle bin no longer holds it',
+      'Case: 1 record deleted since cannot come back: the recycle bin no longer holds it, and it could not be made again — a file, or a record deleted while the checkpoint was taken',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Rewind again' }));
     expect(onRewindAgain).toHaveBeenCalledTimes(1);

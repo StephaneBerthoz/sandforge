@@ -17,6 +17,7 @@ import {
   changedSince,
   clock,
   contact,
+  liveAsHeld,
   liveIds,
   previewed,
   removeTaken,
@@ -108,6 +109,22 @@ describe('the steps of a rewind’s life', () => {
     expect(undo.status).toBe('success');
     expect(stateOf(t.org)).toEqual(before);
     expect(liveIds(t.org, 'Account')).toContain(account(4));
+  });
+
+  it('names the records a rewind made again by the Ids the checkpoint holds them by, their lookups too', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Account', account(2), COLLEAGUE);
+    t.org.purge(account(2));
+    const diff = await previewed(t);
+
+    resultOf(await rewound(t, diff.previewId, { request: { acceptRecreate: true } }));
+
+    expect(liveIds(t.org, 'Account')).not.toContain(account(2));
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+    expect(liveAsHeld(stateOf(t.org), t.folder).Contact).toContainEqual(
+      expect.objectContaining({ Id: contact(1), AccountId: account(2) }),
+    );
   });
 
   it('stops an org once it has answered as many calls as asked', async () => {

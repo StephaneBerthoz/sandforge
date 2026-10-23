@@ -25,6 +25,7 @@ import {
   contact,
   id,
   line,
+  liveAsHeld,
   liveIds,
   opportunity,
   previewed,
@@ -874,7 +875,7 @@ describe('a case its rewind would delete before the account it points at', () =>
 });
 
 describe('a record Salesforce keeps in the recycle bin for good', () => {
-  it('deleted on its own, then its account, is never sent to the undelete: the preview counts it gone for good, and the rewind names it so (F41)', async () => {
+  it('deleted on its own, then its account, is never sent to the undelete: the preview counts it to make again, and the rewind makes it under a new Id once that is accepted (F41, Q2)', async () => {
     const t = await taken();
     clock.now = SINCE;
     t.org.trash('Contact', contact(3), COLLEAGUE);
@@ -883,12 +884,19 @@ describe('a record Salesforce keeps in the recycle bin for good', () => {
     const diff = await previewed(t);
     expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
       toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
-      cannotUndo: [{ reason: 'goneForGood', count: 1 }],
+      toRecreate: 1,
+      cannotUndo: [],
     });
+    expect(await rewound(t, diff.previewId)).toMatchObject({
+      rewound: false,
+      refusal: { code: 'RECREATE' },
+    });
+    expect(t.org.creates).toEqual([]);
     const sent: string[] = [];
 
     const result = resultOf(
       await rewound(t, diff.previewId, {
+        request: { acceptRecreate: true },
         deps: {
           undelete: (ids) => {
             sent.push(...ids);
@@ -900,11 +908,17 @@ describe('a record Salesforce keeps in the recycle bin for good', () => {
 
     expect(sent).toEqual([account(1)]);
     expect(result.undeleted.flatMap(({ reasons }) => reasons)).toEqual([]);
-    expect(result.residual).toEqual([
-      { objectApiName: 'Contact', reason: 'goneForGood', count: 1, ids: [contact(3)] },
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Contact', planned: 1, created: 1, refused: 0, reasons: [] },
     ]);
-    expect(result.status).toBe('partial');
-    expect(liveIds(t.org, 'Account')).toContain(account(1));
+    expect(result.residual).toEqual([]);
+    expect(result.status).toBe('success');
+    // Under its account, back first: the org as the checkpoint holds it, but for its Id.
+    const made = t.org.all('Contact').find((row) => row.LastName === 'Three');
+    expect(made).toMatchObject({ AccountId: account(1) });
+    expect(made?.Id).not.toBe(contact(3));
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toContain(contact(3));
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
     expect(liveIds(t.org, 'Opportunity')).toContain(opportunity(1));
   });
 });

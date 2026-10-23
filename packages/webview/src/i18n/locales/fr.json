@@ -4417,7 +4417,8 @@
       "none": "Rien de ce que {{org}} automatise ne s'exécute quand ces enregistrements sont supprimés.",
       "error": "Ce que {{org}} exécute quand ces enregistrements partent n'a pas pu être lu : {{reason}}",
       "givenBack": "quand le retrait lui rend ses valeurs d'avant l'exécution",
-      "broughtBack": "après restauration, quand le retrait le rétablit depuis la corbeille"
+      "broughtBack": "après restauration, quand le retrait le rétablit depuis la corbeille",
+      "recreated": "quand le retour arrière le recrée, avec un nouvel Id"
     },
     "sync": {
       "title": "Ce que cette exécution a créé",
@@ -5290,7 +5291,7 @@
       },
       "expiresSoon": "Expire {{when}}",
       "keepIt": "Conserver",
-      "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir : la corbeille les garde 15 jours, moins si elle se remplit.",
+      "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir avec leur Id : la corbeille les garde 15 jours, moins si elle se remplit. Un retour arrière les recrée, avec de nouveaux Id.",
       "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
       "rewoundUndated": "Retour arrière fait : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
       "stopComparing": "Ne plus comparer des champs…"
@@ -5381,7 +5382,8 @@
         "delete": "Supprimer",
         "giveBack": "Rendre les valeurs",
         "bringBack": "Rétablir",
-        "cannotUndo": "Impossible à défaire"
+        "cannotUndo": "Impossible à défaire",
+        "recreate": "Recréer"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}} : {{formatted}} enregistrement supprimé pendant la création du point de contrôle revient avec les valeurs qu'il avait alors.",
@@ -5405,8 +5407,8 @@
       "unread_other": "{{formatted}} objets n'ont pas pu être lus : un retour arrière les laisse tels quels",
       "cannot": {
         "title": "Ce qu'un retour arrière ne peut pas défaire",
-        "goneForGood_one": "{{formatted}} enregistrement supprimé depuis ne peut pas revenir avec son Id : la corbeille ne le contient plus ({{objects}}).",
-        "goneForGood_other": "{{formatted}} enregistrements supprimés depuis ne peuvent pas revenir avec leur Id : la corbeille ne les contient plus ({{objects}}).",
+        "goneForGood_one": "{{formatted}} enregistrement supprimé depuis ne peut pas revenir : la corbeille ne le contient plus, et le retour arrière ne peut pas le recréer — un fichier, dont le point de contrôle ne contient pas le contenu, ou un enregistrement supprimé pendant la prise du point de contrôle ({{objects}}).",
+        "goneForGood_other": "{{formatted}} enregistrements supprimés depuis ne peuvent pas revenir : la corbeille ne les contient plus, et le retour arrière ne peut pas les recréer — des fichiers, dont le point de contrôle ne contient pas le contenu, ou des enregistrements supprimés pendant la prise du point de contrôle ({{objects}}).",
         "deletedWithCreatedParent_one": "{{formatted}} enregistrement supprimé avec un parent créé depuis ne peut pas revenir seul ({{objects}}).",
         "deletedWithCreatedParent_other": "{{formatted}} enregistrements supprimés avec un parent créé depuis ne peuvent pas revenir seuls ({{objects}}).",
         "convertedLead_one": "{{formatted}} piste a été convertie depuis : Salesforce ne peut pas annuler la conversion d'une piste. Ce que la conversion a créé est supprimé, et la piste reste convertie.",
@@ -5470,7 +5472,19 @@
         "giveBack_one": "rend à {{formatted}} enregistrement ses valeurs d'alors",
         "giveBack_other": "rend à {{formatted}} enregistrements leurs valeurs d'alors",
         "bringBack_one": "rétablit {{formatted}} enregistrement depuis la corbeille",
-        "bringBack_other": "rétablit {{formatted}} enregistrements depuis la corbeille"
+        "bringBack_other": "rétablit {{formatted}} enregistrements depuis la corbeille",
+        "recreate_one": "recrée {{formatted}} enregistrement que la corbeille ne contient plus, avec un nouvel Id",
+        "recreate_other": "recrée {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id"
+      },
+      "toRecreate_one": "{{formatted}} à recréer",
+      "toRecreate_other": "{{formatted}} à recréer",
+      "toRecreateHint": "sortis de la corbeille : nouveaux Id",
+      "recreate": {
+        "title": "Recréés, avec de nouveaux Id",
+        "line_one": "{{formatted}} enregistrement {{object}} supprimé depuis que la corbeille ne rend plus.",
+        "line_other": "{{formatted}} enregistrements {{object}} supprimés depuis que la corbeille ne rend plus.",
+        "newIds": "Le retour arrière les recrée à partir du point de contrôle, avec de nouveaux Id, et les champs de référence que le point de contrôle contient qui les désignaient désignent les nouveaux Id. Ce qui, hors de Salesforce, désigne leurs anciens Id — une intégration, un lien, un filtre de rapport — ne les trouve plus. L'annulation les supprime de nouveau.",
+        "accept": "Les recréer, avec de nouveaux Id"
       }
     },
     "run": {
@@ -5484,7 +5498,9 @@
         "giveBack_other": "Rendre à {{formatted}} enregistrements leurs valeurs",
         "delete_one": "Supprimer {{formatted}} enregistrement ajouté depuis, les enfants d'abord",
         "delete_other": "Supprimer {{formatted}} enregistrements ajoutés depuis, les enfants d'abord",
-        "check": "Vérifier : relire {{org}}"
+        "check": "Vérifier : relire {{org}}",
+        "recreate_one": "Recréer {{formatted}} enregistrement que la corbeille ne contient plus, avec un nouvel Id",
+        "recreate_other": "Recréer {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id"
       },
       "progress": "Progression du retour arrière",
       "undoProgress": "Progression de l'annulation",
@@ -5538,8 +5554,8 @@
         },
         "goneForGood": {
           "title": "Perdus définitivement",
-          "line_one": "{{object}} : {{formatted}} enregistrement supprimé depuis ne peut pas revenir avec son Id : la corbeille ne le contient plus",
-          "line_other": "{{object}} : {{formatted}} enregistrements supprimés depuis ne peuvent pas revenir avec leur Id : la corbeille ne les contient plus"
+          "line_one": "{{object}} : {{formatted}} enregistrement supprimé depuis ne peut pas revenir : la corbeille ne le contient plus, et il n'a pas pu être recréé — un fichier, ou un enregistrement supprimé pendant la prise du point de contrôle",
+          "line_other": "{{object}} : {{formatted}} enregistrements supprimés depuis ne peuvent pas revenir : la corbeille ne les contient plus, et ils n'ont pas pu être recréés — des fichiers, ou des enregistrements supprimés pendant la prise du point de contrôle"
         },
         "kept": {
           "title": "Gardés exprès",
@@ -5572,6 +5588,10 @@
         "restoredTitle": "Ce que le retour arrière a écrasé, qui a retrouvé ses valeurs d'avant dans {{org}}",
         "restoredLine": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs d'avant le retour arrière",
         "keptChanged": "modifiés depuis le retour arrière, laissés tels qu'ils sont maintenant : {{n}}"
+      },
+      "recreated": {
+        "title": "Recréés dans {{org}}, avec de nouveaux Id",
+        "line": "{{object}} : {{created}} sur {{planned}} recréés"
       }
     },
     "undo": {

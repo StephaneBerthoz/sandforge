@@ -842,6 +842,18 @@ describe('MemoryRemovalOrg', () => {
       expect(org.all('OpportunityLineItem').map((row) => row.Id)).toEqual([PRODUCT_LINE]);
     });
 
+    it('empties from the bin with a record what its delete took along', async () => {
+      const { org } = seeded();
+      org.trash('Account', ACCOUNT);
+      expect(org.inBin('Contact').length).toBeGreaterThan(0);
+
+      org.purge(ACCOUNT);
+
+      expect(org.inBin('Account')).toEqual([]);
+      expect(org.inBin('Contact')).toEqual([]);
+      expect(org.objectNames()).toContain('Contact');
+    });
+
     it('answers a record no longer in the bin as not there', async () => {
       const { org } = seeded();
       org.trash('Contact', CONTACT);

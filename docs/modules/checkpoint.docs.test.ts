@@ -39,6 +39,7 @@ const GUARD = source(`${MODULE_DIR}/checkpointGuard.ts`);
 const DIFF = source(`${MODULE_DIR}/rewindDiff.ts`);
 const REWIND = source(`${MODULE_DIR}/rewindOrg.ts`);
 const UNDO = source(`${MODULE_DIR}/undoCheckpoint.ts`);
+const JOURNAL = source(`${MODULE_DIR}/rewindJournal.ts`);
 const PREVIEW = source(`${MODULE_DIR}/previewCheckpoint.ts`);
 const HANDLER = source('packages/extension/src/bridge/handlers/CheckpointHandler.ts');
 const EXTENSION_HANDLERS = source('packages/extension/src/bridge/ExtensionHandlers.ts');
@@ -301,6 +302,8 @@ describe('docs/modules/checkpoint.md', () => {
       'checkpoint.preview.cannot.title',
       'checkpoint.preview.undoCannot.title',
       'checkpoint.preview.undoCannot.accept',
+      'checkpoint.preview.recreate.title',
+      'checkpoint.preview.recreate.accept',
       'checkpoint.preview.outside.title',
       'checkpoint.preview.outside.accept',
       'checkpoint.preview.automation.accept',
@@ -452,6 +455,41 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain(
       'The preview counts a lead converted since and a contract activated since among what a ' +
         'rewind cannot undo, and the result names each kept, never given back.',
+    );
+  });
+
+  it('says a record the recycle bin no longer gives back is made again with a new Id once accepted, a file and a record deleted while taken left gone for good, and Undo deletes what it made', () => {
+    // Anchor: the diff tells such a record to make again but for a file, the
+    // rewind refuses it unaccepted, makes it in its sweep after what it
+    // brings back, and the undo's plans send it to the bin.
+    expect(DIFF).toContain(
+      "const lostAs: RewindClass = recreatable(object) ? 'toRecreate' : 'goneForGood';",
+    );
+    expect(DIFF).toContain(
+      "return !object.leftOutFields.some((field) => field.reason === 'base64');",
+    );
+    expect(unionOf(TYPES, 'CheckpointRefusalCode')).toContain('RECREATE');
+    expect(REWIND).toContain(
+      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
+    );
+    expect(REWIND).toContain('await this.recreate(journal, plan.recreate, tally);');
+    expect(JOURNAL).toContain("if (line.kind === 'recreated') {");
+    expect(CLI).toContain("acceptRecreate: args.includes('--accept-recreate'),");
+
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'every lookup the checkpoint holds that named one names its new Id. Anything outside ' +
+        'Salesforce that names their old Ids -- an integration, a link, a report filter -- no ' +
+        'longer finds them.',
+    );
+    expect(preview).toContain('and so is `--accept-recreate` on the command line');
+    expect(preview).toContain(
+      'a file, whose body the checkpoint does not hold, and a record deleted while the ' +
+        'checkpoint was taken, whose values it does not hold',
+    );
+    expect(section(DOC, '## Rewinding')).toContain('2. **Make again** the records the recycle bin');
+    expect(section(DOC, '## Undo')).toContain(
+      'What it made again with new Ids goes to the recycle bin as well',
     );
   });
 

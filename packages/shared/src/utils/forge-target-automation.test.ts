@@ -618,6 +618,28 @@ describe('firedOnRemovalStepsOf', () => {
     expect(firedOnRemovalStepsOf(automation, {})).toEqual([]);
   });
 
+  it('fires what runs on insert as a rewind makes records again, after it brings back and before it gives back', () => {
+    const made = {
+      objects: [
+        object({
+          objectApiName: 'Account',
+          flows: [flow({ apiName: 'Account_New', label: 'Account new', startsOn: 'create' })],
+          triggers: [{ name: 'AccountRestore', events: ['afterUndelete', 'beforeInsert'] }],
+        }),
+      ],
+    };
+    expect(
+      firedOnRemovalStepsOf(made, { bringBack: ['Account'], recreate: ['Account'] }).map(
+        (fired) => `${fired.step} ${fired.write} ${fired.name}`,
+      ),
+    ).toEqual([
+      'bringBack undelete AccountRestore',
+      // The trigger, then the flow after the save, as the platform runs them.
+      'recreate insert AccountRestore',
+      'recreate insert Account new',
+    ]);
+  });
+
   it('leaves the steps of a Forge removal as it fired them: the drafted, then every delete', () => {
     const steps = firedOnRemovalStepsOf(automation, {
       setToDraft: ['Order'],

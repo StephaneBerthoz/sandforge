@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import '../../i18n';
-import { fakeHost, previewDiff, readyCheckpoint, rewindResult } from './testing/checkpointFixtures';
+import {
+  diffObject,
+  fakeHost,
+  previewDiff,
+  readyCheckpoint,
+  rewindResult,
+} from './testing/checkpointFixtures';
 import type { FakeHost } from './testing/checkpointFixtures';
 import type { RunShown, RunState } from './RewindRun';
 
@@ -75,6 +81,27 @@ describe('RewindRun', () => {
         .map((item) => item.textContent),
     ).toEqual([
       'Bring back 1 record deleted since',
+      'Give 6 records their values back',
+      'Delete 8 records added since, children first',
+      'Check: read DEV-SB again',
+    ]);
+  });
+
+  it('lists the records it makes again with new Ids once it brought back what the bin holds, before it gives values back', () => {
+    renderRun(RUNNING, {
+      kind: 'rewind',
+      diff: previewDiff({
+        objects: [...previewDiff().objects, diffObject('Case', { toRecreate: 2 })],
+      }),
+    });
+    const phases = screen.getByRole('list', { name: 'What the rewind does, in order' });
+    expect(
+      within(phases)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Bring back 1 record deleted since',
+      'Make again 2 records the recycle bin no longer holds, with new Ids',
       'Give 6 records their values back',
       'Delete 8 records added since, children first',
       'Check: read DEV-SB again',

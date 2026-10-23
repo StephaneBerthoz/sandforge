@@ -35,6 +35,8 @@ export interface RewindRow {
   toGiveBack: number;
   /** On their own, with a parent, and those deleted while the checkpoint was taken. */
   toBringBack: number;
+  /** Deleted since and no longer in the recycle bin: made again, with new Ids. */
+  toRecreate: number;
   /** What a rewind cannot take back, every reason together. */
   cannotUndo: number;
 }
@@ -47,28 +49,42 @@ export function rowOf(object: RewindDiffObject): RewindRow {
     toDelete: toDelete.createdSince + toDelete.broughtBackSince + toDelete.comesBackWithParent,
     toGiveBack: toGiveBack.records,
     toBringBack: toBringBack.inBin + toBringBack.withParent + toBringBack.deletedWhileTaken,
+    toRecreate: object.toRecreate ?? 0,
     cannotUndo: object.cannotUndo.reduce((sum, item) => sum + item.count, 0),
   };
 }
 
-/** The preview's three numbers: records to delete, to give back and to bring back, every object together. */
+/**
+ * The preview's three numbers — records to delete, to give back and to bring
+ * back — and the records to make again with new Ids, every object together.
+ */
 export function rewindTotals(
   diff: Pick<RewindDiff, 'objects'>,
-): Pick<RewindRow, 'toDelete' | 'toGiveBack' | 'toBringBack'> {
+): Pick<RewindRow, 'toDelete' | 'toGiveBack' | 'toBringBack' | 'toRecreate'> {
   return diff.objects.map(rowOf).reduce(
     (sum, row) => ({
       toDelete: sum.toDelete + row.toDelete,
       toGiveBack: sum.toGiveBack + row.toGiveBack,
       toBringBack: sum.toBringBack + row.toBringBack,
+      toRecreate: sum.toRecreate + row.toRecreate,
     }),
-    { toDelete: 0, toGiveBack: 0, toBringBack: 0 },
+    { toDelete: 0, toGiveBack: 0, toBringBack: 0, toRecreate: 0 },
   );
 }
 
-/** Whether a rewind would write anything: delete, give back or bring back one record at least. */
+/** Whether a rewind would write anything: delete, give back, bring back or make again one record at least. */
 export function rewindWrites(diff: Pick<RewindDiff, 'objects'>): boolean {
   const totals = rewindTotals(diff);
-  return totals.toDelete + totals.toGiveBack + totals.toBringBack > 0;
+  return totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0;
+}
+
+/** The records a rewind makes again with new Ids, object by object: those the recycle bin no longer gives back. */
+export function recreateLines(
+  diff: Pick<RewindDiff, 'objects'>,
+): Array<{ objectApiName: string; count: number }> {
+  return diff.objects
+    .map((object) => ({ objectApiName: object.objectApiName, count: object.toRecreate ?? 0 }))
+    .filter((line) => line.count > 0);
 }
 
 /**
@@ -180,13 +196,15 @@ export function outsideLines(diff: Pick<RewindDiff, 'objects'>): OutsideLine[] {
 
 /**
  * The objects each step of a rewind writes, in the order it writes them: it
- * brings back from the recycle bin, gives back values, then deletes. What
- * the org runs as it writes is read for these.
+ * brings back from the recycle bin, makes again what the bin no longer gives
+ * back, gives back values, then deletes. What the org runs as it writes is
+ * read for these.
  */
 export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
   const rows = diff.objects.map(rowOf);
   return {
     bringBack: rows.filter((row) => row.toBringBack > 0).map((row) => row.objectApiName),
+    recreate: rows.filter((row) => row.toRecreate > 0).map((row) => row.objectApiName),
     giveBack: rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
     delete: rows.filter((row) => row.toDelete > 0).map((row) => row.objectApiName),
   };
@@ -196,10 +214,11 @@ export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalStep
 
 /**
  * The phases of a rewind as its run lists them, in the order it runs them:
- * it brings back from the recycle bin, gives back values, deletes children
- * first, then reads the org again.
+ * it brings back from the recycle bin, makes again what the bin no longer
+ * gives back, gives back values, deletes children first, then reads the org
+ * again.
  */
-export type RewindPhase = 'bringBack' | 'giveBack' | 'delete' | 'check';
+export type RewindPhase = 'bringBack' | 'recreate' | 'giveBack' | 'delete' | 'check';
 
 /** One phase of a rewind under way, and the records of the confirmed preview it acts on. */
 export interface RewindPhaseLine {
@@ -217,6 +236,7 @@ export function rewindPhases(diff: Pick<RewindDiff, 'objects'>): RewindPhaseLine
   const totals = rewindTotals(diff);
   const acting: RewindPhaseLine[] = [
     { phase: 'bringBack', count: totals.toBringBack },
+    { phase: 'recreate', count: totals.toRecreate },
     { phase: 'giveBack', count: totals.toGiveBack },
     { phase: 'delete', count: totals.toDelete },
   ];
