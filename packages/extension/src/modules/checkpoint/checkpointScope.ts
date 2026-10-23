@@ -42,6 +42,7 @@ export const globalObjectSchema = z
     updateable: z.boolean().optional(),
     deletable: z.boolean().optional(),
     customSetting: z.boolean().optional(),
+    layoutable: z.boolean().optional(),
   })
   .loose();
 
@@ -141,13 +142,32 @@ interface DescribedOut {
 }
 
 /**
+ * The objects without a page layout that people still work in, from the
+ * related lists of the records they hang from. Every other object the org
+ * gives no layout is setup kept as records — permissions, OAuth scopes, CORS
+ * entries, email services, licence assignments — which "everything people
+ * work in" leaves out: a rewind would take back a permission granted since.
+ */
+const WORKED_WITHOUT_LAYOUT: ReadonlySet<string> = new Set(
+  [
+    'AccountContactRole',
+    'CaseTeamMember',
+    'EmailMessageRelation',
+    'EventRelation',
+    'OpportunityCompetitor',
+  ].map((name) => name.toLowerCase()),
+);
+
+/**
  * Why a checkpoint leaves `object` out, or nothing when it may hold it. The
  * most telling reason first: a feed is said to be a feed, not setup, though
- * every copy leaves it out too.
+ * every copy leaves it out too. An object picked by name is held though the
+ * org gives it no layout: the person asked for it.
  */
 function leftOutReason(
   object: GlobalObject,
   described: DescribedOut,
+  mode: CheckpointScopeMode,
 ): ScopeLeftOutReason | undefined {
   const name = object.name.toLowerCase();
   if (CHATTER_OBJECTS.has(name) || name.endsWith('feed')) return 'chatter';
@@ -158,6 +178,9 @@ function leftOutReason(
   if (object.customSetting === true) return 'customSetting';
   if (FILE_OBJECTS.has(name) || isFileBodiedObject(object.name)) return 'files';
   if (isNeverCopiedWhenPicked(object.name)) return 'setup';
+  if (mode === 'everything' && object.layoutable === false && !WORKED_WITHOUT_LAYOUT.has(name)) {
+    return 'setup';
+  }
   if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';
   const writable =
     object.queryable === true &&
@@ -214,7 +237,7 @@ export function scopeCandidates(
   for (const object of asked) {
     const reason = excluded.has(object.name.toLowerCase())
       ? 'excludedByUser'
-      : leftOutReason(object, described);
+      : leftOutReason(object, described, request.mode);
     if (reason === undefined) candidates.push(object.name);
     else leftOut.push({ objectApiName: object.name, reason });
   }

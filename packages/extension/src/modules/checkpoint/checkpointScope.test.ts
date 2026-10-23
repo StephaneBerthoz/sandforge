@@ -143,6 +143,31 @@ describe('scopeCandidates', () => {
     );
   });
 
+  it('leaves out as setup the objects the org gives no page layout, permissions among them, but keeps the related-list objects people work in, and holds one picked by name', () => {
+    const globalObjects = [
+      data('Account', { layoutable: true }),
+      data('FieldPermissions', { layoutable: false }),
+      data('ObjectPermissions', { layoutable: false }),
+      data('CorsWhitelistEntry', { layoutable: false }),
+      data('AccountContactRole', { layoutable: false }),
+      data('EventRelation', { layoutable: false }),
+    ];
+
+    const everything = scopeCandidates(globalObjects, { mode: 'everything' });
+    const picked = scopeCandidates(globalObjects, {
+      mode: 'picked',
+      objects: ['FieldPermissions'],
+    });
+
+    expect(everything.candidates).toEqual(['Account', 'AccountContactRole', 'EventRelation']);
+    expect(reasons(everything.leftOut)).toEqual({
+      CorsWhitelistEntry: 'setup',
+      FieldPermissions: 'setup',
+      ObjectPermissions: 'setup',
+    });
+    expect(picked.candidates).toEqual(['FieldPermissions']);
+  });
+
   it('applies the same rules to the objects a person picks, and names a pick the org does not have', () => {
     const scope = scopeCandidates(ORG, {
       mode: 'picked',
