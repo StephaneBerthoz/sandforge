@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier, SF_CLI_INSTALL_URL, SF_CLI_MISSING_MESSAGE } from '@sandforge/shared';
@@ -63,6 +63,9 @@ let mockOpenState = {
 /** What `backup:list` answers for the org a disconnection asks about. */
 let mockBackupsListed: { backups: Array<{ operationId: string }> } | null = null;
 
+/** What `checkpoint:list` answers for the org a disconnection asks about. */
+let mockCheckpointsListed: { checkpoints: Array<{ checkpointId: string }> } | null = null;
+
 /** What the page posted straight to the host, without waiting on an answer. */
 const sentToHost = vi.hoisted(() => [] as Array<{ type: string; payload: unknown }>);
 vi.mock('../../bridge/sendBridgeMessage', async (importOriginal) => ({
@@ -77,7 +80,9 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) =>
     type === 'backup:list'
       ? { data: mockBackupsListed, loading: false, error: null, refetch: vi.fn() }
-      : mockQueryState,
+      : type === 'checkpoint:list'
+        ? { data: mockCheckpointsListed, loading: false, error: null, refetch: vi.fn() }
+        : mockQueryState,
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
@@ -274,6 +279,58 @@ describe('OrgManagerPage', () => {
 
       expect(sentToHost.filter((m) => m.type === 'backup:delete')).toEqual([]);
       expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+    });
+  });
+
+  describe("the org's checkpoints on this machine", () => {
+    beforeEach(() => {
+      sentToHost.length = 0;
+      mockBackupsListed = null;
+      mockCheckpointsListed = { checkpoints: [{ checkpointId: 'ck-20261020-140512-a1b2' }] };
+    });
+    afterEach(() => {
+      mockCheckpointsListed = null;
+    });
+
+    const disconnect = (): void => {
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Disconnect' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    };
+
+    it('are deleted with the org when the dialog is ticked, before it is forgotten', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByText('Disconnect'));
+      fireEvent.click(screen.getByTestId('disconnect-delete-checkpoints'));
+      disconnect();
+
+      expect(sentToHost).toContainEqual({
+        type: 'checkpoint:delete',
+        payload: { checkpointIds: ['ck-20261020-140512-a1b2'] },
+      });
+      expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+    });
+
+    it('are kept unless ticked, the way back to a state of the org a checkpoint is', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByText('Disconnect'));
+      disconnect();
+
+      expect(sentToHost.filter((m) => m.type === 'checkpoint:delete')).toEqual([]);
+    });
+
+    it('start unticked at every disconnection asked', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+      fireEvent.click(screen.getByText('Disconnect'));
+      fireEvent.click(screen.getByTestId('disconnect-delete-checkpoints'));
+      const dialog = screen.getByTestId('danger-title').parentElement as HTMLElement;
+      fireEvent.click(within(dialog).getByText('Cancel'));
+      fireEvent.click(screen.getByText('Disconnect'));
+      expect(
+        (screen.getByTestId('disconnect-delete-checkpoints') as HTMLInputElement).checked,
+      ).toBe(false);
     });
   });
 

@@ -1,5 +1,6 @@
 import React, { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { CheckCircle } from 'lucide-react';
 import { blindedBy, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import type {
@@ -14,6 +15,7 @@ import type {
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { Button } from '../../components/ui/Button';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { listWords } from '../../utils/listWords';
@@ -134,10 +136,11 @@ export interface RewindPreviewProps {
   /** Back to the org's checkpoints. */
   onClose: () => void;
   /**
-   * Rewind, with what the preview's boxes accepted: the typed confirmation
-   * and the run go on from there. Without it the preview offers no Rewind.
+   * Rewind, with what the preview's boxes accepted, once the org's name was
+   * typed to confirm it, and the diff the user confirmed: the run goes on
+   * from there. Without it the preview offers no Rewind.
    */
-  onRewind?: (acceptances: RewindAcceptances) => void;
+  onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
 }
 
 /** The boxes of a preview, ticked for that preview alone: one read again starts unticked. */
@@ -165,6 +168,8 @@ interface Ticked {
  * picked objects, the records outside it that its deletions take along go
  * only when their box is ticked, and their parents stay otherwise. A box is
  * ticked for the preview it was read with: read again, the org may differ.
+ * Rewind then asks for the org's name, typed, under what it deletes, gives
+ * back and brings back, as every removal that deletes does.
  */
 export const RewindPreview: React.FC<RewindPreviewProps> = ({
   org,
@@ -227,6 +232,7 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
         key={preview.data.diff.previewId}
         org={org}
         checkpoint={checkpoint}
+        takenFrom={takenFrom}
         answer={preview.data}
         readingAgain={preview.loading}
         onReadAgain={preview.refetch}
@@ -271,17 +277,20 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
 interface PreviewBodyProps {
   org: SalesforceOrg;
   checkpoint: OrgCheckpoint;
+  /** When its take began, as the heading says it. */
+  takenFrom: string;
   answer: PreviewAnswer;
   /** The preview is being read again: what is shown is the last answer. */
   readingAgain: boolean;
   onReadAgain: () => void;
-  onRewind?: (acceptances: RewindAcceptances) => void;
+  onRewind?: (acceptances: RewindAcceptances, diff: RewindDiff) => void;
 }
 
 /** What a rewind would do, as the org answered: see {@link RewindPreview}. */
 const PreviewBody: React.FC<PreviewBodyProps> = ({
   org,
   checkpoint,
+  takenFrom,
   answer,
   readingAgain,
   onReadAgain,
@@ -296,6 +305,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     noUndo: false,
     outside: false,
   });
+  // What Rewind accepted as it was pressed, while the org's name is typed.
+  const [confirming, setConfirming] = useState<RewindAcceptances | null>(null);
   const tick = (box: keyof Ticked, value: boolean): void =>
     setTicked((was) => ({ ...was, [box]: value }));
 
@@ -329,7 +340,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 
   const rewind = (): void => {
     if (!canRewind || !onRewind) return;
-    onRewind({
+    setConfirming({
       previewId: diff.previewId,
       acceptAutomation: automationFound && ticked.automation,
       acceptNoUndo: diff.undoCannot.length > 0 && ticked.noUndo,
@@ -337,6 +348,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       // preview said: only a checkpoint of picked objects asks.
       acceptOutside: outside.length > 0 && (!picked || ticked.outside),
     });
+  };
+  const confirmed = (): void => {
+    if (confirming && onRewind) onRewind(confirming, diff);
+    setConfirming(null);
   };
 
   return (
@@ -487,9 +502,45 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
           </Button>
         </div>
       )}
+
+      <DangerConfirm
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        onConfirm={confirmed}
+        title={t('checkpoint.preview.confirm.title', { org: orgName, name: checkpoint.name })}
+        description={confirmDescription(t, diff, orgName, takenFrom)}
+        confirmText={orgName}
+      />
     </div>
   );
 };
+
+/**
+ * What the typed confirmation of a rewind says it does: to what moment it
+ * returns the org, and only the parts of it that apply — the records it
+ * deletes, gives back and brings back — whoever made the changes.
+ */
+function confirmDescription(
+  t: TFunction,
+  diff: RewindDiff,
+  orgName: string,
+  takenFrom: string,
+): string {
+  const totals = rewindTotals(diff);
+  const parts: Array<[count: number, key: string]> = [
+    [totals.toDelete, 'checkpoint.preview.confirm.delete'],
+    [totals.toGiveBack, 'checkpoint.preview.confirm.giveBack'],
+    [totals.toBringBack, 'checkpoint.preview.confirm.bringBack'],
+  ];
+  const changes = parts
+    .filter(([count]) => count > 0)
+    .map(([count, key]) => t(key, { count, formatted: formatNumber(count) }));
+  return t('checkpoint.preview.confirm.description', {
+    org: orgName,
+    date: takenFrom,
+    changes: listWords(changes, t),
+  });
+}
 
 /** A box the user ticks to accept what the preview names. */
 const Box: React.FC<{

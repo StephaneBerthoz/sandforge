@@ -53,6 +53,12 @@ function answerPreview(overrides: Parameters<typeof previewAnswer>[0] = {}): voi
   );
 }
 
+/** Type the org's name in the rewind's confirmation, and confirm it. */
+function confirmRewind(): void {
+  fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SB' } });
+  fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+}
+
 /** The text of each cell of an object's row of the table, its name first. */
 function rowCells(objectApiName: string): string[] {
   const row = screen.getByTestId(`checkpoint-preview-row-${objectApiName}`);
@@ -259,7 +265,7 @@ describe('RewindPreview', () => {
     expect(unread.textContent).toContain('Case — The org refused the query.');
   });
 
-  it('rewinds with what the preview read, nothing more to accept, once Rewind is pressed', () => {
+  it('rewinds with what the preview read, nothing more to accept, once the org’s name is typed', () => {
     const { onRewind } = renderPreview();
     answerPreview();
     expect(screen.getByTestId('checkpoint-preview-automation-none').textContent).toBe(
@@ -268,14 +274,58 @@ describe('RewindPreview', () => {
     const rewind = screen.getByTestId('checkpoint-preview-rewind');
     expect(rewind.textContent).toBe('Rewind DEV-SB…');
     fireEvent.click(rewind);
-    expect(onRewind).toHaveBeenCalledWith({
-      previewId: 'pv-1',
-      acceptAutomation: false,
-      acceptNoUndo: false,
-      acceptOutside: false,
-    });
+    // Nothing goes until the org's name is typed: a rewind deletes.
+    expect(onRewind).not.toHaveBeenCalled();
+    expect(screen.getByTestId('danger-title').textContent).toBe('Rewind DEV-SB to “Before UAT”?');
+    expect(screen.getByTestId('danger-confirm-btn')).toBeDisabled();
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      { previewId: 'pv-1', acceptAutomation: false, acceptNoUndo: false, acceptOutside: false },
+      previewAnswer().diff,
+    );
     // The preview writes nothing itself: the rewind is its page's to start.
     expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
+  });
+
+  it('says in its confirmation to what moment the rewind returns the org and what it does, whoever made the changes', () => {
+    renderPreview();
+    answerPreview();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    const date = dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date('2026-10-20T14:05:12.000Z'),
+    );
+    expect(
+      screen.getByText(
+        `This rewind returns DEV-SB to ${date}: it deletes the 8 records added since, gives 6 records their values from then back and brings back 1 record from the recycle bin, whoever made these changes.`,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says in its confirmation only what the rewind does', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Account', { toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } }),
+        ],
+      }),
+    });
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(
+      screen.getByText(
+        /: it gives 1 record its values from then back, whoever made these changes\.$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves the org as it is when its confirmation is dismissed', () => {
+    const { onRewind } = renderPreview();
+    answerPreview();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SB' } });
+    fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+    expect(onRewind).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('danger-title')).toBeNull();
   });
 
   it('holds Rewind until what Undo could not bring back is accepted, and says it', () => {
@@ -296,7 +346,11 @@ describe('RewindPreview', () => {
     fireEvent.click(box);
     expect(rewind).toBeEnabled();
     fireEvent.click(rewind);
-    expect(onRewind).toHaveBeenCalledWith(expect.objectContaining({ acceptNoUndo: true }));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptNoUndo: true }),
+      expect.anything(),
+    );
   });
 
   it('lists what the org runs as each step of the rewind writes, and holds Rewind until it is accepted', () => {
@@ -321,7 +375,11 @@ describe('RewindPreview', () => {
       screen.getByRole('checkbox', { name: 'Rewind even though DEV-SB runs automation' }),
     );
     fireEvent.click(rewind);
-    expect(onRewind).toHaveBeenCalledWith(expect.objectContaining({ acceptAutomation: true }));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptAutomation: true }),
+      expect.anything(),
+    );
   });
 
   it('takes automation the org would not let be read for automation found', () => {
@@ -357,11 +415,19 @@ describe('RewindPreview', () => {
     );
     // Unticked, the rewind goes ahead and keeps those parents.
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
-    expect(onRewind).toHaveBeenLastCalledWith(expect.objectContaining({ acceptOutside: false }));
+    confirmRewind();
+    expect(onRewind).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acceptOutside: false }),
+      expect.anything(),
+    );
     fireEvent.click(screen.getByRole('checkbox', { name: 'Delete these too' }));
     expect(screen.queryByTestId('checkpoint-preview-outside-otherwise')).toBeNull();
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
-    expect(onRewind).toHaveBeenLastCalledWith(expect.objectContaining({ acceptOutside: true }));
+    confirmRewind();
+    expect(onRewind).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acceptOutside: true }),
+      expect.anything(),
+    );
   });
 
   it('in a checkpoint of everything, says what goes along outside it, with no box', () => {
@@ -384,7 +450,11 @@ describe('RewindPreview', () => {
     );
     expect(screen.queryByTestId('checkpoint-preview-accept-outside')).toBeNull();
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
-    expect(onRewind).toHaveBeenCalledWith(expect.objectContaining({ acceptOutside: true }));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptOutside: true }),
+      expect.anything(),
+    );
   });
 
   it('says a refusal the rewind would meet, and holds Rewind whatever is ticked', () => {

@@ -1,6 +1,11 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CheckpointInvalidReason, CheckpointListEntry } from '@sandforge/shared';
+import { AlertTriangle } from 'lucide-react';
+import type {
+  CheckpointInvalidReason,
+  CheckpointListEntry,
+  OrgCheckpoint,
+} from '@sandforge/shared';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Dialog } from '../../components/ui/Dialog';
@@ -40,9 +45,13 @@ export interface CheckpointListProps {
   onDelete: (checkpointId: string) => void;
   /** Open what a rewind to a checkpoint would do. */
   onRewind: (checkpointId: string) => void;
+  /** Undo the org's last rewind, made to this checkpoint, once confirmed. */
+  onUndo: (entry: CheckpointListEntry & { checkpoint: OrgCheckpoint }) => void;
+  /** Choose the fields a checkpoint stops comparing. */
+  onStopComparing: (checkpoint: OrgCheckpoint) => void;
   /**
    * The checkpoint whose Rewind… takes the keyboard as the list is drawn:
-   * the one whose preview was just left.
+   * the one whose preview, or whose rewind, was just left.
    */
   focusRewind?: string;
 }
@@ -56,7 +65,11 @@ function nameOf(entry: CheckpointListEntry): string {
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
  * takes and how long it is kept, and Rewind…, which opens what a rewind to it
- * would do. One that cannot be rewound to says why, and can only be deleted.
+ * would do. Beneath, what the store says of it: that it expires within days,
+ * with Keep; that records deleted before a date can no longer come back once
+ * it is older than the recycle bin keeps them; and, on the checkpoint of the
+ * org's last rewind, when that rewind was made and until when Undo can take
+ * it back. One that cannot be rewound to says why, and can only be deleted.
  */
 export const CheckpointList: React.FC<CheckpointListProps> = ({
   entries,
@@ -65,6 +78,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
   onKeep,
   onDelete,
   onRewind,
+  onUndo,
+  onStopComparing,
   focusRewind,
 }) => {
   const { t } = useTranslation();
@@ -95,6 +110,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
             onKeep={(keep) => onKeep(entry.checkpointId, keep)}
             onDelete={() => setDeleting(entry)}
             onRewind={() => onRewind(entry.checkpointId)}
+            onUndo={onUndo}
+            onStopComparing={onStopComparing}
             focusRewind={focusRewind === entry.checkpointId}
           />
         ))}
@@ -134,6 +151,8 @@ interface CheckpointRowProps {
   onKeep: (keep: boolean) => void;
   onDelete: () => void;
   onRewind: () => void;
+  onUndo: CheckpointListProps['onUndo'];
+  onStopComparing: CheckpointListProps['onStopComparing'];
   /** Its Rewind… takes the keyboard as it is drawn. */
   focusRewind: boolean;
 }
@@ -146,6 +165,8 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
   onKeep,
   onDelete,
   onRewind,
+  onUndo,
+  onStopComparing,
   focusRewind,
 }) => {
   const { t } = useTranslation();
@@ -241,6 +262,17 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               {t('checkpoint.list.rename')}
             </Button>
           )}
+          {usable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onStopComparing(checkpoint)}
+              aria-describedby={nameId}
+              data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
+            >
+              {t('checkpoint.list.stopComparing')}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -260,7 +292,101 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
           {why}
         </p>
       )}
+      {usable && (
+        <RowLines
+          entry={{ ...entry, checkpoint }}
+          nameId={nameId}
+          onKeep={onKeep}
+          onUndo={onUndo}
+        />
+      )}
     </li>
+  );
+};
+
+/** Props for what the store says beneath a usable checkpoint. */
+interface RowLinesProps {
+  entry: CheckpointListEntry & { checkpoint: OrgCheckpoint };
+  /** The id of the row's name, which its buttons are described by. */
+  nameId: string;
+  onKeep: (keep: boolean) => void;
+  onUndo: CheckpointListProps['onUndo'];
+}
+
+/**
+ * The lines beneath a checkpoint that can be rewound to, only those that
+ * apply, each with what it offers: it expires within days, and Keep keeps
+ * it; records deleted before a date can no longer come back with their Id,
+ * once it is older than the recycle bin's fifteen days; the org's last
+ * rewind was made to it, and Undo takes it back until a date, sooner if the
+ * bin fills. Every date is the store's, so the list, Home and the command
+ * line say the same.
+ */
+const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) => {
+  const { t } = useTranslation();
+  const { checkpoint, checkpointId } = entry;
+  const expiresIn =
+    entry.expiresSoon && checkpoint.expiresAt !== null
+      ? formatStoredDate(checkpoint.expiresAt, (d) => formatRelativeTime(d))
+      : null;
+  const reachSince = entry.binReachSince
+    ? formatStoredDate(entry.binReachSince, (d) => formatDate(d))
+    : null;
+  const undoUntil = entry.undo ? formatStoredDate(entry.undo.until, (d) => formatDate(d)) : null;
+  const rewoundAt = checkpoint.lastRewind?.endedAt;
+  const rewoundOn = rewoundAt ? formatStoredDate(rewoundAt, (d) => formatDate(d)) : null;
+  if (expiresIn === null && reachSince === null && undoUntil === null) return null;
+  return (
+    <div className="flex flex-col gap-1 text-xs text-text-primary">
+      {expiresIn !== null && (
+        <p
+          className="flex flex-wrap items-center gap-2"
+          data-testid={`checkpoint-expires-${checkpointId}`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-status-warning" aria-hidden="true" />
+          <span>{t('checkpoint.list.expiresSoon', { when: expiresIn })}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onKeep(true)}
+            aria-describedby={nameId}
+            data-testid={`checkpoint-keep-now-${checkpointId}`}
+          >
+            {t('checkpoint.list.keepIt')}
+          </Button>
+        </p>
+      )}
+      {reachSince !== null && (
+        <p className="flex items-start gap-2" data-testid={`checkpoint-bin-reach-${checkpointId}`}>
+          <AlertTriangle
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warning"
+            aria-hidden="true"
+          />
+          <span>{t('checkpoint.list.binReach', { date: reachSince })}</span>
+        </p>
+      )}
+      {undoUntil !== null && (
+        <p
+          className="flex flex-wrap items-center gap-2"
+          data-testid={`checkpoint-rewound-${checkpointId}`}
+        >
+          <span>
+            {rewoundOn !== null
+              ? t('checkpoint.list.rewound', { date: rewoundOn, until: undoUntil })
+              : t('checkpoint.list.rewoundUndated', { until: undoUntil })}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onUndo(entry)}
+            aria-describedby={nameId}
+            data-testid={`checkpoint-undo-${checkpointId}`}
+          >
+            {t('checkpoint.undo.open')}
+          </Button>
+        </p>
+      )}
+    </div>
   );
 };
 

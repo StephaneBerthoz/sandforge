@@ -9,8 +9,11 @@ import {
   fakeHost,
   listEntry,
   polyfillDialog,
+  previewAnswer,
   productionOrg,
   readyCheckpoint,
+  rewindResult,
+  withoutUndo,
 } from './testing/checkpointFixtures';
 import type { FakeHost } from './testing/checkpointFixtures';
 
@@ -257,6 +260,184 @@ describe('CheckpointPage', () => {
     answerList();
     expect(screen.getByTestId(`checkpoint-row-${ID}`)).toBeInTheDocument();
     expect(host.current?.sent('checkpoint:preview')).toEqual([]);
+  });
+
+  describe('a rewind, and its undo', () => {
+    /** Open the preview of the checkpoint from its row, and answer it. */
+    async function openPreview(): Promise<void> {
+      fireEvent.click(screen.getByTestId(`checkpoint-rewind-${ID}`));
+      await screen.findByTestId('checkpoint-preview');
+      act(() =>
+        host.current?.answer('checkpoint:preview', 'checkpoint:preview:response', previewAnswer()),
+      );
+    }
+
+    /** Type the org's name in the confirmation open, and confirm it. */
+    function confirmTyped(): void {
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SB' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    }
+
+    /** Rewind from the preview, confirmed, and wait for the run to show. */
+    async function rewind(): Promise<void> {
+      await openPreview();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+      confirmTyped();
+      await screen.findByTestId('checkpoint-run');
+    }
+
+    it('rewinds once the org’s name is typed, with what the preview accepted, and shows the run', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await openPreview();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+      expect(host.current?.sent('checkpoint:rewind')).toEqual([]);
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        checkpointId: ID,
+        previewId: 'pv-1',
+        acceptAutomation: false,
+        acceptNoUndo: false,
+        acceptOutside: false,
+      });
+      const run = await screen.findByTestId('checkpoint-run');
+      expect(within(run).getByRole('heading', { level: 2 }).textContent).toBe(
+        'Rewind of DEV-SB to “Before UAT”',
+      );
+      expect(screen.getByTestId('checkpoint-run-phase-delete').textContent).toBe(
+        'Delete 8 records added since, children first',
+      );
+      expect(screen.queryByTestId('checkpoint-preview')).toBeNull();
+    });
+
+    it('says what the rewind did, reads the list again, and comes back to its Rewind… on Done', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await rewind();
+      const listed = host.current?.sent('checkpoint:list').length ?? 0;
+      act(() =>
+        host.current?.answer('checkpoint:rewind', 'checkpoint:rewind:response', {
+          result: rewindResult(),
+          operationId: 'op-rewind',
+        }),
+      );
+      expect(await screen.findByTestId('checkpoint-result-headline')).toHaveTextContent(
+        'DEV-SB is back at “Before UAT”.',
+      );
+      expect(host.current?.sent('checkpoint:list')).toHaveLength(listed + 1);
+      fireEvent.click(screen.getByTestId('checkpoint-result-done'));
+      answerList();
+      expect(screen.getByTestId(`checkpoint-rewind-${ID}`)).toHaveFocus();
+    });
+
+    it('reads the org afresh on Rewind again, a rewind acting on a preview', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await rewind();
+      act(() =>
+        host.current?.answer('checkpoint:rewind', 'checkpoint:rewind:response', {
+          result: rewindResult({
+            status: 'partial',
+            residual: [
+              { objectApiName: 'Account', reason: 'changedSincePreview', count: 3, ids: [] },
+            ],
+          }),
+          operationId: 'op-rewind',
+        }),
+      );
+      fireEvent.click(await screen.findByTestId('checkpoint-result-rewind-again'));
+      expect(await screen.findByTestId('checkpoint-preview')).toBeInTheDocument();
+      expect(host.current?.sent('checkpoint:preview')).toHaveLength(2);
+    });
+
+    it('undoes the rewind just made, typed, its automation accepted only when ticked', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await rewind();
+      act(() =>
+        host.current?.answer('checkpoint:rewind', 'checkpoint:rewind:response', {
+          result: rewindResult({
+            undo: {
+              until: '2026-11-06T14:02:00.000Z',
+              cannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }],
+            },
+          }),
+          operationId: 'op-rewind',
+        }),
+      );
+      fireEvent.click(await screen.findByTestId('checkpoint-result-undo-open'));
+      expect(screen.getByTestId('danger-title').textContent).toBe(
+        'Undo the last rewind of DEV-SB?',
+      );
+      expect(screen.getByTestId('checkpoint-undo-cannot').textContent).toBe(
+        'Undo could not bring back 3 OpportunityLineItem records this rewind deleted: Salesforce undeletes them only with their parent record.',
+      );
+      const box = screen.getByRole('checkbox', {
+        name: 'Undo even though DEV-SB runs automation as records are updated, deleted or brought back',
+      });
+      expect(box).not.toBeChecked();
+      fireEvent.click(box);
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        checkpointId: ID,
+        rewindId: 'rw-20261022-140100-c3d4',
+        acceptAutomation: true,
+      });
+      expect(await screen.findByRole('button', { name: 'Stop the undo' })).toBeInTheDocument();
+      // An undo's own result carries no Undo.
+      act(() =>
+        host.current?.answer('checkpoint:undo', 'checkpoint:undo:response', {
+          result: withoutUndo(rewindResult()),
+          operationId: 'op-undo',
+        }),
+      );
+      expect(await screen.findByTestId('checkpoint-result-headline')).toHaveTextContent(
+        'DEV-SB is back as it was before its last rewind.',
+      );
+    });
+
+    it('undoes the org’s last rewind from its line in the list, unticked', () => {
+      render(<CheckpointPage />);
+      answerList([
+        listEntry(
+          readyCheckpoint({
+            lastRewind: {
+              rewindId: 'rw-20261022-100000-beef',
+              endedAt: '2026-10-22T12:05:00.000Z',
+              undoUntil: '2026-11-06T10:05:00.000Z',
+            },
+          }),
+          { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+        ),
+      ]);
+      fireEvent.click(screen.getByTestId(`checkpoint-undo-${ID}`));
+      expect(screen.queryByTestId('checkpoint-undo-cannot')).toBeNull();
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:undo')).toEqual({
+        checkpointId: ID,
+        rewindId: 'rw-20261022-100000-beef',
+        acceptAutomation: false,
+      });
+    });
+
+    it('stops comparing fields chosen from the list, and lists the org again', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      fireEvent.click(screen.getByTestId(`checkpoint-stop-comparing-${ID}`));
+      fireEvent.click(await screen.findByTestId('checkpoint-stop-comparing-Contact.LastName'));
+      fireEvent.click(screen.getByTestId('checkpoint-stop-comparing-save'));
+      expect(host.current?.lastPayload('checkpoint:ignore-fields')).toEqual({
+        checkpointId: ID,
+        fields: ['Contact.LastName'],
+      });
+      act(() =>
+        host.current?.answer('checkpoint:ignore-fields', 'checkpoint:ignore-fields:response', {
+          checkpoint: readyCheckpoint({ ignoredFields: ['Contact.LastName'] }),
+        }),
+      );
+      expect(host.current?.sent('checkpoint:list')).toHaveLength(2);
+      expect(screen.queryByTestId('checkpoint-stop-comparing-fields')).toBeNull();
+    });
   });
 
   it('opens on a take when Home asked for one, and clears the ask', async () => {

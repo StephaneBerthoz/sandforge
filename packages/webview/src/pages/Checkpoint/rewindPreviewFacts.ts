@@ -1,15 +1,23 @@
 import type {
+  CheckpointObject,
   ForgeRemovalSteps,
+  ForgeUndoObjectResult,
+  ForgeUndoStatus,
   RewindCannotUndoReason,
   RewindDiff,
   RewindDiffObject,
+  RewindResidual,
+  RewindResidualReason,
+  RewindResult,
+  RewindStatus,
 } from '@sandforge/shared';
 
 /*
- * What the preview of a rewind says, read off the diff the extension sends.
- * Every number is the diff's own, told per object and class: these add an
- * object's classes into the preview's columns and its objects into its three
- * numbers, and count nothing the diff did not.
+ * What the preview of a rewind says, read off the diff the extension sends,
+ * and what its result says, read off the result. Every number is the
+ * extension's own, told per object and class: these add an object's classes
+ * into the preview's columns and its objects into its three numbers, group
+ * what a rewind left by why, and count nothing the extension did not.
  */
 
 /**
@@ -182,4 +190,192 @@ export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalStep
     giveBack: rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
     delete: rows.filter((row) => row.toDelete > 0).map((row) => row.objectApiName),
   };
+}
+
+// ─── What a rewind, or its undo, did ─────────────────────────────────────────
+
+/**
+ * The phases of a rewind as its run lists them, in the order it runs them:
+ * it brings back from the recycle bin, gives back values, deletes children
+ * first, then reads the org again.
+ */
+export type RewindPhase = 'bringBack' | 'giveBack' | 'delete' | 'check';
+
+/** One phase of a rewind under way, and the records of the confirmed preview it acts on. */
+export interface RewindPhaseLine {
+  phase: RewindPhase;
+  /** Records of the preview it acts on; 0 for the check. */
+  count: number;
+}
+
+/**
+ * The phases a rewind of `diff` runs, with what each acts on. A phase the
+ * preview the user confirmed gave nothing to is not listed; the check that
+ * reads the org again always is.
+ */
+export function rewindPhases(diff: Pick<RewindDiff, 'objects'>): RewindPhaseLine[] {
+  const totals = rewindTotals(diff);
+  const acting: RewindPhaseLine[] = [
+    { phase: 'bringBack', count: totals.toBringBack },
+    { phase: 'giveBack', count: totals.toGiveBack },
+    { phase: 'delete', count: totals.toDelete },
+  ];
+  return [...acting.filter((line) => line.count > 0), { phase: 'check', count: 0 }];
+}
+
+/** The order a result names what still differs in: what the user can act on first. */
+const RESIDUAL_RANK: Readonly<Record<RewindResidualReason, number>> = {
+  automation: 0,
+  changedDuringRewind: 1,
+  changedSincePreview: 2,
+  refused: 3,
+  kept: 4,
+  goneForGood: 5,
+};
+
+/** Every reason, in the order the result tells them: one missing from the rank fails to compile. */
+const RESIDUAL_ORDER = (Object.keys(RESIDUAL_RANK) as RewindResidualReason[]).sort(
+  (a, b) => RESIDUAL_RANK[a] - RESIDUAL_RANK[b],
+);
+
+/** Records still differing once a rewind read the org again, every reason and object together. */
+export function residualTotal(result: Pick<RewindResult, 'residual'>): number {
+  return result.residual.reduce((sum, residual) => sum + residual.count, 0);
+}
+
+/** What still differs for one reason, every object of it, and how many in all. */
+export interface ResidualGroup {
+  reason: RewindResidualReason;
+  total: number;
+  residuals: RewindResidual[];
+}
+
+/** What still differs once a rewind read the org again, by reason, only the reasons that apply. */
+export function residualGroups(result: Pick<RewindResult, 'residual'>): ResidualGroup[] {
+  return RESIDUAL_ORDER.flatMap((reason) => {
+    const residuals = result.residual.filter(
+      (residual) => residual.reason === reason && residual.count > 0,
+    );
+    if (residuals.length === 0) return [];
+    const total = residuals.reduce((sum, residual) => sum + residual.count, 0);
+    return [{ reason, total, residuals }];
+  });
+}
+
+/**
+ * Who changed records during the rewind, which it left as they made them,
+ * every object together, the most first: by the names the preview read, by
+ * Id for one it did not name.
+ */
+export function changedDuringRewind(
+  result: Pick<RewindResult, 'residual'>,
+  userNames: Readonly<Record<string, string>>,
+): LastChanger[] {
+  const counts = new Map<string, number>();
+  for (const residual of result.residual) {
+    if (residual.reason !== 'changedDuringRewind' || residual.count === 0) continue;
+    const userId = residual.by ?? '';
+    counts.set(userId, (counts.get(userId) ?? 0) + residual.count);
+  }
+  return [...counts]
+    .map(([userId, count]) => {
+      const name = userNames[userId];
+      return name ? { userId, name, count } : { userId, count };
+    })
+    .sort((a, b) => b.count - a.count || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+}
+
+/**
+ * The objects whose records the org's automation set again on save once the
+ * rewind had given them back: the fields to stop comparing are theirs.
+ */
+export function automationObjects(result: Pick<RewindResult, 'residual'>): string[] {
+  return [
+    ...new Set(
+      result.residual
+        .filter((residual) => residual.reason === 'automation' && residual.count > 0)
+        .map((residual) => residual.objectApiName),
+    ),
+  ];
+}
+
+/**
+ * How the deletions of a rewind or an undo ended, from what each object left:
+ * a stopped run says so, one that left nothing succeeded, one that deleted
+ * some and left others is partial, and one that left them all failed. The
+ * whole run's status cannot say it: a rewind is partial for a value its
+ * automation set again while every record created since went.
+ */
+export function deletedStatus(
+  deleted: readonly ForgeUndoObjectResult[],
+  status: RewindStatus,
+): ForgeUndoStatus {
+  if (status === 'cancelled') return 'cancelled';
+  const left = deleted.reduce(
+    (sum, object) =>
+      sum + object.keptChanged + object.keptDependents + object.refused + (object.notVisible ?? 0),
+    0,
+  );
+  if (left === 0) return 'success';
+  const gone = deleted.reduce((sum, object) => sum + object.deleted + object.alreadyGone, 0);
+  return gone > 0 ? 'partial' : 'failure';
+}
+
+/**
+ * Records an undo left as someone changed them since the rewind: those it
+ * would have sent back to the recycle bin, and those it would have given back
+ * their values from before the rewind.
+ */
+export function keptChangedSinceRewind(result: Pick<RewindResult, 'deleted' | 'restored'>): number {
+  return (
+    result.deleted.reduce((sum, object) => sum + object.keptChanged, 0) +
+    result.restored.reduce((sum, object) => sum + object.keptChanged, 0)
+  );
+}
+
+/**
+ * The columns of a snapshot no rewind compares: the stamps every row holds
+ * and the flag of a person account (`SNAPSHOT_STAMPS` and
+ * `PERSON_ACCOUNT_FLAG` in the extension's checkpointFields), which nobody
+ * writes, and which a choice of fields to stop comparing would offer for
+ * nothing.
+ */
+const NEVER_COMPARED: ReadonlySet<string> = new Set([
+  'id',
+  'systemmodstamp',
+  'createddate',
+  'createdbyid',
+  'lastmodifieddate',
+  'lastmodifiedbyid',
+  'ispersonaccount',
+]);
+
+/** The fields of an object of a checkpoint its owner may stop comparing, as `Object.Field`. */
+export function comparableFields(
+  object: Pick<CheckpointObject, 'objectApiName' | 'fields'>,
+): string[] {
+  return object.fields
+    .filter((field) => !NEVER_COMPARED.has(field.toLowerCase()))
+    .map((field) => `${object.objectApiName}.${field}`);
+}
+
+/** Whether `field`, `Object.Field`, is one of `ignored` as the extension reads them: whatever the case. */
+export function isIgnored(field: string, ignored: readonly string[]): boolean {
+  const name = field.toLowerCase();
+  return ignored.some((entry) => entry.toLowerCase() === name);
+}
+
+/**
+ * The whole list of fields a checkpoint stops comparing once a choice among
+ * `shown` is saved: those it already left out among the others, as they
+ * were, then the fields of `shown` now ticked — `checkpoint:ignore-fields`
+ * replaces the list the checkpoint held.
+ */
+export function ignoredAfter(
+  ignored: readonly string[],
+  shown: readonly string[],
+  ticked: ReadonlySet<string>,
+): string[] {
+  const kept = ignored.filter((entry) => !isIgnored(entry, shown));
+  return [...kept, ...shown.filter((field) => ticked.has(field))];
 }

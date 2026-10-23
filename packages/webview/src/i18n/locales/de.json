@@ -194,7 +194,9 @@
       "clone": "Aus einer anderen Org klonen"
     },
     "disconnectDeleteBackups_one": "Auch die auf diesem Rechner gespeicherte DataOps-Sicherung dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthält",
-    "disconnectDeleteBackups_other": "Auch die {{count}} auf diesem Rechner gespeicherten DataOps-Sicherungen dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten"
+    "disconnectDeleteBackups_other": "Auch die {{count}} auf diesem Rechner gespeicherten DataOps-Sicherungen dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten",
+    "disconnectDeleteCheckpoints_one": "Auch den auf diesem Rechner gespeicherten Prüfpunkt dieser Org löschen, der die Werte ihrer Datensätze im Klartext enthält, und das Rückgängigmachen seiner Zurücksetzungen",
+    "disconnectDeleteCheckpoints_other": "Auch die {{count}} auf diesem Rechner gespeicherten Prüfpunkte dieser Org löschen, die die Werte ihrer Datensätze im Klartext enthalten, und das Rückgängigmachen ihrer Zurücksetzungen"
   },
   "monitor": {
     "refresh": "Aktualisieren",
@@ -4494,6 +4496,24 @@
       "resultChanged_other": "{{formatted}} behalten, seit dem Ladevorgang geändert",
       "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}",
       "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Ladevorgang sie nicht erstellt hat: {{names}}"
+    },
+    "rewind": {
+      "resultSuccess": "Kein seit dem Prüfpunkt hinzugekommener Datensatz ist mehr in {{org}}.",
+      "resultPartial": "Seit dem Prüfpunkt hinzugekommene Datensätze wurden aus {{org}} gelöscht; die übrigen bleiben, wie aufgeführt.",
+      "resultFailure": "Kein seit dem Prüfpunkt hinzugekommener Datensatz wurde aus {{org}} gelöscht.",
+      "resultChanged_one": "{{formatted}} behalten, während des Zurücksetzens von jemand anderem geändert",
+      "resultChanged_other": "{{formatted}} behalten, während des Zurücksetzens von jemand anderem geändert",
+      "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}"
+    },
+    "rewindUndo": {
+      "resultSuccess": "Jeder Datensatz, den das Zurücksetzen zurückgeholt hat, ist wieder im Papierkorb von {{org}}.",
+      "resultPartial": "Vom Zurücksetzen zurückgeholte Datensätze sind wieder im Papierkorb von {{org}}; die übrigen bleiben, wie aufgeführt.",
+      "resultFailure": "Kein vom Zurücksetzen zurückgeholter Datensatz ist wieder im Papierkorb von {{org}}.",
+      "resultChanged_one": "{{formatted}} behalten, seit dem Zurücksetzen geändert",
+      "resultChanged_other": "{{formatted}} behalten, seit dem Zurücksetzen geändert",
+      "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da das Zurücksetzen sie nicht zurückgeholt hat: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da das Zurücksetzen sie nicht zurückgeholt hat: {{names}}"
     }
   },
   "orgAutomation": {
@@ -5211,7 +5231,13 @@
         "refreshed": "{{org}} wurde am {{date}} aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
         "refreshedUndated": "{{org}} wurde seitdem aktualisiert: Dieser Prüfpunkt stammt von der Org vor der Aktualisierung und kann nur gelöscht werden.",
         "scratchExpired": "Diese Scratch-Org ist abgelaufen: Ihre Prüfpunkte können nur gelöscht werden."
-      }
+      },
+      "expiresSoon": "Läuft {{when}} ab",
+      "keepIt": "Aufbewahren",
+      "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt.",
+      "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
+      "rewoundUndated": "Zurückgesetzt: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
+      "stopComparing": "Felder nicht mehr vergleichen…"
     },
     "rename": {
       "title": "„{{name}}“ umbenennen"
@@ -5371,7 +5397,130 @@
       "journal": "Bevor es schreibt, bewahrt das Zurücksetzen auf, was es ändert: Sie können es bis {{date}} rückgängig machen, früher, wenn sich der Papierkorb füllt.",
       "nothing": "{{org}} ist bei den Objekten und Feldern, die „{{name}}“ enthält, so wie zu diesem Prüfpunkt: Nichts zurückzusetzen.",
       "nothingToWrite": "Nichts zurückzusetzen: Was sich noch unterscheidet, wird unten genannt, und das Zurücksetzen kann es nicht zurückbringen.",
-      "rewind": "{{org}} zurücksetzen…"
+      "rewind": "{{org}} zurücksetzen…",
+      "confirm": {
+        "title": "{{org}} auf „{{name}}“ zurücksetzen?",
+        "description": "Dieses Zurücksetzen bringt {{org}} auf den Stand vom {{date}}: Es {{changes}}, egal wer diese Änderungen vorgenommen hat.",
+        "delete_one": "löscht den {{formatted}} seitdem hinzugekommenen Datensatz",
+        "delete_other": "löscht die {{formatted}} seitdem hinzugekommenen Datensätze",
+        "giveBack_one": "gibt {{formatted}} Datensatz seine damaligen Werte zurück",
+        "giveBack_other": "gibt {{formatted}} Datensätzen ihre damaligen Werte zurück",
+        "bringBack_one": "holt {{formatted}} Datensatz aus dem Papierkorb zurück",
+        "bringBack_other": "holt {{formatted}} Datensätze aus dem Papierkorb zurück"
+      }
+    },
+    "run": {
+      "title": "Zurücksetzen von {{org}} auf „{{name}}“",
+      "undoTitle": "Rückgängigmachen des letzten Zurücksetzens von {{org}}",
+      "phases": "Was das Zurücksetzen tut, der Reihe nach",
+      "phase": {
+        "bringBack_one": "{{formatted}} seitdem gelöschten Datensatz zurückholen",
+        "bringBack_other": "{{formatted}} seitdem gelöschte Datensätze zurückholen",
+        "giveBack_one": "{{formatted}} Datensatz seine Werte zurückgeben",
+        "giveBack_other": "{{formatted}} Datensätzen ihre Werte zurückgeben",
+        "delete_one": "{{formatted}} seitdem hinzugekommenen Datensatz löschen, untergeordnete zuerst",
+        "delete_other": "{{formatted}} seitdem hinzugekommene Datensätze löschen, untergeordnete zuerst",
+        "check": "Prüfen: {{org}} erneut lesen"
+      },
+      "progress": "Fortschritt des Zurücksetzens",
+      "undoProgress": "Fortschritt des Rückgängigmachens",
+      "stop": "Zurücksetzen stoppen",
+      "stopUndo": "Rückgängigmachen stoppen",
+      "stopping": "Wird vor seinem nächsten Aufruf an {{org}} gestoppt…"
+    },
+    "result": {
+      "success": "{{org}} ist wieder auf „{{name}}“. Erneut gelesen: Bei den Objekten und Feldern, die er enthält, unterscheidet sich nichts.",
+      "partial_one": "{{org}} ist wieder auf „{{name}}“, bis auf {{formatted}} Datensatz:",
+      "partial_other": "{{org}} ist wieder auf „{{name}}“, bis auf {{formatted}} Datensätze:",
+      "partialListed": "{{org}} ist wieder auf „{{name}}“, bis auf das, was unten aufgeführt ist.",
+      "unstable": "Jemand hat während des Zurücksetzens weiter in {{org}} geschrieben: {{people}}, belassen, wie sie es gemacht haben. Setzen Sie erneut zurück, sobald damit aufgehört wurde.",
+      "unstableUnnamed": "Jemand hat während des Zurücksetzens weiter in {{org}} geschrieben: Was geändert wurde, bleibt, wie es ist. Setzen Sie erneut zurück, sobald damit aufgehört wurde.",
+      "changedBy_one": "{{name}} hat {{formatted}} Datensatz geändert",
+      "changedBy_other": "{{name}} hat {{formatted}} Datensätze geändert",
+      "failure": "Das Zurücksetzen von {{org}} auf „{{name}}“ endete, bevor es fertig war: Was es getan hat, ist unten aufgeführt. Setzen Sie erneut zurück, um bei dem fortzufahren, was sich noch unterscheidet.",
+      "cancelled": "Mittendrin gestoppt: {{org}} steht zwischen „{{name}}“ und jetzt. Setzen Sie erneut zurück, um fertig zu werden: Es fährt bei dem fort, was sich noch unterscheidet.",
+      "cancelledUndo": "Das Rückgängigmachen bringt {{org}} weiterhin auf den Stand vor dem Zurücksetzen.",
+      "rewindAgain": "Erneut zurücksetzen",
+      "stopComparing": "Diese Felder nicht mehr vergleichen…",
+      "stoppedComparing": "Ab jetzt nicht mehr verglichen: {{fields}}. Setzen Sie erneut zurück, um {{org}} ohne sie zu lesen.",
+      "requests": "{{used}} API-Anfragen verbraucht · {{left}} heute noch übrig",
+      "undoUntil": "Dieses Zurücksetzen kann bis {{date}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
+      "undoCannot_one": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensatz, den dieses Zurücksetzen gelöscht hat, nicht zurückholen: Salesforce stellt ihn nur mit seinem übergeordneten Datensatz wieder her.",
+      "undoCannot_other": "Das Rückgängigmachen könnte {{formatted}} {{object}}-Datensätze, die dieses Zurücksetzen gelöscht hat, nicht zurückholen: Salesforce stellt sie nur mit ihrem übergeordneten Datensatz wieder her.",
+      "refused": "von {{org}} abgelehnt: {{n}}",
+      "notReached": "vor dem Anhalten nicht erreicht: {{n}}",
+      "residual": {
+        "automation": {
+          "title": "Von Ihrer Automatisierung gehalten",
+          "line_one": "{{object}}: {{formatted}} Datensatz, den Ihre Automatisierung beim Speichern erneut gesetzt hat",
+          "line_other": "{{object}}: {{formatted}} Datensätze, die Ihre Automatisierung beim Speichern erneut gesetzt hat"
+        },
+        "changedDuringRewind": {
+          "title": "Während des Zurücksetzens von jemand anderem geändert",
+          "line_one": "{{object}}: {{formatted}} Datensatz, von {{user}} geändert, belassen, wie er ist",
+          "line_other": "{{object}}: {{formatted}} Datensätze, von {{user}} geändert, belassen, wie sie sind"
+        },
+        "changedSincePreview": {
+          "title": "Seit der Vorschau geändert",
+          "line_one": "{{object}}: {{formatted}} seit der Vorschau geänderter Datensatz: Setzen Sie erneut zurück, um ihn mitzunehmen",
+          "line_other": "{{object}}: {{formatted}} seit der Vorschau geänderte Datensätze: Setzen Sie erneut zurück, um sie mitzunehmen"
+        },
+        "refused": {
+          "title": "Von {{org}} abgelehnt",
+          "line_one": "{{object}}: {{formatted}} Datensatz",
+          "line_other": "{{object}}: {{formatted}} Datensätze"
+        },
+        "goneForGood": {
+          "title": "Endgültig weg",
+          "line_one": "{{object}}: {{formatted}} seitdem gelöschter Datensatz kann nicht mit seiner Id zurückkommen: Der Papierkorb enthält ihn nicht mehr",
+          "line_other": "{{object}}: {{formatted}} seitdem gelöschte Datensätze können nicht mit ihrer Id zurückkommen: Der Papierkorb enthält sie nicht mehr"
+        },
+        "kept": {
+          "title": "Bewusst belassen",
+          "line_one": "{{object}}: {{formatted}} Datensatz, den das Zurücksetzen belassen hat",
+          "line_other": "{{object}}: {{formatted}} Datensätze, die das Zurücksetzen belassen hat"
+        }
+      },
+      "undeleted": {
+        "title": "Aus dem Papierkorb von {{org}} zurückgeholt",
+        "line": "{{object}}: {{undeleted}} von {{planned}} zurückgeholt, mit ihrer Id",
+        "alreadyBack": "bereits wieder in {{org}}: {{n}}",
+        "gone": "nicht mehr im Papierkorb, endgültig weg: {{n}}"
+      },
+      "restored": {
+        "title": "Haben in {{org}} ihre Werte des Prüfpunkts zurück",
+        "line": "{{object}}: {{restored}} von {{planned}} haben ihre Werte des Prüfpunkts zurück",
+        "keptChanged": "während des Zurücksetzens von jemand anderem geändert, belassen, wie sie sind: {{n}}",
+        "gone": "nicht mehr in {{org}}: {{n}}",
+        "notKept": "Werte auf diesem Rechner nicht mehr aufbewahrt: {{n}}",
+        "without": "zurückgegeben bis auf Felder, die {{org}} nicht mehr annimmt und die ihre Werte behalten: {{n}}"
+      },
+      "undo": {
+        "success": "{{org}} ist wieder so wie vor ihrem letzten Zurücksetzen.",
+        "partial_one": "{{org}} ist wieder so wie vor ihrem letzten Zurücksetzen, bis auf {{formatted}} seit dem Zurücksetzen geänderten Datensatz, belassen, wie er jetzt ist.",
+        "partial_other": "{{org}} ist wieder so wie vor ihrem letzten Zurücksetzen, bis auf {{formatted}} seit dem Zurücksetzen geänderte Datensätze, belassen, wie sie jetzt sind.",
+        "partialListed": "{{org}} ist wieder so wie vor ihrem letzten Zurücksetzen, bis auf das, was unten aufgeführt ist.",
+        "failure": "Das Rückgängigmachen des letzten Zurücksetzens von {{org}} endete, bevor es fertig war: Was es getan hat, ist unten aufgeführt.",
+        "cancelled": "Mittendrin gestoppt: Machen Sie das Zurücksetzen in der Liste der Prüfpunkte erneut rückgängig, um fertig zu werden; es fährt dort fort, wo es gestoppt wurde.",
+        "undeletedTitle": "Was das Zurücksetzen gelöscht hat, aus dem Papierkorb von {{org}} zurückgeholt",
+        "restoredTitle": "Was das Zurücksetzen überschrieben hat, mit seinen vorherigen Werten in {{org}}",
+        "restoredLine": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Zurücksetzen zurück",
+        "keptChanged": "seit dem Zurücksetzen geändert, belassen, wie sie jetzt sind: {{n}}"
+      }
+    },
+    "undo": {
+      "open": "Dieses Zurücksetzen rückgängig machen",
+      "title": "Das letzte Zurücksetzen von {{org}} rückgängig machen?",
+      "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück und schickt das, was es zurückgeholt hat, wieder in den Papierkorb. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
+      "acceptAutomation": "Rückgängig machen, auch wenn {{org}} Automatisierungen ausführt, wenn Datensätze aktualisiert, gelöscht oder zurückgeholt werden"
+    },
+    "stopComparing": {
+      "title": "Felder von „{{name}}“ nicht mehr vergleichen",
+      "intro": "Ein Feld, das Ihre Automatisierung bei jedem Speichern erneut setzt, macht jedes Zurücksetzen teilweise. Ein Zurücksetzen auf diesen Prüfpunkt vergleicht ein hier angekreuztes Feld nicht und schreibt es nicht zurück; entfernen Sie das Häkchen, um es wieder zu vergleichen.",
+      "filter": "Felder filtern",
+      "noMatch": "Kein Feld passt.",
+      "ticked_one": "{{formatted}} Feld nicht verglichen",
+      "ticked_other": "{{formatted}} Felder nicht verglichen"
     }
   }
 }

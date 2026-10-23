@@ -194,7 +194,9 @@
       "clone": "Cloner depuis une autre org"
     },
     "disconnectDeleteBackups_one": "Supprimer aussi la sauvegarde DataOps de cette org conservée sur cette machine, qui contient en clair les valeurs de ses enregistrements",
-    "disconnectDeleteBackups_other": "Supprimer aussi les {{count}} sauvegardes DataOps de cette org conservées sur cette machine, qui contiennent en clair les valeurs de ses enregistrements"
+    "disconnectDeleteBackups_other": "Supprimer aussi les {{count}} sauvegardes DataOps de cette org conservées sur cette machine, qui contiennent en clair les valeurs de ses enregistrements",
+    "disconnectDeleteCheckpoints_one": "Supprimer aussi le point de contrôle de cette org conservé sur cette machine, qui contient en clair les valeurs de ses enregistrements, et l'annulation de ses retours arrière",
+    "disconnectDeleteCheckpoints_other": "Supprimer aussi les {{count}} points de contrôle de cette org conservés sur cette machine, qui contiennent en clair les valeurs de ses enregistrements, et l'annulation de leurs retours arrière"
   },
   "monitor": {
     "refresh": "Actualiser",
@@ -4494,6 +4496,24 @@
       "resultChanged_other": "{{formatted}} conservés, modifiés depuis le chargement",
       "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le chargement ne l'ayant pas créé : {{names}}",
       "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le chargement ne les ayant pas créés : {{names}}"
+    },
+    "rewind": {
+      "resultSuccess": "Aucun enregistrement ajouté depuis le point de contrôle ne reste dans {{org}}.",
+      "resultPartial": "Des enregistrements ajoutés depuis le point de contrôle ont été supprimés de {{org}} ; les autres restent, comme indiqué.",
+      "resultFailure": "Aucun enregistrement ajouté depuis le point de contrôle n'a été supprimé de {{org}}.",
+      "resultChanged_one": "{{formatted}} conservé, modifié par quelqu'un d'autre pendant le retour arrière",
+      "resultChanged_other": "{{formatted}} conservés, modifiés par quelqu'un d'autre pendant le retour arrière",
+      "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le point de contrôle ne couvrant pas les fichiers : {{names}}",
+      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le point de contrôle ne couvrant pas les fichiers : {{names}}"
+    },
+    "rewindUndo": {
+      "resultSuccess": "Chaque enregistrement rétabli par le retour arrière est de nouveau dans la corbeille de {{org}}.",
+      "resultPartial": "Des enregistrements rétablis par le retour arrière sont retournés dans la corbeille de {{org}} ; les autres restent, comme indiqué.",
+      "resultFailure": "Aucun enregistrement rétabli par le retour arrière n'est retourné dans la corbeille de {{org}}.",
+      "resultChanged_one": "{{formatted}} conservé, modifié depuis le retour arrière",
+      "resultChanged_other": "{{formatted}} conservés, modifiés depuis le retour arrière",
+      "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le retour arrière ne l'ayant pas rétabli : {{names}}",
+      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le retour arrière ne les ayant pas rétablis : {{names}}"
     }
   },
   "orgAutomation": {
@@ -5211,7 +5231,13 @@
         "refreshed": "{{org}} a été rafraîchie le {{date}} : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
         "refreshedUndated": "{{org}} a été rafraîchie depuis : ce point de contrôle est celui de l'org d'avant le rafraîchissement, et ne peut qu'être supprimé.",
         "scratchExpired": "Cette scratch org a expiré : ses points de contrôle ne peuvent qu'être supprimés."
-      }
+      },
+      "expiresSoon": "Expire {{when}}",
+      "keepIt": "Conserver",
+      "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir : la corbeille les garde 15 jours, moins si elle se remplit.",
+      "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
+      "rewoundUndated": "Retour arrière fait : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
+      "stopComparing": "Ne plus comparer des champs…"
     },
     "rename": {
       "title": "Renommer « {{name}} »"
@@ -5371,7 +5397,130 @@
       "journal": "Avant d'écrire, le retour arrière garde ce qu'il change : vous pourrez l'annuler jusqu'au {{date}}, plus tôt si la corbeille se remplit.",
       "nothing": "{{org}} est telle qu'au point « {{name}} » pour les objets et les champs qu'il contient : aucun retour arrière à faire.",
       "nothingToWrite": "Aucun retour arrière à faire : ce qui diffère encore est nommé ci-dessous, et un retour arrière ne peut pas le rétablir.",
-      "rewind": "Faire revenir {{org}} à ce point…"
+      "rewind": "Faire revenir {{org}} à ce point…",
+      "confirm": {
+        "title": "Faire revenir {{org}} à « {{name}} » ?",
+        "description": "Ce retour arrière ramène {{org}} au {{date}} : il {{changes}}, quel que soit l'auteur de ces changements.",
+        "delete_one": "supprime {{formatted}} enregistrement ajouté depuis",
+        "delete_other": "supprime les {{formatted}} enregistrements ajoutés depuis",
+        "giveBack_one": "rend à {{formatted}} enregistrement ses valeurs d'alors",
+        "giveBack_other": "rend à {{formatted}} enregistrements leurs valeurs d'alors",
+        "bringBack_one": "rétablit {{formatted}} enregistrement depuis la corbeille",
+        "bringBack_other": "rétablit {{formatted}} enregistrements depuis la corbeille"
+      }
+    },
+    "run": {
+      "title": "Retour arrière de {{org}} à « {{name}} »",
+      "undoTitle": "Annulation du dernier retour arrière de {{org}}",
+      "phases": "Ce que fait le retour arrière, dans l'ordre",
+      "phase": {
+        "bringBack_one": "Rétablir {{formatted}} enregistrement supprimé depuis",
+        "bringBack_other": "Rétablir {{formatted}} enregistrements supprimés depuis",
+        "giveBack_one": "Rendre à {{formatted}} enregistrement ses valeurs",
+        "giveBack_other": "Rendre à {{formatted}} enregistrements leurs valeurs",
+        "delete_one": "Supprimer {{formatted}} enregistrement ajouté depuis, les enfants d'abord",
+        "delete_other": "Supprimer {{formatted}} enregistrements ajoutés depuis, les enfants d'abord",
+        "check": "Vérifier : relire {{org}}"
+      },
+      "progress": "Progression du retour arrière",
+      "undoProgress": "Progression de l'annulation",
+      "stop": "Arrêter le retour arrière",
+      "stopUndo": "Arrêter l'annulation",
+      "stopping": "Arrêt avant son prochain appel à {{org}}…"
+    },
+    "result": {
+      "success": "{{org}} est revenue à « {{name}} ». Relue : rien ne diffère dans les objets et les champs qu'il contient.",
+      "partial_one": "{{org}} est revenue à « {{name}} », sauf {{formatted}} enregistrement :",
+      "partial_other": "{{org}} est revenue à « {{name}} », sauf {{formatted}} enregistrements :",
+      "partialListed": "{{org}} est revenue à « {{name}} », sauf ce qui est indiqué ci-dessous.",
+      "unstable": "Quelqu'un a continué d'écrire dans {{org}} pendant le retour arrière : {{people}}, laissés tels qu'ils les ont faits. Faites revenir l'org à ce point de nouveau quand cela aura cessé.",
+      "unstableUnnamed": "Quelqu'un a continué d'écrire dans {{org}} pendant le retour arrière : ce qui a été changé reste tel quel. Faites revenir l'org à ce point de nouveau quand cela aura cessé.",
+      "changedBy_one": "{{name}} a modifié {{formatted}} enregistrement",
+      "changedBy_other": "{{name}} a modifié {{formatted}} enregistrements",
+      "failure": "Le retour arrière de {{org}} à « {{name}} » s'est terminé avant la fin : ce qu'il a fait est indiqué ci-dessous. Faites revenir l'org à ce point de nouveau pour reprendre ce qui diffère encore.",
+      "cancelled": "Arrêté en cours de route : {{org}} est entre « {{name}} » et maintenant. Faites revenir l'org à ce point de nouveau pour finir : le retour arrière reprend ce qui diffère encore.",
+      "cancelledUndo": "L'annulation ramène toujours {{org}} à son état d'avant le retour arrière.",
+      "rewindAgain": "Revenir à ce point de nouveau",
+      "stopComparing": "Ne plus comparer ces champs…",
+      "stoppedComparing": "Ne sont plus comparés : {{fields}}. Faites revenir l'org à ce point de nouveau pour relire {{org}} sans eux.",
+      "requests": "{{used}} requêtes d'API utilisées · {{left}} restantes aujourd'hui",
+      "undoUntil": "Ce retour arrière peut être annulé jusqu'au {{date}}, plus tôt si la corbeille se remplit.",
+      "undoCannot_one": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrement {{object}} que ce retour arrière a supprimé : Salesforce ne le restaure qu'avec son enregistrement parent.",
+      "undoCannot_other": "L'annulation ne pourrait pas rétablir {{formatted}} enregistrements {{object}} que ce retour arrière a supprimés : Salesforce ne les restaure qu'avec leur enregistrement parent.",
+      "refused": "refusés par {{org}} : {{n}}",
+      "notReached": "non atteints avant l'arrêt : {{n}}",
+      "residual": {
+        "automation": {
+          "title": "Gardés par vos automatisations",
+          "line_one": "{{object}} : {{formatted}} enregistrement que vos automatisations ont modifié de nouveau à l'enregistrement",
+          "line_other": "{{object}} : {{formatted}} enregistrements que vos automatisations ont modifiés de nouveau à l'enregistrement"
+        },
+        "changedDuringRewind": {
+          "title": "Modifiés par quelqu'un d'autre pendant le retour arrière",
+          "line_one": "{{object}} : {{formatted}} enregistrement modifié par {{user}}, laissé tel quel",
+          "line_other": "{{object}} : {{formatted}} enregistrements modifiés par {{user}}, laissés tels quels"
+        },
+        "changedSincePreview": {
+          "title": "Modifiés depuis l'aperçu",
+          "line_one": "{{object}} : {{formatted}} enregistrement modifié depuis l'aperçu : faites revenir l'org à ce point de nouveau pour le prendre",
+          "line_other": "{{object}} : {{formatted}} enregistrements modifiés depuis l'aperçu : faites revenir l'org à ce point de nouveau pour les prendre"
+        },
+        "refused": {
+          "title": "Refusés par {{org}}",
+          "line_one": "{{object}} : {{formatted}} enregistrement",
+          "line_other": "{{object}} : {{formatted}} enregistrements"
+        },
+        "goneForGood": {
+          "title": "Perdus définitivement",
+          "line_one": "{{object}} : {{formatted}} enregistrement supprimé depuis ne peut pas revenir avec son Id : la corbeille ne le contient plus",
+          "line_other": "{{object}} : {{formatted}} enregistrements supprimés depuis ne peuvent pas revenir avec leur Id : la corbeille ne les contient plus"
+        },
+        "kept": {
+          "title": "Gardés exprès",
+          "line_one": "{{object}} : {{formatted}} enregistrement que le retour arrière a gardé",
+          "line_other": "{{object}} : {{formatted}} enregistrements que le retour arrière a gardés"
+        }
+      },
+      "undeleted": {
+        "title": "Rétablis depuis la corbeille de {{org}}",
+        "line": "{{object}} : {{undeleted}} sur {{planned}} rétablis, avec leur Id",
+        "alreadyBack": "déjà de retour dans {{org}} : {{n}}",
+        "gone": "plus dans la corbeille, perdus définitivement : {{n}}"
+      },
+      "restored": {
+        "title": "Ont retrouvé leurs valeurs du point de contrôle dans {{org}}",
+        "line": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs du point de contrôle",
+        "keptChanged": "modifiés par quelqu'un d'autre pendant le retour arrière, laissés tels quels : {{n}}",
+        "gone": "plus dans {{org}} : {{n}}",
+        "notKept": "valeurs plus conservées sur cette machine : {{n}}",
+        "without": "rendus sauf les champs que {{org}} n'accepte plus, qui gardent leurs valeurs : {{n}}"
+      },
+      "undo": {
+        "success": "{{org}} est revenue à son état d'avant son dernier retour arrière.",
+        "partial_one": "{{org}} est revenue à son état d'avant son dernier retour arrière, sauf {{formatted}} enregistrement modifié depuis le retour arrière, laissé tel qu'il est maintenant.",
+        "partial_other": "{{org}} est revenue à son état d'avant son dernier retour arrière, sauf {{formatted}} enregistrements modifiés depuis le retour arrière, laissés tels qu'ils sont maintenant.",
+        "partialListed": "{{org}} est revenue à son état d'avant son dernier retour arrière, sauf ce qui est indiqué ci-dessous.",
+        "failure": "L'annulation du dernier retour arrière de {{org}} s'est terminée avant la fin : ce qu'elle a fait est indiqué ci-dessous.",
+        "cancelled": "Arrêtée en cours de route : annulez de nouveau le retour arrière depuis la liste des points de contrôle pour finir ; l'annulation reprend là où elle s'est arrêtée.",
+        "undeletedTitle": "Ce que le retour arrière a supprimé, rétabli depuis la corbeille de {{org}}",
+        "restoredTitle": "Ce que le retour arrière a écrasé, qui a retrouvé ses valeurs d'avant dans {{org}}",
+        "restoredLine": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs d'avant le retour arrière",
+        "keptChanged": "modifiés depuis le retour arrière, laissés tels qu'ils sont maintenant : {{n}}"
+      }
+    },
+    "undo": {
+      "open": "Annuler ce retour arrière",
+      "title": "Annuler le dernier retour arrière de {{org}} ?",
+      "description": "Rétablit depuis la corbeille ce que le retour arrière a supprimé, rend à ce qu'il a écrasé ses valeurs d'avant, et renvoie à la corbeille ce qu'il a rétabli. Ce que chacun a modifié dans {{org}} depuis le retour arrière reste tel quel.",
+      "acceptAutomation": "Annuler même si {{org}} exécute des automatisations quand des enregistrements sont modifiés, supprimés ou rétablis"
+    },
+    "stopComparing": {
+      "title": "Ne plus comparer des champs de « {{name}} »",
+      "intro": "Un champ que vos automatisations modifient de nouveau à chaque enregistrement rend chaque retour arrière partiel. Un retour arrière à ce point de contrôle ne compare ni ne réécrit un champ coché ici ; décochez-le pour le comparer de nouveau.",
+      "filter": "Filtrer les champs",
+      "noMatch": "Aucun champ ne correspond.",
+      "ticked_one": "{{formatted}} champ non comparé",
+      "ticked_other": "{{formatted}} champs non comparés"
     }
   }
 }

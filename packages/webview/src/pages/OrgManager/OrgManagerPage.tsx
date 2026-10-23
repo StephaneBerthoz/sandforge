@@ -35,7 +35,7 @@ import { OrgCard } from './OrgCard';
 import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
 import { DeviceCodePanel } from './DeviceCodePanel';
-import { DisconnectBackups } from './DisconnectBackups';
+import { DisconnectBackups, DisconnectCheckpoints } from './DisconnectBackups';
 import { canFill, orgToFill } from '../../utils/orgToFill';
 import { ErrorExplanation } from '../../components/ui/ErrorExplanation';
 
@@ -281,6 +281,8 @@ export const OrgManagerPage: React.FC = () => {
   const [orgPendingDisconnect, setOrgPendingDisconnect] = useState<SalesforceOrg | null>(null);
   /** Whether the org's backups on this machine go with it: asked in the dialog, off by default. */
   const [deleteBackupsWithOrg, setDeleteBackupsWithOrg] = useState(false);
+  /** The org's checkpoints on this machine that go with it: asked in the dialog, none by default. */
+  const [checkpointsWithOrg, setCheckpointsWithOrg] = useState<string[]>([]);
 
   // Inline form state
   const [alias, setAlias] = useState('');
@@ -656,6 +658,7 @@ export const OrgManagerPage: React.FC = () => {
   const handleDisconnect = useCallback(
     (orgId: string) => {
       setDeleteBackupsWithOrg(false);
+      setCheckpointsWithOrg([]);
       setOrgPendingDisconnect(orgs.find((o) => o.id === orgId) ?? null);
     },
     [orgs],
@@ -664,14 +667,19 @@ export const OrgManagerPage: React.FC = () => {
   const confirmDisconnect = useCallback(() => {
     if (!orgPendingDisconnect) return;
     // Its backups first, while the request still names an org the page knows:
-    // they stayed on this machine, in clear, once nothing listed them.
+    // they stayed on this machine, in clear, once nothing listed them. Its
+    // checkpoints likewise: the Checkpoints page lists those of a connected
+    // org only.
     if (deleteBackupsWithOrg) {
       sendBridgeMessage('backup:delete', { orgId: orgPendingDisconnect.id });
+    }
+    if (checkpointsWithOrg.length > 0) {
+      sendBridgeMessage('checkpoint:delete', { checkpointIds: checkpointsWithOrg });
     }
     disconnectMutate({ orgId: orgPendingDisconnect.id });
     removeOrg(orgPendingDisconnect.id);
     setOrgPendingDisconnect(null);
-  }, [orgPendingDisconnect, deleteBackupsWithOrg, disconnectMutate, removeOrg]);
+  }, [orgPendingDisconnect, deleteBackupsWithOrg, checkpointsWithOrg, disconnectMutate, removeOrg]);
 
   // Filtering only appears once the list stops fitting on screen. The query is
   // ignored while the field is hidden, so disconnecting down to a short list
@@ -1066,6 +1074,13 @@ export const OrgManagerPage: React.FC = () => {
             orgId={orgPendingDisconnect.id}
             checked={deleteBackupsWithOrg}
             onChange={setDeleteBackupsWithOrg}
+          />
+        )}
+        {orgPendingDisconnect && (
+          <DisconnectCheckpoints
+            orgId={orgPendingDisconnect.id}
+            checked={checkpointsWithOrg}
+            onChange={setCheckpointsWithOrg}
           />
         )}
       </DangerConfirm>

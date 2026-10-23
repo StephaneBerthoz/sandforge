@@ -1,8 +1,9 @@
 /**
  * What the Checkpoints page's tests stand in for: the checkpoints a store
- * lists, the scope a take reads, and the extension's side of the bridge —
- * the messages the page posts, and the answers a handler sends back,
- * correlated to them, on the channels of the `checkpoint:*` contract.
+ * lists, the scope a take reads, what a rewind did, and the extension's side
+ * of the bridge — the messages the page posts, and the answers a handler
+ * sends back, correlated to them, on the channels of the `checkpoint:*`
+ * contract.
  */
 import { vi } from 'vitest';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -11,9 +12,13 @@ import type {
   CheckpointListEntry,
   CheckpointPreviewResponse,
   CheckpointScopeResponse,
+  ForgeUndoObjectResult,
   OrgCheckpoint,
   RewindDiffObject,
+  RewindResult,
   SalesforceOrg,
+  SyncRestoreObjectResult,
+  SyncUndeleteObjectResult,
 } from '@sandforge/shared';
 
 /** `<dialog>`'s modal methods, which jsdom does not implement. */
@@ -287,6 +292,96 @@ export function previewDiff(
   overrides: Partial<CheckpointPreviewResponse['payload']['diff']> = {},
 ): CheckpointPreviewResponse['payload']['diff'] {
   return { ...previewAnswer().diff, ...overrides };
+}
+
+/** What a rewind deleted of one object, nothing left unless `overrides` says so. */
+export function deletedObject(
+  objectApiName: string,
+  overrides: Partial<Omit<ForgeUndoObjectResult, 'objectApiName'>> = {},
+): ForgeUndoObjectResult {
+  return {
+    objectApiName,
+    planned: 0,
+    deleted: 0,
+    alreadyGone: 0,
+    keptChanged: 0,
+    keptDependents: 0,
+    refused: 0,
+    heldBy: [],
+    unchecked: [],
+    reasons: [],
+    ...overrides,
+  };
+}
+
+/** What a rewind gave back of one object, nothing left unless `overrides` says so. */
+export function restoredObject(
+  objectApiName: string,
+  overrides: Partial<Omit<SyncRestoreObjectResult, 'objectApiName'>> = {},
+): SyncRestoreObjectResult {
+  return {
+    objectApiName,
+    planned: 0,
+    restored: 0,
+    keptChanged: 0,
+    alreadyGone: 0,
+    refused: 0,
+    notKept: 0,
+    reasons: [],
+    ...overrides,
+  };
+}
+
+/** What a rewind brought back of one object, nothing left unless `overrides` says so. */
+export function undeletedObject(
+  objectApiName: string,
+  overrides: Partial<Omit<SyncUndeleteObjectResult, 'objectApiName'>> = {},
+): SyncUndeleteObjectResult {
+  return {
+    objectApiName,
+    planned: 0,
+    undeleted: 0,
+    alreadyBack: 0,
+    goneForGood: 0,
+    refused: 0,
+    reasons: [],
+    ...overrides,
+  };
+}
+
+/**
+ * What a rewind to the checkpoint of {@link readyCheckpoint} did with the
+ * preview of {@link previewAnswer}: everything, read again with nothing that
+ * differs, undoable until 6 November.
+ */
+export function rewindResult(overrides: Partial<RewindResult> = {}): RewindResult {
+  return {
+    checkpointId: 'ck-20261020-140512-a1b2',
+    rewindId: 'rw-20261022-140100-c3d4',
+    status: 'success',
+    deleted: [
+      deletedObject('Contact', { planned: 5, deleted: 5 }),
+      deletedObject('Account', { planned: 3, deleted: 3 }),
+    ],
+    restored: [
+      restoredObject('Account', { planned: 4, restored: 4 }),
+      restoredObject('Contact', { planned: 2, restored: 2 }),
+    ],
+    undeleted: [undeletedObject('Account', { planned: 1, undeleted: 1 })],
+    residual: [],
+    passes: 1,
+    undo: { until: '2026-11-06T14:02:00.000Z', cannot: [] },
+    apiRequests: { used: 96, leftToday: 14_804 },
+    finishedAt: '2026-10-22T14:02:00.000Z',
+    ...overrides,
+  };
+}
+
+/** `result` with no Undo to offer: an undo's own result, or a rewind that wrote nothing. */
+export function withoutUndo(result: RewindResult): RewindResult {
+  const copy = { ...result };
+  delete copy.undo;
+  return copy;
 }
 
 /**

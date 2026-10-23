@@ -11,6 +11,8 @@ function renderList(entries = [listEntry()], focusRewind?: string) {
   const onKeep = vi.fn();
   const onDelete = vi.fn();
   const onRewind = vi.fn();
+  const onUndo = vi.fn();
+  const onStopComparing = vi.fn();
   render(
     <CheckpointList
       entries={entries}
@@ -19,10 +21,26 @@ function renderList(entries = [listEntry()], focusRewind?: string) {
       onKeep={onKeep}
       onDelete={onDelete}
       onRewind={onRewind}
+      onUndo={onUndo}
+      onStopComparing={onStopComparing}
       {...(focusRewind ? { focusRewind } : {})}
     />,
   );
-  return { onRename, onKeep, onDelete, onRewind };
+  return { onRename, onKeep, onDelete, onRewind, onUndo, onStopComparing };
+}
+
+/** A checkpoint whose org's last rewind was made to it, and which can still be undone. */
+function rewoundEntry(endedAt: string | null = '2026-10-22T12:05:00.000Z') {
+  return listEntry(
+    readyCheckpoint({
+      lastRewind: {
+        rewindId: 'rw-20261022-100000-beef',
+        ...(endedAt ? { endedAt } : {}),
+        undoUntil: '2026-11-06T10:05:00.000Z',
+      },
+    }),
+    { undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' } },
+  );
 }
 
 const ID = 'ck-20261020-140512-a1b2';
@@ -186,5 +204,74 @@ describe('CheckpointList', () => {
     fireEvent.click(screen.getByTestId(`checkpoint-delete-${ID}`));
     fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('says nothing beneath a checkpoint the store says nothing of', () => {
+    renderList();
+    expect(screen.queryByTestId(`checkpoint-expires-${ID}`)).toBeNull();
+    expect(screen.queryByTestId(`checkpoint-bin-reach-${ID}`)).toBeNull();
+    expect(screen.queryByTestId(`checkpoint-rewound-${ID}`)).toBeNull();
+  });
+
+  it('says a checkpoint expires within days, and keeps it from that line', () => {
+    const { onKeep } = renderList([
+      listEntry(readyCheckpoint({ expiresAt: '2026-10-24T14:06:03.000Z' }), {
+        expiresSoon: true,
+      }),
+    ]);
+    const line = screen.getByTestId(`checkpoint-expires-${ID}`);
+    expect(line.textContent).toBe('Expires in 2 days' + 'Keep');
+    fireEvent.click(within(line).getByRole('button', { name: 'Keep' }));
+    expect(onKeep).toHaveBeenCalledWith(ID, true);
+  });
+
+  it('says from which date records deleted can no longer come back, once the store says so', () => {
+    renderList([listEntry(readyCheckpoint(), { binReachSince: '2026-10-07T14:06:03.000Z' })]);
+    expect(screen.getByTestId(`checkpoint-bin-reach-${ID}`).textContent).toBe(
+      'Records deleted before Oct 7, 2026 cannot come back: the recycle bin keeps them 15 days, less if it fills.',
+    );
+  });
+
+  it('says when the org’s last rewind was made to a checkpoint and until when it can be undone, with Undo', () => {
+    const entry = rewoundEntry();
+    const { onUndo } = renderList([entry]);
+    const line = screen.getByTestId(`checkpoint-rewound-${ID}`);
+    expect(line.textContent).toBe(
+      'Rewound on Oct 22, 2026: it can be undone until Nov 6, 2026, sooner if the recycle bin fills.' +
+        'Undo this rewind',
+    );
+    fireEvent.click(within(line).getByRole('button', { name: 'Undo this rewind' }));
+    expect(onUndo).toHaveBeenCalledWith(entry);
+  });
+
+  it('offers the Undo of a rewind stopped part way, which has no end date', () => {
+    renderList([rewoundEntry(null)]);
+    expect(screen.getByTestId(`checkpoint-rewound-${ID}`).textContent).toContain(
+      'Rewound: it can be undone until Nov 6, 2026, sooner if the recycle bin fills.',
+    );
+  });
+
+  it('offers no Undo once the store no longer does, whatever the checkpoint remembers', () => {
+    const { checkpoint } = rewoundEntry();
+    renderList([listEntry(checkpoint ?? null)]);
+    expect(screen.queryByTestId(`checkpoint-rewound-${ID}`)).toBeNull();
+  });
+
+  it('opens the fields a checkpoint compares from its Stop comparing fields…', () => {
+    const { onStopComparing } = renderList();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop comparing fields…' }));
+    expect(onStopComparing).toHaveBeenCalledWith(readyCheckpoint());
+  });
+
+  it('offers neither Undo nor Stop comparing for a checkpoint that can only be deleted', () => {
+    renderList([
+      listEntry(readyCheckpoint(), {
+        valid: false,
+        why: 'failed',
+        undo: { rewindId: 'rw-20261022-100000-beef', until: '2026-11-06T10:05:00.000Z' },
+      }),
+    ]);
+    expect(screen.queryByTestId(`checkpoint-rewound-${ID}`)).toBeNull();
+    expect(screen.queryByTestId(`checkpoint-stop-comparing-${ID}`)).toBeNull();
   });
 });

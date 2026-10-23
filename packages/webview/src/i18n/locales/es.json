@@ -194,7 +194,9 @@
       "clone": "Clonar desde otra org"
     },
     "disconnectDeleteBackups_one": "Eliminar también el respaldo de DataOps de esta org guardado en este equipo, que contiene en claro los valores de sus registros",
-    "disconnectDeleteBackups_other": "Eliminar también los {{count}} respaldos de DataOps de esta org guardados en este equipo, que contienen en claro los valores de sus registros"
+    "disconnectDeleteBackups_other": "Eliminar también los {{count}} respaldos de DataOps de esta org guardados en este equipo, que contienen en claro los valores de sus registros",
+    "disconnectDeleteCheckpoints_one": "Eliminar también el punto de control de esta org guardado en este equipo, que contiene en claro los valores de sus registros, y la opción de deshacer sus retrocesos",
+    "disconnectDeleteCheckpoints_other": "Eliminar también los {{count}} puntos de control de esta org guardados en este equipo, que contienen en claro los valores de sus registros, y la opción de deshacer sus retrocesos"
   },
   "monitor": {
     "refresh": "Actualizar",
@@ -4494,6 +4496,24 @@
       "resultChanged_other": "{{formatted}} conservados, modificados desde la carga",
       "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que la carga no lo creó: {{names}}",
       "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que la carga no los creó: {{names}}"
+    },
+    "rewind": {
+      "resultSuccess": "No queda en {{org}} ningún registro añadido desde el punto de control.",
+      "resultPartial": "Se eliminaron de {{org}} registros añadidos desde el punto de control; los demás se quedan, como se indica.",
+      "resultFailure": "No se eliminó de {{org}} ningún registro añadido desde el punto de control.",
+      "resultChanged_one": "{{formatted}} conservado, modificado por otra persona durante el retroceso",
+      "resultChanged_other": "{{formatted}} conservados, modificados por otra persona durante el retroceso",
+      "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que el punto de control no cubre archivos: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que el punto de control no cubre archivos: {{names}}"
+    },
+    "rewindUndo": {
+      "resultSuccess": "Cada registro que el retroceso recuperó está de nuevo en la papelera de {{org}}.",
+      "resultPartial": "Registros que el retroceso recuperó volvieron a la papelera de {{org}}; los demás se quedan, como se indica.",
+      "resultFailure": "Ningún registro que el retroceso recuperó volvió a la papelera de {{org}}.",
+      "resultChanged_one": "{{formatted}} conservado, modificado desde el retroceso",
+      "resultChanged_other": "{{formatted}} conservados, modificados desde el retroceso",
+      "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que el retroceso no lo recuperó: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que el retroceso no los recuperó: {{names}}"
     }
   },
   "orgAutomation": {
@@ -5211,7 +5231,13 @@
         "refreshed": "{{org}} se actualizó el {{date}}: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
         "refreshedUndated": "{{org}} se actualizó desde entonces: este punto de control es de la org anterior a la actualización, y solo se puede eliminar.",
         "scratchExpired": "Esta scratch org caducó: sus puntos de control solo se pueden eliminar."
-      }
+      },
+      "expiresSoon": "Caduca {{when}}",
+      "keepIt": "Conservar",
+      "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver: la papelera los guarda 15 días, menos si se llena.",
+      "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
+      "rewoundUndated": "Retroceso hecho: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
+      "stopComparing": "Dejar de comparar campos…"
     },
     "rename": {
       "title": "Cambiar el nombre de «{{name}}»"
@@ -5371,7 +5397,130 @@
       "journal": "Antes de escribir, el retroceso guarda lo que cambia: podrá deshacerlo hasta el {{date}}, antes si la papelera se llena.",
       "nothing": "{{org}} está como estaba en «{{name}}» en los objetos y campos que contiene: nada que retroceder.",
       "nothingToWrite": "Nada que retroceder: lo que aún difiere se nombra abajo, y un retroceso no puede devolverlo.",
-      "rewind": "Retroceder {{org}}…"
+      "rewind": "Retroceder {{org}}…",
+      "confirm": {
+        "title": "¿Retroceder {{org}} a «{{name}}»?",
+        "description": "Este retroceso devuelve {{org}} al {{date}}: {{changes}}, quienquiera que hiciera estos cambios.",
+        "delete_one": "elimina {{formatted}} registro añadido desde entonces",
+        "delete_other": "elimina los {{formatted}} registros añadidos desde entonces",
+        "giveBack_one": "devuelve a {{formatted}} registro sus valores de entonces",
+        "giveBack_other": "devuelve a {{formatted}} registros sus valores de entonces",
+        "bringBack_one": "recupera {{formatted}} registro de la papelera",
+        "bringBack_other": "recupera {{formatted}} registros de la papelera"
+      }
+    },
+    "run": {
+      "title": "Retroceso de {{org}} a «{{name}}»",
+      "undoTitle": "Deshacer el último retroceso de {{org}}",
+      "phases": "Lo que hace el retroceso, en orden",
+      "phase": {
+        "bringBack_one": "Recuperar {{formatted}} registro eliminado desde entonces",
+        "bringBack_other": "Recuperar {{formatted}} registros eliminados desde entonces",
+        "giveBack_one": "Devolver a {{formatted}} registro sus valores",
+        "giveBack_other": "Devolver a {{formatted}} registros sus valores",
+        "delete_one": "Eliminar {{formatted}} registro añadido desde entonces, los hijos primero",
+        "delete_other": "Eliminar {{formatted}} registros añadidos desde entonces, los hijos primero",
+        "check": "Comprobar: leer {{org}} de nuevo"
+      },
+      "progress": "Progreso del retroceso",
+      "undoProgress": "Progreso de Deshacer",
+      "stop": "Detener el retroceso",
+      "stopUndo": "Detener Deshacer",
+      "stopping": "Deteniendo antes de su próxima llamada a {{org}}…"
+    },
+    "result": {
+      "success": "{{org}} ha vuelto a «{{name}}». Leída de nuevo: nada difiere en los objetos y campos que contiene.",
+      "partial_one": "{{org}} ha vuelto a «{{name}}», salvo {{formatted}} registro:",
+      "partial_other": "{{org}} ha vuelto a «{{name}}», salvo {{formatted}} registros:",
+      "partialListed": "{{org}} ha vuelto a «{{name}}», salvo lo que se indica abajo.",
+      "unstable": "Alguien siguió escribiendo en {{org}} durante el retroceso: {{people}}, dejados como los dejaron. Retroceda de nuevo cuando hayan parado.",
+      "unstableUnnamed": "Alguien siguió escribiendo en {{org}} durante el retroceso: lo que cambió se queda como está. Retroceda de nuevo cuando hayan parado.",
+      "changedBy_one": "{{name}} modificó {{formatted}} registro",
+      "changedBy_other": "{{name}} modificó {{formatted}} registros",
+      "failure": "El retroceso de {{org}} a «{{name}}» terminó antes de acabar: lo que hizo se indica abajo. Retroceda de nuevo para retomar lo que aún difiere.",
+      "cancelled": "Detenido a medias: {{org}} está entre «{{name}}» y ahora. Retroceda de nuevo para terminar: retoma lo que aún difiere.",
+      "cancelledUndo": "Deshacer sigue devolviendo {{org}} a como estaba antes del retroceso.",
+      "rewindAgain": "Retroceder de nuevo",
+      "stopComparing": "Dejar de comparar estos campos…",
+      "stoppedComparing": "Ya no se comparan: {{fields}}. Retroceda de nuevo para leer {{org}} sin ellos.",
+      "requests": "{{used}} solicitudes de API usadas · {{left}} restantes hoy",
+      "undoUntil": "Este retroceso se puede deshacer hasta el {{date}}, antes si la papelera se llena.",
+      "undoCannot_one": "Deshacer no podría recuperar {{formatted}} registro de {{object}} que este retroceso eliminó: Salesforce solo lo restaura con su registro padre.",
+      "undoCannot_other": "Deshacer no podría recuperar {{formatted}} registros de {{object}} que este retroceso eliminó: Salesforce solo los restaura con su registro padre.",
+      "refused": "rechazados por {{org}}: {{n}}",
+      "notReached": "no alcanzados antes de la detención: {{n}}",
+      "residual": {
+        "automation": {
+          "title": "Mantenidos por su automatización",
+          "line_one": "{{object}}: {{formatted}} registro que su automatización volvió a modificar al guardar",
+          "line_other": "{{object}}: {{formatted}} registros que su automatización volvió a modificar al guardar"
+        },
+        "changedDuringRewind": {
+          "title": "Modificados por otra persona durante el retroceso",
+          "line_one": "{{object}}: {{formatted}} registro modificado por {{user}}, dejado como está",
+          "line_other": "{{object}}: {{formatted}} registros modificados por {{user}}, dejados como están"
+        },
+        "changedSincePreview": {
+          "title": "Modificados desde la vista previa",
+          "line_one": "{{object}}: {{formatted}} registro modificado desde la vista previa: retroceda de nuevo para incluirlo",
+          "line_other": "{{object}}: {{formatted}} registros modificados desde la vista previa: retroceda de nuevo para incluirlos"
+        },
+        "refused": {
+          "title": "Rechazados por {{org}}",
+          "line_one": "{{object}}: {{formatted}} registro",
+          "line_other": "{{object}}: {{formatted}} registros"
+        },
+        "goneForGood": {
+          "title": "Perdidos para siempre",
+          "line_one": "{{object}}: {{formatted}} registro eliminado desde entonces no puede volver con su Id: la papelera ya no lo contiene",
+          "line_other": "{{object}}: {{formatted}} registros eliminados desde entonces no pueden volver con su Id: la papelera ya no los contiene"
+        },
+        "kept": {
+          "title": "Mantenidos a propósito",
+          "line_one": "{{object}}: {{formatted}} registro que el retroceso mantuvo",
+          "line_other": "{{object}}: {{formatted}} registros que el retroceso mantuvo"
+        }
+      },
+      "undeleted": {
+        "title": "Recuperados de la papelera de {{org}}",
+        "line": "{{object}}: {{undeleted}} de {{planned}} recuperados, con su Id",
+        "alreadyBack": "ya de vuelta en {{org}}: {{n}}",
+        "gone": "ya no están en la papelera, perdidos para siempre: {{n}}"
+      },
+      "restored": {
+        "title": "Recuperaron sus valores del punto de control en {{org}}",
+        "line": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores del punto de control",
+        "keptChanged": "modificados por otra persona durante el retroceso, dejados como están: {{n}}",
+        "gone": "ya no están en {{org}}: {{n}}",
+        "notKept": "valores ya no conservados en este equipo: {{n}}",
+        "without": "devueltos salvo los campos que {{org}} ya no acepta, que conservan sus valores: {{n}}"
+      },
+      "undo": {
+        "success": "{{org}} ha vuelto a como estaba antes de su último retroceso.",
+        "partial_one": "{{org}} ha vuelto a como estaba antes de su último retroceso, salvo {{formatted}} registro modificado desde el retroceso, dejado como está ahora.",
+        "partial_other": "{{org}} ha vuelto a como estaba antes de su último retroceso, salvo {{formatted}} registros modificados desde el retroceso, dejados como están ahora.",
+        "partialListed": "{{org}} ha vuelto a como estaba antes de su último retroceso, salvo lo que se indica abajo.",
+        "failure": "Deshacer el último retroceso de {{org}} terminó antes de acabar: lo que hizo se indica abajo.",
+        "cancelled": "Detenido a medias: deshaga de nuevo el retroceso desde la lista de puntos de control para terminar; retoma donde se detuvo.",
+        "undeletedTitle": "Lo que el retroceso eliminó, recuperado de la papelera de {{org}}",
+        "restoredTitle": "Lo que el retroceso sobrescribió, con sus valores de antes en {{org}}",
+        "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes del retroceso",
+        "keptChanged": "modificados desde el retroceso, dejados como están ahora: {{n}}"
+      }
+    },
+    "undo": {
+      "open": "Deshacer este retroceso",
+      "title": "¿Deshacer el último retroceso de {{org}}?",
+      "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes y envía de nuevo a la papelera lo que recuperó. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
+      "acceptAutomation": "Deshacer aunque {{org}} ejecute automatizaciones cuando se actualizan, eliminan o recuperan registros"
+    },
+    "stopComparing": {
+      "title": "Dejar de comparar campos de «{{name}}»",
+      "intro": "Un campo que su automatización vuelve a modificar en cada guardado deja cada retroceso parcial. Un retroceso a este punto de control no compara ni reescribe un campo marcado aquí; desmárquelo para volver a compararlo.",
+      "filter": "Filtrar los campos",
+      "noMatch": "Ningún campo coincide.",
+      "ticked_one": "{{formatted}} campo no comparado",
+      "ticked_other": "{{formatted}} campos no comparados"
     }
   }
 }

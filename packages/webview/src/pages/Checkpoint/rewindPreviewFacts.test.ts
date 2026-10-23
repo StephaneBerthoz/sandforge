@@ -1,15 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import {
+  automationObjects,
   cannotUndoLines,
+  changedDuringRewind,
+  comparableFields,
+  deletedStatus,
   heldAsItWas,
+  ignoredAfter,
+  isIgnored,
+  keptChangedSinceRewind,
   lastChangers,
   outsideLines,
+  residualGroups,
+  residualTotal,
+  rewindPhases,
   rewindSteps,
   rewindTotals,
   rewindWrites,
   rowOf,
 } from './rewindPreviewFacts';
-import { USERS, diffObject, previewDiff } from './testing/checkpointFixtures';
+import {
+  USERS,
+  deletedObject,
+  diffObject,
+  previewDiff,
+  restoredObject,
+  rewindResult,
+} from './testing/checkpointFixtures';
 
 describe('rewindPreviewFacts', () => {
   it('counts in an object’s columns every class the diff tells of it', () => {
@@ -129,5 +146,151 @@ describe('rewindPreviewFacts', () => {
       giveBack: ['Contact', 'Account'],
       delete: ['Contact', 'Account'],
     });
+  });
+});
+
+describe('what a rewind did', () => {
+  it('lists the phases of a rewind in the order it runs them, with the records each acts on, and the check last', () => {
+    expect(rewindPhases(previewDiff())).toEqual([
+      { phase: 'bringBack', count: 1 },
+      { phase: 'giveBack', count: 6 },
+      { phase: 'delete', count: 8 },
+      { phase: 'check', count: 0 },
+    ]);
+  });
+
+  it('leaves out a phase the confirmed preview gave nothing to', () => {
+    const diff = previewDiff({
+      objects: [
+        diffObject('Account', {
+          toGiveBack: { records: 2, fields: 2, clearedLookups: 0 },
+        }),
+      ],
+    });
+    expect(rewindPhases(diff).map((line) => line.phase)).toEqual(['giveBack', 'check']);
+  });
+
+  it('groups what still differs by why, the reasons the user can act on first, only those that apply', () => {
+    const result = rewindResult({
+      residual: [
+        { objectApiName: 'Case', reason: 'goneForGood', count: 2, ids: [] },
+        { objectApiName: 'Case', reason: 'automation', count: 12, ids: [] },
+        { objectApiName: 'Account', reason: 'automation', count: 3, ids: [] },
+        { objectApiName: 'Lead', reason: 'refused', count: 0, ids: [] },
+        {
+          objectApiName: 'Contact',
+          reason: 'kept',
+          count: 4,
+          ids: [],
+          message:
+            'Kept: records outside the checkpoint hang from them, and you did not ask to delete those.',
+        },
+      ],
+    });
+    expect(residualTotal(result)).toBe(21);
+    expect(
+      residualGroups(result).map((group) => [group.reason, group.total, group.residuals.length]),
+    ).toEqual([
+      ['automation', 15, 2],
+      ['kept', 4, 1],
+      ['goneForGood', 2, 1],
+    ]);
+    expect(automationObjects(result)).toEqual(['Case', 'Account']);
+  });
+
+  it('names who changed records during the rewind, the most first, by the names the preview read', () => {
+    const result = rewindResult({
+      status: 'unstable',
+      residual: [
+        {
+          objectApiName: 'Case',
+          reason: 'changedDuringRewind',
+          by: USERS.unnamed,
+          count: 2,
+          ids: [],
+        },
+        {
+          objectApiName: 'Case',
+          reason: 'changedDuringRewind',
+          by: USERS.alice,
+          count: 9,
+          ids: [],
+        },
+        {
+          objectApiName: 'Account',
+          reason: 'changedDuringRewind',
+          by: USERS.alice,
+          count: 5,
+          ids: [],
+        },
+        { objectApiName: 'Account', reason: 'refused', count: 1, ids: [] },
+      ],
+    });
+    expect(changedDuringRewind(result, { [USERS.alice]: 'Alice Martin' })).toEqual([
+      { userId: USERS.alice, name: 'Alice Martin', count: 14 },
+      { userId: USERS.unnamed, count: 2 },
+    ]);
+  });
+
+  it('says how the deletions ended from what each object left, apart from the whole run', () => {
+    const all = [deletedObject('Contact', { planned: 5, deleted: 5 })];
+    // Every record added since went, while a field the automation set again
+    // made the rewind partial.
+    expect(deletedStatus(all, 'partial')).toBe('success');
+    const kept = [
+      deletedObject('Contact', { planned: 5, deleted: 3, keptChanged: 1, keptDependents: 1 }),
+    ];
+    expect(deletedStatus(kept, 'unstable')).toBe('partial');
+    const none = [deletedObject('Contact', { planned: 2, refused: 2 })];
+    expect(deletedStatus(none, 'partial')).toBe('failure');
+    expect(deletedStatus(all, 'cancelled')).toBe('cancelled');
+    const hidden = [deletedObject('Contact', { planned: 2, deleted: 1, notVisible: 1 })];
+    expect(deletedStatus(hidden, 'success')).toBe('partial');
+  });
+
+  it('counts what an undo left as changed since the rewind, deleted and given back alike', () => {
+    const result = rewindResult({
+      deleted: [deletedObject('Account', { planned: 2, deleted: 1, keptChanged: 1 })],
+      restored: [restoredObject('Contact', { planned: 5, restored: 2, keptChanged: 3 })],
+    });
+    expect(keptChangedSinceRewind(result)).toBe(4);
+  });
+});
+
+describe('the fields a checkpoint compares', () => {
+  const object = {
+    objectApiName: 'Case',
+    fields: [
+      'Id',
+      'SystemModstamp',
+      'CreatedDate',
+      'CreatedById',
+      'LastModifiedDate',
+      'LastModifiedById',
+      'Subject',
+      'Last_Touched__c',
+    ],
+  };
+
+  it('offers the values a rewind compares, never the stamps nor the person flag', () => {
+    expect(comparableFields(object)).toEqual(['Case.Subject', 'Case.Last_Touched__c']);
+    expect(
+      comparableFields({ objectApiName: 'Account', fields: ['Id', 'IsPersonAccount', 'Name'] }),
+    ).toEqual(['Account.Name']);
+  });
+
+  it('reads a field left out whatever its case, as the extension does', () => {
+    expect(isIgnored('Case.Last_Touched__c', ['case.last_touched__c'])).toBe(true);
+    expect(isIgnored('Case.Subject', ['Case.Last_Touched__c'])).toBe(false);
+  });
+
+  it('keeps the fields left out of the objects not offered, and takes the choice for those offered', () => {
+    const ignored = ['Account.Score__c', 'case.subject'];
+    const shown = comparableFields(object);
+    expect(ignoredAfter(ignored, shown, new Set(['Case.Last_Touched__c']))).toEqual([
+      'Account.Score__c',
+      'Case.Last_Touched__c',
+    ]);
+    expect(ignoredAfter(ignored, shown, new Set())).toEqual(['Account.Score__c']);
   });
 });

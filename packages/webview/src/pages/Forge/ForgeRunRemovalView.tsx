@@ -25,10 +25,12 @@ import { ForgeRemovalAutomation } from './ForgeRemovalAutomation';
 import { ForgeRemovalSweep, ForgeRunSweepResult } from './ForgeRemovalSweep';
 
 /**
- * What a removal takes back — a Forge run, or a Frozen load — which is all
- * its result's words change with: the removal is the same.
+ * What a removal takes back — a Forge run, a Frozen load, what was added to
+ * an org since a checkpoint its rewind deletes, or what a rewind brought back
+ * that its undo sends back to the recycle bin — which is all its result's
+ * words change with: the removal is the same.
  */
-export type RemovalSubject = 'run' | 'load';
+export type RemovalSubject = 'run' | 'load' | 'rewind' | 'rewindUndo';
 
 /** What a removal's result says first, by what it took back and how it ended. */
 const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>> = {
@@ -45,18 +47,34 @@ const RESULT_TITLE_KEYS: Record<RemovalSubject, Record<ForgeUndoStatus, string>>
     // Says nothing of what was taken back.
     cancelled: 'runRemoval.resultCancelled',
   },
+  rewind: {
+    success: 'runRemoval.rewind.resultSuccess',
+    partial: 'runRemoval.rewind.resultPartial',
+    failure: 'runRemoval.rewind.resultFailure',
+    cancelled: 'runRemoval.resultCancelled',
+  },
+  rewindUndo: {
+    success: 'runRemoval.rewindUndo.resultSuccess',
+    partial: 'runRemoval.rewindUndo.resultPartial',
+    failure: 'runRemoval.rewindUndo.resultFailure',
+    cancelled: 'runRemoval.resultCancelled',
+  },
 };
 
 /** What a record kept for a change since is said to have changed since. */
 const CHANGED_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultChanged',
   load: 'runRemoval.load.resultChanged',
+  rewind: 'runRemoval.rewind.resultChanged',
+  rewindUndo: 'runRemoval.rewindUndo.resultChanged',
 };
 
 /** What the files a removal leaves in the org are said not to have come with. */
 const FILES_LEFT_KEYS: Record<RemovalSubject, string> = {
   run: 'runRemoval.resultFilesLeft',
   load: 'runRemoval.load.resultFilesLeft',
+  rewind: 'runRemoval.rewind.resultFilesLeft',
+  rewindUndo: 'runRemoval.rewindUndo.resultFilesLeft',
 };
 
 /**

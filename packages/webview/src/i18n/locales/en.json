@@ -194,7 +194,9 @@
       "clone": "Clone from another org"
     },
     "disconnectDeleteBackups_one": "Also delete this org's DataOps backup kept on this machine, which holds its records' values in clear",
-    "disconnectDeleteBackups_other": "Also delete this org's {{count}} DataOps backups kept on this machine, which hold its records' values in clear"
+    "disconnectDeleteBackups_other": "Also delete this org's {{count}} DataOps backups kept on this machine, which hold its records' values in clear",
+    "disconnectDeleteCheckpoints_one": "Also delete this org's checkpoint kept on this machine, which holds its records' values in clear, and the Undo of its rewinds",
+    "disconnectDeleteCheckpoints_other": "Also delete this org's {{count}} checkpoints kept on this machine, which hold its records' values in clear, and the Undo of their rewinds"
   },
   "monitor": {
     "refresh": "Refresh",
@@ -4494,6 +4496,24 @@
       "resultChanged_other": "{{formatted}} kept, changed since the load",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the load did not create it: {{names}}",
       "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the load did not create them: {{names}}"
+    },
+    "rewind": {
+      "resultSuccess": "No record added since the checkpoint is left in {{org}}.",
+      "resultPartial": "Records added since the checkpoint were deleted from {{org}}; the others stay, as listed.",
+      "resultFailure": "No record added since the checkpoint was deleted from {{org}}.",
+      "resultChanged_one": "{{formatted}} kept, changed by someone else during the rewind",
+      "resultChanged_other": "{{formatted}} kept, changed by someone else during the rewind",
+      "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the checkpoint does not cover files: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the checkpoint does not cover files: {{names}}"
+    },
+    "rewindUndo": {
+      "resultSuccess": "Every record the rewind brought back is in the recycle bin of {{org}} again.",
+      "resultPartial": "Records the rewind brought back went back to the recycle bin of {{org}}; the others stay, as listed.",
+      "resultFailure": "No record the rewind brought back went back to the recycle bin of {{org}}.",
+      "resultChanged_one": "{{formatted}} kept, changed since the rewind",
+      "resultChanged_other": "{{formatted}} kept, changed since the rewind",
+      "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the rewind did not bring it back: {{names}}",
+      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the rewind did not bring them back: {{names}}"
     }
   },
   "orgAutomation": {
@@ -5211,7 +5231,13 @@
         "refreshed": "{{org}} was refreshed on {{date}}: this checkpoint is of the org before it, and can only be deleted.",
         "refreshedUndated": "{{org}} was refreshed since: this checkpoint is of the org before it, and can only be deleted.",
         "scratchExpired": "This scratch org has expired: its checkpoints can only be deleted."
-      }
+      },
+      "expiresSoon": "Expires {{when}}",
+      "keepIt": "Keep",
+      "binReach": "Records deleted before {{date}} cannot come back: the recycle bin keeps them 15 days, less if it fills.",
+      "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
+      "rewoundUndated": "Rewound: it can be undone until {{until}}, sooner if the recycle bin fills.",
+      "stopComparing": "Stop comparing fields…"
     },
     "rename": {
       "title": "Rename “{{name}}”"
@@ -5371,7 +5397,130 @@
       "journal": "Before it writes, Rewind keeps what it changes, so you can undo it until {{date}}, sooner if the recycle bin fills.",
       "nothing": "{{org}} is as it was at “{{name}}” among the objects and fields it holds: nothing to rewind.",
       "nothingToWrite": "Nothing to rewind: what still differs is named below, and a rewind cannot put it back.",
-      "rewind": "Rewind {{org}}…"
+      "rewind": "Rewind {{org}}…",
+      "confirm": {
+        "title": "Rewind {{org}} to “{{name}}”?",
+        "description": "This rewind returns {{org}} to {{date}}: it {{changes}}, whoever made these changes.",
+        "delete_one": "deletes the {{formatted}} record added since",
+        "delete_other": "deletes the {{formatted}} records added since",
+        "giveBack_one": "gives {{formatted}} record its values from then back",
+        "giveBack_other": "gives {{formatted}} records their values from then back",
+        "bringBack_one": "brings back {{formatted}} record from the recycle bin",
+        "bringBack_other": "brings back {{formatted}} records from the recycle bin"
+      }
+    },
+    "run": {
+      "title": "Rewind of {{org}} to “{{name}}”",
+      "undoTitle": "Undo of the last rewind of {{org}}",
+      "phases": "What the rewind does, in order",
+      "phase": {
+        "bringBack_one": "Bring back {{formatted}} record deleted since",
+        "bringBack_other": "Bring back {{formatted}} records deleted since",
+        "giveBack_one": "Give {{formatted}} record its values back",
+        "giveBack_other": "Give {{formatted}} records their values back",
+        "delete_one": "Delete {{formatted}} record added since, children first",
+        "delete_other": "Delete {{formatted}} records added since, children first",
+        "check": "Check: read {{org}} again"
+      },
+      "progress": "Progress of the rewind",
+      "undoProgress": "Progress of the undo",
+      "stop": "Stop the rewind",
+      "stopUndo": "Stop the undo",
+      "stopping": "Stopping before its next call to {{org}}…"
+    },
+    "result": {
+      "success": "{{org}} is back at “{{name}}”. Read again: nothing differs among the objects and fields it holds.",
+      "partial_one": "{{org}} is back at “{{name}}”, except {{formatted}} record:",
+      "partial_other": "{{org}} is back at “{{name}}”, except {{formatted}} records:",
+      "partialListed": "{{org}} is back at “{{name}}”, except what is listed below.",
+      "unstable": "Someone kept writing to {{org}} during the rewind: {{people}}, left as they made them. Rewind again once they have stopped.",
+      "unstableUnnamed": "Someone kept writing to {{org}} during the rewind: what they changed is left as they made it. Rewind again once they have stopped.",
+      "changedBy_one": "{{name}} changed {{formatted}} record",
+      "changedBy_other": "{{name}} changed {{formatted}} records",
+      "failure": "The rewind of {{org}} to “{{name}}” ended before it was through: what it did is listed below. Rewind again to take up from what still differs.",
+      "cancelled": "Stopped part way: {{org}} is between “{{name}}” and now. Rewind again to finish: it takes up from what still differs.",
+      "cancelledUndo": "Undo still returns {{org}} to how it was before the rewind.",
+      "rewindAgain": "Rewind again",
+      "stopComparing": "Stop comparing these fields…",
+      "stoppedComparing": "Not compared from now on: {{fields}}. Rewind again to read {{org}} without them.",
+      "requests": "{{used}} API requests used · {{left}} left today",
+      "undoUntil": "This rewind can be undone until {{date}}, sooner if the recycle bin fills.",
+      "undoCannot_one": "Undo could not bring back {{formatted}} {{object}} record this rewind deleted: Salesforce undeletes it only with its parent record.",
+      "undoCannot_other": "Undo could not bring back {{formatted}} {{object}} records this rewind deleted: Salesforce undeletes them only with their parent record.",
+      "refused": "refused by {{org}}: {{n}}",
+      "notReached": "not reached before the stop: {{n}}",
+      "residual": {
+        "automation": {
+          "title": "Kept by your automation",
+          "line_one": "{{object}}: {{formatted}} record your automation set again on save",
+          "line_other": "{{object}}: {{formatted}} records your automation set again on save"
+        },
+        "changedDuringRewind": {
+          "title": "Changed during the rewind by someone else",
+          "line_one": "{{object}}: {{formatted}} record changed by {{user}}, left as they made it",
+          "line_other": "{{object}}: {{formatted}} records changed by {{user}}, left as they made them"
+        },
+        "changedSincePreview": {
+          "title": "Changed since the preview",
+          "line_one": "{{object}}: {{formatted}} record changed since the preview: rewind again to take it",
+          "line_other": "{{object}}: {{formatted}} records changed since the preview: rewind again to take them"
+        },
+        "refused": {
+          "title": "Refused by {{org}}",
+          "line_one": "{{object}}: {{formatted}} record",
+          "line_other": "{{object}}: {{formatted}} records"
+        },
+        "goneForGood": {
+          "title": "Gone for good",
+          "line_one": "{{object}}: {{formatted}} record deleted since cannot come back with its Id: the recycle bin no longer holds it",
+          "line_other": "{{object}}: {{formatted}} records deleted since cannot come back with their Id: the recycle bin no longer holds them"
+        },
+        "kept": {
+          "title": "Kept on purpose",
+          "line_one": "{{object}}: {{formatted}} record the rewind kept",
+          "line_other": "{{object}}: {{formatted}} records the rewind kept"
+        }
+      },
+      "undeleted": {
+        "title": "Brought back from the recycle bin of {{org}}",
+        "line": "{{object}}: {{undeleted}} of {{planned}} brought back, with their Ids",
+        "alreadyBack": "back in {{org}} already: {{n}}",
+        "gone": "no longer in the recycle bin, gone for good: {{n}}"
+      },
+      "restored": {
+        "title": "Given their checkpoint values back in {{org}}",
+        "line": "{{object}}: {{restored}} of {{planned}} given their checkpoint values back",
+        "keptChanged": "changed by someone else during the rewind, left as they made them: {{n}}",
+        "gone": "no longer in {{org}}: {{n}}",
+        "notKept": "values no longer kept on this machine: {{n}}",
+        "without": "given back but for fields {{org}} no longer takes, which keep their values: {{n}}"
+      },
+      "undo": {
+        "success": "{{org}} is back as it was before its last rewind.",
+        "partial_one": "{{org}} is back as it was before its last rewind, except {{formatted}} record changed since the rewind, left as it is now.",
+        "partial_other": "{{org}} is back as it was before its last rewind, except {{formatted}} records changed since the rewind, left as they are now.",
+        "partialListed": "{{org}} is back as it was before its last rewind, except what is listed below.",
+        "failure": "The undo of the last rewind of {{org}} ended before it was through: what it did is listed below.",
+        "cancelled": "Stopped part way: undo the rewind again from the list of checkpoints to finish; it takes up from where it stopped.",
+        "undeletedTitle": "What the rewind deleted, brought back from the recycle bin of {{org}}",
+        "restoredTitle": "What the rewind wrote over, given back its values from before in {{org}}",
+        "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",
+        "keptChanged": "changed since the rewind, left as they are now: {{n}}"
+      }
+    },
+    "undo": {
+      "open": "Undo this rewind",
+      "title": "Undo the last rewind of {{org}}?",
+      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, and sends back to the recycle bin what it brought back. What anyone changed in {{org}} since the rewind stays as it is.",
+      "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back"
+    },
+    "stopComparing": {
+      "title": "Stop comparing fields of “{{name}}”",
+      "intro": "A field your automation sets again on every save keeps every rewind partial. A rewind to this checkpoint neither compares nor writes back a field ticked here; untick it to compare it again.",
+      "filter": "Filter the fields",
+      "noMatch": "No field matches.",
+      "ticked_one": "{{formatted}} field not compared",
+      "ticked_other": "{{formatted}} fields not compared"
     }
   }
 }

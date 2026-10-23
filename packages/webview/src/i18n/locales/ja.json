@@ -185,7 +185,8 @@
       "fill": "{{alias}} をデモデータで満たす",
       "clone": "別の組織からクローン"
     },
-    "disconnectDeleteBackups_other": "このマシンに保存されているこの組織の DataOps バックアップ {{count}} 件も削除する（レコードの値が平文で保存されています）"
+    "disconnectDeleteBackups_other": "このマシンに保存されているこの組織の DataOps バックアップ {{count}} 件も削除する（レコードの値が平文で保存されています）",
+    "disconnectDeleteCheckpoints_other": "このマシンに保存されているこの組織のチェックポイント {{count}} 件と、その巻き戻しを元に戻す情報も削除する（レコードの値が平文で保存されています）"
   },
   "monitor": {
     "refresh": "更新",
@@ -4222,6 +4223,20 @@
       "resultFailure": "このロードが作成したレコードは {{org}} から 1 件も削除されませんでした。",
       "resultChanged_other": "{{formatted}} 件はロード後に変更されたため残しました",
       "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、このロードが作成したものではないため {{org}} に残ります: {{names}}"
+    },
+    "rewind": {
+      "resultSuccess": "チェックポイント後に追加されたレコードは {{org}} に残っていません。",
+      "resultPartial": "チェックポイント後に追加されたレコードの一部を {{org}} から削除しました。残りは一覧のとおり残っています。",
+      "resultFailure": "チェックポイント後に追加されたレコードは {{org}} から 1 件も削除されませんでした。",
+      "resultChanged_other": "{{formatted}} 件は巻き戻し中に他のユーザーが変更したため残しました",
+      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、チェックポイントがファイルを対象にしないため {{org}} に残ります: {{names}}"
+    },
+    "rewindUndo": {
+      "resultSuccess": "巻き戻しで復元したレコードはすべて {{org}} のごみ箱に戻りました。",
+      "resultPartial": "巻き戻しで復元したレコードの一部を {{org}} のごみ箱に戻しました。残りは一覧のとおり残っています。",
+      "resultFailure": "巻き戻しで復元したレコードは 1 件も {{org}} のごみ箱に戻りませんでした。",
+      "resultChanged_other": "{{formatted}} 件は巻き戻し後に変更されたため残しました",
+      "resultFilesLeft_other": "これらに添付されていたファイル {{formatted}} 件は、巻き戻しで復元したものではないため {{org}} に残ります: {{names}}"
     }
   },
   "orgAutomation": {
@@ -4927,7 +4942,13 @@
         "refreshed": "{{org}} は {{date}} にリフレッシュされました。このチェックポイントはリフレッシュ前の組織のもので、削除のみできます。",
         "refreshedUndated": "{{org}} はその後リフレッシュされました。このチェックポイントはリフレッシュ前の組織のもので、削除のみできます。",
         "scratchExpired": "このスクラッチ組織は期限切れです。チェックポイントは削除のみできます。"
-      }
+      },
+      "expiresSoon": "{{when}}に期限切れ",
+      "keepIt": "保持する",
+      "binReach": "{{date}} より前に削除されたレコードはもう戻せません。ごみ箱が保持するのは 15 日間で、いっぱいになるとそれより短くなります。",
+      "rewound": "{{date}} に巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
+      "rewoundUndated": "巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
+      "stopComparing": "項目の比較をやめる…"
     },
     "rename": {
       "title": "「{{name}}」の名前を変更"
@@ -5056,7 +5077,113 @@
       "journal": "巻き戻しは書き込む前に変更内容を保持するため、{{date}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く元に戻せなくなります。",
       "nothing": "{{org}} は、「{{name}}」が保持するオブジェクトと項目について、その時点のままです。巻き戻すものはありません。",
       "nothingToWrite": "巻き戻すものはありません。まだ異なるものは下に示しますが、巻き戻しでは戻せません。",
-      "rewind": "{{org}} を巻き戻す…"
+      "rewind": "{{org}} を巻き戻す…",
+      "confirm": {
+        "title": "{{org}} を「{{name}}」に巻き戻しますか？",
+        "description": "この巻き戻しは {{org}} を {{date}} の状態に戻します: {{changes}}。誰が変更したかは問いません。",
+        "delete_other": "その後に追加されたレコード {{formatted}} 件を削除",
+        "giveBack_other": "レコード {{formatted}} 件の値を当時に戻す",
+        "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元"
+      }
+    },
+    "run": {
+      "title": "{{org}} を「{{name}}」に巻き戻し",
+      "undoTitle": "{{org}} の最後の巻き戻しを元に戻す",
+      "phases": "巻き戻しが行うこと (順番)",
+      "phase": {
+        "bringBack_other": "その後に削除されたレコード {{formatted}} 件を復元",
+        "giveBack_other": "レコード {{formatted}} 件の値を戻す",
+        "delete_other": "その後に追加されたレコード {{formatted}} 件を削除 (子から先に)",
+        "check": "確認: {{org}} をもう一度読み取る"
+      },
+      "progress": "巻き戻しの進捗",
+      "undoProgress": "元に戻す操作の進捗",
+      "stop": "巻き戻しを停止",
+      "stopUndo": "元に戻す操作を停止",
+      "stopping": "{{org}} への次の呼び出しの前に停止しています…"
+    },
+    "result": {
+      "success": "{{org}} は「{{name}}」に戻りました。読み直した結果、保持するオブジェクトと項目に違いはありません。",
+      "partial_other": "{{org}} は「{{name}}」に戻りました。ただし次の {{formatted}} 件を除きます:",
+      "partialListed": "{{org}} は「{{name}}」に戻りました。ただし以下に示すものを除きます。",
+      "unstable": "巻き戻しの間も {{org}} への書き込みが続きました: {{people}}。これらは変更されたまま残しています。書き込みが止まってから、もう一度巻き戻してください。",
+      "unstableUnnamed": "巻き戻しの間も {{org}} への書き込みが続きました。変更された内容はそのまま残しています。書き込みが止まってから、もう一度巻き戻してください。",
+      "changedBy_other": "{{name}} が {{formatted}} 件のレコードを変更",
+      "failure": "{{org}} を「{{name}}」に戻す巻き戻しは、終わる前に終了しました。行った内容は以下のとおりです。まだ違う部分から続けるには、もう一度巻き戻してください。",
+      "cancelled": "途中で停止しました。{{org}} は「{{name}}」と現在の間の状態です。終えるには、もう一度巻き戻してください。まだ違う部分から続けます。",
+      "cancelledUndo": "元に戻す操作で、{{org}} を巻き戻し前の状態に戻すこともできます。",
+      "rewindAgain": "もう一度巻き戻す",
+      "stopComparing": "これらの項目の比較をやめる…",
+      "stoppedComparing": "今後は比較しない項目: {{fields}}。これらを除いて {{org}} を読み直すには、もう一度巻き戻してください。",
+      "requests": "使用した API 要求 {{used}} 件 · 今日の残り {{left}} 件",
+      "undoUntil": "この巻き戻しは {{date}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
+      "undoCannot_other": "この巻き戻しで削除した {{object}} のレコード {{formatted}} 件は、元に戻す操作では復元できません。Salesforce は親レコードと一緒にしか復元しません。",
+      "refused": "{{org}} に拒否されたもの: {{n}} 件",
+      "notReached": "停止前に到達しなかったもの: {{n}} 件",
+      "residual": {
+        "automation": {
+          "title": "自動化によって再設定されたもの",
+          "line_other": "{{object}}: 保存時に自動化が再び設定したレコード {{formatted}} 件"
+        },
+        "changedDuringRewind": {
+          "title": "巻き戻し中に他のユーザーが変更したもの",
+          "line_other": "{{object}}: {{user}} が変更したレコード {{formatted}} 件 (変更されたまま残しています)"
+        },
+        "changedSincePreview": {
+          "title": "プレビュー後に変更されたもの",
+          "line_other": "{{object}}: プレビュー後に変更されたレコード {{formatted}} 件 (含めるにはもう一度巻き戻してください)"
+        },
+        "refused": {
+          "title": "{{org}} に拒否されたもの",
+          "line_other": "{{object}}: レコード {{formatted}} 件"
+        },
+        "goneForGood": {
+          "title": "完全に失われたもの",
+          "line_other": "{{object}}: その後に削除されたレコード {{formatted}} 件は、ごみ箱にもうないため、同じ Id では戻せません"
+        },
+        "kept": {
+          "title": "意図的に残したもの",
+          "line_other": "{{object}}: 巻き戻しで残したレコード {{formatted}} 件"
+        }
+      },
+      "undeleted": {
+        "title": "{{org}} のごみ箱から復元したもの",
+        "line": "{{object}}: {{planned}} 件中 {{undeleted}} 件を同じ Id で復元",
+        "alreadyBack": "すでに {{org}} に戻っているもの: {{n}} 件",
+        "gone": "ごみ箱にもうなく、完全に失われたもの: {{n}} 件"
+      },
+      "restored": {
+        "title": "{{org}} でチェックポイントの値に戻したもの",
+        "line": "{{object}}: {{planned}} 件中 {{restored}} 件をチェックポイントの値に戻しました",
+        "keptChanged": "巻き戻し中に他のユーザーが変更したため、そのまま残したもの: {{n}} 件",
+        "gone": "{{org}} にもう存在しないもの: {{n}} 件",
+        "notKept": "このマシンに値がもう保持されていないもの: {{n}} 件",
+        "without": "{{org}} が受け付けなくなった項目を除いて戻したもの (その項目は現在の値のまま): {{n}} 件"
+      },
+      "undo": {
+        "success": "{{org}} は最後の巻き戻しの前の状態に戻りました。",
+        "partial_other": "{{org}} は最後の巻き戻しの前の状態に戻りました。ただし、巻き戻し後に変更されたレコード {{formatted}} 件は現在のまま残しています。",
+        "partialListed": "{{org}} は最後の巻き戻しの前の状態に戻りました。ただし以下に示すものを除きます。",
+        "failure": "{{org}} の最後の巻き戻しを元に戻す操作は、終わる前に終了しました。行った内容は以下のとおりです。",
+        "cancelled": "途中で停止しました。終えるには、チェックポイントの一覧からもう一度元に戻してください。停止したところから続けます。",
+        "undeletedTitle": "巻き戻しで削除したもの ({{org}} のごみ箱から復元)",
+        "restoredTitle": "巻き戻しで上書きしたもの ({{org}} で以前の値に戻したもの)",
+        "restoredLine": "{{object}}: {{planned}} 件中 {{restored}} 件を巻き戻し前の値に戻しました",
+        "keptChanged": "巻き戻し後に変更されたため、現在のまま残したもの: {{n}} 件"
+      }
+    },
+    "undo": {
+      "open": "この巻き戻しを元に戻す",
+      "title": "{{org}} の最後の巻き戻しを元に戻しますか？",
+      "description": "巻き戻しで削除したものをごみ箱から復元し、上書きしたものを以前の値に戻し、復元したものをごみ箱に戻します。巻き戻し後に {{org}} で誰かが変更したものは、そのまま残ります。",
+      "acceptAutomation": "レコードの更新・削除・復元時に {{org}} が自動化を実行しても元に戻す"
+    },
+    "stopComparing": {
+      "title": "「{{name}}」で比較しない項目",
+      "intro": "保存のたびに自動化が再び設定する項目があると、巻き戻しは毎回一部だけになります。ここでチェックした項目は、このチェックポイントへの巻き戻しで比較も書き戻しもされません。もう一度比較するにはチェックを外してください。",
+      "filter": "項目を絞り込む",
+      "noMatch": "一致する項目はありません。",
+      "ticked_other": "比較しない項目 {{formatted}} 件"
     }
   }
 }

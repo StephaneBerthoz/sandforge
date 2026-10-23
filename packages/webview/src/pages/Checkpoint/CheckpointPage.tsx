@@ -7,6 +7,10 @@ import type {
   CheckpointKeepResponse,
   CheckpointListResponse,
   CheckpointRenameResponse,
+  CheckpointRewindResponse,
+  CheckpointUndoResponse,
+  OrgCheckpoint,
+  RewindDiff,
   SalesforceOrg,
 } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
@@ -14,19 +18,34 @@ import { useAppStore } from '../../stores/useAppStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useLatestRef } from '../../hooks/useLatestRef';
+import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { Button } from '../../components/ui/Button';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
-import { RewindPreview, TakeCheckpoint } from './checkpointParts';
+import { RewindPreview, RewindRun, StopComparingFields, TakeCheckpoint } from './checkpointParts';
 import { usableCheckpoints } from './checkpointFacts';
+import type { RewindAcceptances } from './RewindPreview';
+import type { RunShown } from './RewindRun';
 
 /** Where the page opens for the org Home named: a take, or what a rewind to one checkpoint would do. */
 type Arrival = { take: true } | { preview: string } | null;
+
+/** A rewind or an undo the page started, with the checkpoint it is of. */
+type PageRun = RunShown & { checkpoint: OrgCheckpoint };
+
+/** An undo being confirmed: of which rewind, to which checkpoint, and what it could not bring back, when known. */
+interface UndoAsked {
+  checkpoint: OrgCheckpoint;
+  rewindId: string;
+  cannot: ReadonlyArray<{ objectApiName: string; count: number }>;
+}
 
 /**
  * The Checkpoints page: the checkpoints of an org kept on this machine, read
@@ -153,7 +172,15 @@ interface OrgCheckpointsProps {
 
 /**
  * The checkpoints of one org: its list, read from this machine, what can be
- * done to each — rewound to, kept, renamed, deleted — and a take.
+ * done to each — rewound to, kept, renamed, its fields compared or not,
+ * deleted — a take, and a rewind with what it did, which its Undo takes
+ * back.
+ *
+ * A rewind and an undo are asked here, under the org's name typed to confirm
+ * them, and run in the extension under the id of their request: the run
+ * shows what it does and how far it is, with Stop, and what it did once
+ * through. Either goes on in the extension if the page is left, as Live
+ * Operations shows; the list read again says what it did to the checkpoint.
  */
 const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const { t } = useTranslation();
@@ -166,6 +193,10 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     arrival !== null && 'preview' in arrival ? arrival.preview : null,
   );
   const [leftPreview, setLeftPreview] = useState<string | undefined>(undefined);
+  const [run, setRun] = useState<PageRun | null>(null);
+  const [undoAsked, setUndoAsked] = useState<UndoAsked | null>(null);
+  const [undoAcceptsAutomation, setUndoAcceptsAutomation] = useState(false);
+  const [stopComparing, setStopComparing] = useState<OrgCheckpoint | null>(null);
 
   const listQuery = useBridgeQuery<CheckpointListResponse['payload']>('checkpoint:list', {
     orgId: org.id,
@@ -173,13 +204,33 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const deletion = useBridgeMutation<CheckpointDeleteResponse['payload']>('checkpoint:delete');
   const keeping = useBridgeMutation<CheckpointKeepResponse['payload']>('checkpoint:keep');
   const renaming = useBridgeMutation<CheckpointRenameResponse['payload']>('checkpoint:rename');
+  // A rewind and an undo go on in the extension until they end, and answer
+  // then, a stopped one too: their progress events never reset the wait.
+  const rewinding = useBridgeMutation<CheckpointRewindResponse['payload']>('checkpoint:rewind', {
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
+  });
+  const undoing = useBridgeMutation<CheckpointUndoResponse['payload']>('checkpoint:undo', {
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+    runOutlivesWait: true,
+  });
 
   // Each change is read back from the store, which is what lists it: a
-  // checkpoint deleted, kept or renamed elsewhere meanwhile shows too.
+  // checkpoint deleted, kept or renamed elsewhere meanwhile shows too. A
+  // rewind or an undo that ended, or was refused, is read back the same
+  // way: it changed the checkpoint's last rewind and what Undo can reach.
   const refetchList = useLatestRef(() => listQuery.refetch());
   useEffect(() => {
     if (deletion.data || keeping.data || renaming.data) refetchList.current();
   }, [deletion.data, keeping.data, renaming.data, refetchList]);
+  const rewound = rewinding.data ?? rewinding.error;
+  useEffect(() => {
+    if (rewound !== null) refetchList.current();
+  }, [rewound, refetchList]);
+  const undone = undoing.data ?? undoing.error;
+  useEffect(() => {
+    if (undone !== null) refetchList.current();
+  }, [undone, refetchList]);
   // A deleted row takes the focus its Delete held with it: the list's heading
   // takes it, so the keyboard stays in the list.
   const deleted = deletion.data;
@@ -197,6 +248,59 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     />
   ) : null;
 
+  // Undo is asked for from a rewind's result, or from the list's line of the
+  // org's last rewind; it starts unticked every time.
+  const askUndo = (asked: UndoAsked): void => {
+    setUndoAcceptsAutomation(false);
+    setUndoAsked(asked);
+  };
+  const confirmUndo = (): void => {
+    if (!undoAsked) return;
+    undoing.mutate({
+      checkpointId: undoAsked.checkpoint.checkpointId,
+      rewindId: undoAsked.rewindId,
+      acceptAutomation: undoAcceptsAutomation,
+    });
+    setRun({ kind: 'undo', rewindId: undoAsked.rewindId, checkpoint: undoAsked.checkpoint });
+    setPreviewing(null);
+    setUndoAsked(null);
+  };
+  const undoConfirm = (
+    <DangerConfirm
+      open={undoAsked !== null}
+      onClose={() => setUndoAsked(null)}
+      onConfirm={confirmUndo}
+      title={t('checkpoint.undo.title', { org: orgName })}
+      description={t('checkpoint.undo.description', { org: orgName })}
+      confirmText={orgName}
+    >
+      {undoAsked && undoAsked.cannot.length > 0 && (
+        <ul className="mb-2 ml-4 list-disc" data-testid="checkpoint-undo-cannot">
+          {undoAsked.cannot.map((item) => (
+            <li key={item.objectApiName}>
+              {t('checkpoint.result.undoCannot', {
+                count: item.count,
+                formatted: formatNumber(item.count),
+                object: item.objectApiName,
+              })}
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* Never ticked unasked: without it, an org that runs automation as
+          the undo writes refuses it before it writes, and says what runs. */}
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={undoAcceptsAutomation}
+          onChange={(event) => setUndoAcceptsAutomation(event.target.checked)}
+          data-testid="checkpoint-undo-accept-automation"
+        />
+        <span>{t('checkpoint.undo.acceptAutomation', { org: orgName })}</span>
+      </label>
+    </DangerConfirm>
+  );
+
   if (taking) {
     return (
       <TakeCheckpoint
@@ -204,6 +308,42 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
         onClose={() => setTaking(false)}
         onTaken={() => refetchList.current()}
       />
+    );
+  }
+  if (run) {
+    const mutation = run.kind === 'rewind' ? rewinding : undoing;
+    const leave = (): void => {
+      setRun(null);
+      rewinding.reset();
+      undoing.reset();
+    };
+    return (
+      <>
+        <RewindRun
+          orgName={orgName}
+          checkpoint={run.checkpoint}
+          run={run}
+          state={{
+            loading: mutation.loading,
+            requestId: mutation.requestId,
+            result: mutation.data?.result ?? null,
+            error: mutation.error,
+            errorCode: mutation.errorCode,
+          }}
+          onUndo={(rewindId, cannot) => askUndo({ checkpoint: run.checkpoint, rewindId, cannot })}
+          onRewindAgain={() => {
+            leave();
+            setLeftPreview(undefined);
+            setPreviewing(run.checkpoint.checkpointId);
+          }}
+          onIgnored={() => refetchList.current()}
+          onDone={() => {
+            leave();
+            setLeftPreview(run.checkpoint.checkpointId);
+          }}
+        />
+        {undoConfirm}
+      </>
     );
   }
   // A preview opens once the list has said the checkpoint is there and can
@@ -215,6 +355,11 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
         )
       : undefined;
   if (previewed) {
+    const rewind = (acceptances: RewindAcceptances, diff: RewindDiff): void => {
+      rewinding.mutate({ checkpointId: previewed.checkpointId, ...acceptances });
+      setRun({ kind: 'rewind', diff, checkpoint: previewed.checkpoint });
+      setPreviewing(null);
+    };
     return (
       <RewindPreview
         org={org}
@@ -223,6 +368,7 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           setLeftPreview(previewed.checkpointId);
           setPreviewing(null);
         }}
+        onRewind={rewind}
       />
     );
   }
@@ -303,8 +449,25 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
           setLeftPreview(undefined);
           setPreviewing(checkpointId);
         }}
+        onUndo={(entry) => {
+          if (entry.undo) {
+            askUndo({ checkpoint: entry.checkpoint, rewindId: entry.undo.rewindId, cannot: [] });
+          }
+        }}
+        onStopComparing={setStopComparing}
         focusRewind={leftPreview}
       />
+      {undoConfirm}
+      {stopComparing && (
+        <StopComparingFields
+          checkpoint={stopComparing}
+          onClose={() => setStopComparing(null)}
+          onSaved={() => {
+            setStopComparing(null);
+            refetchList.current();
+          }}
+        />
+      )}
     </section>
   );
 };
