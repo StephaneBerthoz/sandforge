@@ -46,13 +46,23 @@ export function removalAuditOutcome(result: Pick<ForgeUndoResult, 'status'>): Au
   return result.status;
 }
 
-/** What a removal deleted and what the org refused, per object, for the audit trail. */
+/**
+ * What a removal deleted and what the org refused, per object, for the audit
+ * trail, and what a stop kept it from reaching, as records it never sent: an
+ * entry of a removal stopped part way named the contacts it deleted, and not
+ * the account it never got to.
+ */
 export function removalAuditObjects(
   objects: readonly ForgeUndoObjectResult[],
 ): AuditObjectCounts[] {
   return objects
-    .filter((o) => o.deleted + o.refused > 0)
-    .map((o) => ({ ...emptyCounts(o.objectApiName), deleted: o.deleted, failed: o.refused }));
+    .filter((o) => o.deleted + o.refused + (o.notReached ?? 0) > 0)
+    .map((o) => ({
+      ...emptyCounts(o.objectApiName),
+      deleted: o.deleted,
+      failed: o.refused,
+      ...((o.notReached ?? 0) > 0 ? { notSent: o.notReached } : {}),
+    }));
 }
 
 /**

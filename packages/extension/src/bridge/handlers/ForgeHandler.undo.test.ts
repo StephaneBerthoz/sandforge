@@ -444,7 +444,10 @@ describe('forge:undo', () => {
       expect(cancelled).toMatchObject({
         status: 'cancelled',
         leftBy: first?.finishedAt,
-        objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
+        objects: [
+          { objectApiName: 'Contact', planned: 1, deleted: 1 },
+          { objectApiName: 'Account', planned: 1, deleted: 0, notReached: 1 },
+        ],
       });
       expect(history()[0].undo).toEqual({
         removedAt: cancelled?.finishedAt,
@@ -651,9 +654,13 @@ describe('forge:undo', () => {
     expect(events.filter((e) => e !== 'progress')).toEqual(['started', 'aborted']);
     expect(events.at(-1)).toBe('aborted');
     expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
+    // The account it never reached is named with the contacts it deleted.
     expect(answer()).toMatchObject({
       status: 'cancelled',
-      objects: [{ objectApiName: 'Contact', deleted: 2 }],
+      objects: [
+        { objectApiName: 'Contact', deleted: 2 },
+        { objectApiName: 'Account', deleted: 0, notReached: 1 },
+      ],
     });
     expect(tracker.getAll()).toEqual([
       expect.objectContaining({ module: 'forge', status: 'cancelled', totalRecords: 3 }),
@@ -666,7 +673,10 @@ describe('forge:undo', () => {
       action: 'cleanup_delete',
       module: 'forge',
       outcome: 'cancelled',
-      objects: [{ objectApiName: 'Contact', created: 0, updated: 0, deleted: 2, failed: 0 }],
+      objects: [
+        { objectApiName: 'Contact', created: 0, updated: 0, deleted: 2, failed: 0 },
+        { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0, notSent: 1 },
+      ],
     });
     expect(history()[0].undo).toEqual({
       removedAt: answer()?.finishedAt,
@@ -716,7 +726,10 @@ describe('forge:undo', () => {
       const cancelled = answer();
       expect(cancelled).toMatchObject({
         status: 'cancelled',
-        objects: [{ objectApiName: 'Contact', deleted: 2 }],
+        objects: [
+          { objectApiName: 'Contact', deleted: 2 },
+          { objectApiName: 'Account', notReached: 1 },
+        ],
       });
       expect(history()[0].undo).toMatchObject({ deleted: 2, notReached: 1 });
       expect(history()[0].removalStamps).toEqual({

@@ -23,9 +23,13 @@
  * with columns of two writes, merged into one row as if one write had left
  * them; one deleted between them keeps the columns the first read gave. A
  * read that must hold each row as one write left it — a checkpoint's, whose
- * rewind compares every value it holds with the org's — carries the record's
- * stamp in every group, reads again the rows whose stamps disagree, and drops
- * those a later group no longer finds ({@link readOtherColumnsAtOneStamp}).
+ * rewind compares every value it holds with the org's; a DataOps backup,
+ * which a restore writes back whole; a Forge run's, which copies each row to
+ * the target — carries the record's stamp in every group, reads again the
+ * rows whose stamps disagree, and drops those a later group no longer finds
+ * ({@link readOtherColumnsAtOneStamp}). A statement that names the stamp is
+ * held to it so ({@link oneStampOf}); one of an object without a stamp is
+ * merged as it was read.
  */
 
 /**
@@ -122,6 +126,44 @@ export function firstColumns(fields: readonly string[]): string[] {
   return columnGroups(fields)[0] ?? [];
 }
 
+/**
+ * The column every write to a record moves, which a read in column groups
+ * holds each row to when its statement names it ({@link oneStampOf}).
+ */
+export const ROW_STAMP = 'SystemModstamp';
+
+/**
+ * The parts of `soql` a read in column groups works with: the object, the
+ * fields its select list names, and what follows its FROM. `undefined` when
+ * its select list is not a list of field names — a `FIELDS()`, a `COUNT()`, a
+ * function or a sub-query.
+ */
+function selectListOf(
+  soql: string,
+): { objectApiName: string; fields: string[]; rest: string } | undefined {
+  const parts = /^\s*SELECT\s+([\s\S]+?)\s+FROM\s+([A-Za-z][A-Za-z0-9_]*)(\s[\s\S]*)?$/i.exec(soql);
+  if (!parts) return undefined;
+  const [, select, objectApiName, rest = ''] = parts;
+  const fields = select.split(',').map((field) => field.trim());
+  if (!fields.every((field) => FIELD_PATH.test(field))) return undefined;
+  return { objectApiName, fields, rest };
+}
+
+/**
+ * How a read of `soql` in column groups holds each row to one write: by the
+ * record's stamp ({@link ROW_STAMP}) when the statement names it, which a read
+ * of every field of an object that has one does; otherwise not at all, and
+ * its groups are merged as they were read. An object without the stamp — a
+ * history or a share object — refuses a statement that names it, so it is
+ * never added to one that does not.
+ */
+export function oneStampOf(soql: string): OneStamp | undefined {
+  const stamp = ROW_STAMP.toLowerCase();
+  return selectListOf(soql)?.fields.some((field) => field.toLowerCase() === stamp)
+    ? { stamp: ROW_STAMP }
+    : undefined;
+}
+
 /** A statement read in column groups: see {@link wideStatement}. */
 export interface WideStatement {
   /** The object read. */
@@ -146,11 +188,9 @@ export function wideStatement(
   soql: string,
   carried?: readonly string[],
 ): WideStatement | undefined {
-  const parts = /^\s*SELECT\s+([\s\S]+?)\s+FROM\s+([A-Za-z][A-Za-z0-9_]*)(\s[\s\S]*)?$/i.exec(soql);
+  const parts = selectListOf(soql);
   if (!parts) return undefined;
-  const [, select, objectApiName, rest = ''] = parts;
-  const fields = select.split(',').map((field) => field.trim());
-  if (!fields.every((field) => FIELD_PATH.test(field))) return undefined;
+  const { objectApiName, fields, rest } = parts;
   const groups = columnGroups(fields, carried);
   if (groups.length < 2) return undefined;
   const [first, ...others] = groups;
@@ -437,18 +477,24 @@ export async function readColumnsApart<T extends Record<string, unknown>>(
  *
  * @param pages - The pages of one statement, as the org's cursor answers it.
  * @param read - Runs one statement whole: the reads of the other groups.
+ * @param oneStamp - Holds each row to one write, as {@link readColumnsApart}
+ *   does: a page then holds the rows kept, a row read again in the place of
+ *   the one first read. Absent, the groups are merged as they were read.
  */
 export async function* pagesColumnsApart<T extends Record<string, unknown>>(
   soql: string,
   pages: (statement: string) => AsyncIterable<T[]>,
   read: (statement: string) => Promise<Array<Record<string, unknown>>>,
+  oneStamp?: OneStamp,
 ): AsyncGenerator<T[]> {
-  const wide = wideStatement(soql);
+  const wide = wideStatement(soql, oneStamp === undefined ? undefined : ['Id', oneStamp.stamp]);
   if (!wide) {
     yield* pages(soql);
     return;
   }
   for await (const page of pages(wide.first)) {
-    yield await readOtherColumns(page, wide, read);
+    yield oneStamp === undefined
+      ? await readOtherColumns(page, wide, read)
+      : await readOtherColumnsAtOneStamp(page, wide, read, oneStamp);
   }
 }

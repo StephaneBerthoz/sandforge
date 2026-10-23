@@ -280,6 +280,56 @@ describe('removeRunRecords — an object the user may not delete', () => {
     ]);
   });
 
+  it('counts a record of it already deleted as gone, and only the ones still in the org as refused', async () => {
+    // Every record of the object was counted refused, the one in the recycle
+    // bin too: the removal said it had left in the org what was gone.
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+    org.bin.add(id('001', 2));
+    const withGone = plan.map((object) =>
+      object.objectApiName === 'Account'
+        ? { ...object, ids: [id('001', 1), id('001', 2)] }
+        : object,
+    );
+    const onUndeletable = vi.fn(async () => true);
+
+    const outcome = await removeRunRecords(org, withGone, options({ onUndeletable }));
+
+    expect(onUndeletable).toHaveBeenCalledWith([{ objectApiName: 'Account', records: 1 }]);
+    const accounts = outcome.objects.find((o) => o.objectApiName === 'Account');
+    expect(accounts).toMatchObject({ planned: 2, deleted: 0, alreadyGone: 1, refused: 1 });
+    expect(accounts?.reasons).toEqual([
+      'The user SandForge connects as may not delete Account records in this org: the 1 ' +
+        'record(s) of the run stay, and were not sent.',
+    ]);
+    expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
+    expect(removalMark({ ...outcome, status: 'partial', finishedAt: RUN_ENDED }, 4)).toMatchObject({
+      deleted: 2,
+      alreadyGone: 1,
+      refused: 1,
+    });
+  });
+
+  it('asks nothing of an object whose every record is already gone, and counts them gone', async () => {
+    const { org, plan } = accountWithContacts();
+    org.undeletable.add('Account');
+    org.rows.set('Account', []);
+    org.bin.add(id('001', 1));
+    const onUndeletable = vi.fn(async () => true);
+
+    const outcome = await removeRunRecords(org, plan, options({ onUndeletable }));
+
+    expect(onUndeletable).not.toHaveBeenCalled();
+    expect(outcome.undeletable).toBeUndefined();
+    expect(outcome.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      planned: 1,
+      alreadyGone: 1,
+      refused: 0,
+      reasons: [],
+    });
+    expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('success');
+  });
+
   it('stops with nothing removed when the user, asked, chooses not to remove the rest', async () => {
     const { org, plan } = accountWithContacts();
     org.undeletable.add('Account');
@@ -989,8 +1039,10 @@ describe('removeRunRecords', () => {
 
     expect(outcome.cancelled).toBe(true);
     expect(org.deletes.map((d) => d.ids.length)).toEqual([200]);
+    // What the stop kept it from reaching is named, the account it never got to too.
     expect(outcome.objects).toEqual([
-      expect.objectContaining({ objectApiName: 'Contact', deleted: 200 }),
+      expect.objectContaining({ objectApiName: 'Contact', deleted: 200, notReached: 50 }),
+      expect.objectContaining({ objectApiName: 'Account', planned: 1, deleted: 0, notReached: 1 }),
     ]);
   });
 
@@ -1748,7 +1800,13 @@ describe('removeRunRecords', () => {
 
       const outcome = await removeRunRecords(org, PLAN, options({ signal: stop.signal }));
 
-      expect(outcome).toMatchObject({ cancelled: true, objects: [] });
+      expect(outcome).toMatchObject({
+        cancelled: true,
+        objects: [
+          { objectApiName: 'OrderItem', planned: 1, deleted: 0, notReached: 1 },
+          { objectApiName: 'Order', planned: 1, deleted: 0, notReached: 1 },
+        ],
+      });
       expect(org.updates).toEqual([]);
       expect(statusOf(org)).toBe('Live');
     });
@@ -1769,10 +1827,12 @@ describe('removeRunRecords', () => {
       );
 
       expect(outcome.cancelled).toBe(true);
-      // Back as it was, the order not reached is not named.
+      // Back as it was, the order not reached is named as such, and only so.
       expect(outcome.objects).toEqual([
         expect.objectContaining({ objectApiName: 'OrderItem', deleted: 1 }),
+        expect.objectContaining({ objectApiName: 'Order', notReached: 1, reasons: [] }),
       ]);
+      expect(outcome.objects[0].notReached).toBeUndefined();
       expect(statusOf(org)).toBe('Live');
     });
 
@@ -2610,7 +2670,13 @@ describe('removeRunRecords', () => {
         );
 
         expect(first.cancelled).toBe(true);
-        expect(counts(first)).toEqual([['OpportunityLineItem', 2, 0, 0, 0, 0]]);
+        expect(counts(first)).toEqual([
+          ['OpportunityLineItem', 2, 0, 0, 0, 0],
+          ['Opportunity', 0, 0, 0, 0, 0],
+          ['Pricebook2', 0, 0, 0, 0, 0],
+          ['Account', 0, 0, 0, 0, 0],
+        ]);
+        expect(first.objects.map((o) => o.notReached)).toEqual([undefined, 1, 1, 1]);
         // Modified after the run ended, by the removal's doing.
         expect(Date.parse(restamped)).toBeGreaterThan(Date.parse(RUN_ENDED));
         expect(first.stamps).toEqual({ [OPPORTUNITY]: restamped });
@@ -2741,7 +2807,7 @@ describe('removeRunRecords', () => {
       const outcome = await removeRunRecords(org, PLAN, options(cancelledAfterLineItems()));
 
       expect(outcome.cancelled).toBe(true);
-      expect(counts(outcome)).toEqual([['OpportunityLineItem', 2, 0, 0, 0, 0]]);
+      expect(counts(outcome)[0]).toEqual(['OpportunityLineItem', 2, 0, 0, 0, 0]);
       expect(outcome.stamps).toEqual({});
     });
 

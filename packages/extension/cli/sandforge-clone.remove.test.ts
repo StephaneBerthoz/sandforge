@@ -1376,6 +1376,19 @@ describe('sandforge-clone removal lines', () => {
       '  Contact: 2 deleted, 1 not visible to this user (neither found nor in the recycle bin) of 3',
     ]);
   });
+
+  it('names, for a removal stopped part way, what it never reached, an object it never got to too', () => {
+    expect(
+      removalLines('cancelled', [
+        objectResult('Contact', 5, { deleted: 3, notReached: 2 }),
+        objectResult('Account', 1, { deleted: 0, notReached: 1 }),
+      ]),
+    ).toEqual([
+      'removal: CANCELLED',
+      '  Contact: 3 deleted, 2 not reached of 5',
+      '  Account: 1 not reached of 1',
+    ]);
+  });
 });
 
 describe('sandforge-clone removal of a run a call may have written to', () => {

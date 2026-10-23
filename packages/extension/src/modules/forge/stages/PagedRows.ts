@@ -10,8 +10,10 @@
  */
 
 import {
+  oneStampOf,
   pagesColumnsApart,
   readOtherColumns,
+  readOtherColumnsAtOneStamp,
   wideStatement,
 } from '../../../core/common/wideRead.js';
 
@@ -89,25 +91,34 @@ export function pagesOfStatement(
  * fields failed its root read with ERROR_HTTP_431 before a row was read. A
  * statement that fits goes to `deps` as it was given.
  *
+ * A row is held to one write (`oneStampOf`): every group carries the record's
+ * `SystemModstamp` when the statement names it — a read of every field of an
+ * object that has one — and a row a later group answers with another stamp
+ * is read again, one it no longer finds dropped. Merged as they were read, a
+ * record saved between two groups was copied to the target with the values
+ * of two saves, and one deleted between them with the first group's alone.
+ *
  * Everything else is `deps`' own, read when it is called, as `deps` itself
  * would be.
  */
 export function readingInColumnGroups<D extends PagedReadDeps>(deps: D): D {
   const queryRecords: PagedReadDeps['queryRecords'] = async (...args) => {
     const [orgId, soql, ...rest] = args;
-    const wide = wideStatement(soql);
+    const oneStamp = oneStampOf(soql);
+    const wide = wideStatement(soql, oneStamp === undefined ? undefined : ['Id', oneStamp.stamp]);
     if (!wide) return deps.queryRecords(...args);
-    return readOtherColumns(
-      await deps.queryRecords(orgId, wide.first, ...rest),
-      wide,
-      (statement) => deps.queryRecords(orgId, statement),
-    );
+    const first = await deps.queryRecords(orgId, wide.first, ...rest);
+    const byIds = (statement: string): Promise<SourceRow[]> => deps.queryRecords(orgId, statement);
+    return oneStamp === undefined
+      ? readOtherColumns(first, wide, byIds)
+      : readOtherColumnsAtOneStamp(first, wide, byIds, oneStamp);
   };
   const queryPages = (orgId: string, soql: string): AsyncIterable<SourceRow[]> =>
     pagesColumnsApart(
       soql,
       (statement) => deps.queryPages?.(orgId, statement) ?? noPages(),
       (statement) => deps.queryRecords(orgId, statement),
+      oneStampOf(soql),
     );
   return new Proxy(deps, {
     get(target, property, receiver) {

@@ -688,6 +688,13 @@ export interface ForgeUndoObjectResult {
    */
   notVisible?: number;
   /**
+   * Records a removal stopped before it was through never reached: left in
+   * the org as they were, for a removal of what it left to take. An object it
+   * never reached is listed with every record of it. Absent when there were
+   * none.
+   */
+  notReached?: number;
+  /**
    * The objects whose records, staying in the org, hold the ones counted in
    * `keptDependents`, by API name.
    */

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ForgeRunObjectRecords } from '@sandforge/shared';
 import { removeRunRecords, type RunRecords } from './ForgeRunRemoval.js';
+import { removalAuditObjects, removalStatus } from './removalOutcome.js';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 
 vi.mock('../../logger.js', () => ({
@@ -144,5 +145,93 @@ describe('a removal handed its records a page at a time', () => {
     ]);
     expect(await leftBy(outcome)).toEqual(stillThere);
     expect(stillThere.get('Account')).toHaveLength(7);
+    // Every record of the run is accounted for: settled, or not reached.
+    for (const object of outcome.objects) {
+      const settled =
+        object.deleted +
+        object.alreadyGone +
+        object.keptChanged +
+        object.keptDependents +
+        object.refused +
+        (object.notVisible ?? 0);
+      expect(settled + (object.notReached ?? 0)).toBe(object.planned);
+    }
+    expect(outcome.objects.find((o) => o.objectApiName === 'Account')).toMatchObject({
+      planned: 7,
+      notReached: 7,
+    });
+  });
+
+  it.each([0, 2])(
+    'names, stopped between two objects, the one it never reached with its records, and the next removal takes them (pages of %i)',
+    async (size) => {
+      // Live: a Frozen removal stopped once its 12 100 contacts were gone
+      // said "Contact: 12100 deleted" and nothing of the account it left;
+      // only the next removal's plan named it.
+      const org = new MemoryRemovalOrg({
+        Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+      });
+      const at = minutesAgo(10);
+      org.add('Account', { Id: ACCOUNTS[0] }, at);
+      for (const id of CONTACTS.slice(0, 3))
+        org.add('Contact', { Id: id, AccountId: ACCOUNTS[0] }, at);
+      const plan: ForgeRunObjectRecords[] = [
+        { objectApiName: 'Contact', ids: CONTACTS.slice(0, 3) },
+        { objectApiName: 'Account', ids: [ACCOUNTS[0]] },
+      ];
+      const stop = new AbortController();
+
+      const outcome = await removeRunRecords(org, size === 0 ? plan : inPages(plan, size), {
+        ...OPTIONS,
+        signal: stop.signal,
+        onProgress: (settled, _total, objectApiName) => {
+          if (objectApiName === 'Contact' && settled === 3) stop.abort();
+        },
+      });
+
+      expect(outcome.cancelled).toBe(true);
+      expect(outcome.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', planned: 3, deleted: 3 }),
+        expect.objectContaining({
+          objectApiName: 'Account',
+          planned: 1,
+          deleted: 0,
+          notReached: 1,
+        }),
+      ]);
+      expect(outcome.objects[0].notReached).toBeUndefined();
+      expect(removalAuditObjects(outcome.objects)).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', deleted: 3, failed: 0 }),
+        expect.objectContaining({ objectApiName: 'Account', deleted: 0, failed: 0, notSent: 1 }),
+      ]);
+      expect(removalStatus(outcome.objects, outcome.cancelled)).toBe('cancelled');
+      expect(org.all('Account').map((row) => row.Id)).toEqual([ACCOUNTS[0]]);
+      expect(await leftBy(outcome)).toEqual(new Map([['Account', [ACCOUNTS[0]]]]));
+    },
+  );
+
+  it('names every object of the plan as not reached when stopped before its first delete', async () => {
+    const org = target();
+    const stop = new AbortController();
+    stop.abort();
+
+    const outcome = await removeRunRecords(org, inPages(PLAN, 2), {
+      ...OPTIONS,
+      signal: stop.signal,
+    });
+
+    expect(outcome.cancelled).toBe(true);
+    expect(org.deletes).toEqual([]);
+    expect(
+      outcome.objects.map(({ objectApiName, planned, deleted, notReached }) => ({
+        objectApiName,
+        planned,
+        deleted,
+        notReached,
+      })),
+    ).toEqual([
+      { objectApiName: 'Contact', planned: 9, deleted: 0, notReached: 9 },
+      { objectApiName: 'Account', planned: 7, deleted: 0, notReached: 7 },
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { DEVELOPMENT_ORG_COLOR, OrgSafetyTier, PRODUCTION_ORG_COLOR } from '@sandforge/shared';
 import { OrgRegistry, healStoredOrg } from './OrgRegistry';
 import { OrgManager } from './OrgManager';
 import { ConfigStore } from '../storage/ConfigStore';
@@ -79,6 +79,35 @@ describe('OrgRegistry', () => {
 
       const stored = await registry.getCredentials('002');
       expect(stored).toEqual(creds);
+    });
+
+    it('drops the production red of an org saved again as a development org, and keeps it on one saved again as production', async () => {
+      const production: SalesforceOrg = {
+        ...createTestOrg('004'),
+        orgType: 'Production',
+        safetyTier: OrgSafetyTier.CRITICAL,
+        appearance: { color: PRODUCTION_ORG_COLOR, icon: 'cloud', position: 0 },
+        metadata: { apiVersion: '62.0', edition: '', features: [] },
+      };
+      await registry.saveOrg(production);
+      await registry.saveOrg({
+        ...production,
+        appearance: { ...production.appearance, color: '#4a9eff' },
+      });
+      expect(orgManager.getOrg('004')?.appearance.color).toBe(PRODUCTION_ORG_COLOR);
+
+      await registry.saveOrg({
+        ...production,
+        orgType: 'Developer',
+        safetyTier: OrgSafetyTier.LOW,
+        appearance: { ...production.appearance, color: DEVELOPMENT_ORG_COLOR },
+        metadata: { ...production.metadata, edition: 'Developer Edition' },
+      });
+
+      expect(orgManager.getOrg('004')?.appearance.color).toBe(DEVELOPMENT_ORG_COLOR);
+      expect(configStore.get<SalesforceOrg>('org.004')?.appearance.color).toBe(
+        DEVELOPMENT_ORG_COLOR,
+      );
     });
 
     it('keeps the alias, colour, icon and tags the user edited when the same org is saved again', async () => {

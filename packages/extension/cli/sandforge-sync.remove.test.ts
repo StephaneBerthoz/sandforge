@@ -43,6 +43,7 @@ import {
   readRunSummary,
   removalRefusal,
   removalsPathOf,
+  removalSummaryLines,
   runOfSummary,
   savedConfigStore,
 } from './sandforge-sync.js';
@@ -676,5 +677,23 @@ describe('sandforge-sync --remove', () => {
 
     expect(org.all('Account')).toEqual([]);
     expect(process.exit).not.toHaveBeenCalled();
+  });
+});
+
+describe('removalSummaryLines', () => {
+  it('names, for a removal stopped part way, what it never reached, an object it never got to too', () => {
+    const counts = { alreadyGone: 0, keptChanged: 0, keptDependents: 0, refused: 0 };
+    const lists = { heldBy: [], unchecked: [], reasons: [] };
+
+    expect(
+      removalSummaryLines('cancelled', [
+        { objectApiName: 'Contact', planned: 5, deleted: 3, notReached: 2, ...counts, ...lists },
+        { objectApiName: 'Account', planned: 1, deleted: 0, notReached: 1, ...counts, ...lists },
+      ]),
+    ).toEqual([
+      'removal: CANCELLED',
+      '  Contact: 3 deleted, 2 not reached of 5',
+      '  Account: 1 not reached of 1',
+    ]);
   });
 });

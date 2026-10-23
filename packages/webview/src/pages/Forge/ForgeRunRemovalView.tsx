@@ -134,6 +134,11 @@ function outcomeParts(
     );
   }
   if (object.refused > 0) parts.push(counted(t, 'runRemoval.resultRefused', object.refused));
+  // A removal stopped part way names what it never got to, an object it
+  // never reached too: left in the org, for a removal of what it left.
+  if ((object.notReached ?? 0) > 0) {
+    parts.push(counted(t, 'runRemoval.resultNotReached', object.notReached ?? 0));
+  }
   return parts;
 }
 

@@ -662,6 +662,7 @@ function addDeleted(into: ForgeUndoObjectResult, from: ForgeUndoObjectResult): v
   into.keptDependents += from.keptDependents;
   into.refused += from.refused;
   if (from.notVisible) into.notVisible = (into.notVisible ?? 0) + from.notVisible;
+  if (from.notReached) into.notReached = (into.notReached ?? 0) + from.notReached;
   for (const object of from.heldBy) if (!into.heldBy.includes(object)) into.heldBy.push(object);
   for (const object of from.unchecked) {
     if (!into.unchecked.includes(object)) into.unchecked.push(object);

@@ -373,6 +373,25 @@ export async function connectionAnnouncing(
 }
 
 /**
+ * A connection to a session whose token the caller holds, for an org not
+ * registered yet: what an import asks an org what it is through before it
+ * saves it. Built through the lazy boundary {@link getJsforceConnection}
+ * uses, as {@link connectionAnnouncing} is.
+ */
+export async function sessionConnection(session: {
+  instanceUrl: string;
+  accessToken: string;
+  version?: string;
+}): Promise<Connection> {
+  const { jsforce } = await import('./jsforceEntry.js');
+  return new jsforce.Connection({
+    instanceUrl: session.instanceUrl,
+    accessToken: session.accessToken,
+    version: session.version,
+  });
+}
+
+/**
  * Create a jsforce Connection for a given org.
  *
  * 1. Reads credentials from OrgRegistry (SecretVault)

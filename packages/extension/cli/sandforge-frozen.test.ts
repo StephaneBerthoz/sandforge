@@ -661,6 +661,41 @@ describe('messageLines', () => {
     ]);
   });
 
+  it('names, for a removal stopped part way, the object it never reached and how many records it left', () => {
+    // Live: stopped once its contacts were gone, it printed the contacts and
+    // nothing of the account it left in the org.
+    const counts = { alreadyGone: 0, keptChanged: 0, keptDependents: 0, refused: 0 };
+    const lists = { heldBy: [], unchecked: [], reasons: [] };
+    const lines = messageLines({
+      type: 'frozen:remove:response',
+      payload: {
+        operationId: 'frozen-remove-4',
+        result: {
+          status: 'cancelled',
+          includeChanged: false,
+          finishedAt: '2026-10-23T13:16:27.275Z',
+          objects: [
+            { objectApiName: 'Contact', planned: 12, deleted: 12, ...counts, ...lists },
+            {
+              objectApiName: 'Account',
+              planned: 1,
+              deleted: 0,
+              notReached: 1,
+              ...counts,
+              ...lists,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(lines).toEqual([
+      'removal: CANCELLED',
+      '  Contact: 12 deleted of 12',
+      '  Account: 1 not reached of 1',
+    ]);
+  });
+
   it('says a removal took up what an earlier one left', () => {
     const lines = messageLines({
       type: 'frozen:remove:response',

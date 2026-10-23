@@ -559,7 +559,10 @@ describe('frozen:remove', () => {
       expect(cancelled).toMatchObject({
         status: 'cancelled',
         leftBy: first?.finishedAt,
-        objects: [{ objectApiName: 'Contact', planned: 1, deleted: 1 }],
+        objects: [
+          { objectApiName: 'Contact', planned: 1, deleted: 1 },
+          { objectApiName: 'Account', planned: 1, deleted: 0, notReached: 1 },
+        ],
       });
       expect((await status()).loadRecords?.find((load) => load.orgId === TARGET_ORG)).toMatchObject(
         {
@@ -698,7 +701,10 @@ describe('frozen:remove', () => {
     expect(org.deletes.map((d) => d.object)).toEqual(['Contact']);
     expect(answer()).toMatchObject({
       status: 'cancelled',
-      objects: [{ objectApiName: 'Contact', deleted: 2 }],
+      objects: [
+        { objectApiName: 'Contact', deleted: 2 },
+        { objectApiName: 'Account', deleted: 0, notReached: 1 },
+      ],
     });
     expect(tracker.getAll()).toEqual([
       expect.objectContaining({ module: 'frozen', status: 'cancelled', totalRecords: 3 }),
@@ -707,7 +713,10 @@ describe('frozen:remove', () => {
     // the trail read it as a removal the org had refused part of.
     expect(trail()[0]).toMatchObject({
       outcome: 'cancelled',
-      objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 2, failed: 0 })],
+      objects: [
+        expect.objectContaining({ objectApiName: 'Contact', deleted: 2, failed: 0 }),
+        expect.objectContaining({ objectApiName: 'Account', deleted: 0, notSent: 1 }),
+      ],
     });
     // Marked with what it deleted and what it did not reach: the account is
     // still there, and still the load's to remove.
@@ -789,7 +798,10 @@ describe('frozen:remove', () => {
       ).toBe('req-frozen:remove');
       expect(answer()).toMatchObject({
         status: 'cancelled',
-        objects: [{ objectApiName: 'Contact', planned: 2, deleted: 2 }],
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 2 },
+          { objectApiName: 'Account', planned: 1, deleted: 0, notReached: 1 },
+        ],
       });
     });
 
@@ -813,11 +825,21 @@ describe('frozen:remove', () => {
       ).toEqual([
         expect.objectContaining({ operationId: 'req-frozen:remove', result: { aborted: true } }),
       ]);
+      // The account it never reached is named: in the answer the card shows
+      // and in the trail. Only the load record and the next removal's plan
+      // named it.
+      expect(answer()?.objects).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', deleted: 2 }),
+        expect.objectContaining({ objectApiName: 'Account', deleted: 0, notReached: 1 }),
+      ]);
       expect(trail()).toEqual([
         expect.objectContaining({
           operationId: 'req-frozen:remove',
           outcome: 'cancelled',
-          objects: [expect.objectContaining({ objectApiName: 'Contact', deleted: 2 })],
+          objects: [
+            expect.objectContaining({ objectApiName: 'Contact', deleted: 2 }),
+            expect.objectContaining({ objectApiName: 'Account', deleted: 0, notSent: 1 }),
+          ],
         }),
       ]);
       // The page is told what went and what the cancel kept the removal from.

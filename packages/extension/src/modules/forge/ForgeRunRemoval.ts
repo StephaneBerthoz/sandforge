@@ -589,6 +589,55 @@ export function undeletableReason(objectApiName: string, records: number): strin
   );
 }
 
+/**
+ * What an object's result says of its records found neither in the org nor
+ * in its recycle bin.
+ *
+ * @param binError - Why the recycle bin could not be read, when it could not.
+ */
+function notVisibleNoteOf(count: number, binError: string | undefined): string {
+  return (
+    `Not visible: ${count} record(s) found neither in the org nor in its ` +
+    "recycle bin, as the user the removal runs as sees them — out of that user's sight, " +
+    'or deleted for good — are not counted as removed' +
+    (binError ? ` (the recycle bin could not be read: ${binError})` : '.')
+  );
+}
+
+/**
+ * `objects`, the results of a removal that was stopped, with what the stop
+ * kept it from reaching: on each object it reached, the records it had not
+ * settled — deleted, found gone, kept or refused — and, after them, each
+ * object of `plan` it never reached, with every record of it. Stopped part
+ * way, a removal named only the objects it had reached: its output and its
+ * audit entry listed the contacts it deleted, not the account it never got
+ * to, which only the next removal's plan named.
+ *
+ * @param plan - The objects the removal set out to take, in its order.
+ */
+function withNotReached(
+  objects: ForgeUndoObjectResult[],
+  plan: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+): ForgeUndoObjectResult[] {
+  for (const object of objects) {
+    const settled =
+      object.deleted +
+      object.alreadyGone +
+      object.keptChanged +
+      object.keptDependents +
+      object.refused +
+      (object.notVisible ?? 0);
+    if (object.planned > settled) object.notReached = object.planned - settled;
+  }
+  const named = new Set(objects.map((object) => object.objectApiName));
+  for (const { objectApiName, count } of plan) {
+    if (count === 0 || named.has(objectApiName)) continue;
+    named.add(objectApiName);
+    objects.push({ ...new ObjectRemoval(objectApiName, count).result, notReached: count });
+  }
+  return objects;
+}
+
 /** What a removal did, object by object. */
 export interface RunRemovalOutcome {
   /**
@@ -602,8 +651,11 @@ export interface RunRemovalOutcome {
    */
   stoppedForUndeletable?: true;
   /**
-   * Per object, in the order they were removed. An object not reached is left
-   * out, unless the removal could not give a status back to one of its records.
+   * Per object, in the order they were removed. A removal stopped before it
+   * was through names every object of the plan, the ones it never reached
+   * after the others, each with the records it did not reach
+   * (`ForgeUndoObjectResult.notReached`); one stopped for
+   * {@link stoppedForUndeletable} names none.
    */
   objects: ForgeUndoObjectResult[];
   /** Whether the removal was stopped before it was through. */
@@ -968,7 +1020,7 @@ export async function removeRunRecords(
   const stopped = (): boolean => options.signal?.aborted === true;
   /** Every record handed over, left where it is: a removal stopped before it wrote. */
   const untouched = (): RunRemovalOutcome => ({
-    objects: [],
+    objects: withNotReached([], records.objects),
     cancelled: true,
     gone: [],
     stamps: {},
@@ -1041,12 +1093,16 @@ export async function removeRunRecords(
   // Whether the user may delete each object's records, from the describes the
   // order read, before anything is written: a profile without Delete on
   // Account had the run's contacts deleted, then every account refused.
-  const undeletable = await undeletableOf(session, order);
+  const undeletable = await undeletableOf(
+    session,
+    order,
+    (objectApiName, count) => count - (snapshots.get(objectApiName)?.missing.size ?? 0),
+  );
   const undeletableNames = new Set(undeletable.map((object) => object.objectApiName));
   if (undeletable.length > 0 && options.onUndeletable) {
     if (stopped()) return untouched();
     if (!(await options.onUndeletable(undeletable))) {
-      return { ...untouched(), undeletable, stoppedForUndeletable: true };
+      return { ...untouched(), objects: [], undeletable, stoppedForUndeletable: true };
     }
   }
   // Read before the removal's first write: what the org creates from then on,
@@ -1200,9 +1256,10 @@ export async function removeRunRecords(
         for (const id of ids) gone.push(id);
       }
     }
+    const settled = removals.map((removal) => removal.settle());
     return {
       ...(undeletable.length > 0 ? { undeletable } : {}),
-      objects: removals.map((removal) => removal.settle()),
+      objects: cancelled ? withNotReached(settled, order) : settled,
       cancelled,
       gone,
       left: () => recordsWhere(records.objects, (_object, _id, taken) => !taken),
@@ -1249,9 +1306,30 @@ export async function removeRunRecords(
       continue;
     }
     // Refused unsent, as the object's records the org would refuse each: and
-    // they stay, so what they hang from stays with them.
+    // they stay, so what they hang from stays with them. A record already in
+    // the recycle bin is gone, and one found nowhere is not visible, as at
+    // any other object's turn: counted refused with the rest, a record
+    // deleted since the run was said to be left in the org.
     if (undeletableNames.has(objectApiName)) {
-      removal.unread = { reason: undeletableReason(objectApiName, count), count };
+      let at = 0;
+      let staying = 0;
+      for await (const page of records.pages(objectApiName)) {
+        for (const id of page) {
+          const key = recordKey(id);
+          const place = at++;
+          if (!snapshot.missing.has(key)) staying++;
+          else if (snapshot.binned.has(key)) {
+            removal.result.alreadyGone++;
+            removal.goneAt.add(place);
+          } else removal.notVisible++;
+        }
+      }
+      if (removal.notVisible > 0) {
+        removal.notVisibleNote = notVisibleNoteOf(removal.notVisible, snapshot.binError);
+      }
+      if (staying > 0) {
+        removal.unread = { reason: undeletableReason(objectApiName, staying), count: staying };
+      }
       settled += count;
       options.onProgress?.(settled, total, objectApiName);
       continue;
@@ -1310,11 +1388,7 @@ export async function removeRunRecords(
         }
       }
       if (removal.notVisible > 0) {
-        removal.notVisibleNote =
-          `Not visible: ${removal.notVisible} record(s) found neither in the org nor in its ` +
-          "recycle bin, as the user the removal runs as sees them — out of that user's sight, " +
-          'or deleted for good — are not counted as removed' +
-          (snapshot.binError ? ` (the recycle bin could not be read: ${snapshot.binError})` : '.');
+        removal.notVisibleNote = notVisibleNoteOf(removal.notVisible, snapshot.binError);
       }
       settled += page.length - (candidates.length - gatheredBefore);
       if (gathers && candidates.length < BULK_DELETE_JOB_RECORDS) continue;
@@ -1566,21 +1640,29 @@ export function setBackToDraftOf(objects: readonly string[]): string[] {
  */
 /**
  * The objects of the plan whose records the user the removal runs as may not
- * delete, as their describes say (`deletable: false`), with their records. A
- * file's version is deleted through its document, whatever its own describe
- * says; and a describe that does not say is not taken for a refusal.
+ * delete, as their describes say (`deletable: false`), with their records
+ * still in the org. A file's version is deleted through its document,
+ * whatever its own describe says; and a describe that does not say is not
+ * taken for a refusal.
+ *
+ * @param found - How many of an object's records the removal found in the
+ *   org: one deleted since the run does not stay on the user's account, and
+ *   an object none of whose records is left is not one to ask about.
  */
 async function undeletableOf(
   org: RemovalOrg,
   order: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+  found: (objectApiName: string, count: number) => number,
 ): Promise<UndeletableObject[]> {
   const undeletable: UndeletableObject[] = [];
   for (const { objectApiName, count } of order) {
     if (objectApiName === FILE_VERSION || count === 0) continue;
+    const records = found(objectApiName, count);
+    if (records === 0) continue;
     try {
       const described = describedObjectSchema.safeParse(await org.describe(objectApiName));
       if (described.success && described.data.deletable === false) {
-        undeletable.push({ objectApiName, records: count });
+        undeletable.push({ objectApiName, records });
       }
     } catch {
       // Not described: its deletes answer for it, as they did.

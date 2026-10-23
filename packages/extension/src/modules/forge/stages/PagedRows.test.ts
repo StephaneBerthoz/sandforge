@@ -137,6 +137,105 @@ describe('reads of a statement too wide for one query', () => {
     }
   });
 
+  /**
+   * A source of three wide accounts at their `SystemModstamp`, which answers
+   * the fields a statement names, by id when it names ids; `before` runs
+   * ahead of each statement, where a test saves or deletes a record.
+   */
+  function stampedSource() {
+    const first = '2026-10-22T10:00:00.000+0000';
+    const stamped = ['Id', 'SystemModstamp', ...fields.slice(1)];
+    const held = new Map<string, SourceRow>(
+      [1, 2, 3].map((n) => [
+        idOf(n),
+        {
+          ...Object.fromEntries(stamped.map((field) => [field, 'v1'])),
+          Id: idOf(n),
+          SystemModstamp: first,
+        },
+      ]),
+    );
+    const sent: string[] = [];
+    const hooks = { before: (_statement: string): void => undefined };
+    const answer = (soql: string): SourceRow[] => {
+      hooks.before(soql);
+      sent.push(soql);
+      const named = /^SELECT (.+?) FROM /.exec(soql)?.[1].split(', ') ?? [];
+      const ids = new Set([...soql.matchAll(/'(001\d{12}AAA)'/g)].map((m) => m[1]));
+      return [...held.values()]
+        .filter((row) => ids.size === 0 || ids.has(String(row.Id)))
+        .map((row) => Object.fromEntries(named.map((field) => [field, row[field]])));
+    };
+    /** Between the first group and the others: one record saved, another deleted. */
+    const saveAndDeleteBetweenGroups = (): void => {
+      let done = false;
+      hooks.before = (statement) => {
+        if (done || !statement.includes('Id IN (')) return;
+        done = true;
+        const saved = held.get(idOf(2));
+        if (saved) {
+          for (const field of Object.keys(saved)) if (field.endsWith('__c')) saved[field] = 'v2';
+          saved.SystemModstamp = '2026-10-22T10:00:07.000+0000';
+        }
+        held.delete(idOf(3));
+      };
+    };
+    const soql = `SELECT ${stamped.join(', ')} FROM Account`;
+    return { answer, sent, saveAndDeleteBetweenGroups, soql };
+  }
+
+  /** The values a row holds in its custom fields, each once. */
+  const customValues = (row: SourceRow | undefined): unknown[] => [
+    ...new Set(
+      Object.entries(row ?? {})
+        .filter(([field]) => field.endsWith('__c'))
+        .map(([, value]) => value),
+    ),
+  ];
+
+  it('holds each row as one write left it: a record saved between two groups is read again, one deleted is left out', async () => {
+    const source = stampedSource();
+    source.saveAndDeleteBetweenGroups();
+    const deps = readingInColumnGroups<PagedReadDeps>({
+      queryRecords: async (_org, soql) => source.answer(soql),
+    });
+
+    const rows = await deps.queryRecords('src', source.soql);
+
+    expect(rows.map((row) => row.Id)).toEqual([idOf(1), idOf(2)]);
+    expect(customValues(rows[1])).toEqual(['v2']);
+    expect(customValues(rows[0])).toEqual(['v1']);
+    const byId = source.sent.filter((soql) => soql.includes('Id IN ('));
+    expect(byId.length).toBeGreaterThan(1);
+    for (const soql of byId) expect(soql).toMatch(/^SELECT Id, SystemModstamp, /);
+  });
+
+  it("holds each row of a cursor's pages as one write left it", async () => {
+    const source = stampedSource();
+    source.saveAndDeleteBetweenGroups();
+    const deps = readingInColumnGroups<PagedReadDeps>({
+      queryRecords: async (_org, soql) => source.answer(soql),
+      queryPages: (_org, soql) => from([source.answer(soql)]),
+    });
+
+    const pages = await all(pagesOfStatement(deps, 'src', source.soql));
+
+    expect(pages.flat().map((row) => row.Id)).toEqual([idOf(1), idOf(2)]);
+    expect(customValues(pages.flat()[1])).toEqual(['v2']);
+  });
+
+  it('merges the groups as they were read when the statement names no stamp, and adds none to it', async () => {
+    const source = org();
+    const deps = readingInColumnGroups<PagedReadDeps>({
+      queryRecords: async (_org, soql) => source.answer(soql),
+    });
+
+    const rows = await deps.queryRecords('src', wide);
+
+    expect(rows).toHaveLength(40);
+    for (const soql of source.sent) expect(soql).not.toContain('SystemModstamp');
+  });
+
   it('hands a statement that fits to the deps as it was given, and the deps swapped since are the ones called', async () => {
     const first = vi.fn(async () => rows(1));
     const given: PagedReadDeps = { queryRecords: first };

@@ -47,6 +47,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryAll, queryAllBounded } from '../../core/common/soqlQueryHelper.js';
 import type { BoundedRecords } from '../../core/common/soqlQueryHelper.js';
 import {
+  oneStampOf,
   readOtherColumns,
   readOtherColumnsAtOneStamp,
   wideStatement,
@@ -2020,10 +2021,13 @@ export class DataOpsHandler implements DomainHandler {
    * the rows it read. Reaching the cap, it stops with the rows past it unread
    * and records why.
    *
-   * A checkpoint's snapshot reads its Tasks and Events through the recycle
-   * bin, kept to the live rows, and holds each row of a wide object to one
-   * write (`readOtherColumnsAtOneStamp`). Holding every row or none, it
-   * fails where it would hold fewer, rather than stop.
+   * Every snapshot holds each row of a wide object to one write
+   * (`readOtherColumnsAtOneStamp`), by the record's `SystemModstamp` when it
+   * reads that field: every field of an object that has one, or the fields
+   * of a checkpoint, which always keeps it. A checkpoint's snapshot reads its
+   * Tasks and Events through the recycle bin, kept to the live rows, and,
+   * holding every row or none, fails where it would hold fewer, rather than
+   * stop.
    *
    * @param read - The object as read so far, updated page by page, so that a
    *   read that fails part-way still says how many rows it wrote.
@@ -2031,8 +2035,8 @@ export class DataOpsHandler implements DomainHandler {
    *   and, for a masking run's snapshot, the fields read — every field
    *   otherwise — and the rows its filter holds it to; for a checkpoint's,
    *   whether it reads through the recycle bin (`scanAll`), the stamp every
-   *   group of a wide read carries, and whether it holds every row or none
-   *   (`whole`).
+   *   group of a wide read carries whatever the fields, and whether it holds
+   *   every row or none (`whole`).
    * @param onPage - Called between two pages, once more are to come.
    * @throws {BackupCancelledError} At a cancel, between two pages.
    * @throws {BackupNotWholeError} For a read that holds every row or none,
@@ -2079,7 +2083,13 @@ export class DataOpsHandler implements DomainHandler {
     // its URL made too long for the org (414 or 431): the backup failed before its
     // first row. Its fields are read in column groups, the first page by
     // page, each page given the others by its ids before it is written.
-    const wide = wideStatement(soql, limits.stamp === undefined ? undefined : ['Id', limits.stamp]);
+    // Every group carries the record's stamp when the statement names it, as
+    // a read of every field of an object that has one does: merged as they
+    // were read, a record saved between two groups was kept with the values
+    // of two saves, which a restore wrote back as one, and a record deleted
+    // between them was kept with the first group's columns alone.
+    const stamp = limits.stamp ?? oneStampOf(soql)?.stamp;
+    const wide = wideStatement(soql, stamp === undefined ? undefined : ['Id', stamp]);
     const byIds =
       scanAll || limits.whole === true
         ? (statement: string) => everyRow(conn, statement, scanAll, safeObj)
@@ -2101,9 +2111,9 @@ export class DataOpsHandler implements DomainHandler {
       const cut = page.records.length > room;
       const taken = cut ? page.records.slice(0, room) : page.records;
       let rows = taken;
-      if (wide && limits.stamp !== undefined) {
+      if (wide && stamp !== undefined) {
         rows = await readOtherColumnsAtOneStamp(taken, wide, byIds, {
-          stamp: limits.stamp,
+          stamp,
           ...(scanAll ? { idsWhere: LIVE_ROWS } : {}),
         });
       } else if (wide) {

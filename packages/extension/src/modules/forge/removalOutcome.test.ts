@@ -77,6 +77,18 @@ describe('removalAuditObjects', () => {
       ]),
     ).toEqual([{ objectApiName: 'Contact', created: 0, updated: 0, deleted: 2, failed: 1 }]);
   });
+
+  it('counts the records a stopped removal never reached as not sent, an object it never got to too', () => {
+    expect(
+      removalAuditObjects([
+        object({ objectApiName: 'Contact', planned: 5, deleted: 3, notReached: 2 }),
+        object({ objectApiName: 'Account', planned: 1, notReached: 1 }),
+      ]),
+    ).toEqual([
+      { objectApiName: 'Contact', created: 0, updated: 0, deleted: 3, failed: 0, notSent: 2 },
+      { objectApiName: 'Account', created: 0, updated: 0, deleted: 0, failed: 0, notSent: 1 },
+    ]);
+  });
 });
 
 describe('removalMark', () => {

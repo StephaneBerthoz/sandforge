@@ -4,7 +4,9 @@ import {
   MAX_STATEMENT_URI_CHARS,
   columnGroups,
   firstColumns,
+  ROW_STAMP,
   idsPerStatement,
+  oneStampOf,
   pagesColumnsApart,
   readColumnsApart,
   readOtherColumns,
@@ -143,6 +145,24 @@ describe('wideStatement', () => {
     for (const group of [wide?.firstGroup ?? [], ...(wide?.others ?? [])]) {
       expect(group.slice(0, 2)).toEqual(['Id', 'SystemModstamp']);
     }
+  });
+});
+
+describe('oneStampOf', () => {
+  it("holds a read to the record's stamp when its statement names it, whatever its case", () => {
+    expect(oneStampOf('SELECT Id, Name, SystemModstamp FROM Account')).toEqual({
+      stamp: ROW_STAMP,
+    });
+    expect(oneStampOf("SELECT Id, systemmodstamp FROM Contact WHERE Name = 'x'")).toEqual({
+      stamp: ROW_STAMP,
+    });
+  });
+
+  it('holds a read to nothing when its statement names no stamp, or is not a list of field names', () => {
+    expect(oneStampOf('SELECT Id, Name, LastModifiedDate FROM AccountHistory')).toBeUndefined();
+    expect(oneStampOf('SELECT Owner.SystemModstamp FROM Account')).toBeUndefined();
+    expect(oneStampOf('SELECT FIELDS(ALL) FROM Account LIMIT 200')).toBeUndefined();
+    expect(oneStampOf('SELECT COUNT() FROM Account')).toBeUndefined();
   });
 });
 
@@ -544,5 +564,38 @@ describe('pagesColumnsApart', () => {
     for (const statement of org.sent) {
       expect(uriLength(statement)).toBeLessThanOrEqual(MAX_STATEMENT_URI_CHARS);
     }
+  });
+
+  it('holds each row of a page to one write when told the stamp: a row saved between its groups is read again, one deleted is left out of its page', async () => {
+    const fields = ['Id', 'SystemModstamp', ...wideFields(900).slice(1)];
+    const org = stampedOrg(
+      Array.from({ length: 4 }, (_, n) => ({
+        ...Object.fromEntries(fields.map((field) => [field, 'v1'])),
+        Id: idOf(n + 1),
+        SystemModstamp: '2026-10-22T10:00:00.000+0000',
+      })),
+    );
+    let planted = false;
+    org.hooks.before = (statement) => {
+      if (planted || !statement.includes('Id IN (')) return;
+      planted = true;
+      org.write(idOf(2), 'v2', '2026-10-22T10:00:07.000+0000');
+      org.remove(idOf(3), '2026-10-22T10:00:07.000+0000');
+    };
+    const soql = `SELECT ${fields.join(', ')} FROM Account`;
+    const pages = async function* (statement: string) {
+      const rows = await org.read(statement);
+      yield rows.slice(0, 2);
+      yield rows.slice(2);
+    };
+
+    const seen: Array<Array<Record<string, unknown>>> = [];
+    for await (const page of pagesColumnsApart(soql, pages, org.read, { stamp: ROW_STAMP })) {
+      seen.push(page);
+    }
+
+    expect(seen.map((page) => page.map((row) => row.Id))).toEqual([[idOf(1), idOf(2)], [idOf(4)]]);
+    expect(seen[0][1]['Customer_Field_0899__c']).toBe('v2');
+    expect(seen[0][1]['Customer_Field_0000__c']).toBe('v2');
   });
 });

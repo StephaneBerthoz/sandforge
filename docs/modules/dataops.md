@@ -36,6 +36,11 @@ Take a snapshot of the objects an Anonymize writes over:
   org holds it. Kept, the mask was written back over the real value
 - Each page is written to disk before the next is read, one record to a
   line, so a backup holds one page in memory whatever the object's size
+- An object of hundreds of fields, too many for one query, is read in
+  groups of columns merged by `Id`, each group naming the record's
+  `SystemModstamp` when the object has one: a record saved between two
+  groups is read again, and one deleted between them is left out, so no
+  record is kept with the values of two saves
 - Every backup is written to extension storage with per-object record counts,
   the records each object held when it was read, and the org id the org
   answered with, and listed newest-first in the Backup tab

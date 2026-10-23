@@ -526,3 +526,73 @@ describe('DataOpsHandler — the snapshot a checkpoint holds', () => {
     expect(h.config.get('backup:ck-older')).toBeDefined();
   });
 });
+
+/*
+ * A DataOps backup, the panel's or a pipeline's, of an object too wide for
+ * one query: read in column groups as a checkpoint's snapshot is, and held
+ * to one write by the record's stamp when the object has one. Merged as the
+ * groups were read, a record saved between two of them was kept with the
+ * values of two saves, which a restore wrote back as one, and a record
+ * deleted between them was kept with the first group's columns alone.
+ */
+describe('DataOpsHandler — a backup of a wide object', () => {
+  /** The fields of `names` as the org's describe lists them. */
+  const described = (names: readonly string[]) =>
+    names.map((name) => ({ name, type: name === 'Id' ? 'id' : 'string' }));
+
+  it('holds each row as one write left it: a record saved between two groups is read again, one deleted is left out', async () => {
+    const h = await harness();
+    let clock = READ_AT;
+    const org = new MemoryRemovalOrg({}, { now: () => clock });
+    org.changeSchema('Account', described(WIDE_FIELDS));
+    for (const n of [1, 2, 3]) org.add('Account', wideRow(accountId(n), 'v1'));
+    let planted = false;
+    const { sent } = connectTo(org, (soql) => {
+      if (planted || !soql.includes('Id IN (')) return;
+      planted = true;
+      clock += 3_000;
+      org.edit('Account', accountId(2), wideRow(accountId(2), 'v2'));
+      org.trash('Account', accountId(3));
+    });
+
+    const taken = await h.handler.backupForPipeline({
+      operationId: 'dataops-wide-1',
+      orgId: 'org-1',
+      objects: ['Account'],
+    });
+
+    const rows = rowsIn(h.folder, 'dataops-wide-1', 'Account');
+    expect(rows.map((row) => row.Id)).toEqual([accountId(1), accountId(2)]);
+    expect(customValues(rows[1])).toEqual(['v2']);
+    expect(rows[1].SystemModstamp).toBe(orgStamp(clock));
+    expect(customValues(rows[0])).toEqual(['v1']);
+    expect(Object.keys(rows[0]).sort()).toEqual([...WIDE_FIELDS].sort());
+    expect(taken.objects[0]).toMatchObject({ recordCount: 2, truncated: false });
+    const groups = sent.filter((s) => s.soql.includes('Id IN ('));
+    expect(groups.length).toBeGreaterThan(1);
+    for (const { soql } of groups) expect(soql).toMatch(/^SELECT Id, SystemModstamp, /);
+  });
+
+  it('merges the groups as they were read for an object without a stamp, never naming one it does not have', async () => {
+    const h = await harness();
+    const fields = WIDE_FIELDS.filter((field) => field !== 'SystemModstamp');
+    const org = new MemoryRemovalOrg({}, { now: () => READ_AT });
+    org.changeSchema('Account', described(fields));
+    org.missingFields.set('Account', new Set(['SystemModstamp']));
+    for (const n of [1, 2]) org.add('Account', wideRow(accountId(n), 'v1'));
+    const { sent } = connectTo(org);
+
+    const taken = await h.handler.backupForPipeline({
+      operationId: 'dataops-wide-2',
+      orgId: 'org-1',
+      objects: ['Account'],
+    });
+
+    const rows = rowsIn(h.folder, 'dataops-wide-2', 'Account');
+    expect(rows.map((row) => row.Id)).toEqual([accountId(1), accountId(2)]);
+    expect(Object.keys(rows[0]).sort()).toEqual([...fields].sort());
+    expect(taken.partial).toBe(false);
+    expect(sent.filter((s) => s.soql.includes('Id IN (')).length).toBeGreaterThan(0);
+    for (const { soql } of sent) expect(soql).not.toContain('SystemModstamp');
+  });
+});

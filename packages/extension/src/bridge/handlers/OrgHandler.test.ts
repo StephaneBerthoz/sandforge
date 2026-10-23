@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage, SalesforceOrg, UUID } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { DEVELOPMENT_ORG_COLOR, OrgSafetyTier, PRODUCTION_ORG_COLOR } from '@sandforge/shared';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper';
 import { OrgManager } from '../../core/connection/OrgManager';
 import { OrgRegistry } from '../../core/connection/OrgRegistry';
@@ -1010,5 +1010,170 @@ describe('OrgHandler', () => {
       expect(response.type).toBe('org:error');
       expect(response.payload.code).toBe('INVALID_PAYLOAD');
     });
+  });
+});
+
+/*
+ * An org the CLI lists without an edition: `@salesforce/core` writes the
+ * edition into an auth file only once it has read the org's own record, and
+ * an older file holds none. The CLI's listing then typed the org as a
+ * production org, and so it stayed — a Developer Edition org asked about
+ * before every write and refused every cleanup — until it was reconnected.
+ */
+describe('OrgHandler — an import of an org the CLI gives no edition for', () => {
+  const ORG_ID = '00D000000000007AAA';
+  const INSTANCE = 'https://acme-dev-ed.develop.my.salesforce.com';
+
+  /** The org as the bridge maps a listing entry with no `orgEdition`: production, red. */
+  function listedWithoutEdition(): { org: SalesforceOrg; credentials: Record<string, string> } {
+    return {
+      org: {
+        id: ORG_ID,
+        alias: 'dev-ed',
+        username: 'admin@dev-ed.example',
+        instanceUrl: INSTANCE,
+        orgId: ORG_ID,
+        orgType: 'Production',
+        authMethod: 'sfdx_import',
+        safetyTier: OrgSafetyTier.CRITICAL,
+        appearance: { color: PRODUCTION_ORG_COLOR, icon: 'cloud', position: 0 },
+        metadata: { apiVersion: '62.0', edition: '', features: [] },
+        status: 'connected',
+        lastConnected: '2026-10-23T09:00:00.000Z',
+        tags: [],
+      },
+      credentials: {
+        loginUrl: INSTANCE,
+        accessToken: `${ORG_ID}!session`,
+        instanceUrl: INSTANCE,
+        username: 'admin@dev-ed.example',
+      },
+    };
+  }
+
+  /** An org that answers what it is as `Organization` holds it. */
+  function answering(row: { IsSandbox: boolean; OrganizationType?: string }) {
+    const query = vi.fn(async (soql: string) => ({
+      records: soql.startsWith('SELECT Id, IsSandbox')
+        ? [{ Id: ORG_ID, IsSandbox: row.IsSandbox }]
+        : [{ OrganizationType: row.OrganizationType }],
+    }));
+    return { connectTo: vi.fn(async () => ({ query }) as never), query };
+  }
+
+  /** A real registry over one store, the import run through `connectTo`. */
+  async function importWith(
+    connectTo: ReturnType<typeof answering>['connectTo'],
+    stored?: SalesforceOrg,
+  ): Promise<{ orgManager: OrgManager; configStore: ConfigStore }> {
+    const deps = createMockDeps();
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    configStore.initialize();
+    const secretVault = {
+      storeObject: vi.fn().mockResolvedValue(undefined),
+    } as unknown as HandlerDeps['secretVault'];
+    const orgManager = new OrgManager();
+    const orgRegistry = new OrgRegistry(configStore, secretVault, orgManager);
+    if (stored) {
+      configStore.set(`org.${stored.id}`, stored, 'orgs');
+      orgRegistry.loadAll();
+    }
+    Object.assign(deps, { configStore, secretVault, orgManager, orgRegistry });
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockResolvedValue(true),
+      listOrgs: vi.fn().mockResolvedValue([listedWithoutEdition()]),
+    } as unknown as HandlerDeps['sfdxBridge'];
+    const handler = new OrgHandler(deps, { connectTo });
+    await handler.handle(createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
+    return { orgManager, configStore };
+  }
+
+  it('saves a Developer Edition org as the development org it says it is, its edition kept', async () => {
+    const org = answering({ IsSandbox: false, OrganizationType: 'Developer Edition' });
+
+    const { orgManager, configStore } = await importWith(org.connectTo);
+
+    expect(org.connectTo).toHaveBeenCalledWith({
+      instanceUrl: INSTANCE,
+      accessToken: `${ORG_ID}!session`,
+      version: '62.0',
+    });
+    expect(orgManager.getOrg(ORG_ID)).toMatchObject({
+      orgType: 'Developer',
+      safetyTier: OrgSafetyTier.LOW,
+      appearance: expect.objectContaining({ color: DEVELOPMENT_ORG_COLOR }),
+      metadata: expect.objectContaining({ edition: 'Developer Edition' }),
+    });
+    expect(configStore.get<SalesforceOrg>(`org.${ORG_ID}`)?.orgType).toBe('Developer');
+  });
+
+  it('keeps a production org one, its edition kept for the registry', async () => {
+    const org = answering({ IsSandbox: false, OrganizationType: 'Enterprise Edition' });
+
+    const { orgManager } = await importWith(org.connectTo);
+
+    expect(orgManager.getOrg(ORG_ID)).toMatchObject({
+      orgType: 'Production',
+      safetyTier: OrgSafetyTier.CRITICAL,
+      appearance: expect.objectContaining({ color: PRODUCTION_ORG_COLOR }),
+      metadata: expect.objectContaining({ edition: 'Enterprise Edition' }),
+    });
+  });
+
+  it('saves a sandbox the CLI did not flag as the sandbox it says it is', async () => {
+    const org = answering({ IsSandbox: true });
+
+    const { orgManager } = await importWith(org.connectTo);
+
+    expect(orgManager.getOrg(ORG_ID)).toMatchObject({
+      orgType: 'Sandbox',
+      safetyTier: OrgSafetyTier.MEDIUM,
+    });
+    expect(org.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the org a production org when it cannot be asked, and imports it all the same', async () => {
+    const connectTo = vi.fn(async () => {
+      throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+    });
+
+    const { orgManager } = await importWith(connectTo as never);
+
+    expect(orgManager.getOrg(ORG_ID)).toMatchObject({
+      orgType: 'Production',
+      metadata: expect.objectContaining({ edition: '' }),
+    });
+  });
+
+  it('asks nothing of an org the CLI gave an edition for', async () => {
+    const org = answering({ IsSandbox: false, OrganizationType: 'Developer Edition' });
+    const deps = createMockDeps();
+    const listed = listedWithoutEdition();
+    listed.org.metadata.edition = 'Enterprise Edition';
+    deps.sfdxBridge = {
+      isCliAvailable: vi.fn().mockResolvedValue(true),
+      listOrgs: vi.fn().mockResolvedValue([listed]),
+    } as unknown as HandlerDeps['sfdxBridge'];
+
+    await new OrgHandler(deps, { connectTo: org.connectTo }).handle(
+      createMsg('org:connect', { orgId: '', authMethod: 'sfdx_import' }),
+    );
+
+    expect(org.connectTo).not.toHaveBeenCalled();
+    expect(deps.orgRegistry.saveOrg).toHaveBeenCalledWith(listed.org, listed.credentials);
+  });
+
+  it('drops the production red an earlier import gave the org once it is retyped, and keeps a colour the user picked', async () => {
+    const earlier = listedWithoutEdition().org;
+    const org = answering({ IsSandbox: false, OrganizationType: 'Developer Edition' });
+
+    const red = await importWith(org.connectTo, earlier);
+    expect(red.orgManager.getOrg(ORG_ID)?.appearance.color).toBe(DEVELOPMENT_ORG_COLOR);
+
+    const picked = await importWith(org.connectTo, {
+      ...earlier,
+      appearance: { ...earlier.appearance, color: '#22aa66' },
+    });
+    expect(picked.orgManager.getOrg(ORG_ID)?.appearance.color).toBe('#22aa66');
   });
 });

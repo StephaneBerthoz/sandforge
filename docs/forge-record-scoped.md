@@ -851,7 +851,10 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
   can have — is read in column groups: each statement names the `Id` and a
   group of fields that fits, the first with the scope's WHERE and the others
   by the IDs it returned, merged by `Id`, so every field is read and written
-  whatever the object's width.
+  whatever the object's width. Every group names the record's
+  `SystemModstamp` when the object has one: a record saved in the source
+  between two groups is read again, and one deleted between them is left
+  out, so no row copied holds the values of two saves.
 - **Excluded objects**: discovery and orphan-parent expansion share one
   list (`excludedObjects.ts`) — system and hub objects such as `User`,
   `RecordType`, `Queue`, job and log tables (`AsyncApexJob`, `CronTrigger`,

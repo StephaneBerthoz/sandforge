@@ -421,6 +421,7 @@ function removalCounts(object: {
   keptChanged: number;
   keptDependents: number;
   refused: number;
+  notReached?: number;
   heldBy: string[];
 }): string {
   return [
@@ -432,6 +433,7 @@ function removalCounts(object: {
         (object.heldBy.length > 0 ? ` (${object.heldBy.join(', ')})` : '')
       : '',
     object.refused > 0 ? `${object.refused} refused` : '',
+    (object.notReached ?? 0) > 0 ? `${object.notReached} not reached` : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -1032,6 +1034,7 @@ export function messageLines(message: Posted): string[] {
           keptChanged: number;
           keptDependents: number;
           refused: number;
+          notReached?: number;
           heldBy: string[];
           unchecked: string[];
           reasons: string[];

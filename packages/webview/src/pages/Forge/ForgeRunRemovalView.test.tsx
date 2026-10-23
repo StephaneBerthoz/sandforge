@@ -142,6 +142,28 @@ describe('ForgeRunRemovalResult', () => {
     );
   });
 
+  it('names, for a removal stopped part way, what it never reached, an object it never got to too', () => {
+    render(
+      <ForgeRunRemovalResult
+        org="DEV-SANDBOX"
+        result={result({
+          status: 'cancelled',
+          objects: [
+            outcome({ objectApiName: 'Contact', planned: 5, deleted: 3, notReached: 2 }),
+            outcome({ objectApiName: 'Account', planned: 1, notReached: 1 }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('forge-removal-result-Contact').textContent).toBe(
+      'Contact: 3 deleted · 2 not reached before the cancel',
+    );
+    expect(screen.getByTestId('forge-removal-result-Account').textContent).toBe(
+      'Account: 1 not reached before the cancel',
+    );
+  });
+
   it('names the objects whose records hold a kept record, or says they could not be read', () => {
     render(
       <ForgeRunRemovalResult

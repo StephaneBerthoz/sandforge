@@ -1,5 +1,11 @@
 import type { SalesforceOrg, ConnectionConfig, UUID } from '@sandforge/shared';
-import { PRODUCTION_ORG_COLOR, orgRegistrationOf, registeredOrgType } from '@sandforge/shared';
+import {
+  PRODUCTION_ORG_COLOR,
+  guardTierOf,
+  isDevelopmentOrg,
+  orgRegistrationOf,
+  registeredOrgType,
+} from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore';
 import type { SecretVault } from '../storage/SecretVault';
 import type { OrgManager } from './OrgManager';
@@ -147,7 +153,10 @@ export class OrgRegistry {
    * wipe what the user set in the edit dialog. When the org is already
    * stored, those four keep their stored values; everything Salesforce owns
    * (status, instance URL, type, safety tier, metadata) is taken from the
-   * incoming org.
+   * incoming org. The production red an org stored as a production org was
+   * given goes with that type, as it does at load: retyped since, imported
+   * again or reconnected, a Developer Edition org kept it beside its new
+   * badge.
    */
   async saveOrg(org: SalesforceOrg, credentials?: ConnectionConfig): Promise<void> {
     const key = `${ORG_KEY_PREFIX}${org.id}`;
@@ -156,13 +165,19 @@ export class OrgRegistry {
     // written by older builds can be missing `appearance` or `tags`. Each
     // borrowed field falls back to the incoming org so such an entry is
     // overwritten rather than turning the save into a failure.
+    const retypedFromProduction =
+      stored !== undefined && guardTierOf(stored) === 'production' && isDevelopmentOrg(org);
+    const storedColor =
+      retypedFromProduction && stored.appearance?.color === PRODUCTION_ORG_COLOR
+        ? undefined
+        : stored?.appearance?.color;
     const merged: SalesforceOrg = stored
       ? {
           ...org,
           alias: stored.alias ?? org.alias,
           appearance: {
             ...org.appearance,
-            color: stored.appearance?.color ?? org.appearance.color,
+            color: storedColor ?? org.appearance.color,
             icon: stored.appearance?.icon ?? org.appearance.icon,
           },
           tags: stored.tags ?? org.tags,

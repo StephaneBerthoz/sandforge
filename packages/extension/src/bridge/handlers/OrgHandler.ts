@@ -20,7 +20,12 @@ import {
   orgUpdatePayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
+import {
+  getConnectionPool,
+  sessionConnection,
+  withDeadline,
+} from '../../core/connection/ConnectionHelper.js';
+import { typeTarget } from '../../core/precheck/orgKindLive.js';
 import { parseSalesforceLoginUrl } from '../../core/common/salesforceLoginHost.js';
 import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
 import { DeviceLogin } from '../../core/connection/DeviceLogin.js';
@@ -32,6 +37,7 @@ import type {
 import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 import { countCliOrgs } from '../../core/connection/sfCliOrgs.js';
 import { homedir } from 'node:os';
+import type { Connection } from 'jsforce';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set([
@@ -53,7 +59,24 @@ export interface OrgHandlerServices {
   deviceLogin?: DeviceLogin;
   /** How many orgs the CLI holds, read from its files; the user's own by default. */
   countCliOrgs?: () => Promise<number>;
+  /**
+   * A connection to an org the import is about to save, through the token
+   * the CLI gave for it: what an org the CLI could not type is asked what it
+   * is through.
+   */
+  connectTo?: (session: {
+    instanceUrl: string;
+    accessToken: string;
+    version?: string;
+  }) => Promise<Pick<Connection, 'query'>>;
 }
+
+/**
+ * Longest an import waits for an org to say what it is: jsforce sets no
+ * timeout of its own, and an org that accepts the connection and never
+ * answers would hold the whole import.
+ */
+const TYPE_ON_IMPORT_TIMEOUT_MS = 15_000;
 
 /**
  * What an import that found nothing says. It named a terminal command, on the
@@ -74,6 +97,7 @@ export class OrgHandler implements DomainHandler {
   private readonly browser: ExternalBrowserAdapter;
   private readonly deviceLogin: DeviceLogin;
   private readonly countCliOrgs: () => Promise<number>;
+  private readonly connectTo: NonNullable<OrgHandlerServices['connectTo']>;
 
   /**
    * Device sign-ins still waiting, by the id of the `org:connect` request that
@@ -92,6 +116,7 @@ export class OrgHandler implements DomainHandler {
     this.browser = services.browser ?? new ExternalBrowserAdapter();
     this.deviceLogin = services.deviceLogin ?? new DeviceLogin();
     this.countCliOrgs = services.countCliOrgs ?? (() => countCliOrgs(homedir()));
+    this.connectTo = services.connectTo ?? ((session) => sessionConnection(session));
   }
 
   /**
@@ -346,11 +371,15 @@ export class OrgHandler implements DomainHandler {
    * id stay. A username alone is not taken as proof: without the refresh on
    * record, the import is saved as it comes.
    *
+   * An org the CLI typed as production for want of an edition is asked what
+   * it is first ({@link typedImport}).
+   *
    * @returns The id each listed org was saved under, in the CLI's order.
    */
   private async saveImported(results: SfdxImportResult[]): Promise<string[]> {
+    const typed = await Promise.all(results.map((result) => this.typedImport(result)));
     const savedIds: string[] = [];
-    for (const { org, credentials } of results) {
+    for (const { org, credentials } of typed) {
       const entry = this.refreshedEntryFor(org);
       if (entry) {
         this.deps.log(
@@ -362,6 +391,58 @@ export class OrgHandler implements DomainHandler {
       savedIds.push(target.id);
     }
     return savedIds;
+  }
+
+  /**
+   * `imported`, typed by the org itself when the CLI could not type it.
+   *
+   * The CLI types an org by the edition its auth file holds, which
+   * `@salesforce/core` writes only once it has read the org's own record:
+   * an older auth file holds none, and the org came in as a production org —
+   * a Developer Edition org asked about before every write and refused every
+   * cleanup — until it was reconnected. Such an org is asked here, through
+   * the token the CLI gave, whether it is a sandbox and which edition it is
+   * (`typeTarget`), and saved as what it says, its edition kept for the
+   * registry. One that does not answer stays a production org, the safe
+   * reading; every other org is saved as the CLI typed it.
+   */
+  private async typedImport(imported: SfdxImportResult): Promise<SfdxImportResult> {
+    const { org, credentials } = imported;
+    if (org.orgType !== 'Production' || (org.metadata.edition ?? '') !== '') return imported;
+    const { accessToken, instanceUrl } = credentials;
+    if (!accessToken || !instanceUrl) return imported;
+    try {
+      const said = await withDeadline(
+        this.connectTo({ instanceUrl, accessToken, version: org.metadata.apiVersion }).then(
+          (connection) => typeTarget(connection),
+        ),
+        TYPE_ON_IMPORT_TIMEOUT_MS,
+        `the org did not answer within ${TYPE_ON_IMPORT_TIMEOUT_MS / 1000} s`,
+      );
+      const orgType = orgTypeOf({ isSandbox: said.sandbox, edition: said.edition });
+      const { safetyTier, color } = orgRegistrationOf(orgType);
+      if (orgType !== org.orgType) {
+        this.deps.log(
+          `[INFO] org:import: ${org.alias} says it is ${said.edition ?? (said.sandbox ? 'a sandbox' : 'no edition')}; typed ${orgType}`,
+        );
+      }
+      return {
+        credentials,
+        org: {
+          ...org,
+          orgType,
+          safetyTier,
+          appearance: { ...org.appearance, color },
+          metadata: { ...org.metadata, edition: said.edition ?? '' },
+        },
+      };
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] org:import: ${org.alias} gave no edition and could not be asked what it is ` +
+          `(${extractErrorMessage(err)}): typed Production until it is reconnected`,
+      );
+      return imported;
+    }
   }
 
   /** The registered entry an imported org is, after a refresh gave it a new org id. */

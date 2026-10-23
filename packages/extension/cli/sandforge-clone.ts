@@ -3448,6 +3448,7 @@ function removalCounts(object: ForgeUndoObjectResult): string {
         (object.heldBy.length > 0 ? ` (${object.heldBy.join(', ')})` : '')
       : '',
     object.refused > 0 ? `${object.refused} refused` : '',
+    (object.notReached ?? 0) > 0 ? `${object.notReached} not reached` : '',
   ]
     .filter(Boolean)
     .join(', ');

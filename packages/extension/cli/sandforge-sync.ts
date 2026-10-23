@@ -2236,6 +2236,7 @@ export function removalSummaryLines(
       o.keptChanged > 0 ? `${o.keptChanged} kept, changed since the run` : '',
       o.keptDependents > 0 ? `${o.keptDependents} kept, records that stay depend on them` : '',
       o.refused > 0 ? `${o.refused} refused` : '',
+      (o.notReached ?? 0) > 0 ? `${o.notReached} not reached` : '',
     ]
       .filter(Boolean)
       .join(', ');
