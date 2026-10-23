@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { paced } from '../../test/runnerPace.js';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -769,7 +770,7 @@ const ROWS: Row[] = [
  * A row runs once for each of the 32 combinations of the facts, a checkpoint
  * taken and diffed each time: about a second here, more under coverage.
  */
-const ROW_TIMEOUT_MS = 30_000;
+const ROW_TIMEOUT_MS = paced(30_000);
 
 describe('rewindDiff: every row of the classification, under every hypothesis of the facts the probes left open', () => {
   it.each(ROWS)(

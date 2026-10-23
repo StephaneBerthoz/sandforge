@@ -547,14 +547,17 @@ describe('takeCheckpoint — what it keeps', () => {
     expect(prints.get('Account')?.fields).toHaveProperty('Secret__c');
     const raw = JSON.parse(readFileSync(folder.checkpointFile, 'utf8')) as Record<string, unknown>;
     expect(raw).not.toHaveProperty('fingerprints');
-    for (const file of [
-      folder.checkpointFile,
-      folder.fingerprintsFile,
-      binFileOf(folder, 'Account'),
-    ]) {
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows keeps no POSIX modes: its user profile holds the files apart.
+    if (process.platform !== 'win32') {
+      for (const file of [
+        folder.checkpointFile,
+        folder.fingerprintsFile,
+        binFileOf(folder, 'Account'),
+      ]) {
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
+      expect(statSync(folder.dir).mode & 0o777).toBe(0o700);
     }
-    expect(statSync(folder.dir).mode & 0o777).toBe(0o700);
     expect(checkpointFolders(h.root)).toEqual([checkpoint.checkpointId]);
     expect(checkpoint.bytes).toBeGreaterThan(0);
 

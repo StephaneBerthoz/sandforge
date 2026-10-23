@@ -34,7 +34,9 @@ export default defineConfig({
      * all <150 ms in isolation). 15 s keeps real hangs detectable while
      * absorbing scheduling jitter.
      */
-    testTimeout: 15000,
+    // Three times as long on Windows, whose runner reads and writes files
+    // slower (src/test/runnerPace.ts).
+    testTimeout: process.platform === 'win32' ? 45000 : 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

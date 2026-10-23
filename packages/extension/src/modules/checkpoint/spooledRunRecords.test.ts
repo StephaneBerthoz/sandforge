@@ -160,9 +160,12 @@ describe('a spool of ids', () => {
 
     await writer.finish();
 
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(dir, 'Account.ids')).mode & 0o777).toBe(0o600);
-    expect(statSync(join(dir, 'spool.json')).mode & 0o777).toBe(0o600);
+    // Windows keeps no POSIX modes: its user profile holds the files apart.
+    if (process.platform !== 'win32') {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(dir, 'Account.ids')).mode & 0o777).toBe(0o600);
+      expect(statSync(join(dir, 'spool.json')).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('is read back from its folder as it was written: what a resumed rewind, or its undo, takes up', async () => {

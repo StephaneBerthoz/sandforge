@@ -536,9 +536,12 @@ describe('a rewind’s plan: confirmed ∩ fresh (m5)', () => {
     await expect(world.plan({ freshDir: fresh.dir, dir })).rejects.toThrow(/not empty/);
     const plan = await world.plan({ freshDir: fresh.dir });
 
-    expect(statSync(plan.dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(plan.dir, 'Account.createdSince.ndjson')).mode & 0o777).toBe(0o600);
-    expect(statSync(join(plan.dir, 'deletes', 'Account.ids')).mode & 0o777).toBe(0o600);
+    // Windows keeps no POSIX modes: its user profile holds the files apart.
+    if (process.platform !== 'win32') {
+      expect(statSync(plan.dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(plan.dir, 'Account.createdSince.ndjson')).mode & 0o777).toBe(0o600);
+      expect(statSync(join(plan.dir, 'deletes', 'Account.ids')).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('stops between two objects when it is told to', async () => {

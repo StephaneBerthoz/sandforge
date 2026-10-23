@@ -19,6 +19,7 @@ import { existsSync, readdirSync } from 'node:fs';
 
 import * as fc from 'fast-check';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { paced } from '../../test/runnerPace.js';
 import type { OrgCheckpoint, RewindResult } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -555,241 +556,271 @@ const RUNS = 3;
 // ─── The properties ──────────────────────────────────────────────────────────
 
 describe('a rewind on the memory org, over random histories since the checkpoint', () => {
-  it('converges, or names every record that still differs; rewound again, the org stays as the first rewind left it; and it sends no more requests than its preview estimated', async () => {
-    for (const facts of factCombinations([
-      'undeleterIsLastModifier',
-      'clearedLookupRestamps',
-      'childDeletedAloneStays',
-      'undeleteRestoresLookups',
-    ])) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(), async (history) => {
-          const t = await since(facts, history);
-          clock.now = Math.max(clock.now, SINCE + 60_000);
-          const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
-          if (!preview.previewed) throw new Error(preview.refusal.message);
-          const asked = spent(t.org);
-          const first = resultOf(
-            await rewound(t, preview.diff.previewId, { request: { acceptNoUndo: true } }),
-          );
-          const message = said(facts, history, { status: first.status, passes: first.passes });
-          // A second pass that sends again what the org refused the first is
-          // not foreseen: the estimate holds a rewind of one pass.
-          if (first.passes === 1) {
-            expect(spent(t.org) - asked, message).toBeLessThanOrEqual(preview.estimate.apiRequests);
-          }
-          expect(first.status, message).not.toBe('unstable');
-          const once = keptOf(t.org, t.checkpoint);
-          expectNamed(t, first.residual, message);
-
-          const second = resultOf(await rewindNow(t));
-          expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
-          expect(second.status === 'success', message).toBe(first.status === 'success');
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('undone, returns the org to how it was before the rewind, live and in the recycle bin, but for the records it said Undo could not bring back', async () => {
-    for (const facts of factCombinations([
-      'childDeletedAloneStays',
-      'undeleteRestoresLookups',
-      'parentsDeletedFirst',
-      'childDeletedAloneThenParentLimbo',
-    ])) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(), async (history) => {
-          await undoneAfter(facts, history, 'exactly');
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('undone, after a family made since — an account, its contact, its deal and the deal’s line — returns that family as it was before the rewind, whether the org keeps for good in the bin a record deleted alone before its parent or not, and the rest of the org, or says each record it kept and why', async () => {
-    // Made a second apart from SINCE, numbered from 501: the account, then
-    // under it the contact and the deal, then the deal's line.
-    const family: Step[] = [
-      { kind: 'create', object: 0, parent: 0 },
-      { kind: 'create', object: 1, parent: 3 },
-      { kind: 'create', object: 2, parent: 3 },
-      { kind: 'create', object: 4, parent: 2 },
-    ];
-    const made = [account(501), contact(502), opportunity(503), lineOf(504)];
-    for (const facts of factCombinations([
-      'childDeletedAloneThenParentLimbo',
-      'childDeletedAloneStays',
-    ])) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(), async (history) => {
-          await undoneAfter(facts, [...family, ...history], 'orSaysWhy', made);
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('undone, after a family made since whose account a case made since names through a lookup that restricts the account’s delete, returns the family as it was before the rewind, and the case too where the org lets it come back; where the org keeps it in the bin for good, the rewind said Undo could not bring it back, as deleted before its account (F41, live)', async () => {
-    // The family as above, then a case under its account, numbered 505.
-    const family: Step[] = [
-      { kind: 'create', object: 0, parent: 0 },
-      { kind: 'create', object: 1, parent: 3 },
-      { kind: 'create', object: 2, parent: 3 },
-      { kind: 'create', object: 4, parent: 2 },
-      { kind: 'case', parent: 3 },
-    ];
-    const made = [account(501), contact(502), opportunity(503), lineOf(504)];
-    for (const facts of factCombinations([
-      'childDeletedAloneThenParentLimbo',
-      'childDeletedAloneStays',
-    ])) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(), async (history) => {
-          const limbo = facts.childDeletedAloneThenParentLimbo;
-          const result = await undoneAfter(
-            facts,
-            [...family, ...history],
-            'orSaysWhy',
-            limbo ? made : [...made, caseOf(505)],
-            true,
-          );
-          expect({ facts: said(facts, history), cannot: result?.undo?.cannot }).toEqual({
-            facts: said(facts, history),
-            cannot: expect.arrayContaining([
-              { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
-            ]) as unknown,
-          });
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('undone, where a colleague brought back on its own a child its parent’s delete took along — an open hypothesis — returns the org, or says each record it kept and why', async () => {
-    for (const facts of factCombinations(['childDeletedAloneStays']).map((each) => ({
-      ...each,
-      cascadeChildComesBackAlone: true,
-    }))) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(), async (history) => {
-          await undoneAfter(facts, history, 'orSaysWhy');
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('stopped at any of its calls, then rewound again, ends where a whole rewind ends, on one journal, deleting no record twice, and its undo returns the org to how it was before the first pass', async () => {
-    for (const facts of factCombinations(['undeleterIsLastModifier', 'clearedLookupRestamps'])) {
-      await fc.assert(
-        fc.asyncProperty(
-          historyArb(),
-          fc.double({ min: 0, max: 1, noNaN: true }),
-          async (history, at) => {
-            // How a whole rewind of the history ends, and how many calls it sends.
-            const whole = await since(facts, history);
-            const counting = new AbortController();
-            let calls = 0;
-            const counted = new Proxy(whole.org, {
-              get(target, property) {
-                const value: unknown = Reflect.get(target, property, target);
-                if (typeof value !== 'function') return value;
-                const call = value as (...args: unknown[]) => unknown;
-                return (...args: unknown[]) => {
-                  if (typeof property === 'string' && CALLS.has(property)) calls++;
-                  return call.apply(target, args);
-                };
-              },
-            });
-            resultOf(
-              await rewindNow(whole, {
-                org: counted,
-                undelete: (ids) => counted.undelete(ids),
-                signal: counting.signal,
-              }),
+  it(
+    'converges, or names every record that still differs; rewound again, the org stays as the first rewind left it; and it sends no more requests than its preview estimated',
+    async () => {
+      for (const facts of factCombinations([
+        'undeleterIsLastModifier',
+        'clearedLookupRestamps',
+        'childDeletedAloneStays',
+        'undeleteRestoresLookups',
+      ])) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (history) => {
+            const t = await since(facts, history);
+            clock.now = Math.max(clock.now, SINCE + 60_000);
+            const preview = await previewCheckpoint({ org: t.org, store: t.store }, request(t));
+            if (!preview.previewed) throw new Error(preview.refusal.message);
+            const asked = spent(t.org);
+            const first = resultOf(
+              await rewound(t, preview.diff.previewId, { request: { acceptNoUndo: true } }),
             );
-            const ended = keptOf(whole.org, whole.checkpoint);
+            const message = said(facts, history, { status: first.status, passes: first.passes });
+            // A second pass that sends again what the org refused the first is
+            // not foreseen: the estimate holds a rewind of one pass.
+            if (first.passes === 1) {
+              expect(spent(t.org) - asked, message).toBeLessThanOrEqual(
+                preview.estimate.apiRequests,
+              );
+            }
+            expect(first.status, message).not.toBe('unstable');
+            const once = keptOf(t.org, t.checkpoint);
+            expectNamed(t, first.residual, message);
 
+            const second = resultOf(await rewindNow(t));
+            expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
+            expect(second.status === 'success', message).toBe(first.status === 'success');
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'undone, returns the org to how it was before the rewind, live and in the recycle bin, but for the records it said Undo could not bring back',
+    async () => {
+      for (const facts of factCombinations([
+        'childDeletedAloneStays',
+        'undeleteRestoresLookups',
+        'parentsDeletedFirst',
+        'childDeletedAloneThenParentLimbo',
+      ])) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (history) => {
+            await undoneAfter(facts, history, 'exactly');
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'undone, after a family made since — an account, its contact, its deal and the deal’s line — returns that family as it was before the rewind, whether the org keeps for good in the bin a record deleted alone before its parent or not, and the rest of the org, or says each record it kept and why',
+    async () => {
+      // Made a second apart from SINCE, numbered from 501: the account, then
+      // under it the contact and the deal, then the deal's line.
+      const family: Step[] = [
+        { kind: 'create', object: 0, parent: 0 },
+        { kind: 'create', object: 1, parent: 3 },
+        { kind: 'create', object: 2, parent: 3 },
+        { kind: 'create', object: 4, parent: 2 },
+      ];
+      const made = [account(501), contact(502), opportunity(503), lineOf(504)];
+      for (const facts of factCombinations([
+        'childDeletedAloneThenParentLimbo',
+        'childDeletedAloneStays',
+      ])) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (history) => {
+            await undoneAfter(facts, [...family, ...history], 'orSaysWhy', made);
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'undone, after a family made since whose account a case made since names through a lookup that restricts the account’s delete, returns the family as it was before the rewind, and the case too where the org lets it come back; where the org keeps it in the bin for good, the rewind said Undo could not bring it back, as deleted before its account (F41, live)',
+    async () => {
+      // The family as above, then a case under its account, numbered 505.
+      const family: Step[] = [
+        { kind: 'create', object: 0, parent: 0 },
+        { kind: 'create', object: 1, parent: 3 },
+        { kind: 'create', object: 2, parent: 3 },
+        { kind: 'create', object: 4, parent: 2 },
+        { kind: 'case', parent: 3 },
+      ];
+      const made = [account(501), contact(502), opportunity(503), lineOf(504)];
+      for (const facts of factCombinations([
+        'childDeletedAloneThenParentLimbo',
+        'childDeletedAloneStays',
+      ])) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (history) => {
+            const limbo = facts.childDeletedAloneThenParentLimbo;
+            const result = await undoneAfter(
+              facts,
+              [...family, ...history],
+              'orSaysWhy',
+              limbo ? made : [...made, caseOf(505)],
+              true,
+            );
+            expect({ facts: said(facts, history), cannot: result?.undo?.cannot }).toEqual({
+              facts: said(facts, history),
+              cannot: expect.arrayContaining([
+                { objectApiName: 'Case', count: 1, reason: 'deletedBeforeParent' },
+              ]) as unknown,
+            });
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'undone, where a colleague brought back on its own a child its parent’s delete took along — an open hypothesis — returns the org, or says each record it kept and why',
+    async () => {
+      for (const facts of factCombinations(['childDeletedAloneStays']).map((each) => ({
+        ...each,
+        cascadeChildComesBackAlone: true,
+      }))) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (history) => {
+            await undoneAfter(facts, history, 'orSaysWhy');
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'stopped at any of its calls, then rewound again, ends where a whole rewind ends, on one journal, deleting no record twice, and its undo returns the org to how it was before the first pass',
+    async () => {
+      for (const facts of factCombinations(['undeleterIsLastModifier', 'clearedLookupRestamps'])) {
+        await fc.assert(
+          fc.asyncProperty(
+            historyArb(),
+            fc.double({ min: 0, max: 1, noNaN: true }),
+            async (history, at) => {
+              // How a whole rewind of the history ends, and how many calls it sends.
+              const whole = await since(facts, history);
+              const counting = new AbortController();
+              let calls = 0;
+              const counted = new Proxy(whole.org, {
+                get(target, property) {
+                  const value: unknown = Reflect.get(target, property, target);
+                  if (typeof value !== 'function') return value;
+                  const call = value as (...args: unknown[]) => unknown;
+                  return (...args: unknown[]) => {
+                    if (typeof property === 'string' && CALLS.has(property)) calls++;
+                    return call.apply(target, args);
+                  };
+                },
+              });
+              resultOf(
+                await rewindNow(whole, {
+                  org: counted,
+                  undelete: (ids) => counted.undelete(ids),
+                  signal: counting.signal,
+                }),
+              );
+              const ended = keptOf(whole.org, whole.checkpoint);
+
+              const t = await since(facts, history);
+              const before = keptOf(t.org, t.checkpoint);
+              const stopAt = 1 + Math.floor(at * calls);
+              const message = said(facts, history, { stopAt, calls });
+              const controller = new AbortController();
+              const stopping = stoppedAfter(t.org, stopAt, controller);
+              try {
+                await rewindNow(t, {
+                  org: stopping,
+                  undelete: (ids) => stopping.undelete(ids),
+                  signal: controller.signal,
+                });
+              } catch (err: unknown) {
+                expect(err, message).toBeInstanceOf(RewindStopped);
+              }
+              const again = resultOf(await rewindNow(t));
+
+              expect(keptOf(t.org, t.checkpoint), message).toEqual(ended);
+              const journals = existsSync(t.folder.rewindsDir)
+                ? readdirSync(t.folder.rewindsDir)
+                : [];
+              expect(journals, message).toEqual(again.undo === undefined ? [] : [again.rewindId]);
+              const deleted = t.org.deletes.flatMap(({ ids }) => ids);
+              expect(new Set(deleted).size, message).toBe(deleted.length);
+              if (again.undo === undefined) return;
+              const undo = await undone(t, again.rewindId);
+              const cannot = new Set(again.undo.cannot.map(({ objectApiName }) => objectApiName));
+              const after = keptOf(t.org, t.checkpoint);
+              for (const objectApiName of Object.keys(before.live)) {
+                if (cannot.has(objectApiName)) continue;
+                expect({
+                  message,
+                  objectApiName,
+                  live: after.live[objectApiName],
+                  bin: after.bin[objectApiName],
+                }).toEqual({
+                  message,
+                  objectApiName,
+                  live: before.live[objectApiName],
+                  bin: before.bin[objectApiName],
+                });
+              }
+              expect({ message, residual: undo.residual }).toEqual({ message, residual: [] });
+            },
+          ),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
+
+  it(
+    'with records gone for good — emptied from the bin, or hard-deleted whether or not the bin still shows them — names them, ends rewound again where it ended, and its undo returns the org',
+    async () => {
+      for (const facts of factCombinations(['hardDeleteInQueryAll'])) {
+        await fc.assert(
+          fc.asyncProperty(historyArb(true), async (history) => {
             const t = await since(facts, history);
             const before = keptOf(t.org, t.checkpoint);
-            const stopAt = 1 + Math.floor(at * calls);
-            const message = said(facts, history, { stopAt, calls });
-            const controller = new AbortController();
-            const stopping = stoppedAfter(t.org, stopAt, controller);
-            try {
-              await rewindNow(t, {
-                org: stopping,
-                undelete: (ids) => stopping.undelete(ids),
-                signal: controller.signal,
-              });
-            } catch (err: unknown) {
-              expect(err, message).toBeInstanceOf(RewindStopped);
-            }
-            const again = resultOf(await rewindNow(t));
-
-            expect(keptOf(t.org, t.checkpoint), message).toEqual(ended);
-            const journals = existsSync(t.folder.rewindsDir)
-              ? readdirSync(t.folder.rewindsDir)
-              : [];
-            expect(journals, message).toEqual(again.undo === undefined ? [] : [again.rewindId]);
-            const deleted = t.org.deletes.flatMap(({ ids }) => ids);
-            expect(new Set(deleted).size, message).toBe(deleted.length);
-            if (again.undo === undefined) return;
-            const undo = await undone(t, again.rewindId);
-            const cannot = new Set(again.undo.cannot.map(({ objectApiName }) => objectApiName));
+            const first = resultOf(await rewindNow(t));
+            const message = said(facts, history, { status: first.status });
+            const once = keptOf(t.org, t.checkpoint);
+            expectNamed(t, first.residual, message);
+            resultOf(await rewindNow(t));
+            expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
+            if (first.undo === undefined) return;
+            await undone(t, first.rewindId);
             const after = keptOf(t.org, t.checkpoint);
+            const cannot = new Set(first.undo.cannot.map(({ objectApiName }) => objectApiName));
             for (const objectApiName of Object.keys(before.live)) {
               if (cannot.has(objectApiName)) continue;
-              expect({
-                message,
-                objectApiName,
-                live: after.live[objectApiName],
-                bin: after.bin[objectApiName],
-              }).toEqual({
+              expect({ message, objectApiName, live: after.live[objectApiName] }).toEqual({
                 message,
                 objectApiName,
                 live: before.live[objectApiName],
-                bin: before.bin[objectApiName],
               });
             }
-            expect({ message, residual: undo.residual }).toEqual({ message, residual: [] });
-          },
-        ),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
-
-  it('with records gone for good — emptied from the bin, or hard-deleted whether or not the bin still shows them — names them, ends rewound again where it ended, and its undo returns the org', async () => {
-    for (const facts of factCombinations(['hardDeleteInQueryAll'])) {
-      await fc.assert(
-        fc.asyncProperty(historyArb(true), async (history) => {
-          const t = await since(facts, history);
-          const before = keptOf(t.org, t.checkpoint);
-          const first = resultOf(await rewindNow(t));
-          const message = said(facts, history, { status: first.status });
-          const once = keptOf(t.org, t.checkpoint);
-          expectNamed(t, first.residual, message);
-          resultOf(await rewindNow(t));
-          expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
-          if (first.undo === undefined) return;
-          await undone(t, first.rewindId);
-          const after = keptOf(t.org, t.checkpoint);
-          const cannot = new Set(first.undo.cannot.map(({ objectApiName }) => objectApiName));
-          for (const objectApiName of Object.keys(before.live)) {
-            if (cannot.has(objectApiName)) continue;
-            expect({ message, objectApiName, live: after.live[objectApiName] }).toEqual({
-              message,
-              objectApiName,
-              live: before.live[objectApiName],
-            });
-          }
-        }),
-        { numRuns: RUNS, seed: SEED, endOnFailure: true },
-      );
-    }
-  }, 120_000);
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(120_000),
+  );
 });
 
 describe('what a rewind sends, at scale, against what its preview estimated', () => {
@@ -849,74 +880,86 @@ describe('what a rewind sends, at scale, against what its preview estimated', ()
 
   const many = 2_500;
 
-  it('sends exactly what it estimated for thousands of records created since, a page of 2,000 at a time asked again whether anything points through each relationship', async () => {
-    const { used, estimate } = await sent(
-      () => undefined,
-      (org) => {
+  it(
+    'sends exactly what it estimated for thousands of records created since, a page of 2,000 at a time asked again whether anything points through each relationship',
+    async () => {
+      const { used, estimate } = await sent(
+        () => undefined,
+        (org) => {
+          for (let n = 0; n < many; n++) {
+            org.add('Account', { Id: account(1_000 + n), Name: `New ${n}` });
+            org.add('Contact', {
+              Id: contact(1_000 + n),
+              LastName: `New ${n}`,
+              AccountId: account(1_000 + n),
+            });
+          }
+        },
+      );
+      expect(used).toBe(estimate);
+    },
+    paced(60_000),
+  );
+
+  it(
+    'sends no more than it estimated for thousands of records holding values in place, kept first and given back once their lines are gone: but for the call the estimate allows for some given back before',
+    async () => {
+      const { used, estimate } = await sent(
+        (org) => {
+          for (let n = 0; n < many; n++) {
+            org.add('Opportunity', {
+              Id: opportunity(1_000 + n),
+              Name: `Deal ${n}`,
+              AccountId: account(1),
+              Pricebook2Id: book(1),
+            });
+          }
+        },
+        (org) => {
+          for (let n = 0; n < many; n++) {
+            org.edit('Opportunity', opportunity(1_000 + n), { Pricebook2Id: book(2) }, COLLEAGUE);
+            org.add('Line__c', {
+              Id: lineOf(1_000 + n),
+              Units__c: 1,
+              Deal__c: opportunity(1_000 + n),
+            });
+          }
+        },
+      );
+      // Each waited for its line: none was given back before the deletes, and
+      // the call the estimate allows for those — its clock and user, a read, an
+      // update and a stamps read — was not sent.
+      expect(estimate - used).toBe(2 + 1 + 1 + 1);
+    },
+    paced(60_000),
+  );
+
+  it(
+    'sends no more than it estimated for thousands of records brought back and given back, from the panel or from the command line’s diff',
+    async () => {
+      const build = (org: RewindTestOrg): void => {
         for (let n = 0; n < many; n++) {
-          org.add('Account', { Id: account(1_000 + n), Name: `New ${n}` });
+          org.add('Account', { Id: account(1_000 + n), Name: `Many ${n}` });
           org.add('Contact', {
             Id: contact(1_000 + n),
-            LastName: `New ${n}`,
+            LastName: `Alone ${n}`,
             AccountId: account(1_000 + n),
           });
         }
-      },
-    );
-    expect(used).toBe(estimate);
-  }, 60_000);
-
-  it('sends no more than it estimated for thousands of records holding values in place, kept first and given back once their lines are gone: but for the call the estimate allows for some given back before', async () => {
-    const { used, estimate } = await sent(
-      (org) => {
+      };
+      const changed = (org: RewindTestOrg): void => {
         for (let n = 0; n < many; n++) {
-          org.add('Opportunity', {
-            Id: opportunity(1_000 + n),
-            Name: `Deal ${n}`,
-            AccountId: account(1),
-            Pricebook2Id: book(1),
-          });
+          org.edit('Account', account(1_000 + n), { Name: `Renamed ${n}` }, COLLEAGUE);
+          org.trash('Contact', contact(1_000 + n), COLLEAGUE);
         }
-      },
-      (org) => {
-        for (let n = 0; n < many; n++) {
-          org.edit('Opportunity', opportunity(1_000 + n), { Pricebook2Id: book(2) }, COLLEAGUE);
-          org.add('Line__c', {
-            Id: lineOf(1_000 + n),
-            Units__c: 1,
-            Deal__c: opportunity(1_000 + n),
-          });
-        }
-      },
-    );
-    // Each waited for its line: none was given back before the deletes, and
-    // the call the estimate allows for those — its clock and user, a read, an
-    // update and a stamps read — was not sent.
-    expect(estimate - used).toBe(2 + 1 + 1 + 1);
-  }, 60_000);
-
-  it('sends no more than it estimated for thousands of records brought back and given back, from the panel or from the command line’s diff', async () => {
-    const build = (org: RewindTestOrg): void => {
-      for (let n = 0; n < many; n++) {
-        org.add('Account', { Id: account(1_000 + n), Name: `Many ${n}` });
-        org.add('Contact', {
-          Id: contact(1_000 + n),
-          LastName: `Alone ${n}`,
-          AccountId: account(1_000 + n),
-        });
+      };
+      for (const reuses of [false, true]) {
+        const { used, estimate } = await sent(build, changed, reuses);
+        expect({ reuses, fits: used <= estimate }).toEqual({ reuses, fits: true });
       }
-    };
-    const changed = (org: RewindTestOrg): void => {
-      for (let n = 0; n < many; n++) {
-        org.edit('Account', account(1_000 + n), { Name: `Renamed ${n}` }, COLLEAGUE);
-        org.trash('Contact', contact(1_000 + n), COLLEAGUE);
-      }
-    };
-    for (const reuses of [false, true]) {
-      const { used, estimate } = await sent(build, changed, reuses);
-      expect({ reuses, fits: used <= estimate }).toEqual({ reuses, fits: true });
-    }
-  }, 90_000);
+    },
+    paced(90_000),
+  );
 
   it('sends no more than it estimated when records come back with their parent, which a second pass deletes', async () => {
     const { used, estimate, passes } = await sent(

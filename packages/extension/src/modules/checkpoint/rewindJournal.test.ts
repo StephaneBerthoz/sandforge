@@ -224,8 +224,13 @@ describe('the journal, before each write', () => {
 
     expect(outcome.objects[0]).toMatchObject({ restored: 2, refused: 0 });
     // The values, the folder their new file is in, the line, then the
-    // update: each flushed before the next.
-    expect(events).toEqual(['flushed', 'flushed', 'flushed', 'update']);
+    // update: each flushed before the next. Windows does not open a folder to
+    // flush it (its file system journals the entry itself): no folder flush.
+    expect(events).toEqual(
+      process.platform === 'win32'
+        ? ['flushed', 'flushed', 'update']
+        : ['flushed', 'flushed', 'flushed', 'update'],
+    );
     const read = await readRewindJournal(folder, journal.rewindId);
     expect(read.did.givenBack).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
   });

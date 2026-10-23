@@ -2,6 +2,7 @@ import { mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { paced } from '../../test/runnerPace.js';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { MEMORY_ORG_USER, orgStamp } from '../../test/memoryRemovalOrg.js';
@@ -901,54 +902,60 @@ describe('the records that come back with a record brought back', () => {
   };
   const many = 201;
 
-  it('are not read through an object the org does not query, nor, once it answered so, through one without a recycle bin: neither is warned of, and a read refused otherwise is', async () => {
-    const org = new RewindTestOrg({ fields: VIEW_FIELDS, children: VIEW_CHILDREN });
-    const t = await taken(
-      (o) => {
-        for (let n = 0; n < many; n++) {
-          o.add('Account', { Id: account(100 + n), Name: `Account ${n}` });
-          o.add('Contact', {
-            Id: contact(100 + n),
-            LastName: `Contact ${n}`,
-            AccountId: account(100 + n),
-          });
-        }
-      },
-      org,
-      ['Account', 'Contact'],
-      { objects: ['Account', 'Contact'] },
-    );
-    t.org.unqueryable.add('ActivityHistory');
-    t.org.refuseRead.set('ActivityHistory', {
-      errorCode: 'INVALID_TYPE_FOR_OPERATION',
-      message: 'entity type ActivityHistory does not support query',
-    });
-    t.org.missingFields.set('CaseTeamMember', new Set(['IsDeleted']));
-    t.org.refuseRead.set('Note__c', {
-      errorCode: 'INSUFFICIENT_ACCESS',
-      message: 'insufficient access rights on object id',
-    });
-    clock.now = SINCE;
-    for (let n = 0; n < many; n++) t.org.trash('Account', account(100 + n), COLLEAGUE);
-    const asked: string[] = [];
-    const request = t.org.request.bind(t.org);
-    t.org.request = async (sent) => {
-      if (sent.body !== undefined) asked.push(decodeURIComponent(JSON.stringify(sent.body)));
-      return request(sent);
-    };
-    const diff = await previewed(t);
+  it(
+    'are not read through an object the org does not query, nor, once it answered so, through one without a recycle bin: neither is warned of, and a read refused otherwise is',
+    async () => {
+      const org = new RewindTestOrg({ fields: VIEW_FIELDS, children: VIEW_CHILDREN });
+      const t = await taken(
+        (o) => {
+          for (let n = 0; n < many; n++) {
+            o.add('Account', { Id: account(100 + n), Name: `Account ${n}` });
+            o.add('Contact', {
+              Id: contact(100 + n),
+              LastName: `Contact ${n}`,
+              AccountId: account(100 + n),
+            });
+          }
+        },
+        org,
+        ['Account', 'Contact'],
+        { objects: ['Account', 'Contact'] },
+      );
+      t.org.unqueryable.add('ActivityHistory');
+      t.org.refuseRead.set('ActivityHistory', {
+        errorCode: 'INVALID_TYPE_FOR_OPERATION',
+        message: 'entity type ActivityHistory does not support query',
+      });
+      t.org.missingFields.set('CaseTeamMember', new Set(['IsDeleted']));
+      t.org.refuseRead.set('Note__c', {
+        errorCode: 'INSUFFICIENT_ACCESS',
+        message: 'insufficient access rights on object id',
+      });
+      clock.now = SINCE;
+      for (let n = 0; n < many; n++) t.org.trash('Account', account(100 + n), COLLEAGUE);
+      const asked: string[] = [];
+      const request = t.org.request.bind(t.org);
+      t.org.request = async (sent) => {
+        if (sent.body !== undefined) asked.push(decodeURIComponent(JSON.stringify(sent.body)));
+        return request(sent);
+      };
+      const diff = await previewed(t);
 
-    const outcome = await rewound(t, diff.previewId);
+      const outcome = await rewound(t, diff.previewId);
 
-    expect(resultOf(outcome).status).toBe('success');
-    if (!outcome.rewound) return;
-    const readsOf = (object: string): number =>
-      asked.filter((body) => body.includes(`FROM ${object} WHERE`)).length;
-    expect(readsOf('ActivityHistory')).toBe(0);
-    // Two batches of accounts brought back, their contacts with them: the
-    // team members asked once, under the first.
-    expect(readsOf('CaseTeamMember')).toBe(1);
-    expect(outcome.notes.filter((note) => /ActivityHistory|CaseTeamMember/.test(note))).toEqual([]);
-    expect(outcome.notes.filter((note) => /Note__c/.test(note)).length).toBeGreaterThan(0);
-  }, 60_000);
+      expect(resultOf(outcome).status).toBe('success');
+      if (!outcome.rewound) return;
+      const readsOf = (object: string): number =>
+        asked.filter((body) => body.includes(`FROM ${object} WHERE`)).length;
+      expect(readsOf('ActivityHistory')).toBe(0);
+      // Two batches of accounts brought back, their contacts with them: the
+      // team members asked once, under the first.
+      expect(readsOf('CaseTeamMember')).toBe(1);
+      expect(outcome.notes.filter((note) => /ActivityHistory|CaseTeamMember/.test(note))).toEqual(
+        [],
+      );
+      expect(outcome.notes.filter((note) => /Note__c/.test(note)).length).toBeGreaterThan(0);
+    },
+    paced(60_000),
+  );
 });
