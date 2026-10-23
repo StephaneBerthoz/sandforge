@@ -120,7 +120,7 @@ const AgendaEntry: React.FC<{
             <span>{schedule.timezone}</span>
             {schedule.lastRunAt && (
               <span>
-                {t('sync.schedules.lastRun')}:{' '}
+                {t('syncParts.schedules.lastRun')}:{' '}
                 {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
                   t('common.dateUnknown')}
               </span>
@@ -150,7 +150,7 @@ const ScheduleAgenda: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor }
   const heading = (group: AgendaGroup): string => {
     if (group.kind === 'due') return t('automation.agenda.due');
     if (group.kind === 'unplanned') return t('automation.agenda.unplanned');
-    if (group.kind === 'paused') return t('sync.schedules.paused');
+    if (group.kind === 'paused') return t('syncParts.schedules.paused');
     if (group.day === today) return t('automation.agenda.today');
     if (group.day === tomorrow) return t('automation.agenda.tomorrow');
     return dayFormat.format(new Date(`${group.day}T00:00:00`));

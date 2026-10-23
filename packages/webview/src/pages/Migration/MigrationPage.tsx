@@ -74,9 +74,9 @@ const RUN_STATUS_VARIANTS: Record<string, BadgeVariant> = {
   failure: 'error',
 };
 const RUN_STATUS_KEYS: Record<string, string> = {
-  success: 'sync.complete',
-  partial: 'sync.partial',
-  failure: 'sync.failed',
+  success: 'syncParts.complete',
+  partial: 'syncParts.partial',
+  failure: 'syncParts.failed',
 };
 
 /**
@@ -682,24 +682,27 @@ export const MigrationPage: React.FC = () => {
                         <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
                       ) : (
                         <Badge variant={RUN_STATUS_VARIANTS[runMutation.data.status] ?? 'default'}>
-                          {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'sync.failed')}
+                          {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'syncParts.failed')}
                         </Badge>
                       )}
                       <span>
-                        {t('sync.totalProcessed')}:{' '}
+                        {t('syncParts.totalProcessed')}:{' '}
                         <strong>{runMutation.data.totalProcessed}</strong>
                       </span>
                       <span>
-                        {t('sync.totalSuccess')}: <strong>{runMutation.data.totalSuccess}</strong>
+                        {t('syncParts.totalSuccess')}:{' '}
+                        <strong>{runMutation.data.totalSuccess}</strong>
                       </span>
                       {runMutation.data.totalFailed > 0 && (
                         <span className="text-status-error">
-                          {t('sync.totalFailed')}: <strong>{runMutation.data.totalFailed}</strong>
+                          {t('syncParts.totalFailed')}:{' '}
+                          <strong>{runMutation.data.totalFailed}</strong>
                         </span>
                       )}
                       {runMutation.data.totalSkipped > 0 && (
                         <span className="text-text-secondary">
-                          {t('sync.totalSkipped')}: <strong>{runMutation.data.totalSkipped}</strong>
+                          {t('syncParts.totalSkipped')}:{' '}
+                          <strong>{runMutation.data.totalSkipped}</strong>
                         </span>
                       )}
                     </div>

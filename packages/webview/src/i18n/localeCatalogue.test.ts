@@ -322,7 +322,7 @@ describe('a language names one thing with one word', () => {
     // The Salesforce CLI command the reader runs, typed as it is.
     'auth.jwtHelp': 'sf org login jwt',
     // The five fields of a cron expression, as Japanese cron documentation calls them.
-    'sync.schedules.cronHelp': 'フィールド',
+    'syncParts.schedules.cronHelp': 'フィールド',
   };
   const ORG_WORD = /(?<![A-Za-z])orgs?(?![A-Za-z])/i;
   const FIELD_WORD = /フィールド/;

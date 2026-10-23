@@ -155,7 +155,7 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
                   marginBottom: 'var(--sf-space-1)',
                 }}
               >
-                {t('compare.source', 'Source Org')}
+                {t('compareParts.source', 'Source Org')}
               </h4>
               <pre
                 data-testid="diff-source-value"
@@ -185,7 +185,7 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
                   marginBottom: 'var(--sf-space-1)',
                 }}
               >
-                {t('compare.target', 'Target Org')}
+                {t('compareParts.target', 'Target Org')}
               </h4>
               <pre
                 data-testid="diff-target-value"

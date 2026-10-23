@@ -972,7 +972,7 @@ export function useSyncPageData(): SyncPageData {
     setSavedRunAsked(null);
     if (!loaded.config) {
       setSavedRunLabel(null);
-      setError(t('sync.savedConfigs.gone'));
+      setError(t('syncParts.savedConfigs.gone'));
       return;
     }
     setSyncStartedAt(Date.now());

@@ -36,10 +36,10 @@ const LAST_RESULT_BADGES: Record<
   NonNullable<SyncScheduleEntry['lastResult']>,
   { variant: BadgeVariant; labelKey: string }
 > = {
-  success: { variant: 'success', labelKey: 'sync.schedules.result_success' },
-  partial: { variant: 'warning', labelKey: 'sync.schedules.result_partial' },
-  failure: { variant: 'error', labelKey: 'sync.schedules.result_failure' },
-  cancelled: { variant: 'default', labelKey: 'sync.schedules.result_cancelled' },
+  success: { variant: 'success', labelKey: 'syncParts.schedules.result_success' },
+  partial: { variant: 'warning', labelKey: 'syncParts.schedules.result_partial' },
+  failure: { variant: 'error', labelKey: 'syncParts.schedules.result_failure' },
+  cancelled: { variant: 'default', labelKey: 'syncParts.schedules.result_cancelled' },
 };
 
 /** A schedule's last result as its badge; nothing for a value no build writes. */
@@ -152,9 +152,9 @@ const SavedConfigRuns: React.FC<{
       data-testid="sync-saved-configs"
     >
       <h3 id={headingId} className="text-sm font-semibold text-text-primary">
-        {t('sync.savedConfigs.title')}
+        {t('syncParts.savedConfigs.title')}
       </h3>
-      <p className="text-[10px] text-text-secondary">{t('sync.savedConfigs.hint')}</p>
+      <p className="text-[10px] text-text-secondary">{t('syncParts.savedConfigs.hint')}</p>
       <ul className="flex flex-col gap-1">
         {configs.map((config) => (
           <li
@@ -166,7 +166,9 @@ const SavedConfigRuns: React.FC<{
               {config.name}
               {config.mode === 'delta' && (
                 <Badge variant="info">
-                  {config.propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
+                  {config.propagateDeletes
+                    ? t('syncParts.delta.withDeletes')
+                    : t('syncParts.delta.mode')}
                 </Badge>
               )}
             </span>
@@ -177,10 +179,10 @@ const SavedConfigRuns: React.FC<{
                   size="sm"
                   disabled={disabled}
                   onClick={() => onResetDelta(config.id, config.name)}
-                  aria-label={t('sync.savedConfigs.resetDeltaNamed', { name: config.name })}
+                  aria-label={t('syncParts.savedConfigs.resetDeltaNamed', { name: config.name })}
                   data-testid={`reset-delta-${config.id}`}
                 >
-                  {t('sync.savedConfigs.resetDelta')}
+                  {t('syncParts.savedConfigs.resetDelta')}
                 </Button>
               )}
               <Button
@@ -188,10 +190,10 @@ const SavedConfigRuns: React.FC<{
                 size="sm"
                 disabled={disabled}
                 onClick={() => onRun(config.id, config.name)}
-                aria-label={t('sync.savedConfigs.runNamed', { name: config.name })}
+                aria-label={t('syncParts.savedConfigs.runNamed', { name: config.name })}
                 data-testid={`run-saved-config-${config.id}`}
               >
-                {t('sync.savedConfigs.runNow')}
+                {t('syncParts.savedConfigs.runNow')}
               </Button>
             </span>
           </li>
@@ -199,7 +201,7 @@ const SavedConfigRuns: React.FC<{
       </ul>
       {resetDone !== null && (
         <p className="text-[10px] text-text-secondary" role="status" data-testid="reset-delta-done">
-          {t('sync.savedConfigs.resetDone', { name: resetDone })}
+          {t('syncParts.savedConfigs.resetDone', { name: resetDone })}
         </p>
       )}
       {resetError !== null && (
@@ -224,7 +226,9 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                 <div className="flex items-center gap-(--sf-space-2)">
                   <span className="text-xs font-semibold text-text-primary">{schedule.name}</span>
                   <Badge variant={schedule.enabled ? 'success' : 'default'}>
-                    {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
+                    {schedule.enabled
+                      ? t('syncParts.schedules.active')
+                      : t('syncParts.schedules.paused')}
                   </Badge>
                   {schedule.lastResult && <LastResultBadge result={schedule.lastResult} />}
                 </div>
@@ -235,14 +239,14 @@ const ScheduleCards: React.FC<ScheduleLayoutProps> = ({ schedules, actionsFor })
                       that time is not a run, as the agenda already knew. */}
                   {schedule.enabled && schedule.nextRunAt && (
                     <span>
-                      {t('sync.schedules.nextRun')}:{' '}
+                      {t('syncParts.schedules.nextRun')}:{' '}
                       {formatStoredDate(schedule.nextRunAt, 'yyyy-MM-dd HH:mm') ??
                         t('common.dateUnknown')}
                     </span>
                   )}
                   {schedule.lastRunAt && (
                     <span>
-                      {t('sync.schedules.lastRun')}:{' '}
+                      {t('syncParts.schedules.lastRun')}:{' '}
                       {formatStoredDate(schedule.lastRunAt, 'yyyy-MM-dd HH:mm') ??
                         t('common.dateUnknown')}
                     </span>
@@ -420,14 +424,14 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
         onClick={() => toggleSchedule(schedule.id, !schedule.enabled)}
         data-testid={`toggle-btn-${schedule.id}`}
       >
-        {schedule.enabled ? t('sync.schedules.pause') : t('sync.schedules.resume')}
+        {schedule.enabled ? t('syncParts.schedules.pause') : t('syncParts.schedules.resume')}
       </button>
       <button
         type="button"
         className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover) disabled:opacity-50"
         onClick={() => handleEdit(schedule)}
         disabled={!canCreate}
-        aria-label={t('sync.schedules.editNamed', { name: schedule.name })}
+        aria-label={t('syncParts.schedules.editNamed', { name: schedule.name })}
         data-testid={`edit-btn-${schedule.id}`}
       >
         <Icon name="edit" />
@@ -456,7 +460,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
           type="button"
           className="text-[10px] px-2 py-1 rounded-sm bg-(--sf-button-secondary-bg) text-(--sf-button-secondary-fg) hover:bg-(--sf-button-secondary-hover)"
           onClick={() => setConfirmDeleteId(schedule.id)}
-          aria-label={t('sync.schedules.deleteNamed', { name: schedule.name })}
+          aria-label={t('syncParts.schedules.deleteNamed', { name: schedule.name })}
           data-testid={`delete-btn-${schedule.id}`}
         >
           <Icon name="trash" />
@@ -521,12 +525,14 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       <div className="flex flex-col gap-(--sf-space-3)" data-testid="sync-schedule-panel">
         {errorBanner}
         <EmptyState
-          title={t('sync.schedules.emptyTitle')}
+          title={t('syncParts.schedules.emptyTitle')}
           description={
-            noSavedConfig ? t('sync.schedules.noSavedConfig') : t('sync.schedules.emptyDesc')
+            noSavedConfig
+              ? t('syncParts.schedules.noSavedConfig')
+              : t('syncParts.schedules.emptyDesc')
           }
           module="sync"
-          actionLabel={canCreate ? t('sync.schedules.createFirst') : undefined}
+          actionLabel={canCreate ? t('syncParts.schedules.createFirst') : undefined}
           onAction={canCreate ? () => setShowBuilder(true) : undefined}
         />
         {savedConfigRuns}
@@ -539,10 +545,12 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
       {errorBanner}
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-text-primary">{t('sync.schedules.title')}</h3>
+        <h3 className="text-sm font-semibold text-text-primary">
+          {t('syncParts.schedules.title')}
+        </h3>
         {noSavedConfig && (
           <p className="text-[10px] text-text-secondary" data-testid="sync-schedule-no-config">
-            {t('sync.schedules.noSavedConfig')}
+            {t('syncParts.schedules.noSavedConfig')}
           </p>
         )}
         <button
@@ -552,7 +560,7 @@ export const SyncSchedulePanel: React.FC<SyncSchedulePanelProps> = ({
           disabled={!canCreate}
           data-testid="new-schedule-btn"
         >
-          <Icon name="add" /> {t('sync.schedules.newSchedule')}
+          <Icon name="add" /> {t('syncParts.schedules.newSchedule')}
         </button>
       </div>
 

@@ -94,7 +94,7 @@ export const SyncHistoryDetail: React.FC = () => {
           <CardBody>
             <div className="text-center">
               <div className="text-lg font-bold text-text-primary">{result.totalProcessed}</div>
-              <div className="text-[10px] text-text-secondary">{t('sync.totalProcessed')}</div>
+              <div className="text-[10px] text-text-secondary">{t('syncParts.totalProcessed')}</div>
             </div>
           </CardBody>
         </Card>
@@ -102,7 +102,7 @@ export const SyncHistoryDetail: React.FC = () => {
           <CardBody>
             <div className="text-center">
               <div className="text-lg font-bold text-status-success">{result.totalSuccess}</div>
-              <div className="text-[10px] text-text-secondary">{t('sync.totalSuccess')}</div>
+              <div className="text-[10px] text-text-secondary">{t('syncParts.totalSuccess')}</div>
             </div>
           </CardBody>
         </Card>
@@ -110,7 +110,7 @@ export const SyncHistoryDetail: React.FC = () => {
           <CardBody>
             <div className="text-center">
               <div className="text-lg font-bold text-status-error">{result.totalFailed}</div>
-              <div className="text-[10px] text-text-secondary">{t('sync.totalFailed')}</div>
+              <div className="text-[10px] text-text-secondary">{t('syncParts.totalFailed')}</div>
             </div>
           </CardBody>
         </Card>
@@ -118,7 +118,7 @@ export const SyncHistoryDetail: React.FC = () => {
           <CardBody>
             <div className="text-center">
               <div className="text-lg font-bold text-text-secondary">{result.totalSkipped}</div>
-              <div className="text-[10px] text-text-secondary">{t('sync.totalSkipped')}</div>
+              <div className="text-[10px] text-text-secondary">{t('syncParts.totalSkipped')}</div>
             </div>
           </CardBody>
         </Card>
@@ -162,7 +162,7 @@ export const SyncHistoryDetail: React.FC = () => {
           <Card key={obj.objectApiName} data-testid={`object-result-${obj.objectApiName}`}>
             <CardHeader
               title={obj.objectApiName}
-              subtitle={`${t(`sync.operations.${obj.operation}`)} - ${obj.success}/${obj.processed}`}
+              subtitle={`${t(`syncParts.operations.${obj.operation}`)} - ${obj.success}/${obj.processed}`}
             />
             <CardBody>
               <div className="flex gap-(--sf-space-3) text-[10px]">

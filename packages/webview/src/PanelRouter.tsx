@@ -69,6 +69,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   ]),
   compare: page(() => import('./pages/Compare/ComparePage'), 'ComparePage', [
     'compare',
+    'compareParts',
     'emptyState',
     'errors',
     'list',
@@ -81,14 +82,14 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   automation: page(() => import('./pages/Automation/AutomationPage'), 'AutomationPage', [
     'ai',
     'automation',
-    'compare',
+    'compareParts',
     'errors',
-    'sync',
+    'syncParts',
   ]),
   migration: page(() => import('./pages/Migration/MigrationPage'), 'MigrationPage', [
     'errors',
     'migration',
-    'sync',
+    'syncParts',
   ]),
   reports: page(() => import('./pages/Reports/ReportsContainer'), 'ReportsContainer', [
     'errors',
@@ -122,6 +123,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'quickSync',
     'runResults',
     'sync',
+    'syncParts',
   ]),
   autopilot: page(() => import('./pages/Autopilot/AutopilotPage'), 'AutopilotPage', [
     'autopilot',

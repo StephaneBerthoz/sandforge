@@ -565,16 +565,16 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
           {step.type === 'compare' && (
             <>
               <OrgField
-                label={t('compare.source')}
-                placeholder={t('compare.selectSource')}
+                label={t('compareParts.source')}
+                placeholder={t('compareParts.selectSource')}
                 testId="config-sourceOrgId"
                 orgs={orgs}
                 value={config['sourceOrgId']}
                 onChange={(orgId) => handleConfigUpdate('sourceOrgId', orgId)}
               />
               <OrgField
-                label={t('compare.target')}
-                placeholder={t('compare.selectTarget')}
+                label={t('compareParts.target')}
+                placeholder={t('compareParts.selectTarget')}
                 testId="config-targetOrgId"
                 orgs={orgs}
                 value={config['targetOrgId']}
@@ -584,7 +584,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
                 config['sourceOrgId'] !== '' &&
                 config['sourceOrgId'] === config['targetOrgId'] && (
                   <p className="text-xs text-status-warning" data-testid="config-same-org">
-                    {t('compare.sameOrgWarning')}
+                    {t('compareParts.sameOrgWarning')}
                   </p>
                 )}
               <CategorySelector

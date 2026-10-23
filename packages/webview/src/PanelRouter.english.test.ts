@@ -449,9 +449,12 @@ describe('the English a panel loads', () => {
    * A key spelled outside its namespace brings the whole namespace: the hook
    * every query goes through put Seed's 20 kB on ten pages for three words,
    * Home parsed Onboarding's 34 kB for a banner, and the removal and currency
-   * views Forge shares put its 59 kB on Seed, Sync, Frozen and Autopilot. The
-   * words a part shares live in the shell's namespaces or in one of their own
-   * (runRemoval, runResults, orgAutomation), and no page loads these again.
+   * views Forge shares put its 59 kB on Seed, Sync, Frozen and Autopilot.
+   * Migration and Automation parsed the 30 kB of Sync and the 9 kB of Compare
+   * for the 3 kB the object set, the schedules and the org and category
+   * pickers they reuse say. The words a part shares live in the shell's
+   * namespaces or in one of their own (runRemoval, runResults, orgAutomation,
+   * syncParts, compareParts), and no page loads these again.
    */
   it('loads no other page’s English for the words a shared part says', () => {
     const notLoaded: Record<string, string[]> = {
@@ -463,8 +466,15 @@ describe('the English a panel loads', () => {
       'pages/Monitor/MonitorPage.tsx': ['org', 'reports', 'seed', 'sidePanel', 'sync'],
       'pages/Compare/ComparePage.tsx': ['org', 'seed', 'sidePanel'],
       'pages/DataOps/DataOpsPage.tsx': ['org', 'seed'],
-      'pages/Automation/AutomationPage.tsx': ['dataops', 'org', 'seed', 'sidePanel'],
-      'pages/Migration/MigrationPage.tsx': ['automation', 'org', 'seed'],
+      'pages/Automation/AutomationPage.tsx': [
+        'compare',
+        'dataops',
+        'org',
+        'seed',
+        'sidePanel',
+        'sync',
+      ],
+      'pages/Migration/MigrationPage.tsx': ['automation', 'org', 'seed', 'sync'],
       'pages/Reports/ReportsContainer.tsx': ['org', 'seed'],
       'pages/Settings/SettingsPage.tsx': ['org', 'seed'],
       'pages/Seed/SeedPage.tsx': ['forge', 'frozen', 'help', 'org', 'sidePanel', 'sync'],

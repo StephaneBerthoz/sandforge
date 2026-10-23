@@ -109,7 +109,7 @@ export function resolvesToText(catalogue, path) {
 /**
  * The members a family prefix has in `catalogue`.
  *
- * `sync.operations.` is a nested object, and its members are its keys.
+ * `syncParts.operations.` is a nested object, and its members are its keys.
  * `common.orgStatus_` and `sync.history.triggered` are flat: the head's last segment
  * is the stem of sibling keys (`orgStatus_connected`, `triggeredManual`), and the
  * stem itself, where it exists as a key of its own, is not a member.
@@ -237,7 +237,7 @@ const UNION_BACKED = [
     },
   },
   {
-    prefix: 'sync.schedules.result_',
+    prefix: 'syncParts.schedules.result_',
     from: {
       file: 'packages/shared/src/types/sync.types.ts',
       field: 'lastResult',

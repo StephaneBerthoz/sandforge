@@ -153,6 +153,22 @@ describe('RealTimeSyncPanel', () => {
     );
   });
 
+  it('gives a listing the org refused for want of access the access hint, and calls it no write', () => {
+    // The listing is a Tooling read: the hint said the user lacked "the access
+    // this write needs" under a banner whose request had written nothing.
+    objectsAnswer = {
+      data: null,
+      loading: false,
+      error: 'INSUFFICIENT_ACCESS: insufficient access rights on object id',
+      errorCode: 'INSUFFICIENT_ACCESS',
+    };
+    render(<RealTimeSyncPanel {...orgs} />);
+
+    const banner = screen.getByTestId('realtime-objects-error').textContent ?? '';
+    expect(banner).toContain('Your user in the org lacks the access this operation needs.');
+    expect(banner).not.toMatch(/\bwrit/i);
+  });
+
   it('names only the permission for a refused object the org lists on the standard channel', () => {
     // Every refusal was blamed on the Change Data Capture selection, though
     // the page offers only the objects the org publishes: the 403 is the

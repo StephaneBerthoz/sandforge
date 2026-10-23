@@ -67,8 +67,8 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack, onOpenHist
               : result.status === 'success'
                 ? t('quickSync.complete')
                 : result.status === 'partial'
-                  ? t('sync.partial')
-                  : t('sync.failed'),
+                  ? t('syncParts.partial')
+                  : t('syncParts.failed'),
             written: result.totalSuccess,
             total: result.totalProcessed,
           })

@@ -409,8 +409,8 @@ export const ComparePage: React.FC = () => {
             ) : permissions ? (
               <PermissionPresence
                 comparison={permissions}
-                sourceLabel={t('compare.source')}
-                targetLabel={t('compare.target')}
+                sourceLabel={t('compareParts.source')}
+                targetLabel={t('compareParts.target')}
               />
             ) : (
               <ErrorBanner
@@ -427,8 +427,8 @@ export const ComparePage: React.FC = () => {
             ) : snapshot ? (
               <SnapshotComparison
                 snapshot={snapshot}
-                sourceLabel={t('compare.source')}
-                targetLabel={t('compare.target')}
+                sourceLabel={t('compareParts.source')}
+                targetLabel={t('compareParts.target')}
               />
             ) : (
               <ErrorBanner
@@ -443,8 +443,8 @@ export const ComparePage: React.FC = () => {
             ) : drift ? (
               <SettingsDrift
                 drift={drift}
-                sourceLabel={t('compare.source')}
-                targetLabel={t('compare.target')}
+                sourceLabel={t('compareParts.source')}
+                targetLabel={t('compareParts.target')}
               />
             ) : (
               <ErrorBanner

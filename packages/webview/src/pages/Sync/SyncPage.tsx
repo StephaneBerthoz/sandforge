@@ -845,7 +845,9 @@ export const SyncPage: React.FC = () => {
                 <div className="flex gap-3 text-xs flex-wrap">
                   {mode === 'delta' && (
                     <Badge variant="info" data-testid="sync-review-delta">
-                      {propagateDeletes ? t('sync.delta.withDeletes') : t('sync.modes.delta')}
+                      {propagateDeletes
+                        ? t('syncParts.delta.withDeletes')
+                        : t('syncParts.delta.mode')}
                     </Badge>
                   )}
                   {copyFiles && (
@@ -915,7 +917,7 @@ export const SyncPage: React.FC = () => {
                 {/* While it runs: back on this step afterwards, Run is the wizard's. */}
                 {busy && savedRunLabel !== null && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
-                    {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
+                    {t('syncParts.savedConfigs.ofSaved', { name: savedRunLabel })}
                   </p>
                 )}
                 {/* Files are copied by a saved configuration only: the
@@ -1011,7 +1013,7 @@ export const SyncPage: React.FC = () => {
               <div className="flex flex-col gap-3" data-testid="sync-step-results">
                 {savedRunLabel !== null && result && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
-                    {t('sync.savedConfigs.ofSaved', { name: savedRunLabel })}
+                    {t('syncParts.savedConfigs.ofSaved', { name: savedRunLabel })}
                   </p>
                 )}
                 {simulation ? (
@@ -1033,21 +1035,21 @@ export const SyncPage: React.FC = () => {
                       ) : (
                         <Badge variant={statusVariant[result.status]}>
                           {result.status === 'success'
-                            ? t('sync.complete')
+                            ? t('syncParts.complete')
                             : result.status === 'partial'
-                              ? t('sync.partial')
-                              : t('sync.failed')}
+                              ? t('syncParts.partial')
+                              : t('syncParts.failed')}
                         </Badge>
                       )}
                       <span>
-                        {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
+                        {t('syncParts.totalProcessed')}: <strong>{result.totalProcessed}</strong>
                       </span>
                       <span>
-                        {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
+                        {t('syncParts.totalSuccess')}: <strong>{result.totalSuccess}</strong>
                       </span>
                       {result.totalFailed > 0 && (
                         <span className="text-status-error">
-                          {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
+                          {t('syncParts.totalFailed')}: <strong>{result.totalFailed}</strong>
                         </span>
                       )}
                     </div>
@@ -1072,7 +1074,7 @@ export const SyncPage: React.FC = () => {
                       <Card key={obj.objectApiName}>
                         <CardHeader
                           title={obj.objectApiName}
-                          subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
+                          subtitle={`${t(`syncParts.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
                         />
                         {(obj.errors.length > 0 ||
                           obj.delta ||

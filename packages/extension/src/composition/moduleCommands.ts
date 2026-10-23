@@ -35,6 +35,12 @@ export interface ModuleCommand {
    *
    * What the others need replayed before they can be released too, each of
    * which a page now receives only while it is alive:
+   * - Home: the recent operations it lists, which it learns from the
+   *   `operation:started`, `operation:completed` and `operation:failed`
+   *   broadcasts and of which the host keeps no record (a rebuilt Home would
+   *   lose the list, and miss a run that ended while it was hidden); the
+   *   record id typed in its clone field; the Smart Action's confirmation
+   *   step. Its orgs, health and checkpoints it asks for again.
    * - Organizations: the `state:sync` and `org:selected` broadcasts (a rebuilt
    *   page asks `org:list` again, but the global selection and a connection
    *   under way reach it only by broadcast), the device-code login in progress

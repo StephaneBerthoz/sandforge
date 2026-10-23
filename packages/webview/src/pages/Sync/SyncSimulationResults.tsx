@@ -114,7 +114,7 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
         <Card key={o.objectApiName} data-testid={`sync-simulation-object-${o.objectApiName}`}>
           <CardHeader
             title={o.objectApiName}
-            subtitle={`${t(`sync.operations.${o.operation}`)} — ${t('sync.simulation.read', {
+            subtitle={`${t(`syncParts.operations.${o.operation}`)} — ${t('sync.simulation.read', {
               count: o.read,
             })}`}
           />

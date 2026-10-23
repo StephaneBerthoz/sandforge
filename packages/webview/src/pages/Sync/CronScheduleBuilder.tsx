@@ -127,21 +127,21 @@ export function cronToHuman(cron: string, t: TFunction, locale: string = uiLocal
   const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
 
   if (minute === '0' && hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return t('sync.schedules.cron.hourly');
+    return t('syncParts.schedules.cron.hourly');
   }
   if (!atTime || month !== '*') return cron;
   if (dayOfMonth === '*' && dayOfWeek === '*') {
-    return t('sync.schedules.cron.daily', { time });
+    return t('syncParts.schedules.cron.daily', { time });
   }
   if (dayOfMonth === '*') {
     const days = dayOfWeek
       .split(',')
       .map((d) => weekdayName(d, locale, 'long') ?? d)
-      .join(t('sync.schedules.cron.daySeparator'));
-    return t('sync.schedules.cron.weekly', { days, time });
+      .join(t('syncParts.schedules.cron.daySeparator'));
+    return t('syncParts.schedules.cron.weekly', { days, time });
   }
   if (dayOfWeek === '*') {
-    return t('sync.schedules.cron.monthly', { day: dayOfMonth, time });
+    return t('syncParts.schedules.cron.monthly', { day: dayOfMonth, time });
   }
 
   return cron;
@@ -262,18 +262,18 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       data-testid="cron-schedule-builder"
     >
       <h4 className="text-sm font-semibold text-text-primary">
-        {t('sync.schedules.builderTitle')}
+        {t('syncParts.schedules.builderTitle')}
       </h4>
 
       {/* Name */}
       <label className="flex flex-col gap-1">
-        <span className={labelClass}>{t('sync.schedules.name')}</span>
+        <span className={labelClass}>{t('syncParts.schedules.name')}</span>
         <input
           type="text"
           className={inputClass}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={t('sync.schedules.namePlaceholder')}
+          placeholder={t('syncParts.schedules.namePlaceholder')}
           required
           data-testid="schedule-name-input"
         />
@@ -281,7 +281,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Config selector */}
       <label className="flex flex-col gap-1">
-        <span className={labelClass}>{t('sync.schedules.syncConfig')}</span>
+        <span className={labelClass}>{t('syncParts.schedules.syncConfig')}</span>
         <select
           className={inputClass}
           value={configId}
@@ -290,7 +290,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         >
           {!configPicked && (
             <option value="" disabled>
-              {t('sync.schedules.configGone')}
+              {t('syncParts.schedules.configGone')}
             </option>
           )}
           {configs.map((c) => (
@@ -309,7 +309,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           onClick={() => setMode('simple')}
           data-testid="mode-simple-btn"
         >
-          {t('sync.schedules.simpleMode')}
+          {t('syncParts.schedules.simpleMode')}
         </button>
         <button
           type="button"
@@ -317,7 +317,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           onClick={() => setMode('advanced')}
           data-testid="mode-advanced-btn"
         >
-          {t('sync.schedules.advancedMode')}
+          {t('syncParts.schedules.advancedMode')}
         </button>
       </div>
 
@@ -326,17 +326,17 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         <div className="flex flex-col gap-(--sf-space-2)" data-testid="simple-mode-panel">
           {/* Preset selector */}
           <label className="flex flex-col gap-1">
-            <span className={labelClass}>{t('sync.schedules.frequency')}</span>
+            <span className={labelClass}>{t('syncParts.schedules.frequency')}</span>
             <select
               className={inputClass}
               value={preset}
               onChange={(e) => setPreset(e.target.value as FrequencyPreset)}
               data-testid="preset-selector"
             >
-              <option value="hourly">{t('sync.schedules.presetHourly')}</option>
-              <option value="daily">{t('sync.schedules.presetDaily')}</option>
-              <option value="weekly">{t('sync.schedules.presetWeekly')}</option>
-              <option value="monthly">{t('sync.schedules.presetMonthly')}</option>
+              <option value="hourly">{t('syncParts.schedules.presetHourly')}</option>
+              <option value="daily">{t('syncParts.schedules.presetDaily')}</option>
+              <option value="weekly">{t('syncParts.schedules.presetWeekly')}</option>
+              <option value="monthly">{t('syncParts.schedules.presetMonthly')}</option>
             </select>
           </label>
 
@@ -344,7 +344,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           {preset !== 'hourly' && (
             <div className="flex gap-(--sf-space-2)">
               <label className="flex flex-col gap-1">
-                <span className={labelClass}>{t('sync.schedules.hour')}</span>
+                <span className={labelClass}>{t('syncParts.schedules.hour')}</span>
                 <select
                   className={inputClass}
                   value={hour}
@@ -359,7 +359,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className={labelClass}>{t('sync.schedules.minute')}</span>
+                <span className={labelClass}>{t('syncParts.schedules.minute')}</span>
                 <select
                   className={inputClass}
                   value={minute}
@@ -381,8 +381,12 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             <div>
               {/* Toggle buttons are not labelable, so the caption names a group
                   instead of a control. */}
-              <span className={labelClass}>{t('sync.schedules.daysOfWeek')}</span>
-              <div className="flex gap-1" role="group" aria-label={t('sync.schedules.daysOfWeek')}>
+              <span className={labelClass}>{t('syncParts.schedules.daysOfWeek')}</span>
+              <div
+                className="flex gap-1"
+                role="group"
+                aria-label={t('syncParts.schedules.daysOfWeek')}
+              >
                 {DAYS_OF_WEEK.map((day) => (
                   <button
                     key={day}
@@ -411,7 +415,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           {/* Day-of-month picker (for monthly) */}
           {preset === 'monthly' && (
             <label className="flex flex-col gap-1">
-              <span className={labelClass}>{t('sync.schedules.dayOfMonth')}</span>
+              <span className={labelClass}>{t('syncParts.schedules.dayOfMonth')}</span>
               <select
                 className={inputClass}
                 value={dayOfMonth}
@@ -433,7 +437,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       {mode === 'advanced' && (
         <div data-testid="advanced-mode-panel">
           <label className="flex flex-col gap-1">
-            <span className={labelClass}>{t('sync.schedules.cronExpression')}</span>
+            <span className={labelClass}>{t('syncParts.schedules.cronExpression')}</span>
             <input
               type="text"
               className={inputClass}
@@ -443,7 +447,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
               data-testid="raw-cron-input"
             />
           </label>
-          <p className="text-[10px] text-text-secondary mt-1">{t('sync.schedules.cronHelp')}</p>
+          <p className="text-[10px] text-text-secondary mt-1">
+            {t('syncParts.schedules.cronHelp')}
+          </p>
         </div>
       )}
 
@@ -451,21 +457,21 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       <div>
         {/* Two controls under one caption: a wrapping label would bind to the
             search box only, so each control carries its own name. */}
-        <span className={labelClass}>{t('sync.schedules.timezone')}</span>
+        <span className={labelClass}>{t('syncParts.schedules.timezone')}</span>
         <input
           type="text"
           className={`${inputClass} mb-1`}
           value={timezoneSearch}
           onChange={(e) => setTimezoneSearch(e.target.value)}
-          placeholder={t('sync.schedules.searchTimezone')}
-          aria-label={t('sync.schedules.searchTimezone')}
+          placeholder={t('syncParts.schedules.searchTimezone')}
+          aria-label={t('syncParts.schedules.searchTimezone')}
           data-testid="timezone-search"
         />
         <select
           className={inputClass}
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
-          aria-label={t('sync.schedules.timezone')}
+          aria-label={t('syncParts.schedules.timezone')}
           data-testid="timezone-selector"
         >
           {filteredTimezones.map((tz) => (
@@ -478,9 +484,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Options */}
       <div className="flex flex-col gap-(--sf-space-1)">
-        <span className={labelClass}>{t('sync.schedules.options')}</span>
+        <span className={labelClass}>{t('syncParts.schedules.options')}</span>
         <label className="flex items-center gap-(--sf-space-2) text-[10px] text-text-primary">
-          {t('sync.schedules.maxRetries')}
+          {t('syncParts.schedules.maxRetries')}
           <input
             type="number"
             className="w-16 px-1 py-0.5 text-xs rounded-sm border border-(--sf-border-input) bg-(--sf-bg-input) text-(--sf-text-input)"
@@ -498,7 +504,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             onChange={(e) => setNotifyOnComplete(e.target.checked)}
             data-testid="notify-complete-checkbox"
           />
-          {t('sync.schedules.notifyOnComplete')}
+          {t('syncParts.schedules.notifyOnComplete')}
         </label>
         <label className="flex items-center gap-1 text-[10px] text-text-primary">
           <input
@@ -507,7 +513,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             onChange={(e) => setNotifyOnFailure(e.target.checked)}
             data-testid="notify-failure-checkbox"
           />
-          {t('sync.schedules.notifyOnFailure')}
+          {t('syncParts.schedules.notifyOnFailure')}
         </label>
       </div>
 
@@ -516,7 +522,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         className="text-[10px] text-text-secondary bg-(--sf-bg-primary) rounded-sm p-2"
         data-testid="cron-preview"
       >
-        <span className="font-semibold">{t('sync.schedules.preview')}:</span>{' '}
+        <span className="font-semibold">{t('syncParts.schedules.preview')}:</span>{' '}
         {cronToHuman(currentCron, t)}
       </div>
 

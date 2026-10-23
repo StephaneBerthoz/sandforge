@@ -196,6 +196,43 @@ describe('the error catalogue’s keys', () => {
     }
   });
 
+  /*
+   * The access codes come back from a refused read as from a refused write: a
+   * Tooling query of the target's automation, the listing of the objects
+   * Real-Time can follow. The explanation said "the access this write needs"
+   * in every language, under a banner whose request had written nothing.
+   */
+  it('says what an access refusal lacks without calling a read a write, in every locale', () => {
+    const WRITE: Record<string, RegExp> = {
+      en: /\bwrit/i,
+      fr: /écri/i,
+      de: /schreib/i,
+      es: /escri/i,
+      'pt-BR': /grava|escri/i,
+      ja: /書き込/,
+    };
+    for (const code of ['INSUFFICIENT_ACCESS', 'INSUFFICIENT_ACCESS_OR_READONLY']) {
+      for (const module of [undefined, 'forge', 'seed'] as const) {
+        const hint = translateError(`${code}: insufficient access rights on cross-reference id`, {
+          module,
+        });
+        // Positive control: each code has its hint, in each module's wording.
+        expect(hint?.explanationKey).toBeDefined();
+        for (const [locale, write] of Object.entries(WRITE)) {
+          const text = [hint?.explanationKey, hint?.actionKey]
+            .map((key) => lookup(LOCALES[locale], key ?? '') as string)
+            .join(' ');
+          expect({ code, module, locale, write: write.test(text) }).toEqual({
+            code,
+            module,
+            locale,
+            write: false,
+          });
+        }
+      }
+    }
+  });
+
   it('names the code in both link labels, in every locale', () => {
     for (const [locale, bundle] of Object.entries(LOCALES)) {
       for (const key of ['errors.guideLink', 'errors.searchLink']) {

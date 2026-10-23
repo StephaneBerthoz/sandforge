@@ -18,9 +18,14 @@
  * own under the text. Anything else meets the full bar.
  *
  * What axe does not measure is measured in the page: the colour Chromium
- * computes for the text (`color`, `fill`, or `::placeholder`), over everything
- * the page paints at the text's own position (backgrounds, and the fill of SVG
- * shapes), composited in paint order, opacity groups included.
+ * computes for the text (`color`, `fill`, or `::placeholder`; a select's own
+ * `color`, where its text starts), over everything the page paints at the
+ * text's own position (backgrounds, and the fill of SVG shapes), composited in
+ * paint order, opacity groups included, and under everything painted over it
+ * there: a veil darkens or pales the glyphs as it does their background, and
+ * a layer that paints over them opaque, or with an image, leaves them covered.
+ * A text a modal leaves outside it, one an open dialog hides from assistive
+ * technology, or an inert one, is inactive and held to nothing.
  */
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
@@ -137,16 +142,19 @@ interface Painted {
 }
 
 /**
- * Measure, in the page, the texts at `selectors`, every SVG text inside `scope`
- * (the whole page without it) and every placeholder on screen.
+ * Measure, in the page, the texts at `selectors`, those at `measured` that
+ * something is painted over, every SVG text inside `scope` (the whole page
+ * without it) and every placeholder on screen; and name the texts at
+ * `measured` whose verdict the page gives instead of axe (`settled`).
  */
 async function paintedInPage(
   page: Page,
   selectors: readonly string[],
+  measured: readonly string[],
   scope: string | undefined,
-): Promise<Painted[]> {
+): Promise<{ painted: Painted[]; settled: string[] }> {
   return page.evaluate(
-    ({ textSelectors, svgScope }) => {
+    ({ textSelectors, measuredSelectors, svgScope }) => {
       type Colour = { r: number; g: number; b: number; a: number };
       type Measured = Omit<Painted, 'html'>;
       const probe = document.createElement('canvas').getContext('2d', {
@@ -190,6 +198,39 @@ async function paintedInPage(
       });
       const SHAPES = new Set(['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline']);
 
+      /** An element as a shortfall names it: its tag, and its test id when it has one. */
+      const nameOf = (element: Element): string => {
+        const testId = element.getAttribute('data-testid');
+        const tag = element.tagName.toLowerCase();
+        return testId ? `<${tag} data-testid="${testId}">` : `<${tag}>`;
+      };
+
+      /*
+       * A text the user cannot reach while a modal is open is inactive, and
+       * WCAG holds an inactive component to no contrast: what a modal dialog
+       * leaves outside it, as axe reads a `<dialog>` opened with showModal()
+       * (the page under a dialog marked aria-modal too), what a dialog leaves
+       * outside it while the page takes no pointer (the confirmations' Radix
+       * dialog makes itself modal so, and hides the page from assistive
+       * technology but for its live regions), and what is inert. Measured
+       * through the modal's veil, every text under it fell short: the page
+       * behind each confirmation read about 2:1. Read before the hit test
+       * below lets every element take the pointer.
+       */
+      const shown = (candidate: Element): boolean => candidate.getClientRects().length > 0;
+      const pageUnreachable = getComputedStyle(document.body).pointerEvents === 'none';
+      const modal =
+        Array.from(document.querySelectorAll('dialog:modal, [aria-modal="true"]'))
+          .filter(shown)
+          .pop() ??
+        (pageUnreachable
+          ? (Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'))
+              .filter(shown)
+              .pop() ?? null)
+          : null);
+      const inactive = (element: Element): boolean =>
+        element.closest('[inert]') !== null || (modal !== null && !modal.contains(element));
+
       /** The colour an element paints across its box, or what no single colour stands for. */
       const ownPaint = (element: Element, style: CSSStyleDeclaration): Colour | string | null => {
         if (element instanceof SVGElement && !(element instanceof SVGSVGElement)) {
@@ -202,6 +243,82 @@ async function paintedInPage(
           return `the background image of <${element.tagName.toLowerCase()}>`;
         }
         return parse(style.backgroundColor);
+      };
+
+      /**
+       * The layers painted over the text of `element` where `stack` was read,
+       * bottom first, each at the alpha it reaches through the groups it sits
+       * in; or what covers the text, when one paints over it opaque or with an
+       * image. An element that holds the text paints under it, wherever the
+       * stack puts it.
+       *
+       * axe reads only what is under a text, and the in-page reading did too:
+       * a veil laid over a Monitor page while it read brought its words to
+       * about 2.2:1, and both called them readable.
+       */
+      const veilsOver = (
+        element: Element,
+        stack: readonly Element[],
+        at: number,
+      ): Colour[] | string => {
+        const veils: Colour[] = [];
+        for (const layer of stack.slice(0, at).reverse()) {
+          if (layer.contains(element)) continue;
+          let alpha = 1;
+          for (let group: Element | null = layer; group; group = group.parentElement) {
+            alpha *= parseFloat(getComputedStyle(group).opacity);
+          }
+          if (alpha === 0) continue;
+          const colour = ownPaint(layer, getComputedStyle(layer));
+          if (typeof colour === 'string') return `covered by ${colour}`;
+          if (!colour || colour.a === 0) continue;
+          if (colour.a * alpha >= 1) return `covered by ${nameOf(layer)}`;
+          veils.push({ ...colour, a: colour.a * alpha });
+        }
+        return veils;
+      };
+
+      /** Whether anything is painted over the text of `element` at (x, y). */
+      const paintedOver = (element: Element, x: number, y: number): boolean => {
+        const stack = document.elementsFromPoint(x, y);
+        const at = stack.findIndex((hit) => element.contains(hit));
+        if (at <= 0) return false;
+        const veils = veilsOver(element, stack, at);
+        return typeof veils === 'string' || veils.length > 0;
+      };
+
+      /**
+       * Where the text of `element` is painted, with the style it is painted
+       * in, or why it has no place on screen.
+       *
+       * A select shows the label of its chosen option, which has no box while
+       * the list is closed: it is read where the select starts its text, in
+       * the select's own colour, which Chromium paints it in whatever the
+       * option's style says. Searched for a text box, a select axe left
+       * overlapped read as "its text has no box on screen", and the Monitor
+       * reading state was checked on its header alone.
+       */
+      const textPoint = (
+        element: Element,
+      ): { x: number; y: number; style: CSSStyleDeclaration } | string => {
+        const style = getComputedStyle(element);
+        if (element instanceof HTMLSelectElement) {
+          const box = element.getBoundingClientRect();
+          if (box.width === 0 || box.height === 0) return 'it has no box on screen';
+          return {
+            x: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) + 2,
+            y: box.top + box.height / 2,
+            style,
+          };
+        }
+        const textNode = Array.from(element.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '',
+        );
+        const range = document.createRange();
+        range.selectNodeContents(textNode ?? element);
+        const box = Array.from(range.getClientRects()).find((rect) => rect.width > 0);
+        if (!box) return 'its text has no box on screen';
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2, style };
       };
 
       /** What `text` paints at (x, y) inside `element`, over everything under it there. */
@@ -254,6 +371,9 @@ async function paintedInPage(
           }
         }
         if (hidden) return fail(`painted on ${hidden.reason}`);
+        const veils = veilsOver(element, stack, at);
+        if (typeof veils === 'string') return fail(veils);
+
         const render = (base: Colour, from: number): { background: Colour; foreground: Colour } => {
           let background = base;
           for (let i = from; i < layers.length; i += 1) {
@@ -269,7 +389,13 @@ async function paintedInPage(
           }
           return { background, foreground: paintOver(text, background) };
         };
-        const pixel = render({ r: 255, g: 255, b: 255, a: 1 }, 0);
+        let pixel = render({ r: 255, g: 255, b: 255, a: 1 }, 0);
+        for (const veil of veils) {
+          pixel = {
+            background: paintOver(veil, pixel.background),
+            foreground: paintOver(veil, pixel.foreground),
+          };
+        }
         return { ...pixel, fontSizePx, bold, unmeasured: null };
       };
 
@@ -282,47 +408,51 @@ async function paintedInPage(
         unmeasured: reason,
       });
       const painted: Painted[] = [];
+      const settled: string[] = [];
       const hitTestAll = document.createElement('style');
       hitTestAll.textContent = '* { pointer-events: auto !important; }';
       document.head.append(hitTestAll);
       try {
-        for (const selector of textSelectors) {
+        // A text axe measured is read again here only when something is
+        // painted over it, or when it is inactive; either way axe's verdict
+        // on it is set aside (`settled`). A text axe left incomplete is read
+        // here whatever is over it.
+        const read = (selector: string, measuredByAxe: boolean): void => {
           const element = document.querySelector(selector);
           if (!element) {
-            painted.push(unmeasured(selector, 'no longer on the page'));
-            continue;
+            if (!measuredByAxe) painted.push(unmeasured(selector, 'no longer on the page'));
+            return;
           }
           // Painted with `fill`, not `color`: measured with the SVG texts below.
-          if (element instanceof SVGElement) continue;
+          if (element instanceof SVGElement) return;
+          if (inactive(element)) {
+            settled.push(selector);
+            return;
+          }
           const html = element.outerHTML.slice(0, 160);
           element.scrollIntoView({ block: 'center', inline: 'nearest' });
-          const textNode = Array.from(element.childNodes).find(
-            (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim() !== '',
-          );
-          const range = document.createRange();
-          range.selectNodeContents(textNode ?? element);
-          const box = Array.from(range.getClientRects()).find((rect) => rect.width > 0);
-          if (!box) {
-            painted.push(unmeasured(html, 'its text has no box on screen'));
-            continue;
+          const point = textPoint(element);
+          if (typeof point === 'string') {
+            if (!measuredByAxe) painted.push(unmeasured(html, point));
+            return;
           }
-          const style = getComputedStyle(element);
+          if (measuredByAxe) {
+            if (!paintedOver(element, point.x, point.y)) return;
+            settled.push(selector);
+          }
           painted.push({
             html,
-            ...measure(
-              element,
-              parse(style.color),
-              style,
-              box.left + box.width / 2,
-              box.top + box.height / 2,
-            ),
+            ...measure(element, parse(point.style.color), point.style, point.x, point.y),
           });
-        }
+        };
+        for (const selector of textSelectors) read(selector, false);
+        for (const selector of measuredSelectors) read(selector, true);
 
         const svgRoot = svgScope ? document.querySelector(svgScope) : document;
         const svgTexts = Array.from(svgRoot?.querySelectorAll('svg text') ?? []).filter(
           (text) =>
             (text.textContent ?? '').trim() !== '' &&
+            !inactive(text) &&
             text.getClientRects().length > 0 &&
             getComputedStyle(text).visibility === 'visible' &&
             getComputedStyle(text).fill !== 'none',
@@ -354,6 +484,7 @@ async function paintedInPage(
             field.placeholder.trim() !== '' &&
             field.value === '' &&
             !field.disabled &&
+            !inactive(field) &&
             field.getClientRects().length > 0 &&
             getComputedStyle(field).visibility === 'visible',
         );
@@ -376,9 +507,9 @@ async function paintedInPage(
       } finally {
         hitTestAll.remove();
       }
-      return painted;
+      return { painted, settled };
     },
-    { textSelectors: selectors, svgScope: scope },
+    { textSelectors: selectors, measuredSelectors: measured, svgScope: scope },
   );
 }
 
@@ -386,7 +517,9 @@ async function paintedInPage(
  * What falls short on the page as it is painted now: every text axe measures
  * or leaves incomplete (symbols included) and every SVG text, inside `include`
  * (the whole page without it), and every placeholder on screen, each held to the
- * bar or to the theme's own contrast for its colour.
+ * bar or to the theme's own contrast for its colour. A text axe measured is
+ * measured again in the page when anything is painted over it, since axe reads
+ * only what is under a text.
  */
 export async function themeContrastShortfalls(
   page: Page,
@@ -414,7 +547,23 @@ export async function themeContrastShortfalls(
     }
   };
 
+  const targets = (found: typeof results.passes): string[] =>
+    found
+      .flatMap((result) => result.nodes)
+      .map((node) => node.target[0])
+      .filter((target): target is string => typeof target === 'string');
+  const incomplete = targets(results.incomplete);
+  const { painted: inPage, settled } = await paintedInPage(
+    page,
+    incomplete,
+    [...targets(results.violations), ...targets(results.passes)],
+    include,
+  );
+  const readInPage = new Set(settled);
+
   for (const node of results.violations.flatMap((violation) => violation.nodes)) {
+    const target = node.target[0];
+    if (typeof target === 'string' && readInPage.has(target)) continue;
     const data = node.any[0]?.data as
       { fgColor?: string; bgColor?: string; expectedContrastRatio?: string } | undefined;
     if (!data?.fgColor || !data.bgColor || !data.expectedContrastRatio) {
@@ -429,11 +578,7 @@ export async function themeContrastShortfalls(
     );
   }
 
-  const incomplete = results.incomplete
-    .flatMap((result) => result.nodes)
-    .map((node) => node.target[0])
-    .filter((target): target is string => typeof target === 'string');
-  for (const painted of await paintedInPage(page, incomplete, include)) {
+  for (const painted of inPage) {
     if (painted.unmeasured || !painted.foreground || !painted.background) {
       shortfalls.push(`${painted.html}: ${painted.unmeasured ?? 'unmeasured'}`);
       continue;

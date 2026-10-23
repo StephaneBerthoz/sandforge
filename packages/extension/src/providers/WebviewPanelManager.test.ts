@@ -536,8 +536,10 @@ describe('WebviewPanelManager', () => {
       expect(released.isLive('sandforge.reports')).toBe(false);
     });
 
-    it('keeps the page of a module that runs or edits something, hidden or not', () => {
-      for (const moduleId of ['seed', 'sync', 'forge', 'orgs', 'settings', 'ai']) {
+    it('keeps the page of a module that runs, edits or remembers something, hidden or not', () => {
+      // Home lists the operations it heard of while alive, and nothing tells
+      // a rebuilt page about them (ModuleCommand.rebuiltWhenHidden).
+      for (const moduleId of ['home', 'seed', 'sync', 'forge', 'orgs', 'settings', 'ai']) {
         released.openPanel({ viewType: `sandforge.${moduleId}`, title: moduleId, moduleId });
         const panel = lastCreatedPanel;
         const shell = panel.webview.html;

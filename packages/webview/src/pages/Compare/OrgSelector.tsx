@@ -35,23 +35,23 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
     <div className={className} data-testid="org-selector">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Select
-          label={t('compare.source')}
+          label={t('compareParts.source')}
           options={options}
           value={sourceOrgId}
           onChange={(e) => onSourceChange(e.target.value)}
-          placeholder={t('compare.selectSource')}
+          placeholder={t('compareParts.selectSource')}
         />
         <Select
-          label={t('compare.target')}
+          label={t('compareParts.target')}
           options={options}
           value={targetOrgId}
           onChange={(e) => onTargetChange(e.target.value)}
-          placeholder={t('compare.selectTarget')}
+          placeholder={t('compareParts.selectTarget')}
         />
       </div>
       {sameOrg && (
         <p className="text-xs text-status-warning mt-2" data-testid="org-same-warning">
-          {t('compare.sameOrgWarning')}
+          {t('compareParts.sameOrgWarning')}
         </p>
       )}
     </div>

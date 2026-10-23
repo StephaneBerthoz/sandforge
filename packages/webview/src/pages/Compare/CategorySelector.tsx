@@ -18,25 +18,29 @@ export const CATEGORY_GROUPS: Array<{
 }> = [
   {
     label: 'Data Model',
-    labelKey: 'compare.catDataModel',
+    labelKey: 'compareParts.catDataModel',
     types: ['CustomObject', 'CustomField', 'RecordType'],
   },
-  { label: 'Apex Code', labelKey: 'compare.catApexCode', types: ['ApexClass', 'ApexTrigger'] },
-  { label: 'Lightning', labelKey: 'compare.catLightning', types: ['LightningComponentBundle'] },
+  { label: 'Apex Code', labelKey: 'compareParts.catApexCode', types: ['ApexClass', 'ApexTrigger'] },
+  {
+    label: 'Lightning',
+    labelKey: 'compareParts.catLightning',
+    types: ['LightningComponentBundle'],
+  },
   {
     label: 'Automation',
-    labelKey: 'compare.catAutomation',
+    labelKey: 'compareParts.catAutomation',
     types: ['Flow', 'WorkflowRule', 'ValidationRule'],
   },
-  { label: 'Security', labelKey: 'compare.catSecurity', types: ['Profile', 'PermissionSet'] },
+  { label: 'Security', labelKey: 'compareParts.catSecurity', types: ['Profile', 'PermissionSet'] },
   {
     label: 'Configuration',
-    labelKey: 'compare.catConfiguration',
+    labelKey: 'compareParts.catConfiguration',
     types: ['Layout', 'CustomLabel', 'CustomMetadata'],
   },
   {
     label: 'Content',
-    labelKey: 'compare.catContent',
+    labelKey: 'compareParts.catContent',
     types: ['StaticResource', 'EmailTemplate', 'Report', 'Dashboard'],
   },
 ];
@@ -89,7 +93,8 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
     <div className={className} data-testid="category-selector">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-text-primary">
-          {t('compare.categories', 'Categories')} ({selected.length}/{ALL_COMPONENT_TYPES.length})
+          {t('compareParts.categories', 'Categories')} ({selected.length}/
+          {ALL_COMPONENT_TYPES.length})
         </span>
         <div className="flex gap-2">
           <button
@@ -97,14 +102,14 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
             onClick={selectAll}
             data-testid="select-all-btn"
           >
-            {t('compare.selectAll', 'Select All')}
+            {t('compareParts.selectAll', 'Select All')}
           </button>
           <button
             className="text-[10px] text-(--sf-text-link) hover:underline"
             onClick={clearAll}
             data-testid="clear-all-btn"
           >
-            {t('compare.clear', 'Clear')}
+            {t('compareParts.clear', 'Clear')}
           </button>
         </div>
       </div>
@@ -112,7 +117,7 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
       <div
         style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sf-space-2)' }}
         role="group"
-        aria-label={t('compare.categories', 'Categories')}
+        aria-label={t('compareParts.categories', 'Categories')}
       >
         {CATEGORY_GROUPS.map((group) => {
           const groupSelectedCount = group.types.filter((tp) => selected.includes(tp)).length;

@@ -76,20 +76,20 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
       .filter(({ objectApiName }) => !usedObjects.has(objectApiName))
       .map(({ objectApiName, why }) => ({
         value: objectApiName,
-        label: t(`sync.unwritableOption.${why}`, { object: objectApiName }),
+        label: t(`syncParts.unwritableOption.${why}`, { object: objectApiName }),
         disabled: true,
       })),
   ];
   const opOptionsOf = (current: SyncOperation) =>
     (OPERATIONS.includes(current) ? OPERATIONS : [...OPERATIONS, current]).map((op) => ({
       value: op,
-      label: t(`sync.operations.${op}`),
+      label: t(`syncParts.operations.${op}`),
     }));
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="object-set-editor">
       <span className="text-xs font-medium text-text-primary">
-        {t('sync.objectSet')} ({entries.length})
+        {t('syncParts.objectSet')} ({entries.length})
       </span>
 
       <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
@@ -108,24 +108,24 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               value={entry.operation}
               onChange={(e) => onChange(i, 'operation', e.target.value)}
               className="w-24"
-              aria-label={rowLabel(t('sync.operation'), entry.objectApiName)}
+              aria-label={rowLabel(t('syncParts.operation'), entry.objectApiName)}
             />
             <Input
-              placeholder={t('sync.externalId')}
+              placeholder={t('syncParts.externalId')}
               value={entry.externalIdField}
               onChange={(e) => onChange(i, 'externalIdField', e.target.value)}
               className="w-28"
-              aria-label={rowLabel(t('sync.externalId'), entry.objectApiName)}
+              aria-label={rowLabel(t('syncParts.externalId'), entry.objectApiName)}
             />
             <Input
               type="number"
               min={1}
               max={10000}
-              placeholder={t('sync.batchSize')}
+              placeholder={t('syncParts.batchSize')}
               value={entry.batchSize}
               onChange={(e) => onChange(i, 'batchSize', parseInt(e.target.value, 10) || 200)}
               className="w-20"
-              aria-label={rowLabel(t('sync.batchSize'), entry.objectApiName)}
+              aria-label={rowLabel(t('syncParts.batchSize'), entry.objectApiName)}
             />
             <Input
               placeholder={t('common.whereClause')}
@@ -138,7 +138,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               className="text-status-error hover:underline px-1"
               onClick={() => onRemove(i)}
               data-testid={`remove-obj-${entry.objectApiName}`}
-              aria-label={rowLabel(t('sync.removeObject'), entry.objectApiName)}
+              aria-label={rowLabel(t('syncParts.removeObject'), entry.objectApiName)}
             >
               x
             </button>
@@ -147,7 +147,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
       </div>
 
       {entries.length === 0 && (
-        <p className="text-xs text-center text-text-secondary py-2">{t('sync.noObjects')}</p>
+        <p className="text-xs text-center text-text-secondary py-2">{t('syncParts.noObjects')}</p>
       )}
 
       {/* Add new object */}
@@ -156,7 +156,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
           options={objectOptions}
           value={newObject}
           onChange={(e) => setNewObject(e.target.value)}
-          placeholder={t('sync.addObject')}
+          placeholder={t('syncParts.addObject')}
           className="flex-1"
         />
         <Button
@@ -169,12 +169,12 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
           disabled={!newObject}
           data-testid="add-object-btn"
         >
-          {t('sync.addObject')}
+          {t('syncParts.addObject')}
         </Button>
       </div>
       {unwritableObjects.length > 0 && (
         <p className="text-xs text-text-secondary" data-testid="unwritable-objects-note">
-          {t('sync.unwritableNote', {
+          {t('syncParts.unwritableNote', {
             objects: unwritableObjects.map((o) => o.objectApiName).join(', '),
           })}
         </p>

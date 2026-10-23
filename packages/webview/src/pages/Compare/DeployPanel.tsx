@@ -90,8 +90,8 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
 
   const source = orgs.find((o) => o.id === result.sourceOrgId);
   const target = orgs.find((o) => o.id === result.targetOrgId);
-  const sourceLabel = orgLabel(source, t('compare.source'));
-  const targetLabel = orgLabel(target, t('compare.target'));
+  const sourceLabel = orgLabel(source, t('compareParts.source'));
+  const targetLabel = orgLabel(target, t('compareParts.target'));
   // The guard's own reading: an org SandForge does not know is production.
   const targetRefused = guardTierOf(target) === 'production';
 
@@ -229,7 +229,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
                 disabled={busy}
                 data-testid="deploy-pick-all"
               >
-                {t('compare.selectAll')}
+                {t('compareParts.selectAll')}
               </Button>
               <Button
                 variant="secondary"
@@ -238,7 +238,7 @@ export const DeployPanel: React.FC<DeployPanelProps> = ({ result, report, orgs }
                 disabled={busy || picked.size === 0}
                 data-testid="deploy-pick-none"
               >
-                {t('compare.clear')}
+                {t('compareParts.clear')}
               </Button>
             </div>
             <ul

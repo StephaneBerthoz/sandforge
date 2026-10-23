@@ -92,19 +92,19 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
               {result.status === 'success'
                 ? t('quickSync.complete')
                 : result.status === 'partial'
-                  ? t('sync.partial')
-                  : t('sync.failed')}
+                  ? t('syncParts.partial')
+                  : t('syncParts.failed')}
             </Badge>
           )}
           <span>
-            {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
+            {t('syncParts.totalProcessed')}: <strong>{result.totalProcessed}</strong>
           </span>
           <span>
-            {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
+            {t('syncParts.totalSuccess')}: <strong>{result.totalSuccess}</strong>
           </span>
           {result.totalFailed > 0 && (
             <span className="text-status-error">
-              {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
+              {t('syncParts.totalFailed')}: <strong>{result.totalFailed}</strong>
             </span>
           )}
         </div>
@@ -121,7 +121,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
           <Card key={obj.objectApiName}>
             <CardHeader
               title={obj.objectApiName}
-              subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
+              subtitle={`${t(`syncParts.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
             />
             {(obj.errors.length > 0 ||
               obj.standardPricebookMatched ||
