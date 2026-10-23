@@ -452,9 +452,12 @@ Clone whole tables, in place of --record:
                          its journal as it goes; --resume reads each table after
                          the last row the run wrote. Parents go before the tables
                          that point at them, their lookups given the records the
-                         run created. A run that copies files (--files) reads
-                         each table whole. Not with --record, --template,
-                         --upsert, --expand-orphans or --rehearse.
+                         run created. With --upsert, every page of a table goes
+                         by one external id, the first whose value each row
+                         the run reads of it holds and no two share. A run that
+                         copies files (--files) reads each table whole. Not
+                         with --record, --template, --expand-orphans or
+                         --rehearse.
 
 Options:
   --depth <mode>         direct | full | custom    (default: custom)
@@ -942,7 +945,8 @@ export function tablesRunConfig(args: CliArgs, graph: Pick<ForgeGraph, 'nodes'>)
  * What the executor is asked to do by a clone of whole tables: what the
  * panel's orchestrator asks of it for the same config (`forgeExecuteOptions`),
  * read page by page to the ceiling of each object — the diagnostic's pages
- * when it is set. The journal and the gate are added as for a clone of one
+ * when it is set — and upserted by external id under `--upsert`, which the
+ * panel never does. The journal and the gate are added as for a clone of one
  * record (`withTheJournal`, `beforeWrite`). Exported so it can be tested.
  */
 export function tablesExecuteOptions(
@@ -952,7 +956,7 @@ export function tablesExecuteOptions(
   recordTypeMappings: RecordTypeMapping[],
   personalFieldsOf: (fields: PIIFieldInfo[]) => string[],
 ): ExecuteOptions {
-  return (
+  const options =
     forgeExecuteOptions(
       graph,
       config,
@@ -966,8 +970,8 @@ export function tablesExecuteOptions(
         },
       },
       personalFieldsOf,
-    ) ?? {}
-  );
+    ) ?? {};
+  return args.upsert ? { ...options, upsertMode: 'auto' } : options;
 }
 
 /**
@@ -1168,8 +1172,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // filter, read and written as the panel runs a query.
   const tables = tableArgs(args);
   if (tables) {
-    const refused = ['--record', '--template', '--upsert', '--expand-orphans', '--rehearse'].filter(
-      (flag) => has(flag),
+    const refused = ['--record', '--template', '--expand-orphans', '--rehearse'].filter((flag) =>
+      has(flag),
     );
     if (refused.length > 0) {
       process.stderr.write(

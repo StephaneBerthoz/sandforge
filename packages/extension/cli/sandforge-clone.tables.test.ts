@@ -184,6 +184,7 @@ function fakeOrg({
   const asked: string[] = [];
   const read: string[] = [];
   const creates: Array<{ name: string; rows: Array<Record<string, unknown>> }> = [];
+  const upserts: Array<{ name: string; field: string; rows: Array<Record<string, unknown>> }> = [];
   let made = 0;
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const conn = {
@@ -197,6 +198,15 @@ function fakeOrg({
         return records.map(() => ({
           id: `${DESCRIBES[name].keyPrefix}000000000${String(900 + made++)}AAA`,
           success: true,
+          errors: [],
+        }));
+      },
+      upsert: async (records: Array<Record<string, unknown>>, field: string) => {
+        upserts.push({ name, field, rows: records });
+        return records.map(() => ({
+          id: `${DESCRIBES[name].keyPrefix}000000000${String(900 + made++)}AAA`,
+          success: true,
+          created: true,
           errors: [],
         }));
       },
@@ -228,7 +238,7 @@ function fakeOrg({
     },
     request: async () => ({}),
   };
-  return { conn: conn as unknown as Connection, asked, read, creates };
+  return { conn: conn as unknown as Connection, asked, read, creates, upserts };
 }
 
 /** Both fake orgs answering for SRC and TGT. */
@@ -314,7 +324,6 @@ describe('sandforge-clone of whole tables', () => {
       ['an --object given no name', argv('--object')],
       ['a --where given no condition', argv('--object', 'Case', '--where', '  ')],
       ['--record with --object', argv('--record', '001000000000001AAA')],
-      ['--upsert, which writes over by external id', argv('--upsert')],
       ['--expand-orphans, of a clone of one record', argv('--expand-orphans')],
       ['--rehearse, which holds every row it reads', argv('--rehearse')],
       ['--template, which clones a record', argv('--template', 'template.json')],
@@ -510,6 +519,55 @@ describe('sandforge-clone of whole tables', () => {
       });
       expect(summary).not.toHaveProperty('record');
       expect(stderr.join('')).toContain('executing… (REAL, WHOLE TABLES, READ IN PAGES OF 1)');
+    });
+
+    it('upserts a table with an external id a page at a time under --upsert, its keys read first', async () => {
+      process.env['SANDFORGE_FORGE_PAGE_SIZE'] = '1';
+      const contact = DESCRIBES['Contact'];
+      const fields = contact.fields;
+      const rows = ROWS['Contact'];
+      contact.fields = [
+        ...fields,
+        {
+          ...fields[1],
+          name: 'Ext__c',
+          type: 'string',
+          externalId: true,
+        } as (typeof fields)[number],
+      ];
+      ROWS['Contact'] = rows.map((row, n) => ({ ...row, Ext__c: `contact-key-${n}` }));
+      try {
+        const orgs = withFakeOrgs();
+
+        expect(await run(argv('--upsert', '--json'))).toBeUndefined();
+
+        // The accounts have no external id and are inserted; the contacts go
+        // by theirs, a page at a time.
+        expect(orgs.TGT.creates.map((call) => [call.name, call.rows.length])).toEqual([
+          ['Account', 1],
+          ['Account', 1],
+        ]);
+        expect(orgs.TGT.upserts.map((call) => [call.name, call.field, call.rows.length])).toEqual([
+          ['Contact', 'Ext__c', 1],
+          ['Contact', 'Ext__c', 1],
+          ['Contact', 'Ext__c', 1],
+        ]);
+        expect(orgs.SRC.read).toContainEqual(
+          expect.stringMatching(
+            new RegExp(
+              `^SELECT Id, Ext__c FROM Contact WHERE \\(Department = '${MARK}'\\) ORDER BY Id`,
+            ),
+          ),
+        );
+        const summary = JSON.parse(stdout.join('')) as { result: Record<string, unknown> };
+        expect(summary.result).toMatchObject({ successCount: 5, failedCount: 0 });
+        expect(stderr.join('')).toContain(
+          'executing… (REAL, WHOLE TABLES, UPSERT, READ IN PAGES OF 1)',
+        );
+      } finally {
+        contact.fields = fields;
+        ROWS['Contact'] = rows;
+      }
     });
 
     it('leaves a summary and a journal that --remove takes the run back from, naming its tables', async () => {
