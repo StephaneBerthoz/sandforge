@@ -12,7 +12,6 @@
  */
 
 export * from './types.js';
-export * from './salesforceId.js';
 export * from './SasPathGuard.js';
 export * from './DeterministicPseudonymizer.js';
 export * from './rulesFile.js';

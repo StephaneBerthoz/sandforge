@@ -73,6 +73,7 @@ import {
   PRODUCTION_GUARD_MISSING,
   undeletableAsker,
 } from './HandlerTypes.js';
+import { payloadText, WritingOrgs } from './writingOrgs.js';
 import {
   validatePayload,
   frozenConfigSavePayloadSchema,
@@ -658,6 +659,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   private readonly removing = new Set<string>();
 
   /**
+   * The orgs a load, a load's removal or its sweep writes to now, from its
+   * request until it ends: a checkpoint of one is refused meanwhile.
+   */
+  private readonly writing = new WritingOrgs();
+
+  /**
    * Describe caches shared by every discovery this handler builds.
    *
    * GraphDiscoveryService.discover is schema-scoped, not record-scoped — the
@@ -750,6 +757,15 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
+   * Whether a load of this window, a load's removal or its sweep writes to
+   * the registered org now: a checkpoint of it would hold its records half
+   * written.
+   */
+  isWritingTo(orgId: string): boolean {
+    return this.writing.has(orgId);
+  }
+
+  /**
    * Handle an incoming bridge message.
    *
    * @param msg - The typed base message from the webview.
@@ -777,7 +793,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.handleManifestGet(msg);
         return true;
       case 'frozen:load':
-        await this.handleLoad(msg);
+        await this.writing.during(payloadText(msg, 'targetOrgId'), () => this.handleLoad(msg));
         return true;
       case 'frozen:load:preview':
         await this.handlePreview(msg);
@@ -786,10 +802,12 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.handleVerify(msg);
         return true;
       case 'frozen:remove':
-        await this.handleRemove(msg);
+        await this.writing.during(payloadText(msg, 'targetOrgId'), () => this.handleRemove(msg));
         return true;
       case 'frozen:remove:sweep':
-        await this.handleRemoveSweep(msg);
+        await this.writing.during(payloadText(msg, 'targetOrgId'), () =>
+          this.handleRemoveSweep(msg),
+        );
         return true;
       case 'frozen:status':
         await this.handleStatus(msg);

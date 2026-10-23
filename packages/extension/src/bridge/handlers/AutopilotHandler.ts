@@ -246,6 +246,15 @@ export class AutopilotHandler implements DomainHandler {
   }
 
   /**
+   * Whether a run of this window writes to the registered org now, from its
+   * request until it ends: a checkpoint of it would hold its records half
+   * written.
+   */
+  isWritingTo(orgId: string): boolean {
+    return this.writingTargets.has(orgId);
+  }
+
+  /**
    * Handle an incoming bridge message.
    *
    * @param msg - The typed base message from the webview.

@@ -9,8 +9,9 @@
  * lets its user see and put back every record; and nothing is written before
  * the org's lock is held, for the undo's whole length, no SandForge run of
  * this machine writes to the org, what the undo's writes fire was accepted,
- * and the day's requests are enough. Each refusal names why, and writes
- * nothing.
+ * the day's requests are enough, and the emails its writes make the org send
+ * fit what it has left of each daily limit (`rewindEmails.ts`). Each refusal
+ * names why, and writes nothing.
  *
  * What the undo writes is what the rewind's journal says it did, read before
  * the gates: what it deleted comes back from the recycle bin, what it wrote
@@ -47,8 +48,9 @@ import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint } from './checkpointGuard.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
+import { checkpointEmails, emailsRefusal, writtenByUndo } from './rewindEmails.js';
 import { budgetRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
-import { readRewindJournal, rewoundObjects, undoPlans } from './rewindJournal.js';
+import { rewoundObjects, undoPlansOf } from './rewindJournal.js';
 import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
 import { rewindWriters } from './rewindPlan.js';
 import { undoRewind, type UndoResidual, type UndoRewindOutcome } from './undoRewind.js';
@@ -255,12 +257,22 @@ export async function undoCheckpoint(
     if (stopped()) throw new UndoStopped();
 
     progress(5, 'Reading what the rewind did');
-    const plans = undoPlans(await readRewindJournal(folder, rewindId), checkpoint.objects);
+    // What it takes back, per object, read from the journal on disk and let
+    // go: the undo reads its plans again as it writes.
+    const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
+    const rewound = rewoundObjects(plans);
+    const along = plans.goesWithParent.objects;
+    const namesOf = (spooled: ReadonlyArray<{ objectApiName: string; count: number }>): string[] =>
+      spooled.filter((object) => object.count > 0).map((object) => object.objectApiName);
+    // What goes back to the bin with its parent is read with what the undo
+    // deletes, as it was when it was sent on its own: what the org runs for
+    // a record its parent's delete takes along is not told apart here.
     const steps: ForgeRemovalSteps = {
-      bringBack: plans.bringBack.map((object) => object.objectApiName),
-      giveBack: plans.giveBack.map((object) => object.objectApiName),
-      delete: plans.remove.map((object) => object.objectApiName),
+      bringBack: namesOf(plans.bringBack.objects),
+      giveBack: namesOf(plans.giveBack.objects),
+      delete: [...new Set([...namesOf(along), ...namesOf(plans.remove.objects)])],
     };
+    await plans.dispose();
     const objects = [
       ...new Set([...(steps.bringBack ?? []), ...(steps.giveBack ?? []), ...(steps.delete ?? [])]),
     ];
@@ -283,11 +295,21 @@ export async function undoCheckpoint(
     }
     const cost = undoEstimate({
       objects: checkpoint.objects,
-      rewound: rewoundObjects(plans),
+      rewound,
       automationRequests: 0,
     });
     const overBudget = budgetRefusal('undo', count.used() + cost.apiRequests, budget, orgName);
     if (objects.length > 0 && overBudget) return { undone: false, refusal: overBudget };
+    // The emails its writes make the org send, against what it has left of
+    // each daily limit: past them, no box lifts the refusal.
+    const overEmails = automation
+      ? emailsRefusal(
+          'undo',
+          checkpointEmails(writtenByUndo(rewound, along), automation, budget.emails),
+          orgName,
+        )
+      : undefined;
+    if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };
     if (stopped()) throw new UndoStopped();
 
     // The user it writes as: what it gave back that this user, or the org's

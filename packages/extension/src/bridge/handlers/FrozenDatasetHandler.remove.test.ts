@@ -281,6 +281,20 @@ describe('frozen:remove', () => {
     fs.rmSync(sasDir, { recursive: true, force: true });
   });
 
+  it('says it writes to the org while it removes, and no longer once it ended: a checkpoint of the org is refused meanwhile', async () => {
+    let during: boolean[] = [];
+    org.onDelete(() => {
+      during = [handler.isWritingTo(TARGET_ORG), handler.isWritingTo('org-qa')];
+      return Promise.resolve();
+    });
+    expect(handler.isWritingTo(TARGET_ORG)).toBe(false);
+
+    await remove();
+
+    expect(during).toEqual([true, false]);
+    expect(handler.isWritingTo(TARGET_ORG)).toBe(false);
+  });
+
   it('removes what the load created, children first, and keeps the book it matched', async () => {
     await remove();
 

@@ -13,7 +13,7 @@ import { buildFrozenManifest } from './manifest.js';
 import { NonReidentificationControl } from './NonReidentificationControl.js';
 import { parsePseudonymRules } from './rulesFile.js';
 import { InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
-import { isValidSalesforceId18, to18 } from './salesforceId.js';
+import { isValidSalesforceId18, to18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset } from './types.js';
 
 const tmpDirs: string[] = [];

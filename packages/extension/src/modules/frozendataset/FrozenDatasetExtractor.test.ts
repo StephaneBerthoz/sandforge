@@ -15,7 +15,7 @@ import { InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
 import { parsePseudonymRules } from './rulesFile.js';
-import { to18 } from './salesforceId.js';
+import { to18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset } from './types.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 

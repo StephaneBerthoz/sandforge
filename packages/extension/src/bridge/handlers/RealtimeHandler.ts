@@ -225,6 +225,22 @@ export class RealtimeHandler implements DomainHandler {
     this.access = access ?? liveOrgAccess(deps);
   }
 
+  /**
+   * Whether the session of this window writes to the registered org now: one
+   * that applies what it receives, while it runs. A session that only watches
+   * writes to none. A checkpoint of the org it writes to would hold the
+   * session's writes half made.
+   */
+  isWritingTo(orgId: string): boolean {
+    const current = this.current;
+    return (
+      current !== undefined &&
+      current.guard !== undefined &&
+      current.session.running &&
+      current.targetOrgId === orgId
+    );
+  }
+
   /** @inheritdoc */
   async handle(msg: InboundRequest): Promise<boolean> {
     if (!REALTIME_TYPES.has(msg.type)) return false;

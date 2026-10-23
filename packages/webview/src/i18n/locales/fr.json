@@ -5431,6 +5431,12 @@
         "givenBack": "quand le retour arrière lui rend ses valeurs du point de contrôle",
         "accept": "Revenir à ce point même si {{org}} exécute des automatisations"
       },
+      "emails": {
+        "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
+        "exceeds": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), plus que les {{remaining}} sur {{max}} restants aujourd'hui : le retour arrière est refusé, quoi qu'on coche.",
+        "unread": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}). Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
+        "alertsCounted": "{{org}} compte ses alertes par e-mail parmi ses e-mails individuels, comme une Developer Edition : elles en font partie."
+      },
       "cost": "Environ {{time}} · environ {{requests}} requêtes d'API sur les {{left}} qu'il reste aujourd'hui",
       "journal": "Avant d'écrire, le retour arrière garde ce qu'il change : vous pourrez l'annuler jusqu'au {{date}}, plus tôt si la corbeille se remplit.",
       "nothing": "{{org}} est telle qu'au point « {{name}} » pour les objets et les champs qu'il contient : aucun retour arrière à faire.",

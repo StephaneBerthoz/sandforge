@@ -985,6 +985,12 @@ describe('undoEstimate', () => {
         // Back from the bin: 4 accounts and 450 contacts, 4 batches of a bin
         // read, a live read and the undelete, no stamps said back.
         4 * 3 +
+        // What its undeletes restamped of what it gives back: the clock and
+        // the user once, then the 13 accounts and 5 contacts read before the
+        // first undelete and again before their give-back.
+        2 +
+        (1 + 1) +
+        (1 + 1) +
         // Values back, a chunk of accounts, a chunk of contacts: each its
         // clock, a read, an update, and the records read again.
         (1 + 1 + 1 + 1) +

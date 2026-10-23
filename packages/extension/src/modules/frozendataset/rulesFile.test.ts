@@ -13,7 +13,7 @@ import {
   withSchemaDefaults,
   type RuleSchemaField,
 } from './rulesFile.js';
-import { to18 } from './salesforceId.js';
+import { to18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset } from './types.js';
 
 describe('parsePseudonymRules', () => {

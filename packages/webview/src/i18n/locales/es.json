@@ -5431,6 +5431,12 @@
         "givenBack": "cuando el retroceso le devuelve sus valores del punto de control",
         "accept": "Retroceder aunque {{org}} ejecute automatizaciones"
       },
+      "emails": {
+        "fits": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
+        "exceeds": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), más que los {{remaining}} de {{max}} que quedan hoy: el retroceso se rechaza, se marque lo que se marque.",
+        "unread": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}). No se pudo leer lo que queda hoy ({{reason}}).",
+        "alertsCounted": "{{org}} cuenta sus alertas por correo electrónico entre sus correos individuales, como una Developer Edition: están entre ellos."
+      },
       "cost": "Alrededor de {{time}} · alrededor de {{requests}} solicitudes de API de las {{left}} que quedan hoy",
       "journal": "Antes de escribir, el retroceso guarda lo que cambia: podrá deshacerlo hasta el {{date}}, antes si la papelera se llena.",
       "nothing": "{{org}} está como estaba en «{{name}}» en los objetos y campos que contiene: nada que retroceder.",

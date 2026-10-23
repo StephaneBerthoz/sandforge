@@ -682,6 +682,22 @@ describe('RealtimeHandler', () => {
     });
   });
 
+  it('says a session that applies what it receives writes to its target while it runs, and one that only watches to none: a checkpoint of the org is refused meanwhile', async () => {
+    const { handler, ofType } = setup();
+    expect(handler.isWritingTo('org-target')).toBe(false);
+    await handler.handle(start());
+    const sessionId = String(ofType('realtime:started')[0].payload.sessionId);
+
+    expect(handler.isWritingTo('org-target')).toBe(true);
+    expect(handler.isWritingTo('org-source')).toBe(false);
+    await handler.handle(request('realtime:stop', { sessionId }));
+    expect(handler.isWritingTo('org-target')).toBe(false);
+
+    await handler.handle(start({ apply: [] }));
+    expect(ofType('realtime:started')[1].payload.success).toBe(true);
+    expect(handler.isWritingTo('org-target')).toBe(false);
+  });
+
   it('answers a stop naming another session with what does run', async () => {
     const { handler, ofType } = setup();
     await handler.handle(start());

@@ -249,6 +249,7 @@ export {
   bypassesOfWrites,
   bypassPermissionsOf,
   emailsPerInsertOf,
+  emailsPerWriteOf,
   firedOnInsert,
   firedOnRemovalOf,
   firedOnRemovalStepsOf,

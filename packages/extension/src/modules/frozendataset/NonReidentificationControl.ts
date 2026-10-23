@@ -23,7 +23,7 @@
 
 import type { PseudonymGenerator } from './DeterministicPseudonymizer.js';
 import { resolveGenerator, type PseudonymRulesFile } from './rulesFile.js';
-import { isValidSalesforceId18 } from './salesforceId.js';
+import { isValidSalesforceId18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset, ExtractedRecord, FrozenDataset, FrozenRecord } from './types.js';
 
 /** The four check names. */

@@ -336,6 +336,38 @@ describe('DataOpsComplianceHandler', () => {
     expect(erased).toMatchObject({ kind: 'erased', mode: 'anonymize', outcome: 'success' });
   });
 
+  it('says an erasure writes to the org while it writes, and no longer once it ended; a dry run writes to none: a checkpoint of the org is refused meanwhile', async () => {
+    const { requestId } = await searchJane();
+    const during: boolean[] = [];
+    org.update.mockImplementation(async (records: Array<Record<string, unknown>>) => {
+      during.push(handler.isWritingTo('org-1'), handler.isWritingTo('org-2'));
+      return records.map((r) => ({ success: true, id: r.Id }));
+    });
+    let planning: boolean | undefined;
+    org.query.mockImplementation(async (soql: string) => {
+      planning ??= handler.isWritingTo('org-1');
+      if (soql.startsWith('SELECT COUNT()')) return { totalSize: 1, records: [] };
+      return { totalSize: 1, records: [janeRecord] };
+    });
+    const erase = (dryRun: boolean) =>
+      handler.handle(
+        request('dataops:dsr:erase', {
+          orgId: 'org-1',
+          requestId,
+          mode: 'anonymize',
+          records: [{ objectApiName: 'Contact', ids: ['003000000000001AAA'] }],
+          dryRun,
+        }),
+      );
+
+    await erase(true);
+    expect(planning).toBe(false);
+    await erase(false);
+
+    expect(during).toEqual([true, false]);
+    expect(handler.isWritingTo('org-1')).toBe(false);
+  });
+
   it('erases only what the request found', async () => {
     const { requestId } = await searchJane();
 

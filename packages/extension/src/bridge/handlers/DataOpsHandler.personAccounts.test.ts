@@ -348,6 +348,42 @@ describe('DataOps masking of the accounts of an org with person accounts', () =>
     expect(business.after.FirstName).toEqual(business.before.FirstName);
   });
 
+  it('says a masking run and a restore write to the org while they write, and no longer once they ended: a checkpoint of the org is refused meanwhile', async () => {
+    const rows = accounts();
+    const { update, upsert } = orgOf(rows);
+    /** Per write sent, whether the handler said it writes to the org, and to another. */
+    const during: Array<[boolean, boolean]> = [];
+    for (const call of [update, upsert]) {
+      const write = call.getMockImplementation();
+      if (!write) throw new Error('the org writes nothing');
+      call.mockImplementation(async (batch) => {
+        during.push([handler.isWritingTo('org-1'), handler.isWritingTo('org-2')]);
+        return write(batch);
+      });
+    }
+    expect(handler.isWritingTo('org-1')).toBe(false);
+
+    await send('dataops:anonymize', {
+      orgId: 'org-1',
+      templateId: 'tpl-hipaa-health',
+      objects: ['Account'],
+      snapshot: true,
+    });
+    expect(during.length).toBeGreaterThan(0);
+    expect(new Set(during.map((pair) => pair.join()))).toEqual(new Set(['true,false']));
+    expect(handler.isWritingTo('org-1')).toBe(false);
+    const snapshot = last('dataops:anonymize:response')?.payload.snapshot as {
+      operationId: string;
+    };
+
+    during.length = 0;
+    await send('dataops:rollback', { orgId: 'org-1', operationId: snapshot.operationId }, 'rb-1');
+    expect(last('dataops:rollback:response')?.payload).toMatchObject({ status: 'success' });
+    expect(during.length).toBeGreaterThan(0);
+    expect(new Set(during.map((pair) => pair.join()))).toEqual(new Set(['true,false']));
+    expect(handler.isWritingTo('org-1')).toBe(false);
+  });
+
   it('puts every account back as it was from the snapshot, each without what its kind cannot hold', async () => {
     const rows = accounts();
     const before = accounts();

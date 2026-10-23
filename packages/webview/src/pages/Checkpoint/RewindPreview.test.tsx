@@ -508,6 +508,62 @@ describe('RewindPreview', () => {
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
   });
 
+  it('says the emails the rewind’s writes make the org send, against what it has left, and holds Rewind past them whatever is ticked (B11, H1)', () => {
+    renderPreview();
+    answerPreview({
+      automation: AUTOMATION,
+      emails: [
+        {
+          limit: 'SingleEmail',
+          emails: 40,
+          objects: [
+            {
+              objectApiName: 'Account',
+              write: 'update',
+              records: 20,
+              perRecord: 2,
+              sentBy: ['Account touch', 'Owner alert'],
+            },
+          ],
+          alertsCounted: true,
+          verdict: 'exceeds',
+          remaining: 12,
+          max: 15,
+        },
+        {
+          limit: 'DailyWorkflowEmails',
+          emails: 20,
+          objects: [
+            {
+              objectApiName: 'Account',
+              write: 'update',
+              records: 20,
+              perRecord: 1,
+              sentBy: ['Owner alert'],
+            },
+          ],
+          verdict: 'fits',
+          remaining: 8000,
+          max: 8040,
+        },
+      ],
+      refusal: {
+        code: 'EMAILS',
+        message: 'This rewind would make DEV-SB send about 40 single emails, 12 of 15 left today.',
+      },
+    });
+
+    expect(screen.getByTestId('checkpoint-preview-emails-SingleEmail').textContent).toBe(
+      "Single emails: about 40 sent by DEV-SB's automation as the rewind writes (Account touch and Owner alert), more than the 12 of 15 left today: the rewind is refused, whatever is ticked. " +
+        'DEV-SB counts its email alerts against its single emails, as a Developer Edition does: they are among them.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-emails-DailyWorkflowEmails').textContent).toBe(
+      "Workflow emails: about 20 sent by DEV-SB's automation as the rewind writes (Owner alert), 8,000 of 8,040 left today.",
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+  });
+
   it('lifts a refusal of the automation once its box is ticked', () => {
     renderPreview();
     answerPreview({

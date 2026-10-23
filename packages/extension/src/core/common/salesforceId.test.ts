@@ -1,4 +1,8 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
+import { canonicalRecordId } from './existingRecordMatch.js';
 import {
   computeChecksumSuffix,
   isSalesforceId,
@@ -52,5 +56,25 @@ describe('salesforceId checksum', () => {
 
   it('throws on malformed body for suffix computation', () => {
     expect(() => computeChecksumSuffix('short')).toThrow(/15-character/);
+  });
+
+  it('is where every source file of the extension gets the checksum from: no other holds its alphabet', () => {
+    // The duplicate-value matcher kept a copy of its own beside this one: two
+    // copies of one rule, two places to mend it. It asks this module now, as
+    // the frozen dataset does.
+    const SRC = join(__dirname, '..', '..');
+    const holders = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+      .filter((file) =>
+        readFileSync(join(SRC, file), 'utf8').includes("'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'"),
+      )
+      .map((file) => file.replaceAll('\\', '/'));
+    expect(holders).toEqual(['core/common/salesforceId.ts']);
+
+    // And the matcher agrees with it, both forms of the same ids.
+    for (const body of ['001g00000J95p3A', '012A000000BcdEF', 'a0B1n00000ZZZZZ']) {
+      expect(canonicalRecordId(body)).toBe(to18(body));
+      expect(canonicalRecordId(to18(body))).toBe(to18(body));
+    }
   });
 });

@@ -16,6 +16,7 @@ import {
   orgDiffers,
   parseArgs,
   previewExitCode,
+  previewJson,
   previewLines,
   previewTotals,
   requestsLine,
@@ -693,6 +694,52 @@ describe('previewLines', () => {
       "  undo couldn't bring back: OpportunityLineItem 3 — Salesforce undeletes them only with their parent, and their parent stays",
       "  undo couldn't bring back: Case 2 — deleted before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that",
     ]);
+  });
+
+  it('says the emails the rewind’s writes make the org send, per daily limit, against what it has left, and prints them in --json', () => {
+    const emails = [
+      {
+        limit: 'SingleEmail' as const,
+        emails: 40,
+        objects: [
+          {
+            objectApiName: 'Account',
+            write: 'update' as const,
+            records: 20,
+            perRecord: 2,
+            sentBy: ['Account touch', 'Owner alert'],
+          },
+        ],
+        alertsCounted: true as const,
+        verdict: 'exceeds' as const,
+        remaining: 12,
+        max: 15,
+      },
+      {
+        limit: 'DailyWorkflowEmails' as const,
+        emails: 20,
+        objects: [],
+        verdict: 'unread' as const,
+        unread: 'INSUFFICIENT_ACCESS',
+      },
+    ];
+    const answer = {
+      diff: diffOf([object({ toGiveBack: { records: 20, fields: 20, clearedLookups: 0 } })]),
+      estimate,
+      emails,
+    };
+
+    const lines = previewLines('DEV-SB', checkpoint, answer);
+
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 40 single emails as the rewind writes (Account touch, Owner alert), its email alerts among them: DEV-SB counts them against its single emails, as a Developer Edition does, more than the 12 of 15 left today: a rewind is refused",
+    );
+    expect(lines).toContain(
+      "  emails: DEV-SB's automation sends about 20 workflow emails as the rewind writes (—); what it has left today could not be read (INSUFFICIENT_ACCESS)",
+    );
+    expect(previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, answer).emails).toEqual(
+      emails,
+    );
   });
 
   it('says there is nothing to rewind when the org is as it was', () => {

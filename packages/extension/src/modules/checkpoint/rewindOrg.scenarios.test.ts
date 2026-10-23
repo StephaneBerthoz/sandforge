@@ -40,7 +40,7 @@ import {
 } from '../../test/rewindTestOrg.js';
 import { overwriteBackupIdOf } from '../sync/syncOverwrites.js';
 import { rewindDirOf } from './OrgCheckpointStore.js';
-import { readRewindJournal } from './rewindJournal.js';
+import { readRewindJournal, undoPlansOf } from './rewindJournal.js';
 import type { RewindDeps } from './rewindOrg.js';
 import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
 
@@ -185,6 +185,115 @@ describe('a record brought back with what its delete took along', () => {
 
     expect(undo.status).toBe('success');
     expect(stateOf(t.org, LINE_OBJECTS, LINE_COMPARED)).toEqual(beforeRewind);
+  });
+});
+
+describe('what came back with a record the rewind brought back', () => {
+  it('goes back to the bin with that record in the Undo, never on its own: undeleting the record then brings it all back, an opportunity’s products among them (K16, F41)', async () => {
+    const t = await taken((org) => {
+      baseRecords(org);
+      org.add('OpportunityLineItem', { Id: line(1), Quantity: 2, OpportunityId: opportunity(1) });
+    });
+    clock.now = SINCE;
+    // The account goes with its contact, its opportunity and the opportunity's product.
+    t.org.trash('Account', account(1), COLLEAGUE);
+    const beforeRewind = stateOf(t.org);
+    const diff = await previewed(t);
+    const result = resultOf(await rewound(t, diff.previewId));
+    expect(result.status).toBe('success');
+    const journal = await readRewindJournal(t.folder, result.rewindId);
+    expect(journal.did.withParents).toEqual(
+      expect.arrayContaining([
+        {
+          objectApiName: 'OpportunityLineItem',
+          ids: [line(1)],
+          parents: [account(1).slice(0, 15)],
+        },
+      ]),
+    );
+    const deletesBefore = t.org.deletes.length;
+
+    const undo = await undone(t, result.rewindId);
+
+    expect(undo.status).toBe('success');
+    expect(stateOf(t.org)).toEqual(beforeRewind);
+    // One delete, of the account: what came back with it went with it.
+    expect(t.org.deletes.slice(deletesBefore).flatMap(({ ids }) => ids)).toEqual([account(1)]);
+    expect(undo.planned.remove).toBe(4);
+    expect(
+      Object.fromEntries(
+        undo.deleted.map(({ objectApiName, deleted }) => [objectApiName, deleted]),
+      ),
+    ).toEqual({ Account: 1, Contact: 1, Opportunity: 1, OpportunityLineItem: 1 });
+
+    // Undeleted later, the account brings back everything its delete took.
+    await t.org.undelete([account(1)]);
+    expect(liveIds(t.org, 'Contact')).toContain(contact(3));
+    expect(liveIds(t.org, 'Opportunity')).toContain(opportunity(1));
+    expect(liveIds(t.org, 'OpportunityLineItem')).toEqual([line(1)]);
+  });
+
+  it('stays with that record when the Undo keeps it, changed since the rewind, and is left for the next Undo with it', async () => {
+    const t = await taken();
+    clock.now = SINCE;
+    t.org.trash('Account', account(1), COLLEAGUE);
+    const diff = await previewed(t);
+    // This machine's clock, which the journal dates the rewind's writes by,
+    // keeps step with the org's.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const serverTime = t.org.serverTime.bind(t.org);
+    t.org.serverTime = async () => {
+      const at = await serverTime();
+      vi.setSystemTime(clock.now);
+      return at;
+    };
+    try {
+      const result = resultOf(await rewound(t, diff.previewId));
+      expect(result.status).toBe('success');
+      // A colleague renames the opportunity that came back with the account.
+      clock.now += 5 * 60_000;
+      vi.setSystemTime(clock.now);
+      t.org.edit('Opportunity', opportunity(1), { Name: 'Renamed after the rewind' }, COLLEAGUE);
+      const deletesBefore = t.org.deletes.length;
+
+      const undo = await undone(t, result.rewindId);
+
+      // The opportunity holds its account, and the contact stays with both:
+      // nothing went, and the account is said kept for its opportunity.
+      expect(undo.status).toBe('failure');
+      expect(undo.deleted).toEqual([
+        expect.objectContaining({
+          objectApiName: 'Account',
+          deleted: 0,
+          keptDependents: 1,
+          heldBy: ['Opportunity'],
+        }),
+      ]);
+      expect(liveIds(t.org, 'Account')).toContain(account(1));
+      expect(liveIds(t.org, 'Opportunity')).toContain(opportunity(1));
+      expect(liveIds(t.org, 'Contact')).toContain(contact(3));
+      expect(t.org.deletes.slice(deletesBefore)).toEqual([]);
+      // The next undo sets out to take them again, the account with what
+      // came back with it.
+      const next = await undoPlansOf(t.folder, result.rewindId, t.checkpoint.objects);
+      try {
+        const removing: string[] = [];
+        for await (const page of next.remove.pages('Account')) removing.push(...page);
+        expect(next.remove.objects).toEqual([{ objectApiName: 'Account', count: 1 }]);
+        expect(removing).toEqual([account(1)]);
+        const along: string[] = [];
+        for (const { objectApiName } of next.goesWithParent.objects) {
+          for await (const page of next.goesWithParent.pages(objectApiName)) {
+            along.push(...page.map(({ id }) => id));
+          }
+        }
+        expect(along.sort()).toEqual([contact(3), opportunity(1)].sort());
+      } finally {
+        await next.dispose();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -874,6 +983,103 @@ describe('a lead converted since', () => {
         message: expect.stringMatching(/can't unconvert a lead/),
       },
     ]);
+  });
+});
+
+describe('a contract activated since, and a contact gone with an account created since', () => {
+  const CONTRACT_FIELDS: Record<string, unknown[]> = {
+    ...FIELDS,
+    Contract: [
+      ...STAMP_FIELDS,
+      writable('Status'),
+      writable('Description'),
+      // The category the org keeps of the status: no one writes it.
+      { name: 'StatusCode', label: 'Status Category', type: 'picklist' },
+    ],
+  };
+  const contract = (n: number): string => id('800', n);
+
+  it('leaves a contract activated since as it is, never sent an update, and names why; gives back one edited since (F15)', async () => {
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        for (const n of [1, 2]) {
+          org.add('Contract', {
+            Id: contract(n),
+            Status: 'Draft',
+            StatusCode: 'Draft',
+            Description: 'As agreed',
+          });
+        }
+      },
+      new RewindTestOrg({ fields: CONTRACT_FIELDS }),
+      [...PICKED, 'Contract'],
+    );
+    clock.now = SINCE;
+    t.org.edit(
+      'Contract',
+      contract(1),
+      { Status: 'Activated', StatusCode: 'Activated', Description: 'Signed' },
+      COLLEAGUE,
+    );
+    t.org.edit('Contract', contract(2), { Description: 'Edited' }, COLLEAGUE);
+    // What the org answers a contract set back to Draft, live.
+    t.org.refuseUpdate.set(contract(1), {
+      statusCode: 'FAILED_ACTIVATION',
+      message: 'Choose a valid contract status and save your changes.',
+    });
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Contract')).toMatchObject({
+      toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+      cannotUndo: [{ reason: 'activatedContract', count: 1 }],
+    });
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(t.org.updates.filter(({ objectApiName }) => objectApiName === 'Contract')).toEqual([
+      { objectApiName: 'Contract', records: [{ Id: contract(2), Description: 'As agreed' }] },
+    ]);
+    expect(result.residual).toEqual([
+      {
+        objectApiName: 'Contract',
+        reason: 'kept',
+        count: 1,
+        ids: [contract(1)],
+        message: expect.stringMatching(/won't set an activated contract back to Draft/),
+      },
+    ]);
+  });
+
+  it('leaves in the recycle bin a contact deleted with an account created since, never sent, and names why', async () => {
+    const t = await taken((org) => {
+      baseRecords(org);
+      org.add('Contact', { Id: contact(30), LastName: 'Moved', AccountId: account(1) });
+    });
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(30), Name: 'Made since' });
+    t.org.edit('Contact', contact(30), { AccountId: account(30) }, COLLEAGUE);
+    clock.now = SINCE + 30_000;
+    t.org.trash('Account', account(30), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+      toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
+      cannotUndo: [{ reason: 'deletedWithCreatedParent', count: 1 }],
+    });
+    const undelete = vi.spyOn(t.org, 'undelete');
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(undelete.mock.calls.flatMap(([ids]) => ids)).not.toContain(contact(30));
+    expect(result.residual).toEqual([
+      {
+        objectApiName: 'Contact',
+        reason: 'kept',
+        count: 1,
+        ids: [contact(30)],
+        message: expect.stringMatching(/deleted with a record created since/),
+      },
+    ]);
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([contact(30)]);
   });
 });
 

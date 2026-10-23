@@ -23,10 +23,13 @@ import {
   readRewindJournal,
   reopenRewindJournal,
   rewoundObjects,
-  undoPlans,
+  undoPlansOf,
+  type ObjectIds,
+  type Parented,
   type RewindJournal,
   type RewindJournalRead,
 } from './rewindJournal.js';
+import type { IdSpool } from './spooledRunRecords.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -342,6 +345,40 @@ describe('the journal, read back', () => {
     ]);
   });
 
+  it('holds what came back with a parent beside that parent, as named, and refuses as damaged a line that names fewer parents than records', async () => {
+    const journal = await journalOpened();
+    await journal.withParent('Contact', [contact(1), contact(2)], [account(1), account(1)]);
+    await journal.withParent('Opportunity', [id('006', 1)]);
+    await expect(journal.withParent('Contact', [contact(3)], [])).rejects.toThrow(
+      'Each record that comes back with a parent is named beside that parent.',
+    );
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.withParents).toEqual([
+      {
+        objectApiName: 'Contact',
+        ids: [contact(1), contact(2)],
+        parents: [account(1), account(1)],
+      },
+    ]);
+
+    const file = join(rewindDirOf(folder, journal.rewindId), 'journal.ndjson');
+    appendFileSync(
+      file,
+      `${JSON.stringify({
+        kind: 'withParent',
+        objectApiName: 'Contact',
+        ids: [contact(4), contact(5)],
+        parents: [account(2)],
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+    await expect(readRewindJournal(folder, journal.rewindId)).rejects.toThrow(
+      'The rewind’s journal names records that came back with a parent without it.',
+    );
+  });
+
   it('holds what was given back once the deletes it waited for were through, with the objects that held it, and names nothing for an object held by none', async () => {
     const journal = await journalOpened();
     await journal.heldInPlace('Opportunity', ['OpportunityLineItem'], [id('006', 1), id('006', 2)]);
@@ -643,24 +680,83 @@ describe('the journal across resumes', () => {
   );
 });
 
-describe('undoPlans', () => {
-  /** A journal read back as a test gives it. */
-  function readOf(
-    did: Partial<RewindJournalRead['did']>,
-    undo: RewindJournalRead['undo'] = {},
-  ): Pick<RewindJournalRead, 'head' | 'did' | 'undo'> {
-    return {
-      head: {
-        rewindId: 'rw-20261022-150000-a1b2',
-        checkpointId: CHECKPOINT_ID,
-        organizationId: ORG_ID,
-        startedAt: TR,
-        userId: MEMORY_ORG_USER,
-        backup: 'sync-before-rw-20261022-150000-a1b2',
-      },
-      did: { broughtBack: [], deleted: [], givenBack: [], ...did },
-      undo,
-    };
+describe('the undo’s plans, kept on disk', () => {
+  /** What a journal names, line by line, as a test gives it. */
+  interface Did {
+    deleted?: ObjectIds[];
+    broughtBack?: ObjectIds[];
+    givenBack?: ObjectIds[];
+    heldInPlace?: Array<ObjectIds & { by: string[] }>;
+    withParents?: Array<ObjectIds & { parents: string[] }>;
+  }
+
+  /**
+   * The plans of a journal on disk that names `did` — each removal answered,
+   * leaving nothing — after an undo that left `undo`: read back object by
+   * object, as an undo takes them, then let go.
+   */
+  async function plansOf(did: Did, undo?: RewindJournalRead['undo']) {
+    const journal = await journalOpened();
+    await journal.close();
+    const at = new Date().toISOString();
+    const lines: Array<Record<string, unknown>> = [
+      ...(did.broughtBack ?? []).map((o) => ({ kind: 'bringingBack', ...o, at })),
+      ...(did.withParents ?? []).map((o) => ({ kind: 'withParent', ...o, at })),
+      ...(did.deleted ?? []).map((o) => ({ kind: 'deleting', step: 1, ...o, at })),
+      ...((did.deleted ?? []).length > 0 ? [{ kind: 'deleted', step: 1, at }] : []),
+      ...(did.givenBack ?? []).map((o) => ({ kind: 'givingBack', ...o, at })),
+      ...(did.heldInPlace ?? []).map((o) => ({ kind: 'heldInPlace', ...o, at })),
+      ...(undo ? [{ kind: 'undo', state: { version: 1, ...undo }, status: 'partial', at }] : []),
+    ];
+    appendFileSync(
+      join(rewindDirOf(folder, journal.rewindId), 'journal.ndjson'),
+      lines.map((line) => `${JSON.stringify(line)}\n`).join(''),
+    );
+    const plans = await undoPlansOf(folder, journal.rewindId, OBJECTS);
+    try {
+      const idsOf = async (
+        spool: Pick<IdSpool, 'objects' | 'pages'>,
+        keep: (id: string) => boolean = () => true,
+      ): Promise<ObjectIds[]> => {
+        const out: ObjectIds[] = [];
+        for (const { objectApiName } of spool.objects) {
+          const ids: string[] = [];
+          for await (const page of spool.pages(objectApiName)) ids.push(...page.filter(keep));
+          if (ids.length > 0) out.push({ objectApiName, ids });
+        }
+        return out;
+      };
+      const held = (await idsOf(plans.giveBack, (id) => plans.held.keys.has(id))).map(
+        ({ objectApiName, ids }) => ({
+          objectApiName,
+          ids,
+          by: plans.held.objects.find((o) => o.objectApiName === objectApiName)?.by ?? [],
+        }),
+      );
+      const along: Array<ObjectIds & { parents: string[] }> = [];
+      for (const { objectApiName } of plans.goesWithParent.objects) {
+        const pairs: Parented[] = [];
+        for await (const page of plans.goesWithParent.pages(objectApiName)) pairs.push(...page);
+        along.push({
+          objectApiName,
+          ids: pairs.map(({ id }) => id),
+          parents: pairs.map(({ parent }) => parent),
+        });
+      }
+      return {
+        backup: journal.backup,
+        rewound: rewoundObjects(plans),
+        plans: {
+          remove: await idsOf(plans.remove.spool),
+          bringBack: await idsOf(plans.bringBack),
+          giveBack: (await idsOf(plans.giveBack)).map((o) => ({ ...o, backup: journal.backup })),
+          ...(held.length > 0 ? { held } : {}),
+          ...(along.length > 0 ? { goesWithParent: along } : {}),
+        },
+      };
+    } finally {
+      await plans.dispose();
+    }
   }
 
   const OBJECTS = [
@@ -668,23 +764,20 @@ describe('undoPlans', () => {
     { objectApiName: 'Account', readOrder: 1 },
   ];
 
-  it('brings back what the rewind deleted parents first, sends back what it brought back children first, and gives back what it wrote over', () => {
-    const plans = undoPlans(
-      readOf({
-        deleted: [
-          { objectApiName: 'Contact', ids: [contact(1)] },
-          { objectApiName: 'Account', ids: [account(1)] },
-        ],
-        broughtBack: [
-          { objectApiName: 'Account', ids: [account(2)] },
-          { objectApiName: 'Contact', ids: [contact(2)] },
-          // A child outside the checkpoint that came back with its account.
-          { objectApiName: 'Note', ids: [id('002', 1)] },
-        ],
-        givenBack: [{ objectApiName: 'Account', ids: [account(3)] }],
-      }),
-      OBJECTS,
-    );
+  it('brings back what the rewind deleted parents first, sends back what it brought back children first, and gives back what it wrote over', async () => {
+    const { plans, backup } = await plansOf({
+      deleted: [
+        { objectApiName: 'Contact', ids: [contact(1)] },
+        { objectApiName: 'Account', ids: [account(1)] },
+      ],
+      broughtBack: [
+        { objectApiName: 'Account', ids: [account(2)] },
+        { objectApiName: 'Contact', ids: [contact(2)] },
+        // A child outside the checkpoint that came back with its account.
+        { objectApiName: 'Note', ids: [id('002', 1)] },
+      ],
+      givenBack: [{ objectApiName: 'Account', ids: [account(3)] }],
+    });
 
     expect(plans).toEqual({
       remove: [
@@ -700,71 +793,96 @@ describe('undoPlans', () => {
         {
           objectApiName: 'Account',
           ids: [account(3)],
-          backup: 'sync-before-rw-20261022-150000-a1b2',
+          backup,
         },
       ],
     });
   });
 
-  it('leaves out of both what the rewind brought back and deleted again: it is in the recycle bin as it was', () => {
-    const plans = undoPlans(
-      readOf({
-        broughtBack: [
-          { objectApiName: 'Account', ids: [account(1)] },
-          // Came back with its account, created then deleted since: a second pass deleted it.
-          { objectApiName: 'Contact', ids: [contact(1)] },
-        ],
-        deleted: [{ objectApiName: 'Contact', ids: [contact(1).slice(0, 15)] }],
-      }),
-      OBJECTS,
-    );
+  it('leaves out of both what the rewind brought back and deleted again: it is in the recycle bin as it was', async () => {
+    const { plans } = await plansOf({
+      broughtBack: [
+        { objectApiName: 'Account', ids: [account(1)] },
+        // Came back with its account, created then deleted since: a second pass deleted it.
+        { objectApiName: 'Contact', ids: [contact(1)] },
+      ],
+      deleted: [{ objectApiName: 'Contact', ids: [contact(1).slice(0, 15)] }],
+    });
 
     expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
     expect(plans.bringBack).toEqual([]);
   });
 
-  it('names, of what it gives back, the records held in place by records the rewind deleted, and counts them apart for the estimate', () => {
-    const plans = undoPlans(
-      readOf(
+  it('sends back to the bin with its parent what came back with a record it sends back, never on its own; one whose parent it does not send back goes on its own, as before (K16)', async () => {
+    const { plans, rewound } = await plansOf({
+      broughtBack: [
+        { objectApiName: 'Account', ids: [account(1), account(2)] },
+        { objectApiName: 'Contact', ids: [contact(1), contact(2), contact(3)] },
+      ],
+      // The second account came back, then a second pass deleted it again.
+      deleted: [{ objectApiName: 'Account', ids: [account(2)] }],
+      withParents: [
         {
-          deleted: [{ objectApiName: 'Contact', ids: [contact(1)] }],
-          givenBack: [{ objectApiName: 'Account', ids: [account(1), account(2), account(3)] }],
-          heldInPlace: [
-            // One the undo before it gave back already, and one never given back.
-            {
-              objectApiName: 'Account',
-              ids: [account(1), account(2), account(4)],
-              by: ['Contact'],
-            },
-          ],
+          objectApiName: 'Contact',
+          ids: [contact(1), contact(2)],
+          parents: [account(1).slice(0, 15), account(2).slice(0, 15)],
         },
-        { restoreLeft: [account(1), account(3)] },
-      ),
-      OBJECTS,
+      ],
+    });
+
+    expect(plans.remove).toEqual([
+      // Came back with the account deleted again, or named with no parent: on its own.
+      { objectApiName: 'Contact', ids: [contact(2), contact(3)] },
+      { objectApiName: 'Account', ids: [account(1)] },
+    ]);
+    expect(plans.goesWithParent).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1)], parents: [account(1).slice(0, 15)] },
+    ]);
+    // Nothing of it is sent: the estimate counts no delete of it.
+    // The account deleted again is in the bin as it was: nothing brings it back.
+    expect(plans.bringBack).toEqual([]);
+    expect(rewound).toEqual([
+      { objectApiName: 'Contact', deleted: 0, broughtBack: 2, givenBack: 0 },
+      { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
+    ]);
+  });
+
+  it('names, of what it gives back, the records held in place by records the rewind deleted, and counts them apart for the estimate', async () => {
+    const { plans, rewound } = await plansOf(
+      {
+        deleted: [{ objectApiName: 'Contact', ids: [contact(1)] }],
+        givenBack: [{ objectApiName: 'Account', ids: [account(1), account(2), account(3)] }],
+        heldInPlace: [
+          // One the undo before it gave back already, and one never given back.
+          {
+            objectApiName: 'Account',
+            ids: [account(1), account(2), account(4)],
+            by: ['Contact'],
+          },
+        ],
+      },
+      { restoreLeft: [account(1), account(3)] },
     );
 
     expect(plans.held).toEqual([{ objectApiName: 'Account', ids: [account(1)], by: ['Contact'] }]);
-    expect(rewoundObjects(plans)).toEqual([
+    expect(rewound).toEqual([
       { objectApiName: 'Contact', deleted: 1, broughtBack: 0, givenBack: 0 },
       { objectApiName: 'Account', deleted: 0, broughtBack: 0, givenBack: 2, givenBackHeld: 1 },
     ]);
   });
 
-  it('takes up only what the undo before it left of each plan', () => {
-    const plans = undoPlans(
-      readOf(
-        {
-          broughtBack: [{ objectApiName: 'Account', ids: [account(1), account(2)] }],
-          deleted: [{ objectApiName: 'Contact', ids: [contact(1), contact(2)] }],
-          givenBack: [{ objectApiName: 'Account', ids: [account(3), account(4)] }],
-        },
-        {
-          removalLeft: [account(2)],
-          undeleteLeft: [contact(1)],
-          restoreLeft: [],
-        },
-      ),
-      OBJECTS,
+  it('takes up only what the undo before it left of each plan', async () => {
+    const { plans, rewound } = await plansOf(
+      {
+        broughtBack: [{ objectApiName: 'Account', ids: [account(1), account(2)] }],
+        deleted: [{ objectApiName: 'Contact', ids: [contact(1), contact(2)] }],
+        givenBack: [{ objectApiName: 'Account', ids: [account(3), account(4)] }],
+      },
+      {
+        removalLeft: [account(2)],
+        undeleteLeft: [contact(1)],
+        restoreLeft: [],
+      },
     );
 
     expect(plans).toEqual({
@@ -772,7 +890,7 @@ describe('undoPlans', () => {
       bringBack: [{ objectApiName: 'Contact', ids: [contact(1)] }],
       giveBack: [],
     });
-    expect(rewoundObjects(plans)).toEqual([
+    expect(rewound).toEqual([
       { objectApiName: 'Contact', deleted: 1, broughtBack: 0, givenBack: 0 },
       { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
     ]);

@@ -258,14 +258,23 @@ export class ExtensionHandlers {
     this.frozenHandler.setSaltKeeper(secretStorageSaltKeeper(deps.secretVault));
     // A checkpoint of an org a run of this window writes to is refused: it
     // would hold the run's records half written. A Sync or Seed run is told
-    // by its file and the handler writing it, a Forge run by its handler.
+    // by its file and the handler writing it; a run whose file names no org,
+    // or that keeps none, by its handler: a Forge clone, a Frozen load or its
+    // removal, a DataOps restore, masking run or erasure, an Autopilot run, a
+    // Real-Time session that applies what it receives.
     this.checkpointHandler = new CheckpointHandler(this.handlerDeps, {
       isRunning: (runId) =>
         this.syncHandler.isRunning(runId) ||
         this.seedHandler.isRunning(runId) ||
         this.seedCsvHandler.isRunning(runId) ||
         this.seedCloneHandler.isRunning(runId),
-      forgeWritingTo: (orgId) => this.forgeHandler.isWritingTo(orgId),
+      writingTo: (orgId) =>
+        this.forgeHandler.isWritingTo(orgId) ||
+        this.frozenHandler.isWritingTo(orgId) ||
+        this.dataOpsHandler.isWritingTo(orgId) ||
+        this.complianceHandler.isWritingTo(orgId) ||
+        this.autopilotHandler.isWritingTo(orgId) ||
+        this.realtimeHandler.isWritingTo(orgId),
     });
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);

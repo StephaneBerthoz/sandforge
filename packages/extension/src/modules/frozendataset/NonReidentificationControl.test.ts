@@ -4,7 +4,7 @@ import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
 import { NonReidentificationControl } from './NonReidentificationControl.js';
 import { parsePseudonymRules, withSchemaDefaults, type PseudonymRulesFile } from './rulesFile.js';
-import { to18 } from './salesforceId.js';
+import { to18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset, FrozenDataset } from './types.js';
 
 const SRC_ACCOUNT = to18('001A000000aaaaA');

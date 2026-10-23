@@ -274,9 +274,14 @@ export class IdSpoolWriter {
 
   /**
    * Write what is held, flush every file, then the list of the objects and
-   * their counts: the spool, as it is read back.
+   * their counts: the spool, as it is read back, its objects in the order
+   * `order` gives them — the order they came unless told.
    */
-  async finish(): Promise<IdSpool> {
+  async finish(
+    order?: (
+      objects: Array<{ objectApiName: string; count: number }>,
+    ) => Array<{ objectApiName: string; count: number }>,
+  ): Promise<IdSpool> {
     if (!this.made) {
       await makePrivateDir(this.dir);
       this.made = true;
@@ -285,7 +290,7 @@ export class IdSpoolWriter {
       await this.flush(objectApiName);
       await flushed(idsFileOf(this.dir, objectApiName));
     }
-    const objects = this.objects;
+    const objects = order ? order(this.objects) : this.objects;
     await writeWhole(join(this.dir, MANIFEST), `${JSON.stringify({ version: 1, objects })}\n`);
     return new IdSpool(this.dir, objects);
   }
@@ -386,9 +391,16 @@ export class SpooledRunRecords implements RunRecords {
     private readonly keys: RecordKeySet,
   ) {}
 
-  /** The records `writer` wrote, with the keys it wrote them under: nothing read back. */
-  static async of(writer: IdSpoolWriter): Promise<SpooledRunRecords> {
-    return new SpooledRunRecords(await writer.finish(), writer.keys);
+  /**
+   * The records `writer` wrote, with the keys it wrote them under: nothing
+   * read back. Its objects in the order `order` gives them, as
+   * {@link IdSpoolWriter.finish} takes it.
+   */
+  static async of(
+    writer: IdSpoolWriter,
+    order?: Parameters<IdSpoolWriter['finish']>[0],
+  ): Promise<SpooledRunRecords> {
+    return new SpooledRunRecords(await writer.finish(order), writer.keys);
   }
 
   /**

@@ -103,6 +103,7 @@ type WriteOutcome =
 const RETRYABLE_REFUSALS: ReadonlySet<CheckpointRefusalCode> = new Set([
   'RUN_WRITING',
   'API_BUDGET',
+  'EMAILS',
 ]);
 
 /** Where a run's file names the org it writes to, as a checkpoint's org is compared with it. */
@@ -114,8 +115,12 @@ interface RunFiles {
 export interface WindowWriters {
   /** Whether a Sync or a Seed run of this window, by its id, is still writing. */
   isRunning?: (runId: string) => boolean;
-  /** Whether a Forge run of this window writes to the registered org. */
-  forgeWritingTo?: (orgId: string) => boolean;
+  /**
+   * Whether a run of this window that names no org in a file writes to the
+   * registered org: a Forge clone, a Frozen load or its removal, a DataOps
+   * restore, masking run or erasure, an Autopilot run, a Real-Time session.
+   */
+  writingTo?: (orgId: string) => boolean;
 }
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
@@ -503,9 +508,10 @@ export class CheckpointHandler implements DomainHandler {
 
   /**
    * Whether a run of this machine writes to the registered org `orgId`, the
-   * Organization Id `organizationId`: a Forge run of this window, or a Sync or
-   * Seed run — a CSV import's and a clone's among them — whose file has no end,
-   * still written by this window or by another process alive. Said as a
+   * Organization Id `organizationId`: a run of this window its handler says
+   * writes to it (`WindowWriters.writingTo`), or a Sync or Seed run — a CSV
+   * import's and a clone's among them — whose file has no end, still written
+   * by this window or by another process alive. Said as a
    * refusal says it, `then` the act to do once it has ended; nothing when none
    * does. A run on another machine, or of another user of this one, is not
    * seen.
@@ -518,7 +524,7 @@ export class CheckpointHandler implements DomainHandler {
   ): (organizationId: string) => Promise<string | undefined> {
     const words = `A SandForge run is writing to ${orgName}: ${then} once it has ended. ${done}`;
     return async (organizationId) => {
-      if (this.writers.forgeWritingTo?.(orgId) === true) return words;
+      if (this.writers.writingTo?.(orgId) === true) return words;
       for (const files of [this.syncRuns, this.seedRuns]) {
         if (!files) continue;
         for (const run of await files.list()) {
@@ -979,6 +985,7 @@ export class CheckpointHandler implements DomainHandler {
       this.respond(msg, 'checkpoint:preview:response', {
         diff: outcome.diff,
         ...(outcome.automation ? { automation: outcome.automation } : {}),
+        ...(outcome.emails ? { emails: outcome.emails } : {}),
         estimate: outcome.estimate,
         ...(outcome.refusal ? { refusal: outcome.refusal } : {}),
       });

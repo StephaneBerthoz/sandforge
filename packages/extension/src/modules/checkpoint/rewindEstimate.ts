@@ -45,6 +45,7 @@ import type {
   CheckpointReadMode,
   CheckpointRefusal,
   CheckpointTakePhase,
+  ForgeEmailLimit,
   RewindDiff,
   RewindDiffObject,
 } from '@sandforge/shared';
@@ -55,8 +56,10 @@ import { RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
   apiBudgetCheckOf,
   readApiBudget,
+  readEmailLimits,
   runRequestsEstimate,
   type ApiBudget,
+  type EmailLimit,
   type LimitsTransport,
 } from '../forge/ForgeRunGate.js';
 import { QUERIES_PER_COMPOSITE, SUBREQUESTS_PER_COMPOSITE } from './compositeQueries.js';
@@ -1369,6 +1372,28 @@ function undoRestoreCost(object: RewoundObject, fields: readonly string[]): Cost
   );
 }
 
+/**
+ * SOAP calls an undo sends once, before its first undelete, when it brings
+ * records back and gives some back: the org's clock and its user, what the
+ * records its undeletes restamp are read by.
+ */
+const UNDO_RESTAMPED_FIXED_REQUESTS = 2;
+
+/**
+ * What reading what an undo's undeletes restamped of one object's records it
+ * gives back costs (`undoRewind`): before its first undelete, a read by id
+ * per {@link RECORDS_PER_CALL} records of whether each changed since the
+ * rewind; before each of its give-backs, another of those that did not, those
+ * held in place apart from the rest.
+ */
+function undoRestampedReads(object: RewoundObject): Cost {
+  const held = Math.min(object.givenBackHeld ?? 0, object.givenBack);
+  return calls(
+    batches(object.givenBack) + batches(held) + batches(object.givenBack - held),
+    SECONDS_PER_READ,
+  );
+}
+
 /** What an undo's estimate is made from. */
 export interface UndoEstimateInput {
   /** The checkpoint's objects (`OrgCheckpoint.objects`). */
@@ -1386,7 +1411,8 @@ export interface UndoEstimateInput {
  * journal says it did (`rewoundObjects`), each brick as `undoRewind` sends
  * it: the guard and the day's limits; the automation read; the removal of
  * what the rewind brought back; what it deleted brought back, saying back no
- * stamps; what it wrote over given back, by chunks of 2,000; and one verify,
+ * stamps; what its undeletes restamped of what it gives back, read before each
+ * give-back; what it wrote over given back, by chunks of 2,000; and one verify,
  * the records it gave back read again by their ids. What it brought back and
  * sent back the bricks read around their own writes, and are not read again.
  * It keeps nothing more on this machine.
@@ -1408,9 +1434,19 @@ export function undoEstimate(
       bytes: 0,
     };
   }
+  const brings = input.rewound.some((object) => object.deleted > 0);
+  const gives = input.rewound.some((object) => object.givenBack > 0);
+  const restamped =
+    brings && gives
+      ? sum(
+          calls(UNDO_RESTAMPED_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
+          ...input.rewound.map(undoRestampedReads),
+        )
+      : NOTHING;
   const cost = sum(
     fixed,
     calls(input.automationRequests, SECONDS_PER_READ),
+    restamped,
     removalCost(
       input.rewound.map((object) => ({
         records: object.broughtBack,
@@ -1455,21 +1491,42 @@ const BUDGET_WORDS: Readonly<Record<BudgetedAct, { what: string; then: string; d
   },
 };
 
+/** What an org has left today, as an act reads it once before anything else of it. */
+export interface CheckpointBudget extends ApiBudget {
+  /**
+   * What it has left of its daily email limits, read from the same answer —
+   * those it lists — or why it could not be read: an act whose writes send
+   * emails is held to them (`rewindEmails.ts`).
+   */
+  emails: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
+}
+
 /**
  * The requests the org has left today, read once, before anything else of
  * the act: an act that cannot tell does not run, as one that runs the org out
- * of them stops its integrations too.
+ * of them stops its integrations too. Its daily email limits are read from
+ * the same answer, no request more.
  *
  * @throws When the org does not say, naming it.
  */
-export async function readBudget(org: LimitsTransport, orgName: string): Promise<ApiBudget> {
+export async function readBudget(org: LimitsTransport, orgName: string): Promise<CheckpointBudget> {
+  let answer: unknown;
+  let budget: ApiBudget;
   try {
-    return await readApiBudget(org);
+    answer = await org.request({ method: 'GET', url: '/limits' });
+    budget = await readApiBudget({ request: () => Promise.resolve(answer) });
   } catch (err: unknown) {
     throw new Error(
       `${orgName} did not say how many API requests it has left today: ${extractErrorMessage(err)}`,
     );
   }
+  let emails: CheckpointBudget['emails'];
+  try {
+    emails = await readEmailLimits({ request: () => Promise.resolve(answer) });
+  } catch (err: unknown) {
+    emails = { unread: extractErrorMessage(err) };
+  }
+  return { ...budget, emails };
 }
 
 /**

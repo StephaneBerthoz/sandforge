@@ -23,7 +23,7 @@
  * the missing half held.
  */
 
-import type { ForgeUndoObjectResult } from './forge.types.js';
+import type { ForgeEmailLimit, ForgeUndoObjectResult } from './forge.types.js';
 import type { ISODateString } from './common.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
 
@@ -318,7 +318,9 @@ export interface CheckpointEstimate {
  * Modify All Data (`PERMISSIONS`), a SandForge run or another take, rewind or
  * undo writing to the org (`RUN_WRITING`), more API requests than the org has
  * left today, more records than the take's limit, automation not accepted,
- * and deletions Undo could not bring back not accepted (`NO_UNDO`).
+ * deletions Undo could not bring back not accepted (`NO_UNDO`), and more
+ * emails than the org has left today of a daily limit (`EMAILS`), which
+ * nothing lifts either.
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
@@ -329,7 +331,47 @@ export type CheckpointRefusalCode =
   | 'API_BUDGET'
   | 'TOO_MANY_RECORDS'
   | 'AUTOMATION'
-  | 'NO_UNDO';
+  | 'NO_UNDO'
+  | 'EMAILS';
+
+/** A write a rewind or an undo makes, as the org's automation fires on it. */
+export type CheckpointWrite = 'update' | 'delete' | 'undelete';
+
+/**
+ * The emails a rewind's or an undo's writes make the org send against one of
+ * its daily limits, as its automation sends them — the flows, processes and
+ * workflow rules that fire on each write and that no bypass the user holds
+ * keeps quiet — against what the org has left of it today. Each email action
+ * counts once a record, whatever condition decides it: an estimate that errs
+ * says too much. On a Developer Edition, which counts its email alerts
+ * against its fifteen single emails a day, the alerts are among the single
+ * emails (`alertsCounted`).
+ */
+export interface CheckpointEmails {
+  limit: ForgeEmailLimit;
+  /** The emails, every object and write together. */
+  emails: number;
+  /** Per object and write: the records written, and the emails each sends, and by what. */
+  objects: Array<{
+    objectApiName: string;
+    write: CheckpointWrite;
+    records: number;
+    perRecord: number;
+    sentBy: string[];
+  }>;
+  /** Set when the org's email alerts are among `emails`: it counts them against its single emails. */
+  alertsCounted?: true;
+  /**
+   * `exceeds` past what the org has left today, which refuses the act;
+   * `unread` when the org did not say what it has left.
+   */
+  verdict: 'fits' | 'exceeds' | 'unread';
+  /** What the org has left of the limit today, and its whole; absent when unread. */
+  remaining?: number;
+  max?: number;
+  /** Why what it has left could not be read. */
+  unread?: string;
+}
 
 /** A refusal said before anything runs, with the words a person reads. */
 export interface CheckpointRefusal {

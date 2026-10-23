@@ -11,6 +11,10 @@
  * Salesforce ID": length alone false-positives on 18-char business
  * identifiers, and the pod marker (chars 4-5) differs between record IDs
  * and RecordType IDs from the same org.
+ *
+ * Kept in `core/common` so that the core's own readers of ids — the
+ * duplicate-value matcher (`existingRecordMatch.ts`) — and the modules share
+ * one computation, the core importing nothing of a module's.
  */
 
 /** Alphabet indexed by the 5-bit checksum value. */

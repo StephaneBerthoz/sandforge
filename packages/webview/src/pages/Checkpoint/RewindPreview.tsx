@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { CheckCircle } from 'lucide-react';
 import { blindedBy, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import type {
+  CheckpointEmails,
   CheckpointPreviewResponse,
   CheckpointRefusalCode,
   ForgeRemovalStep,
@@ -280,6 +281,49 @@ export const RewindPreview: React.FC<RewindPreviewProps> = ({
   );
 };
 
+/**
+ * The emails the rewind's writes make the org send, per daily limit, against
+ * what it has left today: past them, the rewind is refused whatever is
+ * ticked, as the refusal above says.
+ */
+const Emails: React.FC<{ emails: readonly CheckpointEmails[]; orgName: string }> = ({
+  emails,
+  orgName,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <ul className="ml-4 list-disc" data-testid="checkpoint-preview-emails">
+      {emails.map((check) => {
+        const senders = [...new Set(check.objects.flatMap((object) => object.sentBy))];
+        const values = {
+          limit: t(
+            check.limit === 'SingleEmail'
+              ? 'common.emailLimit.single'
+              : 'common.emailLimit.workflow',
+          ),
+          emails: formatNumber(check.emails),
+          org: orgName,
+          senders: listWords(senders, t),
+          remaining: formatNumber(check.remaining ?? 0),
+          max: formatNumber(check.max ?? 0),
+          reason: check.unread ?? '',
+        };
+        return (
+          <li key={check.limit} data-testid={`checkpoint-preview-emails-${check.limit}`}>
+            {check.verdict === 'unread'
+              ? t('checkpoint.preview.emails.unread', values)
+              : check.verdict === 'exceeds'
+                ? t('checkpoint.preview.emails.exceeds', values)
+                : t('checkpoint.preview.emails.fits', values)}
+            {check.alertsCounted &&
+              ` ${t('checkpoint.preview.emails.alertsCounted', { org: orgName })}`}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
 /** Props for the preview once the org answered. */
 interface PreviewBodyProps {
   org: SalesforceOrg;
@@ -305,7 +349,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
-  const { diff, automation, estimate, refusal } = answer;
+  const { diff, automation, emails, estimate, refusal } = answer;
   const undoCannotId = useId();
   const [ticked, setTicked] = useState<Ticked>({
     automation: false,
@@ -476,6 +520,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             reading={readingAgain}
             onReadAgain={onReadAgain}
           />
+          {emails && emails.length > 0 && <Emails emails={emails} orgName={orgName} />}
           {automationFound && (
             <Box
               checked={ticked.automation}

@@ -5431,6 +5431,12 @@
         "givenBack": "quando o retrocesso lhe devolve seus valores do ponto de verificação",
         "accept": "Retroceder mesmo que {{org}} execute automações"
       },
+      "emails": {
+        "fits": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
+        "exceeds": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), mais que os {{remaining}} de {{max}} que restam hoje: o retrocesso é recusado, seja o que for marcado.",
+        "unread": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}). Não foi possível ler o que resta hoje ({{reason}}).",
+        "alertsCounted": "{{org}} conta seus alertas por e-mail entre seus e-mails individuais, como uma Developer Edition: eles estão entre eles."
+      },
       "cost": "Cerca de {{time}} · cerca de {{requests}} solicitações de API das {{left}} que restam hoje",
       "journal": "Antes de gravar, o retrocesso guarda o que muda: você pode desfazê-lo até {{date}}, antes se a lixeira encher.",
       "nothing": "{{org}} está como estava em “{{name}}” nos objetos e campos que ele contém: nada a retroceder.",

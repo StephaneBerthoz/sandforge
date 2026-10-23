@@ -100,6 +100,8 @@ const FIELDS: Record<string, unknown[]> = {
  */
 class HandlerTestOrg extends MemoryRestoreOrg {
   limits = { Max: 5_000_000, Remaining: 4_999_000 };
+  /** Its daily email limits, as `/limits` lists them: none unless told. */
+  emailLimits: Record<string, { Max: number; Remaining: number }> = {};
   /** Whether each read of its clock moves it a second, as time passes during a rewind. */
   ticking = false;
 
@@ -143,7 +145,7 @@ class HandlerTestOrg extends MemoryRestoreOrg {
   override async request(request: MemoryOrgRequest): Promise<unknown> {
     if (request.method === 'GET' && request.url.endsWith('/limits')) {
       this.requests++;
-      return { DailyApiRequests: this.limits };
+      return { DailyApiRequests: this.limits, ...this.emailLimits };
     }
     return super.request(request);
   }
@@ -504,10 +506,10 @@ describe('CheckpointHandler — the take', () => {
     expect(answerOf(elsewhere, 'wv-take-1').payload.code).toBe('RUN_WRITING');
   });
 
-  it('refuses a take while a Forge run of this window writes to the org, and takes one once runs have ended', async () => {
+  it('refuses a take while a run of this window whose handler says it writes to the org does — a Forge clone, a Frozen load, a DataOps restore, an Autopilot run, a Real-Time session — and takes one once runs have ended', async () => {
     let forgeWriting = true;
     const h = harness({
-      writers: { forgeWritingTo: (orgId) => forgeWriting && orgId === REGISTERED },
+      writers: { writingTo: (orgId) => forgeWriting && orgId === REGISTERED },
     });
     h.handler.setRunFiles('sync', {
       list: () => Promise.resolve([syncRun({ end: { at: new Date(T0).toISOString() } as never })]),
@@ -721,6 +723,60 @@ describe('CheckpointHandler — the preview', () => {
     });
     expect(answer.payload.refusal).toBeUndefined();
     expect(await h.store.list()).toHaveLength(1);
+  });
+
+  it('answers the emails the rewind’s writes would make the org send, and the refusal past what it has left today, which a rewind meets again (B11, H1)', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+
+    const answer = answerOf(h, 'wv-preview-1');
+    expect(answer.payload).toMatchObject({
+      emails: [{ limit: 'SingleEmail', emails: 1, verdict: 'exceeds', remaining: 0, max: 15 }],
+      refusal: { code: 'EMAILS' },
+    });
+    const previewId = (answer.payload.diff as { previewId: string }).previewId;
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptAutomation: true }),
+    );
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'EMAILS',
+      retryable: true,
+    });
   });
 
   it('refuses the preview of a checkpoint of the org before a refresh, without reaching the org', async () => {
@@ -1135,6 +1191,49 @@ describe('CheckpointHandler — the rewind and its undo', () => {
       rewindOf(checkpointId, previewId, { acceptAutomation: true }),
     );
     expect(resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response').status).toBe('success');
+  });
+
+  it('refuses a rewind and an undo while a run of this window writes to the org, as its handler says, writing nothing; each goes once the run has ended', async () => {
+    let writing = false;
+    const h = harness({ writers: { writingTo: (orgId) => writing && orgId === REGISTERED } });
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const before = stateOf(h.org);
+
+    writing = true;
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'RUN_WRITING',
+      retryable: true,
+      message: expect.stringMatching(/^A SandForge run is writing to DEV-SB: /) as unknown,
+    });
+    expect(stateOf(h.org)).toEqual(before);
+
+    writing = false;
+    h.org.ticking = true;
+    await h.send('wv-rewind-2', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+    const result = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    expect(result.status).toBe('success');
+    const rewound = stateOf(h.org);
+
+    writing = true;
+    await h.send('wv-undo-1', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: result.rewindId,
+      acceptAutomation: false,
+    });
+    expect(answerOf(h, 'wv-undo-1').payload).toMatchObject({ code: 'RUN_WRITING' });
+    expect(stateOf(h.org)).toEqual(rewound);
+
+    writing = false;
+    await h.send('wv-undo-2', 'checkpoint:undo', {
+      checkpointId,
+      rewindId: result.rewindId,
+      acceptAutomation: false,
+    });
+    expect(resultOf(h, 'wv-undo-2', 'checkpoint:undo:response').status).toBe('success');
   });
 
   it('refuses, without reaching the org, a rewind on a preview no longer kept, and a rewind or an undo of a checkpoint of the org before a refresh', async () => {

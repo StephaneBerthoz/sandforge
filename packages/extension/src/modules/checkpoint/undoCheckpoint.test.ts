@@ -108,6 +108,8 @@ const CHILDREN: Record<string, MemoryChild[]> = {
 /** The memory org as a take, a preview, a rewind and an undo read it, on a Developer Edition org. */
 class UndoTestOrg extends MemoryRestoreOrg implements TakeOrg {
   limits = { Max: 15_000, Remaining: 14_000 };
+  /** Its daily email limits, as `/limits` lists them: none unless told. */
+  emailLimits: Record<string, { Max: number; Remaining: number }> = {};
   /** Whether each read of its clock moves it a second, as time passes during a rewind. */
   ticking = false;
   /** Told of each update, once it is made. */
@@ -151,7 +153,7 @@ class UndoTestOrg extends MemoryRestoreOrg implements TakeOrg {
   override async request(request: MemoryOrgRequest): Promise<unknown> {
     if (request.method === 'GET' && request.url.endsWith('/limits')) {
       this.requests++;
-      return { DailyApiRequests: this.limits };
+      return { DailyApiRequests: this.limits, ...this.emailLimits };
     }
     return super.request(request);
   }
@@ -526,6 +528,50 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
     );
     expect(accepted.status).toBe('success');
     expect(stateOf(r.org)).toEqual(r.beforeRewind);
+  });
+
+  it('refuses an undo whose writes would make the org send more emails than it has left today, whatever is accepted, and writes nothing (B11, H1)', async () => {
+    const r = await rewound();
+    const before = stateOf(r.org);
+    // A flow that emails an account's owner as it is updated: the undo gives
+    // the account the rewind renamed back its name from before.
+    const sending = automationOf({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    r.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+
+    const outcome = await undone(r, {
+      deps: { readAutomation: sending },
+      request: { acceptAutomation: true },
+    });
+
+    expect(outcome).toMatchObject({
+      undone: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This undo would make DEV-ED send about 1 single emails, 0 of 15 left today: .*then undo the rewind again\. No record was written\.$/,
+        ) as unknown,
+      },
+    });
+    expect(stateOf(r.org)).toEqual(before);
+    expect((await lastRewindOf(r))?.undoneAt).toBeUndefined();
   });
 
   it('refuses an undo that would take more requests than the org has left today', async () => {

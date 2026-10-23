@@ -23,7 +23,7 @@
  */
 
 import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
-import { isValidSalesforceId18 } from './salesforceId.js';
+import { isValidSalesforceId18 } from '../../core/common/salesforceId.js';
 import { resolveGenerator, type PseudonymRulesFile } from './rulesFile.js';
 import type {
   ExtractedDataset,

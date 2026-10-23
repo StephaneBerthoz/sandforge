@@ -5431,6 +5431,12 @@
         "givenBack": "wenn das Zurücksetzen ihm seine Werte des Prüfpunkts zurückgibt",
         "accept": "Zurücksetzen, auch wenn {{org}} Automatisierungen ausführt"
       },
+      "emails": {
+        "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
+        "exceeds": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), mehr als die {{remaining}} von {{max}}, die heute übrig sind: Das Zurücksetzen wird abgelehnt, was auch immer angehakt ist.",
+        "unread": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}). Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
+        "alertsCounted": "{{org}} zählt ihre E-Mail-Benachrichtigungen zu ihren Einzel-E-Mails, wie eine Developer Edition: Sie sind darunter."
+      },
       "cost": "Etwa {{time}} · etwa {{requests}} API-Anfragen von den {{left}}, die heute noch bleiben",
       "journal": "Bevor es schreibt, bewahrt das Zurücksetzen auf, was es ändert: Sie können es bis {{date}} rückgängig machen, früher, wenn sich der Papierkorb füllt.",
       "nothing": "{{org}} ist bei den Objekten und Feldern, die „{{name}}“ enthält, so wie zu diesem Prüfpunkt: Nichts zurückzusetzen.",

@@ -540,6 +540,16 @@ export interface RunRemovalOptions {
    * to read as the run's doing, not as a change since.
    */
   otherParts?: readonly RunPartAlongside[];
+  /**
+   * Whether a record outside the plan, read hanging from one of its records
+   * through a relationship the org deletes along, goes with that record
+   * whatever its dates: read with them, against `runEnd`, the run's end on
+   * the org's clock. The undo of a rewind names this way what came back with
+   * a record the rewind brought back: older than the rewind, such a record
+   * would hold its parent; sent on its own before it, Salesforce would keep
+   * it in the recycle bin for good once its parent went after it.
+   */
+  goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
 }
 
 /**
@@ -1098,6 +1108,7 @@ export async function removeRunRecords(
       user: recordKey(span.userId),
     })),
     includeChanged: options.includeChanged,
+    ...(options.goesWithParent ? { goesWithParent: options.goesWithParent } : {}),
   });
 
   if (stopped()) return untouched();
@@ -2390,6 +2401,8 @@ interface DependentsContext {
   earlierRemovals: ReadonlyArray<{ start: number; end: number; user: string }>;
   /** Whether what changed since the run, and what was added since, goes too. */
   includeChanged: boolean;
+  /** As {@link RunRemovalOptions.goesWithParent}. */
+  goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
 }
 
 /** What {@link DependentsCheck.heldAmong} found for some records of one object. */
@@ -2935,6 +2948,7 @@ class DependentsCheck {
    *
    * A record that has the org refuse the delete of the one it points at,
    * rather than go with it, stays whatever its dates, unless it is the run's.
+   * One the removal is told goes with its parent (`goesWithParent`) goes.
    *
    * A person account's own contact is the account's other half: the org
    * creates, deletes and brings it back with its account, never on its own.
@@ -2969,6 +2983,7 @@ class DependentsCheck {
     } = this.context;
     if (runRecords.has(key)) return reached.has(key) || this.context.stays(key);
     if (restricted) return true;
+    if (this.context.goesWithParent?.(row, runEnd) === true) return false;
     if (PLATFORM_ADDED[object]?.cameWithRun(row, runRecords)) return false;
     if (personContacts && row[PERSON_ACCOUNT_FLAG] === true) {
       // A date that cannot be read cannot show the contact was left alone.

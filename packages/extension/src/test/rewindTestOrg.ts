@@ -179,6 +179,8 @@ export interface RewindTestOrgOptions {
 /** See the module's comment. */
 export class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
   limits = { Max: 15_000, Remaining: 14_000 };
+  /** Its daily email limits, as `/limits` lists them: none unless told. */
+  emailLimits: Record<string, { Max: number; Remaining: number }> = {};
   /** Whether each read of its clock moves it a second, as time passes during a rewind. */
   ticking = false;
   /** Told of every query the take's snapshot reads through, before it is answered. */
@@ -232,7 +234,7 @@ export class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
   override async request(request: MemoryOrgRequest): Promise<unknown> {
     if (request.method === 'GET' && request.url.endsWith('/limits')) {
       this.requests++;
-      return { DailyApiRequests: this.limits };
+      return { DailyApiRequests: this.limits, ...this.emailLimits };
     }
     return super.request(request);
   }

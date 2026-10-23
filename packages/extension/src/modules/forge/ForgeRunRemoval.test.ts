@@ -646,6 +646,49 @@ describe('removeRunRecords', () => {
     expect(org.has('Task', id('00T', 1))).toBe(true);
   });
 
+  it('lets a record older than the run go with its parent when the caller says it goes with it, and keeps the parent for one the caller does not name', async () => {
+    // An undo of a rewind names what came back with a record the rewind
+    // brought back: older than the rewind, it would hold that record.
+    const { org, plan } = accountWithContacts();
+    const along = id('00T', 1);
+    org.add('Task', {
+      Id: along,
+      WhatId: id('001', 1),
+      CreatedDate: BEFORE_RUN,
+      LastModifiedDate: BEFORE_RUN,
+    });
+    const told: number[] = [];
+
+    const outcome = await removeRunRecords(
+      org,
+      plan,
+      options({
+        goesWithParent: (row, runEnd) => {
+          told.push(runEnd);
+          return row.Id === along;
+        },
+      }),
+    );
+
+    expect(outcome.objects[1]).toMatchObject({ deleted: 1, keptDependents: 0 });
+    expect(org.has('Task', along)).toBe(false);
+    expect(told.every((runEnd) => Number.isFinite(runEnd))).toBe(true);
+
+    const other = accountWithContacts();
+    other.org.add('Task', {
+      Id: along,
+      WhatId: id('001', 1),
+      CreatedDate: BEFORE_RUN,
+      LastModifiedDate: BEFORE_RUN,
+    });
+    const kept = await removeRunRecords(
+      other.org,
+      other.plan,
+      options({ goesWithParent: () => false }),
+    );
+    expect(kept.objects[1]).toMatchObject({ deleted: 0, keptDependents: 1 });
+  });
+
   it('lets what was added to a record since the run go with it when changes are included', async () => {
     // Editing a cloned record adds records of its own: a tracked change in its
     // feed.

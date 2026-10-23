@@ -4,20 +4,18 @@
  *
  * A rewind deletes what was created since a checkpoint, whoever created it,
  * so what its page says it leaves alone is read as a promise. Three promises
- * are easy to make and the code does not keep them: a per-object cap that
- * leaves a large object out (the take refuses past one total instead), an
- * email count against a Developer Edition's fifteen a day (no rewind counts
- * emails), and a preview that names activated contracts (it counts records
- * gone for good and leads converted since, though the contract has room for
- * the other). The command line's help is printed whole on the page, so it is
- * held to the script's own text, word for word, with the two defaults it
- * interpolates.
+ * were once made on the page before the code kept them, or the other way
+ * round: the cap that leaves out an object past the take's limit, the email
+ * count against a Developer Edition's fifteen a day, and the preview's count
+ * of contracts activated since. Each is held here to the code that keeps it.
+ * The command line's help is printed whole on the page, so it is held to the
+ * script's own text, word for word, with the two defaults it interpolates.
  *
  * Each test states the code it depends on, and fails first if that code moved:
  * an assertion about a page that no longer works this way proves nothing.
  */
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -191,19 +189,28 @@ describe('docs/modules/checkpoint.md', () => {
 
   it('says what the write check of the command line sees, and what the panel adds to it', () => {
     // Positive control: the panel hands the checkpoint the files of Sync and
-    // Seed runs, and asks the window's Forge runs; the command line's host
-    // wires neither, and is left with the org's lock.
+    // Seed runs, and asks the handlers of the window's other writing runs;
+    // the command line's host wires neither, and is left with the org's lock.
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('sync', store);");
     expect(EXTENSION_HANDLERS).toContain("this.checkpointHandler.setRunFiles('seed', store);");
     expect(HANDLER).toContain('for (const files of [this.syncRuns, this.seedRuns]) {');
-    expect(HANDLER).toContain('if (this.writers.forgeWritingTo?.(orgId) === true) return words;');
+    expect(HANDLER).toContain('if (this.writers.writingTo?.(orgId) === true) return words;');
+    const asked = /writingTo: \(orgId\) =>([^}]*)\}\);/.exec(EXTENSION_HANDLERS)?.[1] ?? '';
+    const handlers = [...asked.matchAll(/this\.(\w+)Handler\.isWritingTo\(orgId\)/g)].map(
+      (m) => m[1],
+    );
+    expect(handlers).toEqual(['forge', 'frozen', 'dataOps', 'compliance', 'autopilot', 'realtime']);
     for (const text of [CLI, PANEL_HOST]) {
       expect(text).not.toMatch(/setSyncRunCreations|setSeedRunCreations|setRunFiles/);
     }
 
     expect(DOC).toContain("**What its write check sees**: the org's lock alone.");
-    expect(DOC).toContain('the Sync, Seed and Forge runs the panel sees are not seen here');
-    expect(DOC).toContain('In the panel, a Forge run of the window, and a Sync or Seed run');
+    expect(DOC).toContain('the runs the panel sees writing to the org are not seen here');
+    expect(DOC).toContain(
+      'In the panel, a run of the window writing to the org -- a Forge clone, a Frozen load or ' +
+        'its removal, a DataOps restore, masking run or erasure, an Autopilot run, a Real-Time ' +
+        'session that applies what it receives -- and a Sync or Seed run',
+    );
   });
 
   it('refuses a production org with nothing to lift it, and asks for both permissions', () => {
@@ -223,9 +230,17 @@ describe('docs/modules/checkpoint.md', () => {
     expect(constant(STORE, 'EXPIRY_WARNING_DAYS')).toBe(3);
     expect(constant(STORE, 'PREVIEW_KEEP_MS')).toBe(24 * 60 * 60_000);
     expect(REWIND).toContain('const UNDO_WINDOW_MS = RECYCLE_BIN_DAYS * 24 * 60 * 60_000;');
-    // The take refuses past one total; no object is left out for its own size.
+    // The take refuses past one total, and leaves out whole an object past
+    // its limit for one object: the total, a million at most.
     expect(TAKE).toContain("code: 'TOO_MANY_RECORDS',");
-    expect(TAKE).not.toMatch(/perObject|MAX_PER_OBJECT/);
+    expect(constant(TAKE, 'OBJECT_ROWS_MAX')).toBe(1_000_000);
+    expect(TAKE).toContain('const objectLimit = Math.min(maxTotal, OBJECT_ROWS_MAX);');
+    expect(TAKE).toContain(
+      'leftOut.push(pastTheLimit(scoped.objectApiName, records, objectLimit));',
+    );
+    expect(section(DOC, '## Taking a checkpoint')).toContain(
+      "an object holding more records than the take's limit, left out whole rather than kept in part",
+    );
 
     expect(DOC).toContain('for 30 days unless you keep it');
     expect(DOC).toContain('three days before its date, with **Keep**');
@@ -369,35 +384,94 @@ describe('docs/modules/checkpoint.md', () => {
     );
   });
 
-  it('claims no email count the rewind does not make', () => {
-    // Anchor: neither a rewind, an undo nor a preview counts the emails what
-    // they fire would send. Build that count and this test fails first: the
-    // page may then say what it counts.
-    for (const text of [REWIND, UNDO, PREVIEW, HANDLER]) expect(text).not.toMatch(/email/i);
+  it('says the preview, the rewind and the undo count the emails their writes send, and refuse past what the org has left', () => {
+    // Anchor: the preview counts the emails and says the refusal a rewind
+    // would meet; the rewind and the undo refuse past them, before writing.
+    expect(PREVIEW).toContain("emailsRefusal('rewind', emails, orgName)");
+    expect(REWIND).toContain(
+      'if (writing && overEmails) return { rewound: false, refusal: overEmails };',
+    );
+    expect(UNDO).toContain(
+      'if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };',
+    );
+    expect(unionOf(TYPES, 'CheckpointRefusalCode')).toContain('EMAILS');
+    expect(source(`${MODULE_DIR}/rewindEmails.ts`)).toContain("    code: 'EMAILS',");
 
-    expect(DOC).toContain('The rewind counts no emails');
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'Under it, the emails they send, per daily limit -- single emails, workflow emails --',
+    );
+    expect(preview).toContain(
+      'Three refusals no box lifts: a SandForge run writing to the org, more API requests than ' +
+        'the org has left today, and more emails than it has left today of a daily limit',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'An undo whose writes would send more emails than the org has left today of a daily limit is refused',
+    );
+    expect(DOC).toContain(
+      "What a rewind's or an undo's writes would send is counted first, per daily limit",
+    );
+    expect(DOC).not.toContain('The rewind counts no emails');
   });
 
-  it('says the preview counts records gone for good and leads converted since, and no activated contract', () => {
-    // Anchor: the diff fills what a rewind cannot undo with records gone for
-    // good and leads converted since, and no code of the module names the
-    // other reason the contract allows. Count it and this test fails first.
+  it('says the preview counts every reason a rewind cannot undo that the contract names, and the result names each kept', () => {
+    // Anchor: the diff fills what a rewind cannot undo with each reason the
+    // contract allows, and the verify names what it leaves for them kept,
+    // with why. Drop one and this test fails first.
+    expect(unionOf(TYPES, 'RewindCannotUndoReason').sort()).toEqual([
+      'activatedContract',
+      'convertedLead',
+      'deletedWithCreatedParent',
+      'goneForGood',
+    ]);
     expect(DIFF).toContain(
       "...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),",
     );
     expect(DIFF).toContain("? [{ reason: 'convertedLead' as const, count: convertedSince }]");
-    const moduleCode = readdirSync(resolve(REPO_ROOT, MODULE_DIR))
-      .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
-      .map((file) => source(join(MODULE_DIR, file)))
-      .join('\n');
-    expect(moduleCode).not.toMatch(/'activatedContract'/);
+    expect(DIFF).toContain("? [{ reason: 'activatedContract' as const, count: activatedSince }]");
+    expect(DIFF).toContain(
+      "? [{ reason: 'deletedWithCreatedParent' as const, count: withCreatedParent }]",
+    );
+    const kept = /const LEFT_AS_IT_IS[^=]*= \{([\s\S]*?)\n\};/.exec(REWIND)?.[1] ?? '';
+    expect([...kept.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1])).toEqual([
+      'convertedLead',
+      'activatedContract',
+      'deletedWithCreatedParent',
+    ]);
 
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'the contracts activated since, which Salesforce will not set back to Draft, left activated and never given back',
+    );
+    expect(preview).toContain(
+      'the records deleted since with a record created since, which their delete took along',
+    );
     expect(DOC).toContain(
       'A lead converted since stays converted, and a contract activated since stays activated',
     );
     expect(DOC).toContain(
-      'The preview counts a lead converted since among what a rewind cannot undo, and the result ' +
-        'names it kept; an activated contract the preview does not count',
+      'The preview counts a lead converted since and a contract activated since among what a ' +
+        'rewind cannot undo, and the result names each kept, never given back.',
+    );
+  });
+
+  it('says Undo sends what came back with a record back to the bin with it, never on its own', () => {
+    // Anchor: the journal names each record that came back with a parent
+    // beside it, the undo's plans leave it out of what goes on its own, and
+    // the shared removal lets it go with its parent.
+    expect(source(`${MODULE_DIR}/rewindJournal.ts`)).toContain(
+      'if (removing(recordKey(id)) && brought.has(parent) && removing(parent)) along.add(id);',
+    );
+    expect(source(`${MODULE_DIR}/undoRewind.ts`)).toContain(
+      '...(along.count > 0 ? { goesWithParent } : {}),',
+    );
+    expect(source('packages/extension/src/modules/forge/ForgeRunRemoval.ts')).toContain(
+      'if (this.context.goesWithParent?.(row, runEnd) === true) return false;',
+    );
+
+    expect(section(DOC, '## Undo')).toContain(
+      'what came back with a record, a contact with its account or a product with its ' +
+        'opportunity, goes with that record, never on its own',
     );
   });
 

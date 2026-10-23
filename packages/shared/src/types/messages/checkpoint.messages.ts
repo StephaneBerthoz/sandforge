@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
+  CheckpointEmails,
   CheckpointEstimate,
   CheckpointListEntry,
   CheckpointLeftOutObject,
@@ -211,6 +212,11 @@ export interface CheckpointPreviewResponse extends BaseMessage {
     diff: RewindDiff;
     /** Absent when the rewind would write nothing. */
     automation?: ForgeTargetAutomation;
+    /**
+     * The emails the rewind's writes make the org send, per daily limit;
+     * absent when they send none, or when the rewind would write nothing.
+     */
+    emails?: CheckpointEmails[];
     estimate: CheckpointEstimate;
     refusal?: CheckpointRefusal;
   };

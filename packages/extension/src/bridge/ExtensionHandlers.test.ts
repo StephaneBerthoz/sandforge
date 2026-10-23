@@ -303,7 +303,33 @@ describe('ExtensionHandlers', () => {
         syncHandler: { isRunning: (runId: string) => boolean };
         seedCloneHandler: { isRunning: (runId: string) => boolean };
         forgeHandler: { isWritingTo: (orgId: string) => boolean };
+        frozenHandler: { isWritingTo: (orgId: string) => boolean };
+        dataOpsHandler: { isWritingTo: (orgId: string) => boolean };
+        complianceHandler: { isWritingTo: (orgId: string) => boolean };
+        autopilotHandler: { isWritingTo: (orgId: string) => boolean };
+        realtimeHandler: { isWritingTo: (orgId: string) => boolean };
       };
+
+    it('refuses a take of an org a Frozen load, a DataOps restore, masking run or erasure, an Autopilot run or a Real-Time session of this window writes to, as each handler says', () => {
+      const all = inner();
+      const writers = [
+        all.frozenHandler,
+        all.dataOpsHandler,
+        all.complianceHandler,
+        all.autopilotHandler,
+        all.realtimeHandler,
+      ];
+      // No run of the window writes to any org: each handler's own answer.
+      expect(all.checkpointHandler.writers.writingTo?.('org-x')).toBe(false);
+      for (const writer of writers) {
+        const asked = vi.spyOn(writer, 'isWritingTo').mockImplementation((id) => id === 'org-x');
+
+        expect(all.checkpointHandler.writers.writingTo?.('org-x')).toBe(true);
+        expect(all.checkpointHandler.writers.writingTo?.('org-y')).toBe(false);
+        expect(asked).toHaveBeenCalledWith('org-x');
+        vi.restoreAllMocks();
+      }
+    });
 
     it('routes its requests to the checkpoints kept on this machine', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'sandforge-handlers-checkpoints-'));
@@ -341,8 +367,8 @@ describe('ExtensionHandlers', () => {
       expect(checkpointHandler.writers.isRunning?.('sync-1')).toBe(true);
       expect(checkpointHandler.writers.isRunning?.('clone-1')).toBe(true);
       expect(checkpointHandler.writers.isRunning?.('other')).toBe(false);
-      expect(checkpointHandler.writers.forgeWritingTo?.('org-x')).toBe(true);
-      expect(checkpointHandler.writers.forgeWritingTo?.('org-y')).toBe(false);
+      expect(checkpointHandler.writers.writingTo?.('org-x')).toBe(true);
+      expect(checkpointHandler.writers.writingTo?.('org-y')).toBe(false);
 
       // And reads the files of the Sync and Seed runs, which name the org they write to.
       const files = vi.spyOn(checkpointHandler, 'setRunFiles');

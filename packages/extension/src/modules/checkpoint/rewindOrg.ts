@@ -9,9 +9,11 @@
  * the checkpoint's own and lets its user see and put back every record; and
  * nothing is written before the org's lock is held, for the rewind's whole
  * length (neither its journal nor its bricks take it), no SandForge run of
- * this machine writes to the org, the day's requests are enough, and the
- * deletions Undo couldn't bring back and the automation the writes fire were
- * accepted. Each refusal names why, and writes nothing.
+ * this machine writes to the org, the day's requests are enough, the emails
+ * the writes make it send fit what it has left of each daily limit
+ * (`rewindEmails.ts`), and the deletions Undo couldn't bring back and the
+ * automation the writes fire were accepted. Each refusal names why, and
+ * writes nothing.
  *
  * **What it acts on.** Tr is read on the org's clock, then the org is read
  * again since the checkpoint (`rewindDiff`), and the first pass is planned
@@ -68,7 +70,9 @@
  * then unstable); changed since the preview; kept by your automation — last
  * changed after Tr by the rewind's own users —; kept as the rewind had to,
  * among them a record to delete that records it does not delete hang from,
- * and a lead converted since, which Salesforce cannot unconvert; refused, in
+ * a lead converted since, which Salesforce cannot unconvert, a contract
+ * activated since, which it will not set back to Draft, and a record deleted
+ * with one created since, which comes back with that one only; refused, in
  * the org's words. A record deleted while the checkpoint was taken and
  * brought back by the rewind reads, live and not in the snapshot, as
  * unexplained: it is the rewind's own, and never named.
@@ -154,6 +158,7 @@ import {
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
 import { classFileOf, rewindDiff, type RewindClass } from './rewindDiff.js';
+import { checkpointEmails, emailsRefusal, writtenByPlan } from './rewindEmails.js';
 import {
   budgetRefusal,
   readBudget,
@@ -201,11 +206,27 @@ const ACTED: readonly RewindClass[] = [
 ];
 
 /** What the verify names: the classes a pass acts on, and what cannot come back or be given back. */
-const STILL_DIFFERING: readonly RewindClass[] = [...ACTED, 'goneForGood', 'convertedLead'];
+const STILL_DIFFERING: readonly RewindClass[] = [
+  ...ACTED,
+  'goneForGood',
+  'convertedLead',
+  'activatedContract',
+  'deletedWithCreatedParent',
+];
 
-/** Why a rewind leaves a lead converted since as it is: the preview named it so. */
-const CONVERTED_LEAD_WORDS =
-  "Left converted: Salesforce can't unconvert a lead, and refuses any update of a converted one.";
+/**
+ * Why a rewind leaves as it is what the preview named it cannot take back,
+ * by class: kept, with why.
+ */
+const LEFT_AS_IT_IS: Readonly<Partial<Record<RewindClass, string>>> = {
+  convertedLead:
+    "Left converted: Salesforce can't unconvert a lead, and refuses any update of a converted one.",
+  activatedContract:
+    "Left activated: Salesforce won't set an activated contract back to Draft, so it is not given back.",
+  deletedWithCreatedParent:
+    'Left in the recycle bin: deleted with a record created since, which the rewind does not ' +
+    'bring back, it comes back with that record only.',
+};
 
 /** Which brick acts on the records of each class, whose refusal the verify quotes. */
 const BRICK_OF: Readonly<Partial<Record<RewindClass, Brick>>> = {
@@ -1184,6 +1205,16 @@ class Rewind {
       orgName,
     );
     if (writing && overBudget) return { rewound: false, refusal: overBudget };
+    // The emails its writes make the org send, against what it has left of
+    // each daily limit: past them, no box lifts the refusal.
+    const overEmails = automation
+      ? emailsRefusal(
+          'rewind',
+          checkpointEmails(writtenByPlan(first.plan.objects), automation, budget.emails),
+          orgName,
+        )
+      : undefined;
+    if (writing && overEmails) return { rewound: false, refusal: overEmails };
     if (
       automation &&
       !this.request.acceptAutomation &&
@@ -1795,7 +1826,9 @@ class Rewind {
    * brings back with a record everything its delete took along: an account
    * comes back with its opportunity and the opportunity's lines, and an undo
    * that knew of the opportunity alone kept it for its lines, and the account
-   * with it. By parent, every record named under it.
+   * with it. Each is named beside the record of `parents` it hangs from, as
+   * deep as it hangs: its undo sends it back to the bin with that record.
+   * By parent, every record named under it.
    *
    * A person account's own contact is not named: the org deletes it with its
    * account alone, never on its own, and an undo that sent it back to the bin
@@ -1814,6 +1847,8 @@ class Rewind {
     /** Per record named, the record of `parents` it hangs from. */
     const rootOf = new Map(parents.map((id) => [keyOf(id), keyOf(id)]));
     const found = new Map<string, string[]>();
+    /** Per object found, beside each of its records, the record of `parents` it hangs from. */
+    const roots = new Map<string, string[]>();
     let level: Array<{ objectApiName: string; cascades: readonly Cascade[]; ids: string[] }> = [
       { objectApiName, cascades, ids: [...parents] },
     ];
@@ -1844,6 +1879,7 @@ class Rewind {
               byParent.set(root, [...(byParent.get(root) ?? []), row.Id]);
               if (persons && row[PERSON_ACCOUNT_FLAG] === true) continue;
               found.set(child, [...(found.get(child) ?? []), row.Id]);
+              roots.set(child, [...(roots.get(child) ?? []), root]);
               next.set(child, [...(next.get(child) ?? []), row.Id]);
             }
           });
@@ -1871,7 +1907,7 @@ class Rewind {
         level.push({ objectApiName: child, cascades: await this.cascadesUnder(child), ids });
       }
     }
-    for (const [child, ids] of found) await journal.withParent(child, ids);
+    for (const [child, ids] of found) await journal.withParent(child, ids, roots.get(child));
     return byParent;
   }
 
@@ -2090,8 +2126,9 @@ class Rewind {
           add(name, 'goneForGood', id);
           continue;
         }
-        if (cls === 'convertedLead') {
-          add(name, 'kept', id, { message: CONVERTED_LEAD_WORDS });
+        const keptWords = LEFT_AS_IT_IS[cls];
+        if (keptWords !== undefined) {
+          add(name, 'kept', id, { message: keptWords });
           continue;
         }
         const row = rows.get(keyOf(id));

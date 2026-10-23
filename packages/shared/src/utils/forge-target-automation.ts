@@ -272,10 +272,22 @@ export interface ForgeEmailsPerInsert {
 export function emailsPerInsertOf(
   automation: Pick<ForgeTargetAutomation, 'objects'>,
 ): ForgeEmailsPerInsert[] {
+  return emailsPerWriteOf(automation, 'insert');
+}
+
+/**
+ * The emails the target sends as `write` writes records, per object and daily
+ * limit, counted as {@link emailsPerInsertOf} counts an insert's: what a
+ * rewind's updates, deletes and undeletes make an org send. A flow starts on
+ * no undelete, and an Apex trigger's emails are not read: an undelete counts
+ * none of either.
+ */
+export function emailsPerWriteOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  write: ForgeAutomationWrite,
+): ForgeEmailsPerInsert[] {
   return automation.objects.flatMap((object) => {
-    const fired = (
-      automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? []
-    ).filter((entry) => entry.keptQuiet !== true);
+    const fired = firedOn(object, write).filter((entry) => entry.keptQuiet !== true);
     const byLimit = new Map<ForgeEmailLimit, ForgeEmailsPerInsert>();
     for (const entry of fired) {
       for (const message of entry.flow?.messages ?? []) {

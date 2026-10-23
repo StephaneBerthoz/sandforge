@@ -203,6 +203,8 @@ const CLASSES: RewindClass[] = [
   'deletedWhileTaken',
   'goneForGood',
   'convertedLead',
+  'activatedContract',
+  'deletedWithCreatedParent',
   'undoCannot',
 ];
 
@@ -1555,6 +1557,117 @@ describe('rewindDiff: what a rewind cannot undo', () => {
         },
       ]);
     }
+  });
+});
+
+describe('rewindDiff: a contract activated since, and a record gone with one created since', () => {
+  const CONTRACT: Held = {
+    objectApiName: 'Contract',
+    // As a take holds a contract: its status, never the category the org
+    // keeps of it, which no one sets.
+    fields: [...STAMPS, 'Status', 'Description'],
+  };
+  const contractId = (n: number): string => idOf('800', n);
+  const [activated, edited, active] = [1, 2, 3].map(contractId);
+  /** A contract activated since, one edited since, and one active at the checkpoint and edited since. */
+  const contractsSince = (): Promise<Taken> =>
+    take({
+      objects: [CONTRACT],
+      background: false,
+      before: (org) => {
+        org.add('Contract', {
+          Id: activated,
+          Status: 'Draft',
+          StatusCode: 'Draft',
+          Description: 'a',
+        });
+        org.add('Contract', { Id: edited, Status: 'Draft', StatusCode: 'Draft', Description: 'b' });
+        org.add('Contract', {
+          Id: active,
+          Status: 'Activated',
+          StatusCode: 'Activated',
+          Description: 'c',
+        });
+      },
+      since: (org) => {
+        org.edit('Contract', activated, { Status: 'Activated', StatusCode: 'Activated' });
+        org.edit('Contract', edited, { Description: 'b since' });
+        org.edit('Contract', active, { Description: 'c since' });
+      },
+    });
+
+  it('names a contract activated since as one it cannot undo, never to give back: Salesforce will not set an activated contract back to Draft (F15)', async () => {
+    const taken = await contractsSince();
+
+    const diff = await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Contract')).toEqual({
+      giveBack: [
+        { Id: edited, fields: ['Description'] },
+        { Id: active, fields: ['Description'] },
+      ],
+      activatedContract: lines(activated),
+    });
+    expect(diff.objects).toEqual([
+      {
+        ...objectOf(
+          'Contract',
+          {
+            giveBack: [
+              { Id: edited, fields: ['Description'] },
+              { Id: active, fields: ['Description'] },
+            ],
+          },
+          bySession(2),
+        ),
+        cannotUndo: [{ reason: 'activatedContract', count: 1 }],
+      },
+    ]);
+  });
+
+  it('gives back the rest of a contract activated since whose status its owner stopped comparing: its status is never written back', async () => {
+    const taken = await contractsSince();
+
+    const diff = await diffOf(taken, { ignoredFields: ['Contract.Status'] });
+
+    const classes = await classesOf(taken.folder, 'Contract');
+    expect(classes.activatedContract).toBeUndefined();
+    expect(classes.touched).toEqual(lines(activated));
+    expect(diff.objects[0]?.cannotUndo).toEqual([]);
+  });
+
+  it('names a contact deleted with an account created since as one it cannot bring back: Salesforce brings it back with that account only, which nothing brings back; one deleted with an account the rewind brings back comes back with it (P7)', async () => {
+    const [moved, withHeld] = [1, 2].map(contactId);
+    const made = accountId(20);
+    const taken = await take({
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
+      before: (org) => {
+        org.add('Contact', { Id: moved, LastName: 'Moved', AccountId: KEPT });
+        org.add('Contact', { Id: withHeld, LastName: 'With its own', AccountId: SUBJECT });
+        org.add('Account', subject());
+      },
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.edit('Contact', moved, { AccountId: made });
+      },
+      later: (org) => {
+        org.trash('Account', made);
+        org.trash('Account', SUBJECT);
+      },
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Contact')).toEqual({
+      withParent: lines(withHeld),
+      deletedWithCreatedParent: lines(moved),
+    });
+    expect(diff.objects.find((o) => o.objectApiName === 'Contact')?.cannotUndo).toEqual([
+      { reason: 'deletedWithCreatedParent', count: 1 },
+    ]);
+    // The account created since and deleted since leaves nothing to rewind.
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ inBin: lines(SUBJECT) });
   });
 });
 

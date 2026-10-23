@@ -18,7 +18,10 @@
  * Each brick holds the records to the rewind's span, from its first pass's
  * start to its last write, and leaves one changed after it as it is
  * (`includeChanged: false`): a colleague's change made since the rewind stays
- * theirs, and is counted.
+ * theirs, and is counted. What the undo's own undeletes restamp of what it
+ * gives back — a lookup the rewind's delete cleared on a field the checkpoint
+ * does not compare, which an undelete puts back — is read before each
+ * give-back, and taken for the undo's doing.
  *
  * Once through, it reads again by their ids the records it gave back, and
  * compares the values the org holds with those from before the rewind: a
@@ -47,6 +50,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import {
+  CLOCK_LEEWAY_MS,
   removeRunRecords,
   type RemovalOrg,
   type RunRemovalOptions,
@@ -56,8 +60,11 @@ import { removalStatus } from '../forge/removalOutcome.js';
 import type { SyncRunRemovalState } from '../sync/SyncRunCreations.js';
 import { withRestore, withUndelete } from '../sync/SyncRunRemoval.js';
 import {
+  orgAheadOf,
   restoreOverwrites,
   sameValue,
+  stampsWritten,
+  writerOnce,
   type BackupReader,
   type SyncRestoreOutcome,
 } from '../sync/SyncRunRestore.js';
@@ -69,11 +76,13 @@ import {
 import type { CheckpointFolder, OrgLock } from './OrgCheckpointStore.js';
 import {
   reopenRewindJournal,
-  undoPlans,
+  spoolUndoPlans,
   type RewindJournal,
-  type RewindUndoPlans,
+  type RewindJournalFacts,
+  type SpooledUndoPlans,
 } from './rewindJournal.js';
 import { SNAPSHOT_CHUNK_IDS } from './snapshotIndex.js';
+import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 
 /** What an undo is given. */
 export interface UndoRewindInput {
@@ -164,11 +173,6 @@ function recordKey(id: string): string {
   return id.slice(0, 15);
 }
 
-/** How many ids plans hold. */
-function count(plan: ReadonlyArray<{ ids: readonly string[] }>): number {
-  return plan.reduce((sum, object) => sum + object.ids.length, 0);
-}
-
 /** A removal that had nothing to delete: what goes back to the bin was nothing. */
 function nothingRemoved(cancelled: boolean): RunRemovalOutcome {
   return {
@@ -199,67 +203,34 @@ function addTally(into: SyncRestoreObjectResult, from: SyncRestoreObjectResult |
 }
 
 /**
- * Give back what the rewind wrote over, a chunk of {@link SNAPSHOT_CHUNK_IDS}
- * records a call, as the rewind gave records their checkpoint values: one
- * call never holds more of an object's values from before in memory. A stop
- * between two chunks leaves the rest not reached.
+ * The ids of `objectApiName` in a plan, `size` at a time, those `keep` takes:
+ * pages of the spool read again into chunks of `size`, so a chunk is whole
+ * whatever the filter leaves of a page.
  */
-async function giveBack(
-  org: RemovalOrg,
-  plan: RewindUndoPlans['giveBack'],
-  values: BackupReader,
-  options: { lastWriteAt?: string; stamps?: Record<string, string>; signal?: AbortSignal },
-): Promise<SyncRestoreOutcome> {
-  const merged: SyncRestoreOutcome = {
-    objects: [],
-    left: [],
-    wrote: false,
-    cancelled: false,
-    stamps: {},
-  };
-  for (const { objectApiName, backup, ids } of plan) {
-    const tally: SyncRestoreObjectResult = {
-      objectApiName,
-      planned: ids.length,
-      restored: 0,
-      keptChanged: 0,
-      alreadyGone: 0,
-      refused: 0,
-      notKept: 0,
-      reasons: [],
-    };
-    merged.objects.push(tally);
-    for (let at = 0; at < ids.length; at += SNAPSHOT_CHUNK_IDS) {
-      const chunk = ids.slice(at, at + SNAPSHOT_CHUNK_IDS);
-      if (merged.cancelled || options.signal?.aborted) {
-        merged.cancelled = true;
-        tally.notReached = (tally.notReached ?? 0) + chunk.length;
-        merged.left.push(...chunk);
-        continue;
+async function* chunksOf(
+  spool: Pick<IdSpool, 'pages'>,
+  objectApiName: string,
+  size: number,
+  keep: (key: string) => boolean = () => true,
+): AsyncGenerator<string[]> {
+  let chunk: string[] = [];
+  for await (const page of spool.pages(objectApiName, size)) {
+    for (const id of page) {
+      if (!keep(recordKey(id))) continue;
+      chunk.push(id);
+      if (chunk.length >= size) {
+        yield chunk;
+        chunk = [];
       }
-      const outcome = await restoreOverwrites({
-        org,
-        plan: [{ objectApiName, backup, ids: chunk }],
-        backups: values,
-        ...(options.lastWriteAt !== undefined ? { lastWriteAt: options.lastWriteAt } : {}),
-        includeChanged: false,
-        ...(options.stamps ? { stamps: options.stamps } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-      });
-      addTally(tally, outcome.objects[0]);
-      merged.left.push(...outcome.left);
-      merged.wrote ||= outcome.wrote;
-      merged.cancelled ||= outcome.cancelled;
-      Object.assign(merged.stamps, outcome.stamps);
     }
   }
-  return merged;
+  if (chunk.length > 0) yield chunk;
 }
 
 /**
  * The order an undo's sweep writes in, from its plans: what the rewind
  * deleted, parents first, then what it wrote over — but the records whose
- * values records it deleted held in place (`RewindUndoPlans.held`) are given
+ * values records it deleted held in place (`SpooledUndoPlans.held`) are given
  * back before those records come back from the bin, once every object
  * brought back before the first of them is back.
  *
@@ -269,41 +240,57 @@ async function giveBack(
  * up. Its undo brought the product back first, then could not give the
  * opportunity back the values the product needs.
  */
-export function heldInPlaceOrder(plans: RewindUndoPlans): {
+export function heldInPlaceOrder(plans: Pick<SpooledUndoPlans, 'bringBack' | 'held'>): {
   /** Brought back first: the objects before the first whose records held values in place. */
-  bringFirst: RewindUndoPlans['bringBack'];
-  /** Given back next: the records held in place. */
-  giveHeld: RewindUndoPlans['giveBack'];
-  /** Brought back then: the records that held them, and the objects after them. */
-  bringAfter: RewindUndoPlans['bringBack'];
-  /** Given back last: the rest of what the rewind wrote over. */
-  giveRest: RewindUndoPlans['giveBack'];
+  bringFirst: string[];
+  /** Brought back then: the objects of the records that held them, and those after them. */
+  bringAfter: string[];
+  /** Of what is given back, the records held in place, given back between the two. */
+  held: (key: string) => boolean;
 } {
-  const held = new Set((plans.held ?? []).flatMap(({ ids }) => ids.map(recordKey)));
-  const holders = new Set((plans.held ?? []).flatMap(({ by }) => by));
-  const first = plans.bringBack.findIndex(({ objectApiName }) => holders.has(objectApiName));
-  const split = first < 0 || held.size === 0 ? plans.bringBack.length : first;
-  const giveWhere = (keep: (key: string) => boolean): RewindUndoPlans['giveBack'] =>
-    plans.giveBack.flatMap((object) => {
-      const ids = object.ids.filter((id) => keep(recordKey(id)));
-      return ids.length > 0 ? [{ ...object, ids }] : [];
-    });
+  const objects = plans.bringBack.objects
+    .filter(({ count: records }) => records > 0)
+    .map(({ objectApiName }) => objectApiName);
+  const holders = new Set(plans.held.objects.flatMap(({ by }) => by));
+  const first = objects.findIndex((objectApiName) => holders.has(objectApiName));
+  const split = first < 0 || plans.held.keys.size === 0 ? objects.length : first;
   return {
-    bringFirst: plans.bringBack.slice(0, split),
-    giveHeld: giveWhere((key) => held.has(key)),
-    bringAfter: plans.bringBack.slice(split),
-    giveRest: giveWhere((key) => !held.has(key)),
+    bringFirst: objects.slice(0, split),
+    bringAfter: objects.slice(split),
+    held: (key) => plans.held.keys.has(key),
   };
 }
 
-/** What two bring-backs of an undo did, as one: their objects are apart. */
+/** What two bring-backs of an object did, as one. */
+function mergedUndeleteObject(
+  into: SyncUndeleteObjectResult,
+  from: SyncUndeleteObjectResult,
+): void {
+  into.planned += from.planned;
+  into.undeleted += from.undeleted;
+  into.alreadyBack += from.alreadyBack;
+  into.goneForGood += from.goneForGood;
+  into.refused += from.refused;
+  if (from.notReached) into.notReached = (into.notReached ?? 0) + from.notReached;
+  for (const reason of from.reasons) {
+    if (into.reasons.length < 5 && !into.reasons.includes(reason)) into.reasons.push(reason);
+  }
+}
+
+/** What two bring-backs of an undo did, as one: an object brought back in both counted once. */
 function mergedUndelete(
   into: SyncUndeleteOutcome | undefined,
   from: SyncUndeleteOutcome,
 ): SyncUndeleteOutcome {
   if (!into) return from;
+  const objects = into.objects.map((object) => ({ ...object, reasons: [...object.reasons] }));
+  for (const object of from.objects) {
+    const same = objects.find((held) => held.objectApiName === object.objectApiName);
+    if (same) mergedUndeleteObject(same, object);
+    else objects.push({ ...object, reasons: [...object.reasons] });
+  }
   return {
-    objects: [...into.objects, ...from.objects],
+    objects,
     left: [...into.left, ...from.left],
     wrote: into.wrote || from.wrote,
     cancelled: into.cancelled || from.cancelled,
@@ -350,6 +337,9 @@ function mergedRestore(
  * account; the undo named six contacts refused, and ended partial.
  *
  * A read that fails leaves the outcome as it was, said in `notes`.
+ *
+ * @param plan - What was sent, per object; only the records the outcome
+ *   left are read.
  */
 export async function settleNotInBin(
   org: Pick<RemovalOrg, 'query'>,
@@ -442,24 +432,24 @@ async function valuesBefore(
  */
 async function stillDiffering(
   org: RemovalOrg,
-  plan: RewindUndoPlans['giveBack'],
+  plans: Pick<SpooledUndoPlans, 'giveBack' | 'backup'>,
   values: BackupReader,
-  left: ReadonlySet<string>,
+  left: RecordKeySet,
   notes: string[],
 ): Promise<UndoResidual[]> {
   const residual: UndoResidual[] = [];
-  for (const { objectApiName, backup, ids } of plan) {
+  const backup = plans.backup;
+  for (const { objectApiName } of plans.giveBack.objects) {
     const object = assertSoqlIdentifier(objectApiName);
     const differing: UndoResidual = { objectApiName, count: 0, ids: [], by: {} };
-    const given = ids.filter((id) => !left.has(recordKey(id)));
     try {
-      for (let at = 0; at < given.length; at += SNAPSHOT_CHUNK_IDS) {
-        const before = await valuesBefore(
-          values,
-          backup,
-          objectApiName,
-          given.slice(at, at + SNAPSHOT_CHUNK_IDS),
-        );
+      for await (const given of chunksOf(
+        plans.giveBack,
+        objectApiName,
+        SNAPSHOT_CHUNK_IDS,
+        (key) => !left.has(key),
+      )) {
+        const before = await valuesBefore(values, backup, objectApiName, given);
         if (before.size === 0) continue;
         const fields = new Set<string>();
         for (const { values: held } of before.values()) {
@@ -505,7 +495,56 @@ async function stillDiffering(
 }
 
 /**
+ * Of the records the undo gives back, by key, those the org dates modified no
+ * later than the rewind's end on its clock, or than what the rewind's
+ * removals and the undos before left on them: unchanged since the rewind. A
+ * read that fails leaves its records out, taken for changed.
+ */
+async function unchangedSince(
+  org: Pick<RemovalOrg, 'query'>,
+  giveBack: Pick<IdSpool, 'objects' | 'pages'>,
+  rewindEnd: number,
+  stampsBefore: Readonly<Record<string, string>>,
+  signal: AbortSignal | undefined,
+): Promise<RecordKeySet> {
+  const stamped = new Map(
+    Object.entries(stampsBefore).map(([id, at]) => [recordKey(id), Date.parse(at)]),
+  );
+  const unchanged = new RecordKeySet();
+  for (const { objectApiName } of giveBack.objects) {
+    const object = assertSoqlIdentifier(objectApiName);
+    for await (const page of giveBack.pages(objectApiName)) {
+      for (const list of idLists(page, RECORDS_PER_CALL)) {
+        if (signal?.aborted) return unchanged;
+        let rows: Array<Record<string, unknown>>;
+        try {
+          rows = (
+            await org.query(`SELECT Id, LastModifiedDate FROM ${object} WHERE Id IN (${list})`)
+          ).records as Array<Record<string, unknown>>;
+        } catch {
+          continue;
+        }
+        for (const row of rows) {
+          if (typeof row.Id !== 'string') continue;
+          const key = recordKey(row.Id);
+          const modified = Date.parse(String(row.LastModifiedDate ?? ''));
+          if (modified <= rewindEnd || modified <= (stamped.get(key) ?? Number.NaN)) {
+            unchanged.add(row.Id);
+          }
+        }
+      }
+    }
+  }
+  return unchanged;
+}
+
+/**
  * Undo a rewind from its journal: see the module's comment.
+ *
+ * Its plans are read from the journal on disk into files of their own, a line
+ * at a time (`spoolUndoPlans`), and taken a page at a time: held in memory,
+ * the plans of a rewind of a million records took some 700 MB of the
+ * extension host. They are removed once it is through.
  *
  * @returns Nothing is thrown for a follow-up that fails; a call to the org
  *   that fails outright is thrown, as the removal throws it.
@@ -515,7 +554,13 @@ async function stillDiffering(
 export async function undoRewind(input: UndoRewindInput): Promise<UndoRewindOutcome> {
   const journal = await reopenRewindJournal(input.folder, input.rewindId, input.lock);
   try {
-    return await undoFrom(journal, input);
+    const facts = await journal.facts();
+    const plans = await spoolUndoPlans(journal.dir, facts, input.objects);
+    try {
+      return await undoFrom(journal, facts, plans, input);
+    } finally {
+      await plans.dispose();
+    }
   } finally {
     await journal.close();
   }
@@ -523,15 +568,16 @@ export async function undoRewind(input: UndoRewindInput): Promise<UndoRewindOutc
 
 async function undoFrom(
   journal: RewindJournal,
+  read: RewindJournalFacts,
+  plans: SpooledUndoPlans,
   input: UndoRewindInput,
 ): Promise<UndoRewindOutcome> {
   const { org, signal } = input;
-  const read = await journal.read();
-  const plans = undoPlans(read, input.objects);
+  const along = plans.goesWithParent;
   const planned = {
-    remove: count(plans.remove),
-    bringBack: count(plans.bringBack),
-    giveBack: count(plans.giveBack),
+    remove: plans.remove.spool.count + along.count,
+    bringBack: plans.bringBack.count,
+    giveBack: plans.giveBack.count,
   };
   const notes: string[] = [];
   // What the rewind's removals, and the undos before this one, left on
@@ -541,62 +587,203 @@ async function undoFrom(
   const stampsBefore = { ...read.rewind.removalStamps, ...read.undo.removalStamps };
   const stamps = Object.keys(stampsBefore).length > 0 ? stampsBefore : undefined;
   const spansBefore = [...(read.rewind.removalSpans ?? []), ...(read.undo.removalSpans ?? [])];
+  // What this undo's undeletes restamp of the records it gives back next. An
+  // undelete puts back the lookups the rewind's delete cleared, and the org
+  // dates the record anew, as the undo's user: on a field the checkpoint does
+  // not compare, which the rewind never gave back, its delete cleared the
+  // lookup, and the record then read as changed since the rewind, kept as
+  // someone else had changed it. One unchanged since the rewind when the
+  // undeletes began, and last modified by the undo's user since, is the
+  // undo's own doing: read before the first undelete, then before each
+  // give-back. One someone changed before is theirs still, whoever the
+  // undelete names its last modifier.
+  const writerOf = writerOnce(org);
+  /** When the undo's undeletes began, by the org's clock, give or take the drift. */
+  let undeletesFrom: number | undefined;
+  /** Of what it gives back, the records unchanged since the rewind when its undeletes began. */
+  let untouched = new RecordKeySet();
+  const restamped: Record<string, string> = {};
 
   const order = heldInPlaceOrder(plans);
   let undeleted: SyncUndeleteOutcome | undefined;
   let restored: SyncRestoreOutcome | undefined;
-  const bringBack = async (plan: RewindUndoPlans['bringBack']): Promise<boolean> => {
-    if (plan.length === 0) return true;
-    undeleted = mergedUndelete(
-      undeleted,
-      await undeleteRunDeletions({
-        org,
-        plan,
-        undelete: input.undelete,
-        ...(signal ? { signal } : {}),
-      }),
-    );
-    return !undeleted.cancelled && signal?.aborted !== true;
+  /** What the bring-back left, per object: what the settling of what it refused reads. */
+  const undeleteLeft = new Map<string, string[]>();
+  /**
+   * Bring back the records of `objects`, in their order, a page at a time:
+   * whether it went through. Once stopped, what it did not reach is left.
+   */
+  const bringBack = async (objects: readonly string[]): Promise<boolean> => {
+    for (const objectApiName of objects) {
+      for await (const page of plans.bringBack.pages(objectApiName)) {
+        const stopped = (undeleted?.cancelled ?? false) || signal?.aborted === true;
+        const outcome = stopped
+          ? {
+              objects: [
+                {
+                  objectApiName,
+                  planned: page.length,
+                  undeleted: 0,
+                  alreadyBack: 0,
+                  goneForGood: 0,
+                  refused: 0,
+                  notReached: page.length,
+                  reasons: [],
+                },
+              ],
+              left: [...page],
+              wrote: false,
+              cancelled: true,
+              stamps: {},
+            }
+          : await undeleteRunDeletions({
+              org,
+              plan: [{ objectApiName, ids: page }],
+              undelete: input.undelete,
+              ...(signal ? { signal } : {}),
+            });
+        undeleteLeft.set(objectApiName, [
+          ...(undeleteLeft.get(objectApiName) ?? []),
+          ...outcome.left,
+        ]);
+        undeleted = mergedUndelete(undeleted, outcome);
+      }
+    }
+    return !(undeleted?.cancelled ?? false) && signal?.aborted !== true;
   };
-  const giveBackOf = async (plan: RewindUndoPlans['giveBack']): Promise<boolean> => {
-    if (plan.length === 0) return true;
-    restored = mergedRestore(
-      restored,
-      await giveBack(org, plan, journal.values, {
-        ...(read.lastWriteAt !== undefined ? { lastWriteAt: read.lastWriteAt } : {}),
-        ...(stamps ? { stamps } : {}),
-        ...(signal ? { signal } : {}),
-      }),
-    );
-    return !restored.cancelled && signal?.aborted !== true;
+  /**
+   * Give back the records of the plan `keep` takes, a chunk of
+   * {@link SNAPSHOT_CHUNK_IDS} a call, as the rewind gave records their
+   * checkpoint values: one call never holds more of an object's values from
+   * before in memory. What its undeletes restamped of a chunk is read just
+   * before it. A stop between two chunks leaves the rest not reached.
+   */
+  const giveBackOf = async (keep: (key: string) => boolean): Promise<boolean> => {
+    for (const { objectApiName } of plans.giveBack.objects) {
+      const object = assertSoqlIdentifier(objectApiName);
+      const tally: SyncRestoreObjectResult = {
+        objectApiName,
+        planned: 0,
+        restored: 0,
+        keptChanged: 0,
+        alreadyGone: 0,
+        refused: 0,
+        notKept: 0,
+        reasons: [],
+      };
+      const outcome: SyncRestoreOutcome = {
+        objects: [tally],
+        left: [],
+        wrote: false,
+        cancelled: false,
+        stamps: {},
+      };
+      for await (const chunk of chunksOf(plans.giveBack, objectApiName, SNAPSHOT_CHUNK_IDS, keep)) {
+        tally.planned += chunk.length;
+        if ((restored?.cancelled ?? false) || outcome.cancelled || signal?.aborted) {
+          outcome.cancelled = true;
+          tally.notReached = (tally.notReached ?? 0) + chunk.length;
+          outcome.left.push(...chunk);
+          continue;
+        }
+        if (undeletesFrom !== undefined) {
+          const unchanged = chunk.filter((id) => untouched.has(id));
+          Object.assign(
+            restamped,
+            await stampsWritten(org, object, unchanged, undeletesFrom, writerOf),
+          );
+        }
+        const held = { ...stampsBefore, ...restamped };
+        const call = await restoreOverwrites({
+          org,
+          plan: [{ objectApiName, backup: plans.backup, ids: chunk }],
+          backups: journal.values,
+          ...(read.lastWriteAt !== undefined ? { lastWriteAt: read.lastWriteAt } : {}),
+          includeChanged: false,
+          ...(Object.keys(held).length > 0 ? { stamps: held } : {}),
+          ...(signal ? { signal } : {}),
+        });
+        addTally(tally, call.objects[0]);
+        outcome.left.push(...call.left);
+        outcome.wrote ||= call.wrote;
+        outcome.cancelled ||= call.cancelled;
+        Object.assign(outcome.stamps, call.stamps);
+      }
+      if (tally.planned > 0) restored = mergedRestore(restored, outcome);
+    }
+    return !(restored?.cancelled ?? false) && signal?.aborted !== true;
   };
   const sweep = async (): Promise<boolean> => {
+    if (plans.bringBack.count > 0 && plans.giveBack.count > 0) {
+      const ahead = await orgAheadOf(org);
+      undeletesFrom = Date.now() + ahead - CLOCK_LEEWAY_MS;
+      const lastWrite = Date.parse(read.lastWriteAt ?? '');
+      const rewindEnd = Number.isFinite(lastWrite)
+        ? lastWrite + ahead + CLOCK_LEEWAY_MS
+        : Number.NEGATIVE_INFINITY;
+      untouched = await unchangedSince(org, plans.giveBack, rewindEnd, stampsBefore, signal);
+    }
     // What it deleted first, parents first: a record it wrote over may name
     // one of them. But values the records it deleted held in place go back
     // before those records come back: the org refuses them while they are
     // there, or refuses them under values they never had.
     const through =
       (await bringBack(order.bringFirst)) &&
-      (await giveBackOf(order.giveHeld)) &&
+      (await giveBackOf(order.held)) &&
       (await bringBack(order.bringAfter));
     if (through) {
       // Every record brought back: what came back with a record after it is
       // live now, and was answered not in the bin when it was sent first.
-      if (undeleted) undeleted = await settleNotInBin(org, undeleted, plans.bringBack, notes);
-      await giveBackOf(order.giveRest);
+      if (undeleted) {
+        undeleted = await settleNotInBin(
+          org,
+          undeleted,
+          [...undeleteLeft].map(([objectApiName, ids]) => ({ objectApiName, ids })),
+          notes,
+        );
+      }
+      await giveBackOf((key) => !order.held(key));
     }
     return (undeleted?.wrote ?? false) || (restored?.wrote ?? false);
   };
 
+  // What came back with a record it sends back to the bin goes with that
+  // record, unless someone changed it since the rewind: older than the
+  // rewind, it would hold its parent for the removal; changed since, it
+  // does, and both stay. What this undo gave back of it is its own write.
+  /** Read once the sweep is through, as the removal reads what hangs from its records. */
+  let swept: { stamps: Map<string, number>; notGiven: RecordKeySet } | undefined;
+  const goesWithParent = (row: Readonly<Record<string, unknown>>, runEnd: number): boolean => {
+    if (typeof row.Id !== 'string' || !along.keys.has(row.Id)) return false;
+    if (swept === undefined) {
+      const notGiven = new RecordKeySet();
+      for (const id of restored?.left ?? []) notGiven.add(id);
+      swept = {
+        stamps: new Map(
+          Object.entries({ ...stampsBefore, ...restamped }).map(([id, at]) => [
+            recordKey(id),
+            Date.parse(at),
+          ]),
+        ),
+        notGiven,
+      };
+    }
+    const modified = Date.parse(String(row.LastModifiedDate ?? row.SystemModstamp ?? ''));
+    const key = recordKey(row.Id);
+    if (modified <= runEnd || modified <= (swept.stamps.get(key) ?? Number.NaN)) return true;
+    return plans.giveBackKeys.has(key) && restored !== undefined && !swept.notGiven.has(key);
+  };
+
   let outcome: RunRemovalOutcome;
-  if (plans.remove.length > 0) {
+  if (plans.remove.spool.count > 0) {
     outcome = await removeRunRecords(org, plans.remove, {
       runStartedAt: new Date(read.head.startedAt),
       ...(read.lastWriteAt !== undefined ? { runRecordedAt: new Date(read.lastWriteAt) } : {}),
       ...(stamps ? { removalStamps: stamps } : {}),
       ...(spansBefore.length > 0 ? { removalSpans: spansBefore } : {}),
       includeChanged: false,
-      ...(plans.bringBack.length > 0 || plans.giveBack.length > 0 ? { sweep } : {}),
+      ...(along.count > 0 ? { goesWithParent } : {}),
+      ...(plans.bringBack.count > 0 || plans.giveBack.count > 0 ? { sweep } : {}),
       ...(input.onUndeletable ? { onUndeletable: input.onUndeletable } : {}),
       ...(signal ? { signal } : {}),
       ...(input.onProgress ? { onProgress: input.onProgress } : {}),
@@ -623,39 +810,69 @@ async function undoFrom(
     };
   }
 
+  // What the removal left of what it was handed, read again a page at a
+  // time; what went with its parent is counted deleted with it, and what
+  // stayed with a parent the removal kept is the parent's to say, and the
+  // next undo's to take with it.
+  const removalLeft: string[] = [];
+  const left = new RecordKeySet();
+  for await (const { ids } of outcome.left()) {
+    for (const id of ids) {
+      left.add(id);
+      removalLeft.push(id);
+    }
+  }
+  const wentAlong: ForgeUndoObjectResult[] = [];
+  for (const { objectApiName } of along.objects) {
+    let went = 0;
+    for await (const page of along.pages(objectApiName)) {
+      for (const { id, parent } of page) {
+        if (left.has(parent)) removalLeft.push(id);
+        else went++;
+      }
+    }
+    if (went === 0) continue;
+    wentAlong.push({
+      objectApiName,
+      planned: went,
+      deleted: went,
+      alreadyGone: 0,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    });
+  }
+  const removed = [...wentAlong, ...outcome.objects];
   let status = withUndelete(
-    withRestore(removalStatus(outcome.objects, outcome.cancelled), outcome.objects, restored),
-    outcome.objects,
+    withRestore(removalStatus(removed, outcome.cancelled), removed, restored),
+    removed,
     restored,
     undeleted,
   );
-  const residual =
-    restored && status !== 'cancelled'
-      ? await stillDiffering(
-          org,
-          plans.giveBack,
-          journal.values,
-          new Set(restored.left.map(recordKey)),
-          notes,
-        )
-      : [];
+  let residual: UndoResidual[] = [];
+  if (restored && status !== 'cancelled') {
+    const notGiven = new RecordKeySet();
+    for (const id of restored.left) notGiven.add(id);
+    residual = await stillDiffering(org, plans, journal.values, notGiven, notes);
+  }
   if (residual.length > 0 && status === 'success') status = 'partial';
 
   // Kept whatever it ended on, cancelled included, as a Sync run's removal
   // keeps its own: what the next undo sets out to take back, what it wrote
   // to records it did not delete, and when it ran.
-  const gone = new Set(outcome.gone);
-  const removalLeft =
-    gone.size > 0
-      ? plans.remove.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)))
-      : undefined;
+  const removalRan = plans.remove.spool.count > 0;
   const gaveBack =
     restored?.objects.some((object) => object.restored + (object.restoredWithout ?? 0) > 0) ===
     true;
+  // What this undo's undeletes restamped is its own, for the next undo too.
+  const undoStamps = { ...restamped, ...outcome.stamps };
   const change: SyncRunRemovalState = {
-    ...(Object.keys(outcome.stamps).length > 0 ? { removalStamps: outcome.stamps } : {}),
+    ...(Object.keys(undoStamps).length > 0 ? { removalStamps: undoStamps } : {}),
     ...(outcome.span ? { removalSpans: [outcome.span] } : {}),
-    ...(removalLeft ? { removalLeft } : {}),
+    ...(removalRan ? { removalLeft } : {}),
     ...(restored ? { restoreLeft: restored.left } : {}),
     ...(gaveBack ? { restoredAt: finishedAt } : {}),
     ...(undeleted ? { undeleteLeft: undeleted.left } : {}),
@@ -672,7 +889,7 @@ async function undoFrom(
   return {
     rewindId: input.rewindId,
     status,
-    deleted: outcome.objects,
+    deleted: removed,
     restored: restored?.objects ?? [],
     undeleted: undeleted?.objects ?? [],
     residual,

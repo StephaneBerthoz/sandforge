@@ -44,6 +44,7 @@ import {
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
   firedOnRemovalStepsOf,
+  type CheckpointEmails,
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointListEntry,
@@ -80,7 +81,7 @@ import {
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
-import { readRewindJournal, undoPlans } from '../src/modules/checkpoint/rewindJournal.js';
+import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 
@@ -163,11 +164,12 @@ and leaves a checkpoint listed as never taken, which delete removes. Ctrl-C stop
 undo before its next call to the org, and leaves its journal: rewind again takes up from what still
 differs, and undo still returns the org to how it was before the rewind.
 
-What a rewind cannot undo: a record deleted since and no longer in the recycle bin (preview
+What a rewind cannot undo: a record deleted since and no longer in the recycle bin, a lead
+converted since, a contract activated since, a record deleted with one created since (preview
 counts them); a field added or removed since (preview names it); the values the org computes or
-keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); a lead converted
-since; an activated contract; what left the org (emails, callouts, outbound messages, platform
-events); metadata; files. A record the org refuses to put back is named by rewind, with its words.
+keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
+(emails, callouts, outbound messages, platform events); metadata; files. A record the org refuses
+to put back is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -181,9 +183,11 @@ JSON (--json), one value on stdout:
                      the requests over a take's phases as requests.byPhase does: guard, scope,
                      start, counts, bin, snapshot, stability
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
-                      differs, diff, estimate, automation?, refusal?}: diff, estimate, automation
-                     and refusal as the extension answers them; refusal is the one a rewind would
-                     meet now
+                      differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
+                     automation and refusal as the extension answers them; refusal is the one a
+                     rewind would meet now; emails, one per daily limit its writes send against:
+                     {limit, emails, verdict, remaining?, max?, alertsCounted?, objects:
+                     [{objectApiName, write, records, perRecord, sentBy}]}
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack (each {planned, done, left}), cannotUndo: [{object, reason,
@@ -204,9 +208,9 @@ Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: 
 org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
-without --accept-no-undo, more than --max-total records, more API requests than the org has left
-today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge run
-writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
+without --accept-no-undo, more than --max-total records, more API requests or emails than the org
+has left today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge
+run writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes); 3 partial (rewind and undo: records still differ, each said with why; with
 --fail-on-change, the org differs: records to delete, give back or bring back, records the rewind
@@ -977,8 +981,42 @@ function undoCannotByReason(
 export interface PreviewAnswer {
   diff: RewindDiff;
   automation?: ForgeTargetAutomation;
+  emails?: CheckpointEmails[];
   estimate: CheckpointEstimate;
   refusal?: CheckpointRefusal;
+}
+
+/** How each daily email limit is said. */
+const EMAIL_LIMIT_WORDS: Readonly<Record<CheckpointEmails['limit'], string>> = {
+  SingleEmail: 'single emails',
+  DailyWorkflowEmails: 'workflow emails',
+};
+
+/**
+ * One line per daily email limit the rewind's writes send against: about how
+ * many, by what, and what the org has left of it today.
+ */
+function emailLines(orgName: string, emails: readonly CheckpointEmails[]): string[] {
+  return emails.map((check) => {
+    const senders = [...new Set(check.objects.flatMap((object) => object.sentBy))];
+    const sent =
+      `  emails: ${orgName}'s automation sends about ${check.emails} ` +
+      `${EMAIL_LIMIT_WORDS[check.limit]} as the rewind writes (${someOf(senders, 4)})` +
+      (check.alertsCounted
+        ? `, its email alerts among them: ${orgName} counts them against its single emails, ` +
+          'as a Developer Edition does'
+        : '');
+    if (check.verdict === 'unread') {
+      return `${sent}; what it has left today could not be read (${check.unread ?? ''})`;
+    }
+    if (check.verdict === 'fits') {
+      return `${sent}; ${check.remaining ?? 0} of ${check.max ?? 0} left today`;
+    }
+    return (
+      `${sent}, more than the ${check.remaining ?? 0} of ${check.max ?? 0} left today: a ` +
+      'rewind is refused'
+    );
+  });
 }
 
 /** One line per object the org runs something on as a rewind writes. */
@@ -1144,6 +1182,7 @@ export function previewLines(
     );
   }
   if (answer.automation) lines.push(...automationLines(orgName, answer.automation));
+  if (answer.emails) lines.push(...emailLines(orgName, answer.emails));
   lines.push(estimateLine(answer.estimate));
   if (answer.refusal) lines.push(`  a rewind now would be refused: ${answer.refusal.message}`);
   return lines;
@@ -1167,6 +1206,7 @@ export function previewJson(
     diff: answer.diff,
     estimate: answer.estimate,
     ...(answer.automation ? { automation: answer.automation } : {}),
+    ...(answer.emails ? { emails: answer.emails } : {}),
     ...(answer.refusal ? { refusal: answer.refusal } : {}),
   };
 }
@@ -2171,14 +2211,17 @@ async function undoCounts(
 ): Promise<{ bringBack: number; giveBack: number; remove: number } | undefined> {
   try {
     const folder = store.folderOf(entry.organizationId, entry.checkpointId);
-    const plans = undoPlans(await readRewindJournal(folder, rewindId), checkpoint.objects);
-    const total = (objects: ReadonlyArray<{ ids: readonly string[] }>) =>
-      objects.reduce((sum, object) => sum + object.ids.length, 0);
-    return {
-      bringBack: total(plans.bringBack),
-      giveBack: total(plans.giveBack),
-      remove: total(plans.remove),
-    };
+    const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
+    try {
+      return {
+        bringBack: plans.bringBack.count,
+        giveBack: plans.giveBack.count,
+        // What came back with a parent goes back to the bin with it.
+        remove: plans.remove.spool.count + plans.goesWithParent.count,
+      };
+    } finally {
+      await plans.dispose();
+    }
   } catch {
     return undefined;
   }

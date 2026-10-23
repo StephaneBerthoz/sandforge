@@ -29,7 +29,7 @@ import {
   openRewindJournal,
   readRewindJournal,
   rewoundObjects,
-  undoPlans,
+  undoPlansOf,
 } from './rewindJournal.js';
 import { relationshipsOf, undoEstimate, type EstimatedObject } from './rewindEstimate.js';
 import {
@@ -255,7 +255,13 @@ function checkpointFolder(): Promise<CheckpointFolder> {
 async function rewindPass(
   folder: CheckpointFolder,
   org: MemoryRestoreOrg,
-  options: { signal?: AbortSignal; dies?: boolean; undeleted?: () => void } = {},
+  options: {
+    signal?: AbortSignal;
+    dies?: boolean;
+    undeleted?: () => void;
+    /** The fields the checkpoint compares, by object: each of the snapshot's unless told. */
+    fields?: Record<string, string[]>;
+  } = {},
 ): Promise<boolean> {
   const { signal } = options;
   const tr = new Date().toISOString();
@@ -305,7 +311,10 @@ async function rewindPass(
           backups: snapshot,
           changedAfter: tr,
           ownWriters: [MEMORY_ORG_USER, AUTOMATED_PROCESS],
-          fields: { Account: ['Name'], Contact: ['LastName', 'AccountId', 'ReportsToId'] },
+          fields: options.fields ?? {
+            Account: ['Name'],
+            Contact: ['LastName', 'AccountId', 'ReportsToId'],
+          },
           includeChanged: false,
           keep: journal.keep,
           ...(state.removalStamps ? { stamps: state.removalStamps } : {}),
@@ -569,6 +578,61 @@ describe('undoRewind, on the memory org', () => {
     expect(org.all('Contact').map((row) => row.Id)).not.toContain(answered);
   });
 
+  it('gives back a record whose lookup its undelete put back on a field the checkpoint does not compare: the org dated it anew as the undo’s user, the undo’s doing and no change since the rewind (F35)', async () => {
+    // R renamed since, and made to report to NC: the rewind gives its name
+    // back and leaves the lookup it does not compare; NC's delete clears it.
+    // The undo brings NC back, the org puts the lookup back on R and dates R
+    // anew, and the undo gives R its name from before.
+    for (const facts of factCombinations(['clearedLookupRestamps'])) {
+      expect(facts.undeleteRestoresLookups).toBe(true);
+      const org = orgBeforeTheRewind(facts);
+      org.edit('Contact', R, { LastName: 'R since' }, COLLEAGUE);
+      const before = stateOf(org);
+      const folder = await checkpointFolder();
+      vi.setSystemTime(TR);
+      const through = await rewindPass(folder, org, {
+        fields: { Account: ['Name'], Contact: ['LastName', 'AccountId'] },
+      });
+      expect(through).toBe(true);
+      expect(org.all('Contact').find((row) => row.Id === R)).toMatchObject({
+        LastName: 'R',
+        ReportsToId: null,
+      });
+
+      vi.setSystemTime(TR + 10 * 60_000);
+      const outcome = await undo(folder, onlyRewindOf(folder), org);
+
+      expect({ facts, state: stateOf(org) }).toEqual({ facts, state: before });
+      expect({ facts, status: outcome.status }).toEqual({ facts, status: 'success' });
+      expect(outcome.restored.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+        restored: 1,
+        keptChanged: 0,
+      });
+    }
+  });
+
+  it('keeps a record its own user changed between the rewind and the undo, before the undo’s undeletes began, as they made it', async () => {
+    const org = orgBeforeTheRewind();
+    org.edit('Contact', R, { LastName: 'R since' }, COLLEAGUE);
+    const folder = await checkpointFolder();
+    vi.setSystemTime(TR);
+    await rewindPass(folder, org, {
+      fields: { Account: ['Name'], Contact: ['LastName', 'AccountId'] },
+    });
+    // Someone signed in as the user SandForge connects as renames R again.
+    vi.setSystemTime(TR + 5 * 60_000);
+    org.edit('Contact', R, { LastName: 'R by a tester' }, MEMORY_ORG_USER);
+
+    vi.setSystemTime(TR + 10 * 60_000);
+    const outcome = await undo(folder, onlyRewindOf(folder), org);
+
+    expect(org.all('Contact').find((row) => row.Id === R)?.LastName).toBe('R by a tester');
+    expect(outcome.status).toBe('partial');
+    expect(outcome.restored.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+      keptChanged: 1,
+    });
+  });
+
   it('names what still differs once given back: a field the org’s automation set again on save, by who last changed it', async () => {
     const org = orgBeforeTheRewind();
     const folder = await checkpointFolder();
@@ -603,13 +667,14 @@ describe('undoRewind, on the memory org', () => {
         ),
       ),
     );
-    const plans = undoPlans(await readRewindJournal(folder, rewindId), READ_ORDER);
+    const plans = await undoPlansOf(folder, rewindId, READ_ORDER);
     const estimate = undoEstimate({
       objects: OBJECTS,
       rewound: rewoundObjects(plans),
       automationRequests: 0,
       relationships,
     });
+    await plans.dispose();
     const actFixed = undoEstimate({ objects: OBJECTS, rewound: [], automationRequests: 0 });
     const sentBefore = org.requests + org.soapCalls;
 
@@ -646,11 +711,13 @@ describe('undoRewind, on the memory org', () => {
     }
     await journal.end();
     await journal.close();
+    const plans = await undoPlansOf(folder, journal.rewindId, READ_ORDER);
     const estimate = undoEstimate({
       objects: OBJECTS,
-      rewound: rewoundObjects(undoPlans(await readRewindJournal(folder, journal.rewindId))),
+      rewound: rewoundObjects(plans),
       automationRequests: 0,
     });
+    await plans.dispose();
     const actFixed = undoEstimate({ objects: OBJECTS, rewound: [], automationRequests: 0 });
     const sentBefore = org.requests + org.soapCalls;
     const soapBefore = org.soapCalls;
@@ -707,18 +774,19 @@ describe('undoRewind, on the memory org', () => {
     org.edit('Account', A1, { Name: 'At the checkpoint' });
     await journal.end();
     await journal.close();
-    const plans = undoPlans(await readRewindJournal(folder, journal.rewindId), READ_ORDER);
-    expect(heldInPlaceOrder(plans)).toEqual({
+    const plans = await undoPlansOf(folder, journal.rewindId, READ_ORDER);
+    const order = heldInPlaceOrder(plans);
+    expect({ bringFirst: order.bringFirst, bringAfter: order.bringAfter }).toEqual({
       bringFirst: [],
-      giveHeld: [{ objectApiName: 'Account', ids: [A1], backup: journal.backup }],
-      bringAfter: [{ objectApiName: 'Contact', ids: [N1C] }],
-      giveRest: [{ objectApiName: 'Account', ids: [A2], backup: journal.backup }],
+      bringAfter: ['Contact'],
     });
+    expect([A1, A2].map((key) => order.held(key.slice(0, 15)))).toEqual([true, false]);
     const estimate = undoEstimate({
       objects: OBJECTS,
       rewound: rewoundObjects(plans),
       automationRequests: 0,
     });
+    await plans.dispose();
     const actFixed = undoEstimate({ objects: OBJECTS, rewound: [], automationRequests: 0 });
     const sentBefore = org.requests + org.soapCalls;
 

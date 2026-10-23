@@ -22,10 +22,14 @@
  * every object it would delete records of, give values back to or bring
  * records back to. A read of it that fails is said in its answer, as a part
  * of it left unread, and the diff is answered all the same: the rewind reads
- * it again before it writes, and refuses without it.
+ * it again before it writes, and refuses without it. The emails it sends as
+ * the rewind writes are counted against the daily limits the org has left,
+ * read with its requests (`rewindEmails.ts`): past them, the rewind is
+ * refused.
  */
 
 import type {
+  CheckpointEmails,
   CheckpointEstimate,
   CheckpointRefusal,
   ForgeTargetAutomation,
@@ -46,6 +50,7 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { rewindDiff } from './rewindDiff.js';
+import { checkpointEmails, emailsRefusal, writtenByDiff } from './rewindEmails.js';
 import {
   budgetRefusal,
   readBudget,
@@ -97,6 +102,8 @@ export type PreviewOutcome =
       diff: RewindDiff;
       /** Absent when the rewind would write nothing. */
       automation?: ForgeTargetAutomation;
+      /** The emails its writes make the org send, per daily limit; absent when none. */
+      emails?: CheckpointEmails[];
       estimate: CheckpointEstimate;
       /** The refusal the rewind would meet before writing, when it would meet one. */
       refusal?: CheckpointRefusal;
@@ -255,6 +262,9 @@ export async function previewCheckpoint(
     relationships,
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
+  const emails = automation
+    ? checkpointEmails(writtenByDiff(diff.objects), automation, budget.emails)
+    : [];
 
   const holder = deps.store.heldBy(checkpoint.org.organizationId);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
@@ -263,11 +273,13 @@ export async function previewCheckpoint(
       ? lockedRefusal(orgName, holder)
       : writing !== undefined
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
-        : budgetRefusal('rewind', cost.apiRequests, budget, orgName);
+        : (budgetRefusal('rewind', cost.apiRequests, budget, orgName) ??
+          emailsRefusal('rewind', emails, orgName));
   return {
     previewed: true,
     diff,
     ...(automation ? { automation } : {}),
+    ...(emails.length > 0 ? { emails } : {}),
     estimate,
     ...(refusal ? { refusal } : {}),
   };

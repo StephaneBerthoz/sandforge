@@ -26,6 +26,7 @@ import {
   isAlreadyExistsError,
   isDuplicateRuleError,
 } from '@sandforge/shared';
+import { isValidSalesforceId18, to18 } from './salesforceId.js';
 
 /** One save error as the platform gave it: its code, its message, the fields it named. */
 export interface SaveErrorDetail {
@@ -95,27 +96,6 @@ export type ExistingRecordVerdict =
  */
 const DUPLICATE_VALUE_ID_RE = /\bid\.?\s*:\s*([A-Za-z0-9]{18}|[A-Za-z0-9]{15})(?![A-Za-z0-9])/i;
 
-/** Characters of the checksum an 18-character id ends with. */
-const CHECKSUM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
-
-/**
- * The three characters that turn a 15-character id into its 18-character
- * form: one per block of five, each encoding which letters of the block are
- * upper case.
- */
-function checksumOf(id15: string): string {
-  let suffix = '';
-  for (let block = 0; block < 3; block++) {
-    let bits = 0;
-    for (let i = 0; i < 5; i++) {
-      const c = id15.charCodeAt(block * 5 + i);
-      if (c >= 65 && c <= 90) bits |= 1 << i;
-    }
-    suffix += CHECKSUM_ALPHABET[bits];
-  }
-  return suffix;
-}
-
 /**
  * The 18-character form of `id`, or `undefined` when it is not one to trust.
  *
@@ -130,8 +110,8 @@ function checksumOf(id15: string): string {
 export function canonicalRecordId(id: string, keyPrefix?: string | null): string | undefined {
   let canonical: string;
   if (/^[A-Za-z0-9]{15}$/.test(id)) {
-    canonical = id + checksumOf(id);
-  } else if (/^[A-Za-z0-9]{18}$/.test(id) && checksumOf(id.slice(0, 15)) === id.slice(15)) {
+    canonical = to18(id);
+  } else if (isValidSalesforceId18(id)) {
     canonical = id;
   } else {
     return undefined;

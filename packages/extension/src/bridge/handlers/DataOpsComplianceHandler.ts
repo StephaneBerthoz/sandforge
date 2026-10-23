@@ -10,6 +10,7 @@ import { SUBJECT_SEARCH_LIMIT } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
+import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import {
@@ -53,6 +54,14 @@ interface FoundRecords {
   objects: Map<string, Set<string>>;
 }
 
+/** Whether an erasure's request asks for a simulation, which writes nothing. */
+function simulated(msg: object): boolean {
+  const payload = 'payload' in msg ? msg.payload : undefined;
+  return typeof payload === 'object' && payload !== null && 'dryRun' in payload
+    ? payload.dryRun === true
+    : false;
+}
+
 /** The kinds of identifier a search was given, never the identifiers. */
 function kindsOf(identifiers: SubjectIdentifiers): SubjectIdentifierKind[] {
   return (['email', 'name', 'phone'] as const).filter((kind) => identifiers[kind] !== undefined);
@@ -80,6 +89,11 @@ export class DataOpsComplianceHandler implements DomainHandler {
   private readonly maskingKey = randomBytes(32).toString('hex');
 
   private readonly saveDialog: SaveDialogAdapter;
+  /**
+   * The orgs an erasure writes to now, from its request until it ends: a
+   * checkpoint of one is refused meanwhile.
+   */
+  private readonly writing = new WritingOrgs();
   /** The Monitor's Live Operations, which list an erasure while it runs, with its Cancel. */
   private liveTracker?: LiveOperationTracker;
 
@@ -97,6 +111,14 @@ export class DataOpsComplianceHandler implements DomainHandler {
   /** Inject the tracker the Monitor's Live Operations lists runs from. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveTracker = tracker;
+  }
+
+  /**
+   * Whether an erasure of this window writes to the registered org now: a
+   * checkpoint of it would hold the person's records half erased.
+   */
+  isWritingTo(orgId: string): boolean {
+    return this.writing.has(orgId);
   }
 
   /** The local log of subject requests. */
@@ -134,7 +156,10 @@ export class DataOpsComplianceHandler implements DomainHandler {
         await this.handleExport(msg);
         return true;
       case 'dataops:dsr:erase':
-        await this.handleErase(msg);
+        // A simulation of an erasure writes nothing.
+        await this.writing.during(simulated(msg) ? undefined : payloadText(msg, 'orgId'), () =>
+          this.handleErase(msg),
+        );
         return true;
       default:
         this.handleLog(msg);

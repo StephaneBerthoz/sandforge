@@ -48,9 +48,14 @@
  *   such a record whose parent is not coming back cannot come back with its
  *   id at all, and is named so. Nor one whose parent that way, or a record it
  *   points at through a lookup that restricts that record's delete, was
- *   deleted after it: Salesforce keeps such a record in the bin for good;
+ *   deleted after it: Salesforce keeps such a record in the bin for good.
+ *   Nor one deleted in the second a record created since was deleted in,
+ *   through a field whose parent's delete takes it along: it comes back with
+ *   that record only, which the rewind does not bring back;
  * - in `L` and `S`, a lead converted since: Salesforce cannot unconvert it and
- *   refuses any update of it, so it is named, never given back;
+ *   refuses any update of it, so it is named, never given back. So is a
+ *   contract activated since: Salesforce will not set an activated contract
+ *   back to Draft;
  * - in `D`, in neither, created before T0's second: live at T0, gone before
  *   its object was read — deleted while the checkpoint was taken, brought back
  *   with the values it had when deleted, as the snapshot holds none. A record
@@ -196,6 +201,12 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from '
  *   come back with its id;
  * - `convertedLead`: a lead converted since, which Salesforce cannot
  *   unconvert and refuses any update of: named, never given back;
+ * - `activatedContract`: a contract activated since, which Salesforce will
+ *   not set back to Draft: named, never given back;
+ * - `deletedWithCreatedParent`: deleted since with a record created since,
+ *   which its parent's delete took it along with: Salesforce brings it back
+ *   with that record only, and the rewind does not bring that one back, so it
+ *   is named, never brought back;
  * - `undoCannot`: of the records to delete, those Undo couldn't bring back,
  *   a line naming why when it is not `onlyWithParent`. Not a class of its
  *   own: each of its records is in a class to delete too;
@@ -216,6 +227,8 @@ export type RewindClass =
   | 'deletedWhileTaken'
   | 'goneForGood'
   | 'convertedLead'
+  | 'activatedContract'
+  | 'deletedWithCreatedParent'
   | 'undoCannot'
   | 'outsideParents';
 
@@ -232,6 +245,8 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'deletedWhileTaken',
   'goneForGood',
   'convertedLead',
+  'activatedContract',
+  'deletedWithCreatedParent',
   'undoCannot',
   'outsideParents',
 ];
@@ -239,6 +254,16 @@ const REWIND_CLASSES: readonly RewindClass[] = [
 /** The object of a lead, and its flag a conversion sets for good. */
 const LEAD = 'Lead';
 const CONVERTED_FLAG = 'IsConverted';
+
+/**
+ * The object of a contract, the status its user sets, and the category the
+ * org keeps of that status, which no one sets: `Activated` once the contract
+ * is, for good.
+ */
+const CONTRACT = 'Contract';
+const CONTRACT_STATUS = 'Status';
+const STATUS_CATEGORY = 'StatusCode';
+const ACTIVATED = 'Activated';
 
 /** The classes of the records a rewind deletes in its first pass. */
 const DELETED_FIRST = ['createdSince', 'broughtBackSince'] as const;
@@ -464,6 +489,13 @@ interface DiffContext {
   /** By key, every record deleted since that the rewind brings back. */
   back: ReadonlyMap<string, ToBringBack>;
   /**
+   * By key, the records created since and deleted since, which the
+   * checkpoint does not hold, with the stamp their delete left: one held that
+   * went with one of them comes back with it only, and the rewind brings
+   * none of them back.
+   */
+  createdGone: ReadonlyMap<string, ToBringBack>;
+  /**
    * By key, the records deleted since that the bin holds and Salesforce will
    * not let out of it (`stuckOf`): gone for good, never to bring back.
    */
@@ -639,47 +671,56 @@ function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): 
  * An object whose index or bin is not on this machine brings nothing back:
  * its own diff names why.
  *
+ * Read beside them, from the same reads: the records created since and
+ * deleted since (`DiffContext.createdGone`), which a record held may have
+ * gone with.
+ *
  * @throws {OrgReadStopped} When the run was stopped.
  */
 async function toBringBackOf(
   context: Pick<DiffContext, 'input' | 't0s'>,
   objects: readonly CheckpointObject[],
   changes: ReadonlyMap<string, ObjectChanges>,
-): Promise<Map<string, ToBringBack>> {
+): Promise<{ back: Map<string, ToBringBack>; createdGone: Map<string, ToBringBack> }> {
   const { folder, checkpoint } = context.input;
   const back = new Map<string, ToBringBack>();
+  const createdGone = new Map<string, ToBringBack>();
   for (const { objectApiName, cascadeParents, restrictParents = [] } of objects) {
     const changed = changes.get(objectApiName);
     if (!changed || 'unread' in changed || !changed.deleted || changed.deleted.rows === 0) continue;
     const found = new Map<string, ToBringBack>();
+    const created = new Map<string, ToBringBack>();
     try {
       const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
       const inBinAtCheckpoint = binAtCheckpoint(folder, objectApiName);
       for await (const row of spooledRows(changed.deleted.file)) {
         const key = keyOf(row.Id);
         if (key === undefined) continue;
-        if (!index.has(row.Id)) {
-          if (await inBinAtCheckpoint(key)) continue;
-          if (!(dateMs(row.CreatedDate) < context.t0s)) continue;
-        }
         const keysOf = (fields: readonly string[]): string[] =>
           fields
             .map((field) => keyOf(row[field]))
             .filter((parent): parent is string => parent !== undefined && parent !== key);
-        found.set(key, {
+        const record = (): ToBringBack => ({
           objectApiName,
           stamp: dateMs(row.SystemModstamp),
           parents: keysOf(cascadeParents),
           restricts: keysOf(restrictParents),
         });
+        if (!index.has(row.Id)) {
+          if (await inBinAtCheckpoint(key)) continue;
+          if (dateMs(row.CreatedDate) >= context.t0s) created.set(key, record());
+          if (!(dateMs(row.CreatedDate) < context.t0s)) continue;
+        }
+        found.set(key, record());
       }
     } catch (err: unknown) {
       if (err instanceof OrgReadStopped) throw err;
       continue;
     }
     for (const [key, record] of found) back.set(key, record);
+    for (const [key, record] of created) createdGone.set(key, record);
   }
-  return back;
+  return { back, createdGone };
 }
 
 /**
@@ -821,7 +862,7 @@ async function diffObject(
   fieldsNow: FieldsNow,
 ): Promise<ObjectOutcome> {
   if ('unread' in changes) return { unread: changes.unread };
-  const { input, previewDir, t0s, back, stuck, personAccounts } = context;
+  const { input, previewDir, t0s, back, createdGone, stuck, personAccounts } = context;
   const { folder, reader, checkpoint, signal } = input;
   const objectApiName = object.objectApiName;
   const spools = new Map<RewindClass, ClassSpool>();
@@ -855,12 +896,23 @@ async function diffObject(
     const converted = objectApiName === LEAD ? heldField(object.fields, CONVERTED_FLAG) : undefined;
     const convertedRead =
       converted !== undefined && !gone.has(converted.toLowerCase()) ? converted : undefined;
+    // A contract activated since: Salesforce will not set an activated
+    // contract back to Draft (FAILED_ACTIVATION, seen live), so it is named,
+    // never given back. Told by the category the org keeps of its status,
+    // which no one sets and the snapshot does not hold: activated now, under
+    // another status than the one the checkpoint holds. Its status given back
+    // is what the org refuses; a status its owner stopped comparing is never
+    // given back, and the contract with it.
+    const status =
+      objectApiName === CONTRACT ? heldField(object.fields, CONTRACT_STATUS) : undefined;
+    const activationRead = status !== undefined && compared.includes(status) ? status : undefined;
     const columns = [
       'Id',
       'SystemModstamp',
       ...WHO_COLUMNS,
       ...compared,
       ...(convertedRead !== undefined && !compared.includes(convertedRead) ? [convertedRead] : []),
+      ...(activationRead !== undefined ? [STATUS_CATEGORY] : []),
     ];
     const cascade = object.cascadeParents.filter((field) => !gone.has(field.toLowerCase()));
     const restrict = (object.restrictParents ?? []).filter(
@@ -886,6 +938,23 @@ async function diffObject(
     const wentWithParent = (row: OrgRow, key: string): boolean => {
       const stamp = dateMs(row.SystemModstamp);
       return parentsOf(row, key).some((parent) => back.get(parent)?.stamp === stamp);
+    };
+    // Deleted in the second a record created since was, through a field
+    // whose parent's delete takes it along: it went with that record, which
+    // nothing brings back — unless that record went itself with one the
+    // rewind brings back, and comes back with it. The org refuses its
+    // undelete while that record is in the bin, as it refused, live, a case
+    // comment whose case was still in the bin.
+    const wentWithCreatedParent = (row: OrgRow, key: string): boolean => {
+      const stamp = dateMs(row.SystemModstamp);
+      return parentsOf(row, key).some((parent) => {
+        const created = createdGone.get(parent);
+        return (
+          created !== undefined &&
+          created.stamp === stamp &&
+          !created.parents.some((above) => back.get(above)?.stamp === created.stamp)
+        );
+      });
     };
     const t1 = Date.parse(checkpoint.takenAt);
     const unchangedUntil = Date.parse(input.readAt) - ORG_DATE_GRAIN_MS;
@@ -962,6 +1031,14 @@ async function diffObject(
           current[convertedRead] === true
         ) {
           await spool('convertedLead').add({ Id: candidate.id });
+          continue;
+        }
+        if (
+          activationRead !== undefined &&
+          current[STATUS_CATEGORY] === ACTIVATED &&
+          !sameValue(then[activationRead], current[activationRead])
+        ) {
+          await spool('activatedContract').add({ Id: candidate.id });
           continue;
         }
         const differ = compared.filter((field) => !sameValue(then[field], current[field]));
@@ -1053,7 +1130,9 @@ async function diffObject(
           // Salesforce keeps it in the bin for good.
           if (stuck.has(key)) await spool('goneForGood').add({ Id: id });
           else if (wentWithParent(row, key)) await spool('withParent').add({ Id: id });
-          else if (object.undeletable) await spool('inBin').add({ Id: id });
+          else if (wentWithCreatedParent(row, key)) {
+            await spool('deletedWithCreatedParent').add({ Id: id });
+          } else if (object.undeletable) await spool('inBin').add({ Id: id });
           // Salesforce brings it back with its parent only, and its parent
           // is not coming back.
           else await spool('goneForGood').add({ Id: id });
@@ -1122,6 +1201,8 @@ async function diffObject(
     for (const held of spools.values()) await held.flush();
     const goneForGood = countOf('goneForGood');
     const convertedSince = countOf('convertedLead');
+    const activatedSince = countOf('activatedContract');
+    const withCreatedParent = countOf('deletedWithCreatedParent');
     const diff: RewindDiffObject = {
       objectApiName,
       toDelete: {
@@ -1143,6 +1224,12 @@ async function diffObject(
         ...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),
         ...(convertedSince > 0
           ? [{ reason: 'convertedLead' as const, count: convertedSince }]
+          : []),
+        ...(activatedSince > 0
+          ? [{ reason: 'activatedContract' as const, count: activatedSince }]
+          : []),
+        ...(withCreatedParent > 0
+          ? [{ reason: 'deletedWithCreatedParent' as const, count: withCreatedParent }]
           : []),
       ],
       outside: [],
@@ -1488,7 +1575,7 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     return describing;
   };
 
-  const back = await toBringBackOf({ input, t0s }, ordered, changes);
+  const { back, createdGone } = await toBringBackOf({ input, t0s }, ordered, changes);
   const stuck = stuckOf(back);
   const compared = new Map(
     readable.map(({ object, fields }) => [
@@ -1505,6 +1592,7 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     t0s,
     activeFrom: tr - ACTIVE_WINDOW_MS,
     back,
+    createdGone,
     stuck,
     lookups,
     personAccounts: await personAccountsOf(ordered, changes),

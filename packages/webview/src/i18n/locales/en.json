@@ -5431,6 +5431,12 @@
         "givenBack": "as the rewind gives it back its checkpoint values",
         "accept": "Rewind even though {{org}} runs automation"
       },
+      "emails": {
+        "fits": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
+        "exceeds": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
+        "unread": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
+        "alertsCounted": "{{org}} counts its email alerts against its single emails, as a Developer Edition does: they are among them."
+      },
       "cost": "About {{time}} · about {{requests}} API requests of the {{left}} left today",
       "journal": "Before it writes, Rewind keeps what it changes, so you can undo it until {{date}}, sooner if the recycle bin fills.",
       "nothing": "{{org}} is as it was at “{{name}}” among the objects and fields it holds: nothing to rewind.",

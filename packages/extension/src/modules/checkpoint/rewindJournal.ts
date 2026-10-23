@@ -36,7 +36,10 @@
  * Read back, the journal is three plans for its undo: what to bring back
  * from the recycle bin, what to give back its values, and what to send back
  * there. A record the rewind brought back and then deleted again, or the
- * other way round, is where it was before: in none of them.
+ * other way round, is where it was before: in none of them. The journal is
+ * read a line at a time, never whole, and the plans are written to files of
+ * their own, object by object (`spoolUndoPlans`): a rewind of a million
+ * records journals a million ids.
  *
  * The org's lock is held whenever a journal is written (`OrgCheckpointStore.lock`):
  * one rewind or undo of an org at a time is the journal's only writer. A line
@@ -55,7 +58,7 @@ import {
   renameSync,
   writeSync,
 } from 'node:fs';
-import { open, readdir, stat, truncate, type FileHandle } from 'node:fs/promises';
+import { open, readdir, rm, stat, truncate, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import * as z from 'zod';
@@ -63,6 +66,7 @@ import {
   checkpointIdSchema,
   checkpointOrganizationIdSchema,
   rewindIdSchema,
+  sanitizeSoqlObjectName,
   type CheckpointObject,
   type ForgeRunObjectRecords,
   type ForgeUndoStatus,
@@ -89,6 +93,7 @@ import {
   type OrgLock,
 } from './OrgCheckpointStore.js';
 import type { RewoundObject } from './rewindEstimate.js';
+import { IdSpool, IdSpoolWriter, RecordKeySet, SpooledRunRecords } from './spooledRunRecords.js';
 
 /** The file of a journal's lines, in its folder. */
 const JOURNAL_FILE = 'journal.ndjson';
@@ -138,11 +143,18 @@ const resumedLineSchema = z.object({
   at: instantSchema,
 });
 
-/** Ids of one object: about to come back, come back with a parent, about to be written over. */
+/**
+ * Ids of one object: about to come back, come back with a parent, about to be
+ * written over. Of those that come back with a parent, `parents[i]` names the
+ * record the rewind brings back that `ids[i]` hangs from, as deep as it
+ * hangs: their undo sends them back to the bin with that record, never on
+ * their own. A journal written before it named them has none.
+ */
 const idsLineSchema = z.object({
   kind: z.enum(['bringingBack', 'withParent', 'givingBack']),
   objectApiName: objectSchema,
   ids: idsSchema,
+  parents: idsSchema.optional(),
   at: instantSchema,
 });
 
@@ -289,6 +301,18 @@ export interface RewindJournalDid {
    * there is none.
    */
   deletedBeforeParent?: ObjectIds[];
+  /**
+   * Of what it brought back, the records that came back with a record it
+   * brought back, each beside that record (`parents[i]` beside `ids[i]`), as
+   * the journal named them. Absent when there is none, and from a journal
+   * written before it named them.
+   */
+  withParents?: ParentedIds[];
+}
+
+/** Records of one object, each beside the record they came back with. */
+export interface ParentedIds extends ObjectIds {
+  parents: string[];
 }
 
 /** Records of one object that held values in place, and the objects whose records held them. */
@@ -315,22 +339,6 @@ export interface RewindJournalRead {
   undo: SyncRunRemovalState;
   /** Each undo that ended, and how. */
   undos: Array<{ status: ForgeUndoStatus; at: string }>;
-}
-
-/** What an undo of a rewind does, from its journal: see {@link undoPlans}. */
-export interface RewindUndoPlans {
-  /** What the rewind brought back, which goes back to the recycle bin. */
-  remove: ObjectIds[];
-  /** What the rewind deleted, which comes back from the recycle bin, parents first. */
-  bringBack: ObjectIds[];
-  /** What the rewind wrote over, given back the values it held before. */
-  giveBack: Array<ObjectIds & { backup: string }>;
-  /**
-   * Of {@link giveBack}, the records whose values records of `by` the rewind
-   * deleted held in place: given back before those records come back.
-   * Absent when there is none.
-   */
-  held?: HeldIds[];
 }
 
 // ─── Writing ─────────────────────────────────────────────────────────────────
@@ -360,13 +368,18 @@ export interface RewindJournal {
   bringingBack(plan: readonly ObjectIds[], undelete: UndeleteCall): UndeleteCall;
   /**
    * Records that come back, or came back, with a parent the rewind brings
-   * back: its undo sends them back to the recycle bin with it. Named before
-   * the undelete that brings them — as the children of each parent the bin
-   * holds — they are named even when the rewind stops between that undelete
-   * and a read after it. Unnamed, they would hold their parent in the org: a
+   * back, `parents[i]` the record of the plan `ids[i]` hangs from: its undo
+   * sends them back to the recycle bin with that record. Named before the
+   * undelete that brings them — as the children of each parent the bin holds
+   * — they are named even when the rewind stops between that undelete and a
+   * read after it. Unnamed, they would hold their parent in the org: a
    * removal keeps a record that records older than it depend on.
    */
-  withParent(objectApiName: string, ids: readonly string[]): Promise<void>;
+  withParent(
+    objectApiName: string,
+    ids: readonly string[],
+    parents?: readonly string[],
+  ): Promise<void>;
   /**
    * Records the rewind gives back once the records of `by` hanging from them
    * that it deletes are gone, named before anything of the pass is written:
@@ -397,8 +410,10 @@ export interface RewindJournal {
   end(): Promise<void>;
   /** An undo ended: what it did, for the next one, and how it ended. */
   undone(change: SyncRunRemovalState, status: ForgeUndoStatus): Promise<void>;
-  /** The journal as it stands on disk. */
+  /** The journal as it stands on disk, what the rewind did held in memory. */
   read(): Promise<RewindJournalRead>;
+  /** What the journal says beside the ids it names, as it stands on disk: small, whatever it holds. */
+  facts(): Promise<RewindJournalFacts>;
   /** Let the journal's files go. Once is enough. */
   close(): Promise<void>;
 }
@@ -640,8 +655,26 @@ class JournalFile implements RewindJournal {
     };
   }
 
-  async withParent(objectApiName: string, ids: readonly string[]): Promise<void> {
-    await this.appendIds('withParent', objectApiName, ids);
+  async withParent(
+    objectApiName: string,
+    ids: readonly string[],
+    parents?: readonly string[],
+  ): Promise<void> {
+    if (parents === undefined) {
+      await this.appendIds('withParent', objectApiName, ids);
+      return;
+    }
+    if (parents.length !== ids.length) {
+      throw new Error('Each record that comes back with a parent is named beside that parent.');
+    }
+    for (let at = 0; at < ids.length; at += IDS_PER_LINE) {
+      await this.append({
+        kind: 'withParent',
+        objectApiName,
+        ids: ids.slice(at, at + IDS_PER_LINE),
+        parents: parents.slice(at, at + IDS_PER_LINE),
+      });
+    }
   }
 
   async heldInPlace(
@@ -721,7 +754,12 @@ class JournalFile implements RewindJournal {
 
   async read(): Promise<RewindJournalRead> {
     await this.queue;
-    return readJournalDir(this.dir);
+    return readJournalFile(join(this.dir, JOURNAL_FILE));
+  }
+
+  async facts(): Promise<RewindJournalFacts> {
+    await this.queue;
+    return readJournalFacts(join(this.dir, JOURNAL_FILE));
   }
 
   async close(): Promise<void> {
@@ -739,8 +777,21 @@ class JournalFile implements RewindJournal {
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
 
-/** A journal's lines, those a crash cut short dropped, and how many bytes the whole ones take. */
-async function linesOf(file: string): Promise<{ lines: Line[]; whole: number; size: number }> {
+/**
+ * What a journal's lines say, given one at a time as they are read from the
+ * disk, never held together: a journal of a rewind of a million records is
+ * five hundred lines of two thousand ids. A line a crash cut short, which no
+ * write followed, is dropped: it is the last one, and no line break ends it.
+ *
+ * @returns How many lines were whole, and the bytes they take: past them, a
+ *   line a crash cut short.
+ * @throws {CheckpointStoreError} `damaged`, at the first line that does not
+ *   read as the journal's.
+ */
+async function eachLine(
+  file: string,
+  visit: (line: Line) => void | Promise<void>,
+): Promise<{ count: number; whole: number; size: number }> {
   const size = (await stat(file)).size;
   // A line is whole when a line break ends it: the last one, without, was
   // being written when the process stopped, and nothing it names was sent.
@@ -755,19 +806,9 @@ async function linesOf(file: string): Promise<{ lines: Line[]; whole: number; si
       await handle.close();
     }
   }
-  const raw: string[] = [];
-  const stream = createReadStream(file, { encoding: 'utf8' });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    for await (const line of reader) raw.push(line);
-  } finally {
-    reader.close();
-    stream.destroy();
-  }
-  if (!endsWhole) raw.pop();
+  let count = 0;
   let whole = 0;
-  const lines: Line[] = [];
-  raw.forEach((text, at) => {
+  const take = async (text: string): Promise<void> => {
     whole += Buffer.byteLength(text, 'utf8') + 1;
     let parsed: unknown;
     try {
@@ -779,12 +820,48 @@ async function linesOf(file: string): Promise<{ lines: Line[]; whole: number; si
     if (!line.success) {
       throw new CheckpointStoreError(
         'damaged',
-        `The rewind’s journal is damaged at line ${at + 1}: it is not used.`,
+        `The rewind’s journal is damaged at line ${count + 1}: it is not used.`,
       );
     }
-    lines.push(line.data);
-  });
-  return { lines, whole, size };
+    pairedOrDamaged(line.data);
+    count++;
+    await visit(line.data);
+  };
+  const stream = createReadStream(file, { encoding: 'utf8' });
+  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  /** The line read last, taken once the next one shows it was not the last. */
+  let held: string | undefined;
+  try {
+    for await (const text of reader) {
+      if (held !== undefined) await take(held);
+      held = text;
+    }
+  } finally {
+    reader.close();
+    stream.destroy();
+  }
+  if (held !== undefined && endsWhole) await take(held);
+  return { count, whole, size };
+}
+
+/** A line that names each of its records beside another record must name as many: damage otherwise. */
+function pairedOrDamaged(line: Line): void {
+  if (line.kind === 'beforeParent' && line.parents.length !== line.ids.length) {
+    throw new CheckpointStoreError(
+      'damaged',
+      'The rewind’s journal names records deleted before a parent without their parent.',
+    );
+  }
+  if (
+    (line.kind === 'withParent' || line.kind === 'bringingBack') &&
+    line.parents !== undefined &&
+    line.parents.length !== line.ids.length
+  ) {
+    throw new CheckpointStoreError(
+      'damaged',
+      'The rewind’s journal names records that came back with a parent without it.',
+    );
+  }
 }
 
 /** Ids of each object, each record once by its key, in the order the lines first name each. */
@@ -836,164 +913,249 @@ function stateOf(raw: unknown): SyncRunRemovalState {
   return state;
 }
 
-/** What `lines` say, the first being the head. */
-function journalOf(lines: readonly Line[]): RewindJournalRead {
-  const [first] = lines;
-  if (first?.kind !== 'head') {
-    throw new CheckpointStoreError('damaged', 'The rewind’s journal does not begin with its head.');
-  }
-  const head: RewindJournalHead = {
-    rewindId: first.rewindId,
-    checkpointId: first.checkpointId,
-    organizationId: first.organizationId,
-    startedAt: first.startedAt,
-    userId: first.userId,
-    ...(first.automatedProcessUserId !== undefined
-      ? { automatedProcessUserId: first.automatedProcessUserId }
-      : {}),
-    backup: first.backup,
-  };
-  const passes = [{ startedAt: head.startedAt, userId: head.userId }];
-  const broughtBack = new IdsByObject();
-  const givenBack = new IdsByObject();
-  const held = new IdsByObject();
-  /** Per object held in place, the objects whose records held it, in the order named. */
-  const heldBy = new Map<string, Set<string>>();
-  /** Records deleted on their own before a record they point at, beside that record. */
-  const beforeParent: Array<{ objectApiName: string; id: string; parent: string }> = [];
-  /** Per step: what it set out to delete, what it left, and whether its removal answered. */
-  const steps = new Map<number, { deleting: IdsByObject; left: Set<string>; answered: boolean }>();
-  const stepOf = (
-    step: number,
-  ): { deleting: IdsByObject; left: Set<string>; answered: boolean } => {
-    let held = steps.get(step);
-    if (!held) {
-      held = { deleting: new IdsByObject(), left: new Set(), answered: false };
-      steps.set(step, held);
+/**
+ * What a journal says beside the ids it names: its head, its passes, when it
+ * last wrote and went through, what its removals and its undos left. Small,
+ * however many records the rewind wrote: what an undo reads before it plans
+ * from the journal on disk (`spoolUndoPlans`).
+ */
+export type RewindJournalFacts = Omit<RewindJournalRead, 'did'>;
+
+/** {@link RewindJournalFacts}, folded a line at a time, the first being the head. */
+class FactsFold {
+  /** The first line, as the journal holds it. */
+  head?: HeadLine;
+  /** The last step a removal was named under. */
+  step = 0;
+  private passes: RewindJournalRead['passes'] = [];
+  private readonly rewindStates: SyncRunRemovalState[] = [];
+  private readonly undoStates: SyncRunRemovalState[] = [];
+  private readonly undos: RewindJournalRead['undos'] = [];
+  private lastWrite = Number.NEGATIVE_INFINITY;
+  private endedAt: string | undefined;
+
+  line(line: Line): void {
+    if (this.head === undefined) {
+      if (line.kind !== 'head') {
+        throw new CheckpointStoreError(
+          'damaged',
+          'The rewind’s journal does not begin with its head.',
+        );
+      }
+      this.head = line;
+      this.passes = [{ startedAt: line.startedAt, userId: line.userId }];
+      return;
     }
-    return held;
-  };
-  const rewindStates: SyncRunRemovalState[] = [];
-  const undoStates: SyncRunRemovalState[] = [];
-  const undos: RewindJournalRead['undos'] = [];
-  let lastWrite = Number.NEGATIVE_INFINITY;
-  let endedAt: string | undefined;
-  for (const line of lines.slice(1)) {
-    if (WRITE_LINES.has(line.kind)) lastWrite = Math.max(lastWrite, Date.parse(line.at));
+    if (WRITE_LINES.has(line.kind)) this.lastWrite = Math.max(this.lastWrite, Date.parse(line.at));
+    if ('step' in line) this.step = Math.max(this.step, line.step);
     switch (line.kind) {
       case 'head':
         throw new CheckpointStoreError('damaged', 'The rewind’s journal has two heads.');
       case 'resumed':
-        passes.push({ startedAt: line.startedAt, userId: line.userId });
+        this.passes.push({ startedAt: line.startedAt, userId: line.userId });
         break;
+      case 'removal':
+        this.rewindStates.push(stateOf(line.state));
+        break;
+      case 'end':
+        this.endedAt = line.at;
+        break;
+      case 'undo':
+        this.undoStates.push(stateOf(line.state));
+        this.undos.push({ status: line.status, at: line.at });
+        break;
+      default:
+        break;
+    }
+  }
+
+  result(): RewindJournalFacts {
+    const first = this.head;
+    if (first === undefined) {
+      throw new CheckpointStoreError(
+        'damaged',
+        'The rewind’s journal does not begin with its head.',
+      );
+    }
+    return {
+      head: {
+        rewindId: first.rewindId,
+        checkpointId: first.checkpointId,
+        organizationId: first.organizationId,
+        startedAt: first.startedAt,
+        userId: first.userId,
+        ...(first.automatedProcessUserId !== undefined
+          ? { automatedProcessUserId: first.automatedProcessUserId }
+          : {}),
+        backup: first.backup,
+      },
+      passes: this.passes,
+      ...(Number.isFinite(this.lastWrite)
+        ? { lastWriteAt: new Date(this.lastWrite).toISOString() }
+        : {}),
+      ...(this.endedAt !== undefined ? { endedAt: this.endedAt } : {}),
+      rewind: foldState(this.rewindStates),
+      undo: foldState(this.undoStates),
+      undos: this.undos,
+    };
+  }
+}
+
+/** What a journal says the rewind did, folded a line at a time, held in memory: see {@link RewindJournalDid}. */
+class DidFold {
+  private readonly broughtBack = new IdsByObject();
+  private readonly givenBack = new IdsByObject();
+  private readonly held = new IdsByObject();
+  /** Per object held in place, the objects whose records held it, in the order named. */
+  private readonly heldBy = new Map<string, Set<string>>();
+  /** Records deleted on their own before a record they point at, beside that record. */
+  private readonly beforeParent: Array<{ objectApiName: string; id: string; parent: string }> = [];
+  /** Records that came back with a parent, beside it, each once by its key. */
+  private readonly withParents = new Map<
+    string,
+    { objectApiName: string; id: string; parent: string }
+  >();
+  /** Per step: what it set out to delete, what it left, and whether its removal answered. */
+  private readonly steps = new Map<
+    number,
+    { deleting: IdsByObject; left: Set<string>; answered: boolean }
+  >();
+
+  private stepOf(step: number): { deleting: IdsByObject; left: Set<string>; answered: boolean } {
+    let held = this.steps.get(step);
+    if (!held) {
+      held = { deleting: new IdsByObject(), left: new Set(), answered: false };
+      this.steps.set(step, held);
+    }
+    return held;
+  }
+
+  line(line: Line): void {
+    switch (line.kind) {
       case 'bringingBack':
       case 'withParent':
-        broughtBack.add(line.objectApiName, line.ids);
+        this.broughtBack.add(line.objectApiName, line.ids);
+        line.parents?.forEach((parent, at) => {
+          const id = line.ids[at];
+          if (!this.withParents.has(recordKey(id))) {
+            this.withParents.set(recordKey(id), { objectApiName: line.objectApiName, id, parent });
+          }
+        });
         break;
       case 'givingBack':
-        givenBack.add(line.objectApiName, line.ids);
+        this.givenBack.add(line.objectApiName, line.ids);
         break;
       case 'heldInPlace': {
-        held.add(line.objectApiName, line.ids);
-        const by = heldBy.get(line.objectApiName) ?? new Set<string>();
+        this.held.add(line.objectApiName, line.ids);
+        const by = this.heldBy.get(line.objectApiName) ?? new Set<string>();
         for (const object of line.by) by.add(object);
-        heldBy.set(line.objectApiName, by);
+        this.heldBy.set(line.objectApiName, by);
         break;
       }
       case 'beforeParent':
-        if (line.parents.length !== line.ids.length) {
-          throw new CheckpointStoreError(
-            'damaged',
-            'The rewind’s journal names records deleted before a parent without their parent.',
-          );
-        }
         line.ids.forEach((id, at) => {
-          beforeParent.push({ objectApiName: line.objectApiName, id, parent: line.parents[at] });
+          this.beforeParent.push({
+            objectApiName: line.objectApiName,
+            id,
+            parent: line.parents[at],
+          });
         });
         break;
       case 'deleting':
-        stepOf(line.step).deleting.add(line.objectApiName, line.ids);
+        this.stepOf(line.step).deleting.add(line.objectApiName, line.ids);
         break;
       case 'deleteLeft':
-        for (const id of line.ids) stepOf(line.step).left.add(recordKey(id));
+        for (const id of line.ids) this.stepOf(line.step).left.add(recordKey(id));
         break;
       case 'deleted':
-        stepOf(line.step).answered = true;
+        this.stepOf(line.step).answered = true;
         break;
-      case 'removal':
-        rewindStates.push(stateOf(line.state));
-        break;
-      case 'wrote':
-        break;
-      case 'end':
-        endedAt = line.at;
-        break;
-      case 'undo':
-        undoStates.push(stateOf(line.state));
-        undos.push({ status: line.status, at: line.at });
+      default:
         break;
     }
   }
-  // What each removal deleted: what it set out to, less what it left once it
-  // answered; all of it when it never did, the undo finding out which of
-  // them the recycle bin holds.
-  const deleted = new IdsByObject();
-  for (const { deleting, left, answered } of steps.values()) {
-    for (const { objectApiName, ids } of deleting.list((key) => !answered || !left.has(key))) {
-      deleted.add(objectApiName, ids);
+
+  result(): RewindJournalDid {
+    // What each removal deleted: what it set out to, less what it left once it
+    // answered; all of it when it never did, the undo finding out which of
+    // them the recycle bin holds.
+    const deleted = new IdsByObject();
+    for (const { deleting, left, answered } of this.steps.values()) {
+      for (const { objectApiName, ids } of deleting.list((key) => !answered || !left.has(key))) {
+        deleted.add(objectApiName, ids);
+      }
     }
-  }
-  const heldInPlace = held.list().map(({ objectApiName, ids }) => ({
-    objectApiName,
-    ids,
-    by: [...(heldBy.get(objectApiName) ?? [])],
-  }));
-  // A record deleted before its parent stays in the bin for good once that
-  // parent went too: deleted by a removal, or never handed to one — taken
-  // along by a record it hangs from. One a removal kept leaves it to come
-  // back.
-  const gone = deleted.keys();
-  const named = new Set([...steps.values()].flatMap(({ deleting }) => [...deleting.keys()]));
-  const before = new IdsByObject();
-  for (const { objectApiName, id, parent } of beforeParent) {
-    const parentKey = recordKey(parent);
-    if (gone.has(recordKey(id)) && (gone.has(parentKey) || !named.has(parentKey))) {
-      before.add(objectApiName, [id]);
+    const heldInPlace = this.held.list().map(({ objectApiName, ids }) => ({
+      objectApiName,
+      ids,
+      by: [...(this.heldBy.get(objectApiName) ?? [])],
+    }));
+    // A record deleted before its parent stays in the bin for good once that
+    // parent went too: deleted by a removal, or never handed to one — taken
+    // along by a record it hangs from. One a removal kept leaves it to come
+    // back.
+    const gone = deleted.keys();
+    const named = new Set([...this.steps.values()].flatMap(({ deleting }) => [...deleting.keys()]));
+    const before = new IdsByObject();
+    for (const { objectApiName, id, parent } of this.beforeParent) {
+      const parentKey = recordKey(parent);
+      if (gone.has(recordKey(id)) && (gone.has(parentKey) || !named.has(parentKey))) {
+        before.add(objectApiName, [id]);
+      }
     }
-  }
-  const deletedBeforeParent = before.list();
-  return {
-    head,
-    passes,
-    did: {
-      broughtBack: broughtBack.list(),
+    const deletedBeforeParent = before.list();
+    const parented = new Map<string, ParentedIds>();
+    for (const { objectApiName, id, parent } of this.withParents.values()) {
+      const object = parented.get(objectApiName) ?? { objectApiName, ids: [], parents: [] };
+      object.ids.push(id);
+      object.parents.push(parent);
+      parented.set(objectApiName, object);
+    }
+    return {
+      broughtBack: this.broughtBack.list(),
       deleted: deleted.list(),
-      givenBack: givenBack.list(),
+      givenBack: this.givenBack.list(),
       ...(heldInPlace.length > 0 ? { heldInPlace } : {}),
       ...(deletedBeforeParent.length > 0 ? { deletedBeforeParent } : {}),
-    },
-    ...(Number.isFinite(lastWrite) ? { lastWriteAt: new Date(lastWrite).toISOString() } : {}),
-    ...(endedAt !== undefined ? { endedAt } : {}),
-    rewind: foldState(rewindStates),
-    undo: foldState(undoStates),
-    undos,
-  };
+      ...(parented.size > 0 ? { withParents: [...parented.values()] } : {}),
+    };
+  }
 }
 
-/** A journal's folder, read back. */
-async function readJournalDir(dir: string): Promise<RewindJournalRead> {
-  let read: Awaited<ReturnType<typeof linesOf>>;
+/** A journal's file, read whole: what it says, and what the rewind did, held in memory. */
+async function readJournalFile(file: string): Promise<RewindJournalRead> {
+  const facts = new FactsFold();
+  const did = new DidFold();
   try {
-    read = await linesOf(join(dir, JOURNAL_FILE));
+    await eachLine(file, (line) => {
+      facts.line(line);
+      did.line(line);
+    });
   } catch (err: unknown) {
     if (err instanceof CheckpointStoreError) throw err;
     throw new CheckpointStoreError('notFound', 'No journal of this rewind is kept.');
   }
-  return journalOf(read.lines);
+  return { ...facts.result(), did: did.result() };
+}
+
+/** A journal's file, read for what it says beside its ids, a line at a time. */
+async function readJournalFacts(file: string): Promise<RewindJournalFacts> {
+  const facts = new FactsFold();
+  try {
+    await eachLine(file, (line) => facts.line(line));
+  } catch (err: unknown) {
+    if (err instanceof CheckpointStoreError) throw err;
+    throw new CheckpointStoreError('notFound', 'No journal of this rewind is kept.');
+  }
+  return facts.result();
 }
 
 /** Check that a journal is the one of the folder it was read from. */
-function belongsTo(read: RewindJournalRead, folder: CheckpointFolder, rewindId: string): void {
+function belongsTo(
+  read: Pick<RewindJournalRead, 'head'>,
+  folder: CheckpointFolder,
+  rewindId: string,
+): void {
   if (
     read.head.rewindId !== rewindId ||
     read.head.checkpointId !== folder.checkpointId ||
@@ -1006,14 +1168,18 @@ function belongsTo(read: RewindJournalRead, folder: CheckpointFolder, rewindId: 
   }
 }
 
-/** Read the journal of one rewind of a checkpoint. */
+/**
+ * Read the journal of one rewind of a checkpoint: what it says, and what the
+ * rewind did, held in memory. An undo plans from the journal on disk instead
+ * (`spoolUndoPlans`).
+ */
 export async function readRewindJournal(
   folder: CheckpointFolder,
   rewindId: string,
 ): Promise<RewindJournalRead> {
   const kept = await keptJournal(folder, rewindId);
   if (!kept) throw new CheckpointStoreError('notFound', 'No journal of this rewind is kept.');
-  return kept.journal;
+  return readJournalFile(kept.file);
 }
 
 /** The lock's org must be the folder's: the journal is written under it alone. */
@@ -1026,21 +1192,24 @@ function heldFor(lock: OrgLock, folder: CheckpointFolder): void {
   }
 }
 
-/** A journal kept on disk, read whole, before it is written to again. */
+/** A journal kept on disk, read a line at a time, before it is written to again. */
 interface KeptJournal {
   dir: string;
   file: string;
-  lines: Line[];
+  /** Its first line, as the journal holds it. */
+  head: HeadLine;
+  /** The last step a removal was named under. */
+  step: number;
   /** Bytes of its whole lines: past them, a line a crash cut short. */
   whole: number;
   size: number;
-  journal: RewindJournalRead;
+  facts: RewindJournalFacts;
 }
 
 /**
- * The journal of one rewind of a checkpoint, read; undefined when it is not
- * there or holds no line yet — a rewind stopped before it wrote its head,
- * which wrote nothing to the org.
+ * The journal of one rewind of a checkpoint, read for what it says beside its
+ * ids; undefined when it is not there or holds no line yet — a rewind stopped
+ * before it wrote its head, which wrote nothing to the org.
  *
  * @throws {CheckpointStoreError} `damaged`, when it cannot be read or is another's.
  */
@@ -1050,27 +1219,24 @@ async function keptJournal(
 ): Promise<KeptJournal | undefined> {
   const dir = rewindDirOf(folder, rewindId);
   const file = join(dir, JOURNAL_FILE);
-  let read: Awaited<ReturnType<typeof linesOf>>;
+  const fold = new FactsFold();
+  let read: Awaited<ReturnType<typeof eachLine>>;
   try {
-    read = await linesOf(file);
+    read = await eachLine(file, (line) => fold.line(line));
   } catch (err: unknown) {
     if (err instanceof CheckpointStoreError) throw err;
     return undefined;
   }
-  if (read.lines.length === 0) return undefined;
-  const journal = journalOf(read.lines);
-  belongsTo(journal, folder, rewindId);
-  return { dir, file, ...read, journal };
+  if (read.count === 0 || fold.head === undefined) return undefined;
+  const facts = fold.result();
+  belongsTo(facts, folder, rewindId);
+  return { dir, file, head: fold.head, step: fold.step, whole: read.whole, size: read.size, facts };
 }
 
 /** Open a kept journal to add to it: what a crash cut short goes before the next line does. */
 async function reopened(kept: KeptJournal, now: () => Date): Promise<JournalFile> {
   if (kept.whole < kept.size) await truncate(kept.file, kept.whole);
-  const step = kept.lines.reduce(
-    (most, line) => ('step' in line ? Math.max(most, line.step) : most),
-    0,
-  );
-  return JournalFile.opened(kept.dir, kept.lines[0] as HeadLine, true, step, now);
+  return JournalFile.opened(kept.dir, kept.head, true, kept.step, now);
 }
 
 /** Where an id says when its rewind began, to the second: `rw-20261022-141102`. */
@@ -1121,7 +1287,7 @@ export async function openRewindJournal(input: OpenRewindJournalInput): Promise<
       blank ??= latest;
       continue;
     }
-    if (kept.journal.endedAt !== undefined || kept.journal.undos.length > 0) continue;
+    if (kept.facts.endedAt !== undefined || kept.facts.undos.length > 0) continue;
     const opened = await reopened(kept, now);
     try {
       await opened.append({ kind: 'resumed', startedAt: input.startedAt, userId: input.userId });
@@ -1186,8 +1352,153 @@ export async function reopenRewindJournal(
 
 // ─── The undo's plans ────────────────────────────────────────────────────────
 
+/** A record and the record it goes with: see {@link ParentedSpool}. */
+export interface Parented {
+  id: string;
+  parent: string;
+}
+
 /**
- * What an undo of the rewind a journal is of does, and in what order:
+ * Records of each object, each beside the record it goes back to the bin
+ * with, written to a folder, one pair a line, each record once: read back a
+ * page at a time, and told by an exact set of their keys.
+ */
+export class ParentedSpool {
+  private constructor(
+    private readonly dir: string,
+    readonly objects: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+    /** The keys of the records, never their parents'. */
+    readonly keys: RecordKeySet,
+  ) {}
+
+  /** Records held, every object's. */
+  get count(): number {
+    return this.objects.reduce((sum, object) => sum + object.count, 0);
+  }
+
+  /** A spool written by `add` as `write` gives it pairs, in the order the objects come. */
+  static async written(
+    dir: string,
+    write: (add: (objectApiName: string, pair: Parented) => Promise<void>) => Promise<void>,
+  ): Promise<ParentedSpool> {
+    await makePrivateDir(dir);
+    const keys = new RecordKeySet();
+    const counts = new Map<string, number>();
+    const held = new Map<string, string[]>();
+    const flush = async (objectApiName: string): Promise<void> => {
+      const lines = held.get(objectApiName) ?? [];
+      if (lines.length === 0) return;
+      await appendSynced(pairsFileOf(dir, objectApiName), lines.join(''));
+      held.set(objectApiName, []);
+    };
+    await write(async (objectApiName, { id, parent }) => {
+      if (!keys.add(id)) return;
+      counts.set(objectApiName, (counts.get(objectApiName) ?? 0) + 1);
+      const lines = held.get(objectApiName) ?? [];
+      lines.push(`${id} ${parent}\n`);
+      held.set(objectApiName, lines);
+      if (lines.length >= IDS_PER_LINE) await flush(objectApiName);
+    });
+    for (const objectApiName of counts.keys()) await flush(objectApiName);
+    return new ParentedSpool(
+      dir,
+      [...counts].map(([objectApiName, count]) => ({ objectApiName, count })),
+      keys,
+    );
+  }
+
+  /** The pairs of `objectApiName`, `size` at a time, as written. */
+  async *pages(objectApiName: string, size = IDS_PER_LINE): AsyncGenerator<Parented[]> {
+    if (!this.objects.some((object) => object.objectApiName === objectApiName)) return;
+    const stream = createReadStream(pairsFileOf(this.dir, objectApiName), { encoding: 'utf8' });
+    const lines = createInterface({ input: stream, crlfDelay: Infinity });
+    let page: Parented[] = [];
+    try {
+      for await (const line of lines) {
+        const [id, parent] = line.split(' ');
+        if (id === undefined || parent === undefined) continue;
+        page.push({ id, parent });
+        if (page.length >= size) {
+          yield page;
+          page = [];
+        }
+      }
+    } finally {
+      lines.close();
+      stream.destroy();
+    }
+    if (page.length > 0) yield page;
+  }
+}
+
+/** Where a parented spool keeps the pairs of one object. */
+function pairsFileOf(dir: string, objectApiName: string): string {
+  return join(dir, `${sanitizeSoqlObjectName(objectApiName)}.pairs`);
+}
+
+/**
+ * What an undo of the rewind a journal is of does, kept on disk, object by
+ * object: see {@link spoolUndoPlans}. Each plan is read back a page at a
+ * time; what stays in memory is a set of keys per plan, some 25 bytes a
+ * record.
+ */
+export interface SpooledUndoPlans {
+  /** What the rewind brought back, which goes back to the recycle bin on its own, children first. */
+  remove: SpooledRunRecords;
+  /** What the rewind deleted, which comes back from the recycle bin, parents first. */
+  bringBack: IdSpool;
+  /** What the rewind wrote over, given back the values it held before, kept in {@link backup}. */
+  giveBack: IdSpool;
+  /** The keys of {@link giveBack}'s records. */
+  giveBackKeys: RecordKeySet;
+  /** The backup the values from before are kept in. */
+  backup: string;
+  /**
+   * Of {@link giveBack}, the records whose values records the rewind deleted
+   * held in place, by key, and per object how many and the objects whose
+   * records held them: given back before those records come back.
+   */
+  held: {
+    keys: RecordKeySet;
+    objects: Array<{ objectApiName: string; count: number; by: string[] }>;
+  };
+  /**
+   * What the rewind brought back with a record of {@link remove}, each beside
+   * that record: never sent to the bin on its own, it goes with that record.
+   * Sent first, children first, it was deleted alone, and Salesforce keeps a
+   * record deleted alone whose parent is deleted after it in the bin for
+   * good: an opportunity's products could no longer come back with it.
+   */
+  goesWithParent: ParentedSpool;
+  /** Remove the plans' files. Once is enough. */
+  dispose(): Promise<void>;
+}
+
+/**
+ * The objects of a plan in the checkpoint's reading order, children first; an
+ * object the checkpoint does not hold — a child outside it that came back with
+ * its parent — first.
+ */
+function readingOrder(
+  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>>,
+  parentsFirst: boolean,
+): (
+  spooled: Array<{ objectApiName: string; count: number }>,
+) => Array<{ objectApiName: string; count: number }> {
+  const order = new Map(objects.map((object) => [object.objectApiName, object.readOrder]));
+  const rank = (objectApiName: string): number => order.get(objectApiName) ?? -1;
+  return (spooled) =>
+    [...spooled].sort((a, b) =>
+      parentsFirst
+        ? rank(b.objectApiName) - rank(a.objectApiName)
+        : rank(a.objectApiName) - rank(b.objectApiName),
+    );
+}
+
+/**
+ * What an undo of the rewind a journal is of does, and in what order, written
+ * to a folder of their own in the journal's, read from the journal a line at
+ * a time — four reads of its file, none held whole:
  *
  * - `remove`: what the rewind brought back from the recycle bin, and what came
  *   back with it, children first;
@@ -1197,7 +1508,11 @@ export async function reopenRewindJournal(
  * - `giveBack`: what it wrote over, from the values kept before;
  * - `held`: of those, the records it gave back once the records hanging from
  *   them that it deleted were gone — values those records held in place, which
- *   the undo gives back before they come back.
+ *   the undo gives back before they come back;
+ * - `goesWithParent`: of what came back with a record of `remove`, as the
+ *   journal names it beside that record, what goes back to the bin with it,
+ *   left out of `remove`: deleted on its own first, Salesforce would keep it
+ *   in the bin for good once that record went after it.
  *
  * A record it brought back and deleted again — one that came back with its
  * parent and that a second pass deleted — is in the recycle bin as it was
@@ -1206,53 +1521,178 @@ export async function reopenRewindJournal(
  * part way left, of each plan, what it did not settle: the next one takes up
  * that alone.
  *
- * @param objects - The checkpoint's objects, children first (`readOrder`):
- *   an object the checkpoint does not hold — a child outside it that came
- *   back with its parent — goes first of what goes back to the bin, and last
- *   of what comes back.
+ * Held in memory, the plans of a rewind of a million records took some 700 MB
+ * of the extension host: every id as a string in three maps, the journal's
+ * lines whole beside them.
+ *
+ * @param objects - The checkpoint's objects, children first (`readOrder`).
+ * @throws {CheckpointStoreError} `damaged`, when the journal does not read as one.
  */
-export function undoPlans(
-  read: Pick<RewindJournalRead, 'head' | 'did' | 'undo'>,
-  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>> = [],
-): RewindUndoPlans {
-  const broughtBack = new IdsByObject();
-  for (const { objectApiName, ids } of read.did.broughtBack) broughtBack.add(objectApiName, ids);
-  const deleted = new IdsByObject();
-  for (const { objectApiName, ids } of read.did.deleted) deleted.add(objectApiName, ids);
-  const deletedKeys = deleted.keys();
-  const broughtKeys = broughtBack.keys();
-  const leftOf = (left: readonly string[] | undefined): ((key: string) => boolean) => {
-    if (left === undefined) return () => true;
-    const keys = new Set(left.map(recordKey));
-    return (key) => keys.has(key);
-  };
-  const removeLeft = leftOf(read.undo.removalLeft);
-  const undeleteLeft = leftOf(read.undo.undeleteLeft);
-  const restoreLeft = leftOf(read.undo.restoreLeft);
+export async function spoolUndoPlans(
+  journalDir: string,
+  facts: Pick<RewindJournalFacts, 'head' | 'undo'>,
+  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>>,
+): Promise<SpooledUndoPlans> {
+  const journalFile = join(journalDir, JOURNAL_FILE);
+  // A folder of its own each time, in the journal's: an undo and a list's
+  // count of it may read the plans at once.
+  const dir = join(journalDir, `undo-${randomBytes(4).toString('hex')}`);
+  const dispose = (): Promise<void> => rm(dir, { recursive: true, force: true });
+  try {
+    const leftOf = (left: readonly string[] | undefined): ((key: string) => boolean) => {
+      if (left === undefined) return () => true;
+      const keys = new RecordKeySet();
+      for (const id of left) keys.add(id);
+      return (key) => keys.has(key);
+    };
+    const removeLeft = leftOf(facts.undo.removalLeft);
+    const undeleteLeft = leftOf(facts.undo.undeleteLeft);
+    const restoreLeft = leftOf(facts.undo.restoreLeft);
 
-  const order = new Map(objects.map((object) => [object.objectApiName, object.readOrder]));
-  const childrenFirst = (a: ObjectIds, b: ObjectIds): number =>
-    (order.get(a.objectApiName) ?? -1) - (order.get(b.objectApiName) ?? -1);
-  const remove = broughtBack
-    .list((key) => !deletedKeys.has(key) && removeLeft(key))
-    .sort(childrenFirst);
-  const bringBack = deleted
-    .list((key) => !broughtKeys.has(key) && undeleteLeft(key))
-    .sort((a, b) => childrenFirst(b, a));
-  const giveBack = read.did.givenBack.flatMap(({ objectApiName, ids }) => {
-    const kept = ids.filter((id) => restoreLeft(recordKey(id)));
-    return kept.length > 0 ? [{ objectApiName, ids: kept, backup: read.head.backup }] : [];
-  });
-  const givingBack = new Set(giveBack.flatMap(({ ids }) => ids.map(recordKey)));
-  const held = (read.did.heldInPlace ?? []).flatMap(({ objectApiName, ids, by }) => {
-    const kept = ids.filter((id) => givingBack.has(recordKey(id)));
-    return kept.length > 0 ? [{ objectApiName, ids: kept, by: [...by] }] : [];
-  });
-  return { remove, bringBack, giveBack, ...(held.length > 0 ? { held } : {}) };
+    // What it brought back, what each removal left, and what was held in place.
+    const brought = new RecordKeySet();
+    const answered = new Set<number>();
+    const leftByStep = new Map<number, RecordKeySet>();
+    const heldKeys = new RecordKeySet();
+    const heldBy = new Map<string, Set<string>>();
+    await eachLine(journalFile, (line) => {
+      switch (line.kind) {
+        case 'bringingBack':
+        case 'withParent':
+          for (const id of line.ids) brought.add(id);
+          break;
+        case 'deleteLeft': {
+          const left = leftByStep.get(line.step) ?? new RecordKeySet();
+          for (const id of line.ids) left.add(id);
+          leftByStep.set(line.step, left);
+          break;
+        }
+        case 'deleted':
+          answered.add(line.step);
+          break;
+        case 'heldInPlace': {
+          for (const id of line.ids) heldKeys.add(id);
+          const by = heldBy.get(line.objectApiName) ?? new Set<string>();
+          for (const object of line.by) by.add(object);
+          heldBy.set(line.objectApiName, by);
+          break;
+        }
+        default:
+          break;
+      }
+    });
+
+    // What each removal deleted — what it set out to, less what it left once
+    // it answered; all of it when it never did — and of it, what comes back.
+    // Of what it deleted, only what it brought back too is held by its key:
+    // what the plans of what goes back to the bin ask of it.
+    const deleted = new RecordKeySet();
+    const back = new IdSpoolWriter(join(dir, 'bringBack'));
+    await eachLine(journalFile, async (line) => {
+      if (line.kind !== 'deleting') return;
+      const left = answered.has(line.step) ? leftByStep.get(line.step) : undefined;
+      for (const id of line.ids) {
+        if (left?.has(id) === true) continue;
+        const key = recordKey(id);
+        if (brought.has(key)) deleted.add(id);
+        else if (undeleteLeft(key)) await back.add(line.objectApiName, id);
+      }
+    });
+    const removing = (key: string): boolean => !deleted.has(key) && removeLeft(key);
+
+    // What came back with a record the undo sends back to the bin goes with
+    // it; what came back with one it does not — deleted again since, or left
+    // by an undo before — is sent on its own, as it always was.
+    // Each record by the first line that names it beside a parent.
+    const along = new RecordKeySet();
+    const named = new RecordKeySet();
+    await eachLine(journalFile, (line) => {
+      if (line.kind !== 'withParent' || line.parents === undefined) return;
+      line.ids.forEach((id, at) => {
+        if (!named.add(id)) return;
+        const parent = recordKey(line.parents?.[at] ?? '');
+        if (removing(recordKey(id)) && brought.has(parent) && removing(parent)) along.add(id);
+      });
+    });
+
+    const remove = new IdSpoolWriter(join(dir, 'remove'));
+    const given = new IdSpoolWriter(join(dir, 'giveBack'));
+    const goesWithParent = await ParentedSpool.written(join(dir, 'goesWithParent'), async (add) => {
+      await eachLine(journalFile, async (line) => {
+        if (line.kind === 'givingBack') {
+          for (const id of line.ids) {
+            if (restoreLeft(recordKey(id))) await given.add(line.objectApiName, id);
+          }
+          return;
+        }
+        if (line.kind !== 'bringingBack' && line.kind !== 'withParent') return;
+        for (const [at, id] of line.ids.entries()) {
+          const key = recordKey(id);
+          if (!removing(key)) continue;
+          const parent = line.parents?.[at];
+          if (along.has(key)) {
+            // A parent that came back with a parent of its own goes with that
+            // one: named beside the record of the plan it hangs from.
+            if (parent !== undefined) await add(line.objectApiName, { id, parent });
+          } else await remove.add(line.objectApiName, id);
+        }
+      });
+    });
+    const giveBack = await given.finish();
+    const held = new RecordKeySet();
+    const heldCounts = new Map<string, number>();
+    for (const { objectApiName } of giveBack.objects) {
+      for await (const page of giveBack.pages(objectApiName)) {
+        for (const id of page) {
+          if (!heldKeys.has(id)) continue;
+          held.add(id);
+          heldCounts.set(objectApiName, (heldCounts.get(objectApiName) ?? 0) + 1);
+        }
+      }
+    }
+    return {
+      remove: await SpooledRunRecords.of(remove, readingOrder(objects, false)),
+      bringBack: await back.finish(readingOrder(objects, true)),
+      giveBack,
+      giveBackKeys: given.keys,
+      backup: facts.head.backup,
+      held: {
+        keys: held,
+        objects: [...heldCounts].map(([objectApiName, count]) => ({
+          objectApiName,
+          count,
+          by: [...(heldBy.get(objectApiName) ?? [])],
+        })),
+      },
+      goesWithParent,
+      dispose,
+    };
+  } catch (err: unknown) {
+    await dispose();
+    throw err;
+  }
+}
+
+/**
+ * The undo's plans of the rewind `rewindId` of a checkpoint, written to a
+ * folder of their own in the rewind's: see {@link spoolUndoPlans}. The
+ * caller disposes of them once it is through.
+ *
+ * @throws {CheckpointStoreError} `notFound` when the journal is not kept,
+ *   `damaged` when it cannot be read or is another's.
+ */
+export async function undoPlansOf(
+  folder: CheckpointFolder,
+  rewindId: string,
+  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>>,
+): Promise<SpooledUndoPlans> {
+  const kept = await keptJournal(folder, rewindId);
+  if (!kept) throw new CheckpointStoreError('notFound', 'No journal of this rewind is kept.');
+  return spoolUndoPlans(kept.dir, kept.facts, objects);
 }
 
 /** What an undo's plans take back, per object: what its estimate is made from (`undoEstimate`). */
-export function rewoundObjects(plans: RewindUndoPlans): RewoundObject[] {
+export function rewoundObjects(plans: SpooledUndoPlans): RewoundObject[] {
   const byObject = new Map<string, RewoundObject>();
   const of = (objectApiName: string): RewoundObject => {
     let object = byObject.get(objectApiName);
@@ -1262,12 +1702,18 @@ export function rewoundObjects(plans: RewindUndoPlans): RewoundObject[] {
     }
     return object;
   };
-  for (const { objectApiName, ids } of plans.bringBack) of(objectApiName).deleted += ids.length;
-  for (const { objectApiName, ids } of plans.remove) of(objectApiName).broughtBack += ids.length;
-  for (const { objectApiName, ids } of plans.giveBack) of(objectApiName).givenBack += ids.length;
-  for (const { objectApiName, ids } of plans.held ?? []) {
+  for (const { objectApiName, count } of plans.bringBack.objects) {
+    if (count > 0) of(objectApiName).deleted += count;
+  }
+  for (const { objectApiName, count } of plans.remove.objects) {
+    if (count > 0) of(objectApiName).broughtBack += count;
+  }
+  for (const { objectApiName, count } of plans.giveBack.objects) {
+    if (count > 0) of(objectApiName).givenBack += count;
+  }
+  for (const { objectApiName, count } of plans.held.objects) {
     const object = of(objectApiName);
-    object.givenBackHeld = (object.givenBackHeld ?? 0) + ids.length;
+    object.givenBackHeld = (object.givenBackHeld ?? 0) + count;
   }
   return [...byObject.values()];
 }

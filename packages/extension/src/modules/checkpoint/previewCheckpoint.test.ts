@@ -105,6 +105,8 @@ const PICKED = ['Account', 'Contact', 'Task', 'Lead'];
  */
 class PreviewTestOrg extends MemoryRemovalOrg implements TakeOrg {
   limits = { Max: 15_000, Remaining: 14_000 };
+  /** Its daily email limits, as `/limits` lists them: none unless told. */
+  emailLimits: Record<string, { Max: number; Remaining: number }> = {};
 
   constructor(says: { sandbox?: boolean; edition?: string } = {}) {
     super(CHILDREN, { now: () => clock });
@@ -144,7 +146,7 @@ class PreviewTestOrg extends MemoryRemovalOrg implements TakeOrg {
   override async request(request: MemoryOrgRequest): Promise<unknown> {
     if (request.method === 'GET' && request.url.endsWith('/limits')) {
       this.requests++;
-      return { DailyApiRequests: this.limits };
+      return { DailyApiRequests: this.limits, ...this.emailLimits };
     }
     return super.request(request);
   }
@@ -489,6 +491,70 @@ describe('previewCheckpoint', () => {
       estimate: { apiRequestsLeft: 30 },
       refusal: { code: 'API_BUDGET' },
     });
+  });
+
+  it('counts the emails the rewind’s writes make the org send, against what it has left of each daily limit, and says a rewind past them would be refused, with no request more (B11, H1)', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    // A flow that emails an account's owner as it is updated.
+    const sending: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_changed',
+              label: 'Account changed',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 1 } };
+    const asked = vi.spyOn(t.org, 'request');
+
+    const outcome = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: sending },
+      request(t),
+    );
+
+    if (!outcome.previewed) throw new Error(outcome.refusal.message);
+    // The account renamed since, and the one deleted since, brought back and given its values.
+    expect(outcome.emails).toEqual([
+      {
+        limit: 'SingleEmail',
+        emails: 2,
+        objects: [
+          {
+            objectApiName: 'Account',
+            write: 'update',
+            records: 2,
+            perRecord: 1,
+            sentBy: ['Account changed'],
+          },
+        ],
+        verdict: 'exceeds',
+        remaining: 1,
+        max: 15,
+      },
+    ]);
+    expect(outcome.refusal).toMatchObject({ code: 'EMAILS' });
+    // The limits were read once, with the day's requests.
+    expect(asked.mock.calls.filter(([{ url }]) => url.endsWith('/limits'))).toHaveLength(1);
+    const without = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: automationRead([]) },
+      request(t),
+    );
+    if (!without.previewed) throw new Error(without.refusal.message);
+    expect(without.emails).toBeUndefined();
+    expect(without.refusal).toBeUndefined();
   });
 
   it('keeps its reads under the preview’s own folder, named by the id the diff carries', async () => {

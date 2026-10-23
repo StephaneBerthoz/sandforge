@@ -1,9 +1,11 @@
 import { existsSync, readdirSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ForgeTargetObjectAutomation } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { MEMORY_ORG_USER, factCombinations } from '../../test/memoryRemovalOrg.js';
+import { paced } from '../../test/runnerPace.js';
 import {
   AUTOMATED_PROCESS,
   CHILDREN,
@@ -321,34 +323,38 @@ describe('rewindOrg: what a pass writes, in its order', () => {
     expect(result.restored[0].restoredWithout).toBeUndefined();
   });
 
-  it('hands the give-back 2,000 records at most a call, and brings back 2,001 records deleted since', async () => {
-    const count = 2_001;
-    const t = await taken((org) => {
-      baseRecords(org);
+  it(
+    'hands the give-back 2,000 records at most a call, and brings back 2,001 records deleted since',
+    async () => {
+      const count = 2_001;
+      const t = await taken((org) => {
+        baseRecords(org);
+        for (let n = 0; n < count; n++) {
+          org.add('Account', { Id: account(100 + n), Name: `Many ${n}`, Industry: 'Energy' });
+          org.add('Contact', { Id: contact(100 + n), LastName: `Alone ${n}` });
+        }
+      });
+      clock.now = SINCE;
       for (let n = 0; n < count; n++) {
-        org.add('Account', { Id: account(100 + n), Name: `Many ${n}`, Industry: 'Energy' });
-        org.add('Contact', { Id: contact(100 + n), LastName: `Alone ${n}` });
+        t.org.edit('Account', account(100 + n), { Industry: 'Retail' }, COLLEAGUE);
+        t.org.trash('Contact', contact(100 + n), COLLEAGUE);
       }
-    });
-    clock.now = SINCE;
-    for (let n = 0; n < count; n++) {
-      t.org.edit('Account', account(100 + n), { Industry: 'Retail' }, COLLEAGUE);
-      t.org.trash('Contact', contact(100 + n), COLLEAGUE);
-    }
-    const diff = await previewed(t);
+      const diff = await previewed(t);
 
-    const result = resultOf(await rewound(t, diff.previewId));
+      const result = resultOf(await rewound(t, diff.previewId));
 
-    expect(result.status).toBe('success');
-    expect(result.restored).toEqual([
-      expect.objectContaining({ objectApiName: 'Contact', planned: count, restored: count }),
-      expect.objectContaining({ objectApiName: 'Account', planned: count, restored: count }),
-    ]);
-    expect(result.undeleted).toEqual([
-      expect.objectContaining({ objectApiName: 'Contact', planned: count, undeleted: count }),
-    ]);
-    expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
-  }, 60_000);
+      expect(result.status).toBe('success');
+      expect(result.restored).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', planned: count, restored: count }),
+        expect.objectContaining({ objectApiName: 'Account', planned: count, restored: count }),
+      ]);
+      expect(result.undeleted).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', planned: count, undeleted: count }),
+      ]);
+      expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
+    },
+    paced(60_000),
+  );
 });
 
 describe('rewindOrg: the second pass and the verify', () => {
@@ -557,39 +563,50 @@ describe('rewindOrg: the second pass and the verify', () => {
     ]);
   });
 
-  it('converges, or names every record that still differs, under every hypothesis the probes left about stamps, cascades and cleared lookups', async () => {
-    const combinations = factCombinations([
-      'deleteStamps',
-      'childDeletedAloneStays',
-      'undeleterIsLastModifier',
-      'clearedLookupRestamps',
-      'undeleteRestoresLookups',
-    ]);
-    for (const facts of combinations) {
-      const t = await taken(baseRecords, new RewindTestOrg({ facts }));
-      changedSince(t.org);
-      const diff = await previewed(t);
-      const said = JSON.stringify(facts);
+  it(
+    'converges, or names every record that still differs, under every hypothesis the probes left about stamps, cascades and cleared lookups',
+    async () => {
+      const combinations = factCombinations([
+        'deleteStamps',
+        'childDeletedAloneStays',
+        'undeleterIsLastModifier',
+        'clearedLookupRestamps',
+        'undeleteRestoresLookups',
+      ]);
+      for (const facts of combinations) {
+        const t = await taken(baseRecords, new RewindTestOrg({ facts }));
+        changedSince(t.org);
+        const diff = await previewed(t);
+        const said = JSON.stringify(facts);
 
-      const result = resultOf(await rewound(t, diff.previewId));
+        const result = resultOf(await rewound(t, diff.previewId));
 
-      expect(result.status, said).not.toBe('unstable');
-      const named = new Set(result.residual.flatMap(({ ids }) => ids));
-      const now = stateOf(t.org).live;
-      for (const [objectApiName, rows] of Object.entries(t.atCheckpoint.live)) {
-        const held = new Map(
-          (rows as Array<{ Id: string }>).map((row) => [row.Id, JSON.stringify(row)]),
-        );
-        const live = new Map(
-          (now[objectApiName] as Array<{ Id: string }>).map((row) => [row.Id, JSON.stringify(row)]),
-        );
-        for (const record of new Set([...held.keys(), ...live.keys()])) {
-          if (held.get(record) === live.get(record)) continue;
-          expect({ said, record, named: named.has(record) }).toEqual({ said, record, named: true });
+        expect(result.status, said).not.toBe('unstable');
+        const named = new Set(result.residual.flatMap(({ ids }) => ids));
+        const now = stateOf(t.org).live;
+        for (const [objectApiName, rows] of Object.entries(t.atCheckpoint.live)) {
+          const held = new Map(
+            (rows as Array<{ Id: string }>).map((row) => [row.Id, JSON.stringify(row)]),
+          );
+          const live = new Map(
+            (now[objectApiName] as Array<{ Id: string }>).map((row) => [
+              row.Id,
+              JSON.stringify(row),
+            ]),
+          );
+          for (const record of new Set([...held.keys(), ...live.keys()])) {
+            if (held.get(record) === live.get(record)) continue;
+            expect({ said, record, named: named.has(record) }).toEqual({
+              said,
+              record,
+              named: true,
+            });
+          }
         }
       }
-    }
-  }, 60_000);
+    },
+    paced(60_000),
+  );
 });
 
 describe('rewindOrg: what it refuses before it writes', () => {
@@ -777,6 +794,55 @@ describe('rewindOrg: what it refuses before it writes', () => {
     expect(resultOf(accepted).status).toBe('success');
   });
 
+  it('refuses a rewind whose writes would make the org send more emails than it has left today, whatever is accepted, and writes nothing; one that fits goes (B11, H1)', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const diff = await previewed(t);
+    const before = stateOf(t.org);
+    // A flow that emails an account's owner as it is updated: the two
+    // accounts the rewind gives back send one each.
+    const accountChanged: ForgeTargetObjectAutomation = {
+      objectApiName: 'Account',
+      flows: [
+        {
+          apiName: 'Account_changed',
+          label: 'Account changed',
+          timing: 'afterSave',
+          startsOn: 'update',
+          condition: 'read',
+          permissions: [],
+          messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+        },
+      ],
+      triggers: [],
+    };
+    const sending = automationOf({ objects: [accountChanged] });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 1 } };
+
+    const outcome = await rewound(t, diff.previewId, {
+      deps: { readAutomation: sending },
+      request: { acceptAutomation: true },
+    });
+
+    expect(outcome).toMatchObject({
+      rewound: false,
+      refusal: {
+        code: 'EMAILS',
+        message: expect.stringMatching(
+          /^This rewind would make DEV-ED send about 2 single emails, 1 of 15 left today: /,
+        ) as unknown,
+      },
+    });
+    untouched(t, before);
+
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 15 } };
+    const fits = await rewound(t, diff.previewId, {
+      deps: { readAutomation: sending },
+      request: { acceptAutomation: true },
+    });
+    expect(resultOf(fits).status).toBe('success');
+  });
+
   it('refuses a rewind that would take more requests than the org has left today', async () => {
     const t = await taken();
     changedSince(t.org);
@@ -800,49 +866,54 @@ describe('rewindOrg: what it refuses before it writes', () => {
 });
 
 describe('rewindOrg: stopped, and taken up again', () => {
-  it('stopped at any call, leaves its journal open; the next rewind takes it up, sends again nothing it did, ends where a whole rewind ends, and Undo returns the org to how it was before the first pass', async () => {
-    // How many calls a whole rewind of the scenario sends.
-    const whole = await taken();
-    changedSince(whole.org);
-    const wholeDiff = await previewed(whole);
-    const calls = resultOf(await rewound(whole, wholeDiff.previewId)).apiRequests.used;
-    expect(calls).toBeGreaterThan(20);
+  it(
+    'stopped at any call, leaves its journal open; the next rewind takes it up, sends again nothing it did, ends where a whole rewind ends, and Undo returns the org to how it was before the first pass',
+    async () => {
+      // How many calls a whole rewind of the scenario sends.
+      const whole = await taken();
+      changedSince(whole.org);
+      const wholeDiff = await previewed(whole);
+      const calls = resultOf(await rewound(whole, wholeDiff.previewId)).apiRequests.used;
+      expect(calls).toBeGreaterThan(20);
 
-    for (let at = 1; at <= calls; at++) {
-      const t = await taken();
-      changedSince(t.org);
-      const beforeRewind = stateOf(t.org);
-      const diff = await previewed(t);
-      const controller = new AbortController();
-      const stopping = stoppedAfter(t.org, at, controller);
-      let first: RewindOutcome | undefined;
-      try {
-        first = await rewound(t, diff.previewId, {
-          deps: {
-            org: stopping,
-            undelete: (ids) => stopping.undelete(ids),
-            signal: controller.signal,
-          },
-        });
-      } catch (err: unknown) {
-        expect(err, `at ${at}`).toBeInstanceOf(RewindStopped);
+      for (let at = 1; at <= calls; at++) {
+        const t = await taken();
+        changedSince(t.org);
+        const beforeRewind = stateOf(t.org);
+        const diff = await previewed(t);
+        const controller = new AbortController();
+        const stopping = stoppedAfter(t.org, at, controller);
+        let first: RewindOutcome | undefined;
+        try {
+          first = await rewound(t, diff.previewId, {
+            deps: {
+              org: stopping,
+              undelete: (ids) => stopping.undelete(ids),
+              signal: controller.signal,
+            },
+          });
+        } catch (err: unknown) {
+          expect(err, `at ${at}`).toBeInstanceOf(RewindStopped);
+        }
+        if (first?.rewound)
+          expect(first.result.status, `at ${at}`).toMatch(/^(cancelled|success)$/);
+
+        const again = resultOf(await rewound(t, diff.previewId));
+
+        expect(again.status, `at ${at}`).toBe('success');
+        expect(stateOf(t.org).live, `at ${at}`).toEqual(t.atCheckpoint.live);
+        expect(readdirSync(t.folder.rewindsDir), `at ${at}`).toEqual([again.rewindId]);
+        // A record is deleted once, whatever pass or rewind deleted it.
+        const deleted = t.org.deletes.flatMap(({ ids }) => ids);
+        expect(new Set(deleted).size, `at ${at}`).toBe(deleted.length);
+
+        const undo = await undone(t, again.rewindId);
+        expect(undo.status, `at ${at}`).toBe('success');
+        expect(stateOf(t.org), `at ${at}`).toEqual(beforeRewind);
       }
-      if (first?.rewound) expect(first.result.status, `at ${at}`).toMatch(/^(cancelled|success)$/);
-
-      const again = resultOf(await rewound(t, diff.previewId));
-
-      expect(again.status, `at ${at}`).toBe('success');
-      expect(stateOf(t.org).live, `at ${at}`).toEqual(t.atCheckpoint.live);
-      expect(readdirSync(t.folder.rewindsDir), `at ${at}`).toEqual([again.rewindId]);
-      // A record is deleted once, whatever pass or rewind deleted it.
-      const deleted = t.org.deletes.flatMap(({ ids }) => ids);
-      expect(new Set(deleted).size, `at ${at}`).toBe(deleted.length);
-
-      const undo = await undone(t, again.rewindId);
-      expect(undo.status, `at ${at}`).toBe('success');
-      expect(stateOf(t.org), `at ${at}`).toEqual(beforeRewind);
-    }
-  }, 180_000);
+    },
+    paced(180_000),
+  );
 
   it('holds the org’s lock for its whole length, and lets it go once over', async () => {
     const t = await taken();

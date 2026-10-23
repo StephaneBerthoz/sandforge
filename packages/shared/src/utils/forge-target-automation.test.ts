@@ -8,6 +8,7 @@ import {
   bypassAssignmentsOf,
   bypassPermissionsOf,
   emailsPerInsertOf,
+  emailsPerWriteOf,
   firedOnInsert,
   firedOnRemovalOf,
   firedOnRemovalStepsOf,
@@ -205,6 +206,38 @@ describe('emailsPerInsertOf', () => {
     });
 
     expect(emailsPerInsertOf({ objects: [object({ flows: [quiet] })] })).toEqual([]);
+  });
+});
+
+describe('emailsPerWriteOf', () => {
+  it('counts the emails each record a write updates or deletes makes the target send, as an insert’s are counted', () => {
+    const onUpdate = flow({
+      label: 'Contact changed',
+      startsOn: 'update',
+      messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+    });
+    const onBoth = flow({
+      label: 'Contact saved',
+      startsOn: 'createAndUpdate',
+      messages: [{ kind: 'email', name: 'Alert owner', limit: 'DailyWorkflowEmails' }],
+    });
+    const automation = {
+      objects: [object({ objectApiName: 'Contact', flows: [onUpdate, onBoth] })],
+    };
+
+    expect(emailsPerWriteOf(automation, 'update')).toEqual([
+      { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 1, sentBy: ['Contact changed'] },
+      {
+        objectApiName: 'Contact',
+        limit: 'DailyWorkflowEmails',
+        perRecord: 1,
+        sentBy: ['Contact saved'],
+      },
+    ]);
+    expect(emailsPerWriteOf(automation, 'insert')).toEqual(emailsPerInsertOf(automation));
+    expect(emailsPerWriteOf(automation, 'delete')).toEqual([]);
+    // No flow starts on an undelete.
+    expect(emailsPerWriteOf(automation, 'undelete')).toEqual([]);
   });
 });
 

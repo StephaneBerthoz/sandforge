@@ -313,6 +313,29 @@ describe('AutopilotHandler — what each node came to', () => {
     });
   });
 
+  it('says a run writes to its target while it runs, and no longer once it ended: a checkpoint of the org is refused meanwhile', async () => {
+    let during: boolean[] = [];
+    const executePlan = vi.fn(async () => {
+      during = [handler.isWritingTo('tgt'), handler.isWritingTo('src')];
+      return {
+        totalSuccess: 5,
+        totalFailure: 0,
+        totalSkipped: 0,
+        elapsedMs: 1,
+        completedObjects: ['Account'],
+        failedObjects: [],
+        skippedObjects: [],
+      };
+    });
+    expect(handler.isWritingTo('tgt')).toBe(false);
+
+    await execute(executePlan);
+
+    expect(executePlan).toHaveBeenCalledTimes(1);
+    expect(during).toEqual([true, false]);
+    expect(handler.isWritingTo('tgt')).toBe(false);
+  });
+
   it('ends each node on what it came to, not on the records the scan counted', async () => {
     const executePlan = vi.fn().mockResolvedValue({
       totalSuccess: 2,

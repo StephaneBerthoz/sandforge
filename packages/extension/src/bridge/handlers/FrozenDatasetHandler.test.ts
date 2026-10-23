@@ -932,6 +932,29 @@ describe('FrozenDatasetHandler', () => {
         expect(posted(deps, 'frozen:load:response')).toHaveLength(1);
       });
 
+      it('says it writes to the org while it loads, and no longer once it ended, failed or not: a checkpoint of the org is refused meanwhile', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue(developerEdition as never);
+        let during: boolean[] = [];
+        loaderLoad.mockImplementationOnce(async () => {
+          during = [handler.isWritingTo('org-2'), handler.isWritingTo('org-1')];
+          return report();
+        });
+        expect(handler.isWritingTo('org-2')).toBe(false);
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+        expect(during).toEqual([true, false]);
+        expect(handler.isWritingTo('org-2')).toBe(false);
+
+        loaderLoad.mockImplementationOnce(async () => {
+          throw new Error('the org refused the batch');
+        });
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2' }));
+        expect(posted(deps, 'frozen:load:error')).toHaveLength(1);
+        expect(handler.isWritingTo('org-2')).toBe(false);
+      });
+
       it('previews a load into it, taken for the development org it is', async () => {
         const { config } = writeDataset();
         wire(config);

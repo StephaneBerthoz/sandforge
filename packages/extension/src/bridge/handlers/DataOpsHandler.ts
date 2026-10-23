@@ -128,6 +128,7 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 import { ABORTED_BEFORE_START } from '../../modules/audit/auditTrail.js';
 import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
+import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
 
 /**
@@ -1037,6 +1038,13 @@ export class DataOpsHandler implements DomainHandler {
    */
   private readonly activeOrgOperations = new Set<string>();
 
+  /**
+   * The orgs a restore or a masking run writes to now, from its request until
+   * it ends: a checkpoint of one is refused meanwhile. A backup, which only
+   * reads, holds none.
+   */
+  private readonly writing = new WritingOrgs();
+
   /** Tracks DML operations to prevent duplicate submissions. */
   private readonly dmlTracker = new DmlOperationTracker();
 
@@ -1263,6 +1271,15 @@ export class DataOpsHandler implements DomainHandler {
   }
 
   /**
+   * Whether a restore or a masking run of this window writes to the
+   * registered org now: a checkpoint of it would hold its records half
+   * written.
+   */
+  isWritingTo(orgId: string): boolean {
+    return this.writing.has(orgId);
+  }
+
+  /**
    * Handle an incoming bridge message.
    *
    * @param msg - The typed base message from the webview.
@@ -1288,10 +1305,10 @@ export class DataOpsHandler implements DomainHandler {
         await this.handleBackupDelete(msg);
         return true;
       case 'dataops:rollback':
-        await this.handleRollback(msg);
+        await this.writing.during(payloadText(msg, 'orgId'), () => this.handleRollback(msg));
         return true;
       case 'dataops:anonymize':
-        await this.handleAnonymize(msg);
+        await this.writing.during(payloadText(msg, 'orgId'), () => this.handleAnonymize(msg));
         return true;
       case 'dataops:anonymization-templates':
         this.handleAnonymizationTemplates(msg);
