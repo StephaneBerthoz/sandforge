@@ -183,6 +183,20 @@ export interface PendingFkUpdate {
   insertOnly?: true;
 }
 
+/**
+ * What the upsert of a node written a page at a time matches by, over all its
+ * pages: see {@link WriteNodeInput.tableKeys}.
+ */
+export interface TableUpsertKeys {
+  /**
+   * The external ids every row the run reads of the node holds a value of,
+   * none of them twice: the key is the first of them the writer would pick.
+   */
+  readonly unique: ReadonlySet<string>;
+  /** The values of that key the node's pages have sent by upsert so far. */
+  readonly sent: Set<string>;
+}
+
 /** Inputs for {@link BatchWriter.writeNode}. */
 export interface WriteNodeInput {
   /** The graph node being written. */
@@ -204,6 +218,17 @@ export interface WriteNodeInput {
   creatableFields: ReadonlySet<string>;
   /** Insert vs upsert behaviour for this execution. */
   upsertMode: 'auto' | 'off';
+  /**
+   * For a node written a page at a time, the external ids its upsert may match
+   * by, judged on every row the run reads of it before its first page.
+   * Picked on one page's rows, two pages could pick two keys, or a key one
+   * page holds once and a later one holds again: the second upsert matches the
+   * record the first created and writes over it, two source records left as
+   * one. The key is then the same on every page, and a page whose rows, as
+   * written, leave a value of it empty, hold one twice, or hold one an earlier
+   * page sent, is inserted. Absent, the key is picked on the rows handed.
+   */
+  tableKeys?: TableUpsertKeys;
   /** ID of the target Salesforce org. */
   targetOrgId: string;
   /**
@@ -755,6 +780,7 @@ export class BatchWriter {
       creatableFields,
       records,
       input.upsertMode === 'auto' && this.deps.upsertRecords ? 'auto' : 'off',
+      input.tableKeys,
     );
     const write: NodeWrite = {
       objectApiName: node.objectApiName,
@@ -1598,17 +1624,23 @@ export class BatchWriter {
    * candidates exist (legacy + new), we prefer the one whose values are all
    * present and unique in the current batch; alphabetical fallback ensures
    * determinism across describe-version drift.
+   *
+   * Of a node written a page at a time, the key is the first candidate whose
+   * values were present and unique over every row the run reads of it
+   * (`table`), on every page: see {@link WriteNodeInput.tableKeys}.
    */
   private pickUpsertField(
     fieldInfos: FieldInfo[],
     creatable: ReadonlySet<string>,
     records: Array<Record<string, unknown>>,
     mode: 'auto' | 'off',
+    table?: TableUpsertKeys,
   ): string | undefined {
     if (mode === 'off' || !this.deps.upsertRecords) return undefined;
     const candidates = fieldInfos
       .filter((f) => f.externalId && creatable.has(f.name))
       .sort((a, b) => a.name.localeCompare(b.name));
+    if (table) return this.tableKeyOfThePage(candidates, records, table);
     if (candidates.length === 0) return undefined;
     // Prefer a candidate with non-null + unique values across the batch.
     for (const c of candidates) {
@@ -1647,6 +1679,57 @@ export class BatchWriter {
         `(${candidates.map((c) => c.name).join(', ')}) — falling back to insert`,
     );
     return undefined;
+  }
+
+  /**
+   * The key one page of a node written a page at a time is upserted by: the
+   * first candidate unique over every row the run reads of the node, as long
+   * as the page's rows, as written, each hold a value of it that neither
+   * another row of the page nor an earlier page sent. Such a page is inserted
+   * instead: a cleaned value no longer the source's (cut to the target's
+   * length, neutralized, anonymized) can meet another, and upserted it would
+   * write over the record that other value went in as.
+   */
+  private tableKeyOfThePage(
+    candidates: readonly FieldInfo[],
+    records: ReadonlyArray<Record<string, unknown>>,
+    table: TableUpsertKeys,
+  ): string | undefined {
+    const key = candidates.find((c) => table.unique.has(c.name))?.name;
+    if (key === undefined) {
+      if (candidates.length > 0) {
+        logger.warn(
+          `[forge] upsert: no externalId candidate is non-null+unique across the rows read ` +
+            `(${candidates.map((c) => c.name).join(', ')}) — falling back to insert`,
+        );
+      }
+      return undefined;
+    }
+    const values = new Set<string>();
+    for (const record of records) {
+      const value = record[key];
+      if (typeof value !== 'string' || value.length === 0 || values.has(value)) {
+        logger.warn(
+          `[forge] upsert: a row of this page leaves "${key}" empty or repeats it — inserting the page`,
+        );
+        return undefined;
+      }
+      if (table.sent.has(value)) {
+        logger.warn(
+          `[forge] upsert: a row of this page repeats a "${key}" an earlier page sent — inserting the page`,
+        );
+        return undefined;
+      }
+      values.add(value);
+    }
+    // Said once for the object, as its first page goes.
+    if (table.sent.size === 0) {
+      logger.info(
+        `[forge] upsert: using "${key}" as external Id (unique across the rows read of the object)`,
+      );
+    }
+    for (const value of values) table.sent.add(value);
+    return key;
   }
 }
 

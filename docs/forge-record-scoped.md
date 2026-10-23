@@ -394,8 +394,14 @@ run that reads it whole holds it: `SELECT RecordTypeId, COUNT(Id) … GROUP BY
 RecordTypeId` under the run's filter, asked when the target has such a record
 type. `onPage` is told, as each page is written, what it created and the last
 id it read. `ceiling` is the most rows of one object it reads
-(`sandforge.forge.maxRecordsPerObject`). A record-scoped run, one that copies
-files or upserts, and one whose graph holds emails, read every node whole as
+(`sandforge.forge.maxRecordsPerObject`). A run that upserts (`upsertMode`)
+matches every page of an object by one external id: before the first page,
+it reads the id and the external ids of every row it reads of the object,
+from the first row and under the object's filter, and keeps the first
+external id whose value each row holds and no two share, as a run read whole
+picks it over all its rows; a page whose rows as written repeat a value an
+earlier page sent, or leave one empty, is inserted. A record-scoped run, one
+that copies files, and one whose graph holds emails, read every node whole as
 before; so do the catalog, the tasks and the objects mapped by name within a
 streamed run. `pageSize` cuts the pages to a size of its own: a test seam, and
 the clone command's `SANDFORGE_FORGE_PAGE_SIZE` diagnostic, under which a

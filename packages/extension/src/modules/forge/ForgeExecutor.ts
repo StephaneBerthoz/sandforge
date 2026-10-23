@@ -24,6 +24,7 @@ import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStr
 import { isNotFound } from './ForgeMetadataDiff.js';
 import { isNeverCopied } from './excludedObjects.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { logger } from '../../logger.js';
 import type { SaveErrorDetail } from '../../core/common/existingRecordMatch.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
@@ -128,6 +129,7 @@ import {
   type BatchWriteResult,
   type InsertCallJournal,
   type PendingFkUpdate,
+  type TableUpsertKeys,
   type WrittenWithoutFields,
 } from './stages/BatchWriter.js';
 import {
@@ -587,10 +589,12 @@ export interface ExecuteOptions {
    * Read and write a run of whole tables page by page: each object read with
    * the org's cursor in the order of its ids, each page written before the
    * next is read, so the run holds a page of rows whatever a table holds. See
-   * {@link ForgeStreamOptions}. A run read from a record, one that copies
-   * files, one that upserts, and one whose graph holds emails are read whole
-   * as before: their reads are bounded by what a record reaches, or their
-   * writes take an object whole.
+   * {@link ForgeStreamOptions}. One that upserts matches each object's
+   * pages by one external id, judged unique on every row it reads of the
+   * object before its first page (`keysOfTheTable`). A run read from a
+   * record, one that copies files, and one whose graph holds emails are read
+   * whole as before: their reads are bounded by what a record reaches, or
+   * their writes take an object whole.
    */
   stream?: ForgeStreamOptions;
 }
@@ -1329,6 +1333,11 @@ interface PageCarry {
   writtenWithoutFields?: WrittenWithoutFields;
   /** The flags of relations linked to that could not be given back. */
   readonly flagsNotKept: string[];
+  /**
+   * Of a run that upserts, the external ids its pages may match by, judged on
+   * every row the run reads of the object: see `keysOfTheTable`.
+   */
+  tableKeys?: TableUpsertKeys;
 }
 
 /** No page written yet. */
@@ -4026,12 +4035,13 @@ export class ForgeExecutor {
 
   /**
    * Whether the run is read and written page by page: asked to be, of whole
-   * tables, copying no file, upserting nothing, with no email in its graph.
-   * A run read from a record reads what the record reaches and writes once
-   * every node is read; one that copies files measures them all before it
-   * writes; an upsert checks an object's keys over all its rows; an email on
-   * a case waits for the task it names, held until the tasks are written, and
-   * takes its own size of storage, which no count says.
+   * tables, copying no file, with no email in its graph. A run read from a
+   * record reads what the record reaches and writes once every node is read;
+   * one that copies files measures them all before it writes; an email on a
+   * case waits for the task it names, held until the tasks are written, and
+   * takes its own size of storage, which no count says. One that upserts
+   * judges an object's keys on all its rows before its first page, by them
+   * alone: see `keysOfTheTable`.
    */
   private streamsTheRun(state: ExecutionState): boolean {
     const { config, graph } = state;
@@ -4039,9 +4049,99 @@ export class ForgeExecutor {
       config.stream !== undefined &&
       !config.isScoped &&
       config.files === undefined &&
-      config.upsertMode === 'off' &&
       !graph.nodes.some((n) => n.included && n.objectApiName === EMAIL_MESSAGE)
     );
+  }
+
+  /**
+   * Of a run read page by page that upserts, the external ids an object's
+   * pages may match by: each createable one the rows keep under its own name
+   * — neither excluded nor renamed — whose value every row the run reads of
+   * the object holds, none twice. Read before the first page, the id and those
+   * fields alone, in the order of the ids, under the object's filter, from
+   * the first row, as far as the run reads: the rows of a run it resumes are
+   * judged with its own, so the key is the one that run matched by. A run read
+   * whole picks its key on every row it writes of the object at once; page by
+   * page, a key unique on each page could repeat across two, and the second
+   * upsert wrote over the record the first had created. The read holds the
+   * values of the keys still in the running, never the rows.
+   *
+   * None when the run does not upsert, writes nothing (a simulation), or the
+   * read fails: every page is then inserted, as when no key is unique.
+   */
+  private async keysOfTheTable(
+    state: ExecutionState,
+    node: ForgeGraphNode,
+    cursor: NodeCursor,
+  ): Promise<TableUpsertKeys | undefined> {
+    const { config, sourceOrgId } = state;
+    if (config.upsertMode !== 'auto' || !this.deps.upsertRecords || state.simulated) {
+      return undefined;
+    }
+    const object = node.objectApiName;
+    const keys: TableUpsertKeys = { unique: new Set(), sent: new Set() };
+    try {
+      cursor.described ??= await this.deps.describeFields(sourceOrgId, object);
+      const excluded = new Set(config.fieldExclusions[object] ?? []);
+      const renamed = config.fieldMappings[object] ?? {};
+      const candidates = cursor.described.filter(
+        (f) =>
+          f.externalId === true &&
+          f.createable &&
+          f.queryable &&
+          !excluded.has(f.name) &&
+          renamed[f.name] === undefined,
+      );
+      if (candidates.length === 0) return keys;
+      const idField = cursor.described.find((f) => f.name === 'Id');
+      const query = buildNodeQuery({
+        node,
+        edges: state.graph.edges,
+        fieldInfos: [...(idField ? [idField] : []), ...candidates],
+        scopedBuilder: null,
+        scopeCache: null,
+        extraWhere: config.objectSoqlFilters?.[object],
+        maxRecordsPerObject: this.readBound(state, node),
+        inIdOrder: {},
+      });
+      if (query.kind !== 'query' || query.statements.length !== 1) return keys;
+      const most = query.limit ?? Infinity;
+      /** Per key still in the running, the values met. */
+      const met = new Map(candidates.map((f) => [f.name, new Set<string>()]));
+      let read = 0;
+      const pages = pagesOfStatement(
+        this.deps,
+        sourceOrgId,
+        query.statements[0],
+        config.stream?.pageSize,
+      );
+      try {
+        for await (const page of pages) {
+          for (const row of page) {
+            if (read >= most) break;
+            read++;
+            for (const [name, values] of met) {
+              const value = row[name];
+              if (typeof value !== 'string' || value.length === 0 || values.has(value)) {
+                met.delete(name);
+              } else {
+                values.add(value);
+              }
+            }
+          }
+          if (read >= most || met.size === 0 || this.isAborted) break;
+        }
+      } finally {
+        await pages.return(undefined);
+      }
+      return { unique: new Set(met.keys()), sent: keys.sent };
+    } catch (err) {
+      logger.warn(
+        `[forge] upsert: the external ids of ${object} could not be read — inserting it: ` +
+          extractErrorMessage(err),
+      );
+      return keys;
+    }
   }
 
   /**
@@ -4314,6 +4414,9 @@ export class ForgeExecutor {
     cursor.carry.rowsLeft = () => Math.max(0, expected - (cursor.read - (resumed?.read ?? 0)));
     state.cursors.set(object, cursor);
     try {
+      // What an upsert matches every page by, judged on all of them first.
+      const keys = await this.keysOfTheTable(state, node, cursor);
+      if (keys) cursor.carry.tableKeys = keys;
       for (;;) {
         if (this.isAborted) {
           // Stopped between two pages: the object ends on a line that says
@@ -11036,6 +11139,8 @@ export class ForgeExecutor {
               fieldInfos,
               creatableFields: effectiveCreatableSet,
               upsertMode: config.upsertMode,
+              // One key for every page of an object read page by page.
+              ...(page?.tableKeys ? { tableKeys: page.tableKeys } : {}),
               targetOrgId,
               targetKeyPrefix: targetObject?.keyPrefix,
               // What tells the writer which picklists' refused values it may

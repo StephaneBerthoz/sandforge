@@ -143,6 +143,13 @@ interface FakeOrgOptions {
    */
   killBeforeUpdate?: number;
   onKill?: () => void;
+  /**
+   * Whether the target takes upserts: a row whose external id matches a
+   * record it holds writes over that record, any other creates one.
+   */
+  upserts?: boolean;
+  /** Records the target holds before the run, by object. */
+  targetHolds?: Record<string, Row[]>;
 }
 
 /** The rows of `object` per record type, as `SELECT RecordTypeId, COUNT(Id) n … GROUP BY RecordTypeId` answers. */
@@ -171,10 +178,16 @@ function recordTypeCounts(schema: Schema, soql: string): Row[] | undefined {
  */
 function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
   const target = new Map<string, Map<string, Row>>();
+  for (const [object, rows] of Object.entries(options.targetHolds ?? {})) {
+    target.set(object, new Map(rows.map((row) => [String(row['Id']), { ...row }])));
+  }
   const created: Record<string, number> = {};
   let inserted = 0;
   let updateCalls = 0;
   const insertCalls: Array<{ object: string; rows: number }> = [];
+  const upsertCalls: Array<{ object: string; field: string; rows: number }> = [];
+  /** Each page the source handed out, by the statement it answered, and each write call, in turn. */
+  const timeline: string[] = [];
   /** The record types counted per object, by the statement that counted them. */
   const recordTypeScans: string[] = [];
   /** Rows the source has handed out, and rows the target has been sent or left, as the run went. */
@@ -243,6 +256,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
               const size = options.cursorPage ?? 5;
               if (rows.length === 0) yield [];
               for (let at = 0; at < rows.length; at += size) {
+                timeline.push(`page ${soql}`);
                 yield handOut(rows.slice(at, at + size));
               }
             })(),
@@ -254,6 +268,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
     insertRecords: vi.fn(async (_org: string, object: string, rows: Row[]) => {
       if (options.insertsFail?.()) throw new Error('The process was killed.');
       insertCalls.push({ object, rows: rows.length });
+      timeline.push(`insert ${object}`);
       flow.written += rows.length;
       const results = rows.map((row) => {
         const refusal = options.refuse?.(object, row);
@@ -288,6 +303,31 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
         return { id, success: record !== undefined, errors: record ? [] : ['not found'] };
       });
     }),
+    ...(options.upserts
+      ? {
+          upsertRecords: vi.fn(async (_org: string, object: string, field: string, rows: Row[]) => {
+            upsertCalls.push({ object, field, rows: rows.length });
+            timeline.push(`upsert ${object} by ${field}`);
+            flow.written += rows.length;
+            const table = target.get(object) ?? new Map<string, Row>();
+            target.set(object, table);
+            return rows.map((row) => {
+              const held = [...table].find(([, record]) => record[field] === row[field]);
+              if (held) {
+                Object.assign(held[1], row);
+                return { id: held[0], success: true, created: false, errors: [] };
+              }
+              created[object] = (created[object] ?? 0) + 1;
+              const id = canonicalRecordId(
+                `${KEY_PREFIX[object]}T${String(created[object]).padStart(11, '0')}`,
+              );
+              if (!id) throw new Error('no id');
+              table.set(id, { ...row });
+              return { id, success: true, created: true, errors: [] };
+            });
+          }),
+        }
+      : {}),
     isObjectCreatable: async () => true,
   };
   const executor = new ForgeExecutor(deps);
@@ -305,7 +345,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
         ),
       ]),
     );
-  return { executor, deps, written, insertCalls, flow, recordTypeScans };
+  return { executor, deps, written, insertCalls, upsertCalls, timeline, flow, recordTypeScans };
 }
 
 /** The ids of the records the target was sent updates of, in the order sent. */
@@ -625,6 +665,56 @@ function anonymized(): { schema: Schema; graph: ForgeGraph; options: () => Execu
   };
 }
 
+/** A field the target matches records by: an external id. */
+const externalId = (name: string): FieldInfo => ({ ...text(name), externalId: true });
+
+/** A record the target holds before the run, its id of the target's own. */
+function heldId(object: string, n: number): string {
+  const id = canonicalRecordId(`${KEY_PREFIX[object]}H${String(n).padStart(11, '0')}`);
+  if (!id) throw new Error('no id');
+  return id;
+}
+
+/**
+ * Accounts and the contacts under them, each with an external id the target
+ * matches its records by, and a target that holds an account and two contacts
+ * under the same ids already: `keys` changes the contacts' external ids.
+ */
+function keyed(keys: (n: number) => string | null = (n) => `contact-key-${n}`): {
+  schema: Schema;
+  graph: ForgeGraph;
+  holds: Record<string, Row[]>;
+} {
+  const accounts = Array.from({ length: 9 }, (_, n) => ({
+    Id: sourceId('Account', n),
+    Name: `Account ${n}`,
+    Ext__c: `account-key-${n}`,
+  }));
+  const contacts = Array.from({ length: 14 }, (_, n) => ({
+    Id: sourceId('Contact', n),
+    LastName: `Contact ${n}`,
+    AccountId: sourceId('Account', n % 9),
+    Ext__c: keys(n),
+  }));
+  return {
+    schema: {
+      Account: { fields: [text('Name'), externalId('Ext__c')], rows: accounts },
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', false), externalId('Ext__c')],
+        rows: contacts,
+      },
+    },
+    graph: graphOf([node('Account', 9), node('Contact', 14)], [edge('Account', 'Contact', true)]),
+    holds: {
+      Account: [{ Id: heldId('Account', 0), Name: 'Held', Ext__c: 'account-key-2' }],
+      Contact: [
+        { Id: heldId('Contact', 0), LastName: 'Held', Ext__c: 'contact-key-3' },
+        { Id: heldId('Contact', 1), LastName: 'Held', Ext__c: 'contact-key-11' },
+      ],
+    },
+  };
+}
+
 /** Deps' anonymizer of one run, keyed so that two runs over the same rows draw the same. */
 function keyedAnonymizer(): ForgeExecutorDeps['anonymize'] {
   const anonymizer = new ForgeAnonymizer(new PersonaRegistry('a-key-for-two-runs'), 'a-salt');
@@ -701,6 +791,151 @@ describe('a run of whole tables read page by page', () => {
     const paged = await runOver(schema, graph, { stream: { pageSize: 3 } }, { noCursor: true });
     expect(paged.written()).toEqual(whole.written());
     expect(paged.insertCalls.every((call) => call.rows <= 3)).toBe(true);
+  });
+
+  describe('a run that upserts', () => {
+    const upserting = (holds: Record<string, Row[]>, more: FakeOrgOptions = {}) => ({
+      upserts: true,
+      targetHolds: holds,
+      ...more,
+    });
+    /** What the target was sent of `object`, in turn: each page read of it, each write call. */
+    const turnsOf = (timeline: readonly string[], object: string) =>
+      timeline.filter((entry) => new RegExp(`(FROM|insert|upsert) ${object}\\b`).test(entry));
+
+    it.each(PAGE_SIZES)(
+      'upserts by the external id what the run read whole upserts, writing over what the target held, in pages of %i',
+      async (pageSize) => {
+        const { schema, graph, holds } = keyed();
+        const whole = await runOver(schema, graph, { upsertMode: 'auto' }, upserting(holds));
+        const paged = await runOver(
+          schema,
+          graph,
+          { upsertMode: 'auto', stream: { pageSize } },
+          upserting(holds),
+        );
+
+        expect(paged.written()).toEqual(whole.written());
+        expect(outcomeOf(paged.summary)).toEqual(outcomeOf(whole.summary));
+        expect(paged.summary.errors).toEqual(whole.summary.errors);
+        // The account and the two contacts the target held, written over.
+        expect(paged.summary.updatedCount).toBe(3);
+        expect(paged.summary.updatedSourceIds).toEqual(whole.summary.updatedSourceIds);
+        expect(paged.insertCalls).toEqual([]);
+        expect(paged.upsertCalls.every((call) => call.field === 'Ext__c')).toBe(true);
+        expect(paged.upsertCalls.every((call) => call.rows <= pageSize)).toBe(true);
+      },
+    );
+
+    it('reads and upserts an object a page at a time, once the id and the external id of every row are read', async () => {
+      const { schema, graph, holds } = keyed();
+      const paged = await runOver(
+        schema,
+        graph,
+        { upsertMode: 'auto', stream: { pageSize: 5 } },
+        upserting(holds, { cursorPage: 5 }),
+      );
+
+      const keys = 'page SELECT Id, Ext__c FROM Contact ORDER BY Id';
+      const rows = 'page SELECT Id, LastName, AccountId, Ext__c FROM Contact ORDER BY Id';
+      const upsert = 'upsert Contact by Ext__c';
+      expect(turnsOf(paged.timeline, 'Contact')).toEqual([
+        ...[keys, keys, keys],
+        ...[rows, upsert, rows, upsert, rows, upsert],
+      ]);
+      expect(paged.summary.successCount + paged.summary.updatedCount).toBe(23);
+    });
+
+    it.each([
+      ['repeats an external id of a row on another page', (n: number) => `contact-key-${n % 6}`],
+      [
+        'leaves its external id empty on the last page',
+        (n: number) => (n === 13 ? null : `contact-key-${n}`),
+      ],
+    ])('inserts the object a row of which %s, as the run read whole does', async (_case, keys) => {
+      const { schema, graph, holds } = keyed(keys);
+      const whole = await runOver(schema, graph, { upsertMode: 'auto' }, upserting(holds));
+      const paged = await runOver(
+        schema,
+        graph,
+        { upsertMode: 'auto', stream: { pageSize: 3 } },
+        upserting(holds),
+      );
+
+      expect(whole.upsertCalls.filter((call) => call.object === 'Contact')).toEqual([]);
+      // Each page's own external ids are unique: judged on its page alone,
+      // the second page upserted onto the records the first had created.
+      expect(paged.upsertCalls.filter((call) => call.object === 'Contact')).toEqual([]);
+      expect(paged.written()).toEqual(whole.written());
+      expect(outcomeOf(paged.summary)).toEqual(outcomeOf(whole.summary));
+    });
+
+    it('judges the external ids of a run it resumes on the rows that run read as well', async () => {
+      // The ninth contact's external id is the third's, read before the checkpoint.
+      const { schema, graph, holds } = keyed((n) => `contact-key-${n === 9 ? 2 : n}`);
+      const resumed = await runOver(
+        schema,
+        graph,
+        {
+          upsertMode: 'auto',
+          stream: {
+            pageSize: 5,
+            resumeAfter: { Contact: { lastId: sourceId('Contact', 4), read: 5 } },
+          },
+        },
+        upserting(holds),
+      );
+
+      expect(resumed.timeline).toContain('page SELECT Id, Ext__c FROM Contact ORDER BY Id');
+      expect(resumed.upsertCalls.filter((call) => call.object === 'Contact')).toEqual([]);
+      expect(resumed.insertCalls.filter((call) => call.object === 'Contact')).toEqual([
+        { object: 'Contact', rows: 5 },
+        { object: 'Contact', rows: 4 },
+      ]);
+    });
+
+    it('inserts an object whose external ids could not be read, and writes all of it', async () => {
+      const { schema, graph, holds } = keyed();
+      const orgs = fakeOrgs(schema, upserting(holds));
+      const { queryPages } = orgs.deps;
+      if (!queryPages) throw new Error('no cursor');
+      const refused: AsyncIterable<Row[]> = {
+        [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('QUERY_TIMEOUT')) }),
+      };
+      const executor = new ForgeExecutor({
+        ...orgs.deps,
+        queryPages: (org, soql) =>
+          soql.startsWith('SELECT Id, Ext__c FROM Contact') ? refused : queryPages(org, soql),
+      });
+
+      const summary = await executor.execute(graph, 'src', 'tgt', () => {}, {
+        upsertMode: 'auto',
+        stream: { pageSize: 5 },
+      });
+
+      expect(orgs.upsertCalls.filter((call) => call.object === 'Contact')).toEqual([]);
+      expect(
+        orgs.insertCalls
+          .filter((call) => call.object === 'Contact')
+          .reduce((sum, call) => sum + call.rows, 0),
+      ).toBe(14);
+      expect(summary.failedCount).toBe(0);
+    });
+
+    it('reads no external id for a simulation, which writes nothing', async () => {
+      const { schema, graph, holds } = keyed();
+      const simulated = await runOver(
+        schema,
+        graph,
+        { upsertMode: 'auto', dryRun: true, stream: { pageSize: 5 } },
+        upserting(holds),
+      );
+
+      expect(simulated.timeline.some((entry) => entry.includes('SELECT Id, Ext__c FROM'))).toBe(
+        false,
+      );
+      expect(simulated.summary.wouldInsertCount).toBe(23);
+    });
   });
 
   it('ends each object on one line that counts every page, after a step for each', async () => {

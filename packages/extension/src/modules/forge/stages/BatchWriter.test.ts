@@ -834,6 +834,101 @@ describe('BatchWriter', () => {
     warnSpy.mockRestore();
   });
 
+  describe('a node written a page at a time, its keys judged on every row read', () => {
+    const keyed = (name: string): FieldInfo => ({
+      name,
+      queryable: true,
+      createable: true,
+      isReference: false,
+      externalId: true,
+    });
+    const fields: FieldInfo[] = [...FIELDS, keyed('A_Key__c'), keyed('B_Key__c')];
+    const page = (rows: Array<Record<string, unknown>>) =>
+      makeInput(rows, {
+        records: rows.map(({ Id: _id, ...payload }) => payload),
+        fieldInfos: fields,
+        creatableFields: new Set(['Name', 'A_Key__c', 'B_Key__c']),
+        upsertMode: 'auto',
+      });
+    const created = async (_org: string, _object: string, _field: string, rows: unknown[]) =>
+      rows.map((_, i) => ({ id: `001UP${i}`, success: true, created: true, errors: [] }));
+
+    it('upserts every page by the first key unique on every row, though another is unique on the page', async () => {
+      const upsertRecords = vi.fn<UpsertFn>().mockImplementation(created);
+      const writer = new BatchWriter({ ...makeDeps(), upsertRecords });
+      // A_Key__c repeats across pages: judged on the rows read, only B_Key__c is a key.
+      const tableKeys = { unique: new Set(['B_Key__c']), sent: new Set<string>() };
+
+      await writer.writeNode({
+        ...page([{ Id: '001A', A_Key__c: 'A-1', B_Key__c: 'B-1' }]),
+        tableKeys,
+      });
+      await writer.writeNode({
+        ...page([{ Id: '001B', A_Key__c: 'A-1', B_Key__c: 'B-2' }]),
+        tableKeys,
+      });
+
+      expect(upsertRecords.mock.calls.map(([, , field]) => field)).toEqual([
+        'B_Key__c',
+        'B_Key__c',
+      ]);
+    });
+
+    it('inserts a page whose row, as written, repeats a value of the key an earlier page sent', async () => {
+      const upsertRecords = vi.fn<UpsertFn>().mockImplementation(created);
+      const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+      const writer = new BatchWriter(deps);
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      const tableKeys = { unique: new Set(['A_Key__c']), sent: new Set<string>() };
+
+      await writer.writeNode({ ...page([{ Id: '001A', A_Key__c: 'CUT' }]), tableKeys });
+      // Unique as read, the same once cut to the target's length: upserted, it
+      // would write over the record the first page created.
+      await writer.writeNode({ ...page([{ Id: '001B', A_Key__c: 'CUT' }]), tableKeys });
+
+      expect(upsertRecords).toHaveBeenCalledTimes(1);
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('an earlier page sent'));
+      warnSpy.mockRestore();
+    });
+
+    it('inserts a page whose row, as written, leaves the key empty', async () => {
+      const upsertRecords = vi.fn<UpsertFn>().mockImplementation(created);
+      const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+      const tableKeys = { unique: new Set(['A_Key__c']), sent: new Set<string>() };
+
+      await new BatchWriter(deps).writeNode({
+        ...page([
+          { Id: '001A', A_Key__c: 'A-1' },
+          { Id: '001B', A_Key__c: '' },
+        ]),
+        tableKeys,
+      });
+
+      expect(upsertRecords).not.toHaveBeenCalled();
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      expect(tableKeys.sent.size).toBe(0);
+      warnSpy.mockRestore();
+    });
+
+    it('inserts every page when no key is unique on every row read', async () => {
+      const upsertRecords = vi.fn<UpsertFn>().mockImplementation(created);
+      const deps: WriterDeps = { ...makeDeps(), upsertRecords };
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+      await new BatchWriter(deps).writeNode({
+        ...page([{ Id: '001A', A_Key__c: 'A-1', B_Key__c: 'B-1' }]),
+        tableKeys: { unique: new Set(), sent: new Set() },
+      });
+
+      expect(upsertRecords).not.toHaveBeenCalled();
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('across the rows read'));
+      warnSpy.mockRestore();
+    });
+  });
+
   // ForgeBatchStrategy.resolve() returns api:'bulk' + batchSize:10_000
   // above 200 records, but insertRecords/upsertRecords are wired (in
   // composition/forgeComposition.ts) to conn.sobject(x).create/upsert, i.e.
