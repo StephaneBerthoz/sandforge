@@ -5,7 +5,7 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.66.0] - 2026-10-23
+## [1.66.0] - 2026-10-24
 
 Checkpoints: keep an org's data as it is now, see what changed since, and put the org back as it was, whoever made the changes, then take the rewind back if you need to.
 
