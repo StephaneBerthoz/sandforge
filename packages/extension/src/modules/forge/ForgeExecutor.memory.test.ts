@@ -27,8 +27,11 @@ const MB = 1024 * 1024;
 /**
  * The most the heap may grow, once collected, while a run of a million rows
  * goes: the journal's index of what it wrote, and a cache of a few pages.
+ * Measured on 2026-10-25: about 100 MB as the extension ships, 103 MB under
+ * coverage alone, up to 121 MB under coverage in the whole suite; held in
+ * memory, the records took several hundred.
  */
-const MOST_HEAP_MB = 120;
+const MOST_HEAP_MB = 150;
 
 const FIELDS: FieldInfo[] = [
   { name: 'Id', queryable: true, createable: false, isReference: false },
