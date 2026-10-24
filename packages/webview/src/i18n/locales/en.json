@@ -4559,9 +4559,9 @@
       "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the checkpoint does not cover files: {{names}}"
     },
     "rewindUndo": {
-      "resultSuccess": "Every record the rewind brought back is in the recycle bin of {{org}} again.",
-      "resultPartial": "Records the rewind brought back went back to the recycle bin of {{org}}; the others stay, as listed.",
-      "resultFailure": "No record the rewind brought back went back to the recycle bin of {{org}}.",
+      "resultSuccess": "Every record the rewind brought back or made again is in the recycle bin of {{org}} now.",
+      "resultPartial": "Records the rewind brought back or made again went to the recycle bin of {{org}}; the others stay, as listed.",
+      "resultFailure": "No record the rewind brought back or made again went to the recycle bin of {{org}}.",
       "resultChanged_one": "{{formatted}} kept, changed since the rewind",
       "resultChanged_other": "{{formatted}} kept, changed since the rewind",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the rewind did not bring it back: {{names}}",
@@ -5484,6 +5484,8 @@
         "line_one": "{{formatted}} {{object}} record deleted since that the recycle bin no longer gives back.",
         "line_other": "{{formatted}} {{object}} records deleted since that the recycle bin no longer gives back.",
         "newIds": "The rewind makes them again from the checkpoint, with new Ids, and the lookups the checkpoint holds that named them name the new Ids. Anything outside Salesforce that names their old Ids — an integration, a link, a report filter — no longer finds them. Undo deletes them again.",
+        "ifEmptiedTitle": "If the recycle bin no longer holds them",
+        "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.",
         "accept": "Make them again, with new Ids"
       }
     },
@@ -5552,6 +5554,11 @@
           "line_one": "{{object}}: {{formatted}} record",
           "line_other": "{{object}}: {{formatted}} records"
         },
+        "notInBin": {
+          "title": "No longer in the recycle bin",
+          "line_one": "{{object}}: {{formatted}} record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make it again, with a new Id",
+          "line_other": "{{object}}: {{formatted}} records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids"
+        },
         "goneForGood": {
           "title": "Gone for good",
           "line_one": "{{object}}: {{formatted}} record deleted since cannot come back: the recycle bin no longer holds it, and it could not be made again — a file, or a record deleted while the checkpoint was taken",
@@ -5587,7 +5594,9 @@
         "undeletedTitle": "What the rewind deleted, brought back from the recycle bin of {{org}}",
         "restoredTitle": "What the rewind wrote over, given back its values from before in {{org}}",
         "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",
-        "keptChanged": "changed since the rewind, left as they are now: {{n}}"
+        "keptChanged": "changed since the rewind, left as they are now: {{n}}",
+        "remade_one": "Deleted again in {{org}}: {{formatted}} record the rewind made again, with what went with it",
+        "remade_other": "Deleted again in {{org}}: {{formatted}} records the rewind made again, with what went with them"
       },
       "recreated": {
         "title": "Made again in {{org}}, with new Ids",
@@ -5597,7 +5606,7 @@
     "undo": {
       "open": "Undo this rewind",
       "title": "Undo the last rewind of {{org}}?",
-      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, and sends back to the recycle bin what it brought back. What anyone changed in {{org}} since the rewind stays as it is.",
+      "description": "Brings back from the recycle bin what the rewind deleted, gives what it wrote over its values from before, sends back to the recycle bin what it brought back, and deletes again what it made again. What anyone changed in {{org}} since the rewind stays as it is.",
       "acceptAutomation": "Undo even though {{org}} runs automation as records are updated, deleted or brought back"
     },
     "stopComparing": {

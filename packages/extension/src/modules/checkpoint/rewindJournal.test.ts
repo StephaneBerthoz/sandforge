@@ -796,6 +796,7 @@ describe('the undo’s plans, kept on disk', () => {
       return {
         backup: journal.backup,
         rewound: rewoundObjects(plans),
+        remade: plans.remade.objects,
         plans: {
           remove: await idsOf(plans.remove.spool),
           bringBack: await idsOf(plans.bringBack),
@@ -849,8 +850,8 @@ describe('the undo’s plans, kept on disk', () => {
     });
   });
 
-  it('sends to the recycle bin what the rewind made again with new Ids, children first, beside what it brought back: it was not there before the rewind', async () => {
-    const { plans, rewound } = await plansOf({
+  it('sends to the recycle bin what the rewind made again with new Ids, children first, beside what it brought back, and names them as made again: it was not there before the rewind', async () => {
+    const { plans, rewound, remade } = await plansOf({
       broughtBack: [{ objectApiName: 'Account', ids: [account(2)] }],
       recreated: [
         { objectApiName: 'Account', ids: [account(91)], from: [account(1)] },
@@ -870,6 +871,10 @@ describe('the undo’s plans, kept on disk', () => {
     expect(rewound).toEqual([
       { objectApiName: 'Contact', deleted: 0, broughtBack: 2, givenBack: 0 },
       { objectApiName: 'Account', deleted: 0, broughtBack: 2, givenBack: 0 },
+    ]);
+    expect(remade).toEqual([
+      { objectApiName: 'Account', count: 1 },
+      { objectApiName: 'Contact', count: 2 },
     ]);
   });
 

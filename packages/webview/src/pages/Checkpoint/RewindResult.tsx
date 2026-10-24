@@ -25,6 +25,7 @@ import {
   changedDuringRewind,
   deletedStatus,
   keptChangedSinceRewind,
+  remadeDeleted,
   residualGroups,
   residualTotal,
 } from './rewindPreviewFacts';
@@ -58,6 +59,10 @@ const RESIDUAL_KEYS: Readonly<Record<RewindResidualReason, { title: string; line
   refused: {
     title: 'checkpoint.result.residual.refused.title',
     line: 'checkpoint.result.residual.refused.line',
+  },
+  notInBin: {
+    title: 'checkpoint.result.residual.notInBin.title',
+    line: 'checkpoint.result.residual.notInBin.line',
   },
   goneForGood: {
     title: 'checkpoint.result.residual.goneForGood.title',
@@ -199,6 +204,8 @@ export const RewindResult: React.FC<RewindResultProps> = ({
   const groups = residualGroups(result);
   const settled = result.status === 'success';
   const rewinding = kind === 'rewind';
+  // What an undo deleted of what the rewind made again, never sent back.
+  const deletedAgain = rewinding ? 0 : remadeDeleted(result);
   const automation = automationObjects(result);
   const undoUntil = rewinding && result.undo ? result.undo : undefined;
   const until = undoUntil
@@ -257,6 +264,15 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           words={rewinding ? REWIND_RESTORED : UNDO_RESTORED}
           testId="checkpoint-result-restored"
         />
+      )}
+      {deletedAgain > 0 && (
+        <p data-testid="checkpoint-result-remade">
+          {t('checkpoint.result.undo.remade', {
+            count: deletedAgain,
+            formatted: formatNumber(deletedAgain),
+            org: orgName,
+          })}
+        </p>
       )}
       {result.deleted.length > 0 && (
         <ForgeRunRemovalResult

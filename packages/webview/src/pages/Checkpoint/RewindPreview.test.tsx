@@ -399,7 +399,40 @@ describe('RewindPreview', () => {
     answerPreview();
     expect(screen.queryByTestId('checkpoint-preview-number-recreate')).toBeNull();
     expect(screen.queryByRole('columnheader', { name: 'Make again' })).toBeNull();
+  });
+
+  it('offers no box to make records again when nothing comes back from the bin and none is to make again', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Account', { toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } }),
+        ],
+      }),
+    });
     expect(screen.queryByTestId('checkpoint-preview-recreate')).toBeNull();
+  });
+
+  it('offers to make again what Salesforce answers is no longer in the recycle bin whenever the rewind brings records back, saying it still lists one emptied from it, without holding Rewind for it (live: five emptied records read in the bin)', () => {
+    const { onRewind } = renderPreview();
+    answerPreview();
+    const section = screen.getByTestId('checkpoint-preview-recreate');
+    expect(within(section).getByRole('heading').textContent).toBe(
+      'If the recycle bin no longer holds them',
+    );
+    expect(screen.getByTestId('checkpoint-preview-recreate-if-emptied').textContent).toBe(
+      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.',
+    );
+    expect(within(section).queryByRole('listitem')).toBeNull();
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeEnabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Make them again, with new Ids' }));
+    fireEvent.click(rewind);
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptRecreate: true }),
+      expect.anything(),
+    );
   });
 
   it('says in a sentence of its own the records the rewind deletes before a record they point at, which it deletes next, and holds Rewind until that is accepted too (F41)', () => {

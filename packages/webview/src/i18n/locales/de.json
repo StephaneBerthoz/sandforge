@@ -4559,9 +4559,9 @@
       "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}"
     },
     "rewindUndo": {
-      "resultSuccess": "Jeder Datensatz, den das Zurücksetzen zurückgeholt hat, ist wieder im Papierkorb von {{org}}.",
-      "resultPartial": "Vom Zurücksetzen zurückgeholte Datensätze sind wieder im Papierkorb von {{org}}; die übrigen bleiben, wie aufgeführt.",
-      "resultFailure": "Kein vom Zurücksetzen zurückgeholter Datensatz ist wieder im Papierkorb von {{org}}.",
+      "resultSuccess": "Jeder Datensatz, den das Zurücksetzen zurückgeholt oder neu angelegt hat, ist jetzt im Papierkorb von {{org}}.",
+      "resultPartial": "Vom Zurücksetzen zurückgeholte oder neu angelegte Datensätze sind in den Papierkorb von {{org}} gegangen; die übrigen bleiben, wie aufgeführt.",
+      "resultFailure": "Kein vom Zurücksetzen zurückgeholter oder neu angelegter Datensatz ist in den Papierkorb von {{org}} gegangen.",
       "resultChanged_one": "{{formatted}} behalten, seit dem Zurücksetzen geändert",
       "resultChanged_other": "{{formatted}} behalten, seit dem Zurücksetzen geändert",
       "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da das Zurücksetzen sie nicht zurückgeholt hat: {{names}}",
@@ -5484,6 +5484,8 @@
         "line_one": "{{formatted}} seitdem gelöschter {{object}}-Datensatz, den der Papierkorb nicht mehr zurückgibt.",
         "line_other": "{{formatted}} seitdem gelöschte {{object}}-Datensätze, die der Papierkorb nicht mehr zurückgibt.",
         "newIds": "Das Zurücksetzen legt sie aus dem Prüfpunkt neu an, mit neuen Ids, und die Lookup-Felder des Prüfpunkts, die auf sie verwiesen, verweisen auf die neuen Ids. Was außerhalb von Salesforce ihre alten Ids nennt — eine Integration, ein Link, ein Berichtsfilter —, findet sie nicht mehr. Das Rückgängigmachen löscht sie wieder.",
+        "ifEmptiedTitle": "Wenn der Papierkorb sie nicht mehr enthält",
+        "ifEmptied": "Salesforce führt einen aus dem Papierkorb geleerten Datensatz noch Minuten bis Stunden als gelöscht und sagt erst, wenn das Zurücksetzen ihn zurückholen will, dass der Papierkorb ihn nicht mehr enthält. Angehakt legt das Zurücksetzen ihn dann aus dem Prüfpunkt neu an, mit neuer Id, ebenso die Datensätze, die mit ihm zurückkommen sollten, und es läuft, was die Org beim Anlegen eines Datensatzes ausführt; nicht angehakt lässt es sie und nennt sie.",
         "accept": "Neu anlegen, mit neuen Ids"
       }
     },
@@ -5552,6 +5554,11 @@
           "line_one": "{{object}}: {{formatted}} Datensatz",
           "line_other": "{{object}}: {{formatted}} Datensätze"
         },
+        "notInBin": {
+          "title": "Nicht mehr im Papierkorb",
+          "line_one": "{{object}}: {{formatted}} Datensatz, den Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Neu anlegen, mit neuen Ids“ angehakt, legt ihn neu an, mit neuer Id",
+          "line_other": "{{object}}: {{formatted}} Datensätze, die Salesforce noch als gelöscht führt, aber nicht zurückholt — aus dem Papierkorb geleert oder dort endgültig behalten: Erneut zurücksetzen, mit „Neu anlegen, mit neuen Ids“ angehakt, legt sie neu an, mit neuen Ids"
+        },
         "goneForGood": {
           "title": "Endgültig weg",
           "line_one": "{{object}}: {{formatted}} seitdem gelöschter Datensatz kann nicht zurückkommen: Der Papierkorb enthält ihn nicht mehr, und er konnte nicht neu angelegt werden — eine Datei oder ein Datensatz, der gelöscht wurde, während der Prüfpunkt erstellt wurde",
@@ -5587,7 +5594,9 @@
         "undeletedTitle": "Was das Zurücksetzen gelöscht hat, aus dem Papierkorb von {{org}} zurückgeholt",
         "restoredTitle": "Was das Zurücksetzen überschrieben hat, mit seinen vorherigen Werten in {{org}}",
         "restoredLine": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Zurücksetzen zurück",
-        "keptChanged": "seit dem Zurücksetzen geändert, belassen, wie sie jetzt sind: {{n}}"
+        "keptChanged": "seit dem Zurücksetzen geändert, belassen, wie sie jetzt sind: {{n}}",
+        "remade_one": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegter Datensatz, mit dem, was mit ihm ging",
+        "remade_other": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegte Datensätze, mit dem, was mit ihnen ging"
       },
       "recreated": {
         "title": "In {{org}} neu angelegt, mit neuen Ids",
@@ -5597,7 +5606,7 @@
     "undo": {
       "open": "Dieses Zurücksetzen rückgängig machen",
       "title": "Das letzte Zurücksetzen von {{org}} rückgängig machen?",
-      "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück und schickt das, was es zurückgeholt hat, wieder in den Papierkorb. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
+      "description": "Holt aus dem Papierkorb zurück, was das Zurücksetzen gelöscht hat, gibt dem, was es überschrieben hat, seine vorherigen Werte zurück, schickt das, was es zurückgeholt hat, wieder in den Papierkorb und löscht wieder, was es neu angelegt hat. Was seit dem Zurücksetzen in {{org}} geändert wurde, bleibt, wie es ist.",
       "acceptAutomation": "Rückgängig machen, auch wenn {{org}} Automatisierungen ausführt, wenn Datensätze aktualisiert, gelöscht oder zurückgeholt werden"
     },
     "stopComparing": {

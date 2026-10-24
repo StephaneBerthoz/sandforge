@@ -248,15 +248,30 @@ const RESIDUAL_RANK: Readonly<Record<RewindResidualReason, number>> = {
   automation: 0,
   changedDuringRewind: 1,
   changedSincePreview: 2,
-  refused: 3,
-  kept: 4,
-  goneForGood: 5,
+  notInBin: 3,
+  refused: 4,
+  kept: 5,
+  goneForGood: 6,
 };
 
 /** Every reason, in the order the result tells them: one missing from the rank fails to compile. */
 const RESIDUAL_ORDER = (Object.keys(RESIDUAL_RANK) as RewindResidualReason[]).sort(
   (a, b) => RESIDUAL_RANK[a] - RESIDUAL_RANK[b],
 );
+
+/**
+ * Of what an undo sent to the recycle bin, the records the rewind had made
+ * again: per object, as many of those it deleted as were made again and are
+ * no longer in the org — the others went with a record it deleted.
+ */
+export function remadeDeleted(result: Pick<RewindResult, 'deleted' | 'remade'>): number {
+  return (result.remade ?? []).reduce((total, made) => {
+    const deleted = result.deleted
+      .filter((object) => object.objectApiName === made.objectApiName)
+      .reduce((sum, object) => sum + object.deleted, 0);
+    return total + Math.min(deleted, made.count);
+  }, 0);
+}
 
 /** Records still differing once a rewind read the org again, every reason and object together. */
 export function residualTotal(result: Pick<RewindResult, 'residual'>): number {

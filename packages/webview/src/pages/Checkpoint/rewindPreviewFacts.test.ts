@@ -12,6 +12,7 @@ import {
   lastChangers,
   outsideLines,
   recreateLines,
+  remadeDeleted,
   residualGroups,
   residualTotal,
   rewindPhases,
@@ -222,6 +223,38 @@ describe('what a rewind did', () => {
       ['goneForGood', 2, 1],
     ]);
     expect(automationObjects(result)).toEqual(['Case', 'Account']);
+  });
+
+  it('names what the org answered is no longer in the recycle bin before what it refused: a tick and a rewind make it again', () => {
+    const result = rewindResult({
+      residual: [
+        { objectApiName: 'Lead', reason: 'refused', count: 1, ids: [] },
+        { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [] },
+        { objectApiName: 'Case', reason: 'changedSincePreview', count: 1, ids: [] },
+      ],
+    });
+    expect(residualGroups(result).map((group) => group.reason)).toEqual([
+      'changedSincePreview',
+      'notInBin',
+      'refused',
+    ]);
+  });
+
+  it('counts, of what an undo deleted, the records the rewind made again, the others gone with a record it deleted', () => {
+    const deleted = [
+      deletedObject('Account', { planned: 3, deleted: 3 }),
+      deletedObject('Contact', { planned: 3, deleted: 1, alreadyGone: 2 }),
+    ];
+    expect(remadeDeleted({ deleted })).toBe(0);
+    expect(
+      remadeDeleted({
+        deleted,
+        remade: [
+          { objectApiName: 'Account', count: 2 },
+          { objectApiName: 'Contact', count: 3 },
+        ],
+      }),
+    ).toBe(3);
   });
 
   it('names who changed records during the rewind, the most first, by the names the preview read', () => {

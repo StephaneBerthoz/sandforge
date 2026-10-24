@@ -224,10 +224,12 @@ const named = {
 
 /**
  * A checkpoint of Account and Contact taken at T0; then a colleague renames
- * an account, creates one with a contact under it, and deletes another; then
- * the preview and the rewind that take it all back.
+ * an account, creates one with a contact under it, and deletes another —
+ * then empties it from the recycle bin when `emptied`; then the preview and
+ * the rewind that take it all back, making the emptied account and its
+ * contact again.
  */
-async function rewound(): Promise<Rewound> {
+async function rewound(emptied = false): Promise<Rewound> {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-undo-'));
   dirs.push(dir);
   const opened = openCheckpointStore({ root: join(dir, 'store'), locksDir: join(dir, 'locks') });
@@ -278,6 +280,7 @@ async function rewound(): Promise<Rewound> {
     LastModifiedById: COLLEAGUE,
   });
   org.trash('Account', account(2), COLLEAGUE);
+  if (emptied) org.empty(account(2));
   const beforeRewind = stateOf(org);
 
   clock = PREVIEWED;
@@ -297,7 +300,7 @@ async function rewound(): Promise<Rewound> {
       previewId: preview.diff.previewId,
       acceptAutomation: false,
       acceptNoUndo: false,
-      acceptRecreate: false,
+      acceptRecreate: emptied,
       acceptOutside: false,
     },
   );
@@ -403,6 +406,34 @@ describe('undoCheckpoint, on the memory org', () => {
     expect(last).toMatchObject({ rewindId: r.rewind.rewindId, undoneAt: expect.any(String) });
     // The list offers it no more.
     expect((await r.store.list()).map((entry) => entry.undo)).toEqual([undefined]);
+  });
+
+  it('names apart what it deleted of what the rewind made again, the bin no longer giving it back, and says so as it runs', async () => {
+    const r = await rewound(true);
+    expect(
+      r.rewind.recreated?.map(({ objectApiName, created }) => [objectApiName, created]),
+    ).toEqual([
+      ['Account', 1],
+      ['Contact', 1],
+    ]);
+    const steps: string[] = [];
+
+    const result = resultOf(
+      await undone(r, { deps: { onProgress: ({ step }) => steps.push(step) } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(stateOf(r.org).live).toEqual((r.beforeRewind as { live: unknown }).live);
+    expect(result.remade).toEqual([
+      { objectApiName: 'Account', count: 1 },
+      { objectApiName: 'Contact', count: 1 },
+    ]);
+    expect(steps.filter((step) => step.startsWith('Sending back'))).not.toEqual([]);
+    for (const step of steps.filter((each) => each.startsWith('Sending back'))) {
+      expect(step).toMatch(
+        /^Sending back to the recycle bin what the rewind brought back, and deleting again what it made again: /,
+      );
+    }
   });
 
   it('names a record a colleague changed again during the undo, by that colleague, and is unstable', async () => {

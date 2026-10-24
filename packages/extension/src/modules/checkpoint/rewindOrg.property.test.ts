@@ -293,6 +293,8 @@ type Step =
   | { kind: 'untrash'; object: number; pick: number }
   | { kind: 'priceBook'; pick: number }
   | { kind: 'purge'; object: number; pick: number }
+  // Emptied from the bin, still read deleted: see `MemoryOrgFacts.emptiedStillListed`.
+  | { kind: 'empty'; object: number; pick: number }
   | { kind: 'hardDelete'; object: number; pick: number }
   // Only in an org with cases, never drawn at random.
   | { kind: 'case'; parent: number };
@@ -313,6 +315,7 @@ function stepArb(goneForGood: boolean): fc.Arbitrary<Step> {
   if (goneForGood) {
     steps.push(
       fc.record({ kind: fc.constant('purge' as const), object: objectIndex, pick }),
+      fc.record({ kind: fc.constant('empty' as const), object: objectIndex, pick }),
       fc.record({ kind: fc.constant('hardDelete' as const), object: objectIndex, pick }),
     );
   }
@@ -498,6 +501,11 @@ function apply(org: RewindTestOrg, history: readonly Step[], made: { next: numbe
       case 'purge': {
         const row = nth(org.inBin(objectApiName), step.pick);
         if (row) org.purge(row.Id);
+        return;
+      }
+      case 'empty': {
+        const row = nth(org.inBin(objectApiName), step.pick);
+        if (row) org.empty(row.Id);
         return;
       }
       case 'hardDelete': {
@@ -830,17 +838,25 @@ describe('a rewind on the memory org, over random histories since the checkpoint
   );
 
   it(
-    'with records gone for good — emptied from the bin, or hard-deleted whether or not the bin still shows them — makes them again under new Ids, the org then the checkpoint’s by its Ids or each record that differs named; rewound again it ends where it ended, and its undo deletes what it made and returns the org',
+    'with records gone for good — emptied from the bin, whether or not the org still lists them as deleted, or hard-deleted whether or not the bin still shows them — makes them again under new Ids, the org then the checkpoint’s by its Ids or each record that differs named; rewound again it ends where it ended, and its undo deletes what it made and returns the org',
     async () => {
       // Every history starts with a contact deleted, then emptied from the
       // bin — the second of the bin's contacts, the first there since the
-      // checkpoint — and a deal hard-deleted: each run makes records again.
+      // checkpoint — then a deal hard-deleted, then an account deleted with
+      // its contact and emptied from the bin, still read there while the org
+      // lists what it emptied: each run makes records again.
       const gone: Step[] = [
         { kind: 'trash', object: 1, pick: 3 },
         { kind: 'purge', object: 1, pick: 1 },
         { kind: 'hardDelete', object: 2, pick: 1 },
+        { kind: 'trash', object: 0, pick: 1 },
+        { kind: 'empty', object: 0, pick: 1 },
       ];
-      for (const facts of factCombinations(['hardDeleteInQueryAll', 'clearedLookupRestamps'])) {
+      for (const facts of factCombinations([
+        'hardDeleteInQueryAll',
+        'clearedLookupRestamps',
+        'emptiedStillListed',
+      ])) {
         await fc.assert(
           fc.asyncProperty(historyArb(true), async (random) => {
             const history = [...gone, ...random];
@@ -857,6 +873,14 @@ describe('a rewind on the memory org, over random histories since the checkpoint
               (first.recreated ?? []).reduce((sum, object) => sum + object.created, 0),
               message,
             ).toBeGreaterThan(0);
+            // What the org answered is no longer in the bin, made again too.
+            expect(
+              first.residual.filter(
+                (group) =>
+                  group.reason === 'notInBin' || /not in the recycle bin/.test(group.message ?? ''),
+              ),
+              message,
+            ).toEqual([]);
             const once = keptOf(t.org, t.checkpoint);
             expectNamed(t, first.residual, message);
             const second = resultOf(await rewindMaking(t));

@@ -1555,6 +1555,11 @@ export interface SpooledUndoPlans {
    * good: an opportunity's products could no longer come back with it.
    */
   goesWithParent: ParentedSpool;
+  /**
+   * Of {@link remove}, the records the rewind made again with new Ids, by
+   * key, and per object how many: deleted again, never brought back.
+   */
+  remade: { keys: RecordKeySet; objects: Array<{ objectApiName: string; count: number }> };
   /** Remove the plans' files. Once is enough. */
   dispose(): Promise<void>;
 }
@@ -1703,6 +1708,8 @@ export async function spoolUndoPlans(
 
     const remove = new IdSpoolWriter(join(dir, 'remove'));
     const given = new IdSpoolWriter(join(dir, 'giveBack'));
+    const remade = new RecordKeySet();
+    const remadeCounts = new Map<string, number>();
     const goesWithParent = await ParentedSpool.written(join(dir, 'goesWithParent'), async (add) => {
       await eachLine(journalFile, async (line) => {
         if (line.kind === 'givingBack') {
@@ -1714,7 +1721,9 @@ export async function spoolUndoPlans(
         if (line.kind === 'recreated') {
           // Made by the rewind: deleted by its undo, as it was not there before.
           for (const id of line.ids) {
-            if (removing(recordKey(id))) await remove.add(line.objectApiName, id);
+            if (!removing(recordKey(id)) || !(await remove.add(line.objectApiName, id))) continue;
+            remade.add(id);
+            remadeCounts.set(line.objectApiName, (remadeCounts.get(line.objectApiName) ?? 0) + 1);
           }
           return;
         }
@@ -1758,6 +1767,10 @@ export async function spoolUndoPlans(
         })),
       },
       goesWithParent,
+      remade: {
+        keys: remade,
+        objects: [...remadeCounts].map(([objectApiName, count]) => ({ objectApiName, count })),
+      },
       dispose,
     };
   } catch (err: unknown) {

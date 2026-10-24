@@ -540,13 +540,22 @@ export type RewindStatus = 'success' | 'partial' | 'failure' | 'unstable' | 'can
  * set it again, another user changed it during the rewind, it changed after
  * the preview the rewind acted on, the org refused the write — the insert of
  * a record made again among them — the recycle bin no longer holds it and it
- * could not be made again, or the rewind kept it as it had to — records
- * outside a checkpoint of picked objects hang from it and their deletion was
- * not accepted, a record the rewind left hangs from it, or Undo couldn't
- * bring it back and that was not accepted — which its `message` says.
+ * could not be made again, the org answered as the rewind brought it back
+ * that the bin no longer holds it — Salesforce still lists a record emptied
+ * from it as deleted — and making it again was not accepted (`notInBin`), or
+ * the rewind kept it as it had to — records outside a checkpoint of picked
+ * objects hang from it and their deletion was not accepted, a record the
+ * rewind left hangs from it, or Undo couldn't bring it back and that was not
+ * accepted — which its `message` says.
  */
 export type RewindResidualReason =
-  'automation' | 'changedDuringRewind' | 'changedSincePreview' | 'refused' | 'goneForGood' | 'kept';
+  | 'automation'
+  | 'changedDuringRewind'
+  | 'changedSincePreview'
+  | 'refused'
+  | 'notInBin'
+  | 'goneForGood'
+  | 'kept';
 
 /** Records of one object that still differ, for one reason. */
 export interface RewindResidual {
@@ -597,6 +606,13 @@ export interface RewindResult {
    * undo's result, which deletes what a rewind made.
    */
   recreated?: RewindRecreatedObject[];
+  /**
+   * An undo's alone: of what it sent to the recycle bin, per object, the
+   * records the rewind had made again with new Ids that are no longer in the
+   * org — deleted again, or gone with a record it deleted. Absent when there
+   * is none.
+   */
+  remade?: Array<{ objectApiName: string; count: number }>;
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
   /**

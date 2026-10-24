@@ -4559,9 +4559,9 @@
       "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois o ponto de verificação não abrange arquivos: {{names}}"
     },
     "rewindUndo": {
-      "resultSuccess": "Todo registro que o retrocesso recuperou está de novo na lixeira de {{org}}.",
-      "resultPartial": "Registros que o retrocesso recuperou voltaram para a lixeira de {{org}}; os demais ficam, como listado.",
-      "resultFailure": "Nenhum registro que o retrocesso recuperou voltou para a lixeira de {{org}}.",
+      "resultSuccess": "Todo registro que o retrocesso recuperou ou recriou está agora na lixeira de {{org}}.",
+      "resultPartial": "Registros que o retrocesso recuperou ou recriou foram para a lixeira de {{org}}; os demais ficam, como listado.",
+      "resultFailure": "Nenhum registro que o retrocesso recuperou ou recriou foi para a lixeira de {{org}}.",
       "resultChanged_one": "{{formatted}} mantido, alterado desde o retrocesso",
       "resultChanged_other": "{{formatted}} mantidos, alterados desde o retrocesso",
       "resultFilesLeft_one": "{{formatted}} arquivo anexado a eles fica em {{org}}, pois o retrocesso não o recuperou: {{names}}",
@@ -5484,6 +5484,8 @@
         "line_one": "{{formatted}} registro de {{object}} excluído desde então que a lixeira não devolve mais.",
         "line_other": "{{formatted}} registros de {{object}} excluídos desde então que a lixeira não devolve mais.",
         "newIds": "O retrocesso os recria a partir do ponto de verificação, com Ids novos, e os campos de pesquisa do ponto de verificação que os nomeavam nomeiam os Ids novos. O que fora do Salesforce nomeia os Ids antigos — uma integração, um link, um filtro de relatório — não os encontra mais. Desfazer os exclui de novo.",
+        "ifEmptiedTitle": "Se a lixeira não os contém mais",
+        "ifEmptied": "O Salesforce ainda mostra como excluído um registro esvaziado da lixeira, por minutos ou horas, e só diz que a lixeira não o contém mais quando o retrocesso pede para recuperá-lo. Marcado, o retrocesso então o recria a partir do ponto de verificação, com um Id novo, junto com os registros que deviam voltar com ele, executando o que a org executa ao criar um registro; desmarcado, ele os deixa e os nomeia.",
         "accept": "Recriá-los, com Ids novos"
       }
     },
@@ -5552,6 +5554,11 @@
           "line_one": "{{object}}: {{formatted}} registro",
           "line_other": "{{object}}: {{formatted}} registros"
         },
+        "notInBin": {
+          "title": "Não está mais na lixeira",
+          "line_one": "{{object}}: {{formatted}} registro que o Salesforce ainda mostra como excluído mas não recupera — esvaziado da lixeira, ou mantido lá de vez: retroceda de novo com “Recriá-los, com Ids novos” marcado para recriá-lo, com um Id novo",
+          "line_other": "{{object}}: {{formatted}} registros que o Salesforce ainda mostra como excluídos mas não recupera — esvaziados da lixeira, ou mantidos lá de vez: retroceda de novo com “Recriá-los, com Ids novos” marcado para recriá-los, com Ids novos"
+        },
         "goneForGood": {
           "title": "Perdidos de vez",
           "line_one": "{{object}}: {{formatted}} registro excluído desde então não pode voltar: a lixeira não o contém mais, e não pôde ser recriado — um arquivo, ou um registro excluído enquanto o ponto de verificação era criado",
@@ -5587,7 +5594,9 @@
         "undeletedTitle": "O que o retrocesso excluiu, recuperado da lixeira de {{org}}",
         "restoredTitle": "O que o retrocesso sobrescreveu, com os seus valores de antes em {{org}}",
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaram os seus valores de antes do retrocesso",
-        "keptChanged": "alterados desde o retrocesso, deixados como estão agora: {{n}}"
+        "keptChanged": "alterados desde o retrocesso, deixados como estão agora: {{n}}",
+        "remade_one": "Excluído de novo em {{org}}: {{formatted}} registro que o retrocesso recriou, com o que foi junto com ele",
+        "remade_other": "Excluídos de novo em {{org}}: {{formatted}} registros que o retrocesso recriou, com o que foi junto com eles"
       },
       "recreated": {
         "title": "Recriados em {{org}}, com Ids novos",
@@ -5597,7 +5606,7 @@
     "undo": {
       "open": "Desfazer este retrocesso",
       "title": "Desfazer o último retrocesso de {{org}}?",
-      "description": "Recupera da lixeira o que o retrocesso excluiu, devolve ao que ele sobrescreveu os seus valores de antes e envia de volta para a lixeira o que ele recuperou. O que qualquer pessoa alterou em {{org}} desde o retrocesso fica como está.",
+      "description": "Recupera da lixeira o que o retrocesso excluiu, devolve ao que ele sobrescreveu os seus valores de antes, envia de volta para a lixeira o que ele recuperou e exclui de novo o que ele recriou. O que qualquer pessoa alterou em {{org}} desde o retrocesso fica como está.",
       "acceptAutomation": "Desfazer mesmo que {{org}} execute automações quando registros são atualizados, excluídos ou recuperados"
     },
     "stopComparing": {

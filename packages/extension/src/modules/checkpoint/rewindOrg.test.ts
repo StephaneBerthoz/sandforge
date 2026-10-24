@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ForgeTargetObjectAutomation } from '@sandforge/shared';
+import type { ForgeTargetObjectAutomation, RewindResult } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { MEMORY_ORG_USER, factCombinations } from '../../test/memoryRemovalOrg.js';
+import { MEMORY_ORG_USER, factCombinations, type MemoryRow } from '../../test/memoryRemovalOrg.js';
 import { paced } from '../../test/runnerPace.js';
 import {
   AUTOMATED_PROCESS,
@@ -53,6 +53,7 @@ import { rewindDirOf } from './OrgCheckpointStore.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { readRewindJournal } from './rewindJournal.js';
 import {
+  NOT_REMADE_WORDS,
   REWIND_RESIDUAL_IDS,
   RewindStopped,
   counted,
@@ -1183,6 +1184,253 @@ describe('rewindOrg: records the recycle bin no longer gives back, made again un
     expect(result.status).toBe('success');
     expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account', 'Contact']);
     expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
+  });
+});
+
+describe('rewindOrg: records emptied from the recycle bin that Salesforce still lists as deleted', () => {
+  /*
+   * As seen live: a boss contact, an account with two contacts and an
+   * account under it deleted, then emptied from the bin. Read right after —
+   * half an hour after still — all five read deleted through queryAll, so the
+   * preview counts them to bring back, and only the undelete's answer says
+   * the bin no longer holds them. A colleague renamed the boss's account too.
+   */
+  const FIELDS_SEEN = {
+    ...FIELDS,
+    Account: [
+      ...(FIELDS.Account ?? []),
+      writable('ParentId', 'reference', { referenceTo: ['Account'] }),
+    ],
+    Contact: [
+      ...(FIELDS.Contact ?? []),
+      writable('ReportsToId', 'reference', { referenceTo: ['Contact'] }),
+    ],
+  };
+  const CHILDREN_SEEN = {
+    ...CHILDREN,
+    Account: [...(CHILDREN.Account ?? []), { childSObject: 'Account', field: 'ParentId' }],
+    Contact: [{ childSObject: 'Contact', field: 'ReportsToId' }],
+  };
+  const COMPARED_SEEN = { fields: [...COMPARED, 'ParentId', 'ReportsToId'] };
+  const K = account(1);
+  const P = account(2);
+  const C = account(3);
+  const BOSS = contact(7);
+  const REPORT = contact(8);
+  const P1 = contact(1);
+  const P2 = contact(2);
+
+  async function emptiedButListed(): Promise<Taken> {
+    const t = await taken(
+      (org) => {
+        org.add('Account', { Id: K, Name: 'K' });
+        org.add('Account', { Id: P, Name: 'P' });
+        org.add('Account', { Id: C, Name: 'C', ParentId: P });
+        org.add('Contact', { Id: BOSS, LastName: 'Boss', AccountId: K });
+        org.add('Contact', { Id: REPORT, LastName: 'Report', AccountId: K, ReportsToId: BOSS });
+        org.add('Contact', { Id: P1, LastName: 'P1', AccountId: P });
+        org.add('Contact', { Id: P2, LastName: 'P2', AccountId: P });
+      },
+      new RewindTestOrg({ fields: FIELDS_SEEN, children: CHILDREN_SEEN }),
+      PICKED,
+      COMPARED_SEEN,
+    );
+    clock.now = SINCE;
+    t.org.edit('Account', K, { Name: 'K renamed' }, COLLEAGUE);
+    for (const [objectApiName, id] of [
+      ['Account', C],
+      ['Contact', BOSS],
+      ['Account', P],
+    ] as const) {
+      t.org.trash(objectApiName, id, COLLEAGUE);
+    }
+    for (const id of [P, C, BOSS]) t.org.empty(id);
+    return t;
+  }
+
+  /** The record made again of the one the checkpoint names `name`. */
+  function madeOf(org: RewindTestOrg, objectApiName: string, name: string): MemoryRow {
+    const field = objectApiName === 'Account' ? 'Name' : 'LastName';
+    const row = org.all(objectApiName).find((each) => each[field] === name);
+    if (!row) throw new Error(`no ${objectApiName} ${name} was made again`);
+    return row;
+  }
+
+  /** What still differs, each group's ids sorted. */
+  const sortedIds = (residual: RewindResult['residual']): RewindResult['residual'] =>
+    residual.map((group) => ({ ...group, ids: [...group.ids].sort() }));
+
+  it('counts them to bring back, as the org lists them; made again once accepted, parents first, every lookup the checkpoint holds pointing at the new Ids; read again, nothing differs; Undo deletes them again', async () => {
+    const t = await emptiedButListed();
+    const diff = await previewed(t);
+    expect(
+      diff.objects.map(({ objectApiName, toBringBack, toRecreate }) => ({
+        objectApiName,
+        toBringBack,
+        toRecreate,
+      })),
+    ).toEqual([
+      {
+        objectApiName: 'Contact',
+        toBringBack: { inBin: 1, withParent: 2, deletedWhileTaken: 0 },
+        toRecreate: undefined,
+      },
+      {
+        objectApiName: 'Account',
+        toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+        toRecreate: undefined,
+      },
+    ]);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.residual).toEqual([]);
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Account', planned: 2, created: 2, refused: 0, reasons: [] },
+      { objectApiName: 'Contact', planned: 3, created: 3, refused: 0, reasons: [] },
+    ]);
+    // Not brought back: made again instead, and counted so; given back, the
+    // contact whose lookup the boss's delete emptied and the renamed account
+    // alone, the records made again holding the checkpoint's values already.
+    expect(result.undeleted).toEqual([]);
+    expect(
+      result.restored.map(({ objectApiName, planned, restored }) => [
+        objectApiName,
+        planned,
+        restored,
+      ]),
+    ).toEqual([
+      ['Contact', 1, 1],
+      ['Account', 1, 1],
+    ]);
+    expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account', 'Contact']);
+    const p = madeOf(t.org, 'Account', 'P');
+    const c = madeOf(t.org, 'Account', 'C');
+    const boss = madeOf(t.org, 'Contact', 'Boss');
+    expect([p.Id, c.Id, boss.Id]).not.toContain(P);
+    expect(c.ParentId).toBe(p.Id);
+    expect(madeOf(t.org, 'Contact', 'P1').AccountId).toBe(p.Id);
+    expect(madeOf(t.org, 'Contact', 'P2').AccountId).toBe(p.Id);
+    expect(boss.AccountId).toBe(K);
+    expect(t.org.all('Contact').find((row) => row.Id === REPORT)?.ReportsToId).toBe(boss.Id);
+    expect(t.org.all('Account').find((row) => row.Id === K)?.Name).toBe('K');
+    expect(liveAsHeld(stateOf(t.org, undefined, COMPARED_SEEN.fields), t.folder)).toEqual(
+      t.atCheckpoint.live,
+    );
+    // Named before each insert by the Ids they had, after it by their new ones.
+    const kinds = journalKinds(t.folder, result.rewindId);
+    expect(kinds.filter((kind) => kind === 'recreating' || kind === 'recreated')).toEqual([
+      'recreating',
+      'recreated',
+      'recreating',
+      'recreated',
+    ]);
+    expect(kinds.indexOf('bringingBack')).toBeLessThan(kinds.indexOf('recreating'));
+
+    // Read again, nothing to write: what it made stands for what the bin let go.
+    clock.now += 60_000;
+    const again = await previewed(t);
+    expect(
+      again.objects.map(
+        ({ toDelete, toGiveBack, toBringBack, toRecreate }) =>
+          Object.values(toDelete).reduce((sum, n) => sum + n, 0) +
+          toGiveBack.records +
+          Object.values(toBringBack).reduce((sum, n) => sum + n, 0) +
+          (toRecreate ?? 0),
+      ),
+    ).toEqual(again.objects.map(() => 0));
+
+    const contacts = [
+      boss.Id,
+      madeOf(t.org, 'Contact', 'P1').Id,
+      madeOf(t.org, 'Contact', 'P2').Id,
+    ];
+    const undo = await undone(t, result.rewindId);
+    expect(undo.status).toBe('success');
+    // Named apart from what the rewind brought back: none, here.
+    expect(undo.remade).toEqual([
+      { objectApiName: 'Account', count: 2 },
+      { objectApiName: 'Contact', count: 3 },
+    ]);
+    expect(liveIds(t.org, 'Account')).toEqual([K]);
+    expect(liveIds(t.org, 'Contact')).toEqual([REPORT]);
+    expect(t.org.inBin('Account').map((row) => row.Id)).toEqual(
+      expect.arrayContaining([p.Id, c.Id]),
+    );
+    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual(expect.arrayContaining(contacts));
+    expect(t.org.all('Contact').find((row) => row.Id === REPORT)?.ReportsToId).toBeNull();
+  });
+
+  it('without that accepted, leaves them, each named with what makes it again, and does the rest of the rewind', async () => {
+    const t = await emptiedButListed();
+    const diff = await previewed(t);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.status).toBe('partial');
+    expect(sortedIds(result.residual)).toEqual([
+      { objectApiName: 'Contact', reason: 'notInBin', count: 3, ids: [P1, P2, BOSS] },
+      { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [P, C] },
+    ]);
+    expect(result.undeleted.flatMap(({ reasons }) => reasons)).toEqual([
+      NOT_REMADE_WORDS,
+      NOT_REMADE_WORDS,
+    ]);
+    expect(t.org.creates).toEqual([]);
+    expect(result.recreated).toBeUndefined();
+    // The rest went through: the colleague's rename is taken back.
+    expect(t.org.all('Account').find((row) => row.Id === K)?.Name).toBe('K');
+  });
+
+  it('stopped once its first insert answered, then rewound again on a fresh preview, makes none of them twice', async () => {
+    const t = await emptiedButListed();
+    const diff = await previewed(t);
+    const controller = new AbortController();
+    const stopping = new Proxy(t.org, {
+      get(target, property) {
+        const value: unknown = Reflect.get(target, property, target);
+        if (typeof value !== 'function') return value;
+        const call = value as (...args: unknown[]) => unknown;
+        if (property !== 'create') return call.bind(target);
+        return async (...args: unknown[]) => {
+          const answer = await call.apply(target, args);
+          controller.abort();
+          return answer;
+        };
+      },
+    });
+
+    const stopped = resultOf(
+      await rewound(t, diff.previewId, {
+        request: { acceptRecreate: true },
+        deps: {
+          org: stopping,
+          undelete: (ids) => stopping.undelete(ids),
+          signal: controller.signal,
+        },
+      }),
+    );
+    expect(stopped.status).toBe('cancelled');
+    expect(t.org.creates.map(({ objectApiName }) => objectApiName)).toEqual(['Account']);
+
+    clock.now += 60_000;
+    const result = resultOf(
+      await rewound(t, (await previewed(t)).previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(
+      t.org.creates.map(({ objectApiName, records }) => [objectApiName, records.length]),
+    ).toEqual([
+      ['Account', 2],
+      ['Contact', 3],
+    ]);
+    expect(liveAsHeld(stateOf(t.org, undefined, COMPARED_SEEN.fields), t.folder)).toEqual(
+      t.atCheckpoint.live,
+    );
   });
 });
 

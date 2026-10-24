@@ -854,6 +854,40 @@ describe('MemoryRemovalOrg', () => {
       expect(org.objectNames()).toContain('Contact');
     });
 
+    it('reads a record emptied from the bin, and what went with it, still deleted through queryAll, and answers its undelete that it is not in the bin (P11, live)', async () => {
+      const { org } = seeded();
+      org.trash('Account', ACCOUNT);
+
+      org.empty(ACCOUNT);
+
+      expect(org.facts.emptiedStillListed).toBe(true);
+      expect(await recordOf(org, 'Account', ACCOUNT)).toMatchObject({ IsDeleted: true });
+      expect(await recordOf(org, 'Contact', CONTACT)).toMatchObject({ IsDeleted: true });
+      expect(
+        (await org.queryDeleted(`SELECT Id FROM Contact WHERE IsDeleted = true`)).records,
+      ).toHaveLength(2);
+      expect(org.inBin('Account')).toEqual([]);
+      expect(org.inBin('Contact')).toEqual([]);
+      expect(await org.undelete([ACCOUNT, CONTACT])).toEqual(
+        [ACCOUNT, CONTACT].map((id) => ({
+          id,
+          success: false,
+          errors: [{ statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' }],
+        })),
+      );
+      expect(org.all('Contact')).toEqual([]);
+    });
+
+    it('shows a record emptied from the bin nowhere once the fact is off, as a purge does', async () => {
+      const { org } = seeded({ facts: { emptiedStillListed: false } });
+      org.trash('Account', ACCOUNT);
+
+      org.empty(ACCOUNT);
+
+      expect(await recordOf(org, 'Account', ACCOUNT)).toBeUndefined();
+      expect(await recordOf(org, 'Contact', CONTACT)).toBeUndefined();
+    });
+
     it('answers a record no longer in the bin as not there', async () => {
       const { org } = seeded();
       org.trash('Contact', CONTACT);
@@ -949,6 +983,7 @@ describe('MemoryRemovalOrg', () => {
         parentsDeletedFirst: true,
         cascadeChildComesBackAlone: false,
         childDeletedAloneThenParentLimbo: true,
+        emptiedStillListed: true,
       });
     });
 

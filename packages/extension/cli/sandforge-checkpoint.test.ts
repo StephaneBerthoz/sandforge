@@ -782,6 +782,21 @@ describe('previewLines', () => {
     );
   });
 
+  it('offers --accept-recreate whenever the rewind brings records back, for one Salesforce answers is no longer in the recycle bin, and says nothing of it when it brings none back', () => {
+    const offer =
+      '  if Salesforce answers that a record to bring back is no longer in the recycle bin — it still lists one emptied from it as deleted —, --accept-recreate makes it again with a new Id, with what was to come back with it; without it, the rewind leaves them and names them';
+    const bringing = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ toBringBack: { inBin: 2, withParent: 3, deletedWhileTaken: 0 } })]),
+      estimate,
+    });
+    expect(bringing).toContain(offer);
+    const giving = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } })]),
+      estimate,
+    });
+    expect(giving).not.toContain(offer);
+  });
+
   it('says there is nothing to rewind when the org is as it was', () => {
     const lines = previewLines('DEV-SB', checkpoint, { diff: diffOf([]), estimate });
     expect(lines).toContain(
@@ -1144,6 +1159,65 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
     expect(undoLines('DEV-SB', checkpoint, resultOf())[0]).toBe(
       "DEV-SB is back as it was before its rewind to 'Before UAT'.",
+    );
+  });
+
+  it('says an undo deleted again what the rewind made again, with what went with it, never that it sent it back (live: two accounts and a contact made again, two contacts gone with their account)', () => {
+    const removed = (objectApiName: string, deleted: number, alreadyGone: number) => ({
+      objectApiName,
+      planned: deleted + alreadyGone,
+      deleted,
+      alreadyGone,
+      keptChanged: 0,
+      keptDependents: 0,
+      refused: 0,
+      heldBy: [],
+      unchecked: [],
+      reasons: [],
+    });
+    const lines = undoLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        deleted: [removed('Account', 2, 0), removed('Contact', 1, 2)],
+        remade: [
+          { objectApiName: 'Account', count: 2 },
+          { objectApiName: 'Contact', count: 3 },
+        ],
+      }),
+    );
+    expect(lines).toContain(
+      '  deleted again 3 record(s) the rewind made again, with what went with them',
+    );
+    expect(lines.filter((line) => line.startsWith('  sent back to the recycle bin'))).toEqual([]);
+    // Beside a record it brought back: each said in its own words.
+    const both = undoLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        deleted: [removed('Account', 3, 0)],
+        remade: [{ objectApiName: 'Account', count: 1 }],
+      }),
+    );
+    expect(both).toEqual(
+      expect.arrayContaining([
+        '  sent back to the recycle bin 2 record(s) the rewind brought back',
+        '  deleted again 1 record(s) the rewind made again, with what went with them',
+      ]),
+    );
+  });
+
+  it('says of what the org answered is no longer in the recycle bin, left, what makes it again', () => {
+    const lines = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({
+        status: 'partial',
+        residual: [{ objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [] }],
+      }),
+    );
+    expect(lines).toContain(
+      '  Account 2 — no longer in the recycle bin — emptied from it, or kept there for good —: Salesforce still lists them as deleted but will not bring them back; --accept-recreate makes them again with new Ids',
     );
   });
 

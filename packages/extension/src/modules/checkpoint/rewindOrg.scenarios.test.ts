@@ -42,8 +42,7 @@ import {
 import { overwriteBackupIdOf } from '../sync/syncOverwrites.js';
 import { rewindDirOf } from './OrgCheckpointStore.js';
 import { readRewindJournal, undoPlansOf } from './rewindJournal.js';
-import type { RewindDeps } from './rewindOrg.js';
-import { KEPT_IN_BIN_WORDS } from './undoRewind.js';
+import { NOT_REMADE_WORDS, type RewindDeps } from './rewindOrg.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -924,7 +923,8 @@ describe('a record Salesforce keeps in the recycle bin for good', () => {
 });
 
 describe('a record Salesforce keeps in the recycle bin under a parent live again', () => {
-  it('is refused by the org as not in the bin, and named with words that say it stays there, not the org’s bare words: no read tells it from one to bring back (F41)', async () => {
+  /** A contact deleted on its own, then its account, then the account brought back: the contact stays in the bin for good. */
+  async function keptInTheBin(): Promise<Awaited<ReturnType<typeof taken>>> {
     const t = await taken();
     clock.now = SINCE;
     t.org.trash('Contact', contact(3), COLLEAGUE);
@@ -932,6 +932,11 @@ describe('a record Salesforce keeps in the recycle bin under a parent live again
     t.org.trash('Account', account(1), COLLEAGUE);
     clock.now = SINCE + 10_000;
     t.org.untrash(account(1), COLLEAGUE);
+    return t;
+  }
+
+  it('is refused by the org as not in the bin, and left with words that say it no longer comes back with its Id and what makes it again: no read tells it from one to bring back (F41)', async () => {
+    const t = await keptInTheBin();
     const diff = await previewed(t);
     expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
       toBringBack: { inBin: 1 },
@@ -940,14 +945,36 @@ describe('a record Salesforce keeps in the recycle bin under a parent live again
     const result = resultOf(await rewound(t, diff.previewId));
 
     expect(result.residual).toEqual([
+      { objectApiName: 'Contact', reason: 'notInBin', count: 1, ids: [contact(3)] },
+    ]);
+    expect(result.undeleted).toContainEqual(
       expect.objectContaining({
         objectApiName: 'Contact',
-        reason: 'refused',
-        ids: [contact(3)],
-        message: KEPT_IN_BIN_WORDS,
+        refused: 1,
+        reasons: [NOT_REMADE_WORDS],
       }),
-    ]);
+    );
+    expect(t.org.creates).toEqual([]);
     expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([contact(3)]);
+  });
+
+  it('is made again with a new Id once making records again was accepted, though the preview counted it to bring back: it can no longer come back with its own (F41)', async () => {
+    const t = await keptInTheBin();
+    const diff = await previewed(t);
+
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.residual).toEqual([]);
+    expect(result.recreated).toEqual([
+      { objectApiName: 'Contact', planned: 1, created: 1, refused: 0, reasons: [] },
+    ]);
+    const made = t.org.all('Contact').find((row) => row.LastName === 'Three');
+    expect(made).toMatchObject({ AccountId: account(1) });
+    expect(made?.Id).not.toBe(contact(3));
+    expect(liveAsHeld(stateOf(t.org), t.folder)).toEqual(t.atCheckpoint.live);
   });
 });
 

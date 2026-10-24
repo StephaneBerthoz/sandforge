@@ -513,6 +513,7 @@ export function partialOfEveryReason(checkpointId: string): RewindResult {
         ids: [],
       },
       { objectApiName: 'Contact', reason: 'changedSincePreview', count: 2, ids: [] },
+      { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [] },
       {
         objectApiName: 'Lead',
         reason: 'refused',

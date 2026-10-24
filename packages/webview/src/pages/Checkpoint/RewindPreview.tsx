@@ -388,6 +388,10 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     automation !== undefined && (fired.length > 0 || blindedBy(automation.unread));
   const outside = outsideLines(diff);
   const remade = recreateLines(diff);
+  // Salesforce lists a record emptied from the bin as deleted: only the
+  // undelete's answer says it is gone. The box is offered whenever records
+  // come back, and required only for those counted to make again.
+  const bringsBack = rewindTotals(diff).toBringBack > 0;
   const picked = checkpoint.scope.mode === 'picked';
 
   const lifted = refusal ? LIFTED_BY[refusal.code] : undefined;
@@ -406,7 +410,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       previewId: diff.previewId,
       acceptAutomation: automationFound && ticked.automation,
       acceptNoUndo: diff.undoCannot.length > 0 && ticked.noUndo,
-      acceptRecreate: remade.length > 0 && ticked.recreate,
+      acceptRecreate: (remade.length > 0 || bringsBack) && ticked.recreate,
       // A checkpoint of everything people work in takes them along, as the
       // preview said: only a checkpoint of picked objects asks.
       acceptOutside: outside.length > 0 && (!picked || ticked.outside),
@@ -503,29 +507,38 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </section>
       )}
 
-      {remade.length > 0 && (
+      {(remade.length > 0 || bringsBack) && (
         <section
           aria-labelledby={recreateId}
           className="flex flex-col gap-1.5"
           data-testid="checkpoint-preview-recreate"
         >
           <h3 id={recreateId} className="text-sm font-semibold">
-            {t('checkpoint.preview.recreate.title')}
+            {remade.length > 0
+              ? t('checkpoint.preview.recreate.title')
+              : t('checkpoint.preview.recreate.ifEmptiedTitle')}
           </h3>
-          <ul className="ml-4 list-disc">
-            {remade.map((line) => (
-              <li
-                key={line.objectApiName}
-                data-testid={`checkpoint-preview-recreate-${line.objectApiName}`}
-              >
-                {t('checkpoint.preview.recreate.line', {
-                  count: line.count,
-                  formatted: formatNumber(line.count),
-                  object: line.objectApiName,
-                })}
-              </li>
-            ))}
-          </ul>
+          {remade.length > 0 && (
+            <ul className="ml-4 list-disc">
+              {remade.map((line) => (
+                <li
+                  key={line.objectApiName}
+                  data-testid={`checkpoint-preview-recreate-${line.objectApiName}`}
+                >
+                  {t('checkpoint.preview.recreate.line', {
+                    count: line.count,
+                    formatted: formatNumber(line.count),
+                    object: line.objectApiName,
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {bringsBack && (
+            <p data-testid="checkpoint-preview-recreate-if-emptied">
+              {t('checkpoint.preview.recreate.ifEmptied')}
+            </p>
+          )}
           <p>{t('checkpoint.preview.recreate.newIds')}</p>
           <Box
             checked={ticked.recreate}

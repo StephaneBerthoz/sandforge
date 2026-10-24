@@ -15,8 +15,9 @@
  *
  * What the undo writes is what the rewind's journal says it did, read before
  * the gates: what it deleted comes back from the recycle bin, what it wrote
- * over gets its values back, what it brought back goes back to the bin. Those
- * objects' automation is read as a rewind reads it, undeletes included.
+ * over gets its values back, what it brought back goes back to the bin, and
+ * so does what it made again, which the result names apart. Those objects'
+ * automation is read as a rewind reads it, undeletes included.
  *
  * Once through, a record it gave back that differs again from its values
  * from before the rewind is named by who last changed it: the user it writes
@@ -262,6 +263,12 @@ export async function undoCheckpoint(
     const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
     const rewound = rewoundObjects(plans);
     const along = plans.goesWithParent.objects;
+    // What the rewind made again goes to the bin too, and is said so.
+    const sending =
+      plans.remade.keys.size > 0
+        ? 'Sending back to the recycle bin what the rewind brought back, and deleting again what ' +
+          'it made again'
+        : 'Sending back to the recycle bin what the rewind brought back';
     const namesOf = (spooled: ReadonlyArray<{ objectApiName: string; count: number }>): string[] =>
       spooled.filter((object) => object.count > 0).map((object) => object.objectApiName);
     // What goes back to the bin with its parent is read with what the undo
@@ -329,8 +336,7 @@ export async function undoCheckpoint(
       onProgress: (settled, total, objectApiName) =>
         progress(
           20 + Math.round((70 * settled) / Math.max(total, 1)),
-          `Sending back to the recycle bin what the rewind brought back: ${objectApiName} ` +
-            `${settled} / ${total}`,
+          `${sending}: ${objectApiName} ${settled} / ${total}`,
         ),
     });
     const residual = residualOf(outcome.residual, owners);
@@ -359,6 +365,7 @@ export async function undoCheckpoint(
         rewindId,
         status,
         deleted: outcome.deleted,
+        ...(outcome.remade ? { remade: outcome.remade } : {}),
         restored: outcome.restored,
         undeleted: outcome.undeleted,
         residual,

@@ -322,13 +322,14 @@ describe('docs/modules/checkpoint.md', () => {
 
   it('tells each reason a rewind names for what still differs, in the words of the page', () => {
     const reasons = unionOf(TYPES, 'RewindResidualReason');
-    // Positive control: the six reasons the verify names.
+    // Positive control: the seven reasons the verify names.
     expect(reasons.sort()).toEqual([
       'automation',
       'changedDuringRewind',
       'changedSincePreview',
       'goneForGood',
       'kept',
+      'notInBin',
       'refused',
     ]);
     const result = section(DOC, '## Rewinding');
@@ -472,7 +473,7 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain(
       'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
     );
-    expect(REWIND).toContain('await this.recreate(journal, plan.recreate, tally);');
+    expect(REWIND).toContain('await this.recreate(journal, recreate, tally);');
     expect(JOURNAL).toContain("if (line.kind === 'recreated') {");
     expect(CLI).toContain("acceptRecreate: args.includes('--accept-recreate'),");
 
@@ -490,6 +491,40 @@ describe('docs/modules/checkpoint.md', () => {
     expect(section(DOC, '## Rewinding')).toContain('2. **Make again** the records the recycle bin');
     expect(section(DOC, '## Undo')).toContain(
       'What it made again with new Ids goes to the recycle bin as well',
+    );
+  });
+
+  it('says a record Salesforce still lists in the recycle bin once emptied from it is told by the undelete alone, made again in the same rewind once accepted, left and named otherwise, the box offered whenever records come back and required only for those counted', () => {
+    // Anchor: the bring-back reads the org's answer per record, hands what it
+    // can make again to the step that makes records again, names the rest;
+    // the page offers the box whenever records come back, required only for
+    // those counted to make again.
+    expect(REWIND).toContain('for (const id of answeredNotInBin(answer, batch)) {');
+    expect(REWIND).toContain('await this.withPlanned(remake, plan.recreate)');
+    expect(REWIND).toContain("tally.mark('notInBin', objectApiName, id);");
+    const PAGE = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
+    expect(PAGE).toContain('const bringsBack = rewindTotals(diff).toBringBack > 0;');
+    expect(PAGE).toContain('(remade.length === 0 || ticked.recreate) &&');
+    expect(source('packages/extension/src/test/memoryRemovalOrg.ts')).toContain(
+      'emptiedStillListed: true,',
+    );
+
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours',
+    );
+    expect(preview).toContain(
+      `under **${label('checkpoint.preview.recreate.ifEmptiedTitle')}**, and \`--accept-recreate\` on the command line`,
+    );
+    expect(preview).toContain(
+      'That box holds the rewind only for the records the preview counts to make again.',
+    );
+    expect(section(DOC, '## Rewinding')).toContain(
+      'A record Salesforce answers is no longer in the recycle bin -- emptied from it, though it ' +
+        'still lists it as deleted, or kept there for good -- is made again in the next step',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'said as deleted again, with what went with it, never as brought back',
     );
   });
 

@@ -28,6 +28,12 @@
  *   rather than taking the case along. A child deleted with its parent
  *   answers the same while the parent is in the bin: the rewind's undo sent
  *   contacts before the accounts they went with, and the org refused each so.
+ * - A record emptied from the recycle bin (`empty`), with what its delete
+ *   took along, still reads deleted through `queryAll`, and its undelete
+ *   answers "Entity is not in the recycle bin": seen on a scratch org right
+ *   after `Database.emptyRecycleBin`, and half an hour later still; a day
+ *   later `queryAll` no longer read it (`purge`). No read tells it from a
+ *   record still in the bin; only the undelete's answer does.
  * - Deleting a record clears a lookup to it that does not cascade (a
  *   contact's `ReportsToId`) and restamps the child; undeleting the record
  *   puts the lookup back and restamps the child again.
@@ -137,6 +143,15 @@ export interface MemoryOrgFacts {
    * back. Off: either comes back on its own, as any record deleted on its own.
    */
   childDeletedAloneThenParentLimbo: boolean;
+  /**
+   * A record emptied from the recycle bin (`empty`), with what its delete
+   * took along, still reads `IsDeleted = true` through `queryAll`, as its
+   * delete left it, and its undelete answers "Entity is not in the recycle
+   * bin" (P11, a scratch org, half an hour after `Database.emptyRecycleBin`).
+   * Off: it shows nowhere, as {@link MemoryRemovalOrg.purge} leaves it, and as
+   * the org left it a day later.
+   */
+  emptiedStillListed: boolean;
 }
 
 /**
@@ -153,6 +168,7 @@ export const MEMORY_ORG_FACTS: Readonly<MemoryOrgFacts> = Object.freeze({
   parentsDeletedFirst: true,
   cascadeChildComesBackAlone: false,
   childDeletedAloneThenParentLimbo: true,
+  emptiedStillListed: true,
 });
 
 /**
@@ -277,6 +293,11 @@ interface Binned {
    * {@link MemoryOrgFacts.childDeletedAloneThenParentLimbo}).
    */
   stuck?: boolean;
+  /**
+   * Emptied from the bin, still read deleted through `queryAll`, never to
+   * come back (see {@link MemoryOrgFacts.emptiedStillListed}).
+   */
+  emptied?: boolean;
 }
 
 /** A lookup a delete cleared, to put back when the record comes back. */
@@ -431,10 +452,10 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return [...(this.rows.get(objectApiName)?.values() ?? [])];
   }
 
-  /** The rows of an object in the recycle bin, as the delete left them. */
+  /** The rows of an object in the recycle bin, as the delete left them: none emptied from it. */
   inBin(objectApiName: string): MemoryRow[] {
     return [...this.binned.values()]
-      .filter((held) => held.objectApiName === objectApiName && !held.hard)
+      .filter((held) => held.objectApiName === objectApiName && !held.hard && !held.emptied)
       .map((held) => held.row);
   }
 
@@ -749,9 +770,27 @@ export class MemoryRemovalOrg implements RemovalOrg {
   }
 
   /**
-   * Empty a row from the recycle bin, with what its delete took along: gone
-   * for good, all of them, as emptying a record from the bin empties what
-   * went with it.
+   * Empty a row from the recycle bin, with what its delete took along, as
+   * `Database.emptyRecycleBin` does: never to come back, all of them, still
+   * read deleted through `queryAll` (see
+   * {@link MemoryOrgFacts.emptiedStillListed}).
+   */
+  empty(id: string): void {
+    if (!this.facts.emptiedStillListed) {
+      this.purge(id);
+      return;
+    }
+    const key = keyOf(id);
+    for (const [other, held] of this.binned) {
+      if (other === key || held.deletedWith === key) held.emptied = true;
+    }
+  }
+
+  /**
+   * Empty a row from the recycle bin, with what its delete took along, and
+   * let the org forget them: gone for good, all of them, shown nowhere, as a
+   * record emptied from the bin once the org no longer lists it — a day
+   * after, on a scratch org — or a hard-deleted one.
    */
   purge(id: string): void {
     const key = keyOf(id);
@@ -927,7 +966,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
 
   /** Why the org refuses to bring a record back from the bin, or nothing. */
   private undeleteRefusalOf(held: Binned | undefined): string | undefined {
-    if (!held || held.hard) return NOT_IN_BIN;
+    if (!held || held.hard || held.emptied) return NOT_IN_BIN;
     if (held.objectApiName === 'Contact' && held.row[PERSON_ACCOUNT] === true) {
       return PERSON_CONTACT_REFUSAL.message;
     }
@@ -960,6 +999,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return [...this.binned].filter(
       ([, held]) =>
         !held.hard &&
+        !held.emptied &&
         held.deletedWith === undefined &&
         cascades.some(
           (child) => child.childSObject === held.objectApiName && names(held.row[child.field], key),
@@ -986,7 +1026,8 @@ export class MemoryRemovalOrg implements RemovalOrg {
         };
       }
       const back = [...this.binned].filter(
-        ([other, entry]) => other === key || (!entry.hard && entry.deletedWith === key),
+        ([other, entry]) =>
+          other === key || (!entry.hard && !entry.emptied && entry.deletedWith === key),
       );
       if (!this.facts.childDeletedAloneStays) back.push(...this.deletedAloneUnder(held));
       const at = orgStamp(this.now());

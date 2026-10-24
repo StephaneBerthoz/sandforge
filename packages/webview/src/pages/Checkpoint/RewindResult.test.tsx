@@ -232,6 +232,54 @@ describe('RewindResult', () => {
     expect(onRewindAgain).toHaveBeenCalledTimes(1);
   });
 
+  it('says of the records the org answered are no longer in the recycle bin, left, that Salesforce still lists them as deleted and what makes them again, before what it refused (live: five emptied records)', () => {
+    renderResult(
+      rewindResult({
+        status: 'failure',
+        residual: [
+          { objectApiName: 'Lead', reason: 'refused', count: 1, ids: [], message: 'Locked' },
+          { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [] },
+          { objectApiName: 'Contact', reason: 'notInBin', count: 1, ids: [] },
+        ],
+      }),
+    );
+    const groups = screen.getByTestId('checkpoint-result-residual');
+    expect(
+      within(groups)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+    ).toEqual(['No longer in the recycle bin', 'Refused by DEV-SB']);
+    expect(screen.getByTestId('checkpoint-result-residual-notInBin-Account').textContent).toBe(
+      'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids',
+    );
+    expect(screen.getByTestId('checkpoint-result-residual-notInBin-Contact').textContent).toBe(
+      'Contact: 1 record Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make it again, with a new Id',
+    );
+  });
+
+  it('says an undo deleted again what the rewind made again, with what went with it, never that it was brought back (live: two accounts and a contact, two contacts gone with their account)', () => {
+    renderResult(
+      withoutUndo(
+        rewindResult({
+          deleted: [
+            deletedObject('Account', { planned: 2, deleted: 2 }),
+            deletedObject('Contact', { planned: 3, deleted: 1, alreadyGone: 2 }),
+          ],
+          remade: [
+            { objectApiName: 'Account', count: 2 },
+            { objectApiName: 'Contact', count: 3 },
+          ],
+          restored: [],
+          undeleted: [],
+        }),
+      ),
+      'undo',
+    );
+    expect(screen.getByTestId('checkpoint-result-remade').textContent).toBe(
+      'Deleted again in DEV-SB: 3 records the rewind made again, with what went with them',
+    );
+  });
+
   it('says a partial rewind whose records still differ only as its parts list them', () => {
     renderResult(rewindResult({ status: 'partial' }));
     expect(headline()).toBe('DEV-SB is back at “Before UAT”, except what is listed below.');
@@ -396,7 +444,11 @@ describe('RewindResult', () => {
     );
     expect(
       within(screen.getByTestId('forge-removal-result')).getByRole('heading').textContent,
-    ).toBe('Every record the rewind brought back is in the recycle bin of DEV-SB again.');
+    ).toBe(
+      'Every record the rewind brought back or made again is in the recycle bin of DEV-SB now.',
+    );
+    // It made nothing again: nothing is said deleted again.
+    expect(screen.queryByTestId('checkpoint-result-remade')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Undo this rewind' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Rewind again' })).toBeNull();
   });

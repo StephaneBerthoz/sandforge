@@ -59,6 +59,19 @@
  *   left on its records is read, whoever the org names their last modifier:
  *   the dates an undelete moves are the rewind's own doing, and the records
  *   that came back with a record were dated in the same second.
+ * - No longer in the bin, though a read found it there: Salesforce still
+ *   lists a record emptied from the recycle bin as deleted, `queryAll`
+ *   reading it `IsDeleted = true` until the org deletes it for good — half
+ *   an hour after `Database.emptyRecycleBin` still, a day after no longer, on
+ *   a scratch org — and a GET of its Id answers as for one still in the bin:
+ *   only the undelete's answer, "Entity is not in the recycle bin", tells
+ *   it. A record so answered that the snapshot holds, but a file, is made
+ *   again in the same pass, once making records again was accepted, with
+ *   what was named as coming back with it that the snapshot holds too — an
+ *   account's contacts — as if the preview had counted them to make again:
+ *   journaled the same way, so a stop and a resume make none twice, and
+ *   Undo deletes them. Not accepted, they are left, named with what lifts
+ *   it; one the checkpoint cannot make again is gone for good.
  * - Given back: a chunk of 2,000 records a call, each chunk's values read
  *   from the snapshot by their offsets, the org's values read just before its
  *   writes. Only the fields the checkpoint compares and the org still has are
@@ -149,7 +162,11 @@ import {
   type BackupReader,
   type SyncRestoreOutcome,
 } from '../sync/SyncRunRestore.js';
-import { undeleteRunDeletions, type UndeleteCall } from '../sync/SyncRunUndelete.js';
+import {
+  undeleteRunDeletions,
+  type SyncUndeleteOutcome,
+  type UndeleteCall,
+} from '../sync/SyncRunUndelete.js';
 import {
   PERSON_ACCOUNT_FLAG,
   checkpointDescribeSchema,
@@ -174,7 +191,7 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
-import { classFileOf, rewindDiff, type RewindClass } from './rewindDiff.js';
+import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import { checkpointEmails, emailsRefusal, writtenByPlan } from './rewindEmails.js';
 import {
   budgetRefusal,
@@ -198,7 +215,7 @@ import {
   SnapshotIndex,
   type RecreatedPair,
 } from './snapshotIndex.js';
-import { RecordKeySet, type IdSpool } from './spooledRunRecords.js';
+import { IdSpoolWriter, RecordKeySet, type IdSpool } from './spooledRunRecords.js';
 import { takeOrgOf, type TakeOrg } from './takeCheckpoint.js';
 import { settleNotInBin } from './undoRewind.js';
 
@@ -296,6 +313,20 @@ function keptForWords(holders: readonly string[]): string {
 /** What the verify says of a record it cannot tell a reason for. */
 const STILL_DIFFERS = 'It still differs from the checkpoint once the org was read again.';
 
+/** What the org answers an undelete of a record it will not bring back, in its words. */
+const NOT_IN_BIN = /Entity is not in the recycle bin/;
+
+/**
+ * Why a rewind left a record the org answered is no longer in the recycle
+ * bin, which it would have made again had that been accepted: the org's own
+ * words say the opposite of what a read of the bin shows.
+ */
+export const NOT_REMADE_WORDS =
+  'Salesforce still lists it as deleted but will not bring it back: emptied from the recycle ' +
+  "bin, or kept there for good (the org answers 'UNDELETE_FAILED: Entity is not in the " +
+  "recycle bin'). Make them again, with new Ids, or --accept-recreate on the command line, " +
+  'makes it again with a new Id.';
+
 /** What a refusal before the first write did not do. */
 const NOTHING_WRITTEN = 'No record was written.';
 
@@ -321,6 +352,36 @@ interface Cascade {
   child: string;
   field: string;
   persons?: true;
+}
+
+/** A record named in the bin as coming back with a parent: its object and its id. */
+interface ChildRecord {
+  objectApiName: string;
+  id: string;
+}
+
+/**
+ * The ids of `batch` whose undelete the org refused as not in the recycle
+ * bin, by the answer it gave, one per id in their order: a list, or one
+ * answer alone, each refusal's errors a list or one error.
+ */
+function answeredNotInBin(answer: unknown, batch: readonly string[]): string[] {
+  const answers: unknown[] = Array.isArray(answer) ? answer : [answer];
+  return batch.filter((_, place) => {
+    const one = answers[place];
+    if (typeof one !== 'object' || one === null) return false;
+    const { success, errors } = one as { success?: unknown; errors?: unknown };
+    if (success === true) return false;
+    return (Array.isArray(errors) ? errors : [errors]).some((error) => {
+      const words =
+        typeof error === 'string'
+          ? error
+          : typeof error === 'object' && error !== null
+            ? String((error as { message?: unknown }).message ?? '')
+            : '';
+      return NOT_IN_BIN.test(words);
+    });
+  });
 }
 
 // ─── What a rewind works with ────────────────────────────────────────────────
@@ -761,6 +822,14 @@ class PassTally {
    * those of them the org still refused or took without some fields.
    */
   readonly heldInPlace = new Map<string, { reason: string; ids: RecordKeySet }>();
+  /**
+   * Per object, the records the org answered are no longer in the recycle
+   * bin, and what was to come back with them, left as they are: making them
+   * again was not accepted.
+   */
+  readonly notInBin = new Map<string, RecordKeySet>();
+  /** Per object, such records the checkpoint cannot make again: a file, or one it holds no values of. */
+  readonly lost = new Map<string, RecordKeySet>();
   wrote = false;
   cancelled = false;
 
@@ -771,6 +840,16 @@ class PassTally {
       this.left[brick].set(objectApiName, held);
     }
     for (const id of ids) held.add(id);
+  }
+
+  /** Name a record among those of `kept`. */
+  mark(kept: 'notInBin' | 'lost', objectApiName: string, id: string): void {
+    let held = this[kept].get(objectApiName);
+    if (!held) {
+      held = new RecordKeySet();
+      this[kept].set(objectApiName, held);
+    }
+    held.add(id);
   }
 
   restore(from: SyncRestoreObjectResult): void {
@@ -1547,7 +1626,9 @@ class Rewind {
       status: parts.status,
       deleted: parts.tally.deleted,
       restored: parts.tally.restored,
-      undeleted: parts.tally.undeleted,
+      // An object whose every record the bin no longer gave back, each made
+      // again instead, brought nothing back: its records are counted made again.
+      undeleted: parts.tally.undeleted.filter((object) => object.planned > 0),
       ...(parts.tally.recreated.length > 0 ? { recreated: parts.tally.recreated } : {}),
       residual: parts.residual,
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
@@ -1597,6 +1678,11 @@ class Rewind {
     // anything is written: the deletions may change it before they are read.
     await this.keepFirst(journal, plan.giveBack.afterDeletes, allowOf);
 
+    // What the org answers is no longer in the recycle bin as the pass brings
+    // it back, made again in this pass once that was accepted.
+    const remake = this.request.acceptRecreate
+      ? new IdSpoolWriter(join(plan.dir, `remake-${randomBytes(4).toString('hex')}`))
+      : undefined;
     const sweep = async (): Promise<boolean> => {
       if (plan.bringBack.count > 0) {
         this.progress(
@@ -1605,18 +1691,22 @@ class Rewind {
           pass === 1 ? 25 : 80,
           'Bringing back what was deleted since',
         );
-        await this.bringBack(journal, plan.bringBack, tally, stamp);
+        await this.bringBack(journal, plan.bringBack, tally, stamp, remake);
       }
-      if (!tally.cancelled && !this.stopped() && plan.recreate.count > 0) {
+      const recreate =
+        remake && remake.objects.length > 0
+          ? await this.withPlanned(remake, plan.recreate)
+          : plan.recreate;
+      if (!tally.cancelled && !this.stopped() && recreate.count > 0) {
         this.progress(
           'recreating',
           pass,
           pass === 1 ? 32 : 81,
           'Making again what the recycle bin no longer holds',
         );
-        await this.recreate(journal, plan.recreate, tally);
-      } else if (plan.recreate.count > 0) {
-        for (const { objectApiName, count } of plan.recreate.objects) {
+        await this.recreate(journal, recreate, tally);
+      } else if (recreate.count > 0) {
+        for (const { objectApiName, count } of recreate.objects) {
           tally.recreate({ ...emptyRecreated(objectApiName), planned: count, notReached: count });
         }
         tally.cancelled = true;
@@ -1904,6 +1994,28 @@ class Rewind {
   }
 
   /**
+   * What a pass makes again: what the org answered is no longer in the
+   * recycle bin as it brought it back, written to `remake`, and what its plan
+   * counted to make again, each record once, parents first as the plan's are.
+   */
+  private async withPlanned(remake: IdSpoolWriter, planned: IdSpool): Promise<IdSpool> {
+    for (const { objectApiName } of planned.objects) {
+      for await (const ids of planned.pages(objectApiName)) {
+        for (const id of ids) await remake.add(objectApiName, id);
+      }
+    }
+    const readOrder = new Map(
+      this.request.checkpoint.objects.map((object) => [object.objectApiName, object.readOrder]),
+    );
+    // The checkpoint reads children first: made again, parents go first.
+    return remake.finish((objects) =>
+      [...objects].sort(
+        (a, b) => (readOrder.get(b.objectApiName) ?? 0) - (readOrder.get(a.objectApiName) ?? 0),
+      ),
+    );
+  }
+
+  /**
    * Make again what the recycle bin no longer gives back, parents first, from
    * the snapshot's values, 200 an insert: see the module's comment. A lookup
    * to a record still to be made — one later in the order, or of the same
@@ -2091,15 +2203,19 @@ class Rewind {
    * Bring back what was deleted since, parents first, a page of 2,000 ids at
    * a time: before each batch, the children the bin holds of its records are
    * named in the journal; after it, what the undelete left on them is read.
+   * What the org answers is no longer in the bin goes to `remake`, given, or
+   * is left (`settleGone`).
    */
   private async bringBack(
     journal: RewindJournal,
     spool: IdSpool,
     tally: PassTally,
     stamp: (stamps: Readonly<Record<string, string>>) => void,
+    remake: IdSpoolWriter | undefined,
   ): Promise<void> {
     // Read without the stop: a batch's children are named whole, or the batch is not sent.
     const children = compositeReader(this.org);
+    const makesAgain = this.makesAgain();
     for (const { objectApiName, count } of spool.objects) {
       if (tally.cancelled || this.stopped()) {
         tally.undelete({ ...emptyUndelete(objectApiName), planned: count, notReached: count });
@@ -2128,8 +2244,10 @@ class Rewind {
           continue;
         }
         const named = journal.bringingBack([{ objectApiName, ids }], this.count.undelete);
+        /** By key, the records the org answered are not in the bin, each with what was named under it. */
+        const answeredGone = new Map<string, ChildRecord[]>();
         const call: UndeleteCall = async (batch) => {
-          const byParent = await this.nameChildren(
+          const { byParent, under } = await this.nameChildren(
             journal,
             children,
             cascades,
@@ -2138,20 +2256,30 @@ class Rewind {
           );
           const answer = await named(batch);
           stamp(await this.undeleteStamps(objectApiName, batch, byParent));
+          for (const id of answeredNotInBin(answer, batch)) {
+            answeredGone.set(keyOf(id), under.get(keyOf(id)) ?? []);
+          }
           return answer;
         };
         // A record the org answers not in the bin though a read found it
-        // there is named with words that say why it stays.
-        const outcome = await settleNotInBin(
-          this.org,
-          await undeleteRunDeletions({
-            org: this.org,
-            plan: [{ objectApiName, ids }],
-            undelete: call,
-            ...(this.signal ? { signal: this.signal } : {}),
-          }),
-          [{ objectApiName, ids }],
-          this.notes,
+        // there came back with a parent since, or is no longer there.
+        const outcome = await this.settleGone(
+          objectApiName,
+          await settleNotInBin(
+            this.org,
+            await undeleteRunDeletions({
+              org: this.org,
+              plan: [{ objectApiName, ids }],
+              undelete: call,
+              ...(this.signal ? { signal: this.signal } : {}),
+            }),
+            [{ objectApiName, ids }],
+            this.notes,
+          ),
+          answeredGone,
+          tally,
+          remake,
+          makesAgain,
         );
         for (const object of outcome.objects) tally.undelete(object);
         tally.leftBy('undelete', objectApiName, outcome.left);
@@ -2165,6 +2293,99 @@ class Rewind {
   }
 
   /**
+   * Whether a record is one this pass can make again: of an object of the
+   * checkpoint that holds no files, and held by its snapshot. Each object's
+   * index is read once, as the pass first asks.
+   */
+  private makesAgain(): (objectApiName: string, id: string) => Promise<boolean> {
+    const indexes = new Map<string, Promise<SnapshotIndex | undefined>>();
+    const { checkpoint, folder } = this.request;
+    return async (objectApiName, id) => {
+      const object = checkpoint.objects.find((each) => each.objectApiName === objectApiName);
+      if (!object || !recreatable(object)) return false;
+      let index = indexes.get(objectApiName);
+      if (!index) {
+        // An index this machine cannot read makes nothing again: gone for good.
+        index = SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName).catch(
+          () => undefined,
+        );
+        indexes.set(objectApiName, index);
+      }
+      return (await index)?.has(id) === true;
+    };
+  }
+
+  /**
+   * `outcome` once what the org answered is no longer in the recycle bin is
+   * settled — what the undelete left of `answered`, each with the records
+   * named in the bin as coming back with it: what the checkpoint can make
+   * again of them, and of what was to come back with them, goes to `remake`
+   * when given, out of what the bring-back counts, its outcome now the
+   * insert's; without it, they are left, in words that say what lifts it. A
+   * record the checkpoint cannot make again is gone for good.
+   *
+   * Seen live: an account, a contact and a second account under the first
+   * were deleted, then emptied from the bin. Read right after, all three and
+   * the first account's two contacts were still in the bin, the undelete of
+   * each answered "Entity is not in the recycle bin", and the rewind, asked
+   * to make records again, named them refused and made nothing.
+   */
+  private async settleGone(
+    objectApiName: string,
+    outcome: SyncUndeleteOutcome,
+    answered: ReadonlyMap<string, readonly ChildRecord[]>,
+    tally: PassTally,
+    remake: IdSpoolWriter | undefined,
+    makesAgain: (objectApiName: string, id: string) => Promise<boolean>,
+  ): Promise<SyncUndeleteOutcome> {
+    const gone = outcome.left.filter((id) => answered.has(keyOf(id)));
+    if (gone.length === 0) return outcome;
+    const moved = new Set<string>();
+    let notRemade = 0;
+    for (const id of gone) {
+      if (!(await makesAgain(objectApiName, id))) {
+        tally.mark('lost', objectApiName, id);
+        continue;
+      }
+      const along: ChildRecord[] = [];
+      for (const child of answered.get(keyOf(id)) ?? []) {
+        if (await makesAgain(child.objectApiName, child.id)) along.push(child);
+      }
+      if (remake) {
+        await remake.add(objectApiName, id);
+        for (const child of along) await remake.add(child.objectApiName, child.id);
+        moved.add(keyOf(id));
+        continue;
+      }
+      notRemade++;
+      tally.mark('notInBin', objectApiName, id);
+      for (const child of along) tally.mark('notInBin', child.objectApiName, child.id);
+    }
+    const stays = gone.length - moved.size;
+    return {
+      ...outcome,
+      objects: outcome.objects.map((object) => {
+        if (object.objectApiName !== objectApiName) return object;
+        const reasons =
+          stays === 0
+            ? object.reasons.filter((reason) => !NOT_IN_BIN.test(reason))
+            : notRemade > 0
+              ? object.reasons.map((reason) =>
+                  NOT_IN_BIN.test(reason) ? NOT_REMADE_WORDS : reason,
+                )
+              : object.reasons;
+        return {
+          ...object,
+          planned: object.planned - moved.size,
+          refused: Math.max(0, object.refused - moved.size),
+          reasons,
+        };
+      }),
+      left: outcome.left.filter((id) => !moved.has(keyOf(id))),
+    };
+  }
+
+  /**
    * Name in the journal the records the recycle bin holds under `parents`,
    * through each of `cascades`, before they come back with them: the
    * children deleted with them, and those deleted on their own before them,
@@ -2175,7 +2396,8 @@ class Rewind {
    * that knew of the opportunity alone kept it for its lines, and the account
    * with it. Each is named beside the record of `parents` it hangs from, as
    * deep as it hangs: its undo sends it back to the bin with that record.
-   * By parent, every record named under it.
+   * By parent, every record named under it (`byParent`), and of them, with
+   * their objects, those but a person account's contact (`under`).
    *
    * A person account's own contact is not named: the org deletes it with its
    * account alone, never on its own, and an undo that sent it back to the bin
@@ -2188,8 +2410,9 @@ class Rewind {
     cascades: readonly Cascade[],
     objectApiName: string,
     parents: readonly string[],
-  ): Promise<Map<string, string[]>> {
+  ): Promise<{ byParent: Map<string, string[]>; under: Map<string, ChildRecord[]> }> {
     const byParent = new Map<string, string[]>();
+    const under = new Map<string, ChildRecord[]>();
     const seen = new Set(parents.map(keyOf));
     /** Per record named, the record of `parents` it hangs from. */
     const rootOf = new Map(parents.map((id) => [keyOf(id), keyOf(id)]));
@@ -2225,6 +2448,7 @@ class Rewind {
               rootOf.set(key, root);
               byParent.set(root, [...(byParent.get(root) ?? []), row.Id]);
               if (persons && row[PERSON_ACCOUNT_FLAG] === true) continue;
+              under.set(root, [...(under.get(root) ?? []), { objectApiName: child, id: row.Id }]);
               found.set(child, [...(found.get(child) ?? []), row.Id]);
               roots.set(child, [...(roots.get(child) ?? []), root]);
               next.set(child, [...(next.get(child) ?? []), row.Id]);
@@ -2255,7 +2479,7 @@ class Rewind {
       }
     }
     for (const [child, ids] of found) await journal.withParent(child, ids, roots.get(child));
-    return byParent;
+    return { byParent, under };
   }
 
   /**
@@ -2339,7 +2563,11 @@ class Rewind {
       const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
       const held = plan.giveBack.heldBy.find((entry) => entry.objectApiName === objectApiName);
       const status = fields.find((field) => field.toLowerCase() === 'status');
-      for await (const ids of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
+      for await (const page of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
+        // Made again by this pass, the bin no longer giving it back: the
+        // record that stands for it holds the checkpoint's values already.
+        const ids = page.filter((id) => !index.retired(id));
+        if (ids.length === 0) continue;
         if (tally.cancelled || this.stopped()) {
           tally.restore({
             ...emptyRestore(objectApiName),
@@ -2499,7 +2727,25 @@ class Rewind {
           add(name, 'automation', id);
           continue;
         }
-        const brick = BRICK_OF[cls];
+        // The org answered it is no longer in the recycle bin: gone for good
+        // when the checkpoint cannot make it again, left as it is when making
+        // it again was not accepted.
+        if (BRICK_OF[cls] === 'undelete') {
+          if (tallies.some((tally) => tally.lost.get(name)?.has(id) === true)) {
+            add(name, 'goneForGood', id);
+            continue;
+          }
+          if (tallies.some((tally) => tally.notInBin.get(name)?.has(id) === true)) {
+            add(name, 'notInBin', id);
+            continue;
+          }
+        }
+        // One to bring back made again instead is said in the insert's words.
+        const brick =
+          BRICK_OF[cls] === 'undelete' &&
+          tallies.some((tally) => tally.left.recreate.get(name)?.has(id) === true)
+            ? 'recreate'
+            : BRICK_OF[cls];
         const heldBy = brick === 'removal' ? this.keptForDependents(tallies, name, id) : undefined;
         if (heldBy !== undefined) {
           add(name, 'kept', id, { message: keptForWords(heldBy) });

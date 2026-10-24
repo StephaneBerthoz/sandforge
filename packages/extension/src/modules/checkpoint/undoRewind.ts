@@ -134,6 +134,12 @@ export interface UndoRewindOutcome {
   status: ForgeUndoStatus;
   /** What it sent back to the recycle bin, per object, children first. */
   deleted: ForgeUndoObjectResult[];
+  /**
+   * Of what it was to send to the recycle bin, per object, the records the
+   * rewind made again with new Ids that are no longer in the org: deleted by
+   * it, or gone with a record it deleted. Absent when there is none.
+   */
+  remade?: Array<{ objectApiName: string; count: number }>;
   /** What it gave back its values from before the rewind, per object. */
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
@@ -155,15 +161,19 @@ export const RESIDUAL_IDS_KEPT = 50;
 const NOT_IN_BIN = /Entity is not in the recycle bin/;
 
 /**
- * Why a record the org answered "not in the recycle bin" for is still in it,
- * in words that say so: the org's own say the opposite of what a read of the
- * bin shows.
+ * Why a record the org answered "not in the recycle bin" for still reads as
+ * in it, in words that say so: the org's own say the opposite of what a read
+ * of the bin shows. Salesforce lists a record emptied from the bin as deleted
+ * until it deletes it for good — half an hour later still, a day later no
+ * longer, on a scratch org — and keeps there for good one deleted on its own
+ * before a record it hangs from.
  */
 export const KEPT_IN_BIN_WORDS =
-  'Salesforce keeps it in the recycle bin and will not bring it back: deleted on its own, ' +
-  'then a record it hangs from was deleted after it, it can no longer come back, with that ' +
-  'record or without; deleted with a record still in the bin, it comes back only with that ' +
-  "record (the org answers 'UNDELETE_FAILED: Entity is not in the recycle bin')";
+  'Salesforce still lists it as deleted but will not bring it back: emptied from the recycle ' +
+  'bin, or kept there for good — deleted on its own, then a record it hangs from was deleted ' +
+  'after it, it can no longer come back, with that record or without; deleted with a record ' +
+  'still in the bin, it comes back only with that record ' +
+  "(the org answers 'UNDELETE_FAILED: Entity is not in the recycle bin')";
 
 /** Columns past which a read by id names a quarter as many ids, as the give-back reads them. */
 const WIDE_COLUMNS = 100;
@@ -816,12 +826,23 @@ async function undoFrom(
   // next undo's to take with it.
   const removalLeft: string[] = [];
   const left = new RecordKeySet();
-  for await (const { ids } of outcome.left()) {
+  /** Per object, the records made again the removal left. */
+  const remadeLeft = new Map<string, number>();
+  for await (const { objectApiName, ids } of outcome.left()) {
     for (const id of ids) {
       left.add(id);
       removalLeft.push(id);
+      if (plans.remade.keys.has(id)) {
+        remadeLeft.set(objectApiName, (remadeLeft.get(objectApiName) ?? 0) + 1);
+      }
     }
   }
+  const remade = plans.remade.objects
+    .map(({ objectApiName, count }) => ({
+      objectApiName,
+      count: count - (remadeLeft.get(objectApiName) ?? 0),
+    }))
+    .filter(({ count }) => count > 0);
   const wentAlong: ForgeUndoObjectResult[] = [];
   for (const { objectApiName } of along.objects) {
     let went = 0;
@@ -890,6 +911,7 @@ async function undoFrom(
     rewindId: input.rewindId,
     status,
     deleted: removed,
+    ...(remade.length > 0 ? { remade } : {}),
     restored: restored?.objects ?? [],
     undeleted: undeleted?.objects ?? [],
     residual,

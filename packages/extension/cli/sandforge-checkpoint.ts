@@ -132,8 +132,10 @@ rewind:
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
   --accept-recreate              make again, with new Ids, the records deleted since that the
                                  recycle bin no longer gives back: what outside Salesforce names
-                                 their old Ids no longer finds them; without it such a rewind
-                                 writes nothing, exit 1
+                                 their old Ids no longer finds them; without it a rewind that
+                                 counts such records writes nothing, exit 1, and one Salesforce
+                                 answers is no longer in the bin as it brings it back is left,
+                                 named
   --accept-outside               (a checkpoint of picked objects) also delete the records outside it
                                  created under records it deletes; without it those parents stay
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
@@ -170,7 +172,10 @@ differs, and undo still returns the org to how it was before the rewind.
 
 A record deleted since that the recycle bin no longer gives back is made again from the
 checkpoint, with a new Id, once --accept-recreate says so: the lookups the checkpoint holds that
-named it name the new Id, and undo deletes it again.
+named it name the new Id, and undo deletes it again. Salesforce still lists a record emptied from
+the bin as deleted, for minutes to hours, and says the bin no longer holds it only as the rewind
+asks it back: such a record, with what was to come back with it, is made again then, or left
+and named without --accept-recreate.
 What a rewind cannot undo: a file deleted since and no longer in the recycle bin, whose body the
 checkpoint does not hold, a lead converted since, a contract activated since, a record deleted
 with one created since (preview counts them); a field added or removed since (preview names it);
@@ -1165,6 +1170,14 @@ export function previewLines(
         'names their old Ids no longer finds them',
     );
   }
+  if (totals.toBringBack > 0) {
+    lines.push(
+      '  if Salesforce answers that a record to bring back is no longer in the recycle bin — it ' +
+        'still lists one emptied from it as deleted —, --accept-recreate makes it again with a ' +
+        'new Id, with what was to come back with it; without it, the rewind leaves them and ' +
+        'names them',
+    );
+  }
   const unexplained = diff.objects.filter((o) => o.unexplained > 0);
   if (unexplained.length > 0) {
     lines.push(
@@ -1417,6 +1430,21 @@ function recreatedTally(result: Pick<RewindResult, 'recreated'>): Tally {
   return { planned, done, left: Math.max(0, planned - done) };
 }
 
+/**
+ * Of what an undo sent to the recycle bin, the records the rewind had made
+ * again: per object, as many of those it deleted as were made again and are
+ * no longer in the org — the others went with a record it deleted.
+ */
+function remadeDeleted(result: Pick<RewindResult, 'deleted' | 'remade'>): number {
+  return (result.remade ?? []).reduce((total, made) => {
+    const deleted = sumOf(
+      result.deleted.filter((o) => o.objectApiName === made.objectApiName),
+      (o) => o.deleted,
+    );
+    return total + Math.min(deleted, made.count);
+  }, 0);
+}
+
 /** A user, by the name the preview read for them, else by their id. */
 function userOf(userId: string | undefined, names: Readonly<Record<string, string>>): string {
   if (userId === undefined) return 'another user';
@@ -1441,6 +1469,12 @@ function residualWords(
       return 'changed since the preview: rewind again to take them';
     case 'refused':
       return `refused: ${residual.message ?? 'the org gave no reason'}`;
+    case 'notInBin':
+      return (
+        'no longer in the recycle bin — emptied from it, or kept there for good —: Salesforce ' +
+        'still lists them as deleted but will not bring them back; --accept-recreate makes them ' +
+        'again with new Ids'
+      );
     case 'goneForGood':
       return (
         'deleted since and no longer in the recycle bin, and not made again (a file, whose body ' +
@@ -1553,9 +1587,17 @@ export function undoLines(
   };
   const tallies = talliesOf(result);
   const lines = [head[result.status]];
-  if (tallies.deleted.done > 0) {
+  // What the rewind made again is deleted again, never sent back.
+  const remade = remadeDeleted(result);
+  const sentBack = tallies.deleted.done - remade;
+  if (sentBack > 0) {
     lines.push(
-      `  sent back to the recycle bin ${count(tallies.deleted.done)} record(s) the rewind brought back`,
+      `  sent back to the recycle bin ${count(sentBack)} record(s) the rewind brought back`,
+    );
+  }
+  if (remade > 0) {
+    lines.push(
+      `  deleted again ${count(remade)} record(s) the rewind made again, with what went with them`,
     );
   }
   if (tallies.broughtBack.done > 0) {
@@ -2287,7 +2329,7 @@ async function undoCounts(
   entry: CheckpointListEntry,
   checkpoint: OrgCheckpoint,
   rewindId: string,
-): Promise<{ bringBack: number; giveBack: number; remove: number } | undefined> {
+): Promise<{ bringBack: number; giveBack: number; remove: number; remade: number } | undefined> {
   try {
     const folder = store.folderOf(entry.organizationId, entry.checkpointId);
     const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
@@ -2297,6 +2339,7 @@ async function undoCounts(
         giveBack: plans.giveBack.count,
         // What came back with a parent goes back to the bin with it.
         remove: plans.remove.spool.count + plans.goesWithParent.count,
+        remade: plans.remade.keys.size,
       };
     } finally {
       await plans.dispose();
@@ -2349,8 +2392,11 @@ async function undo(
       (counts
         ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
           `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
-          `${count(counts.remove)} record(s) it brought back to the recycle bin; what anyone ` +
-          'changed since the rewind stays'
+          `${count(counts.remove - counts.remade)} record(s) it brought back to the recycle bin` +
+          (counts.remade > 0
+            ? `, deleting again the ${count(counts.remade)} record(s) it made again`
+            : '') +
+          '; what anyone changed since the rewind stays'
         : ''),
   );
   const org = await context.connect(args.org);

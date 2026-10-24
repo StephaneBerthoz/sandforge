@@ -737,12 +737,13 @@ for (const theme of THEMES) {
         operationId: started.id,
       });
       await expect(page.getByTestId('checkpoint-result-headline')).toHaveText(
-        `${ORG} is back at “Before UAT”, except 19 records:`,
+        `${ORG} is back at “Before UAT”, except 21 records:`,
       );
       await expect(page.getByTestId('checkpoint-result-residual').getByRole('heading')).toHaveText([
         'Kept by your automation',
         'Changed during the rewind by someone else',
         'Changed since the preview',
+        'No longer in the recycle bin',
         `Refused by ${ORG}`,
         'Kept on purpose',
         'Gone for good',
@@ -752,6 +753,9 @@ for (const theme of THEMES) {
       ).toHaveText('Account: 1 record changed by Alice Martin, left as they made it');
       await expect(page.getByTestId('checkpoint-result-residual-kept-Contact')).toHaveText(
         'Contact: 1 record the rewind kept' + 'A Case the checkpoint holds still looks up to it.',
+      );
+      await expect(page.getByTestId('checkpoint-result-residual-notInBin-Account')).toHaveText(
+        'Account: 2 records Salesforce still lists as deleted but will not bring back — emptied from the recycle bin, or kept there for good: rewind again with Make them again, with new Ids ticked to make them again, with new Ids',
       );
       await expect(page.getByTestId('checkpoint-result-undeleted-Account')).toHaveText(
         'Account: 1 of 2 brought back, with their Ids · no longer in the recycle bin, gone for good: 1',
@@ -967,9 +971,16 @@ for (const theme of THEMES) {
         rewindId: 'rw-last',
         acceptAutomation: true,
       });
-      await host.answer('checkpoint:undo', { result: undoResult(id), operationId: undo.id });
+      // The rewind had made one account again, the bin no longer giving it back.
+      await host.answer('checkpoint:undo', {
+        result: undoResult(id, { remade: [{ objectApiName: 'Account', count: 1 }] }),
+        operationId: undo.id,
+      });
       await expect(page.getByTestId('checkpoint-result-headline')).toHaveText(
         `${ORG} is back as it was before its last rewind.`,
+      );
+      await expect(page.getByTestId('checkpoint-result-remade')).toHaveText(
+        `Deleted again in ${ORG}: 1 record the rewind made again, with what went with it`,
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
 

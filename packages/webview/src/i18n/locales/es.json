@@ -4559,9 +4559,9 @@
       "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que el punto de control no cubre archivos: {{names}}"
     },
     "rewindUndo": {
-      "resultSuccess": "Cada registro que el retroceso recuperó está de nuevo en la papelera de {{org}}.",
-      "resultPartial": "Registros que el retroceso recuperó volvieron a la papelera de {{org}}; los demás se quedan, como se indica.",
-      "resultFailure": "Ningún registro que el retroceso recuperó volvió a la papelera de {{org}}.",
+      "resultSuccess": "Cada registro que el retroceso recuperó o creó de nuevo está ahora en la papelera de {{org}}.",
+      "resultPartial": "Registros que el retroceso recuperó o creó de nuevo fueron a la papelera de {{org}}; los demás se quedan, como se indica.",
+      "resultFailure": "Ningún registro que el retroceso recuperó o creó de nuevo fue a la papelera de {{org}}.",
       "resultChanged_one": "{{formatted}} conservado, modificado desde el retroceso",
       "resultChanged_other": "{{formatted}} conservados, modificados desde el retroceso",
       "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que el retroceso no lo recuperó: {{names}}",
@@ -5484,6 +5484,8 @@
         "line_one": "{{formatted}} registro de {{object}} eliminado desde entonces que la papelera ya no devuelve.",
         "line_other": "{{formatted}} registros de {{object}} eliminados desde entonces que la papelera ya no devuelve.",
         "newIds": "El retroceso los crea de nuevo a partir del punto de control, con Id nuevos, y los campos de búsqueda del punto de control que los nombraban nombran los Id nuevos. Lo que fuera de Salesforce nombra sus Id antiguos — una integración, un enlace, un filtro de informe — ya no los encuentra. Deshacer los elimina de nuevo.",
+        "ifEmptiedTitle": "Si la papelera ya no los contiene",
+        "ifEmptied": "Salesforce aún muestra como eliminado un registro vaciado de la papelera, durante minutos u horas, y solo dice que la papelera ya no lo contiene cuando el retroceso pide recuperarlo. Marcado, el retroceso lo crea entonces de nuevo a partir del punto de control, con un Id nuevo, junto con los registros que debían volver con él, y se ejecuta lo que la org ejecuta al crear un registro; sin marcar, los deja y los nombra.",
         "accept": "Crearlos de nuevo, con Id nuevos"
       }
     },
@@ -5552,6 +5554,11 @@
           "line_one": "{{object}}: {{formatted}} registro",
           "line_other": "{{object}}: {{formatted}} registros"
         },
+        "notInBin": {
+          "title": "Ya no en la papelera",
+          "line_one": "{{object}}: {{formatted}} registro que Salesforce aún muestra como eliminado pero no recupera — vaciado de la papelera, o retenido allí para siempre: retroceda de nuevo con «Crearlos de nuevo, con Id nuevos» marcado para crearlo de nuevo, con un Id nuevo",
+          "line_other": "{{object}}: {{formatted}} registros que Salesforce aún muestra como eliminados pero no recupera — vaciados de la papelera, o retenidos allí para siempre: retroceda de nuevo con «Crearlos de nuevo, con Id nuevos» marcado para crearlos de nuevo, con Id nuevos"
+        },
         "goneForGood": {
           "title": "Perdidos para siempre",
           "line_one": "{{object}}: {{formatted}} registro eliminado desde entonces no puede volver: la papelera ya no lo contiene, y no se pudo crear de nuevo — un archivo, o un registro eliminado mientras se tomaba el punto de control",
@@ -5587,7 +5594,9 @@
         "undeletedTitle": "Lo que el retroceso eliminó, recuperado de la papelera de {{org}}",
         "restoredTitle": "Lo que el retroceso sobrescribió, con sus valores de antes en {{org}}",
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes del retroceso",
-        "keptChanged": "modificados desde el retroceso, dejados como están ahora: {{n}}"
+        "keptChanged": "modificados desde el retroceso, dejados como están ahora: {{n}}",
+        "remade_one": "Eliminado de nuevo en {{org}}: {{formatted}} registro que el retroceso creó de nuevo, con lo que se fue con él",
+        "remade_other": "Eliminados de nuevo en {{org}}: {{formatted}} registros que el retroceso creó de nuevo, con lo que se fue con ellos"
       },
       "recreated": {
         "title": "Creados de nuevo en {{org}}, con Id nuevos",
@@ -5597,7 +5606,7 @@
     "undo": {
       "open": "Deshacer este retroceso",
       "title": "¿Deshacer el último retroceso de {{org}}?",
-      "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes y envía de nuevo a la papelera lo que recuperó. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
+      "description": "Recupera de la papelera lo que el retroceso eliminó, devuelve a lo que sobrescribió sus valores de antes, envía de nuevo a la papelera lo que recuperó y elimina de nuevo lo que creó de nuevo. Lo que cualquiera haya cambiado en {{org}} desde el retroceso se queda como está.",
       "acceptAutomation": "Deshacer aunque {{org}} ejecute automatizaciones cuando se actualizan, eliminan o recuperan registros"
     },
     "stopComparing": {
