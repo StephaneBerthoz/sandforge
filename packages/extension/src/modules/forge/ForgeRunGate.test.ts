@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import type {
-  ForgeGraphEdge,
-  ForgeGraphNode,
-  ForgeTargetAutomation,
-  ForgeTargetFlow,
+import {
+  DATA_STORAGE_NOT_TOLD,
+  type ForgeGraphEdge,
+  type ForgeGraphNode,
+  type ForgeTargetAutomation,
+  type ForgeTargetFlow,
 } from '@sandforge/shared';
 import {
+  API_REQUESTS_NOT_TOLD,
   apiBudgetCheckOf,
   runRequestsEstimate,
   DEFAULT_CONFIRM_ABOVE_RECORDS,
@@ -33,6 +35,7 @@ import {
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
   pricesForLinesOf,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
   removalAutomationLines,
@@ -254,6 +257,27 @@ describe('readDataStorage', () => {
     await expect(
       readDataStorage({ request: vi.fn().mockResolvedValue({ DataStorageMB: { Max: 200 } }) }),
     ).rejects.toThrow();
+  });
+
+  it("says in plain words that the org does not tell the user its storage, when a Standard User's limits leave it out", async () => {
+    // Read as a Standard User, `/limits` list the daily requests and emails
+    // and no DataStorageMB: the reason printed was the schema's issues, a
+    // JSON dump, on the command lines and on Sync's page.
+    const standardUser = vi.fn().mockResolvedValue({
+      DailyApiRequests: { Max: 5_000_000, Remaining: 4_998_432 },
+      SingleEmail: { Max: 5_000, Remaining: 5_000 },
+    });
+
+    await expect(readDataStorage({ request: standardUser })).rejects.toThrow(
+      new Error(DATA_STORAGE_NOT_TOLD),
+    );
+    await expect(readApiBudget({ request: standardUser })).resolves.toEqual({
+      max: 5_000_000,
+      remaining: 4_998_432,
+    });
+    await expect(readApiBudget({ request: vi.fn().mockResolvedValue({}) })).rejects.toThrow(
+      new Error(API_REQUESTS_NOT_TOLD),
+    );
   });
 });
 
@@ -1359,6 +1383,39 @@ describe('what the command line says of the reversibility of a run', () => {
     expect(removalRiskLines([], 'TARGET')).toEqual([
       "reversibility: nothing found in TARGET that refuses a removal of this run's records " +
         '(no flow before a delete, no Apex trigger on one, no record that locks past Draft)',
+    ]);
+    // A part of the read that tells nothing of a delete changes nothing.
+    expect(removalRiskLines([], 'TARGET', [{ part: 'duplicateRules' }])).toEqual(
+      removalRiskLines([], 'TARGET'),
+    );
+  });
+
+  it('claims no Apex trigger on a delete only when the triggers could be read', () => {
+    // Run as a Standard User, who may not read ApexTrigger, the line said "no
+    // Apex trigger on one" under the line saying they could not be read.
+    expect(
+      removalRiskLines([], 'TARGET', [{ part: 'triggers' }, { part: 'duplicateRules' }]),
+    ).toEqual([
+      "reversibility: nothing found in TARGET that refuses a removal of this run's records in " +
+        'what could be read (no flow before a delete, no record that locks past Draft)',
+      '  the Apex triggers could not be read: whether one refuses the removal is not known',
+    ]);
+    expect(removalRiskLines([], 'TARGET', [{ part: 'flows' }, { part: 'triggers' }])).toEqual([
+      "reversibility: nothing found in TARGET that refuses a removal of this run's records in " +
+        'what could be read (no record that locks past Draft)',
+      '  the flows and the Apex triggers could not be read: whether one refuses the removal is ' +
+        'not known',
+    ]);
+  });
+
+  it('says beside what was found what could not be read', () => {
+    expect(
+      removalRiskLines([{ objectApiName: 'Order', kind: 'lock' }], 'TARGET', [{ part: 'flows' }]),
+    ).toEqual([
+      "reversibility: a removal of this run's records (--remove) may be refused in TARGET:",
+      '  Order: once activated, a record locks the records under it, which a removal then takes ' +
+        'only with it, or once it is back in Draft',
+      '  the flows could not be read: whether one refuses the removal is not known',
     ]);
   });
 });

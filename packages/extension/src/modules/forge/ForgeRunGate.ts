@@ -21,6 +21,7 @@
 import * as z from 'zod';
 import {
   BYTES_PER_MB,
+  DATA_STORAGE_NOT_TOLD,
   FORGE_READ_CEILING_PER_OBJECT,
   assignPermsetCommand,
   bypassAssignmentsOf,
@@ -424,14 +425,32 @@ const apiBudgetSchema = z
   .loose();
 
 /**
+ * Why the daily API requests an org has left are not known when its
+ * `/limits` list none, as {@link DATA_STORAGE_NOT_TOLD} is for its storage.
+ */
+export const API_REQUESTS_NOT_TOLD = 'the org does not tell this user its daily API requests';
+
+/**
+ * Throws `notTold` when an answer of `/limits` lists no `limit`: the org's way
+ * of not telling the user it. Parsed, the answer threw the schema's issues,
+ * which the command lines and Sync's page printed as the reason, a JSON dump.
+ */
+function sayWhenNotTold(answer: unknown, limit: string, notTold: string): void {
+  if (answer !== null && typeof answer === 'object' && !(limit in answer)) {
+    throw new Error(notTold);
+  }
+}
+
+/**
  * The data storage an org has, as its `/limits` say. The org may refuse it to
- * the user the run writes as; the caller says so, and never takes it for
- * enough.
+ * the user the run writes as, or leave it out of what it tells a Standard
+ * User ({@link DATA_STORAGE_NOT_TOLD}); the caller says so, and never takes it
+ * for enough.
  */
 export async function readDataStorage(transport: LimitsTransport): Promise<DataStorage> {
-  const limits = dataStorageSchema.parse(
-    await transport.request({ method: 'GET', url: '/limits' }),
-  );
+  const answer = await transport.request({ method: 'GET', url: '/limits' });
+  sayWhenNotTold(answer, 'DataStorageMB', DATA_STORAGE_NOT_TOLD);
+  const limits = dataStorageSchema.parse(answer);
   return {
     maxMB: limits.DataStorageMB.Max,
     remainingMB: limits.DataStorageMB.Remaining,
@@ -452,7 +471,9 @@ export async function readDataStorage(transport: LimitsTransport): Promise<DataS
  * writes as; the caller says so, and never takes it for enough.
  */
 export async function readApiBudget(transport: LimitsTransport): Promise<ApiBudget> {
-  const limits = apiBudgetSchema.parse(await transport.request({ method: 'GET', url: '/limits' }));
+  const answer = await transport.request({ method: 'GET', url: '/limits' });
+  sayWhenNotTold(answer, 'DailyApiRequests', API_REQUESTS_NOT_TOLD);
+  const limits = apiBudgetSchema.parse(answer);
   return { max: limits.DailyApiRequests.Max, remaining: limits.DailyApiRequests.Remaining };
 }
 
@@ -1328,16 +1349,51 @@ const REMOVAL_RISK_WORDS: Readonly<Record<ForgeRemovalRisk['kind'], (name: strin
 };
 
 /**
+ * The parts of the target's automation that tell what refuses a delete: the
+ * flows before one, the Apex triggers on one.
+ */
+const DELETE_PARTS = ['flows', 'triggers'] as const;
+
+/**
  * What the command line says before a run of what may refuse the removal of
  * its records (`--remove`): per object it writes, the flows before a delete,
  * the Apex triggers on one — a managed package's apart — and the records that
- * lock past Draft; or that none was found.
+ * lock past Draft; or that none was found. The flows or the Apex triggers the
+ * read could not reach are said as not known: run as a Standard User, who may
+ * not read `ApexTrigger`, the line claimed "no Apex trigger on one" under the
+ * line saying the Apex triggers could not be read.
+ *
+ * @param unread - What of the target's automation could not be read.
  */
-export function removalRiskLines(risks: readonly ForgeRemovalRisk[], target: string): string[] {
-  if (risks.length === 0) {
+export function removalRiskLines(
+  risks: readonly ForgeRemovalRisk[],
+  target: string,
+  unread: ReadonlyArray<{ part: string }> = [],
+): string[] {
+  const notRead = DELETE_PARTS.filter((part) => unread.some((entry) => entry.part === part));
+  const notKnown =
+    notRead.length === 0
+      ? []
+      : [
+          `  ${notRead.map((part) => UNREAD_WORDS[part]).join(' and ')} could not be read: ` +
+            'whether one refuses the removal is not known',
+        ];
+  if (risks.length === 0 && notRead.length === 0) {
     return [
       `reversibility: nothing found in ${target} that refuses a removal of this run's records ` +
         '(no flow before a delete, no Apex trigger on one, no record that locks past Draft)',
+    ];
+  }
+  if (risks.length === 0) {
+    const none = [
+      ...(notRead.includes('flows') ? [] : ['no flow before a delete']),
+      ...(notRead.includes('triggers') ? [] : ['no Apex trigger on a delete']),
+      'no record that locks past Draft',
+    ];
+    return [
+      `reversibility: nothing found in ${target} that refuses a removal of this run's records ` +
+        `in what could be read (${none.join(', ')})`,
+      ...notKnown,
     ];
   }
   return [
@@ -1346,6 +1402,7 @@ export function removalRiskLines(risks: readonly ForgeRemovalRisk[], target: str
       ({ objectApiName, kind, name }) =>
         `  ${objectApiName}: ${REMOVAL_RISK_WORDS[kind](name ?? '')}`,
     ),
+    ...notKnown,
   ];
 }
 

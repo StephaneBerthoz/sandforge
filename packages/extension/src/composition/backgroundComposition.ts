@@ -18,7 +18,7 @@ import type {
   WriteConfirmation,
 } from '../core/precheck/ProductionGuard';
 import { PIIDetector } from '../core/precheck/PIIDetector';
-import type { ForgeRemovalRisk } from '@sandforge/shared';
+import { DATA_STORAGE_NOT_TOLD, type ForgeRemovalRisk } from '@sandforge/shared';
 import { formatMB } from '../modules/forge/ForgeRunGate';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
@@ -527,7 +527,17 @@ function writeQuestion(question: WriteConfirmation): string[] {
     );
   }
   const { storage } = question;
-  if ('unread' in storage) {
+  if ('unread' in storage && storage.unread === DATA_STORAGE_NOT_TOLD) {
+    // A Standard User's limits leave the storage out: said in the question's
+    // language, not in the English reason the command line prints.
+    lines.push(
+      vscode.l10n.t(
+        'They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.',
+        formatMB(storage.estimateMB),
+        question.org,
+      ),
+    );
+  } else if ('unread' in storage) {
     lines.push(
       vscode.l10n.t(
         'They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.',

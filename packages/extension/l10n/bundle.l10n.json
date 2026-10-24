@@ -94,6 +94,7 @@
   "More than {0} records is a large volume for this org.": "More than {0} records is a large volume for this org.",
   "Of the price book entries, up to {0} are counted that the clone may read as it writes them: a price in the currency of the record its lines belong to, which the source holds beside the one read.": "Of the price book entries, up to {0} are counted that the clone may read as it writes them: a price in the currency of the record its lines belong to, which the source holds beside the one read.",
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.",
+  "They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.": "They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.",
   "The records have been read, and nothing has been written yet.": "The records have been read, and nothing has been written yet.",

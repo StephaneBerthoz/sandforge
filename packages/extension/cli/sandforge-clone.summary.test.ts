@@ -466,6 +466,48 @@ describe('sandforge-clone --summary', () => {
     ]);
   });
 
+  it('says the Apex triggers it could not read as not known, instead of finding none on a delete', async () => {
+    // A Standard User may not read ApexTrigger: the line said "no Apex trigger
+    // on one" under the line saying the triggers could not be read.
+    const target = fakeOrg();
+    const tooling = (target.conn as unknown as { tooling: { query: (soql: string) => unknown } })
+      .tooling;
+    tooling.query = async (soql: string) => {
+      if (soql.includes(' FROM ApexTrigger ')) {
+        throw new Error("INVALID_TYPE: sObject type 'ApexTrigger' is not supported.");
+      }
+      return { totalSize: 0, done: true, records: [] };
+    };
+    withOrgs(target);
+
+    expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+    const said = printed.findIndex((line) => line.startsWith('reversibility:'));
+    expect(printed.slice(said, said + 2)).toEqual([
+      "reversibility: nothing found in TGT that refuses a removal of this run's records in what " +
+        'could be read (no flow before a delete, no record that locks past Draft)',
+      '  the Apex triggers could not be read: whether one refuses the removal is not known',
+    ]);
+  });
+
+  it('says in plain words that the target does not tell a Standard User its data storage', async () => {
+    // Its `/limits` list the daily requests and emails and no DataStorageMB:
+    // the write gate printed the schema's issues as the reason, a JSON dump.
+    const target = fakeOrg();
+    (target.conn as unknown as { request: () => Promise<unknown> }).request = async () => ({
+      DailyApiRequests: { Max: 5_000_000, Remaining: 4_998_432 },
+      SingleEmail: { Max: 5_000, Remaining: 5_000 },
+    });
+    withOrgs(target);
+
+    expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+    expect(printed).toContain(
+      '  the data storage TGT has left could not be read (the org does not tell this user its ' +
+        'data storage): whether the records fit is not known',
+    );
+  });
+
   describe('Ctrl-C, through the stop the panel’s Stop takes', () => {
     /** The entries `--audit` kept in `path`. */
     const entriesOf = (path: string): Array<Record<string, unknown>> => {

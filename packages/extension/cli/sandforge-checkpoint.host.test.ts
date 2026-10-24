@@ -452,6 +452,46 @@ describe('sandforge-checkpoint take', () => {
     );
   });
 
+  it('prints the refusal alone of an estimate refused before its scope is read, and no estimate in its JSON', async () => {
+    // Run as a Standard User, the estimate printed "would keep 0 objects …
+    // about 0 API requests of the 0 left today" above its refusal.
+    const org = new CliTestOrg();
+    org.add('UserPermissionAccess', {
+      Id: '0Up000000000001AAA',
+      PermissionsViewAllData: false,
+      PermissionsModifyAllData: false,
+      PermissionsViewEncryptedData: false,
+    });
+    const h = harness({ org });
+
+    const said = await h.run('take', '--org', 'DEV-SB', '--estimate');
+    expect(said.code).toBe(1);
+    expect(said.stdout.trim().split('\n')).toEqual([
+      expect.stringMatching(
+        /^refused: A checkpoint needs a user with View All Data and Modify All Data/,
+      ),
+    ]);
+
+    const json = await h.run('take', '--org', 'DEV-SB', '--estimate', '--json');
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.stdout)).toEqual({
+      mode: 'everything',
+      refusal: { code: 'PERMISSIONS', message: expect.any(String) as unknown },
+    });
+    expect(await h.kept()).toEqual([]);
+  });
+
+  it('keeps the estimate of a take refused once its scope is counted, which the refusal is about', async () => {
+    const h = harness();
+
+    const said = await h.run('take', '--org', 'DEV-SB', '--estimate', '--max-total', '2');
+
+    expect(said.code).toBe(1);
+    expect(said.stdout).toMatch(/would keep 2 objects .*about 3 records/);
+    expect(said.stdout).toMatch(/about \d+ API requests of the 14,?900 left today/);
+    expect(said.stdout).toContain('refused: The objects this checkpoint would keep hold 3 records');
+  });
+
   it('refuses a take past --max-total before reading a record, and takes one that leaves out what it is told', async () => {
     const h = harness();
 

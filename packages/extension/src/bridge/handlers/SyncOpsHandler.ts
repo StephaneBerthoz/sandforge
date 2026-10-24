@@ -130,6 +130,7 @@ import type { TargetAutomationReader } from '../../modules/forge/TargetAutomatio
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
 } from '../../modules/forge/ForgeRunGate.js';
@@ -463,6 +464,10 @@ export class SyncOpsHandler implements DomainHandler {
         readStorage: () =>
           new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
             readDataStorage(targetConn),
+          ),
+        readApiBudget: () =>
+          new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
+            readApiBudget(targetConn),
           ),
         readAutomation: (objects) =>
           new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('sync:automation', () =>

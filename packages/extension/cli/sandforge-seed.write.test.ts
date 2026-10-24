@@ -43,11 +43,13 @@ const ASSET = {
  * An org that takes every Asset it is sent, through REST or a Bulk API job,
  * and runs nothing as they are created. `onCreate` is told of each REST call
  * before it is answered. It says it is a sandbox, unless `kind` says otherwise.
+ * `others` are the other objects it describes, by name.
  */
 function fakeOrg(
   onCreate: () => void | Promise<void> = () => {},
   kind: Record<string, unknown> = { IsSandbox: true },
   refusedFrom = Infinity,
+  others: Record<string, typeof ASSET> = {},
 ) {
   const restCalls: number[] = [];
   const jobs: number[] = [];
@@ -55,8 +57,8 @@ function fakeOrg(
   const id = (): string => `02i${String(made++).padStart(12, '0')}AAA`;
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const conn = {
-    sobject: () => ({
-      describe: async () => ASSET,
+    sobject: (name: string) => ({
+      describe: async () => others[name] ?? ASSET,
       create: async (sent: unknown[]) => {
         await onCreate();
         restCalls.push(sent.length);
@@ -69,7 +71,12 @@ function fakeOrg(
       },
     }),
     describe: async () => ASSET,
-    describeGlobal: async () => ({ sobjects: [{ name: 'Asset', createable: true }] }),
+    describeGlobal: async () => ({
+      sobjects: [ASSET, ...Object.values(others)].map(({ name, createable }) => ({
+        name,
+        createable,
+      })),
+    }),
     query: async (soql: string) =>
       soql.includes('FROM Organization') ? page([{ Id: '00D000000000002AAA', ...kind }]) : page([]),
     tooling: { query: async () => page([]) },
@@ -94,7 +101,7 @@ function fakeOrg(
     },
   };
   vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
-  return { restCalls, jobs };
+  return { restCalls, jobs, conn };
 }
 
 /** A seed of `count` assets into TGT, with `extra` flags. */
@@ -176,6 +183,57 @@ describe('a seed from the command line', () => {
       '(a Bulk API job, or REST when an active duplicate rule watches the object)',
     );
     expect(seedWritePathOf(200, 200)).toBe('(REST)');
+  });
+
+  it('skips an --object the user may not create, saying why, and writes the others', async () => {
+    // Run as a Standard User, who reads products and may not create one: none
+    // of its fields read as one to set, the validator refused the whole run
+    // for want of a field to fill, and the accounts were not written either.
+    const PRODUCT = {
+      ...ASSET,
+      name: 'Product2',
+      createable: false,
+      fields: ASSET.fields.map((field) => ({ ...field, createable: false })),
+    };
+    const org = fakeOrg(undefined, undefined, undefined, { Product2: PRODUCT });
+
+    await main([...argv(2, '--json'), '--object', 'Product2:2']);
+
+    expect(org.restCalls).toEqual([2]);
+    const summary = JSON.parse(stdout.join('')) as {
+      result: {
+        status: string;
+        objectResults: Array<{ objectApiName: string; recordsCreated: number; errors: string[] }>;
+      };
+    };
+    expect(summary.result.status).toBe('partial');
+    expect(summary.result.objectResults).toEqual([
+      expect.objectContaining({ objectApiName: 'Asset', recordsCreated: 2, errors: [] }),
+      expect.objectContaining({
+        objectApiName: 'Product2',
+        recordsCreated: 0,
+        errors: ['Skipped: the user this seed runs as may not create Product2 records.'],
+      }),
+    ]);
+    expect(stderr.join('')).toContain(
+      '  Product2: the user this seed runs as may not create its records: skipped',
+    );
+  });
+
+  it('says in plain words that the target does not tell a Standard User its data storage', async () => {
+    // Its `/limits` list the daily requests and emails and no DataStorageMB:
+    // the line printed the schema's issues as the reason, a JSON dump.
+    const { conn } = fakeOrg();
+    conn.request = async () => ({
+      DailyApiRequests: { Max: 5_000_000, Remaining: 4_998_432 },
+      SingleEmail: { Max: 5_000, Remaining: 5_000 },
+    });
+
+    await main(argv(2, '--dry-run'));
+
+    expect(stdout.join('')).toMatch(
+      /data storage: about [\d.]+ MB to write; what TGT has left could not be read \(the org does not tell this user its data storage\)\n/,
+    );
   });
 
   it('says of a job of any size that an object a duplicate rule watches goes through REST', () => {

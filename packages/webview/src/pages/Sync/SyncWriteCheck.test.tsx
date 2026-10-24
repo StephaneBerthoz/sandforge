@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import type { SyncWriteCheck } from '@sandforge/shared';
-import '../../i18n';
+import { act, render, screen } from '@testing-library/react';
+import { DATA_STORAGE_NOT_TOLD, type SyncWriteCheck } from '@sandforge/shared';
+import i18n from '../../i18n';
+import fr from '../../i18n/locales/fr.json';
 import { SyncAlreadyCopiedLine, SyncWriteCheckCard } from './SyncWriteCheck';
 
 /** 30 contacts into a Developer Edition whose contact flow sends two emails each. */
@@ -42,6 +43,35 @@ describe('SyncWriteCheckCard', () => {
     expect(screen.getByTestId('sync-write-check-verdict').textContent).toBe(
       'The run asks you before it writes.',
     );
+  });
+
+  it("says in the page's language that the target does not tell a Standard User its storage", async () => {
+    // Its `/limits` leave the storage out: the card quoted the reason the
+    // command line prints, a JSON dump before it was put in words.
+    const notTold: SyncWriteCheck = {
+      ...PAST_EMAILS,
+      storage: { verdict: 'unread', estimateMB: 0.06, unread: DATA_STORAGE_NOT_TOLD },
+    };
+    const { unmount } = render(<SyncWriteCheckCard check={notTold} />);
+
+    expect(screen.getByTestId('sync-write-check-storage').textContent).toBe(
+      'Data storage: about 0.06 MB. The target org does not tell the user the run writes as what it has left.',
+    );
+    unmount();
+    i18n.addResourceBundle('fr', 'translation', fr);
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      render(<SyncWriteCheckCard check={notTold} />);
+      expect(screen.getByTestId('sync-write-check-storage').textContent).toBe(
+        "Stockage de données : environ 0,06 Mo. L'org cible ne dit pas à l'utilisateur avec lequel l'exécution écrit ce qu'il lui reste.",
+      );
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('says how many records it may write over, kept first and put back by its removal', () => {

@@ -1389,7 +1389,8 @@
         "fits": "Almacenamiento de datos: unos {{estimate}} MB, de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
         "near": "Almacenamiento de datos: unos {{estimate}} MB, más del 80 % de los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
         "exceeds": "Almacenamiento de datos: unos {{estimate}} MB, más que los {{remaining}} MB que le quedan a la org de destino de {{max}} MB.",
-        "unread": "Almacenamiento de datos: unos {{estimate}} MB. No se pudo leer lo que le queda a la org de destino ({{reason}})."
+        "unread": "Almacenamiento de datos: unos {{estimate}} MB. No se pudo leer lo que le queda a la org de destino ({{reason}}).",
+        "notTold": "Almacenamiento de datos: unos {{estimate}} MB. La org de destino no le dice al usuario con el que escribe la ejecución cuánto le queda."
       },
       "emails": {
         "fits": "{{limit}}: unos {{emails}} enviados por la automatización de la org de destino al entrar estos registros, quedan {{remaining}} de {{max}} hoy.",

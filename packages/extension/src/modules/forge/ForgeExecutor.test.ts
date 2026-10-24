@@ -2456,6 +2456,148 @@ describe('ForgeExecutor', () => {
       ]);
     });
 
+    describe("an opportunity product's schedules discovery never reached", () => {
+      const OPPORTUNITY = '006000000000001AAA';
+      const OTHER_OPPORTUNITY = '006000000000002AAA';
+      const LINE = '00k000000000001AAA';
+      const OTHER_LINE = '00k000000000002AAA';
+      const SCHEDULES = ['00o000000000001AAA', '00o000000000002AAA', '00o000000000003AAA'];
+
+      /**
+       * The graph the default cap left around an opportunity: its product
+       * line and none of the line's schedules, which the source holds — and
+       * a schedule of another opportunity's line, out of the clone's scope.
+       */
+      function capped() {
+        const orgs = fakeOrgs(
+          {
+            Opportunity: [
+              { Id: OPPORTUNITY, Name: 'Deal' },
+              { Id: OTHER_OPPORTUNITY, Name: 'Other deal' },
+            ],
+            OpportunityLineItem: [
+              { Id: LINE, Name: 'Line', OpportunityId: OPPORTUNITY },
+              { Id: OTHER_LINE, Name: 'Other line', OpportunityId: OTHER_OPPORTUNITY },
+            ],
+            OpportunityLineItemSchedule: [
+              { Id: SCHEDULES[0], Description: 'November', OpportunityLineItemId: LINE },
+              { Id: SCHEDULES[1], Description: 'December', OpportunityLineItemId: LINE },
+              { Id: SCHEDULES[2], Description: 'Elsewhere', OpportunityLineItemId: OTHER_LINE },
+            ],
+          },
+          {
+            Opportunity: [idField, text('Name')],
+            OpportunityLineItem: [
+              idField,
+              text('Name'),
+              lookup('OpportunityId', 'Opportunity', true),
+            ],
+            OpportunityLineItemSchedule: [
+              idField,
+              text('Description'),
+              lookup('OpportunityLineItemId', 'OpportunityLineItem', true),
+            ],
+          },
+        );
+        const graph = makeGraph(
+          [makeNode('Opportunity'), makeNode('OpportunityLineItem')],
+          [{ ...edge('Opportunity', 'OpportunityLineItem'), required: true }],
+        );
+        return { ...orgs, graph };
+      }
+      const rooted = { rootRecordId: OPPORTUNITY, rootObjectApiName: 'Opportunity' };
+
+      it('clones the schedules of the lines it clones, whatever the cap, and no others', async () => {
+        // Run for real at the default cap, an opportunity with revenue
+        // schedules was cloned with its line and without them, said only by
+        // TRUNCATED.
+        const { orgDeps, inserted, graph } = capped();
+
+        const summary = await new ForgeExecutor(orgDeps).execute(
+          graph,
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(inserted['OpportunityLineItemSchedule']).toEqual([
+          { Description: 'November', OpportunityLineItemId: 'OpportunityLineItem:Line' },
+          { Description: 'December', OpportunityLineItemId: 'OpportunityLineItem:Line' },
+        ]);
+        expect(summary.errors).toEqual([]);
+      });
+
+      it('says in a dry run the schedules a real run writes', async () => {
+        const { orgDeps, inserted, graph } = capped();
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress, {
+          ...rooted,
+          dryRun: true,
+        });
+
+        expect(inserted).toEqual({});
+        expect(progressEvents.map((e) => e.message)).toContain(
+          '[dry-run] OpportunityLineItemSchedule: 2 record(s) would be inserted',
+        );
+      });
+
+      it('reads none of them when the user excluded them by name, or the graph leaves them out', async () => {
+        const excluded = capped();
+        const readExcluded = recordReads(excluded.orgDeps);
+        await new ForgeExecutor(excluded.orgDeps).execute(
+          excluded.graph,
+          'src',
+          'tgt',
+          onProgress,
+          { ...rooted, excludedObjects: ['OpportunityLineItemSchedule'] },
+        );
+
+        const unchecked = capped();
+        const readUnchecked = recordReads(unchecked.orgDeps);
+        await new ForgeExecutor(unchecked.orgDeps).execute(
+          {
+            ...unchecked.graph,
+            nodes: [
+              ...unchecked.graph.nodes,
+              makeNode('OpportunityLineItemSchedule', { included: false }),
+            ],
+          },
+          'src',
+          'tgt',
+          onProgress,
+          rooted,
+        );
+
+        expect(readExcluded['OpportunityLineItemSchedule']).toBeUndefined();
+        expect(excluded.inserted['OpportunityLineItemSchedule']).toBeUndefined();
+        expect(readUnchecked['OpportunityLineItemSchedule']).toBeUndefined();
+        expect(unchecked.inserted['OpportunityLineItemSchedule']).toBeUndefined();
+      });
+
+      it('adds none to a run of whole tables, which clones the tables it names', async () => {
+        const { orgDeps, inserted, graph } = capped();
+        // A table read whole, as such a run reads it: every row, the fields asked.
+        const every = [OPPORTUNITY, OTHER_OPPORTUNITY, LINE, OTHER_LINE, ...SCHEDULES];
+        const query = orgDeps.queryRecords;
+        orgDeps.queryRecords = async (org, soql, onTruncated) =>
+          query(
+            org,
+            / FROM \w+$/.test(soql)
+              ? `${soql} WHERE Id IN (${every.map((id) => `'${id}'`).join(', ')})`
+              : soql,
+            onTruncated,
+          );
+        const read = recordReads(orgDeps);
+
+        await new ForgeExecutor(orgDeps).execute(graph, 'src', 'tgt', onProgress);
+
+        expect(Object.keys(read).sort()).toEqual(['Opportunity', 'OpportunityLineItem']);
+        expect(read['OpportunityLineItemSchedule']).toBeUndefined();
+        expect(inserted['OpportunityLineItemSchedule']).toBeUndefined();
+      });
+    });
+
     describe('an order past Draft', () => {
       const ORDER = '801000000000001AAA';
       const SECOND_ORDER = '801000000000002AAA';

@@ -1389,7 +1389,8 @@
         "fits": "Data storage: about {{estimate}} MB, of the {{remaining}} MB the target org has left out of {{max}} MB.",
         "near": "Data storage: about {{estimate}} MB, more than 80% of the {{remaining}} MB the target org has left out of {{max}} MB.",
         "exceeds": "Data storage: about {{estimate}} MB, more than the {{remaining}} MB the target org has left out of {{max}} MB.",
-        "unread": "Data storage: about {{estimate}} MB. What the target org has left could not be read ({{reason}})."
+        "unread": "Data storage: about {{estimate}} MB. What the target org has left could not be read ({{reason}}).",
+        "notTold": "Data storage: about {{estimate}} MB. The target org does not tell the user the run writes as what it has left."
       },
       "emails": {
         "fits": "{{limit}}: about {{emails}} sent by the target org's automation as these records go in, {{remaining}} of {{max}} left today.",

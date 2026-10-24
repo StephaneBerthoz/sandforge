@@ -38,3 +38,11 @@ export type SfLimitKey = keyof typeof SF_LIMITS;
 
 /** Current Salesforce REST API version used for direct API calls (with `v` prefix). */
 export const SF_API_VERSION = `v${SF_LIMITS.DEFAULT_API_VERSION}` as const;
+
+/**
+ * Why the data storage an org has left is not known when its `/limits` list
+ * none: a Standard User's answer holds the daily API requests and emails, and
+ * no `DataStorageMB`. Said in these words on the command line; the page and
+ * the questions a run asks say it in their own language, told by this reason.
+ */
+export const DATA_STORAGE_NOT_TOLD = 'the org does not tell this user its data storage';

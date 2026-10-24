@@ -44,6 +44,7 @@ import {
   storageCheckOf,
   unreadEmailOf,
   writePlanOf,
+  type ApiBudget,
   type ApiBudgetCheck,
   type DataStorage,
   type EmailCheck,
@@ -114,8 +115,10 @@ export function syncWritePlan(counted: SyncCountedWrite): WritePlan {
 
 /** What a run's checks read of the target. */
 export interface SyncWriteMeasures {
-  /** The data storage the target has, as its `/limits` say. */
+  /** The data storage the target has, as its `/limits` say, and its daily API requests with it. */
   readStorage: () => Promise<DataStorage>;
+  /** The daily API requests the target has, as its `/limits` say: read when the storage could not be. */
+  readApiBudget: () => Promise<ApiBudget>;
   /** What the target runs on the given objects, as Forge reads it. */
   readAutomation: (objects: readonly string[]) => Promise<ForgeTargetAutomation>;
   /** The target's daily email limits, as its `/limits` say them. */
@@ -160,15 +163,24 @@ export async function measureSyncWrite(
   let storage: StorageCheck = storageCheckOf(plan, { maxMB: 0, remainingMB: 0 });
   let emails: EmailCheck[] = [];
   let emailsUnread: string | undefined;
-  // The calls of its writes to the target, from the same `/limits` the
-  // storage is read from: its reads are of the source, whose own budget they take.
+  // The calls of its writes to the target, against its daily requests, read
+  // with the storage: its reads are of the source, whose own budget they take.
   const estimate = runRequestsEstimate(objects);
   let api: ApiBudgetCheck = apiBudgetCheckOf(estimate, { unread: 'not read' });
   if (total > 0) {
     const limits = await measures.readStorage().catch((err: unknown) => ({
       unread: err instanceof Error ? err.message : String(err),
     }));
-    api = apiBudgetCheckOf(estimate, 'unread' in limits ? limits : limits.dailyApiRequests);
+    // Read on their own when the storage could not be, as Forge reads them: a
+    // Standard User's `/limits` list the daily requests and not the storage,
+    // and the run said neither could be read.
+    const budget =
+      'unread' in limits
+        ? await measures.readApiBudget().catch((err: unknown) => ({
+            unread: err instanceof Error ? err.message : String(err),
+          }))
+        : limits.dailyApiRequests;
+    api = apiBudgetCheckOf(estimate, budget);
     if (plan.totalRows > 0) storage = storageCheckOf(plan, limits);
   }
   if (plan.totalRows > 0) {

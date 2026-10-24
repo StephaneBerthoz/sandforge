@@ -474,7 +474,8 @@ Options:
                          object you expected is missing, e.g. the lines of an
                          Opportunity's quotes. The prices, products, price
                          books and selling models the lines use come whatever
-                         the cap, as do the items of an activated order. Each
+                         the cap, as do the items of an activated order and
+                         the schedules of an opportunity's products. Each
                          parent a record reached cannot be written without
                          takes the cap one object further, up to twice it.
                          An empty table takes no place under it, and nothing
@@ -5085,7 +5086,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // What may refuse taking the run back, said before it writes: a flow before
   // a delete, a trigger on one, a record that locks past Draft.
   const removalRisks = removalRisksOf(targetAutomation, new Set(objectsLeftOut));
-  for (const line of removalRiskLines(removalRisks, args.target)) say(line);
+  for (const line of removalRiskLines(removalRisks, args.target, targetAutomation.unread)) {
+    say(line);
+  }
   // What that automation may reach: the records' own addresses and numbers,
   // unless they go neutralized.
   say(

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { ForgeTargetAutomation } from '@sandforge/shared';
+import { DATA_STORAGE_NOT_TOLD, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
+import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
 import {
   gateSyncWrite,
   measureSyncWrite,
@@ -45,6 +46,7 @@ const QUIET: ForgeTargetAutomation = { ...WELCOME_FLOW, objects: [] };
 function measures(overrides: Partial<SyncWriteMeasures> = {}): SyncWriteMeasures {
   return {
     readStorage: async () => ({ maxMB: 5, remainingMB: 3 }),
+    readApiBudget: async () => ({ max: 15_000, remaining: 14_000 }),
     readAutomation: async () => QUIET,
     readLimits: async () => ({ SingleEmail: { max: 15, remaining: 12 } }),
     confirmAboveRecords: 2_000,
@@ -79,16 +81,70 @@ describe('syncWritePlan', () => {
 describe('measureSyncWrite', () => {
   it('asks the target nothing for a run that writes nothing', async () => {
     const readStorage = vi.fn();
+    const readApiBudget = vi.fn();
     const readAutomation = vi.fn();
 
     const { check } = await measureSyncWrite(
       counted([{ objectApiName: 'Account', operation: 'insert', rows: 0 }], 40),
-      measures({ readStorage, readAutomation }),
+      measures({ readStorage, readApiBudget, readAutomation }),
     );
 
     expect(check).toMatchObject({ total: 0, alreadyCopied: 40, verdict: 'writes', emails: [] });
     expect(readStorage).not.toHaveBeenCalled();
+    expect(readApiBudget).not.toHaveBeenCalled();
     expect(readAutomation).not.toHaveBeenCalled();
+  });
+
+  it("reads the API requests on their own when a Standard User's limits leave out the storage", async () => {
+    // A Standard User's `/limits` list DailyApiRequests and SingleEmail, and
+    // no DataStorageMB: the run lost the budget with the storage, and said a
+    // JSON dump of the schema's issues as the reason for both.
+    const limits = vi.fn(async () => ({
+      DailyApiRequests: { Max: 5_000_000, Remaining: 4_998_432 },
+      SingleEmail: { Max: 5_000, Remaining: 5_000 },
+    }));
+    const transport = { request: limits };
+
+    const { check } = await measureSyncWrite(
+      counted([{ objectApiName: 'Account', operation: 'insert', rows: 21 }]),
+      measures({
+        readStorage: () => readDataStorage(transport),
+        readApiBudget: () => readApiBudget(transport),
+      }),
+    );
+
+    expect(check.storage).toEqual({
+      verdict: 'unread',
+      estimateMB: expect.any(Number) as unknown,
+      unread: DATA_STORAGE_NOT_TOLD,
+    });
+    expect(check.apiRequests).toEqual({
+      verdict: 'fits',
+      estimate: 1,
+      remaining: 4_998_432,
+      max: 5_000_000,
+    });
+    // The storage it does not tell is asked about, as before.
+    expect(check.verdict).toBe('asks');
+  });
+
+  it('reads the API requests with the storage when the storage was read, in one request', async () => {
+    const readApiBudget = vi.fn();
+
+    const { check } = await measureSyncWrite(
+      counted([{ objectApiName: 'Account', operation: 'insert', rows: 21 }]),
+      measures({
+        readStorage: async () => ({
+          maxMB: 5,
+          remainingMB: 3,
+          dailyApiRequests: { max: 15_000, remaining: 9_000 },
+        }),
+        readApiBudget,
+      }),
+    );
+
+    expect(check.apiRequests).toMatchObject({ verdict: 'fits', remaining: 9_000 });
+    expect(readApiBudget).not.toHaveBeenCalled();
   });
 
   it('writes without asking what fits, under the setting', async () => {

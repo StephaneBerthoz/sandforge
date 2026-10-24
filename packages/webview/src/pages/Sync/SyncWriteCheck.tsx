@@ -1,6 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncWriteCheck as WriteCheck, SyncWriteOrder } from '@sandforge/shared';
+import {
+  DATA_STORAGE_NOT_TOLD,
+  type SyncWriteCheck as WriteCheck,
+  type SyncWriteOrder,
+} from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { formatNumber } from '../../utils/formatters';
 import { listWords } from '../../utils/listWords';
@@ -38,6 +42,11 @@ export const SyncWriteCheckCard: React.FC<SyncWriteCheckCardProps> = ({ check, u
 
   const storageLine = (storage: WriteCheck['storage']): string => {
     const estimate = megabytes(storage.estimateMB);
+    // A Standard User's limits leave the storage out: said in the page's
+    // language, not in the English reason the command line prints.
+    if (storage.verdict === 'unread' && storage.unread === DATA_STORAGE_NOT_TOLD) {
+      return t('sync.writeCheck.storage.notTold', { estimate });
+    }
     if (storage.verdict === 'unread') {
       return t('sync.writeCheck.storage.unread', { estimate, reason: storage.unread ?? '' });
     }

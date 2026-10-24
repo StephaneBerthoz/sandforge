@@ -172,6 +172,7 @@ import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
   bypassesToAssign,
   formatMB,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
   removalStepsAutomationLines,
@@ -1581,6 +1582,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // one; a dry run says what the run would meet.
   const measures: SyncWriteMeasures = {
     readStorage: () => readDataStorage(targetConn),
+    readApiBudget: () => readApiBudget(targetConn),
     readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
     readLimits: () => readEmailLimits(targetConn),
     confirmAboveRecords: DEFAULT_CONFIRM_ABOVE_RECORDS,

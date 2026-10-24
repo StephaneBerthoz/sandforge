@@ -1108,8 +1108,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           notes.push(line.trim());
         }
       }
+      // A user who may not create the object reads none of its fields as one
+      // to set, so it was given no field to fill, and the validator refused
+      // the whole run for want of one: run as a Standard User, a seed of
+      // accounts and products wrote no account either. Its fields are picked
+      // as for a user who may create it, and the run skips it alone, saying
+      // why, as it skips a template's (`closedObject`), with what hangs on it.
+      const closed = described.createable === false;
+      const fields = described.fields as unknown as Parameters<typeof rulesFromDescribe>[0];
       const rules = rulesFromDescribe(
-        described.fields as unknown as Parameters<typeof rulesFromDescribe>[0],
+        closed ? fields.map((field) => ({ ...field, createable: true })) : fields,
         spec.objectApiName,
         accountKind,
       );
@@ -1124,7 +1132,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         const choice = recordTypeChoiceLine(spec.objectApiName, described.recordTypeInfos);
         if (choice) log(choice);
       }
-      log(`  ${spec.objectApiName}: ${rules.map((r) => r.fieldApiName).join(', ') || '(none)'}`);
+      log(
+        closed
+          ? `  ${spec.objectApiName}: the user this seed runs as may not create its records: skipped`
+          : `  ${spec.objectApiName}: ${rules.map((r) => r.fieldApiName).join(', ') || '(none)'}`,
+      );
       objects.push({
         objectApiName: spec.objectApiName,
         recordCount: spec.recordCount,

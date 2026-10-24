@@ -24,6 +24,7 @@ vi.mock('vscode', () => ({
 }));
 
 import * as vscode from 'vscode';
+import { DATA_STORAGE_NOT_TOLD } from '@sandforge/shared';
 import {
   confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
@@ -917,6 +918,23 @@ describe("a run's questions, in the production confirmation's modal (localized)"
       runQuestionDetail({ ...write, storage: { estimateMB: 4.69, unread: 'INSUFFICIENT_ACCESS' } }),
     ).toContain(
       'They take about 4.69 MB of data storage. What DEV has left could not be read (INSUFFICIENT_ACCESS), so whether they fit is not known.',
+    );
+  });
+
+  it("says in the question's language that the target does not tell a Standard User its storage", () => {
+    // Its `/limits` leave the storage out: the question quoted the reason the
+    // command line prints, English in every language.
+    const notTold = { ...write, storage: { estimateMB: 4.69, unread: DATA_STORAGE_NOT_TOLD } };
+
+    expect(runQuestionDetail(notTold)).toContain(
+      'They take about 4.69 MB of data storage. DEV does not tell the user the run writes as what it has left, so whether they fit is not known.',
+    );
+    expect(runQuestionDetail(notTold)).not.toContain(DATA_STORAGE_NOT_TOLD);
+    l10nBundle.current = JSON.parse(
+      readFileSync(join(__dirname, '..', '..', 'l10n', 'bundle.l10n.fr.json'), 'utf8'),
+    ) as Record<string, string>;
+    expect(runQuestionDetail(notTold)).toContain(
+      "Ils occupent environ 4.69 Mo de stockage de données. DEV ne dit pas à l'utilisateur avec lequel l'exécution écrit ce qu'il lui reste : on ne sait pas s'ils tiennent.",
     );
   });
 

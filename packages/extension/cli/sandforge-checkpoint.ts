@@ -194,7 +194,8 @@ JSON (--json), one value on stdout:
                      the org, SOAP calls among them; estimate, what it said before reading a record
   take --estimate    {mode, objects, leftOut, estimate, refusal?}: estimate.requestsByPhase splits
                      the requests over a take's phases as requests.byPhase does: guard, scope,
-                     start, counts, bin, snapshot, stability
+                     start, counts, bin, snapshot, stability; {mode, refusal} for a take refused
+                     before its scope is read (a production org, a user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
                      automation and refusal as the extension answers them; refusal is the one a
@@ -831,8 +832,34 @@ export interface ScopeAnswer {
   refusal?: CheckpointRefusal;
 }
 
-/** The lines `take --estimate` prints. */
+/**
+ * Whether a take was refused before its scope was read: the org is a
+ * production org, or the user lacks View All Data and Modify All Data. The
+ * answer then holds no object, kept or left out, and an estimate of nothing.
+ */
+function refusedUnread(scope: ScopeAnswer): scope is ScopeAnswer & { refusal: CheckpointRefusal } {
+  return scope.refusal !== undefined && scope.objects.length === 0 && scope.leftOut.length === 0;
+}
+
+/**
+ * What `take --estimate --json` prints: the scope, or only its mode and the
+ * refusal when the take was refused before its scope was read — an estimate
+ * of nothing read as a take that would cost nothing.
+ */
+export function scopeJson(scope: ScopeAnswer): Record<string, unknown> {
+  return refusedUnread(scope) ? { mode: scope.mode, refusal: scope.refusal } : { ...scope };
+}
+
+/**
+ * The lines `take --estimate` prints. A take refused before its scope was
+ * read prints the refusal alone: run as a Standard User, it printed "would
+ * keep 0 objects … about 0 API requests of the 0 left today" above it, an
+ * estimate of nothing that read as one of a take costing nothing. A refusal
+ * met once the scope was counted — too many records, past the API requests
+ * left — keeps the estimate it is about.
+ */
 export function scopeLines(orgName: string, scope: ScopeAnswer): string[] {
+  if (refusedUnread(scope)) return [`refused: ${scope.refusal.message}`];
   const holding = scope.objects.filter((object) => object.records > 0).length;
   const packages = new Map<string, number>();
   for (const { namespace } of scope.objects) {
@@ -2016,7 +2043,7 @@ async function take(
       ...(answered.refusal ? { refusal: answered.refusal } : {}),
     };
     for (const line of scopeLines(args.org, scope)) say(line);
-    answerJson(scope);
+    answerJson(scopeJson(scope));
     endWith(scope.refusal ? FAILED_EXIT : DONE_EXIT);
     return;
   }

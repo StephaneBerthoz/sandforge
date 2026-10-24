@@ -1389,7 +1389,8 @@
         "fits": "Armazenamento de dados: cerca de {{estimate}} MB, dos {{remaining}} MB que restam na org de destino, de {{max}} MB.",
         "near": "Armazenamento de dados: cerca de {{estimate}} MB, mais de 80% dos {{remaining}} MB que restam na org de destino, de {{max}} MB.",
         "exceeds": "Armazenamento de dados: cerca de {{estimate}} MB, mais que os {{remaining}} MB que restam na org de destino, de {{max}} MB.",
-        "unread": "Armazenamento de dados: cerca de {{estimate}} MB. Não foi possível ler o que resta na org de destino ({{reason}})."
+        "unread": "Armazenamento de dados: cerca de {{estimate}} MB. Não foi possível ler o que resta na org de destino ({{reason}}).",
+        "notTold": "Armazenamento de dados: cerca de {{estimate}} MB. A org de destino não informa ao usuário com que a execução grava quanto resta."
       },
       "emails": {
         "fits": "{{limit}}: cerca de {{emails}} enviados pela automação da org de destino quando estes registros entram, restam {{remaining}} de {{max}} hoje.",

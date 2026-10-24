@@ -303,7 +303,8 @@ JSON (--json), one value on stdout:
                      the org, SOAP calls among them; estimate, what it said before reading a record
   take --estimate    {mode, objects, leftOut, estimate, refusal?}: estimate.requestsByPhase splits
                      the requests over a take's phases as requests.byPhase does: guard, scope,
-                     start, counts, bin, snapshot, stability
+                     start, counts, bin, snapshot, stability; {mode, refusal} for a take refused
+                     before its scope is read (a production org, a user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
                      automation and refusal as the extension answers them; refusal is the one a

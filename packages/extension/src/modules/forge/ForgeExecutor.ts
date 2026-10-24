@@ -1166,6 +1166,23 @@ export interface ExecutionSummary {
   remapInJournal?: true;
 }
 
+/**
+ * Rows a record is not whole without, which a run cloned from a record reads
+ * under it whatever the cap on discovery, and the lookup that names it: an
+ * opportunity product's revenue and quantity schedules.
+ *
+ * Run for real at the clone's default cap of fifty objects, an opportunity
+ * with revenue schedules was cloned with its product line and without the
+ * schedules: discovery filled the cap with the opportunity's other children
+ * before it reached them, and only TRUNCATED said anything. The line's price
+ * came whatever the cap (`withTheCatalogItNeeds`); its schedules now do too.
+ */
+const ROWS_A_RECORD_COMES_WITH: Readonly<
+  Record<string, { readonly object: string; readonly lookup: string }>
+> = {
+  OpportunityLineItem: { object: 'OpportunityLineItemSchedule', lookup: 'OpportunityLineItemId' },
+};
+
 /** A node the run adds for the status of its parent's records, and how its rows name them. */
 interface ChildOfAStatus {
   /** The object whose records past Draft take their status back only with its rows under them. */
@@ -3223,8 +3240,12 @@ export class ForgeExecutor {
       sourceOrgId,
       leftOut,
     );
+    // A run of whole tables clones the tables it names, and no other.
+    const whole = config.isScoped
+      ? await this.withWhatItsRecordsComeWith(forStatuses.graph, sourceOrgId, leftOut)
+      : forStatuses.graph;
     const runGraph = await this.withSellingModelOptions(
-      await this.withTheCatalogItNeeds(forStatuses.graph, sourceOrgId, leftOut),
+      await this.withTheCatalogItNeeds(whole, sourceOrgId, leftOut),
       sourceOrgId,
       leftOut,
     );
@@ -5936,6 +5957,61 @@ export class ForgeExecutor {
       graph: { ...graph, nodes: [...graph.nodes, ...nodes], edges: [...graph.edges, ...edges] },
       added,
     };
+  }
+
+  /**
+   * The graph of a run cloned from a record, with the rows its records are
+   * not whole without when discovery never reached their object
+   * (`ROWS_A_RECORD_COMES_WITH`): the schedules of an opportunity's products.
+   * The node added is read under the records in scope as any child is, its
+   * every row.
+   *
+   * An object the graph holds and leaves out stays out — unchecked, or empty
+   * in the whole source — as does one the user excluded by name, and one
+   * whose describe fails or has no such lookup: an org without product
+   * schedules turned on has no such object.
+   *
+   * @param leftOut - The objects the user excluded by name.
+   */
+  private async withWhatItsRecordsComeWith(
+    graph: ForgeGraph,
+    sourceOrgId: string,
+    leftOut: ReadonlySet<string>,
+  ): Promise<ForgeGraph> {
+    const held = new Set(graph.nodes.map((n) => n.objectApiName));
+    const nodes: ForgeGraphNode[] = [];
+    const edges: ForgeGraphEdge[] = [];
+    for (const parent of graph.nodes) {
+      if (this.isAborted) break;
+      const child = ROWS_A_RECORD_COMES_WITH[parent.objectApiName];
+      if (!parent.included || !child || held.has(child.object) || leftOut.has(child.object)) {
+        continue;
+      }
+      let fields: FieldInfo[];
+      try {
+        fields = await this.deps.describeFields(sourceOrgId, child.object);
+      } catch {
+        continue;
+      }
+      const lookup = fields.find(
+        (f) =>
+          f.name === child.lookup &&
+          f.isReference &&
+          (f.referenceTo ?? []).includes(parent.objectApiName),
+      );
+      if (!lookup) continue;
+      held.add(child.object);
+      nodes.push(nodeTheRunAdds(child.object, fields, parent.level + 1));
+      edges.push({
+        sourceObject: parent.objectApiName,
+        targetObject: child.object,
+        relationshipName: lookup.name,
+        type: 'lookup',
+        required: isRequiredLookup(child.object, lookup.name, lookup.nillable),
+      });
+    }
+    if (nodes.length === 0) return graph;
+    return { ...graph, nodes: [...graph.nodes, ...nodes], edges: [...graph.edges, ...edges] };
   }
 
   /**

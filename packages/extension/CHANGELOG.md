@@ -78,6 +78,12 @@ With it, the backlog's leftovers: what real runs against sandboxes, scratch orgs
 - **Autopilot**: the person accounts of a cut table are counted among the records the run copies, not across the whole table.
 - **Sync removal**: gives back a record whose lookup the removal's undelete put back, instead of keeping it as changed since the run.
 - **Forge rehearsal**: a restricted picklist value refused for a record type is now listed for the target's admin as a value to select for that record type, and one missing from the field as a value to add.
+- **Seed, command line**: an `--object` the user it runs as may not create is skipped and says why, and the other objects are written; run as a Standard User, the whole run was refused for want of a field to fill, and its accounts went unwritten.
+- **Seed, Sync, Forge and Autopilot**: a target whose limits don't list its data storage for the user, as a Standard User's don't, says "the org does not tell this user its data storage" — in the page's and the question's own language — instead of a dump of the schema's issues.
+- **Sync**: reads the target's daily API requests on their own when its data storage cannot be read, as Forge does; a Standard User's run said neither was known.
+- **Forge, command line**: the reversibility line claims no flow or Apex trigger on a delete only when it could read them, and names what could not be read.
+- **sandforge-checkpoint take --estimate**: a take refused before its scope is read — a production org, a user without View All Data and Modify All Data — prints the refusal alone, and its `--json` carries no estimate.
+- **Forge, clone of a record**: the schedules of an opportunity's products come with their line whatever the cap on discovery; at the default 50 objects, an opportunity with revenue schedules was cloned without them, said only by TRUNCATED.
 
 Never a production org: a checkpoint, a preview, a rewind and an undo are refused there outright, whatever the setting or flag.
 

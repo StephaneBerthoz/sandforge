@@ -1389,7 +1389,8 @@
         "fits": "Datenspeicher: etwa {{estimate}} MB, von den {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
         "near": "Datenspeicher: etwa {{estimate}} MB, mehr als 80 % der {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
         "exceeds": "Datenspeicher: etwa {{estimate}} MB, mehr als die {{remaining}} MB, die der Ziel-Org von {{max}} MB bleiben.",
-        "unread": "Datenspeicher: etwa {{estimate}} MB. Was der Ziel-Org bleibt, konnte nicht gelesen werden ({{reason}})."
+        "unread": "Datenspeicher: etwa {{estimate}} MB. Was der Ziel-Org bleibt, konnte nicht gelesen werden ({{reason}}).",
+        "notTold": "Datenspeicher: etwa {{estimate}} MB. Die Ziel-Org sagt dem Benutzer, mit dem der Lauf schreibt, nicht, wie viel ihr bleibt."
       },
       "emails": {
         "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung der Ziel-Org beim Einfügen dieser Datensätze sendet, {{remaining}} von {{max}} heute übrig.",

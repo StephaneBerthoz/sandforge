@@ -1307,7 +1307,8 @@
         "fits": "データストレージ: 約 {{estimate}} MB。ターゲット組織の残り {{remaining}} MB（全体 {{max}} MB）の範囲内です。",
         "near": "データストレージ: 約 {{estimate}} MB。ターゲット組織の残り {{remaining}} MB（全体 {{max}} MB）の 80% を超えます。",
         "exceeds": "データストレージ: 約 {{estimate}} MB。ターゲット組織の残り {{remaining}} MB（全体 {{max}} MB）を超えます。",
-        "unread": "データストレージ: 約 {{estimate}} MB。ターゲット組織の残りを読み取れませんでした ({{reason}})。"
+        "unread": "データストレージ: 約 {{estimate}} MB。ターゲット組織の残りを読み取れませんでした ({{reason}})。",
+        "notTold": "データストレージ: 約 {{estimate}} MB。ターゲット組織は、実行で書き込むユーザーに残りを伝えていません。"
       },
       "emails": {
         "fits": "{{limit}}: これらのレコードの挿入でターゲット組織の自動化が約 {{emails}} 通を送信します。本日の残りは {{max}} 通中 {{remaining}} 通です。",

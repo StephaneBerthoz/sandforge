@@ -94,6 +94,7 @@
   "More than {0} records is a large volume for this org.": "{0} 件を超えるレコードは、この組織には大きな量です。",
   "Of the price book entries, up to {0} are counted that the clone may read as it writes them: a price in the currency of the record its lines belong to, which the source holds beside the one read.": "価格表エントリのうち、クローンが書き込み時に読み取る可能性のある最大 {0} 件を数えています。明細が所属するレコードの通貨の価格で、読み取った価格とは別のソース自身の価格です。",
   "They take about {0} MB of data storage. What {1} has left could not be read ({2}), so whether they fit is not known.": "これらはデータストレージを約 {0} MB 使用します。{1} の残り容量を読み取れなかったため ({2})、収まるかどうかはわかりません。",
+  "They take about {0} MB of data storage. {1} does not tell the user the run writes as what it has left, so whether they fit is not known.": "これらはデータストレージを約 {0} MB 使用します。{1} は実行で書き込むユーザーに残り容量を伝えないため、収まるかどうかはわかりません。",
   "They take about {0} MB of data storage; {1} has {2} MB left of {3} MB.": "これらはデータストレージを約 {0} MB 使用します。{1} の残りは {3} MB 中 {2} MB です。",
   "That is more than 80% of what is left. Salesforce counts storage a while after a load, so less may be left than it says.": "残りの 80% を超えています。Salesforce はロード後しばらくしてからストレージを集計するため、実際の残りは表示より少ない場合があります。",
   "The records have been read, and nothing has been written yet.": "レコードは読み取り済みで、まだ何も書き込んでいません。",

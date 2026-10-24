@@ -1389,7 +1389,8 @@
         "fits": "Stockage de données : environ {{estimate}} Mo, sur les {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
         "near": "Stockage de données : environ {{estimate}} Mo, plus de 80 % des {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
         "exceeds": "Stockage de données : environ {{estimate}} Mo, plus que les {{remaining}} Mo qu'il reste à l'org cible, pour {{max}} Mo.",
-        "unread": "Stockage de données : environ {{estimate}} Mo. Ce qu'il reste à l'org cible n'a pas pu être lu ({{reason}})."
+        "unread": "Stockage de données : environ {{estimate}} Mo. Ce qu'il reste à l'org cible n'a pas pu être lu ({{reason}}).",
+        "notTold": "Stockage de données : environ {{estimate}} Mo. L'org cible ne dit pas à l'utilisateur avec lequel l'exécution écrit ce qu'il lui reste."
       },
       "emails": {
         "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de l'org cible à l'arrivée de ces enregistrements, {{remaining}} sur {{max}} restants aujourd'hui.",
