@@ -1016,7 +1016,7 @@ for (const theme of THEMES) {
       const box = page.getByTestId('disconnect-delete-checkpoints');
       await expect(box).not.toBeChecked();
       await expect(page.getByRole('dialog')).toContainText(
-        "Also delete this org's 4 checkpoints kept on this machine, which hold its records' values in clear, and the Undo of their rewinds",
+        "Also delete this org's 4 checkpoints kept on this machine, which hold its records' values unencrypted, and the Undo of their rewinds",
       );
       await expectReadable(page, theme, '[role="dialog"]');
 

@@ -110,7 +110,7 @@ describe('TakeCheckpoint', () => {
     );
     const card = screen.getByTestId('checkpoint-before-it-runs');
     expect(
-      within(card).getByText("It holds the records' values in clear, readable by you alone."),
+      within(card).getByText("It holds the records' values unencrypted, readable by you alone."),
     ).toBeInTheDocument();
     expect(
       within(card).getByText('Ask people to stop working in DEV-SB while it is taken.'),

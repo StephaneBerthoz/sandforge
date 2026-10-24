@@ -164,7 +164,7 @@ describe('HelpPage', () => {
       [1, 'Never on a production org'],
       [2, 'Data only: fields, flows'],
       [3, 'Files are not covered'],
-      [4, "holds the records' values in clear, personal data among them, on this machine"],
+      [4, "holds the records' values unencrypted, personal data among them, on this machine"],
     ] as const) {
       expect(english[line]).toContain(says);
     }

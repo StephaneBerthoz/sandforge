@@ -1007,6 +1007,106 @@ test('the READMEs, the guide and the FAQ say Forge refuses a production org, and
   );
 });
 
+test('anchor: Checkpoints refuses a production org even to take or preview, a Frozen load refuses one, and the other writers ask before every write', () => {
+  const checkpoint = [...EXT, 'src', 'modules', 'checkpoint'];
+  const guard = read(...checkpoint, 'checkpointGuard.ts');
+  assert.match(guard, /So nothing lifts this refusal/, 'the checkpoint guard can be lifted now');
+  assert.match(guard, /'PRODUCTION',/, 'the checkpoint guard no longer refuses a production org');
+  for (const file of ['takeCheckpoint.ts', 'previewCheckpoint.ts']) {
+    assert.match(
+      read(...checkpoint, file),
+      /await guardCheckpoint\(/,
+      `${file} no longer asks the guard: a take or a preview, which only read, reach production`,
+    );
+  }
+  assert.match(
+    read(...EXT, 'src', 'modules', 'frozendataset', 'LoadGuards.ts'),
+    /if \(input\.orgTier !== 'development' && input\.orgTier !== 'scratch'\) \{\s*throw new LoadGuardError\(\s*'non-sandbox',/,
+    'a Frozen load no longer refuses a production org — the READMEs say it does',
+  );
+  const productionGuard = read(...EXT, 'src', 'core', 'precheck', 'ProductionGuard.ts');
+  const production = productionGuard.slice(productionGuard.indexOf('private checkProduction('));
+  assert.match(
+    production.slice(0, production.indexOf('private checkStaging(')),
+    /if \(isDestructive && !isOverridden\) \{\s*\/\/[^\n]*\n[\s\S]*?allowed: false,[\s\S]*?allowed: true,\s*requiresConfirmation: true,/,
+    'Production Guard no longer blocks a delete and asks before every other write on production',
+  );
+});
+
+test('both READMEs say which modules refuse a production org, Checkpoints even to read, and which ask before writing to one', () => {
+  const offenders = [];
+  for (const relPath of READMES) {
+    const text = read(...relPath.split('/'));
+    const guardrail = whySwitch(relPath);
+    for (const words of [
+      'Forge refuses a production org as a target, and so do a Frozen Dataset load and ' +
+        'Checkpoints, which does not even take a checkpoint of one',
+      'Seed, Sync, Autopilot and DataOps ask you before every write to one',
+    ]) {
+      if (!guardrail.includes(words)) offenders.push(`${relPath}: the guardrail lacks "${words}"`);
+    }
+    if (/the other modules ask you to confirm any write/.test(guardrail)) {
+      offenders.push(`${relPath}: the guardrail has every module but Forge write after a question`);
+    }
+    if (!text.includes('Safety is on by default: Forge and a Frozen Dataset load refuse')) {
+      offenders.push(
+        `${relPath}: the line under the modules leaves the Frozen load among those that ask`,
+      );
+    }
+    const answer = text
+      .split('\n')
+      .find((line) => line.includes('**Can I point it at production?**'));
+    if (!answer) {
+      offenders.push(`${relPath}: the production question is gone from the FAQ`);
+      continue;
+    }
+    if (/\?\*\* Reads, yes\./.test(answer)) {
+      offenders.push(
+        `${relPath}: "Reads, yes" — Checkpoints refuses a production org even to read it`,
+      );
+    }
+    for (const words of [
+      'except with Checkpoints: it refuses a production org outright, even to take a checkpoint or preview a rewind',
+      'Forge and a Frozen Dataset load never write to one',
+      'The writes of Seed, Sync, Autopilot and DataOps go through the Production Guard',
+    ]) {
+      if (!answer.includes(words)) offenders.push(`${relPath}: the answer lacks "${words}"`);
+    }
+  }
+  const faq = read('docs', 'faq.md');
+  if (!faq.includes('for a run and for a rehearsal alike, and so does a Frozen Dataset load.')) {
+    offenders.push(
+      'docs/faq.md: the production answer leaves the Frozen load among those that ask',
+    );
+  }
+  assert.deepEqual(offenders, [], offenders.join('\n'));
+});
+
+test('anchor: Forge refuses, as a production org, an org of a kind the registry does not know', () => {
+  const kinds = read('packages', 'shared', 'src', 'utils', 'org-kind.ts');
+  assert.match(
+    kinds,
+    /function tierOfType\(orgType: string\): GuardTier \{\s*return Object\.prototype\.hasOwnProperty\.call\(GUARD_TIERS, orgType\)\s*\? GUARD_TIERS\[orgType\]\s*: 'production';/,
+    'an org of a type the registry does not list is no longer a production org',
+  );
+  assert.match(
+    read(...EXT, 'src', 'bridge', 'handlers', 'ForgeHandler.ts'),
+    /const orgTier = guardTierOf\(targetOrg\);[\s\S]{0,600}?if \(orgTier === 'production'\) \{/,
+    'Forge no longer refuses the tier the registry gives an org it does not know',
+  );
+  for (const relPath of READMES) {
+    const step = firstSteps(relPath)
+      .split('\n')
+      .find((line) => line.startsWith('1. '));
+    assert.ok(
+      step?.includes(
+        'it refuses a production org, and any org whose kind SandForge does not know.',
+      ),
+      `${relPath}: step 1 does not say which orgs Forge refuses in words that cannot be read backwards`,
+    );
+  }
+});
+
 /** The steps of "First steps, safely", in the order both READMEs give them. */
 const FIRST_STEPS = [
   /Developer sandbox or a scratch org/,
@@ -1241,5 +1341,17 @@ test('both READMEs answer "does my data leave my machine?" with what the AI Assi
       answer.includes('sandforge.ai.errorResolution'),
       `${relPath}: the answer does not name the setting that stops the sending`,
     );
+    // "Beyond the orgs you connect, only to Anthropic" read as: data goes to
+    // Anthropic whatever the AI Assistant's switch says.
+    assert.match(
+      answer,
+      /\?\*\* Only to the orgs you connect, until you turn the AI Assistant on \(it is off by default\)/,
+      `${relPath}: the answer does not lead with the orgs, Anthropic only once the assistant is on`,
+    );
   }
+  assert.equal(
+    manifest().contributes.configuration.properties['sandforge.ai.enabled'].default,
+    false,
+    'the AI Assistant is on by default now — the answer says it is off',
+  );
 });

@@ -14,7 +14,7 @@
  * Each test states the code it depends on, and fails first if that code moved:
  * an assertion about a page that no longer works this way proves nothing.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -225,6 +225,19 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain("**Production orgs, and any org other than the checkpoint's own**");
   });
 
+  it("reads the edition from the org and from SandForge's list of orgs, which it names as such", () => {
+    // Positive control: the guard asks the registry first, then the org itself.
+    expect(GUARD).toContain(
+      'The org passes only when the registry\n * (`isDevelopmentOrg`) and the org itself (`typeTarget`) both say it is a',
+    );
+
+    expect(DOC).toContain(
+      "the edition is read from the org itself as well as from SandForge's list of orgs",
+    );
+    // "The registry" read as a feature of Salesforce.
+    expect(prose(DOC)).not.toMatch(/\bthe registry\b/);
+  });
+
   it('gives the windows and limits the code keeps', () => {
     // Positive control: the figures, as the store, the take and the rewind hold them.
     expect(constant(STORE, 'RECYCLE_BIN_DAYS')).toBe(15);
@@ -247,9 +260,37 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain('three days before its date, with **Keep**');
     expect(DOC).toContain('once the checkpoint is more than 15 days old');
     expect(DOC).toContain('It is offered for the last rewind of an org, for 15 days after it');
+    // The undo's window is fixed; only what the rewind deleted hangs on the bin.
+    expect(section(DOC, '## The preview')).toContain(
+      'so you can undo it for 15 days, and what it deletes comes back with the undo while the ' +
+        'recycle bin holds it: 15 days, less if it fills',
+    );
+    expect(DOC).not.toContain('sooner if the recycle bin fills');
     expect(DOC).toContain("A preview's reads are kept a day.");
     expect(DOC).toContain(
       "more records than the take's limit (500,000 unless the command line names another)",
+    );
+  });
+
+  it('says a checkpoint past the recycle bin’s days loses only the Ids of what was deleted before a date, the rest of a rewind unbound by it', () => {
+    // Anchor: the list's date is the bin's reach from now, and only a record
+    // the bin no longer gives back is made again, with a new Id, once accepted.
+    expect(STORE).toContain('const reach = now - RECYCLE_BIN_DAYS * DAY_MS;');
+    expect(STORE).toContain(
+      'return Date.parse(checkpoint.readFrom) < reach ? new Date(reach).toISOString() : undefined;',
+    );
+    expect(REWIND).toContain(
+      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
+    );
+
+    const list = section(DOC, '## The list');
+    expect(list).toContain(
+      '- The date before which deleted records can no longer come back with their Id, once the ' +
+        'checkpoint is more than 15 days old',
+    );
+    expect(list).toContain('a rewind makes them again, with new Ids, once you accept it');
+    expect(list).toContain(
+      'The rest of a rewind is not bound to that date: it works for as long as the checkpoint is kept.',
     );
   });
 
@@ -266,7 +307,7 @@ describe('docs/modules/checkpoint.md', () => {
       customSetting: 'custom settings, which are configuration',
       files: 'files, their versions, documents and links, and attachments',
       setup: 'users, permissions and the rest of setup',
-      metadata: '; metadata;',
+      metadata: 'metadata, which is deployed rather than kept as data',
       notWritable: 'an object the user may not query, create, edit and delete',
       notDescribed: 'an object the org would not describe',
       noSystemModstamp: 'an object with no `SystemModstamp`',
@@ -275,9 +316,41 @@ describe('docs/modules/checkpoint.md', () => {
     };
     // Both ways: a reason the scope gains is a kind the page has to name.
     expect(unionOf(SCOPE, 'ScopeLeftOutReason').sort()).toEqual(Object.keys(said).sort());
+    // Metadata is what the Tooling API serves, the rest of what the org will not describe.
+    expect(SCOPE).toContain(
+      "if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';",
+    );
 
     const take = section(DOC, '## Taking a checkpoint');
     for (const words of Object.values(said)) expect(take).toContain(words);
+
+    // One line per group of reasons under Left out, each kind in one of them:
+    // the reasons ran as one sentence of some 230 words, where the reader lost
+    // the thread and read the page-layout rule as one about layouts.
+    const block = /\n {2}- \*\*Left out\*\*[^\n]*\n((?: {4}- [^\n]*\n)+)/.exec(take)?.[1];
+    expect(block).toBeDefined();
+    const groups = (block ?? '').split('\n').filter((line) => line.startsWith('    - '));
+    expect(groups.length).toBeGreaterThanOrEqual(6);
+    const homeless = Object.values(said).filter(
+      (words) => !groups.some((line) => line.includes(words)),
+    );
+    expect(homeless).toEqual([]);
+    expect(take).toContain(
+      'the setup the org keeps as records (permissions, OAuth scopes, license assignments), told by its having no page layout',
+    );
+  });
+
+  it('says the objects of a managed package are included, listed by package', () => {
+    // Positive control: the scope keeps a package's objects and lists them by package.
+    expect(SCOPE).toContain("A managed package's objects stay");
+    expect(SCOPE).toContain(
+      'function packagesOf(objects: readonly ScopedObject[]): ScopePackage[] {',
+    );
+
+    expect(section(DOC, '## Taking a checkpoint')).toContain(
+      "and the objects of each managed package, by package: they are included, since an industry package's records are data like accounts",
+    );
+    expect(DOC).not.toContain('which stay: a party of an industry package');
   });
 
   it('names the controls of the page as the page labels them', () => {
@@ -338,6 +411,31 @@ describe('docs/modules/checkpoint.md', () => {
         !result.includes(`**${asWritten(label(`checkpoint.result.residual.${reason}.title`))}**`),
     );
     expect(missing).toEqual([]);
+    // What changed after the preview is named by the result's own heading,
+    // not by the same words again in lower case, which read as a typo.
+    expect(result).toContain(
+      'What changed after the preview is left as it is and listed under ' +
+        `**${label('checkpoint.result.residual.changedSincePreview.title')}**: rewind again to take it.`,
+    );
+  });
+
+  it('says how Undo names a record Salesforce lists as deleted but will not bring back: in its own words, the org’s answer after them', () => {
+    // Anchor: the undo's words say the record is still listed, then quote the
+    // org's answer, which says the opposite of what a read of the bin shows.
+    const words = /export const KEPT_IN_BIN_WORDS =([\s\S]*?);\n/.exec(
+      source(`${MODULE_DIR}/undoRewind.ts`),
+    )?.[1];
+    expect(words).toBeDefined();
+    expect(words).toContain("'Salesforce still lists it as deleted but will not bring it back");
+    expect(words).toMatch(
+      /\(the org answers 'UNDELETE_FAILED: Entity is not in the recycle bin'\)"\s*$/,
+    );
+
+    expect(section(DOC, '## Undo')).toContain(
+      'and a record Salesforce still lists as deleted but will not bring back, emptied from the ' +
+        "bin or kept there for good, which Undo names in those words, with the org's own answer, that " +
+        'it is not in the recycle bin, quoted after them.',
+    );
   });
 
   it('says how every way a rewind can end reads, one line each', () => {
@@ -602,10 +700,33 @@ describe('docs/modules/checkpoint.md', () => {
     expect(preview).toContain(
       "the case's account lookup forbids deleting an account that still has cases",
     );
+    // Said as what the rewind does and what follows, not as a case no rewind may undo.
+    expect(preview).toContain(
+      'so the rewind deletes the case first, alone, and Salesforce cannot bring it back once the ' +
+        'account is deleted after it',
+    );
     expect(preview).toContain('and so is `--accept-no-undo` on the command line');
     expect(section(DOC, '## Undo')).toContain(
       'and those it deleted before a record they point at, which it deleted next',
     );
+  });
+
+  it('says a pipeline may undo too, the journal of the last rewind deleted once its undo window ends', () => {
+    // Anchor: the sweep deletes the journal of a checkpoint's last rewind once
+    // its undo is past its date, the recycle bin's fifteen days after the rewind.
+    expect(STORE).toMatch(
+      /async function journalDue\([\s\S]*?const until = checkpoint\.lastRewind\?\.undoUntil;[\s\S]*?Date\.parse\(until\) <= now &&/,
+    );
+    expect(REWIND).toContain('const UNDO_WINDOW_MS = RECYCLE_BIN_DAYS * 24 * 60 * 60_000;');
+    expect(constant(STORE, 'RECYCLE_BIN_DAYS')).toBe(15);
+
+    const pool = section(DOC, '### A pool of scratch orgs, rewound between suites');
+    expect(pool).toContain(
+      '`undo` works in a pipeline as anywhere, but is seldom needed there: the journal of the ' +
+        "checkpoint's last rewind is deleted once that rewind can no longer be undone, 15 days after it.",
+    );
+    // Read as: Undo does not work in CI.
+    expect(DOC).not.toContain('Undo is never needed in CI');
   });
 
   it('opens from the third line of the side bar, as its quick start says', () => {
@@ -658,6 +779,108 @@ describe('the README lines of the module', () => {
     expect(steps[4]).toContain(`**${label('checkpoint.undo.open')}**`);
     expect(root).toContain('never takes a checkpoint of a production org nor rewinds one');
   });
+
+  it('says a rewind makes again with new Ids, once accepted, what the recycle bin no longer gives back', () => {
+    // Anchor: the rewind refuses such records unaccepted, and makes them in a step of its own.
+    expect(REWIND).toContain(
+      'if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };',
+    );
+    expect(REWIND).toContain('await this.recreate(journal, recreate, tally);');
+
+    const steps = section(source('README.md'), '## Rewind an org to a checkpoint')
+      .split('\n')
+      .filter((line) => /^\d+\. /.test(line));
+    expect(steps[3]).toContain(
+      'the records deleted since come back from the recycle bin with their Ids, or, once it no ' +
+        'longer holds them and you accept it, are made again with new Ids',
+    );
+  });
+
+  it('offers Undo on the org’s last rewind for the recycle bin’s 15 days, and says what it brings back while the bin holds it', () => {
+    // Anchor: the list offers the Undo of the org's latest rewind alone, until
+    // a date the rewind sets at the bin's fifteen days.
+    expect(STORE).toContain('latest?.checkpointId === folder.checkpointId &&');
+    expect(REWIND).toContain('const UNDO_WINDOW_MS = RECYCLE_BIN_DAYS * 24 * 60 * 60_000;');
+    expect(constant(STORE, 'RECYCLE_BIN_DAYS')).toBe(15);
+
+    const steps = section(source('README.md'), '## Rewind an org to a checkpoint')
+      .split('\n')
+      .filter((line) => /^\d+\. /.test(line));
+    expect(steps[4]).toContain(
+      `**${label('checkpoint.undo.open')}**, offered on the org's last rewind for 15 days, ` +
+        'returns the org to how it was before the rewind and keeps what anyone changed since. ' +
+        'What the rewind deleted comes back while the recycle bin holds it, and the preview ' +
+        'names first what Undo could not bring back.',
+    );
+    // What Undo could not bring back is a section of the preview.
+    expect(label('checkpoint.preview.undoCannot.title')).toBeTruthy();
+    // The module's row says which thing can be undone: the rewind.
+    for (const path of READMES) {
+      const row = section(source(path), '## Modules')
+        .split('\n')
+        .find((line) => line.startsWith('| **Checkpoints**'));
+      expect(row).toContain('whoever did it; the rewind itself can be undone.');
+    }
+  });
+
+  it('says the command line is a script of a checkout of the repository, which the extension does not install', () => {
+    // Anchor: no package of the repository declares a command to install;
+    // the script's help runs it through tsx from the checkout.
+    for (const path of ['package.json', 'packages/extension/package.json']) {
+      expect(Object.keys(JSON.parse(source(path)) as object)).not.toContain('bin');
+    }
+    expect(helpAsPrinted()).toContain(
+      'pnpm exec tsx packages/extension/cli/sandforge-checkpoint.ts <command> --org <alias>',
+    );
+    expect(section(DOC, '## From the command line')).toContain(
+      'from a checkout of this repository (`pnpm install` and `pnpm build:shared` first)',
+    );
+
+    expect(section(source('README.md'), '## Rewind an org to a checkpoint')).toContain(
+      'From a checkout of this repository, the [`sandforge-checkpoint` ' +
+        'script](docs/modules/checkpoint.md#from-the-command-line) takes, previews, rewinds and ' +
+        'undoes the same way without the editor',
+    );
+  });
+});
+
+describe('what a checkpoint and a backup hold on this machine', () => {
+  /** Every page that says it, and the help the script prints. */
+  const SURFACES: Array<[string, string]> = [
+    ['docs/modules/checkpoint.md', prose(DOC)],
+    ['the --help of sandforge-checkpoint', helpAsPrinted()],
+    ['README.md', source('README.md')],
+    ['packages/extension/README.md', source('packages/extension/README.md')],
+    ['docs/faq.md', source('docs/faq.md')],
+    ['docs/modules/dataops.md', source('docs/modules/dataops.md')],
+    ['ci-examples/README.md', source('ci-examples/README.md')],
+  ];
+
+  /** The module's source files, tests left out. */
+  function sourcesOf(dir: string): string[] {
+    return readdirSync(resolve(REPO_ROOT, dir))
+      .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+      .map((name) => source(`${dir}/${name}`));
+  }
+
+  it('says the records’ values are kept unencrypted, never "in clear", which reads as "clearly"', () => {
+    // Anchor: neither the checkpoint's store nor the DataOps backup's ciphers
+    // what it writes: files only their owner can read, values as the org held them.
+    for (const dir of [MODULE_DIR, 'packages/extension/src/modules/dataops']) {
+      const ciphering = sourcesOf(dir).filter((text) => /createCipheriv|createCipher\(/.test(text));
+      expect(ciphering).toEqual([]);
+    }
+    expect(STORE).toContain('export const CHECKPOINT_FILE_MODE = 0o600;');
+
+    const saidInClear = SURFACES.filter(([, text]) => /\bin clear\b/.test(text)).map(([w]) => w);
+    expect(saidInClear).toEqual([]);
+    for (const [where, text] of SURFACES) {
+      expect({ where, unencrypted: /\bunencrypted\b/.test(text) }).toEqual({
+        where,
+        unencrypted: true,
+      });
+    }
+  });
 });
 
 describe('ci-examples/README.md', () => {
@@ -705,7 +928,7 @@ describe('docs/faq.md', () => {
     const answer = section(FAQ, '### What does SandForge keep on my machine?');
     expect(answer).toContain('`~/.sandforge/checkpoints/`');
     expect(answer).toContain('`~/.sandforge/locks/`');
-    expect(answer).toContain("which hold the records' values in clear");
+    expect(answer).toContain("which hold the records' values unencrypted");
   });
 
   it('points from the undo answer to a rewind, and to its own undo', () => {

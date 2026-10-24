@@ -374,6 +374,9 @@ describe('sandforge-checkpoint take', () => {
     expect(stderr).toContain(
       `taken 'Before UAT' (${checkpoint.checkpointId}) of DEV-SB: 3 records in 2 objects`,
     );
+    expect(stderr).toContain(
+      "  it holds the records' values unencrypted, in files only you can read: ",
+    );
   });
 
   it('answers with the requests the take sent the org, phase by phase, beside what it estimated before reading a record', async () => {

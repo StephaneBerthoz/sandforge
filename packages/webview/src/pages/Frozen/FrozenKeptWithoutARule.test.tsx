@@ -46,7 +46,7 @@ describe('FrozenKeptWithoutARule', () => {
     render(<FrozenKeptWithoutARule fields={['Case.Status', 'Contact.GenderIdentity']} />);
 
     expect(screen.getByTestId('frozen-kept-without-rule-list').textContent).toBe(
-      "Kept in clear text with no rule, as values of the schema rather than anyone's words: " +
+      "Kept unmasked, with no rule, as values of the schema rather than anyone's words: " +
         'Case.Status, Contact.GenderIdentity. Review them: one that says something about a ' +
         'person is better cleared.',
     );

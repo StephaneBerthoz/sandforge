@@ -214,6 +214,26 @@ test('the READMEs and the FAQ say which tool copies data, and how each run is ta
     assert.ok(seed.includes(`**${labels.seed}**`), `${where}: Seed's removal`);
     assert.ok(seed.includes(`**${labels.seedResults}**`), `${where}: Seed's results removal`);
     assert.match(row(body, 'Autopilot'), /cannot be removed/, `${where}: Autopilot's run`);
+    // "None" read as: nothing takes an Autopilot run back. A checkpoint taken
+    // before it does, and the row names the page's own button.
+    assert.ok(
+      row(body, 'Autopilot').includes(
+        `A run cannot be removed; **${label('checkpoint.list.rewind')}** to a checkpoint taken before it`,
+      ),
+      `${where}: Autopilot's row does not point to a checkpoint taken before the run`,
+    );
+  }
+  for (const relPath of READMES) {
+    const answer = read(...relPath.split('/'))
+      .split('\n')
+      .find((line) => line.startsWith('- **Can I undo a run?**'));
+    assert.ok(
+      answer?.includes(
+        'Autopilot cannot, but a checkpoint taken before any run, on a sandbox, a scratch org ' +
+          'or a Developer Edition, rewinds the org to it.',
+      ),
+      `${relPath}: the FAQ line leaves Autopilot with no way back`,
+    );
   }
   for (const relPath of READMES) {
     const body = section(read(...relPath.split('/')), '## Which tool copies my data?');

@@ -356,6 +356,11 @@ describe('parseArgs', () => {
     ]) {
       expect(stdout).toContain(said);
     }
+    // "In clear", a calque of the French "en clair", read as "clearly".
+    expect(stdout).toContain(
+      "A checkpoint holds the records' values as the org held them, personal data among them,\nunencrypted, in files only you can read",
+    );
+    expect(stdout).not.toMatch(/\bin clear\b/);
   });
 });
 

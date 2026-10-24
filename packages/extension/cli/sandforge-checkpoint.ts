@@ -155,9 +155,9 @@ Options:
 
 A production org is refused before anything is read or written, exit 1. No flag lifts it.
 The user the alias connects as needs View All Data and Modify All Data.
-A checkpoint holds the records' values as the org held them, personal data among them, in clear,
-in files only you can read (on Windows: in your user profile). Expired checkpoints are deleted as
-any command starts, each named.
+A checkpoint holds the records' values as the org held them, personal data among them,
+unencrypted, in files only you can read (on Windows: in your user profile). Expired checkpoints
+are deleted as any command starts, each named.
 list and delete read this machine alone and never contact the org. An org's checkpoints are the
 ones taken under its alias or username, and the others kept of the same Organization Id.
 rewind shows its preview and asks you to type the org's alias before it writes, then rewinds from
@@ -874,7 +874,7 @@ export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
       ? [`  not compared, nor written back (you chose): ${checkpoint.ignoredFields.join(', ')}`]
       : []),
     ...withParentLine(checkpoint.objects),
-    `  it holds the records' values in clear, in files only you can read: ${folder}`,
+    `  it holds the records' values unencrypted, in files only you can read: ${folder}`,
   ];
 }
 

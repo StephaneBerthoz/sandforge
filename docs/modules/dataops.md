@@ -59,8 +59,8 @@ Take a snapshot of the objects an Anonymize writes over:
   it never reached, which it holds none of -- the Backup and Restore tabs and
   a restore's warning name them -- and says so; one the disk could not take a
   page of keeps nothing
-- A backup holds the records' values in clear, personal data among them, in
-  files only your user can read. It is kept until ten newer ones of the org
+- A backup holds the records' values unencrypted, personal data among them,
+  in files only your user can read. It is kept until ten newer ones of the org
   push it out (`sandforge.backup.maxCount`), or for
   `sandforge.backup.maxAgeDays` days, 30 unless you set it (0 keeps them),
   removed as SandForge starts and after each backup. A Sync run keeps here,

@@ -67,7 +67,7 @@ describe('DisconnectCheckpoints', () => {
 
     expect(listed.asked).toContainEqual({ type: 'checkpoint:list', payload: { orgId: 'org-1' } });
     const box = screen.getByRole('checkbox', {
-      name: "Also delete this org's 2 checkpoints kept on this machine, which hold its records' values in clear, and the Undo of their rewinds",
+      name: "Also delete this org's 2 checkpoints kept on this machine, which hold its records' values unencrypted, and the Undo of their rewinds",
     }) as HTMLInputElement;
     expect(box.checked).toBe(false);
     fireEvent.click(box);

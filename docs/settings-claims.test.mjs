@@ -158,3 +158,35 @@ test('the production setting says it is no longer used, in the manifest, six lan
     'the FAQ says the setting still turns the production question off',
   );
 });
+
+test('no guide names the production setting but to say it is no longer used', () => {
+  // The Forge reference refused a production target "whatever
+  // requireProdConfirmation says", as if the setting still said something.
+  const pages = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(join(repoRoot, dir))) {
+      const path = join(dir, name);
+      if (statSync(join(repoRoot, path)).isDirectory()) {
+        if (name !== 'archive') walk(path);
+      } else if (name.endsWith('.md')) pages.push(path);
+    }
+  };
+  walk('docs');
+  pages.push(
+    'README.md',
+    join('packages', 'extension', 'README.md'),
+    join('ci-examples', 'README.md'),
+  );
+  const offenders = [];
+  for (const page of pages) {
+    read(page)
+      .split('\n')
+      .forEach((line, i) => {
+        if (line.includes('requireProdConfirmation') && !/no longer used/i.test(line)) {
+          offenders.push(`${page}:${i + 1}`);
+        }
+      });
+  }
+  assert.ok(pages.includes(join('docs', 'forge-reference.md')), 'the Forge reference is gone');
+  assert.deepEqual(offenders, [], 'these lines name the setting as if it still did something');
+});
