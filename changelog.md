@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Checkpoints: keep an org's data as it is now, see what changed since, and put the org back as it was, whoever made the changes, then take the rewind back if you need to.
 
+With it, the backlog's leftovers: what real runs against sandboxes, scratch orgs and Developer Edition orgs found in Forge, Sync, Seed, Frozen Dataset, DataOps and Autopilot.
+
 ### Added
 
 - **Checkpoints**: a new module, third in the side bar and on Home. Take a checkpoint of a sandbox, a scratch org or a Developer Edition org, of everything people work in or of the objects you pick, with what it will take before it runs; it keeps the records' values on this machine for 30 days, or until you delete it.
@@ -16,16 +18,63 @@ Checkpoints: keep an org's data as it is now, see what changed since, and put th
 - **Undo this rewind**: for 15 days, sooner if the recycle bin fills, takes back what the rewind deleted, wrote over and brought back; what anyone changed since stays, and is named.
 - **Take a checkpoint now**: on the result of a Seed run, a Forge clone and a Frozen load that wrote to a sandbox, a scratch org or a Developer Edition org.
 - **Command line**: `sandforge-checkpoint` takes, lists, previews, rewinds and undoes, with `--estimate`, `--dry-run`, `--fail-on-change` for a CI step, the typed alias or `--yes` with a named checkpoint, and the exit codes of the other tools.
+- **Rewind and Undo**: count the emails their writes would make the org send, per daily limit, in the preview and the command line, and are refused past what the org has left today — on a Developer Edition, 15 single emails, its email alerts among them; no box lifts it.
+- **Rewind**: records deleted since that the recycle bin no longer gives back — emptied from it, or kept there for good — are made again from the checkpoint with new Ids once **Make them again, with new Ids** is ticked (`--accept-recreate` on the command line); every lookup the checkpoint holds that named one names its new Id, the preview says what a new Id breaks outside Salesforce, Undo deletes them again, and a later rewind never takes them for records created since. A file, whose body the checkpoint does not hold, stays gone for good. A record Salesforce still lists in the recycle bin once emptied from it, which only its undelete's answer tells, is made again too, with what was to come back with it — the box is offered whenever the rewind brings records back — and left and named without it; Undo says what it deleted again of what the rewind made again.
+- **Forge Gaps tab**: _For the target's admin_ lists what the target's metadata would need for the rows to go in as they are — a picklist value to add to a record type, a field to lengthen, a rule to turn off — by object and record type, each with its step in Setup, and copies it; `sandforge-clone --dry-run --json` gives it under `adminChanges`. SandForge changes none of it.
+- **Seed Configure**: a Set by me filter lists the fields whose rule or value you changed.
+- **Frozen extraction**: the result lists the fields it keeps unmasked with no rule, and **Clear these** writes a `clear` rule for each into the rules file, its version moved on, for the next extraction to clear.
+- **Clone of whole tables, command line**: `sandforge-clone --object … --upsert` writes over by external id, a page at a time. Each table's pages go by one external id, the first whose value every row it reads holds and no two share, read before the first page; a page whose rows as written would repeat a value is inserted instead.
 
 ### Changed
 
 - **Confirmations and dialogs**: give the keyboard back to the button that opened them, on every page.
 - **Disconnect**: offers to delete the org's checkpoints too.
 - **Sandbox refresh notice**: names the checkpoints kept of the org before the refresh.
+- **Rewind preview**: counts a contract activated since, and a record deleted with one created since, among what a rewind cannot undo; the rewind leaves both as they are and says why.
+- **Checkpoints**: a take, a rewind and an undo are also refused while a Frozen load or its removal, a DataOps restore, masking run or erasure, an Autopilot run or a Real-Time session of the window writes to the org.
+- **Sync, command line**: `--remove` says what the target runs as it brings records back, gives them their values back, sets them back to Draft and deletes them, and writes nothing without `--accept-automation`, as the clone's removal does.
+- **Forge confirmation before writing**: shows beside each object what the last simulation of the same clone counted, and asks whatever the volume when the run writes more than twice that, or 500 records more.
+- **Forge reads**: a field left out of the rows is no longer read from the source, except lookups and the few fields the run needs for its own work.
+- **Production writes**: Seed, Sync, Autopilot and DataOps ask before every write to a production org; `sandforge.safety.requireProdConfirmation` no longer turns that question off and is marked no longer used.
+- **Sign-in**: a JWT or device sign-in reads its org back with `sf org display`, which calls that org alone, and types it from what the org says it is; `sf org list` called every org the CLI holds.
+- **Autopilot review**: says, with no compliance framework picked (still the default), that names and the other personal fields go in as the source holds them, and where to pick a framework.
+- **Migration and Automation**: open with 3 kB of English for the words they share with Sync and Compare (object set, schedules, org and category pickers) instead of those modules' 39 kB; Automation parses 714 kB before it paints instead of 748, Migration 688 instead of 714.
+- **Browser sign-in**: registers only the org signed in to, read on its own, instead of contacting every org the Salesforce CLI holds and registering them all; Import from Salesforce CLI still imports them all.
 
 ### Fixed
 
 - **Sync removal**: the confirmation says what the target runs as the run is taken back, the Apex triggers after an undelete among it.
+- **Undo this rewind**: what came back with a record — a contact with its account, a product with its opportunity — goes back to the recycle bin with it, never on its own, so the record brought back later brings it back too.
+- **Undo this rewind**: a record whose lookup the undelete puts back, on a field the checkpoint does not compare, gets its values back instead of being kept as changed since the rewind.
+- **Undo this rewind**: plans from the journal on disk, a page at a time; an undo of a rewind of a million records no longer holds every id in memory.
+- **Checkpoint guide**: names an object past the take's limit among what a take leaves out.
+- **API requests**: a Bulk API job is counted by the calls it sends — opened, sent, closed, each read of its state and of its results — in what a take, a rewind and an undo say they sent, and a rewind or an undo past 10,000 deletes of an object is priced by its jobs' calls rather than as REST calls of 200 records.
+- **Command line**: a flag given no value — another flag after it, or nothing — is refused with exit 2 before any org is reached; `--target --dry-run` logged in to an org named `--dry-run`, and a flag last on the line ran with its default.
+- **Sync, command line**: the `--json` summary names the records a delta run deleted, and `--remove` from that summary alone brings them back from the recycle bin.
+- **sandforge-backup**: `--list` reads the store alone; without `--org` it lists every org's snapshots, each with its org, and with `--org` only that org's.
+- **Forge Execute and Clone directly**: ask before writing when the target will not say how much is left of a daily email limit its flows count against, as Autopilot does.
+- **Forge, whole tables read with a cap**: a record type closed to the user the run writes as holds an object back only when it is among the rows the run reads.
+- **Forge, objects without record types**: _Hold back these rows_ and _Write another value_ now apply to their rows; the command line says when a `--config` decision to hold back rows is ignored, and why.
+- **Autopilot**: a selected object of more than 50,000 records is copied to its first 50,000 by Id whether or not it has lookups to follow, and the plan says so.
+- **Seed**: a way to seed whose file could not be loaded says so in its place, with Reload panel, and the gallery and the way back stay up.
+- **sandforge-seed --remove**: says what the target's automation runs as it deletes, and deletes nothing without `--accept-automation`.
+- **Sync**: asks before writing when the target will not say how much is left of a daily email limit its Flows count against, or when its automation could not be read, as Forge and Autopilot ask.
+- **Sync, Frozen load, Clone from Org, CSV Upload**: rows a duplicate rule refused in a Bulk API job, which cannot carry the header that lets a rule's matches be saved, go again through REST with it; a rule that only alerts lets them be saved, one that blocks still refuses them, and the output says how many were saved.
+- **Sync removal**: a record someone else changed between two runs of the same target is no longer taken for the later run's write; the earlier run's removal keeps it as changed since unless you include the changed ones.
+- **Sync**: a classic encrypted field the source user sees masked (no View Encrypted Data) is left out of every record written instead of being copied as its mask; Review warns of it, and the results, the simulation, the history and the command line name it.
+- **DataOps backup**: no longer keeps the masks of encrypted fields the user cannot view, which a restore wrote back over the real values; the Backup tab names the fields not kept.
+- **DataOps backup and Forge**: a record of an object too wide for one query that is saved or deleted while it is read is read again or left out, never kept or copied with the values of two saves.
+- **Removals**: a removal stopped part way names what it never reached, object by object, an object it never got to included, in its result, on the command line and in the audit trail — Forge, Frozen, Seed and Sync alike.
+- **Removals**: for an object your user may not delete, a record already deleted counts as gone, not refused, and an object with nothing left is not asked about.
+- **Import from the CLI**: an org whose CLI login holds no edition is asked what it is, so a Developer Edition org or a sandbox no longer comes in as a production org until reconnected.
+- **Error hints**: an INSUFFICIENT_ACCESS refusal no longer calls a refused read a write, as on the Real-Time tab's list of objects, in all six languages.
+- **Forge, the Frozen extraction, Clone from Org and Real-Time**: a classic encrypted field the user SandForge reads the source as sees masked, lacking View Encrypted Data, is left out of every record written rather than copied as its mask, and the results, the command line and the page name it. A Frozen dataset records it as not kept.
+- **Sync and Autopilot**: a run asks before it writes when the target's flows, processes or workflow rules could not be read, saying their emails were not counted.
+- **Autopilot**: asks before it writes when the target's automation could not be read, as Sync does, instead of only logging it.
+- **Autopilot command line**: a selected table cut to its first 50,000 records is no longer also listed as copied whole.
+- **Autopilot**: the person accounts of a cut table are counted among the records the run copies, not across the whole table.
+- **Sync removal**: gives back a record whose lookup the removal's undelete put back, instead of keeping it as changed since the run.
+- **Forge rehearsal**: a restricted picklist value refused for a record type is now listed for the target's admin as a value to select for that record type, and one missing from the field as a value to add.
 
 Never a production org: a checkpoint, a preview, a rewind and an undo are refused there outright, whatever the setting or flag.
 
