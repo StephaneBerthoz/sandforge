@@ -191,11 +191,11 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ obje
           <CardHeader title={t('sync.realtime.autoSync')} />
           <CardBody>
             <p className="mb-2 text-xs text-text-secondary">{t('sync.realtime.autoSyncHint')}</p>
-            {/* A session keeps nothing it writes: no run file, no values from
-                before. Real-Time is a tab of the Sync page, whose runs can be
-                taken back, and nothing said this one could not. */}
-            <p className="mb-2 text-xs text-text-primary" data-testid="cdc-not-removable">
-              {t('sync.realtime.notRemovable')}
+            {/* A session that writes keeps what it writes as a Sync run does,
+                and its removal is the run's. It kept nothing, and this box
+                said so and sent the user to a backup taken beforehand. */}
+            <p className="mb-2 text-xs text-text-primary" data-testid="cdc-kept">
+              {t('sync.realtime.kept')}
             </p>
             {/* Ticked unless unticked, as on a Sync run: the target's flows
                 email and text the people its records name. */}

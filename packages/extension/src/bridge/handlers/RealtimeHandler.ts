@@ -32,7 +32,7 @@ import { describeCached } from '../../core/connection/describeCache.js';
 import { extractErrorCode, extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { queryAllPages } from '../../modules/forge/queryAllPages.js';
-import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import { BulkDataWriter, type WriterCalls } from '../../modules/sync/BulkDataWriter.js';
 import { DataSync } from '../../modules/sync/DataSync.js';
 import { ContactPointNeutralizer } from '../../modules/forge/stages/ContactPointNeutralizer.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
@@ -57,6 +57,9 @@ import {
   type SessionSnapshot,
 } from '../../modules/realtime/RealtimeSession.js';
 import { ReplayStore } from '../../modules/realtime/ReplayStore.js';
+import { openSessionRun, sessionStatusOf } from '../../modules/realtime/sessionRun.js';
+import type { SyncRunCreations } from '../../modules/sync/SyncRunCreations.js';
+import type { BackupRecordFiles } from '../../modules/sync/syncOverwrites.js';
 import type { HeldChange } from '../../modules/realtime/RealtimeApplier.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -89,14 +92,18 @@ export interface RealtimeOrgAccess {
    * finishes the batch it is writing and stores its resume point past it (see
    * `RealtimeSession.stop`), so a write cut short between two of its batches
    * would leave changes that are never written and never replayed.
+   *
+   * @param calls - Told of each call the write sends, as a Sync run's writer
+   *   tells its run (`BulkDataWriterDeps.calls`): what the session keeps of
+   *   what it writes.
    */
-  writer(orgId: string): TargetWrite;
+  writer(orgId: string, calls?: WriterCalls): TargetWrite;
   /** A Tooling API query on an org, every record of it. */
   tooling(orgId: string, soql: string): Promise<Record<string, unknown>[]>;
 }
 
 /** The orgs as the extension reaches them: through the pooled, validated connections. */
-function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
+export function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
   const connect = (orgId: string) => getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager);
   const robustness = robustnessConfigOf(deps);
   return {
@@ -137,7 +144,7 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
         },
       };
     },
-    writer(orgId) {
+    writer(orgId, calls) {
       return async (config, records, contactPoints) => {
         const pooled = await connect(orgId);
         // The same session, announcing itself: the org writes the client id
@@ -155,6 +162,10 @@ function liveOrgAccess(deps: HandlerDeps): RealtimeOrgAccess {
           // stopped. The session's cancel stops it between batches.
           onProgress: () => {},
           log: (message) => deps.log(message),
+          // Each call as it goes and as it answers, kept by the session's
+          // record: the writer is made again for each write, the record lives
+          // as long as the session.
+          ...(calls ? { calls } : {}),
         });
         const dataSync = new DataSync({
           upsert: (objectName, externalIdField, rows, batchSize) =>
@@ -201,6 +212,12 @@ interface RunningSession {
   detach: () => void;
   /** Per object it writes, the encrypted fields its changes go without, read masked. */
   encryptedLeftOut?: Array<{ objectApiName: string; fields: string[] }>;
+  /**
+   * Writes how a session that writes ended into what it kept (`sessionRun`),
+   * once; nothing for one that only watches, or in a window that keeps no
+   * run.
+   */
+  endRun: () => Promise<void>;
 }
 
 /**
@@ -218,6 +235,15 @@ export class RealtimeHandler implements DomainHandler {
   private liveTracker: LiveOperationTracker | undefined;
   private readonly syncConfigs: SyncConfigStore;
   private readonly access: RealtimeOrgAccess;
+  /** Where every Sync run keeps what it wrote: a session that writes keeps it there too. */
+  private runCreations: SyncRunCreations | undefined;
+  /** The DataOps backup store, where a session keeps first the values it writes over. */
+  private backupRecords: BackupRecordFiles | undefined;
+  /**
+   * The sessions whose file has no end yet: one stopped is still writing its
+   * last batch, and its end, after the next can start.
+   */
+  private readonly openRuns = new Set<string>();
 
   /**
    * @param deps - Handler dependencies.
@@ -245,6 +271,32 @@ export class RealtimeHandler implements DomainHandler {
       current.session.running &&
       current.targetOrgId === orgId
     );
+  }
+
+  /**
+   * Whether a session's file is still being written: the session runs, or it
+   * stopped and finishes its last batch and its end. Its removal waits for
+   * it, as a Sync run's waits for the run (`SyncRemovalHandler`): offered
+   * while the session wrote, it would leave what the session went on to
+   * create, and a removal of the last batch's records would race its write.
+   *
+   * @param runId - The session's id, as its file names it.
+   */
+  isRunning(runId: string): boolean {
+    return this.openRuns.has(runId);
+  }
+
+  /**
+   * Where every Sync run keeps what it created and wrote over: a session
+   * that writes keeps it there too, and its removal is the Sync page's.
+   */
+  setRunCreations(store: SyncRunCreations): void {
+    this.runCreations = store;
+  }
+
+  /** The DataOps backup store: a session keeps there the values it writes over first. */
+  setBackupRecordStore(store: BackupRecordFiles): void {
+    this.backupRecords = store;
   }
 
   /** @inheritdoc */
@@ -401,15 +453,16 @@ export class RealtimeHandler implements DomainHandler {
     const dropped = await current.session.stop();
     this.lastMetrics = current.session.metrics();
     current.finish();
+    // Its last batch written, what it wrote ends: removable from its tab.
+    await current.endRun();
     if (current.guard) {
       // A session that wrote is one run of the trail, recorded when it ends.
-      const { eventsApplied, eventsFailed } = this.lastMetrics;
       recordWriteRun(this.deps, {
         action: 'realtime_sync',
         module: 'sync',
         operationId: current.operationId,
         orgId: current.targetOrgId,
-        outcome: eventsFailed === 0 ? 'success' : eventsApplied > 0 ? 'partial' : 'failure',
+        outcome: sessionStatusOf(this.lastMetrics),
         guard: current.guard,
         source: { origin: 'org', orgId: current.sourceOrgId },
       });
@@ -500,7 +553,26 @@ export class RealtimeHandler implements DomainHandler {
       const ownWrites = new OwnWriteLedger();
       const source = this.access.reader(parsed.sourceOrgId);
       const target = this.access.reader(parsed.targetOrgId);
-      const write = this.access.writer(parsed.targetOrgId);
+      const sessionId = crypto.randomUUID();
+      // What a session that writes creates, writes over and deletes, kept as
+      // a Sync run keeps it, under the session's id: its removal is offered
+      // on its tab once it has stopped.
+      const run =
+        decision && this.runCreations
+          ? openSessionRun({
+              sessionId,
+              sourceOrgId: parsed.sourceOrgId,
+              targetOrgId: parsed.targetOrgId,
+              store: this.runCreations,
+              ...(this.backupRecords ? { backups: this.backupRecords } : {}),
+              meta: this.deps.configStore,
+              target,
+              log: (message) => this.deps.log(message),
+            })
+          : undefined;
+      const write = run
+        ? run.write(this.access.writer(parsed.targetOrgId, run.calls))
+        : this.access.writer(parsed.targetOrgId);
       // The emails and phone numbers of every change written neutralized, as
       // a Sync run's are, unless the session keeps them for the objects found
       // by Id or an external id, or the saved configuration an object is
@@ -547,9 +619,29 @@ export class RealtimeHandler implements DomainHandler {
       // session that fails before being listed there must not leave a
       // rejection nobody handles.
       ended.catch(() => undefined);
+      /** How the session ended, written into what it kept, once; then its removal is offered. */
+      const endRun = async (): Promise<void> => {
+        if (!run) return;
+        const unkept = await run
+          .end({
+            status: sessionStatusOf(session.metrics()),
+            cancelled: abort.signal.aborted,
+          })
+          .catch((err: unknown) => extractErrorMessage(err));
+        this.openRuns.delete(run.runId);
+        if (unkept !== undefined) {
+          sendNotification(
+            this.deps,
+            'warning',
+            'Real-time sync',
+            `What the session wrote could not all be kept (${unkept}): removing it may leave ` +
+              'some of it in the target.',
+          );
+        }
+      };
       const session: RealtimeSession = new RealtimeSession(
         {
-          sessionId: crypto.randomUUID(),
+          sessionId,
           watchedObjects: parsed.watchedObjects,
           appliers,
           flushIntervalMs: parsed.flushIntervalMs,
@@ -562,9 +654,15 @@ export class RealtimeHandler implements DomainHandler {
             events: (batch) => this.pushEvents(batch),
             conflict: (change) => this.pushConflict(change),
             status: (snapshot) => {
-              this.pushStatus(snapshot);
-              // A session that gave up reconnecting ends its operation failed.
-              if (snapshot.status === 'error') finish(snapshot.error);
+              if (snapshot.status !== 'error') {
+                this.pushStatus(snapshot);
+                return;
+              }
+              // A session that gave up reconnecting ends its operation
+              // failed, and what it wrote, before the page hears of it: the
+              // tab lists it for removal as it hears.
+              finish(snapshot.error);
+              void endRun().then(() => this.pushStatus(snapshot));
             },
           },
           log: (message) => this.deps.log(message),
@@ -579,10 +677,20 @@ export class RealtimeHandler implements DomainHandler {
         guard: decision,
         finish: (error) => finish(error),
         detach: () => {},
+        endRun,
       };
       this.current = current;
       this.lastMetrics = null;
-      const outcome = await session.start();
+      // Held open from here to its end: what it writes is not offered for
+      // removal meanwhile.
+      if (run) this.openRuns.add(run.runId);
+      let outcome: Awaited<ReturnType<RealtimeSession['start']>>;
+      try {
+        outcome = await session.start();
+      } catch (err: unknown) {
+        await endRun();
+        throw err;
+      }
       const snapshot = session.snapshot();
       if (outcome.subscribed.length > 0) {
         const description = `Real-time sync of ${outcome.subscribed.length} object(s)`;
@@ -598,6 +706,8 @@ export class RealtimeHandler implements DomainHandler {
         current.detach = () => abort.signal.removeEventListener('abort', onCancel);
       } else {
         finish();
+        // Nothing subscribed, nothing written: no file was begun, none held open.
+        await endRun();
       }
       const subscribed = new Set(outcome.subscribed);
       const encryptedLeftOut = (

@@ -491,6 +491,28 @@ describe('SyncRunRemoval', () => {
         'remove that run first',
       );
     });
+
+    it('names a later Real-Time session as a session, which no configuration names', () => {
+      render(<SyncRunRemoval runId="run-1" />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: {
+          ...KEPT,
+          writtenAgain: [
+            {
+              runId: 'session-1',
+              configName: '',
+              startedAt: '2026-10-15T08:00:00.000Z',
+              records: 1,
+              realtime: true,
+            },
+          ],
+        },
+      });
+
+      expect(screen.getByTestId('sync-removal-written-again').textContent).toMatch(
+        /^1 record of this run was written again by a Real-Time session on 2026-10-15 \d\d:\d\d: remove that run first/,
+      );
+    });
   });
 
   describe('a delta run that deleted in the target what the source deleted', () => {

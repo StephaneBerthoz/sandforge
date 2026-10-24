@@ -180,10 +180,20 @@ Before execution, the Review step shows:
   written and said why, a lookup the target cannot take dropped rather than
   the record. A session
   that writes asks the Production Guard first, a deletion counting as
-  destructive. What a session writes, creates or deletes is not kept, and
-  cannot be taken back from SandForge, as the Auto-Sync box says: take a
-  DataOps backup of the target first, or delete what it created with
-  `sandforge-cleanup`.
+  destructive.
+- **Taken back as a run** -- A session that writes keeps what it writes as a
+  Sync run does, from its first write to its stop, as the Auto-Sync box says:
+  the records it creates, the values of the fields it writes over -- kept
+  first in the DataOps backup store on this machine, for
+  `sandforge.backup.maxAgeDays` -- and the records it deletes as the source
+  deleted them. Once it has stopped, **Earlier sessions**, at the bottom of
+  the tab, lists it with a run's removal card: the removal gives back what the
+  session wrote over, brings back from the recycle bin what it deleted, and
+  deletes what it created, a record changed since the session left as it is
+  unless you include it; Production Guard refuses it on a production org. A
+  session still writing, in this window or another, is not offered; one a
+  closed window cut short is listed with the call it had under way, whose
+  rows the target may hold and the list may lack.
 - **Encrypted fields read masked** -- as a Sync run leaves them out, a classic
   encrypted field (`encryptedstring`) that the user SandForge reads the
   source as sees masked, lacking View Encrypted Data, goes in no change the

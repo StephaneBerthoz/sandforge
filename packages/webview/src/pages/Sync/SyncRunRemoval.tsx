@@ -248,7 +248,8 @@ const SyncWrittenAgain: React.FC<{
           {t('runRemoval.sync.writtenAgain', {
             count: later.records,
             formatted: formatNumber(later.records),
-            config: later.configName,
+            // A session of the Real-Time tab runs under no configuration.
+            config: later.realtime ? t('runRemoval.sync.realtimeSession') : later.configName,
             date: formatStoredDate(later.startedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
           })}
         </li>

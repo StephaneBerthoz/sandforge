@@ -293,10 +293,12 @@ export interface SyncRemovalInfoResponse extends BaseMessage {
 /**
  * `sync:removal:list`. WebView -> Extension. The runs whose creations are
  * kept that no entry of the history holds: a run a closed window stopped
- * before it ended, or one the history no longer lists.
+ * before it ended, or one the history no longer lists. With `realtime`, the
+ * sessions of the Real-Time tab instead, which no other list holds.
  */
 export interface SyncRemovalListRequest extends BaseMessage {
   type: 'sync:removal:list';
+  payload?: { realtime?: true };
 }
 
 /** `sync:removal:list:response`. Extension -> WebView. Newest first. */

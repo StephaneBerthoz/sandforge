@@ -455,6 +455,10 @@ export const syncHistoryEntryIdPayloadSchema = z.object({ entryId: opaqueIdSchem
 // ── sync:removal:* / sync:remove payload schemas ────────────────────────────
 // The run is named, never its records: what is removed is what the run kept.
 export const syncRemovalInfoPayloadSchema = z.object({ runId: opaqueIdSchema });
+// The runs that never ended, or with `realtime` the sessions of the Real-Time tab.
+export const syncRemovalListPayloadSchema = z
+  .object({ realtime: z.literal(true).optional() })
+  .optional();
 // What the last run between two orgs left of these objects, before a run inserts them again.
 export const syncEarlierCopiesPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,

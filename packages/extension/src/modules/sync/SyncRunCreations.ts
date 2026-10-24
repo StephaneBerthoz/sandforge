@@ -161,6 +161,13 @@ const headSchema = z.object({
      */
     origin: z.enum(['csv', 'clone']).optional(),
     /**
+     * Set for a session of the Sync page's Real-Time tab (`RealtimeHandler`),
+     * kept as a run is from its first write to its stop, under no saved
+     * configuration: its tab lists it and offers its removal, and the runs
+     * that never ended do not. A Sync run names none.
+     */
+    realtime: z.literal(true).optional(),
+    /**
      * The target's own Organization id, for a run whose orgs are named by
      * the command line's aliases (`sandforge-sync`): its removal is refused
      * from any other org, whatever org the alias names by then.
@@ -930,6 +937,8 @@ export interface SyncRunWrittenAgain {
   startedAt: string;
   /** How many of the earlier run's records it names. */
   records: number;
+  /** Set when it is a Real-Time session, which no configuration names. */
+  realtime?: true;
 }
 
 /**
@@ -958,6 +967,7 @@ export function writtenAgainBy(
               configName: other.configName,
               startedAt: other.startedAt,
               records,
+              ...(other.realtime ? { realtime: true as const } : {}),
             },
           ]
         : [];

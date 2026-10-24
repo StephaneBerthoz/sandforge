@@ -7904,8 +7904,8 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('cdc-object-checkbox-Case').check();
       await page.getByTestId('cdc-object-checkbox-ListEmailSentResult').check();
       await page.getByTestId('cdc-autosync-toggle-Lead').check();
-      // What a session writes cannot be taken back, and the box says so.
-      await expect(page.getByTestId('cdc-not-removable')).toBeVisible();
+      // What a session writes is kept, and the box says where it is taken back.
+      await expect(page.getByTestId('cdc-kept')).toBeVisible();
       // Neutralized unless unticked, as on a Sync run, with what it covers.
       await expect(page.getByTestId('cdc-contact-points-toggle')).toBeChecked();
       await expect(page.getByTestId('cdc-contact-points-hint')).toBeVisible();
@@ -7972,6 +7972,30 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('realtime-refused-hint')).toContainText('View All Data');
       await expect(page.getByTestId('realtime-encrypted')).toContainText('Lead.Tax_Id__c');
       await expect(page.getByTestId('cdc-metric-throughput')).toBeVisible();
+      // An earlier session that wrote, at the bottom of the tab with a run's removal card.
+      const earlier = {
+        runId: 'session-0',
+        configId: 'realtime:session-0',
+        configName: '',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        startedAt: '2026-10-24T08:00:00.000Z',
+        endedAt: '2026-10-24T09:30:00.000Z',
+        realtime: true,
+        created: 2,
+        left: [{ objectApiName: 'Lead', count: 2 }],
+        overwritten: 1,
+        putBack: [{ objectApiName: 'Lead', count: 1 }],
+        deleted: 1,
+        bringBack: [{ objectApiName: 'Lead', count: 1 }],
+      };
+      await bridge.waitForMessage('sync:removal:list', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:list', 'sync:removal:list:response', {
+        runs: [earlier],
+      });
+      await bridge.waitForMessage('sync:removal:info', { timeout: 10_000 });
+      await answerAll(page, 'sync:removal:info', 'sync:removal:info:response', { info: earlier });
+      await expect(page.getByTestId('realtime-session-removal-session-0')).toBeVisible();
 
       await expectReadable(page, theme);
     });

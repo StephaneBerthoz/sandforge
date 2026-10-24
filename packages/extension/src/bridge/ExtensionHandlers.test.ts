@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore';
 import type { CheckpointHandler, WindowWriters } from './handlers/CheckpointHandler';
+import type { RealtimeHandler } from './handlers/RealtimeHandler';
 
 /**
  * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
@@ -380,6 +381,42 @@ describe('ExtensionHandlers', () => {
         ['sync', syncRuns],
         ['seed', seedRuns],
       ]);
+    });
+  });
+
+  describe('the Real-Time tab', () => {
+    const inner = () =>
+      handlers as unknown as {
+        realtimeHandler: Pick<
+          RealtimeHandler,
+          'isRunning' | 'setRunCreations' | 'setBackupRecordStore'
+        >;
+        syncHandler: { isRunning: (runId: string) => boolean };
+        syncRemovalHandler: { isRunning: (runId: string) => boolean };
+      };
+
+    it('keeps what a session writes where every Sync run keeps it, the values it writes over in the backup store', () => {
+      const { realtimeHandler } = inner();
+      const runs = vi.spyOn(realtimeHandler, 'setRunCreations');
+      const backups = vi.spyOn(realtimeHandler, 'setBackupRecordStore');
+      const syncRuns = {} as Parameters<ExtensionHandlers['setSyncRunCreations']>[0];
+      const backupStore = {} as Parameters<ExtensionHandlers['setBackupRecordStore']>[0];
+
+      handlers.setSyncRunCreations(syncRuns);
+      handlers.setBackupRecordStore(backupStore);
+
+      expect(runs).toHaveBeenCalledWith(syncRuns);
+      expect(backups).toHaveBeenCalledWith(backupStore);
+    });
+
+    it('holds the removal of a session back while the session writes, as a Sync run’s', () => {
+      const { realtimeHandler, syncHandler, syncRemovalHandler } = inner();
+      vi.spyOn(syncHandler, 'isRunning').mockImplementation((id) => id === 'sync-1');
+      vi.spyOn(realtimeHandler, 'isRunning').mockImplementation((id) => id === 'session-1');
+
+      expect(syncRemovalHandler.isRunning('session-1')).toBe(true);
+      expect(syncRemovalHandler.isRunning('sync-1')).toBe(true);
+      expect(syncRemovalHandler.isRunning('other')).toBe(false);
     });
   });
 

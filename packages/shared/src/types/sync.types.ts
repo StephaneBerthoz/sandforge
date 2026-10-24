@@ -382,6 +382,12 @@ export interface SyncRunRemovalInfo {
    * removal is refused until it ends, as one still writing in this window.
    */
   runningElsewhere?: true;
+  /**
+   * Set for a session of the Real-Time tab, kept as a run is from its first
+   * write to its stop, under no saved configuration: `configName` is empty,
+   * and its tab lists it rather than the runs that never ended.
+   */
+  realtime?: true;
   /** Records and files it created, in all. */
   created: number;
   /**
@@ -440,6 +446,8 @@ export interface SyncRunRemovalInfo {
     configName: string;
     startedAt: ISODateString;
     records: number;
+    /** Set when the later one is a Real-Time session, which no configuration names. */
+    realtime?: true;
   }>;
   /** Why no removal can run now; absent when one can. */
   refusal?: { code: SyncRemovalRefusalCode; message: string };
@@ -979,8 +987,12 @@ export interface SyncSimulationResult {
 export interface SyncEarlierCopies {
   /** Whether the configuration is saved, so its runs leave what earlier runs of it copied as it is. */
   leftAsIs: boolean;
-  /** The last run kept between these orgs that created records of the objects asked about. */
-  run?: { runId: string; configName: string; startedAt: ISODateString };
+  /**
+   * The last run kept between these orgs that created records of the objects
+   * asked about; `realtime` when it is a session of the Real-Time tab, which
+   * that tab removes, not the history.
+   */
+  run?: { runId: string; configName: string; startedAt: ISODateString; realtime?: true };
   /** Of what that run created, per object asked about, the records still in the target. */
   objects: Array<{ objectApiName: ApiName; count: number }>;
   /**

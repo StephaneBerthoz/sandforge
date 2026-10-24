@@ -24,6 +24,7 @@ With it, the backlog's leftovers: what real runs against sandboxes, scratch orgs
 - **Seed Configure**: a Set by me filter lists the fields whose rule or value you changed.
 - **Frozen extraction**: the result lists the fields it keeps unmasked with no rule, and **Clear these** writes a `clear` rule for each into the rules file, its version moved on, for the next extraction to clear.
 - **Clone of whole tables, command line**: `sandforge-clone --object … --upsert` writes over by external id, a page at a time. Each table's pages go by one external id, the first whose value every row it reads holds and no two share, read before the first page; a page whose rows as written would repeat a value is inserted instead.
+- **Real-Time, Earlier sessions**: a session that writes keeps what it writes as a Sync run does, from its first write to its stop: the records it creates, the values of the records it writes over (kept first on this machine in the DataOps backup store for `sandforge.backup.maxAgeDays`), and the records it deletes as the source deleted them. Once it has stopped, _Earlier sessions_ at the bottom of the tab lists it with the Sync removal card, which gives back what it wrote over, brings back from the recycle bin what it deleted, and deletes what it created.
 
 ### Changed
 
@@ -40,6 +41,8 @@ With it, the backlog's leftovers: what real runs against sandboxes, scratch orgs
 - **Autopilot review**: says, with no compliance framework picked (still the default), that names and the other personal fields go in as the source holds them, and where to pick a framework.
 - **Migration and Automation**: open with 3 kB of English for the words they share with Sync and Compare (object set, schedules, org and category pickers) instead of those modules' 39 kB; Automation parses 714 kB before it paints instead of 748, Migration 688 instead of 714.
 - **Browser sign-in**: registers only the org signed in to, read on its own, instead of contacting every org the Salesforce CLI holds and registering them all; Import from Salesforce CLI still imports them all.
+- **Real-Time, Auto-Sync box**: says what a session keeps and where it is taken back, in place of "not kept"; the help panel and the FAQ say so too.
+- **Quick Sync and Run again**: when the last writer between the two orgs was a Real-Time session, the warning about second copies sends you to Earlier sessions on the Real-Time tab, not to the history.
 
 ### Fixed
 

@@ -8,6 +8,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { CDCSubscriptionPanel } from './CDCSubscriptionPanel';
 import { CDCMetricsDashboard } from './CDCMetricsDashboard';
 import { CDCEventFeed } from './CDCEventFeed';
+import { RealtimeSessionRuns } from './syncRemovalParts';
 
 /** The standard channel every object selected in Setup → Change Data Capture publishes on. */
 const STANDARD_CHANNEL = 'ChangeEvents';
@@ -27,7 +28,8 @@ export interface RealTimeSyncPanelProps {
  * org says so itself, per channel — and offers only those: subscribing to
  * any other is refused by the org. Composes CDCSubscriptionPanel (controls)
  * with the metrics and CDCEventFeed (live event list), and says in the org's
- * own words what was refused and why a session stopped.
+ * own words what was refused and why a session stopped. Below, the earlier
+ * sessions that wrote, each with its removal.
  */
 export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
   sourceOrgId,
@@ -60,10 +62,14 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
 
   const isStreaming = status === 'syncing' || status === 'paused';
 
+  // What the sessions wrote stays removable whatever orgs are picked now.
   if (!pickedBoth) {
     return (
-      <div className="text-xs text-text-secondary" data-testid="realtime-sync-panel">
-        <p data-testid="realtime-pick-orgs">{t('sync.realtime.pickOrgs')}</p>
+      <div className="flex flex-col gap-(--sf-space-4)" data-testid="realtime-sync-panel">
+        <p className="text-xs text-text-secondary" data-testid="realtime-pick-orgs">
+          {t('sync.realtime.pickOrgs')}
+        </p>
+        <RealtimeSessionRuns />
       </div>
     );
   }
@@ -157,6 +163,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
         <CDCMetricsDashboard />
       </details>
       <CDCEventFeed />
+      <RealtimeSessionRuns />
     </div>
   );
 };

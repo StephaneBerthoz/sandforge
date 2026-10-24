@@ -275,6 +275,98 @@ describe('SyncRemovalHandler', () => {
         }),
       ]);
     });
+
+    /** A Real-Time session that created an account, kept as its handler keeps it. */
+    async function session(runId = 'session-1'): Promise<void> {
+      const recorder = creations.recorder({
+        runId,
+        configId: `realtime:${runId}`,
+        configName: '',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        realtime: true,
+      });
+      recorder.note('Account', [fakeId('001', 9)]);
+      await recorder.end({ status: 'success' });
+    }
+
+    it('lists the sessions of the Real-Time tab on that tab alone, each said a session', async () => {
+      await session();
+
+      await handler.handle(buildMsg('sync:removal:list'));
+      await handler.handle(buildMsg('sync:removal:list', { realtime: true }));
+
+      const [runs, sessions] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      // Among the runs that never ended, a session was said to be one a
+      // closed window had stopped.
+      expect(runs.payload.runs.map((run) => run.runId)).toEqual(['run-1']);
+      expect(sessions.payload.runs).toEqual([
+        expect.objectContaining({
+          runId: 'session-1',
+          realtime: true,
+          configName: '',
+          created: 1,
+          left: [{ objectApiName: 'Account', count: 1 }],
+        }),
+      ]);
+      expect(sessions.payload.runs[0].refusal).toBeUndefined();
+    });
+
+    it('lists no session while it writes', async () => {
+      await session();
+      running.add('session-1');
+
+      await handler.handle(buildMsg('sync:removal:list', { realtime: true }));
+
+      const [sessions] = posted<BaseMessage & { payload: { runs: SyncRunRemovalInfo[] } }>(
+        'sync:removal:list:response',
+      );
+      expect(sessions.payload.runs).toEqual([]);
+    });
+
+    it('refuses a list asked with anything but the sessions', async () => {
+      await handler.handle(buildMsg('sync:removal:list', { realtime: 'yes' }));
+
+      expect(errors()[0]?.payload.code).toBe('INVALID_PAYLOAD');
+      expect(posted('sync:removal:list:response')).toEqual([]);
+    });
+
+    it('takes a session back as it takes a run back, marking no saved configuration', async () => {
+      const made = fakeId('001', 9);
+      org.add('Account', { Id: made }, new Date(Date.now() - 60_000).toISOString());
+      await session();
+
+      await handler.handle(buildMsg('sync:remove', { runId: 'session-1' }));
+
+      expect(errors()).toEqual([]);
+      expect(answer()).toMatchObject({
+        status: 'success',
+        objects: [{ objectApiName: 'Account', planned: 1, deleted: 1 }],
+      });
+      expect(answer()?.readWhole).toBeUndefined();
+    });
+
+    it('names a session that wrote a run’s records again as a session', async () => {
+      const recorder = creations.recorder({
+        runId: 'session-2',
+        configId: 'realtime:session-2',
+        configName: '',
+        sourceOrgId: 'org-source',
+        targetOrgId: TARGET,
+        realtime: true,
+      });
+      recorder.overwriting?.('Account', 'sync-before-session-2', [A1]);
+      recorder.overwrote?.('Account', []);
+      await recorder.end({ status: 'success' });
+
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-1' }));
+
+      expect(info()?.writtenAgain).toEqual([
+        expect.objectContaining({ runId: 'session-2', records: 1, realtime: true }),
+      ]);
+    });
   });
 
   describe('a run whose window closed during a Bulk API job', () => {

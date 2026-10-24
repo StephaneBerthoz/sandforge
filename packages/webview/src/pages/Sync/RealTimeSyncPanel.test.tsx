@@ -113,6 +113,18 @@ describe('RealTimeSyncPanel', () => {
     expect(screen.queryByTestId('cdc-subscription-panel')).toBeNull();
   });
 
+  it('lists the earlier sessions that wrote, with their removal, whatever orgs are picked', async () => {
+    const asked = { type: 'sync:removal:list', payload: { realtime: true }, skip: undefined };
+    const { unmount } = render(<RealTimeSyncPanel {...orgs} />);
+    await vi.waitFor(() => expect(queries).toContainEqual(asked));
+    unmount();
+    queries.length = 0;
+
+    render(<RealTimeSyncPanel sourceOrgId="" targetOrgId="" />);
+
+    await vi.waitFor(() => expect(queries).toContainEqual(asked));
+  });
+
   it('says why nothing can be watched when the source publishes nothing', () => {
     objectsAnswer = { data: { objects: [] }, loading: false, error: null };
     render(<RealTimeSyncPanel {...orgs} />);

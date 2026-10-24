@@ -50,6 +50,21 @@ describe('earlierCopiesOf', () => {
     expect(countInTarget).toHaveBeenCalledTimes(2);
   });
 
+  it('says the last one was a Real-Time session, which its tab removes, not the history', async () => {
+    const copies = await earlierCopiesOf(ASKED, {
+      runs: async () => [run({ runId: 'session-1', configName: '', realtime: true })],
+      isSaved: () => false,
+      countInTarget: async (_object, ids) => ids.length,
+    });
+
+    expect(copies.run).toEqual({
+      runId: 'session-1',
+      configName: '',
+      startedAt: '2026-10-14T09:00:00.000Z',
+      realtime: true,
+    });
+  });
+
   it('says a saved configuration leaves its earlier copies as they are, asking nothing', async () => {
     const runs = vi.fn();
 

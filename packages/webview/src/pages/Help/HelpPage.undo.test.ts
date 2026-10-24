@@ -18,12 +18,16 @@ describe('what Help says a Sync run’s removal takes back', () => {
     expect(en.help.faqContent).toContain('gives the records it updated their values from before');
   });
 
-  it('names, in every language, the retention the values from before are kept for, and the Real-Time tab as not removable', () => {
+  it('names, in every language, the retention the values from before are kept for, and where a Real-Time session is taken back', () => {
     for (const [lng, bundle] of Object.entries(LOCALES)) {
       for (const text of [bundle.help.syncContent, bundle.help.faqContent]) {
         expect(text, lng).toContain('sandforge.backup.maxAgeDays');
         expect(text, lng).toContain(bundle.sync.tabs.realtime);
+        // Since 1.66 a session keeps what it writes, and its tab lists it.
+        expect(text, lng).toContain(bundle.runRemoval.sync.sessionsTitle);
       }
     }
+    expect(en.help.syncContent).not.toContain('What the Real-Time tab writes is not kept');
+    expect(en.help.faqContent).not.toContain('What the Real-Time tab writes cannot be undone');
   });
 });

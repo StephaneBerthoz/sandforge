@@ -238,11 +238,12 @@ export class ExtensionHandlers {
       this.syncHistoryStore,
       this.syncHandler,
     );
-    // What a run created, read from what it kept, and its removal.
+    // What a run created, read from what it kept, and its removal; a
+    // Real-Time session's too, kept as a run is, while it writes.
     this.syncRemovalHandler = new SyncRemovalHandler(
       this.handlerDeps,
       this.syncHistoryStore,
-      (runId) => this.syncHandler.isRunning(runId),
+      (runId) => this.syncHandler.isRunning(runId) || this.realtimeHandler.isRunning(runId),
     );
     this.compareHandler = new CompareHandler(this.handlerDeps);
     this.dataOpsHandler = new DataOpsHandler(this.handlerDeps);
@@ -413,9 +414,11 @@ export class ExtensionHandlers {
   /** Inject the file-backed store that holds backup record payloads. */
   setBackupRecordStore(store: BackupRecordStore): void {
     this.dataOpsHandler.setBackupRecordStore(store);
-    // A Sync run keeps there what it writes over, and its removal gives it back.
+    // A Sync run keeps there what it writes over, and its removal gives it
+    // back; so does a Real-Time session that writes.
     this.syncHandler.setBackupRecordStore(store);
     this.syncRemovalHandler.setBackupRecordStore(store);
+    this.realtimeHandler.setBackupRecordStore(store);
   }
 
   /**
@@ -425,6 +428,8 @@ export class ExtensionHandlers {
   setSyncRunCreations(store: SyncRunCreations): void {
     this.syncHandler.setRunCreations(store);
     this.syncRemovalHandler.setRunCreations(store);
+    // A Real-Time session that writes keeps what it writes there, as a run.
+    this.realtimeHandler.setRunCreations(store);
     // A restore of a Sync run's backup reads when the run last wrote.
     this.dataOpsHandler.setSyncRuns(store);
     // A take refuses an org a run whose file has no end still writes to.

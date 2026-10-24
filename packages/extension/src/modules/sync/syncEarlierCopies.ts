@@ -79,7 +79,13 @@ export async function earlierCopiesOf(
   }
   return {
     leftAsIs: false,
-    run: { runId: run.runId, configName: run.configName, startedAt: run.startedAt },
+    run: {
+      runId: run.runId,
+      configName: run.configName,
+      startedAt: run.startedAt,
+      // A session's removal is on its tab: the history lists none.
+      ...(run.realtime ? { realtime: true as const } : {}),
+    },
     objects,
     ...(unread !== undefined ? { unread } : {}),
   };

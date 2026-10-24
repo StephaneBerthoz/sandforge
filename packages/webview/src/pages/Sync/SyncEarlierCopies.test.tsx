@@ -85,6 +85,49 @@ describe('SyncEarlierCopiesNotice', () => {
     );
   });
 
+  it('sends the user to the Real-Time tab when the last writer between the orgs was a session', () => {
+    const { unmount } = render(
+      <SyncEarlierCopiesNotice
+        sourceOrgId="org-src"
+        targetOrgId="org-tgt"
+        objects={['Account', 'Contact']}
+        context="quickSync"
+        testId="notice"
+      />,
+    );
+    const session: SyncEarlierCopies = {
+      ...LAST_RUN,
+      run: {
+        runId: 'session-1',
+        configName: '',
+        startedAt: LAST_RUN.run?.startedAt ?? '',
+        realtime: true,
+      },
+    };
+
+    answer(session);
+
+    expect(screen.getByTestId('notice').textContent).toMatch(
+      /^The last Real-Time session between these orgs, started 2026-10-14 \d\d:\d\d, created records still in the target: Account \(2\) and Contact \(30\)\. Quick Sync inserts every record again: remove that session under Earlier sessions on the Real-Time tab first to leave no second copy\.$/,
+    );
+    unmount();
+
+    render(
+      <SyncEarlierCopiesNotice
+        sourceOrgId="org-src"
+        targetOrgId="org-tgt"
+        objects={['Account']}
+        context="runAgain"
+        testId="notice"
+      />,
+    );
+    answer(session);
+
+    expect(screen.getByTestId('notice').textContent).toContain(
+      'Run again inserts every record again: remove that session under Earlier sessions on the Real-Time tab first',
+    );
+  });
+
   it('says before Run again that a saved configuration leaves what its earlier runs copied', () => {
     render(
       <SyncEarlierCopiesNotice

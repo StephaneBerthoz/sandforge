@@ -71,9 +71,14 @@ export const SyncEarlierCopiesNotice: React.FC<SyncEarlierCopiesNoticeProps> = (
   return (
     <div className="flex flex-col gap-0.5" data-testid={testId}>
       <p className="text-xs text-status-warning">
-        {context === 'quickSync'
-          ? t('sync.earlierCopies.quickSync', words)
-          : t('sync.earlierCopies.runAgain', words)}
+        {/* A session of the Real-Time tab is removed on that tab, never from the history. */}
+        {copies.run.realtime
+          ? context === 'quickSync'
+            ? t('sync.earlierCopies.quickSyncSession', words)
+            : t('sync.earlierCopies.runAgainSession', words)
+          : context === 'quickSync'
+            ? t('sync.earlierCopies.quickSync', words)
+            : t('sync.earlierCopies.runAgain', words)}
       </p>
       {copies.unread !== undefined && (
         <p className="text-[11px] text-text-secondary">

@@ -23,6 +23,7 @@ import {
   validatePayload,
   syncEarlierCopiesPayloadSchema,
   syncRemovalInfoPayloadSchema,
+  syncRemovalListPayloadSchema,
   syncRemoveAutomationPayloadSchema,
   syncRemovePayloadSchema,
   syncRemoveSweepPayloadSchema,
@@ -120,7 +121,9 @@ const RUNNING_ELSEWHERE =
  *   read back by its id (`withJobAnswered`).
  * - `sync:removal:list` — the runs whose creations are kept that no history
  *   entry holds: a run a closed window stopped before it ended, or one the
- *   history no longer lists. Removable all the same.
+ *   history no longer lists. Removable all the same. With `realtime`, the
+ *   sessions of the Real-Time tab instead, kept as runs are and named by no
+ *   history entry either.
  * - `sync:remove:sweep` — what a sweep asked with the removal would take,
  *   read only, for the confirmation to list (`listSweep`).
  * - `sync:remove:automation` — what the target runs as the removal takes
@@ -302,6 +305,7 @@ export class SyncRemovalHandler implements DomainHandler {
         ? { inFlight: { objectApiName: run.inFlight.objectApiName, rows: run.inFlight.rows } }
         : {}),
       ...(this.elsewhere(run) ? { runningElsewhere: true as const } : {}),
+      ...(run.realtime ? { realtime: true as const } : {}),
       created: createdCount(run),
       left,
       ...(overwritten > 0 ? { overwritten } : {}),
@@ -499,6 +503,17 @@ export class SyncRemovalHandler implements DomainHandler {
 
   private async handleList(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      syncRemovalListPayloadSchema,
+      msg,
+      'sync:remove:error',
+      this.deps,
+    );
+    if (parsed === null) return;
+    // The sessions of the Real-Time tab, which its tab lists; or the runs,
+    // which the History tab does. A session listed among the runs that never
+    // ended was said to be one a closed window had stopped.
+    const sessions = parsed?.realtime === true;
     try {
       const listed = new Set(
         this.history
@@ -507,9 +522,11 @@ export class SyncRemovalHandler implements DomainHandler {
       );
       const runs: SyncRunKept[] = [];
       for (const run of (await this.creations?.list()) ?? []) {
-        // A run the history lists is not listed here: a job of it that no
-        // line answers is read back when its removal is asked about (`runOf`).
-        runs.push(listed.has(run.runId) ? run : await this.withJobAnswered(run));
+        // A run the history lists is not listed here, nor one of the other
+        // list: a job of it that no line answers is read back when its
+        // removal is asked about (`runOf`).
+        const other = listed.has(run.runId) || (run.realtime === true) !== sessions;
+        runs.push(other ? run : await this.withJobAnswered(run));
       }
       // A run is kept from its first call that can create: one that created
       // nothing and ended has nothing to take back, and is not listed. One a
@@ -517,6 +534,7 @@ export class SyncRemovalHandler implements DomainHandler {
       // rows of that call may be in the target.
       const unlisted = runs.filter(
         (run) =>
+          (run.realtime === true) === sessions &&
           !listed.has(run.runId) &&
           !this.isRunning(run.runId) &&
           (createdCount(run) > 0 ||

@@ -117,15 +117,16 @@ describe('CDCSubscriptionPanel', () => {
     });
   });
 
-  it('says, where objects are written, that what a session writes cannot be taken back', () => {
+  it('says, where objects are written, that what a session writes is kept, and where it is taken back', () => {
     useCDCLiveStore.getState().setWatchedObjects(['Lead']);
     render(<CDCSubscriptionPanel objects={OBJECTS} />);
 
-    expect(screen.getByTestId('cdc-not-removable').textContent).toBe(
-      'What a session writes, creates or deletes is not kept, and cannot be taken back from ' +
-        'SandForge: take a DataOps backup of the target first, or delete what it created with ' +
-        'sandforge-cleanup.',
+    expect(screen.getByTestId('cdc-kept').textContent).toBe(
+      'What a session writes is kept as it writes it: once it has stopped, Earlier sessions, ' +
+        'below, lists it, and its removal gives back what it wrote over, brings back from the ' +
+        'recycle bin what it deleted, and deletes what it created.',
     );
+    expect(screen.queryByText(/is not kept/)).toBeNull();
   });
 
   it('leaves deletions alone until they are asked for', () => {
