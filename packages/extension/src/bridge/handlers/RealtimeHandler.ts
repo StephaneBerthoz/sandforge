@@ -62,6 +62,10 @@ import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOp
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
+import {
+  maskedEncryptedFields,
+  viewsEncryptedDataOnce,
+} from '../../modules/sync/encryptedFields.js';
 
 /** Message types handled by RealtimeHandler. */
 const REALTIME_TYPES = new Set([
@@ -195,6 +199,8 @@ interface RunningSession {
   finish: (error?: string) => void;
   /** Stops listening for a cancel, once the session has ended another way. */
   detach: () => void;
+  /** Per object it writes, the encrypted fields its changes go without, read masked. */
+  encryptedLeftOut?: Array<{ objectApiName: string; fields: string[] }>;
 }
 
 /**
@@ -373,7 +379,12 @@ export class RealtimeHandler implements DomainHandler {
 
   private statusPayload(): Record<string, unknown> {
     if (!this.current) return { status: 'disconnected', watchedObjects: [] };
-    return { ...this.current.session.snapshot() };
+    // A panel opened again learns what the session's changes go without too.
+    const masked = this.current.encryptedLeftOut ?? [];
+    return {
+      ...this.current.session.snapshot(),
+      ...(masked.length > 0 ? { encryptedLeftOut: masked } : {}),
+    };
   }
 
   /**
@@ -496,6 +507,13 @@ export class RealtimeHandler implements DomainHandler {
       // written by keeps them: one neutralizer for the session, so a number
       // gives the same fictional one throughout it.
       const contactPoints = new ContactPointNeutralizer();
+      // The encrypted fields the source's user reads masked go without being
+      // written, and the page names them: each object described once, View
+      // Encrypted Data asked of a source holding one.
+      const maskedSourceFields = maskedEncryptedFields(
+        viewsEncryptedDataOnce((soql) => source.query(soql)),
+        (objectApiName) => source.describe(objectApiName),
+      );
       const appliers = new Map(
         plans.map((plan) => [
           plan.objectApiName,
@@ -506,6 +524,7 @@ export class RealtimeHandler implements DomainHandler {
             conflictStrategy: parsed.conflictStrategy as ConflictStrategy,
             ownWrites,
             contactPoints,
+            maskedSourceFields,
           }),
         ]),
       );
@@ -580,6 +599,18 @@ export class RealtimeHandler implements DomainHandler {
       } else {
         finish();
       }
+      const subscribed = new Set(outcome.subscribed);
+      const encryptedLeftOut = (
+        await Promise.all(
+          plans
+            .filter((plan) => subscribed.has(plan.objectApiName))
+            .map(async (plan) => ({
+              objectApiName: plan.objectApiName,
+              fields: [...(await maskedSourceFields(plan.objectApiName))].sort(),
+            })),
+        )
+      ).filter((object) => object.fields.length > 0);
+      if (encryptedLeftOut.length > 0) current.encryptedLeftOut = encryptedLeftOut;
       this.post(
         buildResponse(this.deps, msg, 'realtime:started', {
           success: outcome.subscribed.length > 0,
@@ -587,6 +618,7 @@ export class RealtimeHandler implements DomainHandler {
           watchedObjects: outcome.subscribed,
           refused: outcome.refused,
           notes: outcome.notes,
+          ...(encryptedLeftOut.length > 0 ? { encryptedLeftOut } : {}),
           ...(snapshot.error ? { error: snapshot.error } : {}),
         }),
       );

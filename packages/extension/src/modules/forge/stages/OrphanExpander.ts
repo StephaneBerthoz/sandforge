@@ -215,6 +215,14 @@ export interface OrphanExpansionInput {
    */
   fieldExclusions?: Readonly<Record<string, readonly string[]>>;
   /**
+   * The classic encrypted fields of an object the source's user reads masked
+   * (`maskedEncryptedFields`): never written on a parent either, the value
+   * read being the mask. Absent, none is left out.
+   */
+  maskedFieldsOf?: (objectApiName: string) => Promise<readonly string[]>;
+  /** Told the encrypted fields a parent went without that it held, read masked. */
+  onMaskedLeftOut?: (objectApiName: string, fields: readonly string[]) => void;
+  /**
    * The fields the user renamed, by object (`ExecuteOptions.fieldMappings`): a
    * parent's goes under the name the target has, as a row's does. Absent,
    * none is.
@@ -565,6 +573,11 @@ export class OrphanExpander {
     const excluded = new Set(input.fieldExclusions?.[objectName] ?? []);
     const rename = input.fieldMappings?.[objectName] ?? {};
     const renamed = new Set<string>();
+    const masked = new Set(
+      (await input.maskedFieldsOf?.(objectName).catch((): readonly string[] => [])) ?? [],
+    );
+    /** The encrypted fields the parent held and goes without, read masked. */
+    const maskedLeftOut: string[] = [];
     // Taken as a business account by the target, a person account goes in as
     // one: see `businessAccountsAmong`.
     const recordTypeWritten =
@@ -585,6 +598,10 @@ export class OrphanExpander {
       if (excluded.has(key)) continue;
       const value = r[key];
       if (value === null || value === undefined) continue;
+      if (masked.has(key)) {
+        if (rename[key] !== undefined || effectiveCreatable.has(key)) maskedLeftOut.push(key);
+        continue;
+      }
       if (field.isReference && typeof value === 'string' && key !== 'RecordTypeId') {
         // FKs on the parent itself: orphan-nullify (no recursion).
         continue;
@@ -643,6 +660,7 @@ export class OrphanExpander {
       callId = again.callId;
     }
     if (written.success) {
+      if (maskedLeftOut.length > 0) input.onMaskedLeftOut?.(objectName, maskedLeftOut);
       if (leftOut) {
         input.onWrittenWithoutFields?.(objectName, {
           rows: 1,

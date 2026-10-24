@@ -11,6 +11,9 @@ import type { RehearsedRow } from './RehearsalWriter.js';
 /** The code a save error carries when Salesforce gave none. */
 const NO_STATUS_CODE = 'UNKNOWN_ERROR';
 
+/** The code the target refuses a value of a restricted picklist with. */
+export const RESTRICTED_PICKLIST_REFUSAL = 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST';
+
 /**
  * Codes whose message repeats the row's value — the text too long, the
  * address, the number, the id — which a gap never carries: the code and the
@@ -112,6 +115,42 @@ function fieldsIn(gap: ForgeGap): string[] {
   return Array.isArray(value) ? value : [];
 }
 
+/**
+ * What the target's describe says of a picklist field: its active values,
+ * and the field whose value decides which of them a record may hold.
+ */
+export interface TargetPicklist {
+  values: readonly string[];
+  controllerName?: string;
+}
+
+/** The target's picklist fields an object's refused rows name, by object then field. */
+export type TargetPicklists = ReadonlyMap<string, ReadonlyMap<string, TargetPicklist>>;
+
+/**
+ * Why the target refused a value of a restricted picklist, where its describe
+ * tells: `not-in-target` when the field holds no active value of it, as a
+ * simulation says it; `record-type` when the field holds it and the row went
+ * in with a record type, which then does not select it. Undefined where it
+ * cannot tell: no describe of the field, a value the field holds on a row
+ * with no record type named, or one a controlling field may refuse.
+ *
+ * A rehearsal's refusal carried no reason, and the list for the target's
+ * admin said "add or activate the value" where the fix was selecting it for
+ * the record type.
+ */
+function refusalReasonOf(
+  picklist: TargetPicklist | undefined,
+  value: string,
+  recordType: string | undefined,
+): 'not-in-target' | 'record-type' | undefined {
+  if (!picklist) return undefined;
+  const held = new Set(picklist.values);
+  if (value.split(';').some((part) => !held.has(part))) return 'not-in-target';
+  if (picklist.controllerName !== undefined) return undefined;
+  return recordType !== undefined ? 'record-type' : undefined;
+}
+
 /** A row a rehearsal saw refused, with the errors it was refused with. */
 export interface RefusedRow {
   /**
@@ -204,6 +243,7 @@ function gapsOfError(
   refused: RefusedRow,
   error: SaveErrorDetail,
   recordTypeNames: ReadonlyMap<string, string>,
+  picklists: TargetPicklists,
 ): ForgeGap[] {
   const { row } = refused;
   const code = error.statusCode || NO_STATUS_CODE;
@@ -259,6 +299,10 @@ function gapsOfError(
       const picklist = known.kind === 'picklist_value_refused';
       const recordType = picklist ? recordTypeOf(row, recordTypeNames) : undefined;
       const picked = picklist && typeof value === 'string' ? value : undefined;
+      const reason =
+        picked !== undefined
+          ? refusalReasonOf(picklists.get(row.objectApiName)?.get(field), picked, recordType)
+          : undefined;
       return {
         id: forgeGapId(known.kind, row.objectApiName, field, recordType, picked),
         kind: known.kind,
@@ -269,7 +313,7 @@ function gapsOfError(
         ...(recordType !== undefined ? { recordType } : {}),
         ...(picked !== undefined ? { value: picked } : {}),
         rows: 1,
-        detail: detail(field),
+        detail: { ...detail(field), ...(reason !== undefined ? { reason } : {}) },
         decisions: [...known.decisions],
         ...(known.severity === 'warning' ? { defaultDecision: 'leave_empty' as const } : {}),
       };
@@ -308,10 +352,13 @@ function gapsOfError(
  * @param recordTypeNames - The target's record types, by the first 15
  *   characters of their id, to their DeveloperName: a refused picklist value
  *   is a gap of the record type the row goes in with.
+ * @param picklists - The target's restricted picklists the refusals name, as
+ *   its describe says them: why a value was refused, where it tells.
  */
 export function rehearsalGaps(
   refused: readonly RefusedRow[],
   recordTypeNames: ReadonlyMap<string, string> = new Map(),
+  picklists: TargetPicklists = new Map(),
 ): ForgeGap[] {
   const byId = new Map<string, ForgeGap>();
   for (const entry of refused) {
@@ -320,7 +367,9 @@ export function rehearsalGaps(
         ? entry.errors
         : [{ statusCode: NO_STATUS_CODE, message: '', fields: [] }];
     // Once per row: a row refused twice on the same gap counts once.
-    const ofRow = mergeGaps(...errors.map((error) => gapsOfError(entry, error, recordTypeNames)));
+    const ofRow = mergeGaps(
+      ...errors.map((error) => gapsOfError(entry, error, recordTypeNames, picklists)),
+    );
     for (const gap of ofRow) {
       const seen = byId.get(gap.id);
       if (!seen) {

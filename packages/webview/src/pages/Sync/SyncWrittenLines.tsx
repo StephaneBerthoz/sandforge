@@ -74,7 +74,7 @@ export const SyncWrittenLines: React.FC<SyncWrittenLinesProps> = ({ result, test
     <ul className="flex flex-col gap-0.5 text-xs text-text-secondary" data-testid={testId}>
       {encrypted.length > 0 && (
         <li className="text-status-warning" data-testid={`${testId}-encrypted`}>
-          {t('sync.written.encryptedLeftOut', { fields: encrypted.join(', ') })}
+          {t('runResults.encryptedLeftOut', { fields: encrypted.join(', ') })}
         </li>
       )}
       {linked && (

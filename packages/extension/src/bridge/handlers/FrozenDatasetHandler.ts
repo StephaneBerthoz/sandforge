@@ -1829,6 +1829,11 @@ export class FrozenDatasetHandler implements DomainHandler {
           ...(requiredLeftEmpty.length > 0 ? { requiredLeftEmpty } : {}),
           // What went in clear text with no rule saying so: the platform's own words.
           ...(keptUnruled.length > 0 ? { keptWithoutARule: keptUnruled } : {}),
+          // What the dataset does not hold, read masked: encrypted fields the
+          // source's user may not view in clear.
+          ...((extracted.encryptedNotKept ?? []).length > 0
+            ? { encryptedNotKept: extracted.encryptedNotKept }
+            : {}),
         },
       });
 

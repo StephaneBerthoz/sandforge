@@ -212,6 +212,27 @@ describe('measureSyncWrite', () => {
     expect(check.verdict).toBe('asks');
   });
 
+  it("asks, saying why, when the target's flows could not be read: their emails were not counted", async () => {
+    // The rest of the automation read, the flows refused: the count left
+    // their emails out with no word, and a run past the target's fifteen
+    // emails a day went on without a question.
+    const { check } = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 20 }]),
+      measures({
+        readAutomation: async () => ({
+          ...QUIET,
+          unread: [{ part: 'flows', reason: 'INVALID_TYPE: sObject type FlowDefinitionView' }],
+        }),
+      }),
+    );
+
+    expect(check.emails).toEqual([]);
+    expect(check.emailsUnread).toBe(
+      "the target's flows: INVALID_TYPE: sObject type FlowDefinitionView",
+    );
+    expect(check.verdict).toBe('asks');
+  });
+
   it('asks when the target would not say what it has left of a daily email limit its flows send against', async () => {
     const { check } = await measureSyncWrite(
       counted([{ objectApiName: 'Contact', operation: 'insert', rows: 2 }]),

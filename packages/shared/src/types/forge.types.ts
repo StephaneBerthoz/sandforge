@@ -1621,6 +1621,13 @@ export interface ForgeExecutionResult {
    */
   fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
   /**
+   * Per object, the classic encrypted fields the user the source is read as
+   * reads masked, lacking View Encrypted Data: left out of every record the
+   * run wrote rather than copied as their masks. Absent when none was, and
+   * from runs recorded before it was kept.
+   */
+  encryptedFieldsLeftOut?: ForgeFieldsLeftOut[];
+  /**
    * Per object and field, the picklist values the run did not write as it read
    * them, the target being bound to refuse them — replaced or left out — and
    * why. Absent when there were none, and from runs recorded before it was kept.

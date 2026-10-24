@@ -1535,8 +1535,7 @@
       "withoutFields_one": "{{count}} enregistrement réécrit sans les champs que l'org cible a refusés :",
       "withoutFields_other": "{{count}} enregistrements réécrits sans les champs que l'org cible a refusés :",
       "withoutField_one": "{{field}}, retiré de {{count}} enregistrement : {{refusedBy}}.",
-      "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}.",
-      "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués."
+      "withoutField_other": "{{field}}, retiré de {{count}} enregistrements : {{refusedBy}}."
     },
     "firstStepTitle": "Démarrer avec Sync",
     "firstStepDesc": "Transférez des données entre vos orgs Salesforce en 3 clics avec Sync rapide",
@@ -4642,6 +4641,7 @@
       "keepWarning": "Les e-mails et les numéros de téléphone seront écrits tels que la source les contient : les Flows, les triggers et les alertes e-mail de l'org cible pourront alors écrire ou envoyer des SMS à de vraies personnes.",
       "keepHint": "Désactivé, le clone écrit chaque adresse e-mail sous .invalid et chaque numéro de téléphone sous la forme d'un numéro fictif : l'automatisation de l'org cible ne joint personne."
     },
+    "encryptedLeftOut": "{{fields}} : champs chiffrés que l'utilisateur avec lequel SandForge lit l'org source voit masqués, faute de l'autorisation View Encrypted Data. Laissés hors de chaque enregistrement écrit, plutôt que copiés masqués.",
     "writtenWithoutFields": {
       "title": "Écrits sans un champ refusé par l'org cible",
       "hint": "L'org cible a refusé ces enregistrements sur les champs qu'elle désignait : une de ses règles de validation, une liste de sélection restreinte qui n'accepte pas la valeur pour le type d'enregistrement de l'enregistrement — un type d'enregistrement auquel aucune valeur du champ n'a jamais été donnée n'en accepte aucune, ce que rien de ce qui est lu avant l'écriture ne dit —, ou le filtre de recherche d'un champ de référence qu'elle permet de laisser vide, qui n'accepte pas l'enregistrement désigné. Le clone a écrit de nouveau chaque enregistrement sans ces champs : l'enregistrement est dans l'org cible, sans la valeur que la source leur donne.",

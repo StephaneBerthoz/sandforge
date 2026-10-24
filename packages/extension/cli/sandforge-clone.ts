@@ -2097,6 +2097,19 @@ export function summaryLines(
       lines.push(`  ${objectApiName}  ${fields.join(', ')}`);
     }
   }
+  // Read masked by a user without View Encrypted Data, an encrypted field
+  // gives its mask: the clone leaves it out rather than write the mask.
+  const masked = summary.encryptedFieldsLeftOut ?? [];
+  if (masked.length > 0) {
+    lines.push(
+      '',
+      'left out, encrypted and read masked: the user the source is read as lacks View ' +
+        `Encrypted Data, and the masks are not copied (${masked.length} object(s)):`,
+    );
+    for (const { objectApiName, fields } of masked) {
+      lines.push(`  ${objectApiName}  ${fields.join(', ')}`);
+    }
+  }
   // A picklist value the target would refuse — for the field, or for the
   // record type the row goes in with — is replaced or left out rather than
   // sent to cost the row, and said, per object and field, with why.
@@ -2489,6 +2502,11 @@ export function jsonResult(summary: ExecutionSummary, readCeiling?: number) {
     // only when there were any.
     ...(summary.fileContentFieldsLeftOut
       ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
+      : {}),
+    // Per object, the encrypted fields left out, read masked; only when there
+    // were any.
+    ...(summary.encryptedFieldsLeftOut
+      ? { encryptedFieldsLeftOut: summary.encryptedFieldsLeftOut }
       : {}),
     // Per object and field, the picklist values replaced or left out, with
     // why; only when there were any.
@@ -5367,6 +5385,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         recordTypeNames: new Map(
           recordTypeMappings.map((m) => [m.targetId.slice(0, 15), m.developerName]),
         ),
+        // Why a restricted picklist refused a value, as the target's describe says it.
+        targetFields: (name) => executorDeps.describeFields(args.target, name),
         // Nobody to ask: --rehearse is the request, and --accept-automation
         // the acceptance of what the target runs, as for a real run.
         confirm: async (rehearsalPlan) => {

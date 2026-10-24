@@ -1535,8 +1535,7 @@
       "withoutFields_one": "{{count}} record written again without the fields the target org refused it on:",
       "withoutFields_other": "{{count}} records written again without the fields the target org refused them on:",
       "withoutField_one": "{{field}}, left out of {{count}} record: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}.",
-      "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks."
+      "withoutField_other": "{{field}}, left out of {{count}} records: {{refusedBy}}."
     },
     "firstStepTitle": "Get Started with Sync",
     "firstStepDesc": "Transfer data between your Salesforce orgs in 3 clicks with Quick Sync",
@@ -4642,6 +4641,7 @@
       "keepWarning": "Emails and phone numbers will be written as the source holds them: the target org's flows, triggers and email alerts may then email or text real people.",
       "keepHint": "Off, the clone writes every email address under .invalid and every phone number as a fictional one, so the target org's automation reaches no one."
     },
+    "encryptedLeftOut": "{{fields}}: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.",
     "writtenWithoutFields": {
       "title": "Written without a field the target org refused",
       "hint": "The target org refused these records on the fields it named: a validation rule of its own, a restricted picklist that does not take the value for the record's record type — one never given values of a field takes none, which nothing read before the write tells — or the lookup filter of a lookup it lets be empty, which does not take the record the lookup names. The clone wrote each record again without those fields: the record is in the target org, without the value the source holds for them.",

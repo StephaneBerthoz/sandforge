@@ -602,6 +602,16 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               <FrozenKeptWithoutARule
                 fields={extractMutation.data.manifest.coverage?.keptWithoutARule ?? []}
               />
+              {/* Read masked, the dataset would have held the masks: not kept. */}
+              {(extractMutation.data.manifest.coverage?.encryptedNotKept ?? []).length > 0 && (
+                <p className="text-xs text-status-warning" data-testid="frozen-extract-encrypted">
+                  {t('runResults.encryptedLeftOut', {
+                    fields: (extractMutation.data.manifest.coverage?.encryptedNotKept ?? []).join(
+                      ', ',
+                    ),
+                  })}
+                </p>
+              )}
             </>
           )}
           {controlReport && (

@@ -225,6 +225,18 @@ describe('RealTimeSyncPanel', () => {
     expect(refused.textContent).toContain('Setup → Change Data Capture');
   });
 
+  it('names the encrypted fields the session writes no change of, read masked by the source user', () => {
+    useCDCLiveStore.setState({
+      status: 'syncing',
+      encryptedLeftOut: [{ objectApiName: 'Contact', fields: ['SSN__c'] }],
+    });
+    render(<RealTimeSyncPanel {...orgs} />);
+
+    expect(screen.getByTestId('realtime-encrypted').textContent).toBe(
+      'Contact.SSN__c: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.',
+    );
+  });
+
   it('shows why a session stopped working, and what it settled for', () => {
     useCDCLiveStore.setState({
       status: 'error',

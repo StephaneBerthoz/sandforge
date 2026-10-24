@@ -10,6 +10,18 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+
+/** What a target that runs nothing on `objects` answers a read of its automation. */
+function quietTarget(objects: readonly string[]): ForgeTargetAutomation {
+  return {
+    objectsRead: [...objects],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 6,
+  };
+}
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
@@ -597,6 +609,7 @@ describe('AutopilotHandler', () => {
         executePlan: vi.fn().mockImplementation(() => dExec.promise),
       });
       handler.setOrchestrator(orchestrator);
+      handler.setTargetAutomation({ read: async (_org, objects) => quietTarget(objects) });
       mockGetConn.mockResolvedValue(ROOMY_CONN as never);
 
       await handler.handle(scanMsg('scan-1'));
@@ -1590,6 +1603,8 @@ describe('AutopilotHandler', () => {
       confirmAboveRecords?: number;
       answer?: 'confirmed' | 'declined';
       automation?: ForgeTargetAutomation;
+      /** The answer of a read of the target's automation that fails. */
+      automationFails?: string;
       singleEmailsLeft?: number;
       /** Another plan than the leads', with the scan's counts of it. */
       scanned?: {
@@ -1600,11 +1615,13 @@ describe('AutopilotHandler', () => {
       /** What the connection to the target answers besides its limits. */
       conn?: Record<string, unknown>;
     }) {
-      const read = vi.fn(async () => {
-        if (!options.automation) throw new Error('no automation given');
-        return options.automation;
+      const read = vi.fn(async (_org: string, objects: readonly string[]) => {
+        if (options.automationFails !== undefined) throw new Error(options.automationFails);
+        return options.automation ?? quietTarget(objects);
       });
-      if (options.automation) handler.setTargetAutomation({ read });
+      // A target that runs nothing on the plan's objects, unless told; the
+      // handler's own reader when the test hands the connection it reads.
+      if (!options.conn) handler.setTargetAutomation({ read });
       const confirmRun = vi.fn(async () => options.answer ?? 'confirmed');
       const guard = new ProductionGuard({
         requestRunConfirmation: async () => (await confirmRun()) === 'confirmed',
@@ -1744,6 +1761,47 @@ describe('AutopilotHandler', () => {
       );
       expect(orchestrator.executePlan).not.toHaveBeenCalled();
       expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_WRITE_DECLINED']);
+    });
+
+    it("asks before a plan whose target's flows could not be read, saying their emails were not counted, and writes nothing when declined", async () => {
+      // Forge and Sync ask when what the target runs could not be read: its
+      // emails were not counted at all. Autopilot logged it and wrote.
+      const { orchestrator, asked, errors } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        automation: {
+          ...LEAD_FLOW,
+          objects: [],
+          unread: [
+            { part: 'flows', reason: 'INSUFFICIENT_ACCESS: no access to FlowDefinitionView' },
+          ],
+        },
+        answer: 'declined',
+      });
+
+      expect(asked).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: 'write',
+          module: 'autopilot',
+          emailsUncounted:
+            "the target's flows: INSUFFICIENT_ACCESS: no access to FlowDefinitionView",
+        }),
+      );
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['AUTOPILOT_WRITE_DECLINED']);
+    });
+
+    it("asks before a plan when the target's automation could not be read at all, and runs once confirmed", async () => {
+      const { orchestrator, asked } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        automationFails: 'timed out',
+      });
+
+      expect(asked).toHaveBeenCalledWith(
+        expect.objectContaining({ emailsUncounted: "the target's automation: timed out" }),
+      );
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
     });
 
     it('asks nothing of a plan whose emails fit in what the target has left', async () => {

@@ -91,6 +91,13 @@ export interface ManifestCoverage {
    * manifests written before it was recorded.
    */
   keptWithoutARule?: string[];
+  /**
+   * The fields, as `Object.Field`, not kept: classic encrypted fields the
+   * user the source was read as reads masked, lacking View Encrypted Data,
+   * which the dataset would have held as their masks. Absent when none is,
+   * and from manifests written before it was recorded.
+   */
+  encryptedNotKept?: string[];
 }
 
 /**
@@ -215,13 +222,14 @@ export function validateManifest(manifest: FrozenManifest): void {
       (coverage.leftToThePlatform !== undefined && !Array.isArray(coverage.leftToThePlatform)) ||
       (coverage.exclusionCosts !== undefined && !Array.isArray(coverage.exclusionCosts)) ||
       (coverage.requiredLeftEmpty !== undefined && !Array.isArray(coverage.requiredLeftEmpty)) ||
-      (coverage.keptWithoutARule !== undefined && !Array.isArray(coverage.keptWithoutARule)))
+      (coverage.keptWithoutARule !== undefined && !Array.isArray(coverage.keptWithoutARule)) ||
+      (coverage.encryptedNotKept !== undefined && !Array.isArray(coverage.encryptedNotKept)))
   ) {
     throw new ManifestError(
       'coverage, when present, needs objects, truncated, maxNodes, unboundedObjects and ' +
         'filesLeftOut, and a list of what it left to the platform, of what its exclusions ' +
-        'cost, of the required fields the rules leave empty, or of the fields kept without ' +
-        'a rule, if it names any',
+        'cost, of the required fields the rules leave empty, of the fields kept without ' +
+        'a rule, or of the encrypted fields not kept, if it names any',
     );
   }
 }

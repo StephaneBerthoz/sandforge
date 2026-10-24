@@ -136,14 +136,17 @@ export type AutopilotGateOutcome =
 /**
  * Hold a plan to the gate, as the panel holds it: refused past the storage
  * the target has left; asked about past `confirmAboveRecords` records, near
- * that storage, when the target would not say what it has left, or past a
+ * that storage, when the target would not say what it has left, past a
  * daily email limit the target's flows would send against, as Forge's gate
- * asks; let through otherwise.
+ * asks, or when what the target runs could not be read, as Sync's asks; let
+ * through otherwise.
  *
  * @param input.plan - The records the plan writes ({@link autopilotWritePlan}).
  * @param input.storage - What the target said of its storage, or why it said nothing.
  * @param input.confirmAboveRecords - The volume past which the run asks; 0 never asks.
  * @param input.emails - The emails the plan makes the target send ({@link autopilotEmails}).
+ * @param input.emailsUncounted - Why some of them were not counted: what of
+ *   the target's automation could not be read (`AutopilotEmails.unread`).
  * @param input.confirm - Puts the question (`ProductionGuard.confirmRun`).
  */
 export async function gateAutopilotWrite(input: {
@@ -151,6 +154,7 @@ export async function gateAutopilotWrite(input: {
   storage: DataStorage | { unread: string };
   confirmAboveRecords: number;
   emails?: readonly EmailCheck[];
+  emailsUncounted?: string;
   org: string;
   orgTier: SafetyTier;
   confirm: (question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
@@ -182,11 +186,15 @@ export async function gateAutopilotWrite(input: {
   // A limit the target would not say what it has left of is asked about, as
   // storage it would not say is: said only in the log, nobody saw it.
   const unreadEmails = unreadEmailsOf(input.emails ?? []);
+  // And so is an automation that could not be read, whose emails were not
+  // counted at all, as a Sync run asks: Autopilot logged it and wrote.
+  const uncounted = input.emailsUncounted;
   if (
     aboveRecords === undefined &&
     check.verdict === 'fits' &&
     overEmails.length === 0 &&
-    unreadEmails.length === 0
+    unreadEmails.length === 0 &&
+    uncounted === undefined
   ) {
     return { go: true, check, asked: false };
   }
@@ -204,6 +212,7 @@ export async function gateAutopilotWrite(input: {
     counted: true,
     ...(overEmails.length > 0 ? { emails: overEmails } : {}),
     ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
+    ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
     ...confirmationApiOf(api),
   });
   if (answer === 'confirmed') return { go: true, check, asked: true };

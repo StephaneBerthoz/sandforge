@@ -224,9 +224,10 @@ describe('org:connect answers on every branch', () => {
         orgId: 'org-9',
         instanceUrl: 'https://acme.my.salesforce.com',
       }),
-      listOrgs: vi
-        .fn()
-        .mockResolvedValue([{ org: { id: 'org-9', orgId: 'org-9' }, credentials: {} }]),
+      findOrg: vi.fn().mockResolvedValue({
+        org: { id: 'org-9', orgId: 'org-9', alias: 'acme' },
+        credentials: {},
+      }),
     } as unknown as HandlerDeps['sfdxBridge'];
 
     await new OrgHandler(deps).handle(connectMsg({ authMethod: 'oauth_web' }));

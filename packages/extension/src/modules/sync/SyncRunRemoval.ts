@@ -44,9 +44,13 @@ import {
   type SyncRunKept,
   type SyncRunRemovalState,
 } from './SyncRunCreations.js';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { idLists } from '../dataops/RecordRemoval.js';
 import {
   orgAheadOf,
   restoreOverwrites,
+  runEndOnOrgClock,
+  stampsWritten,
   writerOnce,
   type BackupReader,
   type SyncRestoreOutcome,
@@ -169,6 +173,43 @@ export interface SyncRunRemovalOutcome {
 }
 
 /**
+ * Of the records a removal gives back their values, by their first fifteen
+ * characters, those the org dates modified no later than the run's end on
+ * its clock, or than what an earlier removal left on them: unchanged since
+ * the run. A read that fails leaves its records out, taken for changed.
+ */
+async function unchangedSinceTheRun(
+  org: Pick<RemovalOrg, 'query'>,
+  back: ReadonlyArray<{ objectApiName: string; ids: readonly string[] }>,
+  runEnd: number,
+  stampsBefore: Readonly<Record<string, string>>,
+): Promise<Set<string>> {
+  const stamped = new Map(
+    Object.entries(stampsBefore).map(([id, at]) => [id.slice(0, 15), Date.parse(at)]),
+  );
+  const unchanged = new Set<string>();
+  for (const { objectApiName, ids } of back) {
+    const object = assertSoqlIdentifier(objectApiName);
+    for (const list of idLists(ids)) {
+      let rows: Array<Record<string, unknown>>;
+      try {
+        rows = (await org.query(`SELECT Id, LastModifiedDate FROM ${object} WHERE Id IN (${list})`))
+          .records as Array<Record<string, unknown>>;
+      } catch {
+        continue;
+      }
+      for (const row of rows) {
+        if (typeof row.Id !== 'string') continue;
+        const key = row.Id.slice(0, 15);
+        const modified = Date.parse(String(row.LastModifiedDate ?? ''));
+        if (modified <= runEnd || modified <= (stamped.get(key) ?? Number.NaN)) unchanged.add(key);
+      }
+    }
+  }
+  return unchanged;
+}
+
+/**
  * When the run wrote, by this machine's clock, as its removal reads the org's
  * dates against them: from its start to its last write — or its end, for a run
  * kept before its writes were dated.
@@ -225,6 +266,12 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   // and a roll-up a delete recalculates would date it as changed since.
   let restored: SyncRestoreOutcome | undefined;
   let undeleted: SyncUndeleteOutcome | undefined;
+  /**
+   * What the removal's undeletes dated anew of the records it gives back, by
+   * id: its own writes, which neither this give-back nor the next removal
+   * reads as a change since the run.
+   */
+  const restamped: Record<string, string> = {};
   // The records the earlier runs of the target still name, each run's by
   // their first fifteen characters.
   const earlier = (input.earlierRuns ?? []).map((other) => ({
@@ -243,6 +290,24 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
       ? async (): Promise<boolean> => {
           // What it deleted first: a record it wrote over may name one of them.
           if (bringBack.length > 0 && undelete) {
+            // An undelete puts back the lookups the run's delete cleared, and
+            // the org dates the records holding them anew, as the removal's
+            // user: a record the run wrote over, whose lookup at one it
+            // deleted is on a field the run does not compare, then read as
+            // changed since the run, and kept. Read before the first
+            // undelete, what had not changed since is the undeletes' doing.
+            const unchanged =
+              back.length > 0 && backups
+                ? await unchangedSinceTheRun(
+                    input.org,
+                    back,
+                    await runEndOnOrgClock(input.org, writtenUntil(run)),
+                    run.removal?.removalStamps ?? {},
+                  )
+                : undefined;
+            const undeletesFrom = unchanged
+              ? Date.now() + (await orgAheadOf(input.org)) - CLOCK_LEEWAY_MS
+              : 0;
             undeleted = await undeleteRunDeletions({
               org: input.org,
               plan: bringBack,
@@ -250,16 +315,27 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
               ...(earlier.length > 0 ? { stampsFor: namedEarlier } : {}),
               ...(input.signal ? { signal: input.signal } : {}),
             });
+            if (unchanged && undeleted.wrote) {
+              const writerOf = writerOnce(input.org);
+              for (const { objectApiName, ids } of back) {
+                const still = ids.filter((id) => unchanged.has(id.slice(0, 15)));
+                Object.assign(
+                  restamped,
+                  await stampsWritten(input.org, objectApiName, still, undeletesFrom, writerOf),
+                );
+              }
+            }
             if (undeleted.cancelled || input.signal?.aborted) return undeleted.wrote;
           }
           if (back.length > 0 && backups) {
+            const stamps = { ...run.removal?.removalStamps, ...restamped };
             restored = await restoreOverwrites({
               org: input.org,
               plan: back,
               backups,
               ...(writtenUntil(run) !== undefined ? { lastWriteAt: writtenUntil(run) } : {}),
               includeChanged,
-              ...(run.removal?.removalStamps ? { stamps: run.removal.removalStamps } : {}),
+              ...(Object.keys(stamps).length > 0 ? { stamps } : {}),
               ...(run.unkept ? { unkept: run.unkept } : {}),
               ...(earlier.length > 0 ? { stampsFor: namedEarlier } : {}),
               ...(input.signal ? { signal: input.signal } : {}),
@@ -318,7 +394,10 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   const gone = new Set(outcome.gone);
   const left =
     gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
-  const stamped = Object.keys(outcome.stamps).length > 0;
+  // What its undeletes dated anew of the records it gives back is its own
+  // doing, as what it wrote is: kept with the stamps of its writes.
+  const ownStamps = { ...restamped, ...outcome.stamps };
+  const stamped = Object.keys(ownStamps).length > 0;
   // What it gave back is no longer offered, and when it last gave some back.
   const gaveBack =
     restored?.objects.some((object) => object.restored + (object.restoredWithout ?? 0) > 0) ===
@@ -331,7 +410,7 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
       await input.store.updateRemoval(run.runId, (state) => ({
         ...state,
         ...(mark ? { undo: mark } : {}),
-        ...(stamped ? { removalStamps: { ...state.removalStamps, ...outcome.stamps } } : {}),
+        ...(stamped ? { removalStamps: { ...state.removalStamps, ...ownStamps } } : {}),
         ...(outcome.span ? { removalSpans: [...(state.removalSpans ?? []), outcome.span] } : {}),
         ...(left ? { removalLeft: left } : {}),
         ...(restored ? { restoreLeft: restored.left } : {}),

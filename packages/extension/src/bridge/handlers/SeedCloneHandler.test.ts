@@ -1779,6 +1779,83 @@ describe('SeedCloneHandler', () => {
       });
     });
 
+    describe('the encrypted fields the source reads masked', () => {
+      const PERMISSION_SOQL = 'SELECT PermissionsViewEncryptedData FROM UserPermissionAccess';
+
+      /**
+       * Contacts holding an encrypted field, read by a user who views it in
+       * clear or not; `queries` gets each read.
+       */
+      function contactsWithEncryptedField(viewsEncrypted: boolean, queries: string[]): void {
+        mockGetConn.mockResolvedValue({
+          describe: vi.fn(async () => ({
+            keyPrefix: '003',
+            fields: [
+              { name: 'LastName', type: 'string', createable: true, length: 80 },
+              { name: 'SSN__c', type: 'encryptedstring', createable: true, length: 11 },
+            ],
+            recordTypeInfos: [],
+          })),
+          query: vi.fn(async (soql: string) => {
+            queries.push(soql);
+            return soql === PERMISSION_SOQL
+              ? { records: [{ PermissionsViewEncryptedData: viewsEncrypted }], done: true }
+              : { records: [], done: true };
+          }),
+          limitInfo: undefined,
+        } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
+        linker.resolveInsertOrder.mockReturnValue(['Contact']);
+        fetcher.fetchRecords.mockResolvedValue([
+          { Id: '003000000000001AAA', LastName: 'Doe', SSN__c: '***-**-1234' },
+          { Id: '003000000000002AAA', LastName: 'Roe', SSN__c: null },
+        ]);
+        writer.insert.mockImplementation(async (_name: string, records: unknown[]) =>
+          records.map((_, i) => ({ id: `003T0000000000${i}AAA`, success: true, errors: [] })),
+        );
+      }
+
+      it('leaves out of every record an encrypted field the source user reads masked, and names it on its object', async () => {
+        // Copied as read, the mask went into the target as the value.
+        const queries: string[] = [];
+        contactsWithEncryptedField(false, queries);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        const sent = writer.insert.mock.calls.flatMap(
+          (c) => c[1] as Array<Record<string, unknown>>,
+        );
+        expect(sent).toEqual([{ LastName: 'Doe' }, { LastName: 'Roe' }]);
+        expect(queries.filter((soql) => soql === PERMISSION_SOQL)).toHaveLength(1);
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        const result = response.payload as {
+          status: string;
+          objectResults: Array<{ encryptedLeftOut?: unknown }>;
+        };
+        expect(result.status).toBe('success');
+        expect(result.objectResults[0].encryptedLeftOut).toEqual(['SSN__c']);
+      });
+
+      it('writes it as before for a user who views encrypted data, and names nothing', async () => {
+        contactsWithEncryptedField(true, []);
+
+        await handler.handle(
+          buildMsg('seed:clone:execute', clonePayload({ objects: [{ objectApiName: 'Contact' }] })),
+        );
+
+        const sent = writer.insert.mock.calls.flatMap(
+          (c) => c[1] as Array<Record<string, unknown>>,
+        );
+        expect(sent[0]).toMatchObject({ LastName: 'Doe', SSN__c: '***-**-1234' });
+        const [response] = posted(deps, 'seed:clone:execute:response');
+        expect(
+          (response.payload as { objectResults: Array<{ encryptedLeftOut?: unknown }> })
+            .objectResults[0].encryptedLeftOut,
+        ).toBeUndefined();
+      });
+    });
+
     describe('the email addresses and phone numbers it writes', () => {
       /** A target whose contacts have an email, a phone and an external id holding an address. */
       function targetWithContactPoints(): void {

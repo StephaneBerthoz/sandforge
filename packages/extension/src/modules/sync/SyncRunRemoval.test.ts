@@ -373,6 +373,112 @@ describe('removeSyncRun, of a run that wrote over records of the target', () => 
   });
 });
 
+describe('removeSyncRun, of a run that deleted the record a lookup it does not compare names', () => {
+  const BOSS = fakeId('003', 5);
+  const REPORT = fakeId('003', 6);
+  const BACKUP = 'sync-before-run-1';
+
+  /** The backups store, holding the contact's name from before the run. */
+  const backups: BackupReader = {
+    batches: async (operationId, objectApiName) =>
+      operationId === BACKUP && objectApiName === 'Contact'
+        ? {
+            async *[Symbol.asyncIterator]() {
+              yield [{ Id: REPORT, LastName: 'Before' }];
+            },
+          }
+        : null,
+  };
+
+  /**
+   * The target as a delta run ten minutes ago left it: it renamed the contact
+   * and deleted the one it reports to, as the source had; the delete emptied
+   * the lookup, a field the run neither writes nor compares, and the org
+   * dated the contact anew.
+   */
+  function synced(): { org: MemoryRestoreOrg; run: SyncRunKept } {
+    let offset = -10 * 60_000;
+    const org = new MemoryRestoreOrg(
+      { Contact: [{ childSObject: 'Contact', field: 'ReportsToId' }] },
+      { now: () => Date.now() + offset },
+    );
+    org.add('Contact', { Id: BOSS, LastName: 'Boss' }, minutesAgo(600));
+    org.add(
+      'Contact',
+      { Id: REPORT, LastName: 'Before', ReportsToId: BOSS, CreatedDate: minutesAgo(600) },
+      minutesAgo(600),
+    );
+    org.edit('Contact', REPORT, { LastName: 'After' });
+    org.trash('Contact', BOSS);
+    offset = 0;
+    return {
+      org,
+      run: {
+        ...run(),
+        lastWriteAt: minutesAgo(10),
+        created: [],
+        overwritten: [{ objectApiName: 'Contact', backup: BACKUP, ids: [REPORT] }],
+        deleted: [{ objectApiName: 'Contact', ids: [BOSS] }],
+      },
+    };
+  }
+
+  it('gives back a record whose lookup its undelete put back: the org dated it anew as the removal, its own doing and no change since the run', async () => {
+    const { org, run: deleting } = synced();
+    expect(org.all('Contact')).toEqual([
+      expect.objectContaining({ Id: REPORT, LastName: 'After', ReportsToId: null }),
+    ]);
+    const store = stateStore();
+
+    const { result } = await removeSyncRun({
+      run: deleting,
+      org,
+      includeChanged: false,
+      store,
+      backups,
+      undelete: (ids) => org.undelete(ids),
+    });
+
+    expect(org.all('Contact').find((row) => row.Id === REPORT)).toMatchObject({
+      LastName: 'Before',
+      ReportsToId: BOSS,
+    });
+    expect(result.restored).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        planned: 1,
+        restored: 1,
+        keptChanged: 0,
+      }),
+    ]);
+    expect(result.status).toBe('success');
+    expect(store.state.restoreLeft).toEqual([]);
+    // Kept with the removal's own stamps: the next removal reads the
+    // contact's date as its doing too.
+    expect(Object.keys(store.state.removalStamps ?? {})).toContain(REPORT);
+  });
+
+  it('keeps a record someone changed between the run and its removal, before the undelete', async () => {
+    const { org, run: deleting } = synced();
+    org.edit('Contact', REPORT, { Title: 'Changed since' }, fakeId('005', 42));
+    const store = stateStore();
+
+    const { result } = await removeSyncRun({
+      run: deleting,
+      org,
+      includeChanged: false,
+      store,
+      backups,
+      undelete: (ids) => org.undelete(ids),
+    });
+
+    expect(org.all('Contact').find((row) => row.Id === REPORT)?.LastName).toBe('After');
+    expect(result.restored).toEqual([
+      expect.objectContaining({ objectApiName: 'Contact', restored: 0, keptChanged: 1 }),
+    ]);
+  });
+});
+
 describe('removeSyncRun, of two runs that wrote over the same record, newest first', () => {
   const HELD = fakeId('003', 7);
   /** A user of the target who is not the one the runs and their removals write as. */

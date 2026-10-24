@@ -63,6 +63,12 @@ export interface RefusedObject {
   reason: string;
 }
 
+/** An object the session writes, with the encrypted fields its changes go without, read masked. */
+interface EncryptedLeftOut {
+  objectApiName: string;
+  fields: string[];
+}
+
 /** Connection status for the CDC stream. */
 export type CDCConnectionStatus = 'disconnected' | 'connecting' | 'syncing' | 'paused' | 'error';
 
@@ -96,6 +102,12 @@ export interface CDCLiveState {
   refused: RefusedObject[];
   /** What the session had to settle for, as the host reported it. */
   notes: string[];
+  /**
+   * Per object it writes, the encrypted fields the user the source is read as
+   * reads masked, which the session's changes go without, as the host
+   * reported them.
+   */
+  encryptedLeftOut: EncryptedLeftOut[];
   /** Why the session could not start, or stopped working, in the host's words. */
   error: string | null;
   /** Id of the `realtime:start` awaiting its answer; an error naming it ends the wait. */
@@ -224,6 +236,7 @@ const initialState = {
   sessionId: null as string | null,
   refused: [] as RefusedObject[],
   notes: [] as string[],
+  encryptedLeftOut: [] as EncryptedLeftOut[],
   error: null as string | null,
   pendingStartId: null as string | null,
   keepContactPoints: false,
@@ -324,7 +337,7 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
 
   startStream(): void {
     const state = get();
-    set({ status: 'connecting', refused: [], notes: [], error: null });
+    set({ status: 'connecting', refused: [], notes: [], encryptedLeftOut: [], error: null });
     const id = sendBridgeMessage('realtime:start', {
       sourceOrgId: state.sourceOrgId ?? '',
       targetOrgId: state.targetOrgId ?? '',
@@ -409,6 +422,7 @@ function handleExtensionMessage(event: MessageEvent): void {
             sessionId?: string;
             refused?: RefusedObject[];
             notes?: string[];
+            encryptedLeftOut?: EncryptedLeftOut[];
             error?: string;
           }
         | undefined;
@@ -420,6 +434,7 @@ function handleExtensionMessage(event: MessageEvent): void {
         sessionId: opened && typeof started?.sessionId === 'string' ? started.sessionId : null,
         refused: Array.isArray(started?.refused) ? started.refused : [],
         notes: Array.isArray(started?.notes) ? started.notes : [],
+        encryptedLeftOut: Array.isArray(started?.encryptedLeftOut) ? started.encryptedLeftOut : [],
         error: typeof started?.error === 'string' ? started.error : null,
         pendingStartId: null,
       });
@@ -499,6 +514,7 @@ function handleExtensionMessage(event: MessageEvent): void {
             watchedObjects?: string[];
             refused?: RefusedObject[];
             notes?: string[];
+            encryptedLeftOut?: EncryptedLeftOut[];
             error?: string;
           }
         | undefined;
@@ -514,6 +530,9 @@ function handleExtensionMessage(event: MessageEvent): void {
       }
       if (Array.isArray(response?.refused)) useCDCLiveStore.setState({ refused: response.refused });
       if (Array.isArray(response?.notes)) useCDCLiveStore.setState({ notes: response.notes });
+      if (Array.isArray(response?.encryptedLeftOut)) {
+        useCDCLiveStore.setState({ encryptedLeftOut: response.encryptedLeftOut });
+      }
       const status = response?.status as CDCConnectionStatus | undefined;
       if (status) {
         useCDCLiveStore.setState({

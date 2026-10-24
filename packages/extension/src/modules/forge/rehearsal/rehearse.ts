@@ -35,7 +35,13 @@ import {
   type PlannedUpdate,
   type RowVerdict,
 } from './compositeCalls.js';
-import { rehearsalGaps, type RefusedRow } from './rehearsalGaps.js';
+import {
+  RESTRICTED_PICKLIST_REFUSAL,
+  rehearsalGaps,
+  type RefusedRow,
+  type TargetPicklist,
+  type TargetPicklists,
+} from './rehearsalGaps.js';
 
 /** What a rehearsal is about to cost, put to the user before its first call. */
 export interface RehearsalPlan {
@@ -81,6 +87,15 @@ export interface RehearsalDeps {
   /** The target's record types, by the first 15 characters of their id, to their DeveloperName. */
   recordTypeNames?: ReadonlyMap<string, string>;
   /**
+   * The target's fields of an object, from the describe the run holds: what
+   * says why a restricted picklist refused a value — the field does not hold
+   * it, or the record type does not select it. Optional: without it, the
+   * refusal says neither.
+   */
+  targetFields?: (
+    objectApiName: string,
+  ) => Promise<ReadonlyArray<{ name: string; picklistValues?: string[]; controllerName?: string }>>;
+  /**
    * Put the plan to the user before the first call. What it throws stops the
    * rehearsal there, with nothing sent to the target.
    */
@@ -92,6 +107,47 @@ export interface RehearsalDeps {
    * rolled back whole, so stopping between two leaves nothing in the target.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * The target's restricted picklists the rows refused for one name, as its
+ * describe says them, each object described once. An object it will not
+ * describe is left out: its refusals say no reason.
+ */
+async function picklistsRefused(
+  refused: readonly RefusedRow[],
+  deps: Pick<RehearsalDeps, 'targetFields'>,
+): Promise<TargetPicklists> {
+  const named = new Map<string, Set<string>>();
+  for (const { row, errors, onUpdate } of refused) {
+    if (onUpdate) continue;
+    for (const error of errors) {
+      const field = error.fields[0];
+      if (error.statusCode !== RESTRICTED_PICKLIST_REFUSAL || field === undefined) continue;
+      named.set(row.objectApiName, (named.get(row.objectApiName) ?? new Set()).add(field));
+    }
+  }
+  const picklists = new Map<string, Map<string, TargetPicklist>>();
+  const describe = deps.targetFields;
+  if (!describe) return picklists;
+  for (const [objectApiName, fields] of named) {
+    let described: Awaited<ReturnType<typeof describe>>;
+    try {
+      described = await describe(objectApiName);
+    } catch {
+      continue;
+    }
+    const ofObject = new Map<string, TargetPicklist>();
+    for (const field of described) {
+      if (!fields.has(field.name) || !field.picklistValues) continue;
+      ofObject.set(field.name, {
+        values: field.picklistValues,
+        ...(field.controllerName ? { controllerName: field.controllerName } : {}),
+      });
+    }
+    picklists.set(objectApiName, ofObject);
+  }
+  return picklists;
 }
 
 /**
@@ -581,7 +637,7 @@ export async function rehearse(deps: RehearsalDeps): Promise<ForgeRehearsal> {
     why.set(key, (why.get(key) ?? 0) + 1);
   }
   return {
-    gaps: rehearsalGaps(refused, deps.recordTypeNames),
+    gaps: rehearsalGaps(refused, deps.recordTypeNames, await picklistsRefused(refused, deps)),
     rows: rows.length,
     sampled: toJudge.length,
     judged: verdicts.size,

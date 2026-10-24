@@ -936,6 +936,25 @@ describe('sandforge-clone summary', () => {
     expect(jsonResult(summary({})).fileContentFieldsLeftOut).toBeUndefined();
   });
 
+  it('names, per object, the encrypted fields left out because the source user reads them masked', () => {
+    const encryptedFieldsLeftOut = [{ objectApiName: 'Contact', fields: ['SSN__c', 'Tax__c'] }];
+
+    const lines = summaryLines(summary({ encryptedFieldsLeftOut }));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'left out, encrypted and read masked: the user the source is read as lacks View ' +
+          'Encrypted Data, and the masks are not copied (1 object(s)):',
+        '  Contact  SSN__c, Tax__c',
+      ]),
+    );
+    expect(jsonResult(summary({ encryptedFieldsLeftOut })).encryptedFieldsLeftOut).toEqual(
+      encryptedFieldsLeftOut,
+    );
+    expect(summaryLines(summary({})).some((line) => line.includes('read masked'))).toBe(false);
+    expect(jsonResult(summary({})).encryptedFieldsLeftOut).toBeUndefined();
+  });
+
   it('names, per object and field, the picklist values replaced or left out, and why', () => {
     const picklistValuesChanged = [
       {

@@ -243,6 +243,16 @@ describe('forgeRunResult', () => {
     expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('picklistValuesChanged');
   });
 
+  it('keeps the encrypted fields the run left out, read masked, for the results and the history', () => {
+    const run = { startedAt: Date.now(), status: 'success' as const };
+    const encryptedFieldsLeftOut = [{ objectApiName: 'Contact', fields: ['SSN__c'] }];
+
+    expect(
+      forgeRunResult(summary({ encryptedFieldsLeftOut }), GRAPH, run).encryptedFieldsLeftOut,
+    ).toEqual(encryptedFieldsLeftOut);
+    expect(forgeRunResult(summary(), GRAPH, run)).not.toHaveProperty('encryptedFieldsLeftOut');
+  });
+
   it('keeps the rows the run wrote in another currency, for the results and the history', () => {
     const run = { startedAt: Date.now(), status: 'success' as const };
     const currenciesReplaced = [

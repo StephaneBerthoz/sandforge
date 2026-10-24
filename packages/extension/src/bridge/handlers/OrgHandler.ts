@@ -617,52 +617,11 @@ export class OrgHandler implements DomainHandler {
 
       const alias = payload.alias ?? '';
       const login = await this.deps.sfdxBridge.loginWeb(alias, loginUrl);
-
-      const unreadable: SfdxUnreadableOrg[] = [];
-      const results = await this.deps.sfdxBridge.listOrgs((org) => {
-        unreadable.push(org);
-      });
-      if (results.length === 0 && unreadable.length === 0) {
-        sendNotification(
-          this.deps,
-          'warning',
-          'OAuth',
-          'Login completed but no org found. Try again.',
-        );
-        this.failConnect(msg, 'Login completed but no org found.', 'NO_ORGS_FOUND');
-        return;
-      }
-
-      const savedIds = await this.saveImported(results);
-
-      // The CLI lists its orgs sorted by alias: confirming the first one
-      // confirmed whichever org came first, not the one the user had just
-      // signed in to. The login's own answer names that org.
-      const signedIn = results.findIndex((result) => result.org.orgId === login.orgId);
-      if (signedIn === -1) {
-        const hidden = unreadable.find((org) => org.orgId === login.orgId);
-        throw new Error(
-          hidden
-            ? `Signed in as ${login.username}, but the Salesforce CLI gave no access token for it: ${hidden.reason}`
-            : `Signed in as ${login.username}, but "sf org list" does not list that org as connected.`,
-        );
-      }
-
-      sendNotification(
-        this.deps,
-        'success',
-        'OAuth',
-        `Authenticated via browser as ${login.username}. ${results.length} org(s) available.`,
-      );
-      // A sign-in says what it could not read of the orgs it lists, not every
-      // org the CLI holds and can no longer reach: the import says those.
-      const tokenless = unreadable.filter((org) => org.why !== 'notConnected');
-      if (tokenless.length > 0) {
-        sendNotification(this.deps, 'warning', 'OAuth', this.reportUnreadable(tokenless), {
-          autoDismissMs: null,
-        });
-      }
-      this.ackConnect(msg, savedIds[signedIn]);
+      // The org signed in to alone, as a JWT or device sign-in registers it.
+      // Read back from `sf org list`, a browser sign-in called every org the
+      // CLI holds — client and production orgs among them — and registered
+      // each one.
+      await this.importSignedInOrg(msg, login, 'OAuth');
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:oauth-web: ${message}`);

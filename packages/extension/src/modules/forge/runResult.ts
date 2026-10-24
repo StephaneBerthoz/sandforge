@@ -125,6 +125,11 @@ export function forgeRunResult(
     ...(summary.fileContentFieldsLeftOut
       ? { fileContentFieldsLeftOut: summary.fileContentFieldsLeftOut }
       : {}),
+    // The encrypted fields the source's user reads masked, left out of every
+    // record rather than copied as their masks.
+    ...(summary.encryptedFieldsLeftOut
+      ? { encryptedFieldsLeftOut: summary.encryptedFieldsLeftOut }
+      : {}),
     // The picklist values the run replaced or left out, and why: said on each
     // object's line as it went, and kept for the results and the history.
     ...(summary.picklistValuesChanged

@@ -210,6 +210,30 @@ describe('useCDCLiveStore', () => {
     expect(state.error).toBeNull();
   });
 
+  it('reads off realtime:started, and off a status a reopened panel asks, the encrypted fields the changes go without', () => {
+    const encryptedLeftOut = [{ objectApiName: 'Contact', fields: ['SSN__c'] }];
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:started',
+          payload: { success: true, sessionId: 'session-1', encryptedLeftOut },
+        },
+      }),
+    );
+    expect(useCDCLiveStore.getState().encryptedLeftOut).toEqual(encryptedLeftOut);
+
+    useCDCLiveStore.setState({ encryptedLeftOut: [] });
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'realtime:status:response',
+          payload: { status: 'syncing', sessionId: 'session-1', encryptedLeftOut },
+        },
+      }),
+    );
+    expect(useCDCLiveStore.getState().encryptedLeftOut).toEqual(encryptedLeftOut);
+  });
+
   it('ends the wait for its own start on an error answering it, and only then', () => {
     useCDCLiveStore.getState().setWatchedObjects(['Lead']);
     useCDCLiveStore.getState().startStream();

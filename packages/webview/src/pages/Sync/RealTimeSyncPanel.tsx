@@ -38,6 +38,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
   const status = useCDCLiveStore((s) => s.status);
   const refused = useCDCLiveStore((s) => s.refused);
   const notes = useCDCLiveStore((s) => s.notes);
+  const encryptedLeftOut = useCDCLiveStore((s) => s.encryptedLeftOut);
   const error = useCDCLiveStore((s) => s.error);
   const pickedBoth = sourceOrgId !== '' && targetOrgId !== '';
 
@@ -132,6 +133,19 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
         <ul className="list-disc pl-5 text-xs text-text-primary" data-testid="realtime-notes">
           {notes.map((note) => (
             <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
+      {/* Read without View Encrypted Data, an encrypted field gives its mask:
+          the session's changes go without it rather than copy the mask. */}
+      {encryptedLeftOut.length > 0 && (
+        <ul className="text-xs text-status-warning" data-testid="realtime-encrypted">
+          {encryptedLeftOut.map(({ objectApiName, fields }) => (
+            <li key={objectApiName}>
+              {t('runResults.encryptedLeftOut', {
+                fields: fields.map((field) => `${objectApiName}.${field}`).join(', '),
+              })}
+            </li>
           ))}
         </ul>
       )}

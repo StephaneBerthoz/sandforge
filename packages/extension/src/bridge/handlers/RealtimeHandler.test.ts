@@ -46,9 +46,16 @@ const LEAD_FIELDS: DescribedField[] = [
 ];
 
 /** An org answering `SELECT … FROM Lead WHERE <field> IN (…)` from memory. */
-function memoryReader(rows: Array<Record<string, unknown>>): OrgReader {
+function memoryReader(
+  rows: Array<Record<string, unknown>>,
+  options: { encryptedTitle?: boolean } = {},
+): OrgReader {
   return {
     async query(soql) {
+      // The user it reads as views no encrypted data in clear.
+      if (soql === 'SELECT PermissionsViewEncryptedData FROM UserPermissionAccess') {
+        return [{ PermissionsViewEncryptedData: false }];
+      }
       const match = /FROM Lead WHERE (\w+) IN \((.*)\)/.exec(soql);
       if (!match) throw new Error(`unexpected query: ${soql}`);
       const values = match[2].split(', ').map((v) => v.replace(/^'|'$/g, ''));
@@ -56,7 +63,12 @@ function memoryReader(rows: Array<Record<string, unknown>>): OrgReader {
     },
     async describe(objectApiName) {
       if (objectApiName !== 'Lead') throw new Error(`NOT_FOUND: ${objectApiName}`);
-      return { fields: [...LEAD_FIELDS, { name: 'Ext__c', externalId: true } as DescribedField] };
+      const fields = LEAD_FIELDS.map((field) =>
+        options.encryptedTitle && field.name === 'Title'
+          ? { ...field, type: 'encryptedstring' }
+          : field,
+      );
+      return { fields: [...fields, { name: 'Ext__c', externalId: true } as DescribedField] };
     },
   };
 }
@@ -108,6 +120,8 @@ function setup(
     toolingRows?: Array<Record<string, unknown>>;
     /** Leave the Production Guard unwired, as a host that forgot it would. */
     noGuard?: boolean;
+    /** The source's Title an encrypted field, read masked. */
+    encryptedTitle?: boolean;
   } = {},
 ) {
   const broker = createMockBroker();
@@ -122,7 +136,9 @@ function setup(
     infraServices: options.noGuard ? undefined : { productionGuard: new ProductionGuard() },
   } as unknown as HandlerDeps;
   const transport = fakeTransport(options.refused);
-  const source = memoryReader([{ Id: '00QSOURCE0000001AA', Ext__c: 'K1' }]);
+  const source = memoryReader([{ Id: '00QSOURCE0000001AA', Ext__c: 'K1' }], {
+    encryptedTitle: options.encryptedTitle === true,
+  });
   const target = memoryReader(
     options.targetRows ?? [
       {
@@ -352,6 +368,36 @@ describe('RealtimeHandler', () => {
       eventsReceived: 1,
       eventsApplied: 1,
     });
+  });
+
+  it('names on its start the encrypted fields the source user reads masked, and writes no change of them', async () => {
+    const { handler, transport, writes, ofType } = setup({ encryptedTitle: true });
+
+    await handler.handle(start());
+
+    const [started] = ofType('realtime:started');
+    expect(started.payload).toMatchObject({
+      success: true,
+      encryptedLeftOut: [{ objectApiName: 'Lead', fields: ['Title'] }],
+    });
+
+    transport.send('/data/LeadChangeEvent', leadUpdate(7, '****1234'));
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(JSON.stringify(writes)).not.toContain('****1234');
+    // A panel opened again is told as well.
+    await handler.handle(request('realtime:status'));
+    expect(ofType('realtime:status:response').at(-1)?.payload).toMatchObject({
+      encryptedLeftOut: [{ objectApiName: 'Lead', fields: ['Title'] }],
+    });
+  });
+
+  it('names nothing on its start when no field of what it writes is encrypted', async () => {
+    const { handler, ofType } = setup();
+
+    await handler.handle(start());
+
+    expect(ofType('realtime:started')[0].payload).not.toHaveProperty('encryptedLeftOut');
   });
 
   it('says so when the source refuses every watched object', async () => {

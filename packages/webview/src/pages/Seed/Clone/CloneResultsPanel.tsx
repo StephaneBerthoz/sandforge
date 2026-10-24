@@ -76,6 +76,11 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
     ({ objectApiName, lookupsNotCarried: lookups = [] }) =>
       lookups.length > 0 ? [{ objectApiName, lookups }] : [],
   );
+  /** Per object, the encrypted fields the source's user reads masked, which its records went without. */
+  const encryptedLeftOut = result.objectResults.flatMap(
+    ({ objectApiName, encryptedLeftOut: fields = [] }) =>
+      fields.length > 0 ? [{ objectApiName, fields }] : [],
+  );
 
   /** Get page for a specific object. */
   const getPage = (objectApiName: string): number => objectPages[objectApiName] ?? 1;
@@ -366,6 +371,23 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
             ))}
           </ul>
         </div>
+      )}
+
+      {/* Read without View Encrypted Data, an encrypted field gives its
+          mask: left out of every record rather than copied as the value. */}
+      {encryptedLeftOut.length > 0 && (
+        <ul
+          className="rounded-sm border border-(--sf-border) px-3 py-2 text-xs text-status-warning flex flex-col gap-0.5"
+          data-testid="clone-results-encrypted"
+        >
+          {encryptedLeftOut.map(({ objectApiName, fields }) => (
+            <li key={objectApiName}>
+              {t('runResults.encryptedLeftOut', {
+                fields: fields.map((field) => `${objectApiName}.${field}`).join(', '),
+              })}
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* Per-object accordion */}

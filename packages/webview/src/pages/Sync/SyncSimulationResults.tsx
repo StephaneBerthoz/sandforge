@@ -163,7 +163,7 @@ export const SyncSimulationResults: React.FC<SyncSimulationResultsProps> = ({
                 className="mt-2 text-xs text-status-warning"
                 data-testid={`sync-simulation-encrypted-${o.objectApiName}`}
               >
-                {t('sync.written.encryptedLeftOut', {
+                {t('runResults.encryptedLeftOut', {
                   fields: (o.encryptedLeftOut ?? []).join(', '),
                 })}
               </p>

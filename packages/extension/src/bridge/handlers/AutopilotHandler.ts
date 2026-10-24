@@ -43,7 +43,6 @@ import {
   readDataStorage,
   readEmailLimits,
   type DataStorage,
-  type EmailCheck,
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
@@ -52,6 +51,7 @@ import {
   autopilotWritePlan,
   gateAutopilotWrite,
   objectsThePlanWrites,
+  type AutopilotEmails,
 } from '../../modules/autopilot/AutopilotRunGate.js';
 import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
@@ -720,11 +720,13 @@ export class AutopilotHandler implements DomainHandler {
     // storage or past a daily email limit, before anything is written. A
     // person account is sized at 4 KB, as Salesforce counts it.
     const writePlan = autopilotWritePlan(plan, scanResult.recordCounts, scanResult.personAccounts);
+    const emails = await this.targetEmails(operation.targetOrgId, plan, writePlan);
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
       confirmAboveRecords: this.confirmAboveRecords(),
-      emails: await this.targetEmails(operation.targetOrgId, plan, writePlan),
+      emails: emails.checks,
+      ...(emails.unread !== undefined ? { emailsUncounted: emails.unread } : {}),
       org: targetOrg?.alias ?? operation.targetOrgId,
       orgTier: guardRequest.orgTier,
       confirm: (question) => guard.confirmRun(question),
@@ -1049,14 +1051,13 @@ export class AutopilotHandler implements DomainHandler {
    * The emails the target's flows send as the plan's records go in, per daily
    * limit, against what the target has left: its automation on the objects
    * the plan writes, read as Forge reads it, and its limits when something
-   * sends. What could not be read is logged and asks nothing, as Forge's
-   * write gate does: the gate counts emails it can count.
+   * sends. What could not be read is logged, and the gate asks about it.
    */
   private async targetEmails(
     targetOrgId: string,
     plan: Pick<ExecutionPlan, 'waves'>,
     writePlan: WritePlan,
-  ): Promise<EmailCheck[]> {
+  ): Promise<AutopilotEmails> {
     const reader = this.targetAutomation;
     const emails = await autopilotEmails({
       plan: writePlan,
@@ -1088,7 +1089,7 @@ export class AutopilotHandler implements DomainHandler {
           `flows, against a limit that could not be read: ${check.unread ?? ''}`,
       );
     }
-    return emails.checks;
+    return emails;
   }
 
   /**

@@ -1535,8 +1535,7 @@
       "withoutFields_one": "{{count}} registro gravado novamente sem os campos que a org de destino recusou:",
       "withoutFields_other": "{{count}} registros gravados novamente sem os campos que a org de destino recusou:",
       "withoutField_one": "{{field}}, omitido em {{count}} registro: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}.",
-      "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados."
+      "withoutField_other": "{{field}}, omitido em {{count}} registros: {{refusedBy}}."
     },
     "firstStepTitle": "Primeiros passos com o Sync",
     "firstStepDesc": "Transfira dados entre suas orgs Salesforce em 3 cliques com o Sync rápido",
@@ -4642,6 +4641,7 @@
       "keepWarning": "E-mails e números de telefone serão gravados como a origem os tem: os Flows, os triggers e os alertas de e-mail da org de destino poderão então enviar e-mails ou SMS a pessoas reais.",
       "keepHint": "Desativado, o clone grava cada endereço de e-mail sob .invalid e cada número de telefone como um número fictício, para que a automação da org de destino não alcance ninguém."
     },
+    "encryptedLeftOut": "{{fields}}: campos criptografados que o usuário com que o SandForge lê a org de origem vê mascarados, por não ter a permissão View Encrypted Data. Deixados de fora de cada registro gravado, em vez de copiados mascarados.",
     "writtenWithoutFields": {
       "title": "Gravados sem um campo recusado pela org de destino",
       "hint": "A org de destino recusou estes registros pelos campos que indicou: uma de suas regras de validação, uma lista de opções restrita que não aceita o valor para o tipo de registro do registro — um tipo de registro ao qual nunca foram dados valores do campo não aceita nenhum, o que nada do que é lido antes da gravação indica —, ou o filtro de pesquisa de um campo de pesquisa que ela permite deixar vazio, que não aceita o registro indicado. O clone gravou cada registro de novo sem esses campos: o registro está na org de destino, sem o valor que a origem tem para eles.",

@@ -1320,4 +1320,31 @@ describe('messageLines', () => {
         'OperatingHours.TimeZone',
     );
   });
+
+  it('names at extraction the encrypted fields it did not keep, read masked', () => {
+    const lines = messageLines({
+      type: 'frozen:extract:response',
+      payload: {
+        recordCount: 2,
+        datasetDir: '/sas/dataset',
+        manifest: {
+          version: '1.0.0',
+          volumetry: { measured: { Contact: 2 } },
+          coverage: {
+            objects: 1,
+            truncated: false,
+            maxNodes: 50,
+            unboundedObjects: [],
+            filesLeftOut: [],
+            encryptedNotKept: ['Contact.SSN__c'],
+          },
+        },
+      },
+    });
+
+    expect(lines).toContain(
+      'not kept, encrypted and read masked: the user the source is read as lacks View ' +
+        'Encrypted Data, and the masks are not copied: Contact.SSN__c',
+    );
+  });
 });

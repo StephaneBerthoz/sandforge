@@ -781,7 +781,11 @@ export function countedEmailChecksOf(
 export interface TargetEmails {
   /** One per daily limit the target's automation sends against as the records go in. */
   checks: EmailCheck[];
-  /** Why the target's automation, or its limits, could not be read; absent when they were. */
+  /**
+   * Why the target's automation, or the flows, processes or workflow rules of
+   * it that send emails, could not be read: their emails were not counted.
+   * Absent when they were.
+   */
   unread?: string;
 }
 
@@ -808,14 +812,42 @@ export async function countedTargetEmails(input: {
   } catch (err: unknown) {
     return { checks: [], unread: `the target's automation: ${extractErrorMessage(err)}` };
   }
+  // What sends emails and could not be read is counted as nothing: the run
+  // is told it was not counted, and asks. A refused read of the flows left
+  // their emails out of the count with no word, and the gate let through a
+  // run that took a Developer Edition past its fifteen emails a day.
+  const hidden = emailSendersUnread(automation.unread);
+  const uncounted = hidden !== undefined ? { unread: hidden } : {};
   const sending = emailsPerInsertOf(automation);
-  if (sending.length === 0) return { checks: [] };
+  if (sending.length === 0) return { checks: [], ...uncounted };
   const limits = await input
     .readLimits()
     .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
   // Counted as the target counts them: a Developer Edition's email alerts
   // against its single emails too, as Seed counts them.
-  return { checks: countedEmailChecksOf(input.plan, sending, limits) };
+  return { checks: countedEmailChecksOf(input.plan, sending, limits), ...uncounted };
+}
+
+/** How the parts of the target's automation that send emails are named when unread. */
+const EMAIL_SENDERS_WORDS: Readonly<
+  Partial<Record<ForgeTargetAutomation['unread'][number]['part'], string>>
+> = {
+  flows: "the target's flows",
+  processes: "the target's processes",
+  workflowRules: "the target's workflow rules",
+};
+
+/**
+ * Why the emails of the target's flows, processes or workflow rules were not
+ * counted: the parts of its automation that send them the read could not
+ * take, each with the org's answer. Undefined when it took them all.
+ */
+function emailSendersUnread(unread: ForgeTargetAutomation['unread']): string | undefined {
+  const said = unread.flatMap(({ part, reason }) => {
+    const words = EMAIL_SENDERS_WORDS[part];
+    return words !== undefined ? [`${words}: ${reason}`] : [];
+  });
+  return said.length > 0 ? said.join('; ') : undefined;
 }
 
 /** A limit the emails go past, as a run's question names it. */

@@ -651,6 +651,7 @@ export function messageLines(message: Posted): string[] {
           exclusionCosts?: Array<{ objectApiName: string; note: string }>;
           requiredLeftEmpty?: string[];
           keptWithoutARule?: string[];
+          encryptedNotKept?: string[];
         };
       };
       const discovery = p.discovery as FrozenDiscoveryOrigin | undefined;
@@ -679,6 +680,14 @@ export function messageLines(message: Posted): string[] {
           ? [
               `kept without a rule, the platform's own words: ` +
                 (m.coverage?.keptWithoutARule ?? []).join(', '),
+            ]
+          : []),
+        // Read masked, the dataset would hold the masks.
+        ...((m.coverage?.encryptedNotKept ?? []).length > 0
+          ? [
+              'not kept, encrypted and read masked: the user the source is read as lacks View ' +
+                `Encrypted Data, and the masks are not copied: ` +
+                (m.coverage?.encryptedNotKept ?? []).join(', '),
             ]
           : []),
         ...Object.entries(m.volumetry.measured)

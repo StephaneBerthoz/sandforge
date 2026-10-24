@@ -370,6 +370,73 @@ describe('FrozenDatasetExtractor', () => {
   });
 });
 
+describe('FrozenDatasetExtractor — encrypted fields the source reads masked', () => {
+  const PERMISSION_SOQL = 'SELECT PermissionsViewEncryptedData FROM UserPermissionAccess';
+
+  /** The dossier's deps, its contacts holding an encrypted field, read by a user who views it or not. */
+  function encryptedDeps(viewsEncrypted: boolean, captured: string[]) {
+    const base = buildDeps(captured);
+    return {
+      describeFields: async (objectApiName: string): Promise<ScopableField[]> =>
+        objectApiName === 'Contact'
+          ? [
+              ...fieldsByObject.Contact,
+              { name: 'SSN__c', type: 'encryptedstring', referenceTo: [] },
+            ]
+          : (fieldsByObject[objectApiName] ?? []),
+      query: async (soql: string): Promise<Record<string, unknown>[]> => {
+        if (soql === PERMISSION_SOQL) {
+          captured.push(soql);
+          return [{ PermissionsViewEncryptedData: viewsEncrypted }];
+        }
+        const rows = await base.query(soql);
+        return soql.includes('FROM Contact')
+          ? rows.map((row) => ({ ...row, SSN__c: '***-**-1234' }))
+          : rows;
+      },
+    };
+  }
+
+  it('keeps no encrypted field the source user reads masked, and records it as not kept', async () => {
+    // Kept, the dataset held the masks, and a load wrote them into the target
+    // as if they were the values.
+    const dir = makeTmpDir();
+
+    const dataset = await new FrozenDatasetExtractor(encryptedDeps(false, [])).extract(
+      makeOptions(dir, []),
+    );
+
+    const contacts = dataset.objects.find((o) => o.objectApiName === 'Contact')?.records ?? [];
+    expect(contacts).toHaveLength(2);
+    for (const record of contacts) expect(record.fields).not.toHaveProperty('SSN__c');
+    expect(dataset.encryptedNotKept).toEqual(['Contact.SSN__c']);
+  });
+
+  it('keeps it as before for a user who views encrypted data, and records nothing', async () => {
+    const dir = makeTmpDir();
+
+    const dataset = await new FrozenDatasetExtractor(encryptedDeps(true, [])).extract(
+      makeOptions(dir, []),
+    );
+
+    const contacts = dataset.objects.find((o) => o.objectApiName === 'Contact')?.records ?? [];
+    expect(contacts.map((record) => record.fields.SSN__c)).toEqual(['***-**-1234', '***-**-1234']);
+    expect(dataset.encryptedNotKept).toBeUndefined();
+  });
+
+  it('asks nothing of the permission of a dossier holding no encrypted field', async () => {
+    const captured: string[] = [];
+    const dir = makeTmpDir();
+
+    const dataset = await new FrozenDatasetExtractor(buildDeps(captured)).extract(
+      makeOptions(dir, captured),
+    );
+
+    expect(captured).not.toContain(PERMISSION_SOQL);
+    expect(dataset.encryptedNotKept).toBeUndefined();
+  });
+});
+
 describe('FrozenDatasetExtractor — an object with no CreatedDate', () => {
   it('reads it without the bound instead of failing the whole extraction', async () => {
     // Not every object carries CreatedDate. `DashboardComponent` is one, and

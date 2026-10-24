@@ -269,4 +269,63 @@ describe('a rehearsal of a run, through the run’s own executor', () => {
     });
     expect(result.gaps[0]).toMatchObject({ kind: 'picklist_value_refused', value: 'Acme' });
   });
+
+  it('says why the target refused a value, from the describe the run holds of the target', async () => {
+    // The target's field holds the value; the record type the row goes in
+    // with does not select it.
+    const SOURCE_TYPE = id('012', 1);
+    const TARGET_TYPE = id('012', 2);
+    const withType = [
+      field('Id'),
+      field('RecordTypeId', { isReference: true, referenceTo: ['RecordType'], nillable: true }),
+    ];
+    const run = reads();
+    vi.mocked(run.describeFields).mockImplementation(async (org, object) => {
+      if (object !== 'Account') return FIELDS[object] ?? [];
+      return org === 'tgt'
+        ? [...withType, field('Name', { picklistValues: ['Acme', 'Globex'] })]
+        : [...withType, field('Name')];
+    });
+    vi.mocked(run.queryRecords).mockImplementation(async (org, soql) => {
+      if (org !== 'src') return [];
+      if (/FROM Account\b/.test(soql)) {
+        return [{ Id: ACCOUNT_ID, Name: 'Acme', RecordTypeId: SOURCE_TYPE }];
+      }
+      return [];
+    });
+    const composite = vi.fn<Composite>(async () => ({
+      compositeResponse: [
+        {
+          body: [
+            {
+              success: false,
+              errors: [
+                {
+                  statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+                  message: 'x',
+                  fields: ['Name'],
+                },
+              ],
+            },
+          ],
+          httpStatusCode: 200,
+        },
+        HALTED,
+      ],
+    }));
+
+    const result = await rehearser(run, composite).rehearse(GRAPH, CONFIG, {
+      confirm: async () => {},
+      recordTypeMappings: [
+        { sourceId: SOURCE_TYPE, targetId: TARGET_TYPE, developerName: 'Partner' },
+      ],
+    });
+
+    expect(result.gaps[0]).toMatchObject({
+      kind: 'picklist_value_refused',
+      recordType: 'Partner',
+      value: 'Acme',
+      detail: expect.objectContaining({ reason: 'record-type' }),
+    });
+  });
 });

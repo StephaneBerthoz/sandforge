@@ -660,12 +660,15 @@ export function contactPointLines(result: Pick<ExecutionResult, 'contactPoints'>
  * each lookup left empty with why. Exported so it can be tested.
  */
 export function scopeLines(scope: AutopilotPlanScope): string[] {
-  const lines = [
-    `scope: depth ${scope.maxDepth}, at most ${scope.maxObjects} object(s)`,
-    `  copied whole, as selected: ${scope.selected.join(', ') || '(none)'}`,
-  ];
   // A selected table larger than a run copies of one is copied from its
-  // first records by Id: said before the run, with what the source holds.
+  // first records by Id: said before the run on a line of its own, with what
+  // the source holds, and not among those copied whole, as Step 4 lists them.
+  const cutNames = new Set((scope.cutShort ?? []).map((cut) => cut.objectApiName));
+  const whole = scope.selected.filter((name) => !cutNames.has(name));
+  const lines = [`scope: depth ${scope.maxDepth}, at most ${scope.maxObjects} object(s)`];
+  if (whole.length > 0 || scope.selected.length === 0) {
+    lines.push(`  copied whole, as selected: ${whole.join(', ') || '(none)'}`);
+  }
   for (const cut of scope.cutShort ?? []) {
     const of = cut.total !== undefined ? ` of ${cut.total}` : '';
     lines.push(

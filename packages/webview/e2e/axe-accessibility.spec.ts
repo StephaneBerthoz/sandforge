@@ -4035,6 +4035,7 @@ for (const theme of SCANNED_THEMES) {
             remainingStorageBytes: 200 * 1_048_576,
           },
           fileContentFieldsLeftOut: [{ objectApiName: 'QuoteDocument', fields: ['Document'] }],
+          encryptedFieldsLeftOut: [{ objectApiName: 'Quote', fields: ['Tax_Id__c'] }],
           picklistValuesChanged: [
             {
               objectApiName: 'Quote',
@@ -4111,6 +4112,7 @@ for (const theme of SCANNED_THEMES) {
       await page.waitForSelector('[data-testid="forge-results-file-content"]', {
         timeout: 10_000,
       });
+      await page.waitForSelector('[data-testid="forge-results-encrypted"]', { timeout: 10_000 });
       await page.waitForSelector('[data-testid="forge-results-picklists"]', { timeout: 10_000 });
       await page.waitForSelector('[data-testid="forge-results-currencies"]', { timeout: 10_000 });
       await page.waitForSelector('[data-testid="forge-results-written-without"]', {
@@ -4128,6 +4130,9 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-file-content"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="forge-results-encrypted"]'),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="forge-results-picklists"]'),
@@ -4357,6 +4362,7 @@ for (const theme of SCANNED_THEMES) {
             insertedCount: 18,
             failedCount: 0,
             lookupsNotCarried: [{ field: 'OwnerId', records: 18 }],
+            encryptedLeftOut: ['SSN__c'],
             idMappings: [{ sourceId: fakeId('003', 1), targetId: fakeId('003', 2) }],
             errors: [],
           },
@@ -4368,10 +4374,14 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('clone-results-lookups-not-carried')).toContainText(
         'Contact — OwnerId on 18 records',
       );
+      await expect(page.getByTestId('clone-results-encrypted')).toContainText('Contact.SSN__c');
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="clone-results-second-pass"]'),
+      ).toBeGreaterThan(0);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="clone-results-encrypted"]'),
       ).toBeGreaterThan(0);
       expect(
         await contrastMeasuredIn(
@@ -7914,6 +7924,7 @@ for (const theme of STATE_THEMES) {
             },
           ],
           notes: ['Lead: the org no longer holds the point the last session stopped at.'],
+          encryptedLeftOut: [{ objectApiName: 'Lead', fields: ['Tax_Id__c'] }],
         },
       });
       await answerAll(page, 'realtime:metrics', 'realtime:metrics:response', {
@@ -7959,6 +7970,7 @@ for (const theme of STATE_THEMES) {
       await expect(page.getByTestId('cdc-event-row-6')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId('realtime-refused')).toBeVisible();
       await expect(page.getByTestId('realtime-refused-hint')).toContainText('View All Data');
+      await expect(page.getByTestId('realtime-encrypted')).toContainText('Lead.Tax_Id__c');
       await expect(page.getByTestId('cdc-metric-throughput')).toBeVisible();
 
       await expectReadable(page, theme);
@@ -11257,6 +11269,7 @@ for (const theme of STATE_THEMES) {
             filesLeftOut: [],
             requiredLeftEmpty: ['OpportunityLineItem.Quantity'],
             keptWithoutARule: ['Contact.GenderIdentity', 'Opportunity.StageName'],
+            encryptedNotKept: ['Contact.SSN__c'],
           },
         },
       });
@@ -11264,6 +11277,7 @@ for (const theme of STATE_THEMES) {
         'Contact.GenderIdentity, Opportunity.StageName',
         { timeout: 10_000 },
       );
+      await expect(page.getByTestId('frozen-extract-encrypted')).toContainText('Contact.SSN__c');
       await expectReadable(page, theme);
 
       await page.getByTestId('frozen-kept-without-rule-clear').click();

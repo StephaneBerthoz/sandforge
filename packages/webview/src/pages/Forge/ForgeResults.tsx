@@ -1284,6 +1284,23 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </div>
       )}
 
+      {/* Read without View Encrypted Data, an encrypted field gives its mask:
+          the clone left each one out rather than copy the mask, and says so. */}
+      {result?.encryptedFieldsLeftOut && result.encryptedFieldsLeftOut.length > 0 && (
+        <ul
+          className="rounded-sm border border-subtle px-4 py-2 text-xs text-status-warning space-y-0.5"
+          data-testid="forge-results-encrypted"
+        >
+          {result.encryptedFieldsLeftOut.map(({ objectApiName, fields }) => (
+            <li key={objectApiName}>
+              {t('runResults.encryptedLeftOut', {
+                fields: fields.map((field) => `${objectApiName}.${field}`).join(', '),
+              })}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {/* Whether the emails and phone numbers went neutralized — and how many
           — or as the source holds them, which the target's automation may
           have used to reach real people. */}

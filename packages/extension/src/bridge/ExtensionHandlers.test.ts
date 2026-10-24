@@ -514,9 +514,18 @@ describe('ExtensionHandlers', () => {
   });
 
   describe('org:connect — oauth_web', () => {
-    it('should call sfdxBridge.loginWeb and import orgs', async () => {
+    it('should call sfdxBridge.loginWeb and register the org signed in to alone', async () => {
       const importResult = createTestImportResult();
-      (sfdxBridge.listOrgs as ReturnType<typeof vi.fn>).mockResolvedValue([importResult]);
+      const other = createTestImportResult({
+        org: { ...importResult.org, id: '00D2', orgId: '00D2', alias: 'other-org' },
+      });
+      (sfdxBridge.listOrgs as ReturnType<typeof vi.fn>).mockResolvedValue([importResult, other]);
+      (sfdxBridge.loginWeb as ReturnType<typeof vi.fn>).mockResolvedValue({
+        username: 'admin@test.com',
+        orgId: '00D1',
+        instanceUrl: 'https://test.my.salesforce.com',
+      });
+      Object.assign(sfdxBridge, { findOrg: vi.fn().mockResolvedValue(importResult) });
 
       broker['dispatch'](
         msg('org:connect', {
@@ -529,7 +538,9 @@ describe('ExtensionHandlers', () => {
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       expect(sfdxBridge.loginWeb).toHaveBeenCalledWith('my-org', 'https://login.salesforce.com');
-      expect(orgManager.getAllOrgs()).toHaveLength(1);
+      await vi.waitFor(() => expect(orgManager.getAllOrgs()).toHaveLength(1));
+      expect(orgManager.getAllOrgs()[0].orgId).toBe('00D1');
+      expect(sfdxBridge.listOrgs).not.toHaveBeenCalled();
     });
 
     it('should show error when SF CLI is not available', async () => {

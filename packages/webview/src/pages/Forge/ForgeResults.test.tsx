@@ -2333,6 +2333,24 @@ describe('ForgeResults', () => {
     ).toEqual(['Account — Logo__c', 'QuoteDocument — Document']);
   });
 
+  it('names, per object, the encrypted fields the clone left out because the source user reads them masked', () => {
+    mockResult = Object.assign(makeMockResult(), {
+      encryptedFieldsLeftOut: [{ objectApiName: 'Contact', fields: ['SSN__c'] }],
+    });
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-results-encrypted').textContent).toBe(
+      'Contact.SSN__c: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.',
+    );
+  });
+
+  it('says nothing of encrypted fields for a run that left none out', () => {
+    mockResult = makeMockResult();
+    render(<ForgeResults />);
+
+    expect(screen.queryByTestId('forge-results-encrypted')).toBeNull();
+  });
+
   it('says nothing of file content for a run that left no field empty', () => {
     mockResult = makeMockResult();
     render(<ForgeResults />);

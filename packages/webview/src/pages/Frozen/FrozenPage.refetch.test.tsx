@@ -316,4 +316,32 @@ describe('FrozenPage — what an extraction kept in clear text with no rule', ()
         'the extraction again for the dataset to clear them.',
     );
   });
+
+  it('names on the extraction result the encrypted fields the dataset did not keep, read masked', () => {
+    fireEvent.click(screen.getByTestId('frozen-extract-run'));
+    const extract = sentAll('frozen:extract').pop();
+    if (!extract) throw new Error("no 'frozen:extract' was sent");
+    answer(extract, 'frozen:extract:response', {
+      datasetDir: '/sas/dataset',
+      files: ['manifest.json'],
+      recordCount: 3,
+      manifest: {
+        ...STATUS.manifest,
+        coverage: {
+          objects: 2,
+          truncated: false,
+          maxNodes: 200,
+          unboundedObjects: [],
+          filesLeftOut: [],
+          encryptedNotKept: ['Opportunity.Code__c'],
+        },
+      },
+    });
+
+    expect(screen.getByTestId('frozen-extract-encrypted').textContent).toBe(
+      'Opportunity.Code__c: encrypted fields the user SandForge reads the source org as sees ' +
+        'masked, lacking View Encrypted Data. Left out of every record written, rather than ' +
+        'copied as masks.',
+    );
+  });
 });

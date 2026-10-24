@@ -193,10 +193,11 @@ describe('what a manifest says was left to the platform', () => {
     ).toThrow(ManifestError);
   });
 
-  it('keeps the required fields the rules leave empty and the fields kept without a rule', () => {
+  it('keeps the required fields the rules leave empty, the fields kept without a rule and the encrypted fields not kept', () => {
     const said = {
       requiredLeftEmpty: ['BusinessHours.Name', 'OperatingHours.Name'],
       keptWithoutARule: ['BusinessHours.TimeZoneSidKey', 'OperatingHours.TimeZone'],
+      encryptedNotKept: ['Contact.SSN__c'],
     };
     const manifest = buildFrozenManifest({
       ...buildValid(),
@@ -210,7 +211,7 @@ describe('what a manifest says was left to the platform', () => {
       ...coverage,
       ...said,
     });
-    for (const list of ['requiredLeftEmpty', 'keptWithoutARule']) {
+    for (const list of ['requiredLeftEmpty', 'keptWithoutARule', 'encryptedNotKept']) {
       expect(() =>
         validateManifest({ ...manifest, coverage: { ...coverage, [list]: 'Account.Name' } }),
       ).toThrow(ManifestError);

@@ -69,7 +69,7 @@ describe('SyncWrittenLines', () => {
     });
     render(<SyncWrittenLines result={result} testId="lines" />);
     expect(screen.getByTestId('lines-encrypted').textContent).toBe(
-      fr.sync.written.encryptedLeftOut.replace('{{fields}}', 'Tax_Id__c'),
+      fr.runResults.encryptedLeftOut.replace('{{fields}}', 'Tax_Id__c'),
     );
   });
 

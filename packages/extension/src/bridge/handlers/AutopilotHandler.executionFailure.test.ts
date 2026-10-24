@@ -242,6 +242,17 @@ describe('AutopilotHandler — what each node came to', () => {
       totalObjectsScanned: 1,
     });
     handler.setOrchestrator(orchestrator);
+    // A target that runs nothing on the accounts: the gate has nothing to ask.
+    handler.setTargetAutomation({
+      read: async (_org, objects) => ({
+        objectsRead: [...objects],
+        objects: [],
+        unread: [],
+        conditionsNotRead: 0,
+        conditionsBound: 25,
+        requests: 6,
+      }),
+    });
     mockGetConn.mockResolvedValue(ROOMY_CONN as never);
     await handler.handle(
       inboundRequest({

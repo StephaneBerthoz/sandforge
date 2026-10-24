@@ -114,6 +114,7 @@ export class ForgeRehearser {
         applyAssignmentRules: config.applyAssignmentRules === true,
       }),
       recordTypeNames,
+      targetFields: (objectApiName) => this.deps.reads.describeFields(targetOrgId, objectApiName),
       confirm: options.confirm,
       onProgress: options.onProgress,
       ...(options.signal ? { signal: options.signal } : {}),

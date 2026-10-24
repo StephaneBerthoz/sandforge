@@ -64,6 +64,7 @@ import {
   objectsOfId,
   withObjectsLeftOut,
 } from '../forge/stages/ScopeResolver.js';
+import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
 import { SasPathGuard } from './SasPathGuard.js';
 import { renderQueryTemplate } from './queryTemplates.js';
 import type { ExtractedDataset, ExtractedRecord, RecordTypeMapEntry } from './types.js';
@@ -586,6 +587,11 @@ export class FrozenDatasetExtractor {
       sellingModels,
     );
 
+    // An encrypted field the source's user reads masked is not kept: the
+    // value read is the mask, which a load wrote into the target as if it
+    // were the value. Named in the dataset as not kept.
+    const encryptedNotKept = await this.leaveOutWhatReadsMasked(recordsByObject, fieldsOf);
+
     // Stable referenceIds: per object, records sorted by source ID, then
     // numbered — identical exports produce identical referenceIds,
     // reusable for diffs and sidecars.
@@ -625,7 +631,38 @@ export class FrozenDatasetExtractor {
       ...(standardPricebookSourceId ? { standardPricebookSourceId } : {}),
       leftToThePlatform: leftToThePlatform.counts(),
       ...(exclusionCosts.length > 0 ? { exclusionCosts } : {}),
+      ...(encryptedNotKept.length > 0 ? { encryptedNotKept } : {}),
     };
+  }
+
+  /**
+   * Take out of the rows read the classic encrypted fields the source's user
+   * reads masked, lacking View Encrypted Data (`maskedEncryptedFields`): each
+   * object described once, the permission asked only of a source holding
+   * such a field. Returns those a row held, as `Object.Field`, sorted.
+   */
+  private async leaveOutWhatReadsMasked(
+    recordsByObject: ReadonlyMap<string, ReadonlyMap<string, Record<string, unknown>>>,
+    fieldsOf: (objectApiName: string) => Promise<ScopableField[]>,
+  ): Promise<string[]> {
+    const maskedOf = maskedEncryptedFields(
+      viewsEncryptedDataOnce((soql) => this.deps.query(soql)),
+      async (objectApiName) => ({ fields: await fieldsOf(objectApiName) }),
+    );
+    const notKept: string[] = [];
+    for (const [objectApiName, bucket] of recordsByObject) {
+      if (bucket.size === 0) continue;
+      for (const field of await maskedOf(objectApiName)) {
+        let held = false;
+        for (const row of bucket.values()) {
+          if (!(field in row)) continue;
+          held ||= row[field] !== null && row[field] !== undefined;
+          delete row[field];
+        }
+        if (held) notKept.push(`${objectApiName}.${field}`);
+      }
+    }
+    return notKept.sort();
   }
 
   /**

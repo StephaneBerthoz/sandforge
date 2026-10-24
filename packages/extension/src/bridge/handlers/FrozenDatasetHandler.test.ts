@@ -165,12 +165,19 @@ function posted(
  * @param restrictedStage - The org holds `StageName` to its own values, as a
  *   real org does.
  */
-function fakeOrg(withFeed = false, restrictedStage = false): { conn: unknown; soqls: string[] } {
+function fakeOrg(
+  withFeed = false,
+  restrictedStage = false,
+  encryptedCode = false,
+): { conn: unknown; soqls: string[] } {
   const created = '2026-01-01T00:00:00.000Z';
+  // An encrypted field the user the source is read as reads masked: the org
+  // answers no View Encrypted Data for it.
+  const code = encryptedCode ? { Code__c: '****1234' } : {};
   const rows: Record<string, Array<Record<string, unknown>>> = {
     Opportunity: [
-      { Id: '006000000000001AAA', Name: 'Bare', StageName: 'Won', CreatedDate: created },
-      { Id: '006000000000002AAA', Name: 'Full', StageName: 'Won', CreatedDate: created },
+      { Id: '006000000000001AAA', Name: 'Bare', StageName: 'Won', CreatedDate: created, ...code },
+      { Id: '006000000000002AAA', Name: 'Full', StageName: 'Won', CreatedDate: created, ...code },
     ],
     OpportunityLineItem: [
       {
@@ -210,6 +217,7 @@ function fakeOrg(withFeed = false, restrictedStage = false): { conn: unknown; so
           restrictedPicklist: restrictedStage,
         },
         { name: 'CreatedDate', type: 'datetime', nillable: false, createable: false },
+        ...(encryptedCode ? [{ name: 'Code__c', type: 'encryptedstring', nillable: true }] : []),
       ],
       childRelationships: [
         {
@@ -2602,6 +2610,37 @@ describe('FrozenDatasetHandler', () => {
         }),
       );
     }
+
+    it('records in the manifest the encrypted fields it did not keep, read masked, and holds none of their masks', async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const real = FrozenDatasetAnonymizer.prototype.anonymize;
+      let frozen: FrozenDataset | undefined;
+      const anonymize = vi
+        .spyOn(FrozenDatasetAnonymizer.prototype, 'anonymize')
+        .mockImplementation(function (this: FrozenDatasetAnonymizer, options) {
+          frozen = real.call(this, options);
+          return frozen;
+        });
+      onTestFinished(() => anonymize.mockRestore());
+      const { conn, soqls } = fakeOrg(false, false, true);
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig();
+      await readyToExtract(config);
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      expect(soqls).toContain('SELECT PermissionsViewEncryptedData FROM UserPermissionAccess');
+      const opportunity = frozen?.objects.find((o) => o.objectApiName === 'Opportunity');
+      expect(opportunity?.records[0].fields).not.toHaveProperty('Code__c');
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { encryptedNotKept?: string[]; keptWithoutARule?: string[] };
+      };
+      expect(manifest.coverage.encryptedNotKept).toEqual(['Opportunity.Code__c']);
+      expect(manifest.coverage.keptWithoutARule ?? []).not.toContain('Opportunity.Code__c');
+    });
 
     it('hands the extraction the objects the configuration excludes by name, reached or not', async () => {
       // Marked on the graph's nodes alone, an object discovery never reached

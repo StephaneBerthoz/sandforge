@@ -127,6 +127,12 @@ export interface RealTimeStartedResponse extends BaseMessage {
     refused: Array<{ objectApiName: string; reason: string }>;
     /** What the session had to settle for, such as a resume point the org no longer holds. */
     notes: string[];
+    /**
+     * Per object it writes, the classic encrypted fields the user the source
+     * is read as reads masked, lacking View Encrypted Data: left out of every
+     * change written rather than copied as their masks. Absent when none is.
+     */
+    encryptedLeftOut?: Array<{ objectApiName: string; fields: string[] }>;
     error?: string;
   };
 }

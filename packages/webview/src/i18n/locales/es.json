@@ -1535,8 +1535,7 @@
       "withoutFields_one": "{{count}} registro escrito de nuevo sin los campos que la org de destino rechazó:",
       "withoutFields_other": "{{count}} registros escritos de nuevo sin los campos que la org de destino rechazó:",
       "withoutField_one": "{{field}}, omitido en {{count}} registro: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}.",
-      "encryptedLeftOut": "{{fields}}: campos cifrados que el usuario con el que SandForge lee la org de origen ve enmascarados, al no tener el permiso View Encrypted Data. Se dejan fuera de cada registro escrito, en lugar de copiarse enmascarados."
+      "withoutField_other": "{{field}}, omitido en {{count}} registros: {{refusedBy}}."
     },
     "firstStepTitle": "Comience con Sync",
     "firstStepDesc": "Transfiera datos entre sus orgs Salesforce en 3 clics con Sync rápido",
@@ -4642,6 +4641,7 @@
       "keepWarning": "Los correos y los números de teléfono se escribirán tal como los tiene el origen: los Flows, los triggers y las alertas por correo de la org de destino podrán entonces enviar correos o SMS a personas reales.",
       "keepHint": "Desactivado, el clon escribe cada dirección de correo bajo .invalid y cada número de teléfono como uno ficticio, de modo que la automatización de la org de destino no llega a nadie."
     },
+    "encryptedLeftOut": "{{fields}}: campos cifrados que el usuario con el que SandForge lee la org de origen ve enmascarados, al no tener el permiso View Encrypted Data. Se dejan fuera de cada registro escrito, en lugar de copiarse enmascarados.",
     "writtenWithoutFields": {
       "title": "Escritos sin un campo que rechazó la org de destino",
       "hint": "La org de destino rechazó estos registros por los campos que indicó: una de sus reglas de validación, una lista de selección restringida que no acepta el valor para el tipo de registro del registro — un tipo de registro al que nunca se le dieron valores del campo no acepta ninguno, algo que nada de lo leído antes de la escritura indica —, o el filtro de búsqueda de un campo de búsqueda que permite dejar vacío, que no acepta el registro indicado. El clon volvió a escribir cada registro sin esos campos: el registro está en la org de destino, sin el valor que el origen tiene para ellos.",

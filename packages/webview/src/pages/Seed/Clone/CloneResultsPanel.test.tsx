@@ -321,6 +321,21 @@ describe('CloneResultsPanel', () => {
     ]);
   });
 
+  it('names, per object, the encrypted fields its records went without, read masked by the source user', () => {
+    const result: CloneExecutionResult = {
+      ...mockSuccessResult,
+      objectResults: [
+        mockSuccessResult.objectResults[0],
+        { ...mockSuccessResult.objectResults[1], encryptedLeftOut: ['SSN__c'] },
+      ],
+    };
+    render(<CloneResultsPanel result={result} onDone={vi.fn()} />);
+
+    expect(screen.getByTestId('clone-results-encrypted').textContent).toBe(
+      'Contact.SSN__c: encrypted fields the user SandForge reads the source org as sees masked, lacking View Encrypted Data. Left out of every record written, rather than copied as masks.',
+    );
+  });
+
   describe('a clone a cancel stopped', () => {
     /** Cancelled once the accounts were in: the contacts were never read. */
     const cancelled: CloneExecutionResult = {

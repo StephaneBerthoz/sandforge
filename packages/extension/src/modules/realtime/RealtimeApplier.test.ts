@@ -142,6 +142,34 @@ const targetTwin = {
 };
 
 describe('RealtimeApplier — writing a change', () => {
+  it('writes a change without the encrypted fields the source user reads masked', async () => {
+    // Read without View Encrypted Data, a value is its mask, which the
+    // session wrote into the target as if it were the value.
+    const source = new MemoryOrg([sourceLead]);
+    const target = new MemoryOrg([targetTwin]);
+    const { write, calls } = recordingWrite();
+    const maskedSourceFields = vi.fn(async () => ['Title']);
+    const applying = new RealtimeApplier(plan(), {
+      source,
+      target,
+      write,
+      conflictStrategy: 'source_wins',
+      ownWrites: new OwnWriteLedger(),
+      maskedSourceFields,
+    });
+
+    const { results } = await applying.apply([
+      event({
+        changedFieldNames: ['Title', 'Company'],
+        values: { Title: '****1234', Company: 'Globex' },
+      }),
+    ]);
+
+    expect(results).toEqual([{ outcome: 'applied' }]);
+    expect(maskedSourceFields).toHaveBeenCalledWith('Lead');
+    expect(calls[0].records).toEqual([{ Company: 'Globex', Ext__c: 'K1' }]);
+  });
+
   it('writes what an update changed onto the record its external id finds', async () => {
     const source = new MemoryOrg([sourceLead]);
     const target = new MemoryOrg([targetTwin]);

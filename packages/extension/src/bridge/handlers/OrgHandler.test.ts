@@ -585,7 +585,7 @@ describe('OrgHandler', () => {
 
     /**
      * Import from a CLI that lists `orgs`, through the path `authMethod` names;
-     * a browser sign-in signs in to the first of them.
+     * a browser sign-in signs in to the first of them, which the CLI shows.
      */
     async function importing(
       authMethod: 'sfdx_import' | 'oauth_web',
@@ -599,6 +599,7 @@ describe('OrgHandler', () => {
           instanceUrl: INSTANCE_URL,
         }),
         listOrgs: vi.fn().mockResolvedValue(orgs),
+        findOrg: vi.fn().mockResolvedValue(orgs[0]),
       } as unknown as HandlerDeps['sfdxBridge'];
       await handler.handle(createMsg('org:connect', { orgId: '', authMethod }));
     }
@@ -784,38 +785,72 @@ describe('OrgHandler', () => {
       loginUrl: 'https://test.salesforce.com',
     });
 
-    it('confirms the org the user just signed in to through the browser, not the first one the CLI lists', async () => {
-      cliListing([ALPHA, UAT]);
+    /** A browser sign-in to the uat org, which the CLI shows as `shown` answers. */
+    function signedInThroughTheBrowser(shown: () => Promise<unknown>): {
+      listOrgs: ReturnType<typeof vi.fn>;
+      findOrg: ReturnType<typeof vi.fn>;
+    } {
+      const listOrgs = vi.fn().mockResolvedValue([ALPHA, UAT]);
+      const findOrg = vi.fn(shown);
+      deps.sfdxBridge = {
+        isCliAvailable: vi.fn().mockResolvedValue(true),
+        loginWeb: vi.fn().mockResolvedValue({
+          username: 'admin@uat.example',
+          orgId: '00D000000000002AAA',
+          instanceUrl: 'https://acme--uat.sandbox.my.salesforce.com',
+        }),
+        listOrgs,
+        findOrg,
+      } as unknown as HandlerDeps['sfdxBridge'];
+      return { listOrgs, findOrg };
+    }
+
+    it('registers through the browser the org signed in to alone, read with sf org display: no sf org list calls every org the CLI holds', async () => {
+      const { listOrgs, findOrg } = signedInThroughTheBrowser(async () => UAT);
 
       await handler.handle(browserSignIn);
 
+      expect(listOrgs).not.toHaveBeenCalled();
+      expect(findOrg).toHaveBeenCalledWith('admin@uat.example');
+      expect(deps.orgRegistry.saveOrg).toHaveBeenCalledTimes(1);
+      expect(deps.orgRegistry.saveOrg).toHaveBeenCalledWith(UAT.org, UAT.credentials);
       const confirmed = posted().filter((m) => m.type === 'org:statusChanged');
       expect(confirmed).toHaveLength(1);
       expect(confirmed[0].correlationId).toBe('req-99');
       expect(confirmed[0].payload).toEqual({ orgId: '00D000000000002AAA', status: 'connected' });
+      expect(notifications()).toEqual([
+        expect.objectContaining({ level: 'success', message: 'uat connected.' }),
+      ]);
     });
 
     it('fails the browser sign-in, saying why, when the CLI gave no token for the org signed in to', async () => {
-      cliListing([ALPHA], [UAT_UNREADABLE]);
+      signedInThroughTheBrowser(async () => {
+        throw new Error(
+          'The Salesforce CLI gave no access token for admin@uat.example: sf did not answer within 30 s',
+        );
+      });
 
       await handler.handle(browserSignIn);
 
       expect(posted().some((m) => m.type === 'org:statusChanged')).toBe(false);
+      expect(deps.orgRegistry.saveOrg).not.toHaveBeenCalled();
       const error = posted().find((m) => m.type === 'org:error');
       expect(error?.correlationId).toBe('req-99');
-      expect(error?.payload.message).toBe(
-        'Signed in as admin@uat.example, but the Salesforce CLI gave no access token for it: sf did not answer within 30 s — check the Salesforce CLI',
-      );
+      expect(error?.payload).toMatchObject({
+        code: 'OAUTH_WEB_FAILED',
+        message:
+          'The Salesforce CLI gave no access token for admin@uat.example: sf did not answer within 30 s',
+      });
     });
 
-    it('fails the browser sign-in when the CLI does not list the org signed in to as connected', async () => {
-      cliListing([ALPHA]);
+    it('fails the browser sign-in when the CLI does not show the org signed in to as connected', async () => {
+      signedInThroughTheBrowser(async () => undefined);
 
       await handler.handle(browserSignIn);
 
       expect(posted().some((m) => m.type === 'org:statusChanged')).toBe(false);
       expect(posted().find((m) => m.type === 'org:error')?.payload.message).toBe(
-        'Signed in as admin@uat.example, but "sf org list" does not list that org as connected.',
+        'Signed in as admin@uat.example, but "sf org display" does not show that org as connected.',
       );
     });
 

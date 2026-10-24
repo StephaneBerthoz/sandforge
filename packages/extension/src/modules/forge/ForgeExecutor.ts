@@ -201,6 +201,7 @@ import {
   type ForgeRunAnonymization,
 } from './ForgeAnonymizer.js';
 import { keepPartialSummary } from './interruptedRun.js';
+import { maskedEncryptedFields, viewsEncryptedDataOnce } from '../sync/encryptedFields.js';
 import type { ForgeRunStore, StoredOwedLookup } from './ForgeRunStore.js';
 import { externalIdKey, fingerprintFields, rowFingerprint } from './ForgeInFlight.js';
 import type { FieldBounds } from './describeBounds.js';
@@ -1082,6 +1083,13 @@ export interface ExecutionSummary {
    */
   fileContentFieldsLeftOut?: ForgeFieldsLeftOut[];
   /**
+   * Per object with records to write, the classic encrypted fields the user
+   * the source is read as reads masked, lacking View Encrypted Data: left out
+   * of every record rather than copied as their masks. Absent when there were
+   * none.
+   */
+  encryptedFieldsLeftOut?: ForgeFieldsLeftOut[];
+  /**
    * Per object and field, the picklist values the run did not write as it read
    * them, the target being bound to refuse them: replaced by the record type's
    * default — or, for a field the target requires that the record type sets no
@@ -1675,6 +1683,14 @@ interface ExecutionState {
   files: ForgeFilesReport | null;
   /** Per object, the fields left out of its records because they hold a file's content. */
   readonly fileContentFieldsLeftOut: Map<string, Set<string>>;
+  /**
+   * The classic encrypted fields of an object the source's user reads masked
+   * (`maskedEncryptedFields`), each object described once, View Encrypted
+   * Data asked once a run, of a source holding such a field.
+   */
+  readonly maskedSourceFields: (objectApiName: string) => Promise<string[]>;
+  /** Per object, the encrypted fields left out of its records, read masked. */
+  readonly encryptedFieldsLeftOut: Map<string, Set<string>>;
   /** What the record types of the target allow of the objects' picklists, read once a run each. */
   readonly recordTypePicklists: RecordTypePicklistReads;
   /** The picklist values the run did not write as it read them, by object and field. */
@@ -3304,6 +3320,13 @@ export class ForgeExecutor {
       fileScope: new Map<string, string[]>(),
       files: null,
       fileContentFieldsLeftOut: new Map<string, Set<string>>(),
+      maskedSourceFields: maskedEncryptedFields(
+        viewsEncryptedDataOnce((soql) => this.deps.queryRecords(sourceOrgId, soql)),
+        async (objectApiName) => ({
+          fields: await this.deps.describeFields(sourceOrgId, objectApiName),
+        }),
+      ),
+      encryptedFieldsLeftOut: new Map<string, Set<string>>(),
       recordTypePicklists: new RecordTypePicklistReads(
         readRecordType &&
           ((objectApiName, recordTypeId) =>
@@ -3426,6 +3449,49 @@ export class ForgeExecutor {
       })),
     );
     return recordTypeDecisionMappings(decisions, recordTypes);
+  }
+
+  /**
+   * The fields a write of an object's rows leaves out: the user's exclusions,
+   * and the classic encrypted fields the source's user reads masked, lacking
+   * View Encrypted Data (`maskedEncryptedFields`) — named on the run's result
+   * where a row holds one the write would have sent.
+   *
+   * Read masked, such a field gives `***-**-1234`, and a clone wrote the mask
+   * into the target as if it were the value, over the real one of a record
+   * an upsert found.
+   *
+   * @param written - Whether the write would send a field it does not leave out.
+   */
+  private async withMaskedLeftOut(
+    state: ExecutionState,
+    objectApiName: string,
+    excluded: Set<string>,
+    rows: readonly Record<string, unknown>[],
+    written: (field: string) => boolean,
+  ): Promise<Set<string>> {
+    if (rows.length === 0) return excluded;
+    const masked = await state.maskedSourceFields(objectApiName).catch((): string[] => []);
+    const named = masked.filter(
+      (field) =>
+        !excluded.has(field) &&
+        written(field) &&
+        rows.some((row) => row[field] !== null && row[field] !== undefined),
+    );
+    this.noteEncryptedLeftOut(state, objectApiName, named);
+    return masked.length > 0 ? new Set([...excluded, ...masked]) : excluded;
+  }
+
+  /** Name, on the run's result, encrypted fields of an object its records went without. */
+  private noteEncryptedLeftOut(
+    state: ExecutionState,
+    objectApiName: string,
+    fields: readonly string[],
+  ): void {
+    if (fields.length === 0) return;
+    const known = state.encryptedFieldsLeftOut.get(objectApiName) ?? new Set<string>();
+    for (const field of fields) known.add(field);
+    state.encryptedFieldsLeftOut.set(objectApiName, known);
   }
 
   /**
@@ -6100,6 +6166,13 @@ export class ForgeExecutor {
       ...(state.fileContentFieldsLeftOut.size > 0
         ? {
             fileContentFieldsLeftOut: [...state.fileContentFieldsLeftOut].map(
+              ([objectApiName, fields]) => ({ objectApiName, fields: [...fields].sort() }),
+            ),
+          }
+        : {}),
+      ...(state.encryptedFieldsLeftOut.size > 0
+        ? {
+            encryptedFieldsLeftOut: [...state.encryptedFieldsLeftOut].map(
               ([objectApiName, fields]) => ({ objectApiName, fields: [...fields].sort() }),
             ),
           }
@@ -10854,6 +10927,11 @@ export class ForgeExecutor {
         // the contact of one goes on its own.
         fieldExclusions: config.fieldExclusions,
         fieldMappings: config.fieldMappings,
+        // Nor are the encrypted fields the source's user reads masked: named
+        // on the run's result with the rows'.
+        maskedFieldsOf: (objectApiName) => state.maskedSourceFields(objectApiName),
+        onMaskedLeftOut: (objectApiName, fields) =>
+          this.noteEncryptedLeftOut(state, objectApiName, fields),
         businessAccountsAmong: (rows, recordTypeWritten) =>
           this.takenAsBusinessAccounts(state, rows, recordTypeWritten),
         contactOnItsOwn: (sourceId) => state.contactsOnTheirOwn.has(sourceId),
@@ -10866,8 +10944,14 @@ export class ForgeExecutor {
 
       // Per-node field exclusions and renames are record-invariant —
       // resolved once per node rather than per record.
-      const excludedFields = new Set(config.fieldExclusions[node.objectApiName] ?? []);
       const fieldRename = config.fieldMappings[node.objectApiName] ?? {};
+      const excludedFields = await this.withMaskedLeftOut(
+        state,
+        node.objectApiName,
+        new Set(config.fieldExclusions[node.objectApiName] ?? []),
+        toWrite,
+        (field) => effectiveCreatableSet.has(field) || fieldRename[field] !== undefined,
+      );
       // What the record type each row goes in with allows of the object's
       // restricted picklists, read once a run per record type. One that could
       // not be read is said once, and its rows are checked as before, against

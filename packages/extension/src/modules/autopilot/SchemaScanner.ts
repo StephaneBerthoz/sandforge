@@ -438,6 +438,7 @@ export class SchemaScanner {
       objectDescribes,
       selected,
       walk.parentIds,
+      { cutShort: walk.cutShort, cutAt: walk.cutAt },
     );
 
     return {
@@ -468,7 +469,8 @@ export class SchemaScanner {
   /**
    * Of the accounts and the contacts the plan copies, how many are person
    * accounts or their contacts: of a selected object, its table's, one
-   * `COUNT()`; of one read by id, those of its ids, a `COUNT()` per
+   * `COUNT()` — of one cut to its first records by Id, those up to the last
+   * the run copies; of one read by id, those of its ids, a `COUNT()` per
    * {@link IDS_PER_READ} of them. Asked only of an object the source
    * describes `IsPersonAccount` on; one the source will not count is left
    * out, and sized as any record.
@@ -477,12 +479,19 @@ export class SchemaScanner {
    * person account at 4 KB, being an account and a contact, and its contact
    * at nothing of its own: Forge's gate sizes them so, and a plan of person
    * accounts said half the storage it would take.
+   *
+   * @param cut - The selected objects cut to their first records by Id, and
+   *   the last Id each read took where it read them.
    */
   private async personAccountsOf(
     conn: AutopilotConnection,
     describes: ReadonlyMap<ApiName, ObjectDescribeResult>,
     selected: ReadonlySet<ApiName>,
     parentIds: ReadonlyMap<ApiName, readonly string[]>,
+    cut: {
+      cutShort: NonNullable<AutopilotPlanScope['cutShort']>;
+      cutAt: ReadonlyMap<ApiName, string>;
+    },
   ): Promise<Map<ApiName, number>> {
     const counts = new Map<ApiName, number>();
     for (const name of [ACCOUNT, CONTACT]) {
@@ -490,6 +499,22 @@ export class SchemaScanner {
       if (!describe?.fields.some((field) => field.name === PERSON_ACCOUNT_FLAG)) continue;
       const of = `SELECT COUNT() FROM ${assertSoqlIdentifier(name)} WHERE ${PERSON_ACCOUNT_FLAG} = true`;
       try {
+        // Of a table cut to its first records by Id, those the run copies:
+        // counted across the whole table, a cut of 50 000 accounts out of
+        // two million was sized as a million person accounts.
+        const copied = cut.cutShort.find((entry) => entry.objectApiName === name)?.copied;
+        if (selected.has(name) && copied !== undefined) {
+          const last = cut.cutAt.get(name) ?? (await this.lastIdOfTheFirst(conn, name, copied));
+          counts.set(
+            name,
+            last !== undefined
+              ? (await conn.query(`${of} AND Id <= '${sanitizeSoqlValue(last)}'`)).totalSize
+              : // Where the cut's last record cannot be read, no more than
+                // the run copies: an estimate that errs says too much.
+                Math.min((await conn.query(of)).totalSize, copied),
+          );
+          continue;
+        }
         if (selected.has(name)) {
           counts.set(name, (await conn.query(of)).totalSize);
           continue;
@@ -508,6 +533,24 @@ export class SchemaScanner {
       }
     }
     return counts;
+  }
+
+  /**
+   * The Id of the `count`-th record of an object by Id: the last a run that
+   * copies its first `count` records takes. Undefined when the read stops
+   * short of it.
+   */
+  private async lastIdOfTheFirst(
+    conn: AutopilotConnection,
+    objectApiName: ApiName,
+    count: number,
+  ): Promise<string | undefined> {
+    const { records } = await this.readAll(
+      conn,
+      `SELECT Id FROM ${assertSoqlIdentifier(objectApiName)} ORDER BY Id`,
+    );
+    const id = records.length >= count ? records[count - 1]?.Id : undefined;
+    return typeof id === 'string' ? id : undefined;
   }
 
   /**
@@ -585,6 +628,8 @@ export class SchemaScanner {
     standardNeeded: AutopilotPlanScope['standardNeeded'];
     followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']>;
     cutShort: NonNullable<AutopilotPlanScope['cutShort']>;
+    /** Of each selected object cut short as its lookups were read, the last Id read. */
+    cutAt: Map<ApiName, string>;
     recordCounts: Map<ApiName, number>;
     parentIds: Map<ApiName, string[]>;
   }> {
@@ -596,6 +641,7 @@ export class SchemaScanner {
     const standardNeeded: AutopilotPlanScope['standardNeeded'] = [];
     const followedByDefault: NonNullable<AutopilotPlanScope['followedByDefault']> = [];
     const cutShort: NonNullable<AutopilotPlanScope['cutShort']> = [];
+    const cutAt = new Map<ApiName, string>();
     const added: ApiName[] = [];
     const recordCounts = new Map<ApiName, number>();
     /** Of each object read by id, the ids of the records read. */
@@ -702,6 +748,8 @@ export class SchemaScanner {
             copied: rows.length,
             ...(total !== undefined ? { total } : {}),
           });
+          const last = rows[rows.length - 1]?.Id;
+          if (typeof last === 'string') cutAt.set(name, last);
         }
         meet(name, rows, 0);
       } catch (err) {
@@ -839,6 +887,7 @@ export class SchemaScanner {
         planned.has(followed.objectApiName),
       ),
       cutShort,
+      cutAt,
       recordCounts,
       parentIds,
     };

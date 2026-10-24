@@ -85,6 +85,10 @@ import {
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
 import type { FieldInfo } from '../../modules/forge/ForgeExecutor.js';
 import { contactPointsOfRun, neutralizeSyncRows } from '../../modules/sync/syncContactPoints.js';
+import {
+  maskedEncryptedFields,
+  viewsEncryptedDataOnce,
+} from '../../modules/sync/encryptedFields.js';
 import { targetWriteFieldsOf } from '../../modules/sync/targetWriteFields.js';
 import {
   readSeedAutomation,
@@ -1008,6 +1012,45 @@ export class SeedCloneHandler implements DomainHandler {
       const targetHolds = new Map<string, boolean>();
       /** Per object and lookup, the records written without it, the target holding no record of the id. */
       const lookupsNotCarried = new Map<string, Map<string, number>>();
+      /**
+       * The classic encrypted fields of an object the source's user reads
+       * masked, lacking View Encrypted Data, from the source's describe the
+       * clone made: the permission asked once, of a source holding one.
+       */
+      const maskedOf = maskedEncryptedFields(
+        viewsEncryptedDataOnce((soql) => queryAll(sourceConn, soql)),
+        async (objectApiName) =>
+          sourceDescribes.get(objectApiName) ?? (await fetcher.describe(sourceConn, objectApiName)),
+      );
+      /** Per object, the encrypted fields its records went without, read masked. */
+      const encryptedLeftOut = new Map<string, Set<string>>();
+
+      /**
+       * Take out of the rows the encrypted fields the source's user reads
+       * masked, and name those a row held: read so, the value is the mask,
+       * which the clone wrote into the target as if it were the value.
+       */
+      const withoutMaskedFields = async (
+        objectApiName: string,
+        writeRecords: Record<string, unknown>[],
+      ): Promise<void> => {
+        if (writeRecords.length === 0) return;
+        const masked = await maskedOf(objectApiName);
+        for (const field of masked) {
+          let held = false;
+          for (const record of writeRecords) {
+            if (!(field in record)) continue;
+            held ||= record[field] !== null && record[field] !== undefined;
+            delete record[field];
+          }
+          if (held) {
+            encryptedLeftOut.set(
+              objectApiName,
+              (encryptedLeftOut.get(objectApiName) ?? new Set<string>()).add(field),
+            );
+          }
+        }
+      };
 
       /**
        * Take out of the rows the users and queues they name that the target
@@ -1061,6 +1104,7 @@ export class SeedCloneHandler implements DomainHandler {
         objectApiName: string,
         writeRecords: Record<string, unknown>[],
       ): Promise<{ outcomes: Awaited<ReturnType<BulkDataWriter['insert']>>; stopped: boolean }> => {
+        await withoutMaskedFields(objectApiName, writeRecords);
         await withoutUsersTheTargetLacks(objectApiName, writeRecords);
         // Every row's email addresses and phone numbers are made unreachable
         // as it goes, whatever else held it back or linked it before: the
@@ -1533,6 +1577,9 @@ export class SeedCloneHandler implements DomainHandler {
             records,
           }));
         }
+        // And without the encrypted fields read masked.
+        const masked = encryptedLeftOut.get(objectResult.objectApiName);
+        if (masked) objectResult.encryptedLeftOut = [...masked].sort();
       }
       const totalSourceRecords = objectResults.reduce((sum, r) => sum + r.sourceCount, 0);
       const totalInserted = objectResults.reduce((sum, r) => sum + r.insertedCount, 0);

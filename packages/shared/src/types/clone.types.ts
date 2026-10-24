@@ -75,6 +75,12 @@ export interface CloneObjectResult {
    * record. Absent when there are none.
    */
   lookupsNotCarried?: Array<{ field: string; records: number }>;
+  /**
+   * Classic encrypted fields the user the source is read as reads masked,
+   * lacking View Encrypted Data: left out of every record written rather than
+   * copied as their masks. Absent when there are none.
+   */
+  encryptedLeftOut?: string[];
   /** Mapping of source record IDs to target record IDs, linked records included */
   idMappings: Array<{ sourceId: string; targetId: string }>;
   /** Errors encountered during insertion */

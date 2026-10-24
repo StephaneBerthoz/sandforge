@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { forgeGapId } from '@sandforge/shared';
+import { adminChangesOf, forgeGapId } from '@sandforge/shared';
 import { placeholderId, type RehearsedRow } from './RehearsalWriter.js';
 import { rehearsalGaps, type RefusedRow } from './rehearsalGaps.js';
 
@@ -127,6 +127,78 @@ describe('the gaps of the rows a rehearsal saw refused', () => {
       recordType: 'Support',
       value: 'Fax',
       severity: 'warning',
+    });
+  });
+
+  describe('a restricted picklist refusal, against what the target describes of the field', () => {
+    const faxRefused = (fields: Record<string, unknown>): RefusedRow =>
+      refused('Case', fields, [
+        {
+          statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+          message: 'bad value for restricted picklist field: Fax',
+          fields: ['Origin'],
+        },
+      ]);
+    const support = new Map([['012000000000777', 'Support']]);
+    const onSupport = { Origin: 'Fax', RecordTypeId: '012000000000777AAA' };
+
+    it('says a value the field holds was refused for the record type, and the admin list selects it for that record type', () => {
+      // Carried with no reason, the gap read in the list for the target's
+      // admin as "add or activate the value" where the field already held it.
+      const gaps = rehearsalGaps(
+        [faxRefused(onSupport)],
+        support,
+        new Map([['Case', new Map([['Origin', { values: ['Phone', 'Fax', 'Web'] }]])]]),
+      );
+
+      expect(gaps[0].detail?.['reason']).toBe('record-type');
+      expect(adminChangesOf(gaps)).toEqual([
+        {
+          objectApiName: 'Case',
+          recordType: 'Support',
+          changes: [
+            expect.objectContaining({
+              change: 'select_picklist_value',
+              field: 'Origin',
+              value: 'Fax',
+              setup:
+                'Setup > Object Manager > Case > Record Types > Support > Origin > Edit: add ' +
+                '"Fax" to the selected values',
+            }),
+          ],
+        },
+      ]);
+    });
+
+    it('says a value the field does not hold is missing from it, and the admin list adds it, then selects it for the record type', () => {
+      const gaps = rehearsalGaps(
+        [faxRefused(onSupport)],
+        support,
+        new Map([['Case', new Map([['Origin', { values: ['Phone', 'Web'] }]])]]),
+      );
+
+      expect(gaps[0].detail?.['reason']).toBe('not-in-target');
+      expect(adminChangesOf(gaps)[0].changes[0]).toMatchObject({
+        change: 'add_picklist_value',
+        setup:
+          'Setup > Object Manager > Case > Fields & Relationships > Origin > Values: add or ' +
+          'activate "Fax", then select it for record type Support',
+      });
+    });
+
+    it('says no reason it cannot tell: no describe of the field, a dependent field, a row with no record type', () => {
+      const held = new Map([['Case', new Map([['Origin', { values: ['Fax'] }]])]]);
+      const dependent = new Map([
+        ['Case', new Map([['Origin', { values: ['Fax'], controllerName: 'Type' }]])],
+      ]);
+
+      const reasons = [
+        rehearsalGaps([faxRefused(onSupport)], support),
+        rehearsalGaps([faxRefused(onSupport)], support, dependent),
+        rehearsalGaps([faxRefused({ Origin: 'Fax' })], support, held),
+      ].map(([gap]) => gap.detail?.['reason']);
+
+      expect(reasons).toEqual([undefined, undefined, undefined]);
     });
   });
 

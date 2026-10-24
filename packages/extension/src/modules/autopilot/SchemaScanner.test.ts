@@ -936,6 +936,104 @@ describe('a selected table larger than one read takes', () => {
   });
 });
 
+describe('the person accounts of a selected account table cut to its first records by Id', () => {
+  /**
+   * A source of two million accounts, every other one a person account, each
+   * naming one of the `Region__c` records when `withLookup` — the n-th
+   * account the (n / 1 000)-th —, read 2 000 rows a page in the order of the
+   * ids. A count of the person accounts up to an Id counts those up to it.
+   */
+  function accounts(withLookup: boolean): AutopilotConnection & { queries: string[] } {
+    const TOTAL = 2_000_000;
+    const PAGE = 2_000;
+    const accountId = (n: number): string => `001${String(n).padStart(12, '0')}AAA`;
+    const regionId = (n: number): string => `a02${String(n).padStart(12, '0')}AAA`;
+    const queries: string[] = [];
+    const pageOf = (from: number) => {
+      const records = Array.from({ length: Math.min(PAGE, TOTAL - from) }, (_, i) => ({
+        Id: accountId(from + i),
+        ...(withLookup ? { Region__c: regionId(Math.floor((from + i) / 1_000)) } : {}),
+      }));
+      const next = from + records.length;
+      return {
+        totalSize: TOTAL,
+        done: next >= TOTAL,
+        records,
+        ...(next < TOTAL ? { nextRecordsUrl: `/query/o-${next}` } : {}),
+      };
+    };
+    /** The person accounts among the first `n + 1` by Id: the odd ones. */
+    const personsUpTo = (n: number): number => Math.floor((n + 1) / 2);
+    return {
+      queries,
+      describe: async (name: string) =>
+        name === 'Account'
+          ? mockDescribe('Account', [
+              mockField({ name: 'Id', type: 'id' }),
+              mockField({ name: 'IsPersonAccount', type: 'boolean', createable: false }),
+              ...(withLookup ? [lookupField('Region__c', ['Region__c'])] : []),
+            ])
+          : mockDescribe(name, [mockField({ name: 'Id', type: 'id' })], true),
+      describeGlobal: async () => ({
+        sobjects: [
+          mockGlobalSObject('Account', { keyPrefix: '001' }),
+          mockGlobalSObject('Region__c', { keyPrefix: 'a02' }),
+        ],
+      }),
+      query: async (soql: string) => {
+        queries.push(soql);
+        if (soql === 'SELECT COUNT() FROM Account') {
+          return { totalSize: TOTAL, done: true, records: [] };
+        }
+        if (soql === 'SELECT COUNT() FROM Account WHERE IsPersonAccount = true') {
+          return { totalSize: personsUpTo(TOTAL - 1), done: true, records: [] };
+        }
+        const upTo = /AND Id <= '001(\d{12})AAA'$/.exec(soql);
+        if (upTo) return { totalSize: personsUpTo(Number(upTo[1])), done: true, records: [] };
+        if (/^SELECT Id(, Region__c)? FROM Account ORDER BY Id$/.test(soql)) return pageOf(0);
+        const ids = [...soql.matchAll(/'(a02\d{12}AAA)'/g)].map((m) => m[1]);
+        return { totalSize: ids.length, done: true, records: ids.map((Id) => ({ Id })) };
+      },
+      queryMore: async (url: string) => pageOf(Number(/o-(\d+)$/.exec(url)?.[1] ?? 0)),
+    };
+  }
+
+  const target = (): AutopilotConnection =>
+    mockConn({
+      globalSObjects: [
+        mockGlobalSObject('Account', { custom: false }),
+        mockGlobalSObject('Region__c'),
+      ],
+    });
+
+  it('counts the person accounts among the first 50,000 the run copies, read with the lookups, not across the whole table', async () => {
+    // Counted over the table, the cut of 50 000 accounts out of two million
+    // was sized as a million person accounts at 4 KB each.
+    const source = accounts(true);
+
+    const result = await new SchemaScanner().scan(source, target(), ['Account'], false);
+
+    expect(result.scope.cutShort).toEqual([
+      { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+    ]);
+    expect(result.personAccounts.get('Account')).toBe(25_000);
+    expect(source.queries).toContain(
+      `SELECT COUNT() FROM Account WHERE IsPersonAccount = true AND Id <= '001${String(49_999).padStart(12, '0')}AAA'`,
+    );
+  });
+
+  it('counts them up to the last record of the cut of a table with no lookup to follow, read by Id', async () => {
+    const source = accounts(false);
+
+    const result = await new SchemaScanner().scan(source, target(), ['Account'], false);
+
+    expect(result.scope.cutShort).toEqual([
+      { objectApiName: 'Account', copied: 50_000, total: 2_000_000 },
+    ]);
+    expect(result.personAccounts.get('Account')).toBe(25_000);
+  });
+});
+
 describe('the first look at an org of six hundred objects', () => {
   it('lists every object a run may copy in two global describes, with no call per object', async () => {
     // The panel's first scan described every object it listed and counted

@@ -247,6 +247,13 @@ export interface FrozenManifestCoverage extends FrozenGraphCoverage {
    * no generator for them: the platform's own words. Absent when none is.
    */
   keptWithoutARule?: string[];
+  /**
+   * The fields, as `Object.Field`, not kept: classic encrypted fields the user
+   * the source was read as reads masked, lacking View Encrypted Data, which
+   * the dataset would have held as their masks. Absent when none is, and from
+   * manifests written before it was recorded.
+   */
+  encryptedNotKept?: string[];
 }
 
 /**

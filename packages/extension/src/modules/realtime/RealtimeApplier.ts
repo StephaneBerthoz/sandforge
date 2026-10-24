@@ -122,6 +122,13 @@ export interface ApplierDeps {
    * changes go as read.
    */
   contactPoints?: ContactPointNeutralizer;
+  /**
+   * The classic encrypted fields of an object the user the source is read as
+   * reads masked (`maskedEncryptedFields`): taken out of every change before
+   * it is written. Read so, a value is the mask, which a session wrote into
+   * the target as if it were the value. Absent, every field goes.
+   */
+  maskedSourceFields?: (objectApiName: string) => Promise<readonly string[]>;
 }
 
 /** What became of one change event. */
@@ -243,6 +250,8 @@ export class RealtimeApplier {
   private readonly mapping = new FieldMappingService();
   private readonly transforms = new TransformPipeline();
   private readonly objectConfig: SyncObjectConfig;
+  /** The source's fields the changes go without, read masked: see `ApplierDeps.maskedSourceFields`. */
+  private masked: ReadonlySet<string> = new Set();
 
   /**
    * @param plan - How the object's changes are written.
@@ -288,6 +297,12 @@ export class RealtimeApplier {
   ): Promise<{ results: EventResult[]; held: HeldChange[] }> {
     const perEvent: ItemResult[][] = events.map(() => []);
     const held: HeldChange[] = [];
+    const maskedOf = this.deps.maskedSourceFields;
+    if (maskedOf) {
+      this.masked = new Set(
+        await maskedOf(this.plan.objectApiName).catch((): readonly string[] => []),
+      );
+    }
 
     // Consecutive changes of one kind are written together, and a record
     // changed twice in one flush is written once, with its latest values; a
@@ -731,7 +746,11 @@ export class RealtimeApplier {
 
   /** The change as the plan's mapping, transforms and add-ons make it. */
   private mapped(change: Change): Record<string, unknown> {
-    const sourceShaped: Record<string, unknown> = { ...change.values, Id: change.recordId };
+    const values =
+      this.masked.size > 0
+        ? Object.fromEntries(Object.entries(change.values).filter(([f]) => !this.masked.has(f)))
+        : change.values;
+    const sourceShaped: Record<string, unknown> = { ...values, Id: change.recordId };
     let record = this.mapping.apply(sourceShaped, this.plan.fieldMappings);
     if (this.plan.keySource !== 'Id' && record[this.plan.keyField] === undefined) {
       record[this.plan.keyField] = sourceShaped[this.plan.keySource];

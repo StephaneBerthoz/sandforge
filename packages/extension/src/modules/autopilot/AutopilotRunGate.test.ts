@@ -337,6 +337,61 @@ describe('autopilotEmails', () => {
     expect(readLimits).not.toHaveBeenCalled();
   });
 
+  it("says the emails of the target's flows were not counted when its flows could not be read, beside those of its rules", async () => {
+    const ruleAlerts: ForgeTargetAutomation = {
+      ...WELCOME_FLOW,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          workflowRules: [
+            {
+              apiName: 'Contact_Rule',
+              label: 'Contact rule',
+              timing: 'afterSave',
+              startsOn: 'create',
+              condition: 'read',
+              permissions: [],
+              messages: [{ kind: 'email', name: 'Contact alert', limit: 'DailyWorkflowEmails' }],
+            },
+          ],
+        },
+      ],
+      unread: [
+        { part: 'flows', reason: 'INSUFFICIENT_ACCESS' },
+        { part: 'duplicateRules', reason: 'INVALID_TYPE' },
+      ],
+    };
+
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => ruleAlerts,
+      readLimits: async () => ({ DailyWorkflowEmails: { max: 8_040, remaining: 8_040 } }),
+    });
+
+    expect(emails.checks).toEqual([
+      expect.objectContaining({ limit: 'DailyWorkflowEmails', emails: 30, verdict: 'fits' }),
+    ]);
+    expect(emails.unread).toBe("the target's flows: INSUFFICIENT_ACCESS");
+  });
+
+  it('says no email went uncounted when only what sends none could not be read', async () => {
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => ({
+        ...WELCOME_FLOW,
+        objects: [],
+        unread: [{ part: 'duplicateRules', reason: 'INVALID_TYPE' }],
+      }),
+      readLimits: async () => ({}),
+    });
+
+    expect(emails).toEqual({ checks: [] });
+  });
+
   it("says the target's automation could not be read rather than counting no email", async () => {
     const emails = await autopilotEmails({
       plan,
@@ -400,6 +455,26 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     expect(confirm.mock.calls[0][0].emails).toEqual([
       expect.objectContaining({ limit: 'SingleEmail', emails: 60, alertsCounted: true }),
     ]);
+  });
+
+  it("asks before a plan whose target's automation could not be read, saying its emails were not counted", async () => {
+    const confirm = vi.fn(async (_question: WriteConfirmation) => 'confirmed' as const);
+    const outcome = await gateAutopilotWrite({
+      plan: contacts,
+      storage: roomy,
+      confirmAboveRecords: 2_000,
+      emails: [],
+      emailsUncounted: "the target's flows: INSUFFICIENT_ACCESS",
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(outcome).toMatchObject({ go: true, asked: true });
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      module: 'autopilot',
+      emailsUncounted: "the target's flows: INSUFFICIENT_ACCESS",
+    });
   });
 
   it('asks nothing when the emails fit in what the target has left', async () => {

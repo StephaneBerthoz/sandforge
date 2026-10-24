@@ -92,6 +92,12 @@ export interface ExtractedDataset {
    * none is.
    */
   exclusionCosts?: FrozenExclusionCost[];
+  /**
+   * The fields, as `Object.Field`, left out of every record: classic
+   * encrypted fields the user the source was read as reads masked, lacking
+   * View Encrypted Data. Absent when none is.
+   */
+  encryptedNotKept?: string[];
 }
 
 /** A pseudonymized record of the frozen dataset. */

@@ -1535,8 +1535,7 @@
       "withoutFields_one": "{{count}} Datensatz erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
       "withoutFields_other": "{{count}} Datensätze erneut ohne die Felder geschrieben, die die Ziel-Org abgelehnt hat:",
       "withoutField_one": "{{field}}, bei {{count}} Datensatz weggelassen: {{refusedBy}}.",
-      "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}.",
-      "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert."
+      "withoutField_other": "{{field}}, bei {{count}} Datensätzen weggelassen: {{refusedBy}}."
     },
     "firstStepTitle": "Erste Schritte mit Sync",
     "firstStepDesc": "Übertragen Sie Daten zwischen Ihren Salesforce-Orgs in 3 Klicks mit Schnell-Sync",
@@ -4642,6 +4641,7 @@
       "keepWarning": "E-Mails und Telefonnummern werden so geschrieben, wie die Quelle sie enthält: Flows, Trigger und E-Mail-Benachrichtigungen der Ziel-Org können dann echten Personen E-Mails oder SMS senden.",
       "keepHint": "Aus: Der Klon schreibt jede E-Mail-Adresse unter .invalid und jede Telefonnummer als fiktive Nummer, sodass die Automatisierung der Ziel-Org niemanden erreicht."
     },
+    "encryptedLeftOut": "{{fields}}: verschlüsselte Felder, die der Benutzer, mit dem SandForge die Quell-Org liest, ohne die Berechtigung View Encrypted Data maskiert sieht. Aus jedem geschriebenen Datensatz weggelassen, statt maskiert kopiert.",
     "writtenWithoutFields": {
       "title": "Ohne ein Feld geschrieben, das die Ziel-Org abgelehnt hat",
       "hint": "Die Ziel-Org hat diese Datensätze wegen der von ihr genannten Felder abgelehnt: eine ihrer Validierungsregeln, eine eingeschränkte Auswahlliste, die den Wert für den Datensatztyp des Datensatzes nicht annimmt — ein Datensatztyp, dem nie Werte des Felds zugewiesen wurden, nimmt keinen davon an, und nichts, was vor dem Schreiben gelesen wird, verrät das —, oder der Suchfilter eines Nachschlagefelds, das leer bleiben darf, der den genannten Datensatz nicht annimmt. Der Klon hat jeden Datensatz ohne diese Felder erneut geschrieben: Der Datensatz ist in der Ziel-Org, ohne den Wert, den die Quelle für diese Felder enthält.",

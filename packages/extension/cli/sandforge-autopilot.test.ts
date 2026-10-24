@@ -329,6 +329,37 @@ describe('sandforge-autopilot — the plan', () => {
     );
   });
 
+  it('lists a selected table cut to its first records by Id on its cut line alone, never among those copied whole', () => {
+    // Step 4 leaves a cut table out of the tables copied whole; the command
+    // line listed it there as well as on its cut line.
+    const lines = scopeLines({
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Account', 'Contact'],
+      parents: [],
+      leftEmpty: [],
+      standardNeeded: [],
+      cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
+    });
+
+    expect(lines).toContain('  copied whole, as selected: Contact');
+    expect(lines.filter((line) => line.includes('Account'))).toEqual([
+      '  Account: 50000 of 2000000 record(s) copied, the first by Id -- a run copies no more of ' +
+        'a selected object',
+    ]);
+
+    const allCut = scopeLines({
+      maxDepth: 5,
+      maxObjects: 50,
+      selected: ['Account'],
+      parents: [],
+      leftEmpty: [],
+      standardNeeded: [],
+      cutShort: [{ objectApiName: 'Account', copied: 50_000, total: 2_000_000 }],
+    });
+    expect(allCut.some((line) => line.includes('copied whole'))).toBe(false);
+  });
+
   it('says which standard parents were followed by default, and through which lookups', () => {
     // Left out with standard objects off, the account of every opportunity
     // stayed empty; it is followed now, and the plan says so.
