@@ -460,9 +460,13 @@ describe('a sweep asked with the removal of a Sync run', () => {
   });
 
   describe('a run that created nothing and only wrote over an account', () => {
-    /** The run's two lines, by this machine's clock, which agrees with the org's here. */
-    const WROTE_AT = '2026-09-20T11:00:00.000Z';
-    const ANSWERED_AT = '2026-09-20T11:00:05.000Z';
+    /**
+     * The run's two lines, by this machine's clock, which agrees with the org's
+     * here but for the few milliseconds the read of the org's clock takes: half
+     * a second from a whole second, so that drift never moves the window's edges.
+     */
+    const WROTE_AT = '2026-09-20T11:00:00.500Z';
+    const ANSWERED_AT = '2026-09-20T11:00:04.500Z';
     const BACKUP = 'sync-before-run-over-only';
     /** What a flow on the account's update opened, as the run's user, twenty seconds in. */
     const UPDATE_TASK = id('00T', 5);
