@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { CRM_STARTER, SALES_CLOUD_STARTER } from '@sandforge/shared';
+import { CRM_STARTER, DATA_STORAGE_NOT_TOLD, SALES_CLOUD_STARTER } from '@sandforge/shared';
 import { seedRequestsEstimate, seedStorageBytes, seedStorageGate } from './seedStorage';
 
 const KB = 1024;
@@ -85,6 +85,42 @@ describe('seedStorageGate', () => {
     );
   });
 
+  it("refuses a seed past the API requests a Standard User's limits tell, though they leave out the storage", async () => {
+    // A Standard User's `/limits` list DailyApiRequests and SingleEmail, and
+    // no DataStorageMB: the seed took the requests for unread with the
+    // storage, and went on into an org with three requests left.
+    const transport = {
+      request: vi.fn(async () => ({
+        DailyApiRequests: { Max: 15_000, Remaining: 3 },
+        SingleEmail: { Max: 15, Remaining: 15 },
+      })),
+    };
+
+    const gate = await seedStorageGate(transport, CRM_STARTER, [], 'my-dev-org');
+
+    expect(gate.check).toMatchObject({ verdict: 'unread', unread: DATA_STORAGE_NOT_TOLD });
+    expect(gate.api).toEqual({
+      verdict: 'exceeds',
+      estimate: seedRequestsEstimate(CRM_STARTER),
+      max: 15_000,
+      remaining: 3,
+    });
+    expect(gate.refusedFor).toBe('apiRequests');
+    expect(gate.refusal).toContain('my-dev-org has 3 of its 15000 daily requests left');
+  });
+
+  it("asks nothing more of a Standard User's org whose requests fit, and says the storage it does not tell", async () => {
+    const transport = {
+      request: vi.fn(async () => ({ DailyApiRequests: { Max: 15_000, Remaining: 14_000 } })),
+    };
+
+    const gate = await seedStorageGate(transport, CRM_STARTER, [], 'my-dev-org');
+
+    expect(gate.refusal).toBeUndefined();
+    expect(gate.check).toMatchObject({ verdict: 'unread', unread: DATA_STORAGE_NOT_TOLD });
+    expect(gate.api).toMatchObject({ verdict: 'fits', remaining: 14_000, max: 15_000 });
+  });
+
   it('counts a REST call per 200 records, and five calls per Bulk API job past them', () => {
     expect(seedRequestsEstimate(objects(['Account', 150], ['Contact', 600]))).toBe(1 + 5);
     expect(seedRequestsEstimate(objects(['Contact', 25_000]))).toBe(15);
@@ -95,5 +131,6 @@ describe('seedStorageGate', () => {
     const gate = await seedStorageGate(transport, SALES_CLOUD_STARTER, [], 'my-dev-org');
     expect(gate.refusal).toBeUndefined();
     expect(gate.check).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
+    expect(gate.api).toMatchObject({ verdict: 'unread', unread: 'API_DISABLED' });
   });
 });

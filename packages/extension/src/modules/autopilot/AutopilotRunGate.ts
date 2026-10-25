@@ -32,6 +32,7 @@ import {
   storageCheckOf,
   storageRefusal,
   writePlanOf,
+  type ApiBudget,
   type DataStorage,
   type EmailCheck,
   type EmailLimit,
@@ -143,6 +144,8 @@ export type AutopilotGateOutcome =
  *
  * @param input.plan - The records the plan writes ({@link autopilotWritePlan}).
  * @param input.storage - What the target said of its storage, or why it said nothing.
+ * @param input.readApiBudget - The daily API requests the target has, as its
+ *   `/limits` say: read when the storage could not be.
  * @param input.confirmAboveRecords - The volume past which the run asks; 0 never asks.
  * @param input.emails - The emails the plan makes the target send ({@link autopilotEmails}).
  * @param input.emailsUncounted - Why some of them were not counted: what of
@@ -152,6 +155,7 @@ export type AutopilotGateOutcome =
 export async function gateAutopilotWrite(input: {
   plan: WritePlan;
   storage: DataStorage | { unread: string };
+  readApiBudget: () => Promise<ApiBudget>;
   confirmAboveRecords: number;
   emails?: readonly EmailCheck[];
   emailsUncounted?: string;
@@ -173,10 +177,18 @@ export async function gateAutopilotWrite(input: {
   }
   // Its calls against the daily API requests the target has left, read
   // from the same `/limits` as its storage: refused past them, as the run
-  // would stop part way through.
+  // would stop part way through. Read on their own when the storage could
+  // not be, as Sync reads them: a Standard User's `/limits` list the daily
+  // requests and not the storage, and the run took both for unread.
+  const budget =
+    'unread' in input.storage
+      ? await input.readApiBudget().catch((err: unknown) => ({
+          unread: err instanceof Error ? err.message : String(err),
+        }))
+      : input.storage.dailyApiRequests;
   const api = apiBudgetCheckOf(
     runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
-    'unread' in input.storage ? input.storage : input.storage.dailyApiRequests,
+    budget,
   );
   const overBudget = apiBudgetRefusal(api, input.org);
   if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };

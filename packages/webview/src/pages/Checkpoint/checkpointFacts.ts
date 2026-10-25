@@ -1,5 +1,7 @@
 import type {
   CheckpointListEntry,
+  CheckpointRefusal,
+  CheckpointScopeResponse,
   OrgCheckpoint,
   RewindUndoCannot,
   RewindUndoCannotReason,
@@ -46,6 +48,23 @@ export function usableCheckpoints(
     (entry): entry is CheckpointListEntry & { checkpoint: OrgCheckpoint } =>
       entry.valid && entry.checkpoint !== undefined,
   );
+}
+
+/** What a scope's answer says of what a take keeps, and of its refusal. */
+type ScopeFacts = Pick<CheckpointScopeResponse['payload'], 'objects' | 'leftOut' | 'refusal'>;
+
+/**
+ * Whether a take was refused before its scope was read — a production org, a
+ * user without View All Data and Modify All Data — as the command line tells
+ * it: the answer then holds no object, kept or left out, and an estimate of
+ * nothing, which said "about 0 API requests of the 0 left today" under the
+ * refusal, as if the take cost nothing. A refusal met once the scope was
+ * counted keeps the estimate it is about.
+ */
+export function refusedBeforeScope<T extends ScopeFacts>(
+  answer: T,
+): answer is T & { refusal: CheckpointRefusal } {
+  return answer.refusal !== undefined && answer.objects.length === 0 && answer.leftOut.length === 0;
 }
 
 /**

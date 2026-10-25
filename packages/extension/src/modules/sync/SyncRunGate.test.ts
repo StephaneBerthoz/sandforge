@@ -289,6 +289,40 @@ describe('measureSyncWrite', () => {
     expect(check.verdict).toBe('asks');
   });
 
+  it('asks, naming it, when a flow that fires on the inserts had its definition left unread: its emails were not counted', async () => {
+    // Past the read's bound, or refused, a flow's start condition and actions
+    // are not read: it was counted as sending nothing, and a run of contacts
+    // went on without a question whatever it sent.
+    const notRead: ForgeTargetAutomation = {
+      ...WELCOME_FLOW,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [
+            {
+              ...WELCOME_FLOW.objects[0].flows[0],
+              apiName: 'Contact_Nurture',
+              label: 'Contact nurture',
+              condition: 'notRead',
+              messages: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+      conditionsNotRead: 1,
+    };
+
+    const { check } = await measureSyncWrite(
+      counted([{ objectApiName: 'Contact', operation: 'insert', rows: 3 }]),
+      measures({ readAutomation: async () => notRead }),
+    );
+
+    expect(check.emails).toEqual([]);
+    expect(check.emailsUnread).toBe('the definition of Contact nurture on Contact');
+    expect(check.verdict).toBe('asks');
+  });
+
   it('asks when the target would not say what it has left of a daily email limit its flows send against', async () => {
     const { check } = await measureSyncWrite(
       counted([{ objectApiName: 'Contact', operation: 'insert', rows: 2 }]),

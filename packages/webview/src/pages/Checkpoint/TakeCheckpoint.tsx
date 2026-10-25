@@ -35,6 +35,7 @@ import {
   isCheckpointName,
   objectsWithRecords,
   recordsHeld,
+  refusedBeforeScope,
   roughSeconds,
 } from './checkpointFacts';
 
@@ -259,7 +260,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
               <span>{t('checkpoint.take.picked')}</span>
             </label>
 
-            {everything.data && (
+            {everything.data && !refusedBeforeScope(everything.data) && (
               <ScopeObjects
                 answer={everything.data}
                 picking={mode === 'picked'}
@@ -628,6 +629,18 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
         data-testid="checkpoint-scope-reading"
       >
         {t('checkpoint.take.reading', { org: orgName })}
+      </p>
+    );
+  } else if (refusedBeforeScope(answer)) {
+    // Refused before its scope was read, the take has no cost to say: the
+    // refusal alone, as the command line prints it.
+    body = (
+      <p
+        role="alert"
+        className="text-xs font-medium text-text-primary"
+        data-testid="checkpoint-refusal"
+      >
+        {answer.refusal.message}
       </p>
     );
   } else {

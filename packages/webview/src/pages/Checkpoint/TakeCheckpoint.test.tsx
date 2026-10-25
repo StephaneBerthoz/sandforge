@@ -148,6 +148,32 @@ describe('TakeCheckpoint', () => {
     expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
   });
 
+  it('says the refusal alone of a take refused before its scope is read, and no cost of it', () => {
+    // As a Standard User, the page said "about 0 API requests of the 0 left
+    // today" and "0 objects · about 0 records" with the refusal, an estimate
+    // of nothing read as a take that would cost nothing.
+    renderTake();
+    answerScope({
+      objects: [],
+      leftOut: [],
+      estimate: { records: 0, apiRequests: 0, apiRequestsLeft: 0, seconds: 0, bytes: 0 },
+      refusal: {
+        code: 'PERMISSIONS',
+        message: 'A checkpoint needs a user with View All Data and Modify All Data.',
+      },
+    });
+
+    const card = screen.getByTestId('checkpoint-before-it-runs');
+    expect(within(card).getByRole('alert')).toHaveTextContent(
+      'A checkpoint needs a user with View All Data and Modify All Data.',
+    );
+    expect(screen.queryByTestId('checkpoint-cost')).not.toBeInTheDocument();
+    expect(card.textContent).not.toMatch(/API requests|unencrypted|Ask people/);
+    expect(screen.queryByTestId('checkpoint-scope-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-see-objects')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+  });
+
   it('says a scope that failed, and asks it again on Retry', () => {
     renderTake();
     act(() =>

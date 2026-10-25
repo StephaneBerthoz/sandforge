@@ -14,6 +14,7 @@ import {
   apiBudgetCheckOf,
   apiBudgetRefusal,
   countedStorageBytes,
+  readApiBudget,
   readDataStorage,
   runRequestsEstimate,
   storageCheckOf,
@@ -66,7 +67,10 @@ export function seedStorageBytes(
 /** What the seed takes against what the target has left, and why it cannot run when it cannot. */
 export interface SeedStorageGate {
   check: StorageCheck;
-  /** Its calls against the daily API requests the target has left, read from the same `/limits`. */
+  /**
+   * Its calls against the daily API requests the target has left, read from
+   * the same `/limits`, or on their own when the storage could not be read.
+   */
   api: ApiBudgetCheck;
   /**
    * Why nothing is written: the records take more than the target has left
@@ -98,10 +102,16 @@ export async function seedStorageGate(
     storage = { unread: extractErrorMessage(err) };
   }
   const check = storageCheckOf(plan, storage);
-  const api = apiBudgetCheckOf(
-    seedRequestsEstimate(template),
-    'unread' in storage ? storage : storage.dailyApiRequests,
-  );
+  // The daily requests on their own when the storage could not be read, as
+  // Sync reads them: a Standard User's `/limits` list them and not the
+  // storage, and the seed took both for unread, refused past neither.
+  const budget =
+    'unread' in storage
+      ? await readApiBudget(transport).catch((err: unknown) => ({
+          unread: extractErrorMessage(err),
+        }))
+      : storage.dailyApiRequests;
+  const api = apiBudgetCheckOf(seedRequestsEstimate(template), budget);
   const refusal = storageRefusal(check, target);
   if (refusal) {
     return { check, api, refusal: `${refusal} Nothing was written.`, refusedFor: 'storage' };

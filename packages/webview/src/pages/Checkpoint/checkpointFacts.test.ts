@@ -4,11 +4,12 @@ import {
   isCheckpointName,
   objectsWithRecords,
   recordsHeld,
+  refusedBeforeScope,
   roughSeconds,
   undoCannotReasonOf,
   usableCheckpoints,
 } from './checkpointFacts';
-import { listEntry, readyCheckpoint } from './testing/checkpointFixtures';
+import { listEntry, readyCheckpoint, scopeAnswer } from './testing/checkpointFixtures';
 
 describe('checkpointFacts', () => {
   it('reads an entry of what Undo could not bring back that names no reason as one of the first, as entries made before the second say it', () => {
@@ -35,6 +36,21 @@ describe('checkpointFacts', () => {
     expect(
       usableCheckpoints([newest, failed, damaged, older]).map((entry) => entry.checkpointId),
     ).toEqual(['ck-20261022-090000-0001', 'ck-20261020-090000-0003']);
+  });
+
+  it('tells a take refused before its scope was read from one refused once it was counted', () => {
+    const permissions = { code: 'PERMISSIONS' as const, message: 'refused' };
+    // Refused at the guard: nothing of the org was read.
+    expect(
+      refusedBeforeScope(scopeAnswer({ objects: [], leftOut: [], refusal: permissions })),
+    ).toBe(true);
+    // Refused once counted: the estimate is what the refusal is about.
+    expect(
+      refusedBeforeScope(
+        scopeAnswer({ refusal: { code: 'TOO_MANY_RECORDS', message: 'too many records' } }),
+      ),
+    ).toBe(false);
+    expect(refusedBeforeScope(scopeAnswer({ objects: [], leftOut: [] }))).toBe(false);
   });
 
   it('says an estimate of time to ten seconds under a minute and to the minute above', () => {

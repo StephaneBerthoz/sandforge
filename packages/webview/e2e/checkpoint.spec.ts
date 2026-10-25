@@ -428,6 +428,31 @@ for (const theme of THEMES) {
       expect(await host.sent('checkpoint:take')).toEqual([]);
     });
 
+    test('says the refusal alone of a take refused before its scope is read', async ({ page }) => {
+      const host = await openCheckpoints(page, theme, []);
+      await page.getByRole('button', { name: 'Take a checkpoint' }).click();
+      await host.answer(
+        'checkpoint:scope',
+        scopeAnswer({
+          objects: [],
+          leftOut: [],
+          estimate: { records: 0, apiRequests: 0, apiRequestsLeft: 0, seconds: 0, bytes: 0 },
+          refusal: {
+            code: 'PERMISSIONS',
+            message: 'A checkpoint needs a user with View All Data and Modify All Data.',
+          },
+        }),
+      );
+      await expect(page.getByTestId('checkpoint-refusal')).toHaveText(
+        'A checkpoint needs a user with View All Data and Modify All Data.',
+      );
+      await expect(page.getByTestId('checkpoint-cost')).toHaveCount(0);
+      await expect(page.getByTestId('checkpoint-scope-summary')).toHaveCount(0);
+      await expect(page.getByTestId('checkpoint-take-start')).toBeDisabled();
+      await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
+      expect(await host.sent('checkpoint:take')).toEqual([]);
+    });
+
     test('offers nothing on a production org, says why, and reads no checkpoint of it', async ({
       page,
     }) => {

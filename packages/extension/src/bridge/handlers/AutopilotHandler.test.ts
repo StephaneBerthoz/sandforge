@@ -1614,6 +1614,8 @@ describe('AutopilotHandler', () => {
       };
       /** What the connection to the target answers besides its limits. */
       conn?: Record<string, unknown>;
+      /** What the target's `/limits` answer, in place of its storage and single emails. */
+      limits?: Record<string, unknown>;
     }) {
       const read = vi.fn(async (_org: string, objects: readonly string[]) => {
         if (options.automationFails !== undefined) throw new Error(options.automationFails);
@@ -1648,10 +1650,13 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({
         ...options.conn,
-        request: vi.fn(async () => ({
-          DataStorageMB: { Max: 200, Remaining: options.remainingMB },
-          SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
-        })),
+        request: vi.fn(
+          async () =>
+            options.limits ?? {
+              DataStorageMB: { Max: 200, Remaining: options.remainingMB },
+              SingleEmail: { Max: 15, Remaining: options.singleEmailsLeft ?? 15 },
+            },
+        ),
       } as never);
       await handler.handle(scanMsg('scan-gate'));
       await handler.handle(
@@ -1814,6 +1819,25 @@ describe('AutopilotHandler', () => {
 
       expect(asked).not.toHaveBeenCalled();
       expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a plan past the API requests a Standard User's limits tell, though they leave out the storage", async () => {
+      // A Standard User's `/limits` list DailyApiRequests and SingleEmail, and
+      // no DataStorageMB: the run lost the requests with the storage, asked
+      // about the storage alone, and wrote into an org with four requests left.
+      const { orchestrator, asked, errors } = await run({
+        remainingMB: 150,
+        confirmAboveRecords: 5_000,
+        limits: {
+          DailyApiRequests: { Max: 15_000, Remaining: 4 },
+          SingleEmail: { Max: 5_000, Remaining: 5_000 },
+        },
+      });
+
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      expect(asked).not.toHaveBeenCalled();
+      expect(errors.map((e) => e.payload.code)).toEqual(['API_BUDGET_EXCEEDED']);
+      expect(errors[0].payload.message).toContain('TGT has 4 of its 15000 daily requests left');
     });
 
     it("refuses a plan past the target's data storage before anything is written", async () => {

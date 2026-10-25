@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
-import type { ForgeRehearsal } from '@sandforge/shared';
+import { adminChangesOf, type ForgeRehearsal } from '@sandforge/shared';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 vi.mock('./sfSession.js', async (importOriginal) => {
@@ -74,6 +74,25 @@ const DESCRIBES: Record<string, DescribeSObjectResult> = {
   ]),
 };
 
+/**
+ * The contact's describe with a record type and a restricted picklist whose
+ * active values are Gold and Silver, in both orgs.
+ */
+const RANKED_CONTACT = object('Contact', '003', [
+  { name: 'LastName' },
+  { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+  { name: 'RecordTypeId', type: 'reference', referenceTo: ['RecordType'] },
+  {
+    name: 'Level__c',
+    type: 'picklist',
+    restrictedPicklist: true,
+    picklistValues: [
+      { value: 'Gold', active: true },
+      { value: 'Silver', active: true },
+    ],
+  },
+]);
+
 const HALTED = {
   body: [{ errorCode: 'PROCESSING_HALTED', message: 'halted' }],
   httpStatusCode: 400,
@@ -86,7 +105,27 @@ const HALTED = {
  * rows' verdicts; otherwise every request is stopped and the closing update
  * fails on its own.
  */
-function fakeOrg({ refuseContacts = false, sandbox = true, flows = false } = {}) {
+function fakeOrg({
+  refuseContacts = false,
+  sandbox = true,
+  flows = false,
+  partnerRecordType,
+  refuseLevel = false,
+}: {
+  refuseContacts?: boolean;
+  sandbox?: boolean;
+  flows?: boolean;
+  /**
+   * The org's Partner record type of contacts: its contact is described with
+   * a record type and a restricted Level__c, and holds Gold under Partner.
+   */
+  partnerRecordType?: string;
+  /** The target refuses the contact's Level__c, as a record type that does not select it does. */
+  refuseLevel?: boolean;
+} = {}) {
+  const describes: Record<string, DescribeSObjectResult> = partnerRecordType
+    ? { ...DESCRIBES, Contact: RANKED_CONTACT }
+    : DESCRIBES;
   const created: string[] = [];
   const composites: Array<{
     allOrNone: boolean;
@@ -95,20 +134,27 @@ function fakeOrg({ refuseContacts = false, sandbox = true, flows = false } = {})
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
   const rows: Record<string, FakeRow[]> = {
     Account: [{ Id: ACCOUNT, Name: 'Example' }],
-    Contact: [{ Id: CONTACT, LastName: 'Key', AccountId: ACCOUNT }],
+    Contact: [
+      {
+        Id: CONTACT,
+        LastName: 'Key',
+        AccountId: ACCOUNT,
+        ...(partnerRecordType ? { RecordTypeId: partnerRecordType, Level__c: 'Gold' } : {}),
+      },
+    ],
   };
   const conn = {
     version: '66.0',
     sobject: (name: string) => ({
-      describe: async () => DESCRIBES[name],
+      describe: async () => describes[name],
       create: async (records: unknown[]) => {
         created.push(name);
         return records.map(() => ({ id: '', success: true, errors: [] }));
       },
     }),
-    describe$: async (name: string) => DESCRIBES[name],
+    describe$: async (name: string) => describes[name],
     describeGlobal: async () => ({
-      sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
+      sobjects: Object.values(describes).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
     }),
     query: async (soql: string) => {
       if (soql === 'SELECT Id, IsSandbox FROM Organization LIMIT 1') {
@@ -128,6 +174,20 @@ function fakeOrg({ refuseContacts = false, sandbox = true, flows = false } = {})
                   RecordTriggerType: 'Create',
                   TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
                   ActiveVersionId: '301000000000001AAA',
+                },
+              ]
+            : [],
+        );
+      }
+      if (soql.startsWith('SELECT Id, Name, DeveloperName, SobjectType FROM RecordType ')) {
+        return page(
+          partnerRecordType
+            ? [
+                {
+                  Id: partnerRecordType,
+                  Name: 'Partner',
+                  DeveloperName: 'Partner',
+                  SobjectType: 'Contact',
                 },
               ]
             : [],
@@ -155,15 +215,17 @@ function fakeOrg({ refuseContacts = false, sandbox = true, flows = false } = {})
           (r) => r.attributes.type === 'Contact',
         ),
       );
-      if (refuseContacts && at !== -1) {
+      if ((refuseContacts || refuseLevel) && at !== -1) {
         const records = (collections[at].body as { records: unknown[] }).records;
+        const error = refuseLevel
+          ? {
+              statusCode: 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST',
+              message: 'bad value for restricted picklist field: Gold',
+              fields: ['Level__c'],
+            }
+          : { statusCode: 'REQUIRED_FIELD_MISSING', message: 'Champs requis', fields: ['Email'] };
         answers[at] = {
-          body: records.map(() => ({
-            success: false,
-            errors: [
-              { statusCode: 'REQUIRED_FIELD_MISSING', message: 'Champs requis', fields: ['Email'] },
-            ],
-          })),
+          body: records.map(() => ({ success: false, errors: [error] })),
           httpStatusCode: 200,
         };
         answers.push(HALTED);
@@ -182,8 +244,8 @@ describe('sandforge-clone --rehearse', () => {
   let stderr: string;
   let orgs: { SRC: ReturnType<typeof fakeOrg>; TGT: ReturnType<typeof fakeOrg> };
 
-  function withOrgs(target = fakeOrg()): void {
-    orgs = { SRC: fakeOrg(), TGT: target };
+  function withOrgs(target = fakeOrg(), source = fakeOrg()): void {
+    orgs = { SRC: source, TGT: target };
     vi.mocked(loadOrg).mockImplementation(async (alias) => ({
       alias,
       username: '',
@@ -258,6 +320,37 @@ describe('sandforge-clone --rehearse', () => {
     const summary = JSON.parse(stdout) as { action: string; rehearsal: ForgeRehearsal };
     expect(summary.action).toBe('rehearse');
     expect(summary.rehearsal).toMatchObject({ rows: 2, judged: 2, passed: 2, calls: 1 });
+  });
+
+  it("says why the target refused a restricted picklist's value, from its describe: the record type does not select it", async () => {
+    // The target's field holds Gold, and the contact goes in as a Partner:
+    // the refusal said no reason, and the list for the target's admin said
+    // "add or activate the value" where the fix is selecting it for Partner.
+    withOrgs(
+      fakeOrg({ partnerRecordType: '012000000000002AAA', refuseLevel: true }),
+      fakeOrg({ partnerRecordType: '012000000000001AAA' }),
+    );
+
+    expect(await run(argv('--rehearse', '--skip-preflight', '--json'))).toBeUndefined();
+
+    const { rehearsal } = JSON.parse(stdout) as { rehearsal: ForgeRehearsal };
+    expect(rehearsal.gaps).toEqual([
+      expect.objectContaining({
+        kind: 'picklist_value_refused',
+        objectApiName: 'Contact',
+        field: 'Level__c',
+        recordType: 'Partner',
+        value: 'Gold',
+        detail: expect.objectContaining({ reason: 'record-type' }) as unknown,
+      }),
+    ]);
+    expect(adminChangesOf(rehearsal.gaps)).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        recordType: 'Partner',
+        changes: [expect.objectContaining({ change: 'select_picklist_value', value: 'Gold' })],
+      }),
+    ]);
   });
 
   it('sends nothing to a target that runs automation on insert without --accept-automation', async () => {

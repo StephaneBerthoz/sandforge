@@ -24,6 +24,7 @@ import {
   DATA_STORAGE_NOT_TOLD,
   FORGE_READ_CEILING_PER_OBJECT,
   assignPermsetCommand,
+  automationByWrite,
   bypassAssignmentsOf,
   bypassesOfWrites,
   emailsPerInsertOf,
@@ -836,9 +837,12 @@ export async function countedTargetEmails(input: {
   // What sends emails and could not be read is counted as nothing: the run
   // is told it was not counted, and asks. A refused read of the flows left
   // their emails out of the count with no word, and the gate let through a
-  // run that took a Developer Edition past its fifteen emails a day.
-  const hidden = emailSendersUnread(automation.unread);
-  const uncounted = hidden !== undefined ? { unread: hidden } : {};
+  // run that took a Developer Edition past its fifteen emails a day. So did
+  // a flow, a process or a rule whose own definition was not read.
+  const hidden = [emailSendersUnread(automation.unread), sendersNotReadOf(automation, input.plan)]
+    .filter((said): said is string => said !== undefined)
+    .join('; ');
+  const uncounted = hidden !== '' ? { unread: hidden } : {};
   const sending = emailsPerInsertOf(automation);
   if (sending.length === 0) return { checks: [], ...uncounted };
   const limits = await input
@@ -869,6 +873,53 @@ function emailSendersUnread(unread: ForgeTargetAutomation['unread']): string | u
     return words !== undefined ? [`${words}: ${reason}`] : [];
   });
   return said.length > 0 ? said.join('; ') : undefined;
+}
+
+/** The flows, processes and rules of an object a reason names before it says how many more there are. */
+const SENDERS_NAMED = 10;
+
+/**
+ * Why the emails of flows, processes or workflow rules that fire as the plan
+ * inserts its records were not counted: their definition — the metadata a
+ * flow's start condition and actions are read from, a process's, a rule's —
+ * was refused, or left unread past the read's bound, and what they send is
+ * not known. Named per object; undefined when each one that fires was read. A
+ * flow that runs before the save sends nothing, and is not named.
+ *
+ * Read with no actions, each counted as sending none: a run into a target
+ * whose contact flow was past the bound asked nothing, whatever it sent.
+ */
+function sendersNotReadOf(
+  automation: Pick<ForgeTargetAutomation, 'objects'>,
+  plan: Pick<WritePlan, 'objects'>,
+): string | undefined {
+  const inserted = new Set(
+    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
+  );
+  const named = automation.objects.flatMap((object) => {
+    if (!inserted.has(object.objectApiName)) return [];
+    const fired = automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? [];
+    const names = fired
+      .filter(
+        ({ flow, keptQuiet }) =>
+          flow !== undefined &&
+          keptQuiet !== true &&
+          flow.condition !== 'read' &&
+          flow.timing !== 'beforeSave',
+      )
+      .map(({ name }) => name);
+    if (names.length === 0) return [];
+    const more = names.length > SENDERS_NAMED ? ` and ${names.length - SENDERS_NAMED} more` : '';
+    return [
+      {
+        count: names.length,
+        words: `${names.slice(0, SENDERS_NAMED).join(', ')}${more} on ${object.objectApiName}`,
+      },
+    ];
+  });
+  if (named.length === 0) return undefined;
+  const count = named.reduce((sum, { count: each }) => sum + each, 0);
+  return `the definition${count === 1 ? '' : 's'} of ${named.map(({ words }) => words).join('; ')}`;
 }
 
 /** A limit the emails go past, as a run's question names it. */

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { ApiName, ForgeTargetAutomation } from '@sandforge/shared';
+import { DATA_STORAGE_NOT_TOLD, type ApiName, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard';
+import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate';
 import {
   autopilotEmails,
   autopilotWritePlan,
@@ -61,6 +62,14 @@ describe('autopilotWritePlan', () => {
   });
 });
 
+/**
+ * The daily API requests read on their own, as the gate reads them when the
+ * storage could not be: here the org refuses them too.
+ */
+async function requestsReadApart(): Promise<never> {
+  throw new Error('INSUFFICIENT_ACCESS');
+}
+
 describe('gateAutopilotWrite', () => {
   const roomy = { maxMB: 200, remainingMB: 150 };
 
@@ -71,6 +80,7 @@ describe('gateAutopilotWrite', () => {
     const outcome = await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Account'), new Map([['Account', 20_000]])),
       storage: { maxMB: 200, remainingMB: 22 },
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       org: 'TARGET',
       orgTier: 'development',
@@ -87,6 +97,7 @@ describe('gateAutopilotWrite', () => {
     const outcome = await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 2_500]])),
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       org: 'TARGET',
       orgTier: 'development',
@@ -109,6 +120,7 @@ describe('gateAutopilotWrite', () => {
       gateAutopilotWrite({
         plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 2_500]])),
         storage: roomy,
+        readApiBudget: requestsReadApart,
         confirmAboveRecords: 2_000,
         org: 'TARGET',
         orgTier: 'development',
@@ -127,6 +139,7 @@ describe('gateAutopilotWrite', () => {
     await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 3]])),
       storage: { unread: 'INSUFFICIENT_ACCESS' },
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       org: 'TARGET',
       orgTier: 'development',
@@ -143,6 +156,7 @@ describe('gateAutopilotWrite', () => {
     const outcome = await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 1_000]])),
       storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 4 } },
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       org: 'TARGET',
       orgTier: 'development',
@@ -156,12 +170,63 @@ describe('gateAutopilotWrite', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it("refuses a plan past the API requests a Standard User's limits tell, though they leave out the storage", async () => {
+    // A Standard User's `/limits` list DailyApiRequests and SingleEmail, and
+    // no DataStorageMB: the run took the requests for unread with the
+    // storage, asked about the storage alone, and wrote into an org with four
+    // requests left.
+    const transport = {
+      request: vi.fn(async () => ({
+        DailyApiRequests: { Max: 15_000, Remaining: 4 },
+        SingleEmail: { Max: 5_000, Remaining: 5_000 },
+      })),
+    };
+    const storage = await readDataStorage(transport).catch((err: unknown) => ({
+      unread: err instanceof Error ? err.message : String(err),
+    }));
+    const confirm = vi.fn(async () => 'confirmed' as const);
+
+    const outcome = await gateAutopilotWrite({
+      plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 1_000]])),
+      storage,
+      readApiBudget: () => readApiBudget(transport),
+      confirmAboveRecords: 2_000,
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm,
+    });
+
+    expect(storage).toEqual({ unread: DATA_STORAGE_NOT_TOLD });
+    expect(outcome).toMatchObject({ go: false, code: 'API_BUDGET_EXCEEDED' });
+    expect(outcome.go === false && outcome.message).toContain(
+      'TARGET has 4 of its 15000 daily requests left',
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('reads the API requests with the storage when the storage was read, in one request', async () => {
+    const readBudget = vi.fn(requestsReadApart);
+
+    await gateAutopilotWrite({
+      plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 3]])),
+      storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 14_000 } },
+      readApiBudget: readBudget,
+      confirmAboveRecords: 2_000,
+      org: 'TARGET',
+      orgTier: 'development',
+      confirm: vi.fn(),
+    });
+
+    expect(readBudget).not.toHaveBeenCalled();
+  });
+
   it('asks when the target would not say what it has left of a daily email limit, saying so', async () => {
     // Said only in the log: the run went ahead without a question.
     const confirm = vi.fn(async (_question: WriteConfirmation) => 'confirmed' as const);
     const outcome = await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Contact'), new Map([['Contact', 20]])),
       storage: { ...roomy, dailyApiRequests: { max: 15_000, remaining: 1_400 } },
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       emails: [
         {
@@ -189,6 +254,7 @@ describe('gateAutopilotWrite', () => {
     const outcome = await gateAutopilotWrite({
       plan: autopilotWritePlan(planOf('Lead'), new Map([['Lead', 3]])),
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       org: 'TARGET',
       orgTier: 'development',
@@ -377,6 +443,44 @@ describe('autopilotEmails', () => {
     expect(emails.unread).toBe("the target's flows: INSUFFICIENT_ACCESS");
   });
 
+  it('says the emails of a workflow rule whose definition the target refused were not counted, naming it', async () => {
+    // A rule left unread has no actions read: it was counted as sending
+    // nothing, and a plan of contacts went on without a question.
+    const refusedRule: ForgeTargetAutomation = {
+      ...WELCOME_FLOW,
+      objects: [
+        {
+          objectApiName: 'Contact',
+          flows: [],
+          triggers: [],
+          workflowRules: [
+            {
+              apiName: 'Contact_Rule',
+              label: 'Contact rule',
+              timing: 'afterSave',
+              startsOn: 'createAndUpdate',
+              condition: 'unreadable',
+              permissions: [],
+              messages: [],
+            },
+          ],
+        },
+      ],
+      unread: [{ part: 'definitions', reason: 'INSUFFICIENT_ACCESS' }],
+    };
+    const readLimits = vi.fn(async () => ({}));
+
+    const emails = await autopilotEmails({
+      plan,
+      objects: ['Account', 'Contact'],
+      readAutomation: async () => refusedRule,
+      readLimits,
+    });
+
+    expect(emails).toEqual({ checks: [], unread: 'the definition of Contact rule on Contact' });
+    expect(readLimits).not.toHaveBeenCalled();
+  });
+
   it('says no email went uncounted when only what sends none could not be read', async () => {
     const emails = await autopilotEmails({
       plan,
@@ -421,6 +525,7 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     const outcome = await gateAutopilotWrite({
       plan: contacts,
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       emails: [{ ...sixty, verdict: 'exceeds', remaining: 15, max: 15 }],
       org: 'TARGET',
@@ -445,6 +550,7 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     await gateAutopilotWrite({
       plan: contacts,
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       emails: [{ ...sixty, verdict: 'exceeds', remaining: 15, max: 15, alertsCounted: true }],
       org: 'TARGET',
@@ -462,6 +568,7 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     const outcome = await gateAutopilotWrite({
       plan: contacts,
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       emails: [],
       emailsUncounted: "the target's flows: INSUFFICIENT_ACCESS",
@@ -482,6 +589,7 @@ describe('gateAutopilotWrite — the emails of a plan', () => {
     const outcome = await gateAutopilotWrite({
       plan: contacts,
       storage: roomy,
+      readApiBudget: requestsReadApart,
       confirmAboveRecords: 2_000,
       emails: [{ ...sixty, verdict: 'fits', remaining: 900, max: 1_000 }],
       org: 'TARGET',

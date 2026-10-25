@@ -40,8 +40,10 @@ import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import {
   DEFAULT_CONFIRM_ABOVE_RECORDS,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
+  type ApiBudget,
   type DataStorage,
   type WritePlan,
 } from '../../modules/forge/ForgeRunGate.js';
@@ -724,6 +726,7 @@ export class AutopilotHandler implements DomainHandler {
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
+      readApiBudget: () => this.readTargetApiBudget(operation.targetOrgId),
       confirmAboveRecords: this.confirmAboveRecords(),
       emails: emails.checks,
       ...(emails.unread !== undefined ? { emailsUncounted: emails.unread } : {}),
@@ -1045,6 +1048,18 @@ export class AutopilotHandler implements DomainHandler {
     } catch (err: unknown) {
       return { unread: extractErrorMessage(err) };
     }
+  }
+
+  /** The daily API requests the target has, read when its storage could not be. */
+  private async readTargetApiBudget(targetOrgId: string): Promise<ApiBudget> {
+    const conn = await getJsforceConnection(
+      targetOrgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+    return new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('autopilot:limits', () =>
+      readApiBudget(conn),
+    );
   }
 
   /**

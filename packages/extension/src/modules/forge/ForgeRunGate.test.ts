@@ -22,6 +22,7 @@ import {
   confirmationSimulatedOf,
   confirmationStorageOf,
   countedEmailChecksOf,
+  countedTargetEmails,
   emailCheckLines,
   emailChecksOf,
   emailRefusal,
@@ -470,6 +471,145 @@ describe('countedEmailChecksOf', () => {
     expect(countedEmailChecksOf(plan, flowOnly, developerEdition)).toEqual([
       expect.not.objectContaining({ alertsCounted: true }),
     ]);
+  });
+});
+
+describe('countedTargetEmails', () => {
+  const flow = (over: Partial<ForgeTargetFlow>): ForgeTargetFlow => ({
+    apiName: 'F',
+    label: 'F',
+    timing: 'afterSave',
+    startsOn: 'create',
+    condition: 'read',
+    permissions: [],
+    messages: [],
+    ...over,
+  });
+  /** A Developer Edition's contact flow, read: two single emails a contact created. */
+  const welcome = flow({
+    label: 'Contact welcome',
+    messages: [
+      { kind: 'email', name: 'Send welcome', limit: 'SingleEmail' },
+      { kind: 'email', name: 'Send follow up', limit: 'SingleEmail' },
+    ],
+  });
+  const targetOf = (
+    objects: ForgeTargetAutomation['objects'],
+    unread: ForgeTargetAutomation['unread'] = [],
+  ): ForgeTargetAutomation => ({
+    objectsRead: objects.map((object) => object.objectApiName),
+    objects,
+    unread,
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 4,
+  });
+  const planOf = (...objects: Array<[string, number]>) =>
+    writePlanOf(
+      objects.map(([objectApiName, counted]) => ({
+        objectApiName,
+        rows: [],
+        counted: { rows: counted },
+      })),
+    );
+  const count = (plan: ReturnType<typeof planOf>, automation: ForgeTargetAutomation) =>
+    countedTargetEmails({
+      plan,
+      objects: plan.objects.map((object) => object.objectApiName),
+      readAutomation: async () => automation,
+      readLimits: async () => ({ SingleEmail: { max: 15, remaining: 15 } }),
+    });
+
+  it('says the emails of a flow whose definition was not read were not counted, naming it, beside those it counted', async () => {
+    // Past the read's bound, a flow's start condition and actions are not
+    // read: it was counted as sending nothing, and nothing asked.
+    const emails = await count(
+      planOf(['Contact', 5]),
+      targetOf([
+        {
+          objectApiName: 'Contact',
+          flows: [welcome, flow({ label: 'Contact nurture', condition: 'notRead' })],
+          triggers: [],
+        },
+      ]),
+    );
+
+    expect(emails.checks).toEqual([
+      expect.objectContaining({ limit: 'SingleEmail', emails: 10, verdict: 'fits' }),
+    ]);
+    expect(emails.unread).toBe('the definition of Contact nurture on Contact');
+  });
+
+  it("names, per object, a process and a workflow rule whose definition the target refused, after the flows' refusal", async () => {
+    const emails = await count(
+      planOf(['Contact', 5], ['Lead', 3]),
+      targetOf(
+        [
+          {
+            objectApiName: 'Lead',
+            flows: [],
+            triggers: [],
+            processes: [flow({ label: 'Lead routing', condition: 'unreadable' })],
+            workflowRules: [flow({ label: 'Lead alert', condition: 'unreadable' })],
+          },
+        ],
+        [
+          { part: 'flows', reason: 'INSUFFICIENT_ACCESS' },
+          { part: 'definitions', reason: 'INSUFFICIENT_ACCESS' },
+        ],
+      ),
+    );
+
+    expect(emails.checks).toEqual([]);
+    expect(emails.unread).toBe(
+      "the target's flows: INSUFFICIENT_ACCESS; the definitions of Lead alert, Lead routing on Lead",
+    );
+  });
+
+  it('names no flow that runs before the save, that a bypass keeps quiet, that starts on an update alone, or of an object the run inserts none of', async () => {
+    const emails = await count(
+      planOf(['Contact', 5], ['Account', 0]),
+      targetOf([
+        {
+          objectApiName: 'Contact',
+          flows: [
+            welcome,
+            flow({ label: 'Contact defaults', timing: 'beforeSave', condition: 'notRead' }),
+            flow({ label: 'Contact edited', startsOn: 'update', condition: 'notRead' }),
+            flow({
+              label: 'Contact quiet',
+              condition: 'unreadable',
+              permissions: [{ name: 'Load_Data', bypass: true, held: true }],
+            }),
+          ],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Account',
+          flows: [flow({ label: 'Account welcome', condition: 'notRead' })],
+          triggers: [],
+        },
+      ]),
+    );
+
+    expect(emails.unread).toBeUndefined();
+    expect(emails.checks).toEqual([expect.objectContaining({ emails: 10 })]);
+  });
+
+  it('names ten of the flows of an object, and how many more', async () => {
+    const flows = Array.from({ length: 12 }, (_, i) =>
+      flow({ label: `Flow ${String(i + 1).padStart(2, '0')}`, condition: 'notRead' }),
+    );
+
+    const emails = await count(
+      planOf(['Contact', 5]),
+      targetOf([{ objectApiName: 'Contact', flows, triggers: [] }]),
+    );
+
+    expect(emails.unread).toBe(
+      'the definitions of Flow 01, Flow 02, Flow 03, Flow 04, Flow 05, Flow 06, Flow 07, ' +
+        'Flow 08, Flow 09, Flow 10 and 2 more on Contact',
+    );
   });
 });
 
