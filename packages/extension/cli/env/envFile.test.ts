@@ -133,16 +133,75 @@ describe('documentOf', () => {
     expect(documentOf('﻿{"version": 1}')).toEqual({ document: { version: 1 } });
   });
 
-  it('says that YAML’s own syntax arrives with the yaml dependency', () => {
-    const answer = documentOf('version: 1\nname: case-flow\n');
+  it('reads YAML’s own syntax: comments, keys without quotes, indented blocks', () => {
+    const text = [
+      '# the data the Case-flow tests need',
+      'version: 1',
+      'name: case-flow',
+      'resources:',
+      '  accounts:',
+      '    kind: seed',
+      '    seed: 42 # drawn the same each time',
+      '',
+    ].join('\n');
 
-    expect(answer).toEqual({ refusal: expect.stringContaining('does not read as JSON') });
-    expect('refusal' in answer && answer.refusal).toContain(
-      'YAML’s own syntax — comments, keys without quotes, indented blocks — arrives with the yaml dependency',
-    );
+    expect(documentOf(text)).toEqual({
+      document: {
+        version: 1,
+        name: 'case-flow',
+        resources: { accounts: { kind: 'seed', seed: 42 } },
+      },
+    });
   });
 
-  it('refuses a key a mapping holds twice, which JSON alone would read as the last one', () => {
+  it('refuses a key a block mapping holds twice, naming the mapping', () => {
+    const text =
+      'version: 1\nresources:\n  accounts: {kind: seed}\n  accounts: {kind: seed, seed: 1}\n';
+
+    expect(documentOf(text)).toEqual({
+      refusal:
+        'resources holds the key "accounts" twice: a mapping holds each key once, and the ' +
+        'second would replace the first unseen. Keep one.',
+    });
+  });
+
+  it('refuses what YAML would read otherwise than it is written, saying where', () => {
+    // A tag the core schema does not know would be read as a plain string.
+    expect(documentOf('version: !binary 1\n')).toEqual({
+      refusal: expect.stringMatching(/^The file does not read as YAML 1\.2: .*tag/i),
+    });
+    // A second document would be dropped.
+    expect(documentOf('version: 1\n---\nversion: 2\n')).toEqual({
+      refusal: expect.stringMatching(/^The file does not read as YAML 1\.2: .*document/i),
+    });
+    // A tab where YAML wants spaces, its line and column said.
+    expect(documentOf('resources:\n\taccounts: {}\n')).toEqual({
+      refusal: expect.stringMatching(/^The file does not read as YAML 1\.2: .*line 2/),
+    });
+  });
+
+  it('reads a merge key as the plain key it is in YAML 1.2, for the schema to refuse', () => {
+    const answer = documentOf('base: &base {kind: seed}\naccounts:\n  <<: *base\n');
+
+    expect(answer).toEqual({
+      document: { base: { kind: 'seed' }, accounts: { '<<': { kind: 'seed' } } },
+    });
+  });
+
+  it('refuses more aliases than a file needs, which would blow a small text up', () => {
+    const lines = ['a: &a [x, x, x, x, x, x, x, x, x, x]'];
+    for (let i = 0; i < 6; i += 1) {
+      const prev = String.fromCharCode(97 + i);
+      const next = String.fromCharCode(98 + i);
+      lines.push(`${next}: &${next} [${Array(10).fill(`*${prev}`).join(', ')}]`);
+    }
+
+    expect(documentOf(lines.join('\n'))).toEqual({
+      refusal: expect.stringMatching(/^The file does not read as YAML 1\.2: .*alias/i),
+    });
+  });
+
+  it('refuses a key a JSON mapping holds twice, which JSON.parse alone would read as the last one', () => {
     const twice =
       '{"version":1,"resources":{"accounts":{"kind":"seed"},"contacts":{},"accounts":{"kind":"seed","seed":1}}}';
 

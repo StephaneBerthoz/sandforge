@@ -12,9 +12,8 @@
  * accepted is what the run is given: a refusal the run would meet after its
  * first objects were written is met here, before any.
  *
- * Text becomes a document in one place, {@link documentOf}. It reads JSON,
- * which is YAML 1.2; YAML's own syntax is read once the `yaml` package is a
- * dependency of the scripts. Everything after it takes the parsed document.
+ * Text becomes a document in one place, {@link documentOf}, which reads YAML
+ * 1.2 — JSON included. Everything after it takes the parsed document.
  *
  * Each refusal names where in the file it is, the resource it is of, and the
  * way out, as the command lines' refusals do.
@@ -22,6 +21,7 @@
 
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
+import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import {
   ENV_REF_PLACES,
   PREBUILT_SEED_TEMPLATES,
@@ -74,27 +74,34 @@ function refusalAt(path: EnvDocumentPath, message: string): EnvFileRefusal {
 
 // ─── Text to document ────────────────────────────────────────────────────────
 
+/** The aliases a file may resolve: enough for a shared block, too few to blow one up. */
+const MAX_ALIASES = 100;
+
 /**
- * The document a file's text holds: the one place text becomes one. It reads
- * JSON, which is YAML 1.2, and refuses a key given twice in one mapping,
- * which YAML 1.2 does not allow and JSON would read as the last one, the
- * first replaced unseen: a resource written twice would be applied once.
+ * The document a file's text holds: the one place text becomes one. YAML 1.2
+ * with its core schema, so JSON reads too; strict as the schema is. A key
+ * given twice in one mapping is refused, which YAML does not allow and a
+ * reader that keeps the last would apply once, the first replaced unseen. So
+ * are a tag the core schema does not know, a merge key (`<<`, gone from YAML
+ * 1.2), a second document in the file, and more aliases than {@link
+ * MAX_ALIASES}: whatever YAML would read otherwise than it is written.
  */
 export function documentOf(text: string): { document: unknown } | { refusal: string } {
-  const body = text.startsWith('﻿') ? text.slice(1) : text;
-  let document: unknown;
-  try {
-    document = JSON.parse(body);
-  } catch (err: unknown) {
+  const body = text.startsWith('\uFEFF') ? text.slice(1) : text;
+  const parsed = parseDocument(body, {
+    version: '1.2',
+    schema: 'core',
+    merge: false,
+    uniqueKeys: false,
+    prettyErrors: true,
+  });
+  const problem = parsed.errors[0] ?? parsed.warnings[0];
+  if (problem) {
     return {
-      refusal:
-        `The file does not read as JSON (${err instanceof Error ? err.message : String(err)}). ` +
-        'This SandForge reads a sandforge.yaml written in JSON, which is YAML 1.2; YAML’s own ' +
-        'syntax — comments, keys without quotes, indented blocks — arrives with the yaml ' +
-        'dependency of the scripts. Write the file in JSON until then.',
+      refusal: `The file does not read as YAML 1.2: ${problem.message.split('\n')[0]}`,
     };
   }
-  const duplicate = duplicateKeyIn(body);
+  const duplicate = duplicateKeyIn(parsed.contents, []);
   if (duplicate !== undefined) {
     return {
       refusal:
@@ -102,52 +109,36 @@ export function documentOf(text: string): { document: unknown } | { refusal: str
         'each key once, and the second would replace the first unseen. Keep one.',
     };
   }
-  return { document };
-}
-
-/** One mapping or list of the text, as {@link duplicateKeyIn} walks into it. */
-interface Frame {
-  /** The keys seen so far; null for a list. */
-  keys: Set<string> | null;
-  path: EnvDocumentPath;
-  /** The last key read, or the position in the list. */
-  key: string;
-  index: number;
+  try {
+    return { document: parsed.toJS({ maxAliasCount: MAX_ALIASES }) };
+  } catch (err: unknown) {
+    return {
+      refusal: `The file does not read as YAML 1.2: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 /**
- * The first key a mapping of `text` holds twice, with the mapping's path.
- * `text` is JSON that parses: its strings and its six structural characters
- * are all there is to read.
+ * The first key a mapping of the document holds twice, with the mapping's
+ * path. An alias is walked where its anchor stands.
  */
-function duplicateKeyIn(text: string): { path: EnvDocumentPath; key: string } | undefined {
-  const frames: Frame[] = [];
-  let expectKey = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    const top = frames.at(-1);
-    if (ch === '"') {
-      let end = i + 1;
-      while (text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
-      if (top?.keys && expectKey) {
-        const key = JSON.parse(text.slice(i, end + 1)) as string;
-        if (top.keys.has(key)) return { path: top.path, key };
-        top.keys.add(key);
-        top.key = key;
-        expectKey = false;
-      }
-      i = end;
-    } else if (ch === '{' || ch === '[') {
-      const path: EnvDocumentPath =
-        top === undefined ? [] : [...top.path, top.keys ? top.key : top.index];
-      frames.push({ keys: ch === '{' ? new Set() : null, path, key: '', index: 0 });
-      expectKey = ch === '{';
-    } else if (ch === '}' || ch === ']') {
-      frames.pop();
-      expectKey = false;
-    } else if (ch === ',' && top !== undefined) {
-      if (top.keys) expectKey = true;
-      else top.index += 1;
+function duplicateKeyIn(
+  node: unknown,
+  path: EnvDocumentPath,
+): { path: EnvDocumentPath; key: string } | undefined {
+  if (isMap(node)) {
+    const keys = new Set<string>();
+    for (const pair of node.items) {
+      const key = isScalar(pair.key) ? String(pair.key.value) : String(pair.key);
+      if (keys.has(key)) return { path, key };
+      keys.add(key);
+      const inner = duplicateKeyIn(pair.value, [...path, key]);
+      if (inner) return inner;
+    }
+  } else if (isSeq(node)) {
+    for (const [index, item] of node.items.entries()) {
+      const inner = duplicateKeyIn(item, [...path, index]);
+      if (inner) return inner;
     }
   }
   return undefined;
