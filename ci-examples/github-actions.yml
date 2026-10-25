@@ -8,6 +8,8 @@
 #   3. Removal (opt-in) — the same script with --remove clone-summary.json takes
 #                        back what that clone created, and nothing else
 #   4. VSIX package    — pnpm package, uploaded as an artifact
+#   5. Environment     — commented out at the end: the sandforge-env jobs of a
+#                        project that commits a sandforge.yaml
 #
 # There is no installed `sandforge` command: each headless tool is a script of
 # packages/extension/cli/, run with tsx from a checkout. See ci-examples/README.md.
@@ -259,3 +261,165 @@ jobs:
           curl -X POST "$SLACK_WEBHOOK_URL" \
             -H 'Content-Type: application/json' \
             -d "{\"text\": \"SandForge Pipeline FAILED on ${{ github.repository }} (${{ github.ref_name }}) — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+
+  # ── An environment as code (sandforge-env), commented out ─────────────────
+  #
+  # Two jobs for your project's own repository, which commits a sandforge.yaml
+  # at its root: its environment applied to one org kept for the tests (here
+  # `ci-env`, a Developer Edition org, or a sandbox the file lists by its
+  # Organization Id), logged in with a JWT as Configure credentials says.
+  # SandForge is checked out beside the project, in sandforge/, where the
+  # script runs. See "An environment as code" in ci-examples/README.md.
+  #
+  # Both keep the state in $RUNNER_TEMP/sandforge, outside the repository that
+  # holds the file (inside it, every command but validate refuses, exit 2), in
+  # a cache keyed by the org, and share one concurrency group: no two of them
+  # apply to the org at once. The first apply to an org with no state needs
+  # --accept-no-state, given once, by hand, knowing the org holds nothing of
+  # the environment.
+  #
+  # Add `pull_request:` to the triggers above for env-plan.
+  #
+  # env-plan:
+  #   name: Environment plan (sandforge-env)
+  #   if: github.event_name == 'pull_request'
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   concurrency:
+  #     group: sandforge-env-${{ vars.SF_ENV_USERNAME }}
+  #     cancel-in-progress: false
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         repository: StephaneBerthoz/sandforge
+  #         path: sandforge
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '24'
+  #     - name: Install SandForge and the Salesforce CLI
+  #       working-directory: sandforge
+  #       run: |
+  #         corepack enable
+  #         pnpm install --frozen-lockfile
+  #         pnpm build:shared
+  #         npm install -g @salesforce/cli
+  #         echo "SANDFORGE_JOURNAL_DIR=$RUNNER_TEMP/sandforge" >> "$GITHUB_ENV"
+  #     - name: Log in to the org
+  #       env:
+  #         SF_JWT_KEY: ${{ secrets.SF_ENV_JWT_KEY }}
+  #         SF_ENV_CLIENT_ID: ${{ secrets.SF_ENV_CLIENT_ID }}
+  #         SF_ENV_USERNAME: ${{ vars.SF_ENV_USERNAME }}
+  #       run: |
+  #         umask 077
+  #         key_dir=$(mktemp -d)
+  #         trap 'rm -rf "$key_dir"' EXIT
+  #         printf '%s\n' "$SF_JWT_KEY" > "$key_dir/server.key"
+  #         sf org login jwt --client-id "$SF_ENV_CLIENT_ID" --jwt-key-file "$key_dir/server.key" \
+  #           --username "$SF_ENV_USERNAME" --instance-url https://login.salesforce.com --alias ci-env
+  #     - uses: actions/cache/restore@v4
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_ENV_USERNAME }}-${{ github.run_id }}
+  #         restore-keys: sandforge-env-${{ vars.SF_ENV_USERNAME }}-
+  #     # Writes nothing, to the org or to the state: what apply would create,
+  #     # keep, replace and take back, and exit 3 when the org no longer holds
+  #     # the environment as applied.
+  #     - name: Plan (sandforge-env plan --fail-on-drift)
+  #       working-directory: sandforge
+  #       run: |
+  #         pnpm exec tsx packages/extension/cli/sandforge-env.ts plan \
+  #           --file ../sandforge.yaml --org ci-env --fail-on-drift --json > ../env-plan.json
+  #     - uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: env-plan
+  #         path: env-plan.json
+  #
+  # env-tests:
+  #   name: Tests on the environment (sandforge-env)
+  #   if: github.event_name == 'push'
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 60
+  #   concurrency:
+  #     group: sandforge-env-${{ vars.SF_ENV_USERNAME }}
+  #     cancel-in-progress: false
+  #   steps:
+  #     # The same checkouts, install, login and cache restore as env-plan.
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         repository: StephaneBerthoz/sandforge
+  #         path: sandforge
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '24'
+  #     - name: Install SandForge and the Salesforce CLI
+  #       working-directory: sandforge
+  #       run: |
+  #         corepack enable
+  #         pnpm install --frozen-lockfile
+  #         pnpm build:shared
+  #         npm install -g @salesforce/cli
+  #         echo "SANDFORGE_JOURNAL_DIR=$RUNNER_TEMP/sandforge" >> "$GITHUB_ENV"
+  #     - name: Log in to the org
+  #       env:
+  #         SF_JWT_KEY: ${{ secrets.SF_ENV_JWT_KEY }}
+  #         SF_ENV_CLIENT_ID: ${{ secrets.SF_ENV_CLIENT_ID }}
+  #         SF_ENV_USERNAME: ${{ vars.SF_ENV_USERNAME }}
+  #       run: |
+  #         umask 077
+  #         key_dir=$(mktemp -d)
+  #         trap 'rm -rf "$key_dir"' EXIT
+  #         printf '%s\n' "$SF_JWT_KEY" > "$key_dir/server.key"
+  #         sf org login jwt --client-id "$SF_ENV_CLIENT_ID" --jwt-key-file "$key_dir/server.key" \
+  #           --username "$SF_ENV_USERNAME" --instance-url https://login.salesforce.com --alias ci-env
+  #     - uses: actions/cache/restore@v4
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_ENV_USERNAME }}-${{ github.run_id }}
+  #         restore-keys: sandforge-env-${{ vars.SF_ENV_USERNAME }}-
+  #     # Writes nothing when the org holds the environment as the file
+  #     # describes it; replaces what changed in the file. --yes: a CI step has
+  #     # no terminal to type the alias at.
+  #     - name: Apply (sandforge-env apply)
+  #       working-directory: sandforge
+  #       run: |
+  #         pnpm exec tsx packages/extension/cli/sandforge-env.ts apply \
+  #           --file ../sandforge.yaml --org ci-env --yes --json > ../env-apply.json
+  #
+  #     # Your tests against ci-env go here.
+  #
+  #     # Exit 3 when the tests left the environment's records deleted or
+  #     # changed: the next apply leaves them so, unless --replace-drifted.
+  #     - name: Drift after the tests (sandforge-env plan --fail-on-drift)
+  #       working-directory: sandforge
+  #       run: |
+  #         pnpm exec tsx packages/extension/cli/sandforge-env.ts plan \
+  #           --file ../sandforge.yaml --org ci-env --fail-on-drift --json > ../env-drift.json
+  #     # Takes the environment back once it is retired: set the repository
+  #     # variable SANDFORGE_ENV_DESTROY to 'true'. The last resource first,
+  #     # into the recycle bin; exit 3 when it left records, the state kept for
+  #     # the next destroy. A destroy that took everything back deletes the
+  #     # state, so the next apply to this org asks --accept-no-state again.
+  #     - name: Destroy (sandforge-env destroy)
+  #       if: always() && vars.SANDFORGE_ENV_DESTROY == 'true'
+  #       working-directory: sandforge
+  #       run: |
+  #         pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy \
+  #           --file ../sandforge.yaml --org ci-env --yes --json > ../env-destroy.json
+  #     # Saved whatever the job came to: an apply a timeout stopped, or a
+  #     # destroy that left records, is taken up from it by the next job.
+  #     - uses: actions/cache/save@v4
+  #       if: always()
+  #       with:
+  #         path: ${{ runner.temp }}/sandforge
+  #         key: sandforge-env-${{ vars.SF_ENV_USERNAME }}-${{ github.run_id }}
+  #     - uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: env-report
+  #         path: |
+  #           env-apply.json
+  #           env-drift.json
+  #           env-destroy.json
