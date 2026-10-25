@@ -1315,15 +1315,19 @@ class History {
       for (const object of OBJECTS) {
         const counted = action.objects.find((each) => each.object === object);
         const said = step.objects.find((each) => each.object === object)?.created ?? 0;
+        // A clone, as a seed, ends 0 with records the org refused, which it
+        // counts and the apply calls partial: what it set out to write is
+        // what it wrote and what was refused.
+        const refused = step.objects.find((each) => each.object === object)?.refused ?? 0;
         const took = [...this.wrote.values()].filter(
           (by) => by.runId === runId && by.object === object,
         ).length;
-        const where = `${action.resource} ${object}: planned ${JSON.stringify(counted)}, written ${took}\n${message}`;
+        const where = `${action.resource} ${object}: planned ${JSON.stringify(counted)}, written ${took}, refused ${refused}\n${message}`;
         expect(said, `what the run said it wrote, and what the org took: ${where}`).toBe(took);
         if (counted?.atMost === true) {
-          expect(took, where).toBeLessThanOrEqual(counted.wouldCreate ?? 0);
+          expect(took + refused, where).toBeLessThanOrEqual(counted.wouldCreate ?? 0);
         } else {
-          expect(took, where).toBe(counted?.wouldCreate ?? 0);
+          expect(took + refused, where).toBe(counted?.wouldCreate ?? 0);
         }
       }
     }
