@@ -792,11 +792,12 @@ describe('the README lines of the module', () => {
   });
 
   it('gives the rewind its own steps, ending on Undo, in both READMEs alike', () => {
+    // The Marketplace copy points its links at GitHub and its images at
+    // raw.githubusercontent.com (scripts/sync-extension-readme.mjs).
     const [root, marketplace] = READMES.map((path) =>
-      section(source(path), '## Rewind an org to a checkpoint').replace(
-        /\]\([^)]*\/(docs\/[^)]+)\)/g,
-        ']($1)',
-      ),
+      section(source(path), '## Rewind an org to a checkpoint')
+        .replace(/\]\([^)]*\/(docs\/[^)]+)\)/g, ']($1)')
+        .replace(/\]\(https:\/\/raw\.githubusercontent\.com\/[^)]*?\/master\/([^)]+)\)/g, ']($1)'),
     );
     expect(root.trim()).toBe(marketplace.trim());
     const steps = root.split('\n').filter((line) => /^\d+\. /.test(line));

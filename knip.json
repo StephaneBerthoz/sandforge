@@ -8,8 +8,13 @@
       "project": ["src/**/*.ts"]
     },
     "packages/extension": {
-      "entry": ["src/adapters/index.ts", "src/test/smoke/**/*.smoke.test.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": [
+        "src/adapters/index.ts",
+        "src/test/smoke/**/*.smoke.test.ts",
+        "cli/sandforge-*.ts",
+        "cli/testing/*.ts"
+      ],
+      "project": ["src/**/*.ts", "cli/**/*.ts"]
     },
     "packages/webview": {
       "entry": [
