@@ -665,6 +665,8 @@ describe('docs/environments.md', () => {
     expect(rules).toContain('A file written for a later SandForge is refused.');
   });
 
+  // Every session of the page, each on an org of its own: seconds on a loaded
+  // machine, more on a CI runner, past the five a test is given by default.
   it('replays every session of the page on the memory org, and the code prints each word for word', async () => {
     const all = sessions();
     // Positive control: the walk-through and the refusals, on every kind of org.
@@ -712,7 +714,7 @@ describe('docs/environments.md', () => {
       if (dataset === undefined) delete process.env[DATASET_VARIABLE];
       else process.env[DATASET_VARIABLE] = dataset;
     }
-  });
+  }, 60_000);
 
   it('names the actions a plan gives, in the order the plan explains them, each as it explains it', () => {
     const header = /Per resource, one action:\n \*\n([\s\S]*?)\n \*\n/.exec(PLAN)?.[1] ?? '';
