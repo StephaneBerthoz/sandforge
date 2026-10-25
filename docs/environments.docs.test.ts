@@ -39,9 +39,17 @@ vi.mock('../packages/extension/src/modules/forge/ForgeRunRemoval.js', async (ori
   >()),
   removalOrg: vi.fn(),
 }));
+vi.mock('../packages/extension/src/core/connection/ConnectionHelper.js', async (original) => ({
+  ...(await original<
+    typeof import('../packages/extension/src/core/connection/ConnectionHelper.js')
+  >()),
+  getJsforceConnection: vi.fn(),
+}));
 
 import { checkEnvFile, documentOf } from '../packages/extension/cli/env/envFile.js';
 import { main } from '../packages/extension/cli/sandforge-env.js';
+import type { CommandRunner } from '../packages/extension/cli/scriptRunner.js';
+import { runnerWithCheckpoints } from '../packages/extension/cli/testing/envCheckpointWorld.js';
 import { EnvWorld, type EnvWorldOptions } from '../packages/extension/cli/testing/envWorld.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -153,7 +161,12 @@ interface Replay {
   file: string;
   journalDir: string;
   world: EnvWorld;
+  /** The world's scripts, the checkpoint script among them. */
+  runner: CommandRunner;
 }
+
+/** A user of the org a session names, who changes records between two commands. */
+const COLLEAGUE = '005xx000003gPLEAAA';
 
 /** The example of the page, which every session starts from. */
 function example(): string {
@@ -196,7 +209,27 @@ const EVENTS: Readonly<Record<string, (replay: Replay) => void>> = {
   'the journal inside the repository': (replay) => {
     replay.journalDir = join(dirname(replay.file), '.sandforge');
   },
+  'the file asks a checkpoint once applied': (replay) =>
+    edit(replay, '\nresources:\n', '\ncheckpoint:\n  after: baseline\n\nresources:\n'),
+  'a test renames an account and creates one': (replay) => {
+    const [account] = replay.world.records('Account');
+    replay.world.org.edit('Account', String(account?.['Id']), { Name: 'Renamed' }, COLLEAGUE);
+    createdByATest(replay);
+  },
+  'the file asks a checkpoint before the first write': (replay) =>
+    edit(replay, '\nresources:\n', '\ncheckpoint:\n  before: true\n\nresources:\n'),
+  'a test creates an account': (replay) => createdByATest(replay),
 };
+
+/** An account a test creates, as the colleague the sessions name. */
+function createdByATest(replay: Replay): void {
+  replay.world.org.add('Account', {
+    Id: '001xx000003gPLEAAA',
+    Name: 'Made by a test',
+    CreatedById: COLLEAGUE,
+    LastModifiedById: COLLEAGUE,
+  });
+}
 
 /** A new session: an org of `kind`, the project with its example file, an empty journal. */
 function begin(kind: string): Replay {
@@ -216,7 +249,12 @@ function begin(kind: string): Replay {
     tick: () => vi.setSystemTime(Date.now() + 30_000),
     ...options,
   });
-  return { dir, file, journalDir: join(dir, '.sandforge'), world };
+  const runner = runnerWithCheckpoints(world, {
+    locksDir: join(dir, 'locks'),
+    users: { [COLLEAGUE]: 'Colleague' },
+    tick: () => vi.setSystemTime(Date.now() + 30_000),
+  });
+  return { dir, file, journalDir: join(dir, '.sandforge'), world, runner };
 }
 
 /** Run one command line of a session: what it said, stdout and stderr in the order they came, and its exit code. */
@@ -236,7 +274,7 @@ async function command(replay: Replay, args: string[]): Promise<{ said: string; 
   process.exitCode = undefined;
   try {
     await main(['node', 'sandforge-env.ts', ...args], {
-      runner: replay.world.runner,
+      runner: replay.runner,
       journalDir: replay.journalDir,
       locksDir: join(replay.dir, 'locks'),
       onStop: () => () => undefined,
@@ -258,7 +296,9 @@ async function command(replay: Replay, args: string[]): Promise<{ said: string; 
     said: said
       .join('')
       .replaceAll(replay.dir, HOME)
-      .replace(paths, (path) => path.replaceAll('\\', '/')),
+      .replace(paths, (path) => path.replaceAll('\\', '/'))
+      // A checkpoint's id ends in four random characters: the page gives them as a1b2.
+      .replace(/\b(ck|rw|pv)-(\d{8}-\d{6})-[a-z0-9]{4}\b/g, '$1-$2-a1b2'),
     code,
   };
 }
@@ -312,7 +352,7 @@ describe('docs/environments.md', () => {
 
   it('names each command the script reads, with the flags each reads, and no other', () => {
     const commands = commandsRead();
-    expect(commands).toEqual(['validate', 'plan', 'apply', 'destroy', 'state']);
+    expect(commands).toEqual(['validate', 'plan', 'apply', 'destroy', 'reset', 'state']);
     const flags = flagsOf();
     // Positive control: the table read is the one each command checks its line against.
     expect(flags.get('destroy')).toEqual(
@@ -321,6 +361,8 @@ describe('docs/environments.md', () => {
         '--include-changed',
         '--sweep',
         '--accept-automation',
+        '--rewind',
+        '--accept-no-undo',
         '--yes',
         '--file',
         '--org',
@@ -339,13 +381,16 @@ describe('docs/environments.md', () => {
   it('names in its prose and its sessions only flags the command line reads', () => {
     const read = new Set([...flagsOf().values()].flatMap((set) => [...set]));
     read.add('--help');
-    const named = flagsIn(DOC.replace(/```text\n[\s\S]*?\n```/, ''));
+    // The help block aside, and the checkpoint script's own lines, which its guide holds.
+    const named = flagsIn(
+      DOC.replace(/```text\n[\s\S]*?\n```/, '').replace(/sandforge-checkpoint [^\n`]*/g, ''),
+    );
     // Positive control: the flags of a plan, an apply and a destroy are all there.
     for (const flag of ['--fail-on-drift', '--accept-no-state', '--include-changed', '--sweep']) {
       expect(named.has(flag)).toBe(true);
     }
     // What the page names as not there yet is named so.
-    const later = new Set(['--out', '--plan', '--rewind']);
+    const later = new Set(['--out', '--plan']);
     expect([...named].filter((flag) => !read.has(flag) && !later.has(flag))).toEqual([]);
     for (const flag of later) expect(read.has(flag), flag).toBe(false);
   });
@@ -454,6 +499,7 @@ describe('docs/environments.md', () => {
         'anonymize',
         forge({ anonymize: { rules: {}, misspelt: 1 } }),
       ],
+      ['`resources.<name>.accept`, `kind: forge`', 'accept', forge({ accept: { misspelt: 1 } })],
     );
     const table = rows(section(DOC, '### Every key'));
     for (const [where, what, doc] of places) {
@@ -952,11 +998,7 @@ describe('docs/environments.md', () => {
     expect(later).toContain(
       '`Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`',
     );
-    expect(PLAN).toContain('which a later SandForge takes: this one applies');
-    expect(later).toContain('`which a later SandForge takes`');
-    expect(PLAN).toContain('checkpointSettingsRefusal(input.resolved.checked.file) ??');
-    // No saved plan, no reset, no output, no rewind.
-    expect(commandsRead()).not.toContain('reset');
+    // No saved plan, no output.
     expect(commandsRead()).not.toContain('output');
     expect(later).toContain('no `plan --out`, no `apply --plan`');
     // A relation's parents take an object and existing parents alone.
@@ -987,6 +1029,162 @@ describe('docs/environments.md', () => {
     // The MCP server runs no environment.
     expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).not.toContain("'sandforge-env'");
     expect(later).toContain("and the MCP server's tools for environments");
+  });
+});
+
+// ─── Checkpoints, and real data ──────────────────────────────────────────────
+
+describe('docs/environments.md: checkpoints, reset, destroy --rewind and real data', () => {
+  const CHECKPOINTS = source(`${CLI_DIR}/env/envCheckpoints.ts`);
+  const REWIND = source(`${CLI_DIR}/env/envRewind.ts`);
+  const FORGE_KIND = source(`${CLI_DIR}/env/kinds/forge.ts`);
+  const CLONE = source(`${CLI_DIR}/sandforge-clone.ts`);
+  const CHECKPOINT_CLI = source(`${CLI_DIR}/sandforge-checkpoint.ts`);
+  const GUARD = source('packages/extension/src/modules/checkpoint/checkpointGuard.ts');
+  /** Code with its string literals joined across the lines they are split on. */
+  const joined = (code: string): string => code.replace(/['`] \+\n\s+['`]/g, '');
+
+  it('says when each checkpoint is taken, where it is kept, and what deletes it, as the code does', () => {
+    const page = section(DOC, '## Checkpoints');
+    const pins: Array<[string, string, string]> = [
+      [
+        CHECKPOINTS,
+        'a checkpoint taken once an apply ended 0,\n *   and taken again by the next apply that writes, the one before deleted',
+        'is taken once an apply ended `0`, and again by the next apply that writes, the one before deleted',
+      ],
+      [
+        CHECKPOINTS,
+        'after !== undefined && (writes || state?.checkpoints?.after === undefined)',
+        'An apply that writes nothing takes none, unless the state names none.',
+      ],
+      [
+        CHECKPOINTS,
+        'never taken again while the state names it',
+        'and never again while the state names it',
+      ],
+      [
+        CHECKPOINTS,
+        'return state?.checkpoints?.before === undefined && !holdsWrites(state);',
+        'Asked of an environment an earlier apply wrote without one, it is not taken',
+      ],
+      [
+        CHECKPOINTS,
+        "return join(journalDir, 'checkpoints');",
+        'in `checkpoints/` of the journal directory',
+      ],
+      [
+        CHECKPOINTS,
+        "A checkpoint holds the records' values in\n * clear",
+        "A checkpoint holds the records' values in clear",
+      ],
+      [
+        CHECKPOINTS,
+        "  return kind === 'scratch' ? SCRATCH_STATE_KEEP_DAYS : 0;",
+        "a scratch org's for 30 days, any other's until the destroy that deletes them",
+      ],
+    ];
+    for (const [code, said, words] of pins) {
+      expect(code, said).toContain(said);
+      expect(DOC, words).toContain(words);
+    }
+    expect(page).toContain(
+      '`reset` rewinds the org to it, and `plan` compares the whole org with it.',
+    );
+    // The guard the take is refused by: the checkpoint script's own.
+    expect(GUARD).toContain('A checkpoint needs a user with View All Data and Modify All Data');
+    expect(page).toContain(
+      "The checkpoint's own guard refuses a production org, a user without View All Data and Modify All Data, and more records than its limit: its refusal is the apply's, before its first write.",
+    );
+    expect(joined(CHECKPOINTS)).toContain('would be refused: ');
+    expect(section(DOC, '## What is refused')).toContain('`would be refused`');
+  });
+
+  it('says what reset does, asks and offers, as the rewind and the checkpoint script do', () => {
+    const reset = section(DOC, '### Between two suites: `reset`');
+    // The question's words.
+    expect(REWIND).toContain("`Type ${alias} to reset it to '${preview.checkpoint.name}', as `");
+    expect(joined(REWIND)).toContain('back from the recycle bin — whoever made these changes');
+    expect(reset).toContain(
+      "`Type pool-1 to reset it to 'baseline', as case-flow was applied: it deletes 1 record(s) created since, gives 1 their values back and brings 0 back from the recycle bin — whoever made these changes, last changed by Colleague 2:`",
+    );
+    // Never with new Ids, and the refusal said so.
+    expect(source(`${CLI_DIR}/env/envCheckpoints.ts`)).not.toContain('--accept-recreate');
+    expect(joined(REWIND)).toContain('never makes records again with new Ids');
+    expect(reset).toContain(
+      'It never makes records again with new Ids, which the state would no longer name',
+    );
+    // The undo, as the checkpoint script offers it: 15 days, its own line.
+    expect(joined(CHECKPOINT_CLI)).toContain(
+      'Undo is offered for the last rewind of an org, for 15 days after it',
+    );
+    expect(reset).toContain('for 15 days, sooner if the recycle bin fills');
+    expect(joined(CHECKPOINTS)).toContain(
+      '`sandforge-checkpoint undo --org ${input.alias} --checkpoint ${input.checkpoint} --store ${envCheckpointStoreOf(input.journalDir)}`',
+    );
+    // Refused before the org is read.
+    expect(joined(REWIND)).toContain('names no checkpoint taken after an apply');
+    expect(joined(REWIND)).toContain('Apply again, then reset.');
+    expect(reset).toContain('(`names no checkpoint taken after an apply`)');
+    // The state stays: a reset writes none.
+    expect(REWIND).toContain("if (verb === 'destroy' && exitCode === DONE_EXIT) {");
+    expect(reset).toContain('The state stays as it was, its serial too');
+  });
+
+  it('says what destroy --rewind takes back and deletes, and that it is not undone, as the rewind does', () => {
+    const rewind = section(DOC, '### Back to before the first apply: `destroy --rewind`');
+    expect(joined(REWIND)).toContain(
+      "the environment's checkpoints are then deleted, and this is not undone:",
+    );
+    expect(rewind).toContain(
+      "the environment's checkpoints are then deleted, and this is not undone:`",
+    );
+    expect(CHECKPOINTS).toContain('a destroy is undone by applying again');
+    expect(rewind).toContain('it is not undone, but by applying again');
+    expect(joined(CLI)).toContain('take back records by removal: --rewind takes the whole org');
+    expect(rewind).toContain(
+      '`--include-changed` and `--sweep` belong to a destroy by removal, and are refused beside `--rewind`',
+    );
+    expect(source(`${CLI_DIR}/env/envDestroy.ts`)).toContain(
+      "Once every resource is taken back, the environment's checkpoints are\n * deleted from this machine",
+    );
+    expect(section(DOC, '## What destroy takes back, and what it leaves')).toContain(
+      "Once every resource is taken back, the environment's checkpoints are deleted from this machine; a destroy that left records keeps them.",
+    );
+  });
+
+  it('says what a production source needs, the way out in the refusal’s words, and what the clone does to contact points', () => {
+    const real = section(DOC, '### Real data from a production org');
+    expect(joined(FORGE_KIND)).toContain(
+      'Give the resource anonymize — Forge’s anonymization, a method for each category of personal field — or, reviewed in the file, accept: { realData: true }',
+    );
+    expect(real).toContain(
+      '`Give the resource anonymize — Forge’s anonymization, a method for each category of personal field — or, reviewed in the file, accept: { realData: true }`',
+    );
+    expect(FORGE_KIND).toContain('const production = isProductionTarget(typed);');
+    expect(real).toContain('by the rule every guard reads');
+    // Refused before the record of its query is read.
+    expect(FORGE_KIND).toContain(
+      '// Refused before a record of it is read: a query of a production org for',
+    );
+    expect(real).toContain('It is met before a record of the source is read');
+    expect(FORGE_KIND).toContain(
+      "? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'",
+    );
+    expect(real).toContain('One that sets no method anonymizes nothing, and is said so');
+    // The clone's own words for what it does to contact points.
+    expect(CLONE).toContain(
+      "'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range)'",
+    );
+    expect(joined(FORGE_KIND)).toContain(
+      'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints',
+    );
+    expect(real).toContain(
+      '`contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints`',
+    );
+    expect(joined(FORGE_KIND)).toContain('is a production org; ');
+    expect(real).toContain(
+      '`real data: its source, the prod org (PROD), is a production org; what it clones is anonymized as its anonymize says (name fake, email fake, address mask)`',
+    );
   });
 });
 

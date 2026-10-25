@@ -28,6 +28,16 @@
  * and its run — a parent added to the graph reads all its children — once
  * wrote 34 216 records where its dry run had said 37. The run is refused
  * before its first write when it would write more than its dry run counted.
+ *
+ * Real data. Reading a production org is allowed to every script, which
+ * refuses only to write to one; and an org built for tests is often reached
+ * by more people, pipelines and integrations than the source it was filled
+ * from. A resource whose source types as a production org, by the live rule
+ * every guard reads (`isProductionTarget`), is refused unless it anonymizes
+ * what it clones (`anonymize`, a method for at least one category of
+ * personal field) or the file accepts real data (`accept: { realData: true }`),
+ * reviewed with it. The clone neutralizes emails and phone numbers by default
+ * either way, and the plan says so.
  */
 
 import { readFileSync } from 'node:fs';
@@ -42,7 +52,11 @@ import {
   type EnvForgeTable,
   type ForgeTemplateInput,
 } from '@sandforge/shared';
-import { typeTarget } from '../../../src/core/precheck/orgKindLive.js';
+import {
+  isProductionTarget,
+  typeTarget,
+  type TypedTarget,
+} from '../../../src/core/precheck/orgKindLive.js';
 import type { RunnableScript } from '../../scriptRunner.js';
 import {
   countSchema,
@@ -246,6 +260,7 @@ export function forgeRunOfResource(
         : {}),
       ...(resource.maxTotal !== undefined ? { maxTotal: resource.maxTotal } : {}),
       acceptAutomation: resource.accept?.automation === true,
+      acceptRealData: resource.accept?.realData === true,
     },
     warnings,
   };
@@ -261,10 +276,83 @@ export function forgeObjectsOf(run: EnvForgeRun): Array<{ object: string }> {
 
 /**
  * What the plan read of a forge resource's source before fingerprinting it:
- * the org its role's alias reaches, and the record a query names on it; or
- * why it could not be read, which blocks the resource.
+ * the org its role's alias reaches, whether it is a production org, and the
+ * record a query names on it; or why it could not be read or may not be
+ * cloned, which blocks the resource.
  */
-export type EnvSourceRead = { organizationId: string; recordId?: string } | { refusal: string };
+export type EnvSourceRead =
+  { organizationId: string; recordId?: string; production?: true } | { refusal: string };
+
+/**
+ * Whether what a forge resource clones is anonymized: its template
+ * anonymizes, with a method for at least one category of personal field. An
+ * anonymization that names none anonymizes nothing.
+ */
+export function forgeAnonymizes(run: Pick<EnvForgeRun, 'template'>): boolean {
+  const rules = run.template.anonymization?.rules ?? {};
+  return (
+    run.template.config.anonymizePII === true &&
+    Object.values(rules).some((method) => method !== undefined)
+  );
+}
+
+/** What a production org's Organization record said, as a refusal quotes it. */
+function productionEvidence(typed: TypedTarget): string {
+  return typed.edition
+    ? `its Organization record says IsSandbox false, edition ${typed.edition}`
+    : 'its Organization record says IsSandbox false, and no edition';
+}
+
+/**
+ * Why a forge resource may not clone its source, a production org, or
+ * nothing when it may: it anonymizes what it clones, or the file accepts real
+ * data. The refusal names both ways out.
+ */
+export function realDataRefusal(
+  run: Pick<EnvForgeRun, 'template' | 'acceptRealData'>,
+  what: string,
+  typed: TypedTarget,
+): string | undefined {
+  if (run.acceptRealData || forgeAnonymizes(run)) return undefined;
+  const empty =
+    run.template.config.anonymizePII === true
+      ? ' Its anonymize sets a method for no category of personal field, so it anonymizes nothing.'
+      : '';
+  return (
+    `its source, ${what}, is a production org (${productionEvidence(typed)}): what it clones ` +
+    'is real people’s data, written as read into an org built for tests.' +
+    `${empty} Give the resource anonymize — Forge’s anonymization, a method for each category ` +
+    'of personal field — or, reviewed in the file, accept: { realData: true }. Emails and phone ' +
+    'numbers are neutralized either way, unless keepContactPoints: true'
+  );
+}
+
+/**
+ * What the plan says of a forge resource whose source is a production org:
+ * that its data is real, what is done to it, and what the clone does to
+ * emails and phone numbers — neutralized unless the resource keeps them.
+ */
+export function realDataNotes(
+  run: Pick<EnvForgeRun, 'template' | 'acceptRealData'>,
+  source: { role: string; alias: string; read?: EnvSourceRead },
+): string[] {
+  const read = source.read;
+  if (read === undefined || 'refusal' in read || read.production !== true) return [];
+  const rules = Object.entries(run.template.anonymization?.rules ?? {})
+    .filter(([, method]) => method !== undefined)
+    .map(([category, method]) => `${category} ${String(method)}`);
+  const data = forgeAnonymizes(run)
+    ? `anonymized as its anonymize says (${rules.join(', ')})`
+    : 'written as read, as the file accepts (accept: { realData: true })';
+  return [
+    `real data: its source, the ${source.role} org (${source.alias}), is a production org; ` +
+      `what it clones is ${data}`,
+    run.template.config.keepContactPoints === true
+      ? 'contact points: written as read (keepContactPoints: true)'
+      : 'contact points: neutralized before writing (emails under .invalid, phone numbers in a ' +
+        'fictional range), as the clone does unless keepContactPoints',
+  ];
+}
 
 /**
  * The source of a forge resource, read: its Organization Id, from its own
@@ -279,19 +367,28 @@ export async function readForgeSource(
   alias: string,
 ): Promise<EnvSourceRead> {
   const what = `the ${role} org (${alias})`;
-  let organizationId: string;
+  let typed: TypedTarget;
   try {
-    organizationId = (await typeTarget(conn)).id;
+    typed = await typeTarget(conn);
   } catch (err: unknown) {
     return { refusal: `${what} could not be read: ${messageOf(err)}` };
   }
+  const organizationId = typed.id;
+  // Refused before a record of it is read: a query of a production org for
+  // a clone that may not be made is a read of real data for nothing.
+  const production = isProductionTarget(typed);
+  if (production) {
+    const refused = realDataRefusal(run, what, typed);
+    if (refused !== undefined) return { refusal: refused };
+  }
+  const read = { organizationId, ...(production ? { production: true as const } : {}) };
   const record = run.record;
-  if (record?.object === undefined || record.where === undefined) return { organizationId };
+  if (record?.object === undefined || record.where === undefined) return read;
   const where = `${record.object} WHERE ${record.where}`;
   try {
     const rows = (await conn.query<{ Id?: string }>(`SELECT Id FROM ${where} LIMIT 2`)).records;
     if (rows.length === 1 && typeof rows[0]?.Id === 'string') {
-      return { organizationId, recordId: rows[0].Id };
+      return { ...read, recordId: rows[0].Id };
     }
     if (rows.length === 0) {
       return {

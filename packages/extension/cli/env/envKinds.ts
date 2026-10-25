@@ -26,6 +26,7 @@ import {
   readForgeDryRun,
   readForgePreview,
   readForgeRemoval,
+  realDataNotes,
   type ForgeDryRunAnswer,
   type ForgePreviewAnswer,
   type ForgeRemovalAnswer,
@@ -338,4 +339,13 @@ export function readRemovalOf(kind: EnvResourceKind, stdout: string): EnvRemoval
 /** A removal's answer, per object. */
 export function removalObjectsOf(answer: EnvRemovalAnswer | undefined): EnvRemovalObject[] {
   return answer?.result.objects ?? [];
+}
+
+/**
+ * What a plan says of a resource beside why it acts: a forge resource whose
+ * source is a production org, what is done to its real data and to its
+ * contact points. Nothing for a kind that clones no org.
+ */
+export function notesOf(resource: EnvFileResource): string[] {
+  return resource.kind === 'forge' ? realDataNotes(resource.run, resource.source) : [];
 }

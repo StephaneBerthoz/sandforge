@@ -64,6 +64,15 @@ export interface EnvAccept {
   automation?: boolean;
 }
 
+/** A forge resource's acceptances: those of every resource, and real data. */
+export interface EnvForgeAccept extends EnvAccept {
+  /**
+   * Clone from a production source without anonymizing what is cloned:
+   * real people's data written into the org to fill, reviewed in the file.
+   */
+  realData?: boolean;
+}
+
 /** An object a seed resource writes. */
 export interface EnvSeedObject {
   object: string;
@@ -153,7 +162,7 @@ export interface EnvForgeAnonymize {
 export interface EnvForgeResource {
   kind: 'forge';
   dependsOn?: string[];
-  accept?: EnvAccept;
+  accept?: EnvForgeAccept;
   /** The org role it clones from: a key of the file's orgs. */
   source: string;
   record?: EnvForgeRecord;
@@ -211,6 +220,8 @@ export interface EnvForgeRun {
   /** The most records a run may write, the file's; the plan's count holds it lower. */
   maxTotal?: number;
   acceptAutomation: boolean;
+  /** A production source cloned without anonymization: accepted in the file. */
+  acceptRealData: boolean;
 }
 
 // ─── The state (state.json, version 1) ──────────────────────────────────────
@@ -342,6 +353,48 @@ export interface EnvAction {
   objects: EnvPlanObject[];
   gates?: EnvActionGates;
   refusal?: string;
+  /** What the plan says of it beside why: a production source's data, and what is done to it. */
+  notes?: string[];
+}
+
+/** A checkpoint of the environment's lifecycle: taken before the first write, or once applied. */
+export type EnvCheckpointStep = 'before' | 'after';
+
+/** A refusal the checkpoint script gives, in its own code and words. */
+export interface EnvCheckpointRefusal {
+  code: string;
+  message: string;
+}
+
+/**
+ * A checkpoint an apply takes, as its plan says it: under which name, what
+ * the checkpoint script estimates it costs, and what refuses it now — which
+ * refuses the apply before its first write.
+ */
+export interface EnvPlanCheckpoint {
+  step: EnvCheckpointStep;
+  name: string;
+  /** The checkpoint script's own estimate of the take. */
+  estimate?: { records: number; apiRequests: number; seconds: number; bytes: number };
+  refusal?: EnvCheckpointRefusal;
+  /** Why it was not estimated: --quick, or the script gave no answer. */
+  unread?: string;
+}
+
+/**
+ * The whole org against the checkpoint taken after the last apply, as the
+ * checkpoint script's own preview reads it.
+ */
+export interface EnvPlanDrift {
+  checkpoint: string;
+  /** The org differs from it among the objects and fields it compares. */
+  differs: boolean;
+  /** What a rewind to it would do now. */
+  toDelete?: number;
+  toGiveBack?: number;
+  toBringBack?: number;
+  /** Why the org could not be compared with it: never taken for one that does not differ. */
+  unread?: string;
 }
 
 /**
@@ -378,8 +431,10 @@ export interface EnvPlan {
     blocked: number;
   };
   gates: EnvPlanGates;
+  /** The checkpoints an apply takes, in the order it takes them. */
+  checkpoints?: EnvPlanCheckpoint[];
   /** The whole org against the checkpoint taken after the last apply. */
-  drift?: { checkpoint: string; differs: boolean };
+  drift?: EnvPlanDrift;
   /** What a real apply would meet now. */
   refusal?: string;
   /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
@@ -421,16 +476,73 @@ export interface EnvStepResult {
   answer?: unknown;
 }
 
+/**
+ * A checkpoint step of an apply or a destroy, and how the checkpoint script
+ * ended it: a take before the first write or once applied, or the deletion
+ * of one the environment no longer needs.
+ */
+export interface EnvCheckpointStepResult {
+  step: EnvCheckpointStep | 'delete';
+  /** The checkpoint taken, or deleted. */
+  checkpoint?: string;
+  exitCode: number;
+  /** What refused or failed it, in the checkpoint script's words. */
+  refusal?: string;
+  /** The checkpoint script's own `--json` answer, as it gave it. */
+  answer?: unknown;
+}
+
 /** What `apply` and `destroy` answer with `--json`. */
 export interface EnvRunResult {
   plan: EnvPlan;
   steps: EnvStepResult[];
+  /** The checkpoints taken and deleted, in order. */
+  checkpoints?: EnvCheckpointStepResult[];
   /** Resources no step ran for, each with why: a dependency left partial, a stop before them. */
   skipped?: Array<{ resource: string; why: string }>;
   status: 'success' | 'partial' | 'failure' | 'cancelled';
   /** Why nothing was done, when it was refused before its first step. */
   refusal?: string;
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
+  state: { serial: number };
+}
+
+/**
+ * Whether the checkpoint script offers to undo a rewind, as it offers it:
+ * until when, and the line that does; or why it does not.
+ */
+export type EnvRewindUndo =
+  { offered: true; until: string; line: string } | { offered: false; why: string };
+
+/**
+ * What `reset` and `destroy --rewind` answer with `--json`: the org rewound
+ * to a checkpoint of the environment by the checkpoint script, what its own
+ * preview counted before, how it ended, and whether it can be undone.
+ */
+export interface EnvRewindResult {
+  env: string;
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string };
+  /** `reset`, to the checkpoint taken after the last apply; `destroy`, to the one taken before the first. */
+  verb: 'reset' | 'destroy';
+  checkpoint: { step: EnvCheckpointStep; id: string; name?: string; takenAt?: string };
+  /** What the rewind's preview counted before the question, and who last changed it. */
+  preview?: {
+    toDelete: number;
+    toGiveBack: number;
+    toBringBack: number;
+    /** By the name of each user, the records to delete or give back they last changed. */
+    lastChangedBy: Record<string, number>;
+  };
+  /** The rewind's own exit code: 0, 1, 3, 4, or a stop's. */
+  exitCode: number;
+  status: 'success' | 'partial' | 'unstable' | 'failure' | 'cancelled';
+  /** The checkpoint script's own `--json` answer, as it gave it. */
+  answer?: unknown;
+  undo: EnvRewindUndo;
+  /** Why nothing was rewound, when it was refused before the rewind. */
+  refusal?: string;
+  /** The checkpoints deleted once the environment was taken back: destroy --rewind's. */
+  deleted?: EnvCheckpointStepResult[];
   state: { serial: number };
 }
 

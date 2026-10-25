@@ -11,7 +11,9 @@
  * server spawns its tools, so every guard, gate and run file of the script
  * holds unchanged. What it adds is what no script has: the declared file, a
  * state of what was applied to which org, a plan, an order, and refusals of
- * its own (`env/envGuards.ts`).
+ * its own (`env/envGuards.ts`). The checkpoints a file asks are taken,
+ * previewed, rewound to and deleted by `sandforge-checkpoint`, the same way
+ * (`env/envCheckpoints.ts`, `env/envRewind.ts`).
  *
  * What it reads in its own process: the file, the state, the plan's
  * arithmetic, the org's kind and its `/limits` — the guard needs them before
@@ -24,6 +26,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts plan --file sandforge.yaml --org pool-1
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts apply --file sandforge.yaml --org pool-1 --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy --file sandforge.yaml --org pool-1 --yes
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts reset --file sandforge.yaml --org pool-1 --yes
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -36,6 +39,7 @@ import type { Connection } from 'jsforce';
 import type {
   EnvIssue,
   EnvPlan,
+  EnvPlanDrift,
   EnvRefusalAnswer,
   EnvState,
   EnvStateList,
@@ -91,7 +95,18 @@ import {
 } from './env/envGuards.js';
 import { defaultEnvLocksDir, envLockHolder, envLockLine } from './env/envLock.js';
 import {
-  checkpointSettingsRefusal,
+  CHECKPOINT_SCRIPT,
+  checkpointEstimateLine,
+  checkpointPreviewLine,
+  checkpointStepsOf,
+  driftOf,
+  envCheckpointStoreOf,
+  estimateReadOf,
+  rewindPreviewLines,
+  type CheckpointEstimateRead,
+  type RewindPreview,
+} from './env/envCheckpoints.js';
+import {
   classifyResources,
   destructionPlan,
   envPlan,
@@ -100,10 +115,19 @@ import {
   planDrifts,
   planLines,
   removalOrder,
+  writes,
   type EnvBudget,
   type EnvDryRun,
   type EnvRunPreview,
 } from './env/envPlan.js';
+import {
+  previewEnvRewind,
+  rewindEnvironment,
+  rewindQuestionOf,
+  rewindRefusalOf,
+  rewindResultLines,
+  type EnvRewindInput,
+} from './env/envRewind.js';
 import {
   EnvStateError,
   envJournalDirOf,
@@ -131,6 +155,9 @@ Commands:
             nothing; stopped, run it again and it takes up
   destroy   take back what apply created, the last resource first, into the recycle bin; name what
             it cannot take back
+  reset     rewind the org to the checkpoint taken after the last apply: what anyone created,
+            changed or deleted since is taken back, the environment's records back as applied;
+            between two test suites, after asking you to type the org's alias
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
 
@@ -163,6 +190,16 @@ destroy:
                              under them since: on a shared sandbox, a colleague's work
   --sweep                    take also what the org's automation created during each run
   --accept-automation        delete although the org runs automation as records go
+  --rewind                   rewind the org to the checkpoint taken before the first apply
+                             instead: everyone's changes since are taken back, not only the
+                             environment's records, and its checkpoints are then deleted
+  --accept-no-undo           with --rewind, rewind although undo could not bring back some of
+                             the records it deletes
+  --yes                      as for apply
+reset:
+  --accept-automation        rewind although the org runs automation as records are written back
+  --accept-no-undo           rewind although undo could not bring back some of the records it
+                             deletes
   --yes                      as for apply
 
 The file holds no secret: org credentials stay with the sf CLI. A value comes from the environment
@@ -173,7 +210,18 @@ A forge resource clones from the org its source names: a role of the file's orgs
 given there, in a { env: NAME } variable or with --alias. A record named by a query is the one
 row its source answers, read at each plan. Each forge run is held to the count its dry run gave
 the plan: a source that grew since is refused, not written. Once it ended, the clone verifies
-what it created: records not there, or lookups that do not hold, leave it partial.
+what it created: records not there, or lookups that do not hold, leave it partial. A source that
+is a production org is refused unless the resource anonymizes what it clones (anonymize) or the
+file accepts real data (accept: { realData: true }); emails and phone numbers are neutralized
+either way, unless keepContactPoints.
+
+The file's checkpoint.before takes a checkpoint of the org before the first write of its first
+apply, which destroy --rewind returns to; checkpoint.after takes one once an apply ended 0, and
+again after each apply that writes, which reset returns to and plan compares the whole org with.
+sandforge-checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
+directory: they hold the org's values in clear. plan says what each take costs and what refuses
+it, which refuses the apply before its first write. A destroy that took everything back deletes
+them; reset keeps them, and sandforge-checkpoint undo takes a reset back.
 
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
@@ -188,21 +236,26 @@ A scratch org's state is deleted 30 days after its last write. Two machines appl
 at once are not kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
-whole, or nothing to do; destroy: every record taken back); 1 refused before it read or wrote — a
-production org, a kind of org or a sandbox the file does not allow, a protected org, a state of
-another org, no state without --accept-no-state, another apply of the org under way, a removal
-refused for automation without --accept-automation, more API requests, storage or emails than
-the org has left —, or nothing written; 2 a bad command line, a file that does not validate, a
-variable not set, the journal directory inside the file's repository, a question with no
-terminal (give --yes); 3 partial (apply: a resource partial, or failed after others wrote;
-destroy: records left, each with why; plan with --fail-on-change or --fail-on-drift: changes or
-drift found); 4 unstable (a forge run's verification found records still changing); 130, 143, 129
-Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it takes up from the state.
+whole, or nothing to do; destroy: every record taken back; reset and destroy --rewind: read again,
+the org matches the checkpoint); 1 refused before it read or wrote — a production org, a kind of
+org or a sandbox the file does not allow, a protected org, a state of another org, no state
+without --accept-no-state, another apply of the org under way, a removal refused for automation
+without --accept-automation, more API requests, storage or emails than the org has left, a
+checkpoint the file asks that its script refuses, a production source without anonymize or
+accept: { realData: true }, no checkpoint to reset or rewind to, a rewind refused for want of
+--accept-automation or --accept-no-undo —, or nothing written; 2 a bad command line, a file that
+does not validate, a variable not set, the journal directory inside the file's repository, a
+question with no terminal (give --yes); 3 partial (apply: a resource partial, or failed after
+others wrote; destroy: records left, each with why; reset and destroy --rewind: records still
+differ; plan with --fail-on-change or --fail-on-drift: changes or drift found); 4 unstable (a
+forge run's verification found records still changing; reset and destroy --rewind: someone
+changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
+takes up from the state.
 `;
 
 // ─── The command line ────────────────────────────────────────────────────────
 
-const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'state'] as const;
+const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'reset', 'state'] as const;
 type Command = (typeof COMMANDS)[number];
 
 const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
@@ -222,7 +275,20 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   destroy: {
     words: 1,
-    switches: ['--json', '--include-changed', '--sweep', '--accept-automation', '--yes'],
+    switches: [
+      '--json',
+      '--include-changed',
+      '--sweep',
+      '--accept-automation',
+      '--rewind',
+      '--accept-no-undo',
+      '--yes',
+    ],
+    values: ['--file', '--org', '--alias'],
+  },
+  reset: {
+    words: 1,
+    switches: ['--json', '--accept-automation', '--accept-no-undo', '--yes'],
     values: ['--file', '--org', '--alias'],
   },
   state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
@@ -247,6 +313,9 @@ export interface CliArgs {
   acceptNoState: boolean;
   includeChanged: boolean;
   sweep: boolean;
+  /** destroy: rewind the org to the checkpoint taken before the first apply. */
+  rewind: boolean;
+  acceptNoUndo: boolean;
   yes: boolean;
 }
 
@@ -265,12 +334,12 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   }
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
-    return refuseLine('Name the command first: validate, plan, apply, destroy or state.');
+    return refuseLine('Name the command first: validate, plan, apply, destroy, reset or state.');
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy or ` +
-        'state. Nothing was run.',
+      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy, reset ` +
+        'or state. Nothing was run.',
     );
   }
   // `--yes=true`, a misspelt `--dryrun`, would be dropped without a word.
@@ -301,8 +370,24 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     aliases[role] = alias;
   }
   const org = single('--org');
-  if ((command === 'plan' || command === 'apply' || command === 'destroy') && org === undefined) {
+  if (
+    (command === 'plan' || command === 'apply' || command === 'destroy' || command === 'reset') &&
+    org === undefined
+  ) {
     refuseLine(`${command} needs --org, the sf CLI alias of the org.`);
+  }
+  // A destroy by rewind takes the whole org back: a removal's switches would be read as kept.
+  const rewind = args.includes('--rewind');
+  if (rewind) {
+    const removal = ['--include-changed', '--sweep'].filter((flag) => args.includes(flag));
+    if (removal.length > 0) {
+      refuseLine(
+        `${removal.join(' and ')} take back records by removal: --rewind takes the whole org ` +
+          'back to the checkpoint before the first apply. Give one or the other.',
+      );
+    }
+  } else if (command === 'destroy' && args.includes('--accept-no-undo')) {
+    refuseLine('--accept-no-undo goes with --rewind: a destroy by removal is no rewind.');
   }
   const fileGiven = single('--file');
   const replace = values('--replace');
@@ -322,6 +407,8 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     acceptNoState: args.includes('--accept-no-state'),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
+    rewind,
+    acceptNoUndo: args.includes('--accept-no-undo'),
     yes: args.includes('--yes'),
   };
 }
@@ -557,7 +644,8 @@ async function prepare(
   }
   const warnings: string[] = [];
   let noState: EnvRefusal | undefined;
-  if (state === undefined && args.command !== 'destroy') {
+  const plans = args.command === 'plan' || args.command === 'apply';
+  if (state === undefined && plans) {
     const guarded = noStateGuard(target, resolved.checked.file.name, args.acceptNoState);
     if ('warning' in guarded) warnings.push(guarded.warning);
     else noState = guarded.refusal;
@@ -568,8 +656,9 @@ async function prepare(
   }
   // The source of each forge resource, read for a plan and an apply: the org
   // its alias reaches and the record its query names, which its fingerprint
-  // is of. A destroy takes back what the state names, and reads no source.
-  if (args.command !== 'destroy') {
+  // is of. A destroy takes back what the state names, and a reset rewinds to
+  // a checkpoint of it: neither reads a source.
+  if (plans) {
     const sources = await readSources(resolved, target, deps, say);
     if (Object.keys(sources).length > 0) {
       const again = resolveEnvFile(resolved.checked, process.env, {
@@ -816,7 +905,8 @@ async function planOf(
     say,
     signal,
   );
-  const drafts = classifyResources({ ...common, previews });
+  const drift = await wholeOrgDrift(prepared, say, signal);
+  const drafts = classifyResources({ ...common, previews, ...(drift ? { drift } : {}) });
   const dryRuns = await dryRun(
     prepared,
     drafts.filter((d) => d.action === 'create' || d.action === 'replace').map((d) => d.resource),
@@ -824,7 +914,70 @@ async function planOf(
     signal,
   );
   const budget = await readBudget(prepared.reached.conn);
-  return { plan: envPlan({ ...common, previews, dryRuns, budget }), dryRuns };
+  const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
+  return {
+    plan: envPlan({
+      ...common,
+      previews,
+      dryRuns,
+      budget,
+      ...(drift ? { drift } : {}),
+      ...(checkpointEstimate ? { checkpointEstimate } : {}),
+    }),
+    dryRuns,
+  };
+}
+
+/**
+ * The whole org against the checkpoint taken after the last apply, through
+ * the checkpoint script's own preview; nothing when the state names none.
+ */
+async function wholeOrgDrift(
+  prepared: Prepared,
+  say: (line: string) => void,
+  signal: AbortSignal,
+): Promise<EnvPlanDrift | undefined> {
+  const after = prepared.state?.checkpoints?.after;
+  if (after === undefined || signal.aborted) return undefined;
+  say(`checkpoint ${after}: comparing the whole org with it`);
+  const ran = await prepared.runner(
+    CHECKPOINT_SCRIPT,
+    checkpointPreviewLine({
+      org: prepared.target.alias,
+      store: envCheckpointStoreOf(prepared.journalDir),
+      checkpoint: after,
+    }),
+    signal,
+  );
+  return driftOf(after, ran);
+}
+
+/**
+ * What the checkpoint script estimates a take of the org costs, when the
+ * apply takes one: one estimate for both, which read the same objects.
+ */
+async function estimateCheckpoints(
+  prepared: Prepared,
+  writesAny: boolean,
+  say: (line: string) => void,
+  signal: AbortSignal,
+): Promise<CheckpointEstimateRead | undefined> {
+  const file = prepared.resolved.checked.file;
+  if (checkpointStepsOf(file, prepared.state, writesAny).length === 0 || signal.aborted) {
+    return undefined;
+  }
+  say('checkpoint: estimating what a take of the org costs');
+  const ignoreFields = file.checkpoint?.ignoreFields;
+  const ran = await prepared.runner(
+    CHECKPOINT_SCRIPT,
+    checkpointEstimateLine({
+      org: prepared.target.alias,
+      store: envCheckpointStoreOf(prepared.journalDir),
+      ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+    }),
+    signal,
+  );
+  return estimateReadOf(ran);
 }
 
 /** The org's clock, or this machine's, said once, when the org does not answer. */
@@ -906,8 +1059,6 @@ function validate(
     ];
   });
   const warnings = checked.checked.warnings.map(issueOf);
-  const checkpoint = checkpointSettingsRefusal(file);
-  if (checkpoint !== undefined) warnings.push({ path: 'checkpoint', message: checkpoint });
   say(`${args.file}: valid, the environment ${file.name}`);
   for (const resource of resources) {
     const run = runs[resource.name];
@@ -1044,6 +1195,65 @@ function stepDeps(prepared: Prepared, deps: EnvCliDeps, say: (line: string) => v
   };
 }
 
+/**
+ * `reset`, and `destroy --rewind`: the org rewound to a checkpoint of the
+ * environment by the checkpoint script. On a terminal, the rewind's preview
+ * first — what it deletes, gives back and brings back, who last changed it —
+ * then the alias typed, as an apply asks it; with `--yes`, the rewind alone,
+ * which previews the org itself before it writes.
+ */
+async function rewindVerb(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  verb: EnvRewindInput['verb'],
+  say: (line: string) => void,
+  answerJson: (value: unknown) => void,
+): Promise<void> {
+  const prepared = await prepare(args, deps, say);
+  const input: EnvRewindInput = {
+    verb,
+    resolved: prepared.resolved,
+    target: prepared.target,
+    state: prepared.state,
+    acceptAutomation: args.acceptAutomation,
+    acceptNoUndo: args.acceptNoUndo,
+  };
+  const refused = rewindRefusalOf(input);
+  if (refused !== undefined) throw stopWith(refused);
+  for (const warning of prepared.warnings) say(`warning: ${warning}`);
+  let preview: RewindPreview | undefined;
+  if (!args.yes) {
+    const read = await stoppable(deps, 'reading what a rewind would do', (signal) =>
+      previewEnvRewind(stepDeps(prepared, deps, say), input, signal),
+    );
+    if (!('differs' in read)) {
+      throw new Stop(
+        { refusal: { code: 'REWIND_REFUSED', message: `${read.refusal} Nothing was written.` } },
+        FAILED_EXIT,
+      );
+    }
+    preview = read;
+    for (const line of rewindPreviewLines(verb, prepared.target.alias, read)) say(line);
+    if (read.refusal !== undefined) {
+      throw new Stop(
+        { refusal: { code: read.refusal.code, message: read.refusal.message } },
+        FAILED_EXIT,
+      );
+    }
+    // Nothing to write, nothing to ask: the checkpoint script asks no question of such a rewind.
+    if (read.differs && !(await confirmed(args, deps, rewindQuestionOf(input, read), say))) {
+      throw new Stop(
+        { refusal: { code: 'DECLINED', message: 'Nothing was written.' } },
+        FAILED_EXIT,
+      );
+    }
+  }
+  const outcome = await rewindEnvironment(stepDeps(prepared, deps, say), input, preview);
+  for (const line of rewindResultLines(outcome.result)) say(line);
+  answerJson(outcome.result);
+  endWith(outcome.exitCode);
+}
+
 /** Run the command; exported so it can be run on the memory org. */
 export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {}): Promise<void> {
   const args = parseArgs(argv, deps.cwd);
@@ -1113,7 +1323,15 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
         endWith(outcome.exitCode);
         return;
       }
+      case 'reset': {
+        await rewindVerb(args, deps, 'reset', say, answerJson);
+        return;
+      }
       case 'destroy': {
+        if (args.rewind) {
+          await rewindVerb(args, deps, 'destroy', say, answerJson);
+          return;
+        }
         const prepared = await prepare(args, deps, say);
         const org = {
           organizationId: prepared.target.organizationId,

@@ -4,6 +4,8 @@ import type * as z from 'zod';
 import type {
   EnvAction,
   EnvActionKind,
+  EnvCheckpointStep,
+  EnvCheckpointStepResult,
   EnvFile,
   EnvForgeResource,
   EnvPlan,
@@ -12,6 +14,7 @@ import type {
   EnvResourceState,
   EnvResourceStatus,
   EnvRefusalAnswer,
+  EnvRewindResult,
   EnvRun,
   EnvRunResult,
   EnvScript,
@@ -27,10 +30,13 @@ import type {
 import {
   envActionKindSchema,
   envActionSchema,
+  envCheckpointStepResultSchema,
+  envCheckpointStepSchema,
   envFileSchema,
   envForgeResourceSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
+  envRewindResultSchema,
   envResourceKindSchema,
   envResourceSchema,
   envResourceStateSchema,
@@ -100,6 +106,15 @@ describe('the plan and the steps, and their schemas', () => {
     expectTypeOf<z.infer<typeof envActionSchema>>().toEqualTypeOf<EnvAction>();
     expectTypeOf<z.infer<typeof envStepResultSchema>>().toEqualTypeOf<EnvStepResult>();
     expectTypeOf<z.infer<typeof envRunResultSchema>>().toEqualTypeOf<EnvRunResult>();
+    expectTypeOf<
+      z.infer<typeof envCheckpointStepResultSchema>
+    >().toEqualTypeOf<EnvCheckpointStepResult>();
+  });
+
+  it('reads exactly the shape reset and destroy --rewind answer, and the checkpoint steps', () => {
+    expectTypeOf<z.infer<typeof envRewindResultSchema>>().toEqualTypeOf<EnvRewindResult>();
+    expectTypeOf<z.infer<typeof envCheckpointStepSchema>>().toEqualTypeOf<EnvCheckpointStep>();
+    expect(envCheckpointStepSchema.options).toEqual(['before', 'after']);
   });
 
   it('reads the closed lists the types declare, value for value', () => {

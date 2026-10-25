@@ -42,6 +42,7 @@ import {
   type MemoryChild,
   type MemoryRow,
 } from '../../src/test/memoryRemovalOrg.js';
+import { MemoryRestoreOrg } from '../../src/test/memoryRestoreOrg.js';
 import { main as cloneMain, targetAutomationReader } from '../sandforge-clone.js';
 import { main as seedMain } from '../sandforge-seed.js';
 import type { CommandRun, CommandRunner } from '../scriptRunner.js';
@@ -184,7 +185,8 @@ export class EnvWorld {
     this.options = options;
     this.organizationId = options.organizationId ?? '00D000000000009AAA';
     this.sourceOrganizationId = options.source?.organizationId ?? SOURCE_ORG_ID;
-    this.org = new MemoryRemovalOrg(CHILDREN);
+    // Its updates made, as a rewind's give-back sends them (`envCheckpointWorld.ts`).
+    this.org = new MemoryRestoreOrg(CHILDREN);
     this.source = options.source !== undefined ? new MemoryRemovalOrg(CHILDREN) : undefined;
     const conn = this.connection();
     const sourceConn = this.source !== undefined ? this.sourceConnection() : undefined;

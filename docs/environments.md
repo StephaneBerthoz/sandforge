@@ -2,9 +2,9 @@
 
 A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge-env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
 
-This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own -- and **forge resources**: records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)). [Not yet](#not-yet) says what it does not do.
+This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own -- and **forge resources**: records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
@@ -69,7 +69,7 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | the file                                    | `version`, `name`, `description`, `targets`, `orgs`, `checkpoint`, `resources`                                                                            | `version: 1`; `name`, lower-case letters, digits and dashes, which names the state; `resources`, by name                                                                                                                                                                                                                                          |
 | `targets`                                   | `kinds`, `sandboxes`, `protect`                                                                                                                           | the kinds of org it may be applied to, `scratch` and `developer` unless it says otherwise; the Organization Ids of the sandboxes it may write to, with `sandbox` among the kinds; the Organization Ids it refuses whatever else says                                                                                                              |
 | `orgs.<role>`                               | `alias`                                                                                                                                                   | an sf CLI alias, or `{ env: NAME }`, the variable that holds one; `--alias <role>=<alias>` wins over it; an unset variable refuses every command but `validate`, exit `2`. A forge resource names one as its `source`                                                                                                                             |
-| `checkpoint`                                | `before`, `after`, `ignoreFields`                                                                                                                         | read and checked, [not yet](#not-yet) taken                                                                                                                                                                                                                                                                                                       |
+| `checkpoint`                                | `before`, `after`, `ignoreFields`                                                                                                                         | `before: true`, a checkpoint of the org before the first write of the first apply, which `destroy --rewind` returns to; `after`, the name of one taken once an apply ended `0`, which `reset` returns to; the fields neither compares nor writes back ([Checkpoints](#checkpoints))                                                               |
 | `resources.<name>`                          | `kind`, `dependsOn`, `accept`, `template`, `objects`, `relations`, `locale`, `seed`                                                                       | `kind: seed`; the resources applied before it; `template`, the id of one of Seed's built-in templates, or `objects` and `relations` of its own, not both; `locale`, the country names and addresses are drawn for, the org's own without it; `seed`, the draws                                                                                    |
 | `resources.<name>.accept`                   | `automation`                                                                                                                                              | `true`: the `--accept-automation` of the line, for this resource, reviewed in the file                                                                                                                                                                                                                                                            |
 | `resources.<name>.objects[]`                | `object`, `count`, `fields`, `recordTypes`, `batchSize`                                                                                                   | an object, listed once; how many records; Seed's field rules, as the Seed panel saves them ([Generated values](modules/seed.md#generated-values)); record types by API name, several taking turns at random                                                                                                                                       |
@@ -82,6 +82,7 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | `resources.<name>.tables[]`                 | `object`, `where`                                                                                                                                         | a table it clones whole, the first the one discovery starts from; a SOQL condition, without `WHERE`, every row without it                                                                                                                                                                                                                         |
 | `resources.<name>.template`                 | `file`, `id`                                                                                                                                              | a templates file of the project, from the file's folder, as `.sandforge/forge-templates.json`; the id of the template it takes the decisions, exclusions, filters and mappings of                                                                                                                                                                 |
 | `resources.<name>.anonymize`                | `presetId`, `rules`, `fields`                                                                                                                             | Forge's anonymization, as a template holds it: the method of each category, and the personal fields of each object                                                                                                                                                                                                                                |
+| `resources.<name>.accept`, `kind: forge`    | `automation`, `realData`                                                                                                                                  | `automation`, as for a seed resource; `realData: true`, to clone a production source without anonymizing it, reviewed in the file ([Real data](#real-data-from-a-production-org))                                                                                                                                                                 |
 
 A built-in template is one of `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` and `prebuilt-sales-cloud-starter`, the templates of Seed's gallery. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote.
 
@@ -107,6 +108,29 @@ A forge resource is cloned by [`sandforge-clone`](forge-reference.md#the-command
 - **Held to its plan's count.** The plan dry-runs the clone and keeps the count its gate gives, and the run is held to it as the most records it may write in all: a source that grew between the plan and the run is refused before its first write, and nothing is written. `maxTotal` is the most the file lets a run write, which the dry run is held to.
 - **Verified.** Once a run ended, the clone's own verification reads back from the org filled what it created, and checks its lookups on a sample against the source: records not there, or lookups that do not hold, leave it partial, and readings that never agree end the apply with `4`.
 - **Taken back by the clone's own removal**, from the summary the run wrote beside the state as it went: a run stopped part way is taken back from what its summary says it had created, then run again.
+
+### Real data from a production org
+
+Every script reads a production org: only writing to one is refused. An org built for tests is often reached by more people, pipelines and integrations than the org it was filled from, so a forge resource whose source types as a production org -- by the rule every guard reads, its Organization record saying `IsSandbox` false and an edition other than Developer Edition -- is blocked, and the apply with it, unless it says what is done to the data:
+
+- **`anonymize`**, Forge's anonymization, a method for at least one category of personal field. One that sets no method anonymizes nothing, and is said so;
+- **or `accept: { realData: true }`**, reviewed in the file: what it clones is written as read.
+
+```yaml
+orgs:
+  prod: { alias: { env: SF_PROD_ALIAS } } # a production org, read: never written to
+
+resources:
+  bug-1234:
+    kind: forge
+    source: prod
+    record: { object: Case, where: "CaseNumber = '00001026'" }
+    anonymize: { rules: { name: fake, email: fake, address: mask } }
+```
+
+The refusal names both ways out: `Give the resource anonymize — Forge’s anonymization, a method for each category of personal field — or, reviewed in the file, accept: { realData: true }`. It is met before a record of the source is read: the plan neither reads the record its query names nor dry-runs the clone.
+
+Either way, the clone neutralizes emails and phone numbers before it writes them, as it does from any source, unless the resource sets `keepContactPoints: true`, and the plan says which, under the resource: `real data: its source, the prod org (PROD), is a production org; what it clones is anonymized as its anonymize says (name fake, email fake, address mask)`, then `contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints`.
 
 ## A walk through
 
@@ -344,15 +368,194 @@ case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): serial 22, written 2026-10-25
 
 On a terminal, `destroy` asks for the alias too, and with `--include-changed` its question says what it takes: `Type pool-1 to take case-flow back from it, the records changed since included — on a shared org, others’ work:`. [What destroy leaves](#what-destroy-takes-back-and-what-it-leaves) has the rest.
 
+## Checkpoints
+
+A file may ask two checkpoints of the org, each a [checkpoint](modules/checkpoint.md) of its data taken, compared with and rewound to by `sandforge-checkpoint` itself, spawned with `--json` as every script is:
+
+```yaml
+checkpoint:
+  before: true # before the first write of the first apply: destroy --rewind returns to it
+  after: baseline # once an apply ended 0, again after each that writes: reset returns to it
+  ignoreFields: [Case.Last_Touched__c] # what your automation sets on every save
+```
+
+- **`after`** is taken once an apply ended `0`, and again by the next apply that writes, the one before deleted: once an apply wrote, the org no longer holds the environment as that one holds it. An apply that writes nothing takes none, unless the state names none. `reset` rewinds the org to it, and `plan` compares the whole org with it.
+- **`before`** is taken before the first write of the first apply, and never again while the state names it. `destroy --rewind` returns the org to it. Asked of an environment an earlier apply wrote without one, it is not taken, and the plan says why: a rewind to it would keep those records.
+- **Where they are kept**: in `checkpoints/` of the journal directory, outside the repository with the state. A checkpoint holds the records' values in clear, personal data among them: a cache that keeps the journal directory keeps them too, and is read by the pipeline alone.
+- **What they cost, and what refuses them**: each take the apply would make is in its plan, with what the checkpoint script itself estimates it costs, and its API requests are in the day's sum. The checkpoint's own guard refuses a production org, a user without View All Data and Modify All Data, and more records than its limit: its refusal is the apply's, before its first write.
+
+### Taken once applied: `checkpoint.after`
+
+The file of the walk-through, with `checkpoint: { after: baseline }`:
+
+<!-- replay: scratch; the file asks a checkpoint once applied -->
+
+```console
+$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+accounts: dry run
+contacts: dry run
+checkpoint: estimating what a take of the org costs
+plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   accounts  Account 3 to write
+           not applied to this org yet
+  create   contacts  Contact at most 6 to write
+           not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
+totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 17, 14000 left; not counted: what contacts draws from the records accounts writes first
+data storage: about 0.02 MB, 5 MB left
+checkpoint once applied: 'baseline', about 9 records, 15 API requests, 4 s, 0.01 MB on this machine
+warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+accounts: run 1 (create)
+contacts: run 1 (create)
+checkpoint once applied: taking 'baseline'
+
+  accounts run 1: exit 0, applied  Account 3 created
+  contacts run 1: exit 0, applied  Contact 6 created
+  checkpoint once applied: exit 0, taken ck-20261025-090230-a1b2
+apply: success; state serial 5
+```
+
+The plan says what the take costs, by the checkpoint script's own estimate, and the API requests of the day add it: 17, the seeds' 2 and the take's 15. The take comes once every resource ended `0`; its id is in the state.
+
+### The whole org against it: `plan --fail-on-drift`
+
+A test renames one of the environment's accounts, and creates an account of its own:
+
+<!-- replay: then; a test renames an account and creates one -->
+
+```console
+$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
+contacts: reading what the org holds of run 1
+accounts: reading what the org holds of run 1
+checkpoint ck-20261025-090230-a1b2: comparing the whole org with it
+plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 5
+  drifted  accounts  Account 3 in the org, 1 changed
+           its records changed since it was applied: Account 1 changed (last changed by Colleague 1). Left as they are: --replace accounts or --replace-drifted replaces it
+  keep     contacts  Contact 6 in the org
+           applied, and the org holds its 6 record(s) as written
+totals: 0 to create, 0 to replace, 0 to delete, 1 kept, 1 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+the whole org against the checkpoint after the last apply (ck-20261025-090230-a1b2): differs, 1 to delete · 1 to give back · 0 to bring back
+$ echo $?
+3
+```
+
+Each resource is read back by its removal preview, as without a checkpoint; the whole org, by the checkpoint's own preview, which sees what the environment's records do not: the account the test created. Either one moved makes `--fail-on-drift` exit `3`, and so does a whole org the checkpoint script could not compare.
+
+### Between two suites: `reset`
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env reset --file ../case-flow/sandforge.yaml --org pool-1 --yes
+reset: rewinding pool-1 to checkpoint ck-20261025-090230-a1b2
+
+  rewind to ck-20261025-090230-a1b2: exit 0, success  1 deleted, 1 given back, 0 brought back
+undo it until 2026-11-09T09:04:31.000Z, sooner if the recycle bin fills: sandforge-checkpoint undo --org pool-1 --checkpoint ck-20261025-090230-a1b2 --store /home/dev/.sandforge/checkpoints
+reset: success; state serial 5
+```
+
+`reset` rewinds the org to the checkpoint taken after the last apply: what anyone created, changed or deleted since is taken back, and the environment's records are back as applied, with their Ids. The state stays as it was, its serial too: it names the same runs, and their records are in the org again. It never makes records again with new Ids, which the state would no longer name: one the recycle bin no longer gives back is left, and named.
+
+- **The question**: on a terminal, it first reads what the rewind would do, then asks for the alias, as `apply` does: `Type pool-1 to reset it to 'baseline', as case-flow was applied: it deletes 1 record(s) created since, gives 1 their values back and brings 0 back from the recycle bin — whoever made these changes, last changed by Colleague 2:`. In CI, `--yes`; with no terminal and no `--yes`, it stops at the question, exit `2`, having written nothing.
+- **The acceptances**: `--accept-automation` and `--accept-no-undo`, the rewind's own, given to it only when the line gives them.
+- **Undo**: the checkpoint script offers to undo the reset, as it offers to undo any rewind, for 15 days, sooner if the recycle bin fills; the line above is the one that does it.
+- **Refused** with no checkpoint after the last apply (`names no checkpoint taken after an apply`), and once an apply did not end whole: the checkpoint before it no longer holds the environment the state names (`Apply again, then reset.`).
+
+The reset gave the renamed account its name back, which dates it after the apply: a removal preview reads its date alone, and counts it changed. The whole org holds what the checkpoint holds, so the plan keeps it:
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env plan --file ../case-flow/sandforge.yaml --org pool-1 --fail-on-drift
+contacts: reading what the org holds of run 1
+accounts: reading what the org holds of run 1
+checkpoint ck-20261025-090230-a1b2: comparing the whole org with it
+plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 5
+  keep     accounts  Account 3 in the org, 1 changed
+           applied, and the org holds its 3 record(s) as the checkpoint taken after the apply holds them: 1 written since hold their values again, as a reset gives them back
+  keep     contacts  Contact 6 in the org
+           applied, and the org holds its 6 record(s) as written
+totals: 0 to create, 0 to replace, 0 to delete, 2 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+the whole org against the checkpoint after the last apply (ck-20261025-090230-a1b2): nothing differs among the objects and fields it compares
+$ echo $?
+0
+```
+
+A `destroy` by removal still reads that account as changed since the apply, and keeps it unless `--include-changed`: on a pool's org, give the flag, or destroy by rewind.
+
+### Back to before the first apply: `destroy --rewind`
+
+With `checkpoint: { before: true }`, the first apply takes a checkpoint before its first write:
+
+<!-- replay: scratch; the file asks a checkpoint before the first write -->
+
+```console
+$ sandforge-env apply --file ../case-flow/sandforge.yaml --org pool-1 --yes
+accounts: dry run
+contacts: dry run
+checkpoint: estimating what a take of the org costs
+plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   accounts  Account 3 to write
+           not applied to this org yet
+  create   contacts  Contact at most 6 to write
+           not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
+totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 17, 14000 left; not counted: what contacts draws from the records accounts writes first
+data storage: about 0.02 MB, 5 MB left
+checkpoint before the first write: 'case-flow before', about 0 records, 15 API requests, 4 s, 0.01 MB on this machine
+warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+checkpoint before the first write: taking 'case-flow before'
+accounts: run 1 (create)
+contacts: run 1 (create)
+
+  accounts run 1: exit 0, applied  Account 3 created
+  contacts run 1: exit 0, applied  Contact 6 created
+  checkpoint before the first write: exit 0, taken ck-20261025-090130-a1b2
+apply: success; state serial 5
+```
+
+The checkpoint is taken before the first seed writes, of an org that holds none of the environment yet -- here an empty one: a team's own records in a sandbox are kept in it, and come back with it.
+
+A test creates an account of its own; then:
+
+<!-- replay: then; a test creates an account -->
+
+```console
+$ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --rewind --yes
+destroy --rewind: rewinding pool-1 to checkpoint ck-20261025-090130-a1b2
+checkpoint ck-20261025-090130-a1b2: deleted from this machine, the environment it was taken of is taken back
+every record of case-flow is taken back from pool-1, with what anyone changed since its first apply: the state keeps it as destroyed, and the next apply creates it again
+
+  rewind to ck-20261025-090130-a1b2: exit 0, success  4 deleted, 0 given back, 0 brought back
+  checkpoint ck-20261025-090130-a1b2 deleted
+no undo: the environment’s checkpoints are deleted with it, the journal of this rewind among them: a destroy is undone by applying again
+destroy --rewind: success; state serial 7
+```
+
+The three accounts of the environment and the one the test created are deleted, and the six contacts go with their accounts, as Salesforce deletes them.
+
+`destroy --rewind` returns the org to the checkpoint taken before the first apply: **everyone's** changes since are taken back, not only the environment's records. On a CI org of its own, the whole destroy; on a shared sandbox, the wrong one, and its question says it: `Type pool-1 to rewind it to before case-flow was first applied: it deletes … — whoever made these changes, last changed by …; the environment's checkpoints are then deleted, and this is not undone:`. Once it ended `0`, every resource of the state is destroyed, and the environment's checkpoints are deleted, the rewind's journal with them: it is not undone, but by applying again. `--include-changed` and `--sweep` belong to a destroy by removal, and are refused beside `--rewind`.
+
+A destroy by removal that took every record back deletes the environment's checkpoints too; one that left records keeps them, for the destroy that takes the rest.
+
 ## The commands
 
-| Command    | What it does                                                                                      | Flags                                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `validate` | checks the file offline: its schema, each resource against Seed's rules, the order, the variables | `--file`, `--json`                                                                                                            |
-| `plan`     | says what `apply` would do, writing nothing                                                       | `--file`, `--org`, `--alias`, `--json`, `--fail-on-change`, `--fail-on-drift`, `--quick`, `--replace`, `--replace-drifted`    |
-| `apply`    | does what the plan says, once the alias is typed or `--yes` given                                 | `--file`, `--org`, `--alias`, `--json`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--yes` |
-| `destroy`  | takes back what `apply` created, the last resource first, into the recycle bin                    | `--file`, `--org`, `--alias`, `--json`, `--include-changed`, `--sweep`, `--accept-automation`, `--yes`                        |
-| `state`    | lists the states kept on this machine, or those of one org or one file; reaches no org            | `--org`, `--file`, `--json`                                                                                                   |
+| Command    | What it does                                                                                                                                                    | Flags                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate` | checks the file offline: its schema, each resource against Seed's rules, the order, the variables                                                               | `--file`, `--json`                                                                                                                     |
+| `plan`     | says what `apply` would do, writing nothing                                                                                                                     | `--file`, `--org`, `--alias`, `--json`, `--fail-on-change`, `--fail-on-drift`, `--quick`, `--replace`, `--replace-drifted`             |
+| `apply`    | does what the plan says, once the alias is typed or `--yes` given                                                                                               | `--file`, `--org`, `--alias`, `--json`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--yes`          |
+| `destroy`  | takes back what `apply` created, the last resource first, into the recycle bin; with `--rewind`, rewinds the org to the checkpoint taken before the first apply | `--file`, `--org`, `--alias`, `--json`, `--include-changed`, `--sweep`, `--accept-automation`, `--rewind`, `--accept-no-undo`, `--yes` |
+| `reset`    | rewinds the org to the checkpoint taken after the last apply, once the alias is typed or `--yes` given                                                          | `--file`, `--org`, `--alias`, `--json`, `--accept-automation`, `--accept-no-undo`, `--yes`                                             |
+| `state`    | lists the states kept on this machine, or those of one org or one file; reaches no org                                                                          | `--org`, `--file`, `--json`                                                                                                            |
 
 ### Every flag
 
@@ -373,6 +576,9 @@ Commands:
             nothing; stopped, run it again and it takes up
   destroy   take back what apply created, the last resource first, into the recycle bin; name what
             it cannot take back
+  reset     rewind the org to the checkpoint taken after the last apply: what anyone created,
+            changed or deleted since is taken back, the environment's records back as applied;
+            between two test suites, after asking you to type the org's alias
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
 
@@ -405,6 +611,16 @@ destroy:
                              under them since: on a shared sandbox, a colleague's work
   --sweep                    take also what the org's automation created during each run
   --accept-automation        delete although the org runs automation as records go
+  --rewind                   rewind the org to the checkpoint taken before the first apply
+                             instead: everyone's changes since are taken back, not only the
+                             environment's records, and its checkpoints are then deleted
+  --accept-no-undo           with --rewind, rewind although undo could not bring back some of
+                             the records it deletes
+  --yes                      as for apply
+reset:
+  --accept-automation        rewind although the org runs automation as records are written back
+  --accept-no-undo           rewind although undo could not bring back some of the records it
+                             deletes
   --yes                      as for apply
 
 The file holds no secret: org credentials stay with the sf CLI. A value comes from the environment
@@ -415,7 +631,18 @@ A forge resource clones from the org its source names: a role of the file's orgs
 given there, in a { env: NAME } variable or with --alias. A record named by a query is the one
 row its source answers, read at each plan. Each forge run is held to the count its dry run gave
 the plan: a source that grew since is refused, not written. Once it ended, the clone verifies
-what it created: records not there, or lookups that do not hold, leave it partial.
+what it created: records not there, or lookups that do not hold, leave it partial. A source that
+is a production org is refused unless the resource anonymizes what it clones (anonymize) or the
+file accepts real data (accept: { realData: true }); emails and phone numbers are neutralized
+either way, unless keepContactPoints.
+
+The file's checkpoint.before takes a checkpoint of the org before the first write of its first
+apply, which destroy --rewind returns to; checkpoint.after takes one once an apply ended 0, and
+again after each apply that writes, which reset returns to and plan compares the whole org with.
+sandforge-checkpoint takes, rewinds to and deletes them, in checkpoints/ of the journal
+directory: they hold the org's values in clear. plan says what each take costs and what refuses
+it, which refuses the apply before its first write. A destroy that took everything back deletes
+them; reset keeps them, and sandforge-checkpoint undo takes a reset back.
 
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
@@ -430,16 +657,21 @@ A scratch org's state is deleted 30 days after its last write. Two machines appl
 at once are not kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
-whole, or nothing to do; destroy: every record taken back); 1 refused before it read or wrote — a
-production org, a kind of org or a sandbox the file does not allow, a protected org, a state of
-another org, no state without --accept-no-state, another apply of the org under way, a removal
-refused for automation without --accept-automation, more API requests, storage or emails than
-the org has left —, or nothing written; 2 a bad command line, a file that does not validate, a
-variable not set, the journal directory inside the file's repository, a question with no
-terminal (give --yes); 3 partial (apply: a resource partial, or failed after others wrote;
-destroy: records left, each with why; plan with --fail-on-change or --fail-on-drift: changes or
-drift found); 4 unstable (a forge run's verification found records still changing); 130, 143, 129
-Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it takes up from the state.
+whole, or nothing to do; destroy: every record taken back; reset and destroy --rewind: read again,
+the org matches the checkpoint); 1 refused before it read or wrote — a production org, a kind of
+org or a sandbox the file does not allow, a protected org, a state of another org, no state
+without --accept-no-state, another apply of the org under way, a removal refused for automation
+without --accept-automation, more API requests, storage or emails than the org has left, a
+checkpoint the file asks that its script refuses, a production source without anonymize or
+accept: { realData: true }, no checkpoint to reset or rewind to, a rewind refused for want of
+--accept-automation or --accept-no-undo —, or nothing written; 2 a bad command line, a file that
+does not validate, a variable not set, the journal directory inside the file's repository, a
+question with no terminal (give --yes); 3 partial (apply: a resource partial, or failed after
+others wrote; destroy: records left, each with why; reset and destroy --rewind: records still
+differ; plan with --fail-on-change or --fail-on-drift: changes or drift found); 4 unstable (a
+forge run's verification found records still changing; reset and destroy --rewind: someone
+changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
+takes up from the state.
 ```
 
 ## What is refused
@@ -520,6 +752,9 @@ And:
 - **another apply or destroy of the org under way on this machine**: `Two jobs applying to one org from two machines are not kept apart: give them one concurrency group.`;
 - **more than the org has left today**, summed over the resources the plan writes: API requests (`the apply would stop part way`), data storage (`the org would refuse records part way`) and emails (`each resource alone may fit, the day does not`);
 - **automation**: a removal the `apply` of a `replace` or a `delete` runs, or the `destroy`, deletes nothing while the org runs flows, Apex triggers, processes or workflow rules as records go, unless `--accept-automation`, or `accept: { automation: true }` on the resource.
+- **a forge resource cloning a production org** without `anonymize` or `accept: { realData: true }`: [Real data](#real-data-from-a-production-org);
+- **a checkpoint the file asks that the checkpoint script refuses**, by its own estimate, before the first write: `would be refused`, with the checkpoint guard's words -- a user without View All Data and Modify All Data, more records than a take holds, more API requests than the org has left;
+- **a `reset` or a `destroy --rewind` with no checkpoint to rewind to**: `names no checkpoint taken after an apply`, `names no checkpoint taken before its first apply`, and a `reset` once the last apply did not end whole. The rewind's own refusals are its: automation without `--accept-automation`, deletions undo could not bring back without `--accept-no-undo`, records the recycle bin no longer gives back, which an environment never makes again with new Ids (`never makes records again with new Ids`).
 
 ## The state
 
@@ -530,6 +765,7 @@ What `apply` keeps of the org: **ids, counts and dates, never a record's values*
 - **Between jobs.** Keep the journal directory between the jobs that apply and destroy, in a cache keyed by the org: in GitHub Actions, `$RUNNER_TEMP/sandforge`, restored before and saved after. Lost, the next plan cannot tell the environment's records from the org's own -- the refusal above.
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
 - **How long.** A scratch org's state is deleted 30 days after its last write: every command but `validate` first deletes those whose date has come, and says so. Any other state stays, a `destroy` that took everything back included, until you delete its folder.
+- **Its checkpoints.** The state names the ids of the environment's checkpoints, kept in `checkpoints/` of the same journal directory: a scratch org's for 30 days, any other's until the destroy that deletes them. Unlike the state, they hold the records' values, in clear.
 - **Read strictly.** A state that does not parse is refused, never guessed; one that changed since it was read -- another apply ran, a cache put back an older one -- is refused, never written over.
 
 ## What destroy takes back, and what it leaves
@@ -545,6 +781,8 @@ A removal refused before it deletes stops the destroy there, before the resource
 
 A destroy is not undone as a whole: children deleted before their parent cannot come back with it from the recycle bin. It is undone by applying again.
 
+Once every resource is taken back, the environment's checkpoints are deleted from this machine; a destroy that left records keeps them. What tests created on their own, not under the environment's records, is not the environment's, and a destroy by removal never sees it: `destroy --rewind` does ([Back to before the first apply](#back-to-before-the-first-apply-destroy---rewind)), and so does deleting the scratch org.
+
 ## Stopped part way
 
 Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the run under way before its next call to the org, and the command exits `130`, `143` or `129`. The state named the run before it started, and the seed's run file names what it wrote, a clone's summary what it created, so the next plan says `replaced: its last run was stopped part way: what it wrote is taken back from its run file, then it runs again`, and `apply` takes up from there.
@@ -553,24 +791,23 @@ Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the ru
 
 The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/exitCodes.ts)):
 
-| Code                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`                 | Done: `validate`, the file is valid; `plan`, answered, whatever it found; `apply`, every resource applied whole, or nothing to do; `destroy`, every record taken back                                                                                                                                                                                                                                      |
-| `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left; the alias typed is not the org's |
-| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory inside the file's repository, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                      |
-| `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found                                                                                                                                                                                                                    |
-| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends                                                                                                                                                                                                                                        |
-| `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                         |
+| Code                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`                 | Done: `validate`, the file is valid; `plan`, answered, whatever it found; `apply`, every resource applied whole, or nothing to do; `destroy`, every record taken back; `reset` and `destroy --rewind`, read again, the org matches the checkpoint                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left, a checkpoint the file asks that its script refuses, a production source without `anonymize` or `accept: { realData: true }`, no checkpoint to reset or rewind to, a rewind refused for want of `--accept-no-undo` or the automation acceptance; the alias typed is not the org's |
+| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory inside the file's repository, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `reset` and `destroy --rewind`, records still differ; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found, the whole org against the checkpoint after the last apply included                                                                                                                                                                                                                                                                                                                                          |
+| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends; `reset` and `destroy --rewind`, someone changed records during the rewind                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Not yet
 
 This version applies seed and forge resources; the rest waits for a later one:
 
 - **Frozen Dataset loads and masking** as resources: `kind: frozen` and `kind: mask` are refused, `Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`.
-- **Checkpoints in the file**: `checkpoint.before` and `checkpoint.after` are read and checked, and `validate` warns of them; the plan of a file that asks one says an apply would be refused, and `apply` refuses it, `which a later SandForge takes`. Take one with [`sandforge-checkpoint`](modules/checkpoint.md#from-the-command-line) before the apply instead.
 - **Saved plans**: no `plan --out`, no `apply --plan`. `apply` plans again, against the org as it is then.
 - **Parents drawn by Id from another resource's records**: a relation's `parents` take an `object` and `existing` alone. Draw them with a `where`, as the example does.
-- **Outputs, `reset`, `destroy --rewind`**, and the MCP server's tools for environments.
+- **Outputs**, and the MCP server's tools for environments.
 
 ## In CI
 

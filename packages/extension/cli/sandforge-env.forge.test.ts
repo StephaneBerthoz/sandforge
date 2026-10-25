@@ -32,6 +32,7 @@ vi.mock('../src/modules/forge/RunVerifier.js', async (original) => ({
 }));
 
 import type { CommandRunner } from './scriptRunner.js';
+import { makeConn } from './sfSession.js';
 import { EnvWorld } from './testing/envWorld.js';
 import { openEnvStore } from './env/envState.js';
 import { main, type EnvCliDeps } from './sandforge-env.js';
@@ -652,5 +653,104 @@ describe('a forge resource with a template of the project', () => {
         message: '.sandforge/forge-templates.json holds no template "none": it holds other',
       },
     ]);
+  });
+});
+
+describe('a forge resource whose source is a production org', () => {
+  /** The source answers as a production org, as its Organization record says one is. */
+  function sourceIsProduction(): void {
+    const made = vi.mocked(makeConn).getMockImplementation();
+    vi.mocked(makeConn).mockImplementation((session) => {
+      const conn = made?.(session) as unknown as {
+        query: (soql: string) => Promise<unknown>;
+      };
+      if (session.alias !== 'SRC') return conn as never;
+      return {
+        ...conn,
+        query: async (soql: string) =>
+          /FROM Organization/.test(soql)
+            ? {
+                totalSize: 1,
+                done: true,
+                records: [
+                  { Id: SOURCE_ID, IsSandbox: false, OrganizationType: 'Enterprise Edition' },
+                ],
+              }
+            : conn.query(soql),
+      } as never;
+    });
+  }
+  const resource = (over: Record<string, unknown>) => ({
+    resources: {
+      cloned: {
+        ...(file()['resources'] as Record<string, Record<string, unknown>>)['cloned'],
+        ...over,
+      },
+    },
+  });
+
+  it('blocks it without anonymize or accept: { realData: true }, naming both, and the apply writes nothing', async () => {
+    sourceIsProduction();
+
+    const { code, plan: planned, said } = await plan();
+
+    expect(code).toBe(0);
+    expect(planned.actions[0]).toMatchObject({ resource: 'cloned', action: 'blocked' });
+    expect(planned.actions[0]?.refusal).toContain(
+      'is a production org (its Organization record says IsSandbox false, edition Enterprise Edition): what it clones is real people’s data',
+    );
+    expect(said).toContain('or, reviewed in the file, accept: { realData: true }');
+    // Not dry-run: a clone the plan refuses reads nothing of production.
+    expect(world.calls).toEqual([]);
+
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--accept-no-state']);
+    expect(applied.code).toBe(1);
+    expect(marked('Account')).toEqual([]);
+  });
+
+  it('clones it once the file accepts real data, the plan saying so and that contact points are neutralized', async () => {
+    sourceIsProduction();
+    writeFileSync(fileOf, JSON.stringify(file(resource({ accept: { realData: true } }))));
+
+    const { plan: planned, said } = await plan();
+
+    expect(planned.actions[0]).toMatchObject({ action: 'create' });
+    expect(planned.actions[0]?.notes).toEqual([
+      'real data: its source, the uat org (SRC), is a production org; what it clones is written as read, as the file accepts (accept: { realData: true })',
+      'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints',
+    ]);
+    expect(said).toContain(
+      '           real data: its source, the uat org (SRC), is a production org',
+    );
+    const applied = await run(['apply', '--org', 'TGT', '--yes', '--accept-no-state']);
+    expect(applied.code, applied.said).toBe(0);
+    expect(marked('Account')).toHaveLength(2);
+  });
+
+  it('clones it anonymized when the resource anonymizes, and says nothing of real data from a source that is no production org', async () => {
+    sourceIsProduction();
+    writeFileSync(
+      fileOf,
+      JSON.stringify(file(resource({ anonymize: { rules: { name: 'fake' } } }))),
+    );
+    const anonymized = await plan();
+    expect(anonymized.plan.actions[0]?.action).toBe('create');
+    expect(anonymized.plan.actions[0]?.notes?.[0]).toContain(
+      'what it clones is anonymized as its anonymize says (name fake)',
+    );
+
+    writeFileSync(fileOf, JSON.stringify(file()));
+    vi.mocked(makeConn).mockReset();
+    world = new EnvWorld({
+      organizationId: ORG_ID,
+      sandbox: false,
+      edition: 'Developer Edition',
+      source: { alias: 'SRC', organizationId: SOURCE_ID },
+      tick: () => vi.setSystemTime(Date.now() + 30_000),
+    });
+    seedTheSource();
+    const sandbox = await plan();
+    expect(sandbox.plan.actions[0]).toMatchObject({ action: 'create' });
+    expect(sandbox.plan.actions[0]?.notes).toBeUndefined();
   });
 });

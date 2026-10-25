@@ -35,6 +35,7 @@ import { EnvWorld } from '../../testing/envWorld.js';
 import { StepAnswerError } from './common.js';
 import {
   FORGE_SCRIPT,
+  forgeAnonymizes,
   forgeApplyLine,
   forgeDryRunCount,
   forgeDryRunLine,
@@ -50,6 +51,8 @@ import {
   readForgeRun,
   readForgeSource,
   readForgeVerify,
+  realDataNotes,
+  realDataRefusal,
   tablesQueryOf,
   verificationShortOf,
   type ForgeDryRunAnswer,
@@ -344,6 +347,146 @@ describe('the source of a forge resource, read at the plan', () => {
       refusal:
         'its record query could not be read in the uat org (SRC): INVALID_FIELD: No such column',
     });
+  });
+});
+
+describe('a forge resource whose source is a production org', () => {
+  /** A production source, as its Organization record says it, answering `rows` to a record's query. */
+  function productionOf(rows: unknown[] = [{ Id: '500000000000001AAA' }]) {
+    const queries: string[] = [];
+    const conn = {
+      query: vi.fn(async (soql: string) => {
+        queries.push(soql);
+        if (soql.includes('FROM Organization')) {
+          return {
+            totalSize: 1,
+            done: true,
+            records: [
+              {
+                Id: '00D000000000007AAA',
+                IsSandbox: false,
+                OrganizationType: 'Enterprise Edition',
+              },
+            ],
+          };
+        }
+        return { totalSize: rows.length, done: true, records: rows };
+      }),
+    } as unknown as Pick<Connection, 'query'>;
+    return { conn, queries };
+  }
+  const record = { object: 'Case', where: "CaseNumber = '1'" };
+
+  it('refuses it without anonymize or accept: { realData: true }, naming both ways out, before a record of the source is read', async () => {
+    const { conn, queries } = productionOf();
+
+    const read = await readForgeSource(
+      conn,
+      converted({ kind: 'forge', source: 'uat', record }),
+      'uat',
+      'PROD',
+    );
+
+    expect(read).toEqual({
+      refusal:
+        'its source, the uat org (PROD), is a production org (its Organization record says ' +
+        'IsSandbox false, edition Enterprise Edition): what it clones is real people’s data, ' +
+        'written as read into an org built for tests. Give the resource anonymize — Forge’s ' +
+        'anonymization, a method for each category of personal field — or, reviewed in the ' +
+        'file, accept: { realData: true }. Emails and phone numbers are neutralized either ' +
+        'way, unless keepContactPoints: true',
+    });
+    expect(queries.filter((soql) => !soql.includes('FROM Organization'))).toEqual([]);
+  });
+
+  it('reads it, as a production org, when the resource anonymizes what it clones, or the file accepts real data', async () => {
+    const anonymized = converted({
+      kind: 'forge',
+      source: 'uat',
+      record,
+      anonymize: { rules: { email: 'fake', name: 'fake' } },
+    });
+    const accepted = converted({
+      kind: 'forge',
+      source: 'uat',
+      record,
+      accept: { realData: true },
+    });
+
+    for (const run of [anonymized, accepted]) {
+      expect(await readForgeSource(productionOf().conn, run, 'uat', 'PROD')).toEqual({
+        organizationId: '00D000000000007AAA',
+        production: true,
+        recordId: '500000000000001AAA',
+      });
+    }
+    expect(accepted.acceptRealData).toBe(true);
+    expect(anonymized.acceptRealData).toBe(false);
+  });
+
+  it('takes an anonymization that sets no method for any category for none, and says so', () => {
+    const empty = converted({
+      kind: 'forge',
+      source: 'uat',
+      tables: [{ object: 'Case' }],
+      anonymize: { rules: {} },
+    });
+
+    expect(forgeAnonymizes(empty)).toBe(false);
+    expect(
+      realDataRefusal(empty, 'the uat org (PROD)', {
+        id: '00D000000000007AAA',
+        sandbox: false,
+        edition: 'Enterprise Edition',
+      }),
+    ).toContain(
+      'Its anonymize sets a method for no category of personal field, so it anonymizes nothing.',
+    );
+    // A template entry that anonymizes brings its anonymization with it.
+    const fromEntry = converted({
+      kind: 'forge',
+      source: 'uat',
+      tables: [{ object: 'Case' }],
+      template: {
+        file: templates([{ ...ENTRY, config: { ...ENTRY.config, anonymizePII: true } }]),
+        id: ENTRY.id,
+      },
+    });
+    expect(forgeAnonymizes(fromEntry)).toBe(true);
+  });
+
+  it('says in the plan that the data is real, what is done to it, and that emails and phone numbers are neutralized unless kept', () => {
+    const source = (production: boolean) => ({
+      role: 'uat',
+      alias: 'PROD',
+      read: {
+        organizationId: '00D000000000007AAA',
+        ...(production ? { production: true as const } : {}),
+      },
+    });
+    const accepted = converted({
+      kind: 'forge',
+      source: 'uat',
+      record,
+      accept: { realData: true },
+    });
+    const anonymized = converted({
+      kind: 'forge',
+      source: 'uat',
+      record,
+      anonymize: { rules: { email: 'fake', phone: 'mask' } },
+      keepContactPoints: true,
+    });
+
+    expect(realDataNotes(accepted, source(true))).toEqual([
+      'real data: its source, the uat org (PROD), is a production org; what it clones is written as read, as the file accepts (accept: { realData: true })',
+      'contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints',
+    ]);
+    expect(realDataNotes(anonymized, source(true))).toEqual([
+      'real data: its source, the uat org (PROD), is a production org; what it clones is anonymized as its anonymize says (email fake, phone mask)',
+      'contact points: written as read (keepContactPoints: true)',
+    ]);
+    expect(realDataNotes(accepted, source(false))).toEqual([]);
   });
 });
 

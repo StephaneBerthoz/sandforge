@@ -265,15 +265,17 @@ describe('validate', () => {
     });
   });
 
-  it('warns of checkpoint settings this SandForge does not take', async () => {
-    writeFileSync(fileOf, JSON.stringify(file({ checkpoint: { after: 'baseline' } })));
+  it('validates the checkpoint settings, which apply takes, without a warning', async () => {
+    writeFileSync(
+      fileOf,
+      JSON.stringify(file({ checkpoint: { before: true, after: 'baseline' } })),
+    );
 
     const { code, answer } = await run(['validate', '--json']);
 
     expect(code).toBe(0);
-    expect(envValidationSchema.parse(answer).warnings[0]?.message).toContain(
-      'The file asks checkpoint.after, which a later SandForge takes',
-    );
+    expect(envValidationSchema.parse(answer).warnings).toEqual([]);
+    expect(world.calls).toEqual([]);
   });
 });
 

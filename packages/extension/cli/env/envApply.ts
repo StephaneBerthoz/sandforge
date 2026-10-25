@@ -43,12 +43,21 @@
  * and the state names it, which is partial (3). An apply whose plan holds
  * nothing to do writes nothing, to the org or the state: applied twice, the
  * second writes nothing and leaves the state's serial where it was.
+ *
+ * The checkpoints the plan lists (`envCheckpoints.ts`) frame the steps: the
+ * one before the first write is taken before the first step, and a take that
+ * does not end 0 stops the apply there, nothing written; the one after is
+ * taken once every step ended 0, its id kept in the state. Once an apply
+ * wrote, the checkpoint the last apply left no longer holds the environment
+ * as applied, and is deleted, whether the new one is taken or not: a reset
+ * to it would take back what this apply wrote and leave the state naming it.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   EnvActionKind,
+  EnvCheckpointStepResult,
   EnvPlan,
   EnvResourceStatus,
   EnvRunResult,
@@ -61,6 +70,7 @@ import { SEED_RUNS_DIR } from '../../src/modules/seed/SeedRunCreations.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, worstExit } from '../exitCodes.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
+import { deleteEnvCheckpoint, takeEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
 import type { EnvFileResolved, EnvFileResource } from './envFile.js';
 import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
 import {
@@ -614,7 +624,9 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
   });
   if (plan.refusal !== undefined) return refused(plan.refusal);
   const steps = applySteps(plan, input.state);
-  if (steps.length === 0) {
+  const beforeTake = plan.checkpoints?.find((c) => c.step === 'before');
+  const afterTake = plan.checkpoints?.find((c) => c.step === 'after');
+  if (steps.length === 0 && afterTake === undefined) {
     deps.say('nothing to do: the org holds the environment as the file describes it');
     return {
       result: { plan, steps: [], status: 'success', state: { serial: input.state?.serial ?? 0 } },
@@ -692,6 +704,48 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
     const runThisApply = new Set<string>();
     /** The steps that began, for an error to name those it kept from running. */
     let began = 0;
+    const checkpoints: EnvCheckpointStepResult[] = [];
+    const org = { alias: target.alias, kind: target.kind };
+    const ignoreFields = resolved.checked.file.checkpoint?.ignoreFields;
+
+    // Before the first write, or nothing is written: an environment applied
+    // without it would leave destroy --rewind nothing to return to.
+    if (beforeTake !== undefined && steps.length > 0) {
+      const taken = await takeEnvCheckpoint(
+        deps,
+        {
+          org,
+          step: 'before',
+          name: beforeTake.name,
+          ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+        },
+        stop.signal,
+      );
+      checkpoints.push(taken.result);
+      if (taken.checkpoint === undefined) {
+        const code =
+          stoppedBy !== undefined
+            ? stopExitCode(stoppedBy)
+            : isStopCode(taken.result.exitCode)
+              ? taken.result.exitCode
+              : FAILED_EXIT;
+        return {
+          result: {
+            plan,
+            steps: [],
+            checkpoints,
+            status: statusOf(code),
+            refusal:
+              `The checkpoint before the first write, '${beforeTake.name}', was not taken ` +
+              `(${taken.result.refusal ?? `exit ${taken.result.exitCode}`}). Nothing was written.`,
+            state: { serial: current.serial },
+          },
+          exitCode: code,
+        };
+      }
+      const id = taken.checkpoint;
+      current = await deps.store.update(current, (s) => withCheckpoint(s, 'before', id));
+    }
 
     try {
       for (const step of steps) {
@@ -839,6 +893,47 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
       for (const step of steps.slice(began)) skipped.push({ resource: step.resource, why });
     }
 
+    // What the last apply's checkpoint holds is no longer the environment as
+    // applied once this one wrote: a reset to it would take back what this
+    // one wrote, and leave the state naming it.
+    const stale = current.checkpoints?.after;
+    if (wrote && stale !== undefined && stoppedBy === undefined) {
+      const deleted = await deleteEnvCheckpoint(
+        deps,
+        { org, checkpoint: stale, why: 'taken before this apply wrote' },
+        stop.signal,
+      );
+      checkpoints.push(deleted);
+      current = await deps.store.update(current, (s) => withCheckpoint(s, 'after', undefined));
+    }
+    const whole =
+      stoppedBy === undefined && stoppedCode === undefined && worstExit(codes) === DONE_EXIT;
+    if (afterTake !== undefined && whole) {
+      const taken = await takeEnvCheckpoint(
+        deps,
+        {
+          org,
+          step: 'after',
+          name: afterTake.name,
+          ...(ignoreFields !== undefined ? { ignoreFields } : {}),
+        },
+        stop.signal,
+      );
+      checkpoints.push(taken.result);
+      const id = taken.checkpoint;
+      if (id !== undefined) {
+        current = await deps.store.update(current, (s) => withCheckpoint(s, 'after', id));
+      } else if (isStopCode(taken.result.exitCode)) {
+        stoppedCode = taken.result.exitCode;
+      } else {
+        deps.say(
+          `the checkpoint once applied, '${afterTake.name}', was not taken: reset has nothing to ` +
+            'rewind to until an apply takes it, which the next one does',
+        );
+        codes.push(FAILED_EXIT);
+      }
+    }
+
     const exitCode =
       stoppedBy !== undefined
         ? stopExitCode(stoppedBy)
@@ -852,6 +947,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
       result: {
         plan,
         steps: results,
+        ...(checkpoints.length > 0 ? { checkpoints } : {}),
         ...(skipped.length > 0 ? { skipped } : {}),
         status: statusOf(exitCode),
         state: { serial: current.serial },
@@ -862,6 +958,22 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
     release();
     taken.lock.release();
   }
+}
+
+/** The lines the checkpoints of an apply or a destroy are said in. */
+function checkpointResultLines(checkpoints: readonly EnvCheckpointStepResult[]): string[] {
+  return checkpoints.map((step) => {
+    const what =
+      step.step === 'delete'
+        ? `checkpoint ${step.checkpoint ?? ''} deleted`
+        : `checkpoint ${step.step === 'before' ? 'before the first write' : 'once applied'}`;
+    if (step.exitCode !== DONE_EXIT) {
+      return `  ${what}: exit ${step.exitCode}, ${step.step === 'delete' ? 'kept' : 'not taken'}: ${step.refusal ?? ''}`;
+    }
+    return step.step === 'delete'
+      ? `  ${what}`
+      : `  ${what}: exit 0, taken ${step.checkpoint ?? ''}`;
+  });
 }
 
 /** The lines an apply or a destroy ends with. */
@@ -884,6 +996,7 @@ export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'):
     }
   }
   for (const skip of result.skipped ?? []) lines.push(`  ${skip.resource}: not run, ${skip.why}`);
+  lines.push(...checkpointResultLines(result.checkpoints ?? []));
   if (result.refusal !== undefined) lines.push(`${verb} refused: ${result.refusal}`);
   lines.push(`${verb}: ${result.status}; state serial ${result.state.serial}`);
   return lines;

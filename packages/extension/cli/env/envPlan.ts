@@ -29,6 +29,14 @@
  * sum goes past what the target has left. An environment half applied is
  * worse than none in a pipeline, and fifteen emails spent are gone for the
  * day.
+ *
+ * The checkpoints the file asks (`envCheckpoints.ts`) are part of the plan:
+ * each take's cost, by the checkpoint script's own estimate, in the sum of
+ * the API requests, and its refusal as the apply's, before its first write.
+ * With a checkpoint taken after the last apply, the whole org is compared
+ * with it, through its own preview: records of the environment written since
+ * that hold again what they held once applied — a reset gives them back, and
+ * dates them — are kept, not drifted.
  */
 
 import {
@@ -37,18 +45,28 @@ import {
   type EnvActionGates,
   type EnvActionKind,
   type EnvEmailLimit,
-  type EnvFile,
   type EnvPlan,
+  type EnvPlanDrift,
   type EnvPlanObject,
   type EnvResourceKind,
   type EnvResourceState,
   type EnvState,
 } from '@sandforge/shared';
 import { formatMB } from '../../src/modules/forge/ForgeRunGate.js';
+import {
+  checkpointPlanLines,
+  checkpointRefusalOf,
+  checkpointRequestsOf,
+  checkpointStepsOf,
+  checkpointWarningsOf,
+  planCheckpointsOf,
+  type CheckpointEstimateRead,
+} from './envCheckpoints.js';
 import { fingerprintOf, type EnvFileResolved, type EnvFileResource } from './envFile.js';
 import {
   drawnCountsOf,
   dryRunCountOf,
+  notesOf,
   type EnvDryRunAnswer,
   type EnvPreviewAnswer,
 } from './envKinds.js';
@@ -89,6 +107,10 @@ export interface EnvPlanInput {
   /** What a real apply would meet now, a guard's: no state without `--accept-no-state`. */
   refusal?: string;
   warnings?: readonly string[];
+  /** What the checkpoint script estimates a take costs, when the apply takes one; absent with `--quick`. */
+  checkpointEstimate?: CheckpointEstimateRead;
+  /** The whole org against the checkpoint taken after the last apply; absent with `--quick`. */
+  drift?: EnvPlanDrift;
 }
 
 /** A resource's action before its dry run and the gates are read. */
@@ -155,6 +177,18 @@ export function dependencyOrder(
 export function removalOrder(state: EnvState | undefined, names: readonly string[]): string[] {
   const resources = state?.resources ?? {};
   return dependencyOrder(names, (name) => resources[name]?.dependsOn ?? []).reverse();
+}
+
+/**
+ * Whether the org holds a resource as applied though records of it were
+ * written since: they are only changed — none gone, none unread — and the
+ * whole org holds what the checkpoint taken after the apply holds. A rewind
+ * to it gives records their values back and dates them; a removal reads the
+ * date alone.
+ */
+function heldAsApplied(held: Held, drift: EnvPlanDrift | undefined): boolean {
+  if (drift === undefined || drift.differs || drift.unread !== undefined) return false;
+  return [...held.objects.values()].every((counts) => counts.gone === 0 && counts.unread === 0);
 }
 
 /** What a resource's record counts come to across its runs' previews. */
@@ -254,7 +288,10 @@ function sourceRefusal(resource: EnvFileResource): string | undefined {
  * resources in the order apply runs them.
  */
 export function classifyResources(
-  input: Pick<EnvPlanInput, 'resolved' | 'state' | 'previews' | 'replace' | 'replaceDrifted'>,
+  input: Pick<
+    EnvPlanInput,
+    'resolved' | 'state' | 'previews' | 'replace' | 'replaceDrifted' | 'drift'
+  >,
 ): EnvActionDraft[] {
   const { resolved, state, previews } = input;
   const quick = previews === undefined;
@@ -307,7 +344,9 @@ export function classifyResources(
       );
     }
     if (asked.has(resource.name)) reasons.push('--replace asks it');
-    const drift = quick ? undefined : driftOf(held);
+    const seen = quick ? undefined : driftOf(held);
+    const given = seen !== undefined && heldAsApplied(held, input.drift);
+    const drift = given ? undefined : seen;
     if (reasons.length === 0 && drift !== undefined && input.replaceDrifted === true) {
       reasons.push(`its records drifted (${drift}), and --replace-drifted asks it`);
     }
@@ -360,11 +399,16 @@ export function classifyResources(
       });
     } else {
       const records = objects.reduce((sum, object) => sum + (object.present ?? 0), 0);
+      const since = objects.reduce((sum, object) => sum + (object.changed ?? 0), 0);
       actions.set(resource.name, {
         resource: resource.name,
         kind,
         action: 'keep',
-        why: `applied, and the org holds its ${records} record(s) as written`,
+        why: given
+          ? `applied, and the org holds its ${records} record(s) as the checkpoint taken after ` +
+            `the apply holds them: ${since} written since hold their values again, as a reset ` +
+            'gives them back'
+          : `applied, and the org holds its ${records} record(s) as written`,
         objects,
       });
     }
@@ -459,26 +503,6 @@ export function dryRunTotalOf(dry: EnvDryRun | undefined): number | undefined {
   return dry !== undefined && 'answer' in dry ? dryRunCountOf(dry.answer).total : undefined;
 }
 
-/**
- * What the file's checkpoint settings ask that this SandForge does not do,
- * or nothing: a checkpoint before the first write, or once applied, comes
- * with a later SandForge. Applied without them, a file that asks for one
- * would read as protected by a checkpoint nobody took.
- */
-export function checkpointSettingsRefusal(file: Pick<EnvFile, 'checkpoint'>): string | undefined {
-  const settings = file.checkpoint;
-  const asked = [
-    settings?.before === true ? 'checkpoint.before' : '',
-    typeof settings?.after === 'string' ? 'checkpoint.after' : '',
-  ].filter(Boolean);
-  if (asked.length === 0) return undefined;
-  return (
-    `The file asks ${asked.join(' and ')}, which a later SandForge takes: this one applies ` +
-    'seed and forge resources and takes no checkpoint. Take it out of the file, or take one ' +
-    'with sandforge-checkpoint take before the apply. Nothing was written.'
-  );
-}
-
 /** What the summed gates refuse, each in its own words, against what the target has left. */
 function summedRefusals(gates: EnvPlan['gates'], alias: string): string[] {
   const refusals: string[] = [];
@@ -522,11 +546,13 @@ function sumGates(
   dryRuns: EnvPlanInput['dryRuns'],
   budget: EnvBudget | undefined,
   before: ReadonlyMap<string, string[]>,
+  checkpoints: ReturnType<typeof checkpointRequestsOf>,
 ): EnvPlan['gates'] {
-  let estimate = 0;
+  // A checkpoint's take reads every record of the org: its requests are the day's too.
+  let estimate = checkpoints.estimate;
   let bytes = 0;
   const emails = new Map<EnvEmailLimit, number>();
-  const notCounted: string[] = [];
+  const notCounted: string[] = [...checkpoints.notCounted];
   for (const draft of drafts) {
     if (draft.action === 'delete' || draft.action === 'replace') {
       notCounted.push(`the removal of the runs of ${draft.resource}`);
@@ -622,6 +648,8 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
         ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes: what it ` +
           'draws from those records is counted at most as the file gives it'
         : draft.why;
+    const resource = input.resolved.resources.find((each) => each.name === draft.resource);
+    const notes = resource !== undefined && RUNS.has(draft.action) ? notesOf(resource) : [];
     return {
       resource: draft.resource,
       kind: draft.kind,
@@ -630,10 +658,30 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       objects,
       ...(gates !== undefined ? { gates } : {}),
       ...(refusal !== undefined ? { refusal } : {}),
+      ...(notes.length > 0 ? { notes } : {}),
     };
   });
 
-  const gates = sumGates(drafts, input.dryRuns, input.budget, before);
+  const file = input.resolved.checked.file;
+  const checkpoints = planCheckpointsOf(
+    checkpointStepsOf(
+      file,
+      input.state,
+      drafts.some((draft) => WRITES.has(draft.action)),
+    ),
+    quick ? undefined : (input.checkpointEstimate ?? { unread: 'not estimated' }),
+    actions
+      .filter((action) => RUNS.has(action.action))
+      .flatMap((action) => action.objects)
+      .reduce((sum, object) => sum + (object.wouldCreate ?? 0), 0),
+  );
+  const gates = sumGates(
+    drafts,
+    input.dryRuns,
+    input.budget,
+    before,
+    checkpointRequestsOf(checkpoints),
+  );
   const alias = input.org.alias ?? input.org.organizationId;
   const summed = summedRefusals(gates, alias);
   if (summed.length > 0) {
@@ -647,14 +695,15 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
   const blocked = actions.filter((action) => action.action === 'blocked');
   const refusal =
     input.refusal ??
-    checkpointSettingsRefusal(input.resolved.checked.file) ??
     (summed.length > 0
       ? `${summed.join(' ')} Nothing was written.`
       : blocked.length > 0
         ? `${blocked.length === 1 ? 'A resource is' : `${blocked.length} resources are`} ` +
           `blocked, and the apply refuses before its first write: ` +
           `${blocked.map((action) => `${action.resource} (${action.refusal ?? action.why})`).join('; ')}`
-        : undefined);
+        : undefined) ??
+    checkpointRefusalOf(checkpoints);
+  const warnings = [...(input.warnings ?? []), ...checkpointWarningsOf(file, input.state)];
 
   const count = (kind: EnvActionKind): number =>
     actions.filter((action) => action.action === kind).length;
@@ -673,11 +722,11 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       blocked: count('blocked'),
     },
     gates,
+    ...(checkpoints.length > 0 ? { checkpoints } : {}),
+    ...(input.drift !== undefined ? { drift: input.drift } : {}),
     ...(refusal !== undefined ? { refusal } : {}),
     ...(quick ? { quick: true as const } : {}),
-    ...(input.warnings !== undefined && input.warnings.length > 0
-      ? { warnings: [...input.warnings] }
-      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
@@ -757,12 +806,23 @@ export function planChanges(plan: Pick<EnvPlan, 'actions'>): boolean {
   return plan.actions.some((action) => action.action !== 'keep' && action.action !== 'drifted');
 }
 
-/** Whether the org no longer holds the environment as applied: what `--fail-on-drift` exits 3 on. */
-export function planDrifts(plan: Pick<EnvPlan, 'actions'>): boolean {
+/**
+ * Whether the org no longer holds the environment as applied: what
+ * `--fail-on-drift` exits 3 on. With a checkpoint taken after the last apply,
+ * the whole org is held to it, and one that could not be compared with it is
+ * not taken for one that holds it; records a reset gave back their values
+ * are kept, as their resource is.
+ */
+export function planDrifts(plan: Pick<EnvPlan, 'actions' | 'drift'>): boolean {
+  const drift = plan.drift;
+  if (drift !== undefined && (drift.differs || drift.unread !== undefined)) return true;
+  // The whole org holds what the checkpoint after the apply holds: so does what it keeps.
+  const asApplied = drift !== undefined;
   return plan.actions.some(
     (action) =>
       action.action === 'drifted' ||
-      action.objects.some((object) => (object.gone ?? 0) > 0 || (object.changed ?? 0) > 0),
+      (!(asApplied && action.action === 'keep') &&
+        action.objects.some((object) => (object.gone ?? 0) > 0 || (object.changed ?? 0) > 0)),
   );
 }
 
@@ -792,6 +852,7 @@ export function planLines(plan: EnvPlan): string[] {
       .join('; ');
     lines.push(`  ${action.action.padEnd(8)} ${action.resource}${counts ? `  ${counts}` : ''}`);
     lines.push(`           ${action.why}`);
+    for (const note of action.notes ?? []) lines.push(`           ${note}`);
     if (action.refusal !== undefined) lines.push(`           refused: ${action.refusal}`);
   }
   const { totals } = plan;
@@ -820,6 +881,7 @@ export function planLines(plan: EnvPlan): string[] {
         (limit.left !== undefined ? `, ${limit.left} left today` : ''),
     );
   }
+  lines.push(...checkpointPlanLines(plan));
   for (const warning of plan.warnings ?? []) lines.push(`warning: ${warning}`);
   if (plan.refusal !== undefined) lines.push(`an apply now would be refused: ${plan.refusal}`);
   return lines;

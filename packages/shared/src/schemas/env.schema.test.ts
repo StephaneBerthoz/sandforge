@@ -7,6 +7,7 @@ import {
   envPlanSchema,
   envRefusalAnswerSchema,
   envRefsIn,
+  envRewindResultSchema,
   envRunResultSchema,
   envStateListSchema,
   envStateSchema,
@@ -260,6 +261,25 @@ describe('a forge resource', () => {
       tables: [{ object: 'Account', where: "Name LIKE 'SFENV%'" }, { object: 'Contact' }],
       customDepth: 2,
     });
+  });
+
+  it('accepts real data from a production source in the file, a forge resource alone', () => {
+    const accepted = envFileSchema.parse(
+      withForge({ tables: [{ object: 'Case' }], accept: { realData: true, automation: true } }),
+    );
+
+    expect(accepted.resources['bug-1234']).toMatchObject({
+      accept: { realData: true, automation: true },
+    });
+    // A seed writes what it draws: it has no real data to accept.
+    expect(
+      refusalsOf(exampleWith(['resources', 'accounts', 'accept'], { realData: true })).join('\n'),
+    ).toContain('"realData" is not a key of accept, which takes automation');
+    expect(
+      refusalsOf(withForge({ tables: [{ object: 'Case' }], accept: { realdata: true } })).join(
+        '\n',
+      ),
+    ).toContain('"realdata" is not a key of accept, which takes automation, realData');
   });
 
   it('clones one record or whole tables, one of them, a record named one way', () => {
@@ -792,6 +812,94 @@ describe('the plan and the steps', () => {
 
     expect(envPlanSchema.safeParse(unread).success).toBe(true);
     expect(envPlanSchema.safeParse({ ...unread, quick: false }).success).toBe(false);
+  });
+
+  it('reads the checkpoints a plan takes, each with its estimate or its refusal, and the drift of the whole org', () => {
+    const withCheckpoints = {
+      ...plan,
+      actions: [{ ...plan.actions[0], notes: ['its source is a production org'] }],
+      checkpoints: [
+        {
+          step: 'before',
+          name: 'case-flow-e2e before',
+          estimate: { records: 120, apiRequests: 31, seconds: 4.5, bytes: 40_960 },
+        },
+        {
+          step: 'after',
+          name: 'baseline',
+          refusal: { code: 'PERMISSIONS', message: 'Modify All Data is missing' },
+        },
+      ],
+      drift: { checkpoint: 'ck-20261025-090000-a1b2', differs: true, toDelete: 1, toGiveBack: 2 },
+    };
+
+    expect(envPlanSchema.safeParse(withCheckpoints).success).toBe(true);
+    expect(
+      envPlanSchema.safeParse({
+        ...withCheckpoints,
+        checkpoints: [{ step: 'during', name: 'x' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      envPlanSchema.safeParse({
+        ...withCheckpoints,
+        drift: { checkpoint: 'baseline', differs: false },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('reads the checkpoints an apply took or deleted, by the checkpoint script’s exit', () => {
+    const result = {
+      plan,
+      steps: [],
+      checkpoints: [
+        { step: 'before', checkpoint: 'ck-20261025-090000-a1b2', exitCode: 0 },
+        { step: 'delete', checkpoint: 'ck-20261024-090000-c3d4', exitCode: 0 },
+        { step: 'after', exitCode: 1, refusal: 'PERMISSIONS: Modify All Data is missing' },
+      ],
+      status: 'partial',
+      state: { serial: 9 },
+    };
+
+    expect(envRunResultSchema.safeParse(result).success).toBe(true);
+    expect(
+      envRunResultSchema.safeParse({
+        ...result,
+        checkpoints: [{ step: 'reset', exitCode: 0 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('reads what reset and destroy --rewind answer: an undo offered with its line, or why not', () => {
+    const rewound = {
+      env: 'case-flow-e2e',
+      org: { organizationId: '00Dxx0000001234AAA', kind: 'scratch', alias: 'pool-1' },
+      verb: 'reset',
+      checkpoint: { step: 'after', id: 'ck-20261025-090000-a1b2', name: 'baseline' },
+      preview: { toDelete: 1, toGiveBack: 2, toBringBack: 1, lastChangedBy: { Tester: 3 } },
+      exitCode: 0,
+      status: 'success',
+      undo: {
+        offered: true,
+        until: '2026-11-09T09:00:00.000Z',
+        line: 'sandforge-checkpoint undo --org pool-1 --checkpoint ck-20261025-090000-a1b2',
+      },
+      state: { serial: 4 },
+    };
+
+    expect(envRewindResultSchema.safeParse(rewound).success).toBe(true);
+    expect(
+      envRewindResultSchema.safeParse({
+        ...rewound,
+        verb: 'destroy',
+        undo: { offered: false, why: 'its checkpoints are deleted with the environment' },
+      }).success,
+    ).toBe(true);
+    // An undo offered names until when, and the line that does it.
+    expect(envRewindResultSchema.safeParse({ ...rewound, undo: { offered: true } }).success).toBe(
+      false,
+    );
+    expect(envRewindResultSchema.safeParse({ ...rewound, verb: 'rewind' }).success).toBe(false);
   });
 
   it('reads a step by the rank of the run it served, a destroy that deleted its state, and what was skipped', () => {

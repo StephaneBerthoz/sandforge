@@ -469,9 +469,21 @@ const forgeAnonymizeFileSchema = strictObject('anonymize', {
 /** The most tables one forge resource clones, as discovery's graph holds them. */
 export const ENV_FORGE_MAX_TABLES = 50;
 
+/**
+ * A forge resource's acceptances, reviewed in the file: those every resource
+ * takes, and `realData`, which lets a resource clone a production source
+ * without anonymizing what it clones.
+ */
+const forgeAcceptSchema = strictObject('accept', {
+  automation: z.boolean().optional(),
+  /** Real people's data from a production source, written into the org to fill as read. */
+  realData: z.boolean().optional(),
+});
+
 export const envForgeResourceSchema = strictObject('a forge resource', {
   kind: z.literal('forge'),
   ...commonResourceShape,
+  accept: forgeAcceptSchema.optional(),
   /** The org role it clones from: a key of the file's orgs, never the target. */
   source: envNameSchema,
   /** One record and what discovery reaches from it. */
@@ -821,6 +833,46 @@ export const envActionSchema = z.strictObject({
   gates: envActionGatesSchema.optional(),
   /** What refuses a blocked action. */
   refusal: z.string().min(1).max(2_000).optional(),
+  /** What the plan says of it beside why: a production source's data, and what is done to it. */
+  notes: z.array(z.string().min(1).max(2_000)).max(20).optional(),
+});
+
+/** A checkpoint of the environment's lifecycle: taken before the first write, or once applied. */
+export const envCheckpointStepSchema = z.enum(['before', 'after']);
+
+/** A refusal the checkpoint script gives, in its own code and words. */
+const envCheckpointRefusalSchema = z.strictObject({
+  code: z.string().min(1).max(64),
+  message: z.string().min(1).max(4_000),
+});
+
+/** A checkpoint an apply takes, as its plan says it, with the checkpoint script's estimate. */
+const envPlanCheckpointSchema = z.strictObject({
+  step: envCheckpointStepSchema,
+  name: z.string().min(1).max(255),
+  estimate: z
+    .strictObject({
+      records: countSchema,
+      apiRequests: countSchema,
+      seconds: z.number().nonnegative(),
+      bytes: countSchema,
+    })
+    .optional(),
+  /** What refuses it now: a refusal refuses the apply before its first write. */
+  refusal: envCheckpointRefusalSchema.optional(),
+  /** Why it was not estimated: --quick, or the script gave no answer. */
+  unread: z.string().min(1).max(4_000).optional(),
+});
+
+/** The whole org against the checkpoint taken after the last apply, as its own preview reads it. */
+const envPlanDriftSchema = z.strictObject({
+  checkpoint: checkpointIdSchema,
+  differs: z.boolean(),
+  toDelete: countSchema.optional(),
+  toGiveBack: countSchema.optional(),
+  toBringBack: countSchema.optional(),
+  /** Why the org could not be compared with it: never taken for one that does not differ. */
+  unread: z.string().min(1).max(4_000).optional(),
 });
 
 /**
@@ -875,8 +927,10 @@ export const envPlanSchema = z.strictObject({
     blocked: countSchema,
   }),
   gates: envPlanGatesSchema,
+  /** The checkpoints an apply takes, in the order it takes them. */
+  checkpoints: z.array(envPlanCheckpointSchema).max(2).optional(),
   /** The whole org against the checkpoint taken after the last apply. */
-  drift: z.strictObject({ checkpoint: checkpointIdSchema, differs: z.boolean() }).optional(),
+  drift: envPlanDriftSchema.optional(),
   /** What a real apply would meet now. */
   refusal: z.string().min(1).max(2_000).optional(),
   /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
@@ -917,10 +971,23 @@ export const envStepResultSchema = z.strictObject({
   answer: z.unknown().optional(),
 });
 
+/** A checkpoint taken or deleted by an apply or a destroy, and how the checkpoint script ended it. */
+export const envCheckpointStepResultSchema = z.strictObject({
+  step: z.enum(['before', 'after', 'delete']),
+  checkpoint: checkpointIdSchema.optional(),
+  exitCode: z.number().int().min(0).max(255),
+  /** What refused or failed it, in the checkpoint script's words. */
+  refusal: z.string().min(1).max(4_000).optional(),
+  /** The checkpoint script's own `--json` answer, as it gave it. */
+  answer: z.unknown().optional(),
+});
+
 /** What `apply` and `destroy` answer with `--json`. */
 export const envRunResultSchema = z.strictObject({
   plan: envPlanSchema,
   steps: z.array(envStepResultSchema).max(ENV_MAX_RESOURCES * 4),
+  /** The checkpoints taken and deleted, in order. */
+  checkpoints: z.array(envCheckpointStepResultSchema).max(10).optional(),
   /** Resources no step ran for, each with why: a dependency left partial, a stop before them. */
   skipped: z
     .array(z.strictObject({ resource: envNameSchema, why: z.string().min(1).max(2_000) }))
@@ -930,6 +997,48 @@ export const envRunResultSchema = z.strictObject({
   /** Why nothing was done, when it was refused before its first step. */
   refusal: z.string().min(1).max(4_000).optional(),
   /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
+  state: z.strictObject({ serial: countSchema }),
+});
+
+/** Whether the checkpoint script offers to undo a rewind, until when and the line that does, or why not. */
+const envRewindUndoSchema = z.union([
+  z.strictObject({
+    offered: z.literal(true),
+    until: instantSchema,
+    line: z.string().min(1).max(2_000),
+  }),
+  z.strictObject({ offered: z.literal(false), why: z.string().min(1).max(2_000) }),
+]);
+
+/** What `reset` and `destroy --rewind` answer with `--json`. */
+export const envRewindResultSchema = z.strictObject({
+  env: envNameSchema,
+  org: z.strictObject({
+    organizationId: checkpointOrganizationIdSchema,
+    kind: envTargetKindSchema,
+    alias: z.string().min(1).max(255).optional(),
+  }),
+  verb: z.enum(['reset', 'destroy']),
+  checkpoint: z.strictObject({
+    step: envCheckpointStepSchema,
+    id: checkpointIdSchema,
+    name: z.string().min(1).max(255).optional(),
+    takenAt: instantSchema.optional(),
+  }),
+  preview: z
+    .strictObject({
+      toDelete: countSchema,
+      toGiveBack: countSchema,
+      toBringBack: countSchema,
+      lastChangedBy: z.record(z.string().min(1).max(255), countSchema),
+    })
+    .optional(),
+  exitCode: z.number().int().min(0).max(255),
+  status: z.enum(['success', 'partial', 'unstable', 'failure', 'cancelled']),
+  answer: z.unknown().optional(),
+  undo: envRewindUndoSchema,
+  refusal: z.string().min(1).max(8_000).optional(),
+  deleted: z.array(envCheckpointStepResultSchema).max(10).optional(),
   state: z.strictObject({ serial: countSchema }),
 });
 

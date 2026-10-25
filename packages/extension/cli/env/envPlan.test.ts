@@ -676,18 +676,75 @@ describe('the plan, on the memory org', () => {
     expect(plan.gates.apiRequests.notCounted).toContain('the run of accounts, not dry-run');
   });
 
-  it('refuses the whole apply for what a guard says and for checkpoint settings it does not take', async () => {
+  it('refuses the whole apply for what a guard says, and for a checkpoint the checkpoint script refuses', async () => {
     const guarded = await planOf(resolvedOf(document()), undefined, {
       refusal: 'This machine keeps no state of case-flow on TGT.',
     });
     expect(guarded.refusal).toBe('This machine keeps no state of case-flow on TGT.');
 
+    const refusal = { code: 'PERMISSIONS', message: 'Modify All Data is missing.' };
     const checkpointed = await planOf(
       resolvedOf(document({ checkpoint: { before: true } })),
       undefined,
+      { checkpointEstimate: { refusal } },
     );
-    expect(checkpointed.refusal).toContain(
-      'The file asks checkpoint.before, which a later SandForge takes',
+    expect(checkpointed.checkpoints).toEqual([
+      { step: 'before', name: 'case-flow before', refusal },
+    ]);
+    expect(checkpointed.refusal).toBe(
+      "The checkpoint the file asks before the first write, 'case-flow before', would be " +
+        'refused: Modify All Data is missing. Take checkpoint.before or checkpoint.after out of ' +
+        'the file, or fix what refuses it.',
+    );
+    // Its actions stay what they are: the apply refuses before its first write.
+    expect(checkpointed.actions.map((a) => a.action)).toEqual(['create', 'create']);
+  });
+
+  it('adds each checkpoint’s estimate to the day’s requests, and says one it could not estimate', async () => {
+    const estimate = { records: 40, apiRequests: 12, seconds: 3, bytes: 2_048 };
+    const resolved = resolvedOf(document({ checkpoint: { before: true, after: 'baseline' } }));
+    const plain = await planOf(resolvedOf(document()), undefined);
+    const both = await planOf(resolved, undefined, { checkpointEstimate: { estimate } });
+
+    expect(both.checkpoints?.map((c) => [c.step, c.name])).toEqual([
+      ['before', 'case-flow before'],
+      ['after', 'baseline'],
+    ]);
+    expect(both.gates.apiRequests.estimate).toBe(plain.gates.apiRequests.estimate + 24);
+    expect(planLines(both)).toContain(
+      "checkpoint before the first write: 'case-flow before', about 40 records, 12 API requests, 3 s, 0.01 MB on this machine",
+    );
+    const unread = await planOf(resolved, undefined, {
+      checkpointEstimate: { unread: 'exit 1: no answer' },
+    });
+    expect(unread.gates.apiRequests.notCounted).toEqual(
+      expect.arrayContaining([
+        'the checkpoint before the first write, not estimated',
+        'the checkpoint once applied, not estimated',
+      ]),
+    );
+    // A plan made with --quick reads no estimate, and says so.
+    const quick = envPlan({ resolved, org: ORG, state: undefined });
+    expect(quick.checkpoints?.[0]?.unread).toBe('not read: --quick');
+  });
+
+  it('holds the whole org to the checkpoint after the last apply for --fail-on-drift, an unread comparison included', async () => {
+    const state = await applied();
+    const kept = await planOf(resolvedOf(document()), state, {
+      drift: { checkpoint: 'ck-20261025-090000-a1b2', differs: false },
+    });
+    const differs = await planOf(resolvedOf(document()), state, {
+      drift: { checkpoint: 'ck-20261025-090000-a1b2', differs: true, toDelete: 1 },
+    });
+    const unread = await planOf(resolvedOf(document()), state, {
+      drift: { checkpoint: 'ck-20261025-090000-a1b2', differs: false, unread: 'PERMISSIONS' },
+    });
+
+    expect(planDrifts(kept)).toBe(false);
+    expect(planDrifts(differs)).toBe(true);
+    expect(planDrifts(unread)).toBe(true);
+    expect(planLines(unread)).toContain(
+      'the whole org against the checkpoint after the last apply (ck-20261025-090000-a1b2): not compared, PERMISSIONS',
     );
   });
 

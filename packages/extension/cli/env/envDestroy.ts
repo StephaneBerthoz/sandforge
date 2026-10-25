@@ -35,11 +35,23 @@
  * A destroy is not undone as a whole: children deleted before their parent
  * cannot come back with it from the recycle bin. It is undone by applying
  * again.
+ *
+ * Once every resource is taken back, the environment's checkpoints are
+ * deleted from this machine: they hold the org's values in clear, and there
+ * is nothing of the environment left to rewind. A destroy that left records
+ * keeps them, for the destroy that takes the rest.
  */
 
-import type { EnvPlan, EnvRunResult, EnvState, EnvStepResult } from '@sandforge/shared';
+import type {
+  EnvCheckpointStepResult,
+  EnvPlan,
+  EnvRunResult,
+  EnvState,
+  EnvStepResult,
+} from '@sandforge/shared';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, worstExit } from '../exitCodes.js';
 import { onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
+import { checkpointsOfState, deleteEnvCheckpoint, withCheckpoint } from './envCheckpoints.js';
 import type { EnvFileResolved } from './envFile.js';
 import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
 import { acquireEnvLock, checkpointLockRefusal } from './envLock.js';
@@ -210,11 +222,28 @@ export async function destroyEnvironment(
     }
 
     const whole = Object.values(current.resources).every((r) => r.status === 'destroyed');
+    const checkpoints: EnvCheckpointStepResult[] = [];
     if (whole && stoppedAt === undefined) {
       deps.say(
         `every record of ${env} is taken back from ${target.alias}: the state keeps it as ` +
           'destroyed, and the next apply creates it again',
       );
+      // Kept by a rewind of the org under way, it stays named: the next destroy deletes it.
+      for (const { step, checkpoint } of checkpointsOfState(current)) {
+        const deleted = await deleteEnvCheckpoint(
+          deps,
+          {
+            org: { alias: target.alias, kind: target.kind },
+            checkpoint,
+            why: 'the environment it was taken of is taken back',
+          },
+          stop.signal,
+        );
+        checkpoints.push(deleted);
+        if (deleted.exitCode === DONE_EXIT) {
+          current = await deps.store.update(current, (s) => withCheckpoint(s, step, undefined));
+        }
+      }
     }
     const exitCode =
       stoppedBy !== undefined
@@ -228,6 +257,7 @@ export async function destroyEnvironment(
     const result: EnvRunResult = {
       plan,
       steps,
+      ...(checkpoints.length > 0 ? { checkpoints } : {}),
       ...(skipped.length > 0 ? { skipped } : {}),
       status: statusOf(exitCode),
       state: { serial: current.serial },
