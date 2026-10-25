@@ -97,13 +97,14 @@ describe('useCsvImport', () => {
     const csvContent = 'Name,Email\nAlice,alice@test.com\nBob,bob@test.com';
     const file = new File([csvContent], 'test.csv', { type: 'text/csv' });
 
-    await act(async () => {
+    act(() => {
       result.current.handleFileSelected(file);
-      // Let the File.text() promise resolve
-      await new Promise((r) => setTimeout(r, 50));
     });
-
-    expect(result.current.headers).toEqual(['Name', 'Email']);
+    // Read and parsed once the hook holds its headers: a fixed 50 ms ran out on a
+    // slow runner, as it did for the 50 000-row tests below.
+    await waitFor(() => expect(result.current.headers).toEqual(['Name', 'Email']), {
+      timeout: 10_000,
+    });
     expect(result.current.previewRows.length).toBe(2);
     expect(result.current.parsedRows.length).toBe(2);
     expect(result.current.file).toBe(file);
@@ -133,10 +134,10 @@ describe('useCsvImport', () => {
     const csvContent = 'Name\nTest';
     const file = new File([csvContent], 'test.csv', { type: 'text/csv' });
 
-    await act(async () => {
+    act(() => {
       result.current.handleFileSelected(file);
-      await new Promise((r) => setTimeout(r, 50));
     });
+    await waitFor(() => expect(result.current.headers).toEqual(['Name']), { timeout: 10_000 });
 
     expect(result.current.file).not.toBeNull();
 
