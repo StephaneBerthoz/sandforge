@@ -41,7 +41,7 @@ The acceptances are the script's flags, and the person's to give too: `acceptAut
 
 Each call runs its script in a process of its own, as it runs on a terminal: a production org is refused before anything is read, and no flag lifts it; the user the alias connects as needs the permissions the script needs; the API requests left today, the daily emails, the data storage and the acceptances refuse a run before it writes, as the script's `--help` says; a take, a rewind or an undo of the org under way on this machine refuses a rewind and an undo. The script has no terminal: a question it asks stops it at the question, exit `2`, having written nothing, and the call's error carries the question in its words -- for the person using the agent to answer, never answered by the server.
 
-A call the client cancels (`notifications/cancelled`) stops its script as Ctrl-C stops it: before its next call to the org, its journal kept, so a rewind run again takes up from what still differs and an undo still returns the org to how it was before. Closing the server's stdin stops the scripts still running the same way, and the server ends once they have.
+A call the client cancels (`notifications/cancelled`) stops its script as Ctrl-C stops it: before its next call to the org, its journal kept, so a rewind run again takes up from what still differs and an undo still returns the org to how it was before. Closing the server's stdin stops the scripts still running the same way, and the server ends once they have. On Windows, which has no signals, the server sends the script a stop message over an IPC channel instead, and the script hears it as Ctrl-C.
 
 ## What a call answers
 

@@ -131,6 +131,14 @@ describe('docs/mcp.md', () => {
     expect(protocol).toContain(`is offered ${versions[0] ?? ''}`);
   });
 
+  it('says a cancelled call stops its script on Windows with the message the scripts hear as Ctrl-C', () => {
+    expect(section('What holds')).toContain(
+      'On Windows, which has no signals, the server sends the script a stop message over an IPC channel instead',
+    );
+    expect(SERVER).toContain("stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc']");
+    expect(SERVER).toContain('child.send(STOP_MESSAGE');
+  });
+
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {
     const anchor = 'anchor: nothing shipped gives the model tools or acts on a tool call';
 
