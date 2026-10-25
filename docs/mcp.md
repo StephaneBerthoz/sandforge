@@ -1,0 +1,57 @@
+# SandForge for AI agents (MCP)
+
+`sandforge-mcp` gives an AI agent ten tools over the Model Context Protocol: Seed's templates and runs, Forge's clone of a record, the removal of a Seed, Forge or Sync run, and Checkpoints -- take, list, preview, rewind, undo, delete. "Fill this scratch org to test the Case flow", "clone the records of this bug", "take back the last run", "rewind the org to before the tests": each is one call, and each call runs the [command-line script](../ci-examples/README.md) of this repository that does the same, with its `--json`, so every guard of that script holds.
+
+It is a script of this repository, run from a checkout, as the command-line scripts are: it is not in the VSIX. **The extension itself gives the model no tool**: nothing it ships hands the model of its AI Assistant a tool or acts on a tool call, which [`product-claims.test.mjs`](product-claims.test.mjs) holds against everything the extension ships (its test "anchor: nothing shipped gives the model tools or acts on a tool call"), and `scripts/mcp-server-not-shipped.test.mjs` checks that the files vsce packages into the VSIX hold none of `cli/`.
+
+## Add it to Claude Code
+
+From the repository root of a checkout, once `pnpm install` and `pnpm build:shared` have run:
+
+```sh
+claude mcp add sandforge -- pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
+```
+
+The scope is the checkout's own (`local`, Claude Code's default), and the server starts in it. It reaches the orgs as the scripts do, through the `sf` CLI: each tool names an org by its alias, as `sf alias list` shows them. With `-e SANDFORGE_JOURNAL_DIR=<dir>` before the `--`, the scripts keep their run files, journals and checkpoints in `<dir>` rather than in `~/.sandforge`, as each script's `--help` says. Any other client that starts an MCP server on stdio runs the same command, from the same folder.
+
+## The tools
+
+| Tool                 | What it does                                                                                                                                                                                                                                             | What it runs                                                       | Writes                           |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------- |
+| `seed_templates`     | The built-in Seed templates, as the Seed page's gallery lists them: id, name, what each is for, and the records each object gets at most; the first is the one a new Developer Edition holds whole                                                       | nothing: the server answers it from this checkout                  | nothing                          |
+| `seed_run`           | Fills `org` from a template, or with generated rows of the objects named; `dryRun: true` reads the org and says what a run would meet -- the data storage, the emails its automation would send, what runs as the records are created -- writing nothing | `sandforge-seed --target … [--dry-run] --json`                     | the org, unless `dryRun`         |
+| `clone_record`       | Clones one record from `source` into `target` with what it needs and what hangs from it, as Forge's record clone; `dryRun: true` reads both orgs and says what would stop a run, writing nothing                                                         | `sandforge-clone --record … [--dry-run] --json`                    | `target`, unless `dryRun`        |
+| `run_remove`         | Deletes from `org`, into its recycle bin, what one Seed, Forge or Sync run created (`module`), from its summary file, run file, journal or run id; a Sync run's records written over get their values back                                               | `sandforge-seed`, `sandforge-clone` or `sandforge-sync --remove …` | the org                          |
+| `checkpoint_list`    | The checkpoints of the org named, newest first, with what a rewind and an undo can still reach; it never contacts an org, and never names another org to the agent                                                                                       | `sandforge-checkpoint list --org <org> --json`                     | nothing                          |
+| `checkpoint_preview` | What a rewind to a checkpoint would delete, give back and bring back, who last changed it, what the org runs as it writes, and what neither a rewind nor its undo can take back                                                                          | `sandforge-checkpoint preview --json`                              | nothing                          |
+| `checkpoint_take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones named; `estimate: true` says what it would take and keeps nothing                                                                                       | `sandforge-checkpoint take --json`                                 | this machine; nothing in the org |
+| `checkpoint_rewind`  | Returns the org to a checkpoint, whoever made the changes since, from its own preview, then reads it again                                                                                                                                               | `sandforge-checkpoint rewind --yes --json`                         | the org                          |
+| `checkpoint_undo`    | Takes back the org's last rewind; what anyone changed since the rewind stays                                                                                                                                                                             | `sandforge-checkpoint undo --yes --json`                           | the org                          |
+| `checkpoint_delete`  | Deletes a checkpoint from this machine; the org is not touched                                                                                                                                                                                           | `sandforge-checkpoint delete --yes --json`                         | this machine                     |
+
+`seed_templates`, `checkpoint_list` and `checkpoint_preview` say `readOnlyHint`; `run_remove`, `checkpoint_rewind`, `checkpoint_undo` and `checkpoint_delete` say `destructiveHint`. Each tool's schema names every argument it reads and refuses any other, so a misspelt `dry_run: true` is refused, never taken for a `dryRun` left out; a value that would start with `-` on the script's line is refused too.
+
+## The confirm rule
+
+A call that writes -- `seed_run` and `clone_record` unless `dryRun: true`, `run_remove`, `checkpoint_rewind`, `checkpoint_undo` and `checkpoint_delete` -- takes `confirm`: the alias of the org it writes to (`org`, or `target` for a clone), exactly as given. Without it, or with any other value, the call is refused before any script runs, so before anything is read, and its refusal says what the call would do and where to read it first: a dry run, `checkpoint_preview`, `checkpoint_list`. A dry run, a read and `checkpoint_take` need none. `confirm` is the person's agreement, given through the agent: the alias a rewind, an undo or a delete asks you to type on a terminal, after which the server runs the script with `--yes`, and only then.
+
+The acceptances are the script's flags, and the person's to give too: `acceptAutomation` is `--accept-automation` (`clone_record`, `run_remove`, `checkpoint_rewind`, `checkpoint_undo`), and `acceptNoUndo`, `acceptRecreate` and `acceptOutside` are `checkpoint_rewind`'s `--accept-no-undo`, `--accept-recreate` and `--accept-outside`. A refusal that names one of those flags comes back with a line naming the parameter it stands for.
+
+## What holds
+
+Each call runs its script in a process of its own, as it runs on a terminal: a production org is refused before anything is read, and no flag lifts it; the user the alias connects as needs the permissions the script needs; the API requests left today, the daily emails, the data storage and the acceptances refuse a run before it writes, as the script's `--help` says; a take, a rewind or an undo of the org under way on this machine refuses a rewind and an undo. The script has no terminal: a question it asks stops it at the question, exit `2`, having written nothing, and the call's error carries the question in its words -- for the person using the agent to answer, never answered by the server.
+
+A call the client cancels (`notifications/cancelled`) stops its script as Ctrl-C stops it: before its next call to the org, its journal kept, so a rewind run again takes up from what still differs and an undo still returns the org to how it was before. Closing the server's stdin stops the scripts still running the same way, and the server ends once they have.
+
+## What a call answers
+
+- **`structuredContent`**: `{exitCode, answer}`, where `answer` is the script's `--json` answer, shaped as its `--help` says, and `exitCode` its exit code: `0` done, `1` refused before it wrote or nothing done, `2` a request the script could not take or a question it asked, `3` partial, `4` unstable, `130`, `143` or `129` stopped. `isError` is set for any code but `0`, `3` and `4`, whose answer says what was left and why. `seed_templates` answers `{templates}`; a call refused by the server, `{refusal: {code, message}}`, its code `CONFIRM` or `ARGUMENTS`.
+- **Its text**: the line it ran, the exit code, then the script's own lines -- a rewind's preview, with who last changed the records it takes back (`last changed by`), and its result, with what Undo could not bring back -- then what the server adds: the parameter a flag named above stands for, and for a seed or a clone that wrote, the `run_remove` call that takes the run back. The structured content follows, as JSON.
+
+## What leaves this machine
+
+The server writes only to the client that started it, on its stdout; the scripts reach the orgs as they do from a terminal, and nothing else leaves this machine. What a tool answers -- counts, record Ids, the names of the users who last changed records, the org's words in a refusal -- then goes wherever that client sends it: to the agent's model, whatever model that is. The extension's AI settings do not reach the server, and turning AI off in the extension does not stop it.
+
+## The protocol
+
+MCP [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio), written without an SDK: JSON-RPC 2.0, one message a line on stdout and nothing else there, the server's own lines and the scripts' on stderr. A request of that revision names it in its `_meta`, and `server/discover` says which revision is served. Clients of the revisions before it -- 2025-11-25, 2025-06-18 and 2025-03-26 -- open with `initialize` and `notifications/initialized`, then send `tools/list`, `tools/call` and `ping`; an `initialize` asking for another revision is offered 2025-11-25, and a request naming another in its `_meta` is refused with error `-32022`. A batch, a line that is not JSON, a method or a tool it does not have are refused with JSON-RPC's own errors.

@@ -167,6 +167,8 @@ On disk, the take says what it will take before it runs. A rewind's journal hold
 
 Exit codes: `0` done; `1` refused before it read or wrote, or nothing done; `2` a bad command line, a `--checkpoint` name several checkpoints have, `rewind` or `undo` with `--yes` and no checkpoint named, or a question with no terminal; `3` partial -- records still differ, each said with why; with `--fail-on-change`, the org differs; a `delete` kept some checkpoints, each said with why -- and fields set aside with `--ignore-field` do not count; `4` unstable, someone else changed records during the rewind or the undo. With `--json`, the answer goes alone on stdout and every other line on stderr; [Every flag](#every-flag) gives its shape for each command.
 
+An AI agent runs these commands as the tools of the MCP server of this repository -- `checkpoint_take`, `checkpoint_list`, `checkpoint_preview`, `checkpoint_rewind`, `checkpoint_undo` and `checkpoint_delete` -- each answering with this script's JSON, a rewind, an undo or a delete only with the org's alias given again as `confirm`: [SandForge for AI agents](../mcp.md).
+
 ### A pool of scratch orgs, rewound between suites
 
 Rewinding a scratch org between two test suites -- UI or end-to-end tests, UAT, integrations, not Apex tests, which roll back on their own -- returns it to its seeded state without creating another, and so without spending the Dev Hub's daily scratch-org allocation:

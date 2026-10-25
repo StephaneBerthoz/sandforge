@@ -393,11 +393,20 @@ test('both READMEs and the Autopilot guide sell Autopilot as the copy it is', ()
 
 const CLI_DIR = [...EXT, 'cli'];
 
+/**
+ * What sits beside them under the same name and is no command line: the MCP
+ * server reads no flag but --help and runs no module once — an AI agent's
+ * client starts it, and it serves the scripts to that agent as tools. Its
+ * guide, docs/mcp.md, is pinned by docs/mcp.docs.test.ts; the README links it.
+ */
+const NOT_A_COMMAND_LINE = new Set(['sandforge-mcp']);
+
 /** The command-line scripts, as `sandforge-<name>`. */
 const scripts = () =>
   readdirSync(join(repoRoot, ...CLI_DIR))
     .filter((file) => /^sandforge-[a-z]+\.ts$/.test(file))
     .map((file) => file.replace(/\.ts$/, ''))
+    .filter((script) => !NOT_A_COMMAND_LINE.has(script))
     .sort();
 
 /** Every `--flag` a script's HELP text names. */
