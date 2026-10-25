@@ -41,8 +41,13 @@ const BULK_ERROR = /^([A-Z][A-Z0-9_]*):([\s\S]*):([A-Za-z0-9_]+(?: [A-Za-z0-9_]+
 /** `STATUS_CODE: message`, the fields after it in brackets when it named any. */
 const CODED_ERROR = /^([A-Z][A-Z0-9_]*):\s*([\s\S]*)$/;
 
-/** The fields listed at the end of a message, as `[Name, StageName]`. */
-const TRAILING_FIELDS = /\s*\[([A-Za-z0-9_]+(?:,\s*[A-Za-z0-9_]+)*)\]\s*$/;
+/**
+ * The fields listed at the end of a message, as `[Name, StageName]`. The space
+ * before the bracket is trimmed off the message after the match: a leading
+ * `\s*` is tried again from every space of a run, and a message holding
+ * 20,000 spaces took 205 ms to read, a hundred thousand nearly seven seconds.
+ */
+const TRAILING_FIELDS = /\[([A-Za-z0-9_]+(?:,\s*[A-Za-z0-9_]+)*)\]\s*$/;
 
 /** Where one error of a record ends and the next begins, in the REST path's text. */
 const NEXT_ERROR = /; (?=[A-Z][A-Z0-9_]*: )/;
@@ -68,7 +73,7 @@ export function parseRecordError(text: string): ParsedRecordError {
   const listed = TRAILING_FIELDS.exec(message);
   return {
     code: coded[1],
-    message: listed ? message.slice(0, listed.index) : message,
+    message: listed ? message.slice(0, listed.index).trimEnd() : message,
     fields: listed ? listed[1].split(',').map((field) => field.trim()) : [],
   };
 }

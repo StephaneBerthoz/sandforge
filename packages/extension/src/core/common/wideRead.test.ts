@@ -478,6 +478,32 @@ describe('readColumnsApart', () => {
     }
   });
 
+  it('merges no key of an answer into the prototype every object shares', async () => {
+    const fields = wideFields(900);
+    const org = fakeOrg(rowsOf(fields, 2));
+    const soql = `SELECT ${fields.join(', ')} FROM Account`;
+    let statements = 0;
+    // Every statement past the first answers rows that JSON.parse gave an own
+    // `__proto__` key, as an answer holding one would come back.
+    const read = async (statement: string): Promise<Array<Record<string, unknown>>> => {
+      const rows = await org.read(statement);
+      statements += 1;
+      if (statements === 1) return rows;
+      return rows.map(
+        (row) =>
+          JSON.parse(
+            JSON.stringify(row).replace(/^\{/, '{"__proto__":{"pollutedByAnswer":"yes"},'),
+          ) as Record<string, unknown>,
+      );
+    };
+
+    const rows = await readColumnsApart(soql, read);
+
+    expect(statements).toBeGreaterThan(1);
+    expect(rows).toHaveLength(2);
+    expect(({} as Record<string, unknown>).pollutedByAnswer).toBeUndefined();
+  });
+
   it('sends a statement whose fields fit once, as written', async () => {
     const org = fakeOrg(rowsOf(['Id', 'Name'], 3));
 

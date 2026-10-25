@@ -208,13 +208,22 @@ function isNested(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Whether `key` can name a field of an answer. No Salesforce field is named
+ * `__proto__`, `constructor` or `prototype`, and an answer parsed from JSON
+ * that held one would, merged, write into every object's prototype.
+ */
+function isFieldName(key: string): boolean {
+  return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
+}
+
+/**
  * Lay the fields `more` read of a row over the row: a related record read
  * through two groups — `Owner.Name` in one, `Owner.Email` in the other — keeps
  * the fields of both. The answer's own `attributes` stay the first read's.
  */
 function mergeInto(row: Record<string, unknown>, more: Record<string, unknown>): void {
   for (const [field, value] of Object.entries(more)) {
-    if (field === 'attributes') continue;
+    if (field === 'attributes' || !isFieldName(field)) continue;
     const held = row[field];
     if (isNested(held) && isNested(value)) mergeInto(held, value);
     else row[field] = value;

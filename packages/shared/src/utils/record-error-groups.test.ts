@@ -51,6 +51,26 @@ describe('parseRecordError', () => {
     });
   });
 
+  it('reads a message holding a long run of spaces at once', () => {
+    const text = `FIELD_CUSTOM_VALIDATION_EXCEPTION: x${' '.repeat(100_000)}y`;
+
+    const started = performance.now();
+    const parsed = parseRecordError(text);
+    expect(performance.now() - started).toBeLessThan(250);
+    expect(parsed.code).toBe('FIELD_CUSTOM_VALIDATION_EXCEPTION');
+    expect(parsed.fields).toEqual([]);
+  });
+
+  it('leaves the space before the listed fields off the message', () => {
+    expect(
+      parseRecordError('REQUIRED_FIELD_MISSING: Required fields are missing:   [Name]  '),
+    ).toEqual({
+      code: 'REQUIRED_FIELD_MISSING',
+      message: 'Required fields are missing:',
+      fields: ['Name'],
+    });
+  });
+
   it('keeps a text that names no code as it is', () => {
     expect(parseRecordError('Insert failed after retries')).toEqual({
       code: null,
