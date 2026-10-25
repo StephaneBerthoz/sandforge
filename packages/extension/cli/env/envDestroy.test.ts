@@ -214,7 +214,8 @@ function removalsSince(from: number): string[] {
     .slice(from)
     .filter((call) => call.args.includes('--remove') && !call.args.includes('--preview'))
     .map((call) => {
-      const subject = call.args[call.args.indexOf('--remove') + 1] ?? '';
+      // Read with `/` whatever the platform wrote: Windows's paths have `\`.
+      const subject = (call.args[call.args.indexOf('--remove') + 1] ?? '').replace(/\\/g, '/');
       return /runs\/([a-z-]+)\//.exec(subject)?.[1] ?? subject;
     });
 }

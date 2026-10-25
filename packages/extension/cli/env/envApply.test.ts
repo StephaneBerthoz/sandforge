@@ -223,11 +223,12 @@ async function apply(
 /** The scripts' lines since `from`: runs, previews and removals as `run`, `preview`, `remove`. */
 function linesSince(from: number): string[] {
   return world.calls.slice(from).map((call) => {
-    const file = call.args[call.args.indexOf('--template-file') + 1] ?? '';
+    // Read with `/` whatever the platform wrote: Windows's paths have `\`.
+    const file = (call.args[call.args.indexOf('--template-file') + 1] ?? '').replace(/\\/g, '/');
     const named = /templates\/([a-z-]+)\.\d+\.json$/.exec(file)?.[1];
     if (call.args.includes('--preview')) return 'preview';
     if (call.args.includes('--remove')) {
-      const subject = call.args[call.args.indexOf('--remove') + 1] ?? '';
+      const subject = (call.args[call.args.indexOf('--remove') + 1] ?? '').replace(/\\/g, '/');
       return `remove ${/runs\/([a-z-]+)\//.exec(subject)?.[1] ?? /env-case-flow-([a-z]+)-/.exec(subject)?.[1] ?? subject}`;
     }
     if (call.args.includes('--dry-run')) return 'dry-run';
