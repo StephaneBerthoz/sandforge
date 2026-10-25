@@ -282,8 +282,11 @@ export function removalStarted(state: EnvState, resource: string): EnvState {
 export interface EnvStepEnd {
   resource: string;
   status: EnvResourceState['status'];
-  /** The current run's outcome, for a step that ran the resource's script. */
-  run?: Pick<EnvRun, 'endedAt' | 'exitCode' | 'objects'>;
+  /**
+   * The current run's outcome, for a step that ran the resource's script: with
+   * the summary it printed, once kept beside the state.
+   */
+  run?: Pick<EnvRun, 'endedAt' | 'exitCode' | 'objects'> & Pick<Partial<EnvRun>, 'summary'>;
 }
 
 /** The state once a step ended: its resource's status, and its current run's outcome. */
@@ -487,6 +490,35 @@ export class EnvStore {
    */
   async update(state: EnvState, change: (state: EnvState) => EnvState): Promise<EnvState> {
     return this.write(change(state), state);
+  }
+
+  /**
+   * Write a file of a state's folder whole — a run's summary, the payload a
+   * run was given — by the path the state names it with: its owner's alone,
+   * written beside and renamed over, as the state is.
+   *
+   * @returns Where it was written.
+   * @throws {EnvStateError} `invalid`, when the states were opened to be
+   *   listed or the path is not one of a state's folder; `folder`, when a
+   *   folder of it cannot be used.
+   */
+  async writeFile(
+    organizationId: string,
+    env: string,
+    relativePath: string,
+    content: string,
+  ): Promise<string> {
+    if (this.fileFolder === null) {
+      throw new EnvStateError('invalid', 'The states were opened to be listed, not written');
+    }
+    const file = this.fileOf(organizationId, env, relativePath);
+    const folder = this.folderOf(organizationId, env);
+    for (const dir of [dirname(folder), folder, dirname(file)]) {
+      const refusal = openFolder(dir, this.uid);
+      if (refusal !== undefined) throw new EnvStateError('folder', refusal);
+    }
+    await this.writeWhole(file, content);
+    return file;
   }
 
   /** Delete an environment's folder, its state with it: a destroy ended clean, or a state forgotten. */

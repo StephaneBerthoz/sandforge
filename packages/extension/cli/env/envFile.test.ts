@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { seedTemplatePayloadSchema } from '../../src/bridge/validatePayload.js';
@@ -231,7 +232,8 @@ describe('checking the file', () => {
     const { order, runs, variables, folder } = checked();
 
     expect(order).toEqual(['accounts', 'contacts']);
-    expect(folder).toBe(FOLDER);
+    // The folder as the platform resolves it: `D:\\work\\project` on Windows.
+    expect(folder).toBe(resolve(FOLDER));
     expect(variables).toEqual([
       { name: 'SF_UAT_ALIAS', path: ['orgs', 'uat', 'alias'], role: 'uat' },
     ]);
@@ -410,6 +412,14 @@ describe('checking the file', () => {
         /^resources\.accounts\.objects\[0\]\.fields\[0\]: Faker method "company\.motto"/,
       ),
     ]);
+  });
+
+  it('refuses a locale the seed does not draw in, which its command line would refuse at the plan', () => {
+    expect(refusedWith(fileWith(['resources', 'contacts', 'locale'], 'fr_CA'))).toEqual([
+      'resources.contacts.locale: the seed draws in en_US, fr_FR, de_DE, es_ES, ja_JP, pt_BR, ' +
+        'not fr_CA: name one of them, or leave locale out to draw in the org’s own',
+    ]);
+    expect(refusedWith(fileWith(['resources', 'contacts', 'locale'], 'ja_JP'))).toEqual([]);
   });
 
   it('lists the variables the environment leaves unset, or sets to nothing', () => {

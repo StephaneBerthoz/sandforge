@@ -1,0 +1,1099 @@
+#!/usr/bin/env tsx
+/**
+ * sandforge-env — apply a `sandforge.yaml` to an org: the data an
+ * environment needs, declared in a project's repository, created, kept and
+ * taken back, without the editor.
+ *
+ * It writes nothing to an org itself. Each resource is planned, applied,
+ * previewed and taken back by the script that already does it —
+ * `sandforge-seed` for a seed resource — spawned with `--json` as the MCP
+ * server spawns its tools, so every guard, gate and run file of the script
+ * holds unchanged. What it adds is what no script has: the declared file, a
+ * state of what was applied to which org, a plan, an order, and refusals of
+ * its own (`env/envGuards.ts`).
+ *
+ * What it reads in its own process: the file, the state, the plan's
+ * arithmetic, the org's kind and its `/limits` — the guard needs them before
+ * anything runs. Every record is read and written by a spawned script.
+ *
+ * Usage:
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts plan --file sandforge.yaml --org pool-1
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts apply --file sandforge.yaml --org pool-1 --yes
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy --file sandforge.yaml --org pool-1 --yes
+ *
+ * Run from the repository root of a checkout, after pnpm install and
+ * pnpm build:shared.
+ */
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import type { Connection } from 'jsforce';
+import type {
+  EnvIssue,
+  EnvPlan,
+  EnvRefusalAnswer,
+  EnvState,
+  EnvStateList,
+  EnvValidation,
+} from '@sandforge/shared';
+import { typeTarget, type TypedTarget } from '../src/core/precheck/orgKindLive.js';
+import { removalOrg } from '../src/modules/forge/ForgeRunRemoval.js';
+import {
+  readApiBudget,
+  readDataStorage,
+  readEmailLimits,
+  type LimitsTransport,
+} from '../src/modules/forge/ForgeRunGate.js';
+import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
+import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, endWith } from './exitCodes.js';
+import { typed } from './prompt.js';
+import { spawnCommand, type CommandRunner } from './scriptRunner.js';
+import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { loadOrg, makeConn, type SfOrg } from './sfSession.js';
+import { applyPlan, removalSubjectOf, runResultLines, type EnvStepDeps } from './env/envApply.js';
+import { destroyEnvironment } from './env/envDestroy.js';
+import {
+  checkEnvFile,
+  documentOf,
+  pathText,
+  readEnvFile,
+  refusalLine,
+  unsetVariablesOf,
+  type EnvFileRefusal,
+  type EnvFileResolved,
+} from './env/envFile.js';
+import {
+  envTargetOf,
+  noStateGuard,
+  stateRefusal,
+  stateTargetRefusal,
+  storeRefusal,
+  targetRefusal,
+  type EnvRefusal,
+  type EnvTarget,
+} from './env/envGuards.js';
+import { defaultEnvLocksDir, envLockHolder, envLockLine } from './env/envLock.js';
+import {
+  checkpointSettingsRefusal,
+  classifyResources,
+  destructionPlan,
+  envPlan,
+  liveResources,
+  planChanges,
+  planDrifts,
+  planLines,
+  removalOrder,
+  type EnvBudget,
+  type EnvDryRun,
+  type EnvRunPreview,
+} from './env/envPlan.js';
+import {
+  EnvStateError,
+  envJournalDirOf,
+  envRunIdOf,
+  journalInsideRepository,
+  nextRunNumber,
+  openEnvStore,
+  stateExpiresAt,
+  type EnvStore,
+} from './env/envState.js';
+import {
+  SEED_SCRIPT,
+  StepAnswerError,
+  readSeedDryRun,
+  readSeedPreview,
+  seedDryRunLine,
+  seedPreviewLine,
+} from './env/envSteps.js';
+
+const HELP = `sandforge-env — apply a sandforge.yaml to an org: the data an environment needs, declared in
+your repository, created, kept and taken back, without the editor.
+
+Usage:
+  pnpm exec tsx packages/extension/cli/sandforge-env.ts <command> [--file <sandforge.yaml>] --org <alias> [options]
+
+Commands:
+  validate  check the file, offline: its schema, each resource against Seed's own rules, the
+            order of the resources, the variables it names; reaches no org
+  plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
+            it is blocked; what an earlier apply left there and what changed since; per object the
+            records it would write; the API requests, storage and emails it takes; writes nothing
+  apply     do what plan says, after asking you to type the org's alias; applied again, it writes
+            nothing; stopped, run it again and it takes up
+  destroy   take back what apply created, the last resource first, into the recycle bin; name what
+            it cannot take back
+  state     list the environments kept on this machine, or those of one org (--org, an alias or
+            an Organization Id); reaches no org
+
+Required:
+  --org <alias>              sf CLI alias of the org to fill (validate and state: not needed)
+
+Options:
+  --file <path>              the file (default: sandforge.yaml in this folder)
+  --alias <role>=<alias>     the alias of a role the file's orgs name; wins over its variable
+  --json                     the answer alone on stdout, every other line on stderr
+plan:
+  --fail-on-change           exit 3 when apply would write or delete anything
+  --fail-on-drift            exit 3 when the org no longer holds the environment as applied:
+                             records deleted or changed since
+  --quick                    skip the dry runs and the removal previews: no counts, and no word
+                             on what the org holds
+  --replace <resource>, --replace-drifted
+                             plan what apply would do with them
+apply:
+  --replace <resource>       replace a resource kept or drifted; repeat for more
+  --replace-drifted          replace every drifted resource
+  --accept-automation        take back the runs a replace or a delete takes back although the org
+                             runs automation as records go
+  --accept-no-state          apply to a Developer Edition or a sandbox this machine has no state
+                             of: records an earlier apply left there would be created twice
+  --yes                      do not ask; without it and with no terminal, stop at the question,
+                             exit 2, having written nothing
+destroy:
+  --include-changed          take also the records changed since apply, and what was created
+                             under them since: on a shared sandbox, a colleague's work
+  --sweep                    take also what the org's automation created during each run
+  --accept-automation        delete although the org runs automation as records go
+  --yes                      as for apply
+
+The file holds no secret: org credentials stay with the sf CLI. A value comes from the environment
+only where the file writes { env: NAME }. The org to fill is never in the file. A resource's
+accept: { automation: true } is the file's --accept-automation for that resource.
+
+A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
+written to only when the file lists its Organization Id under targets.sandboxes and allows the
+sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
+apart by the Dev Hub the sf CLI names for it; one it names none for is taken for a sandbox.
+
+What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
+env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
+beside the run files of the seeds it ran. That folder must be outside the repository that holds
+the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch
+org's state is deleted 30 days after its last write. Two machines applying to one org at once are
+not kept apart: give the jobs one concurrency group.
+
+Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
+whole, or nothing to do; destroy: every record taken back); 1 refused before it read or wrote — a
+production org, a kind of org or a sandbox the file does not allow, a protected org, a state of
+another org, no state without --accept-no-state, another apply of the org under way, a removal
+refused for automation without --accept-automation, more API requests, storage or emails than
+the org has left —, or nothing written; 2 a bad command line, a file that does not validate, a
+variable not set, the journal directory inside the file's repository, a question with no
+terminal (give --yes); 3 partial (apply: a resource partial, or failed after others wrote;
+destroy: records left, each with why; plan with --fail-on-change or --fail-on-drift: changes or
+drift found); 4 unstable; 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
+takes up from the state.
+`;
+
+// ─── The command line ────────────────────────────────────────────────────────
+
+const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'state'] as const;
+type Command = (typeof COMMANDS)[number];
+
+const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
+
+/** What each command reads of its line, after its own word. */
+const FLAGS: Readonly<Record<Command, CommandFlags>> = {
+  validate: { words: 1, switches: ['--json'], values: ['--file'] },
+  plan: {
+    words: 1,
+    switches: ['--json', '--fail-on-change', '--fail-on-drift', '--quick', '--replace-drifted'],
+    values: ['--file', '--org', '--alias', '--replace'],
+  },
+  apply: {
+    words: 1,
+    switches: ['--json', '--replace-drifted', '--accept-automation', '--accept-no-state', '--yes'],
+    values: ['--file', '--org', '--alias', '--replace'],
+  },
+  destroy: {
+    words: 1,
+    switches: ['--json', '--include-changed', '--sweep', '--accept-automation', '--yes'],
+    values: ['--file', '--org', '--alias'],
+  },
+  state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
+};
+
+/** Everything the command line settled. */
+export interface CliArgs {
+  command: Command;
+  /** The file, absolute. */
+  file: string;
+  /** Given with --file, or left to the default. */
+  fileGiven: boolean;
+  org?: string;
+  aliases: Record<string, string>;
+  json: boolean;
+  failOnChange: boolean;
+  failOnDrift: boolean;
+  quick: boolean;
+  replace: string[];
+  replaceDrifted: boolean;
+  acceptAutomation: boolean;
+  acceptNoState: boolean;
+  includeChanged: boolean;
+  sweep: boolean;
+  yes: boolean;
+}
+
+/** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
+function refuseLine(line: string): never {
+  process.stderr.write(`${line} Run with --help.\n`);
+  process.exit(2);
+}
+
+/** Read the command line, or stop, exit 2, on one that cannot be read. */
+export function parseArgs(argv: readonly string[], cwd: string = process.cwd()): CliArgs {
+  const args = argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+  const command = args[0];
+  if (command === undefined || command.startsWith('-')) {
+    return refuseLine('Name the command first: validate, plan, apply, destroy or state.');
+  }
+  if (!isCommand(command)) {
+    return refuseLine(
+      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy or ` +
+        'state. Nothing was run.',
+    );
+  }
+  // `--yes=true`, a misspelt `--dryrun`, would be dropped without a word.
+  refuseUnreadArguments(args, FLAGS[command]);
+  const values = (flag: string): string[] => {
+    const out: string[] = [];
+    for (let at = 1; at < args.length; at++) {
+      if (args[at] !== flag) continue;
+      out.push(args[at + 1] ?? '');
+      at++;
+    }
+    return out;
+  };
+  const single = (flag: string): string | undefined => {
+    const given = values(flag);
+    if (given.length > 1) refuseLine(`${flag} is given ${given.length} times: give it once.`);
+    return given[0];
+  };
+  const aliases: Record<string, string> = {};
+  for (const pair of values('--alias')) {
+    const at = pair.indexOf('=');
+    const role = at > 0 ? pair.slice(0, at) : '';
+    const alias = at > 0 ? pair.slice(at + 1) : '';
+    if (role === '' || alias === '') {
+      refuseLine(`--alias wants <role>=<alias>, as --alias uat=UAT-ORG, not "${pair}".`);
+    }
+    if (role in aliases) refuseLine(`--alias gives the role ${role} twice: give it once.`);
+    aliases[role] = alias;
+  }
+  const org = single('--org');
+  if ((command === 'plan' || command === 'apply' || command === 'destroy') && org === undefined) {
+    refuseLine(`${command} needs --org, the sf CLI alias of the org.`);
+  }
+  const fileGiven = single('--file');
+  const replace = values('--replace');
+  return {
+    command,
+    file: resolve(cwd, fileGiven ?? 'sandforge.yaml'),
+    fileGiven: fileGiven !== undefined,
+    ...(org !== undefined ? { org } : {}),
+    aliases,
+    json: args.includes('--json'),
+    failOnChange: args.includes('--fail-on-change'),
+    failOnDrift: args.includes('--fail-on-drift'),
+    quick: args.includes('--quick'),
+    replace: [...new Set(replace)],
+    replaceDrifted: args.includes('--replace-drifted'),
+    acceptAutomation: args.includes('--accept-automation'),
+    acceptNoState: args.includes('--accept-no-state'),
+    includeChanged: args.includes('--include-changed'),
+    sweep: args.includes('--sweep'),
+    yes: args.includes('--yes'),
+  };
+}
+
+// ─── What the command runs with ──────────────────────────────────────────────
+
+/** An org reached: its session and a connection to it. */
+export interface Reached {
+  session: SfOrg;
+  conn: Connection;
+}
+
+/** What the command runs with, beside its line; tests give their own. */
+export interface EnvCliDeps {
+  /** Runs a script of this folder: spawned in a process of its own unless a test gives another. */
+  runner?: CommandRunner;
+  /** Reaches an org by its alias, through the sf CLI's session. */
+  reach?: (alias: string) => Promise<Reached>;
+  /** The journal directory: `SANDFORGE_JOURNAL_DIR`, else `~/.sandforge`. */
+  journalDir?: string;
+  /** Where the locks are: `~/.sandforge/locks`. */
+  locksDir?: string;
+  /** Asks for the alias to be typed: on the terminal unless a test gives another. */
+  ask?: (question: string) => Promise<string>;
+  /** Hears the stop signals; the process's own unless a test gives another. */
+  onStop?: EnvStepDeps['onStop'];
+  /** The checks a lock makes of its holder. */
+  lockOptions?: EnvStepDeps['lockOptions'];
+  /** The folder the file is read from by default. */
+  cwd?: string;
+}
+
+/** This SandForge's version, which a new state records. */
+function sandforgeVersion(): string {
+  try {
+    const read = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+      version?: unknown;
+    };
+    return typeof read.version === 'string' ? read.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/** A verb stopped by a refusal: said on stderr, and with `--json` as the answer on stdout. */
+class Stop extends Error {
+  constructor(
+    readonly answer: EnvRefusalAnswer,
+    readonly code: number,
+  ) {
+    super(answer.refusal.message);
+    this.name = 'Stop';
+  }
+}
+
+function stopWith(refusal: EnvRefusal): Stop {
+  return new Stop({ refusal: { code: refusal.code, message: refusal.message } }, refusal.exit);
+}
+
+function issueOf(refusal: EnvFileRefusal): EnvIssue {
+  return {
+    path: pathText(refusal.path),
+    ...(refusal.resource !== undefined ? { resource: refusal.resource } : {}),
+    message: refusal.message,
+  };
+}
+
+/** The file read and checked offline, or the stop it ends the command with. */
+function readDocument(file: string): unknown {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err: unknown) {
+    throw new Stop(
+      {
+        refusal: {
+          code: 'FILE_UNREAD',
+          message: `${file} cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      },
+      2,
+    );
+  }
+  const read = documentOf(text);
+  if ('refusal' in read) {
+    throw new Stop({ refusal: { code: 'INVALID_FILE', message: `${file}: ${read.refusal}` } }, 2);
+  }
+  return read.document;
+}
+
+/** The file's refusals as the command stops on them. */
+function fileStop(file: string, refusals: readonly EnvFileRefusal[]): Stop {
+  return new Stop(
+    {
+      refusal: {
+        code: 'INVALID_FILE',
+        message: `${file} does not validate:\n${refusals.map((r) => `  ${refusalLine(r)}`).join('\n')}`,
+        issues: refusals.map(issueOf),
+      },
+    },
+    2,
+  );
+}
+
+/** The org's `/limits`, read once, as the plan's gates hold the day's writes to them. */
+export async function readBudget(conn: Pick<Connection, 'request'>): Promise<EnvBudget> {
+  let answer: Promise<unknown> | undefined;
+  const transport: LimitsTransport = {
+    request: (request) => (answer ??= conn.request(request)),
+  };
+  const unread = (err: unknown): { unread: string } => ({
+    unread: err instanceof Error ? err.message : String(err),
+  });
+  const storage = await readDataStorage(transport).catch(unread);
+  const apiRequests =
+    'unread' in storage || storage.dailyApiRequests === undefined
+      ? await readApiBudget(transport).catch(unread)
+      : storage.dailyApiRequests;
+  const emails = await readEmailLimits(transport).catch(unread);
+  return {
+    apiRequests,
+    storage:
+      'unread' in storage ? storage : { remainingMB: storage.remainingMB, maxMB: storage.maxMB },
+    emails,
+  };
+}
+
+/** The last line a script said on stderr: what a refusal before its first write is. */
+function lastLine(stderr: string): string {
+  return (
+    stderr
+      .trim()
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) ?? 'it said nothing'
+  );
+}
+
+/** What the plan, the apply and the destroy share once the org is typed and the state read. */
+interface Prepared {
+  resolved: EnvFileResolved;
+  store: EnvStore;
+  journalDir: string;
+  locksDir: string;
+  target: EnvTarget;
+  reached: Reached;
+  state: EnvState | undefined;
+  warnings: string[];
+  /** What a real apply would meet: no state without --accept-no-state. */
+  noState?: EnvRefusal;
+  runner: CommandRunner;
+}
+
+/**
+ * Read the file and its variables, open the states, reach and type the org,
+ * and read its state: every refusal a guard makes before any record is read.
+ */
+async function prepare(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  say: (line: string) => void,
+): Promise<Prepared> {
+  const document = readDocument(args.file);
+  const read = readEnvFile(document, dirname(args.file), process.env, { aliases: args.aliases });
+  if ('refusals' in read) throw fileStop(args.file, read.refusals);
+  const { resolved } = read;
+  const names = resolved.resources.map((resource) => resource.name);
+  for (const name of args.replace) {
+    if (!names.includes(name)) {
+      throw new Stop(
+        {
+          refusal: {
+            code: 'BAD_LINE',
+            message: `--replace ${name} names no resource of the file: it has ${names.join(', ')}.`,
+          },
+        },
+        2,
+      );
+    }
+  }
+
+  const journalDir = deps.journalDir ?? envJournalDirOf();
+  const locksDir = deps.locksDir ?? defaultEnvLocksDir();
+  const inside = journalInsideRepository(dirname(args.file), journalDir);
+  const opened = openEnvStore({ journalDir, fileFolder: dirname(args.file) });
+  if ('refusal' in opened) throw stopWith(storeRefusal(opened.refusal, inside !== undefined));
+  const store = opened.store;
+  for (const expired of await store.sweep()) {
+    say(
+      `the state of ${expired.env} on ${expired.alias ?? expired.organizationId} expired on ` +
+        `${expired.expiresAt}, a month after its last write, as a scratch org does: deleted`,
+    );
+  }
+
+  const alias = args.org ?? '';
+  let reached: Reached;
+  try {
+    reached = await (deps.reach ?? reachOrg)(alias);
+  } catch (err: unknown) {
+    throw new Stop(
+      {
+        refusal: {
+          code: 'NOT_CONNECTED',
+          message: `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      },
+      FAILED_EXIT,
+    );
+  }
+  let typedTarget: TypedTarget | { unread: string };
+  try {
+    typedTarget = await typeTarget(reached.conn);
+  } catch (err: unknown) {
+    typedTarget = { unread: err instanceof Error ? err.message : String(err) };
+  }
+  const typedOrg = envTargetOf(alias, typedTarget, reached.session);
+  if ('refusal' in typedOrg) throw stopWith(typedOrg.refusal);
+  const target = typedOrg.target;
+  const refused = targetRefusal(resolved.checked.file.targets, target);
+  if (refused !== undefined) throw stopWith(refused);
+
+  let state: EnvState | undefined;
+  try {
+    state = await store.read(target.organizationId, resolved.checked.file.name);
+  } catch (err: unknown) {
+    if (err instanceof EnvStateError) throw stopWith(stateRefusal(err));
+    throw err;
+  }
+  if (state !== undefined) {
+    const other = stateTargetRefusal(state, resolved.checked.file.name, target);
+    if (other !== undefined) throw stopWith(other);
+  }
+  const warnings: string[] = [];
+  let noState: EnvRefusal | undefined;
+  if (state === undefined && args.command !== 'destroy') {
+    const guarded = noStateGuard(target, resolved.checked.file.name, args.acceptNoState);
+    if ('warning' in guarded) warnings.push(guarded.warning);
+    else noState = guarded.refusal;
+  }
+  const holder = envLockHolder(locksDir, target.organizationId, deps.lockOptions);
+  if (holder !== undefined) {
+    warnings.push(`${envLockLine(holder)}: this plan may be out of date when it ends`);
+  }
+  return {
+    resolved,
+    store,
+    journalDir,
+    locksDir,
+    target,
+    reached,
+    state,
+    warnings,
+    ...(noState !== undefined ? { noState } : {}),
+    runner: deps.runner ?? spawnCommand,
+  };
+}
+
+/** The production way to reach an org: the sf CLI's session. */
+async function reachOrg(alias: string): Promise<Reached> {
+  const session = await loadOrg(alias);
+  return { session, conn: makeConn(session) };
+}
+
+/**
+ * Preview the removal of every run of the resources the state holds, through
+ * the seed's own `--remove … --preview`: what the org holds of each, what is
+ * gone and what changed since, and what a removal would be refused for now.
+ */
+async function previewRuns(
+  prepared: Prepared,
+  options: { includeChanged: boolean; acceptAutomation: boolean },
+  say: (line: string) => void,
+  signal: AbortSignal,
+): Promise<Record<string, EnvRunPreview[]>> {
+  const { state, resolved, target } = prepared;
+  const previews: Record<string, EnvRunPreview[]> = {};
+  if (state === undefined) return previews;
+  const where = { organizationId: target.organizationId, env: resolved.checked.file.name };
+  const names = removalOrder(
+    state,
+    liveResources(state).map(([name]) => name),
+  );
+  for (const name of names) {
+    const resource = state.resources[name];
+    if (resource === undefined) continue;
+    const accept =
+      options.acceptAutomation ||
+      resolved.checked.file.resources[name]?.accept?.automation === true;
+    const runs: EnvRunPreview[] = [];
+    for (const run of [...resource.runs].reverse()) {
+      if (signal.aborted) break;
+      const subject = removalSubjectOf(run, where, prepared);
+      if (subject === undefined) {
+        runs.push({ n: run.n, nothing: true });
+        continue;
+      }
+      say(`${name}: reading what the org holds of run ${run.n}`);
+      const ran = await prepared.runner(
+        SEED_SCRIPT,
+        seedPreviewLine({
+          target: target.alias,
+          summary: subject,
+          includeChanged: options.includeChanged,
+          acceptAutomation: accept,
+        }),
+        signal,
+      );
+      try {
+        runs.push({ n: run.n, preview: readSeedPreview(ran.stdout) });
+      } catch (err: unknown) {
+        if (!(err instanceof StepAnswerError)) throw err;
+        runs.push({ n: run.n, failed: `exit ${ran.code}: ${lastLine(ran.stderr)}` });
+      }
+    }
+    previews[name] = runs;
+  }
+  return previews;
+}
+
+/** Dry-run each resource to create or replace, through the seed's own `--dry-run --json`. */
+async function dryRun(
+  prepared: Prepared,
+  names: readonly string[],
+  say: (line: string) => void,
+  signal: AbortSignal,
+): Promise<Record<string, EnvDryRun>> {
+  const { resolved, target, state } = prepared;
+  const dryRuns: Record<string, EnvDryRun> = {};
+  if (names.length === 0) return dryRuns;
+  const folder = mkdtempSync(join(tmpdir(), 'sandforge-env-plan-'));
+  try {
+    for (const resource of resolved.resources) {
+      if (!names.includes(resource.name) || signal.aborted) continue;
+      const templateFile = join(folder, `${resource.name}.json`);
+      writeFileSync(templateFile, `${JSON.stringify(resource.run.template, null, 2)}\n`, {
+        mode: 0o600,
+      });
+      say(`${resource.name}: dry run`);
+      const ran = await prepared.runner(
+        SEED_SCRIPT,
+        seedDryRunLine({
+          target: target.alias,
+          templateFile,
+          runId: envRunIdOf(
+            resolved.checked.file.name,
+            resource.name,
+            nextRunNumber(state?.resources[resource.name]),
+          ),
+          ...(resource.run.seed !== undefined ? { seed: resource.run.seed } : {}),
+          ...(resource.run.locale !== undefined ? { locale: resource.run.locale } : {}),
+          ...(resource.run.recordTypes !== undefined
+            ? { recordTypes: resource.run.recordTypes }
+            : {}),
+        }),
+        signal,
+      );
+      try {
+        dryRuns[resource.name] = { answer: readSeedDryRun(ran.stdout) };
+      } catch (err: unknown) {
+        if (!(err instanceof StepAnswerError)) throw err;
+        dryRuns[resource.name] = { failed: `exit ${ran.code}: ${lastLine(ran.stderr)}` };
+      }
+    }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+  return dryRuns;
+}
+
+/**
+ * Run `work` hearing the stop signals: a Ctrl-C, a SIGTERM or a SIGHUP stops
+ * the script under way as it stops on a terminal, and the command stops with
+ * that signal's exit code once it has, having written nothing.
+ */
+async function stoppable<T>(
+  deps: EnvCliDeps,
+  what: string,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const stop = new AbortController();
+  let stoppedBy: StopSignal | undefined;
+  const release = (deps.onStop ?? onStopSignal)((signal) => {
+    stoppedBy = signal;
+    stop.abort();
+  });
+  try {
+    const done = await work(stop.signal);
+    if (stoppedBy !== undefined) {
+      throw new Stop(
+        {
+          refusal: {
+            code: 'STOPPED',
+            message: `stopped by ${stoppedBy} while ${what}: nothing was written`,
+          },
+        },
+        stopExitCode(stoppedBy),
+      );
+    }
+    return done;
+  } finally {
+    release();
+  }
+}
+
+/** The plan of an apply, read through the scripts: previews, dry runs and the day's budget. */
+async function planOf(
+  prepared: Prepared,
+  args: CliArgs,
+  say: (line: string) => void,
+  signal: AbortSignal,
+): Promise<{ plan: EnvPlan; dryRuns: Record<string, EnvDryRun> }> {
+  const org = {
+    organizationId: prepared.target.organizationId,
+    kind: prepared.target.kind,
+    alias: prepared.target.alias,
+  };
+  const common = {
+    resolved: prepared.resolved,
+    org,
+    state: prepared.state,
+    replace: args.replace,
+    replaceDrifted: args.replaceDrifted,
+    warnings: prepared.warnings,
+    ...(prepared.noState !== undefined ? { refusal: prepared.noState.message } : {}),
+  };
+  if (args.quick) return { plan: envPlan(common), dryRuns: {} };
+  const previews = await previewRuns(
+    prepared,
+    { includeChanged: false, acceptAutomation: args.acceptAutomation },
+    say,
+    signal,
+  );
+  const drafts = classifyResources({ ...common, previews });
+  const dryRuns = await dryRun(
+    prepared,
+    drafts.filter((d) => d.action === 'create' || d.action === 'replace').map((d) => d.resource),
+    say,
+    signal,
+  );
+  const budget = await readBudget(prepared.reached.conn);
+  return { plan: envPlan({ ...common, previews, dryRuns, budget }), dryRuns };
+}
+
+/** The org's clock, or this machine's, said once, when the org does not answer. */
+function orgClock(conn: Connection, say: (line: string) => void): () => Promise<string> {
+  const org = removalOrg(conn, 'sandforge-env');
+  let said = false;
+  return async () => {
+    try {
+      return await org.serverTime();
+    } catch (err: unknown) {
+      if (!said) {
+        said = true;
+        say(
+          `the org did not say its time (${err instanceof Error ? err.message : String(err)}): ` +
+            "the state's spans are on this machine's clock",
+        );
+      }
+      return new Date().toISOString();
+    }
+  };
+}
+
+// ─── The verbs ───────────────────────────────────────────────────────────────
+
+/** `validate`: the file checked offline, its variables named. */
+function validate(
+  args: CliArgs,
+  say: (line: string) => void,
+): { answer: EnvValidation; code: number } {
+  const document = readDocument(args.file);
+  const checked = checkEnvFile(document, dirname(args.file));
+  if ('refusals' in checked) {
+    say(`${args.file} does not validate:`);
+    for (const refusal of checked.refusals) say(`  ${refusalLine(refusal)}`);
+    return {
+      answer: {
+        file: args.file,
+        valid: false,
+        issues: checked.refusals.map(issueOf),
+        warnings: [],
+      },
+      code: 2,
+    };
+  }
+  const { file, order, runs, variables } = checked.checked;
+  const unset = new Set(unsetVariablesOf(checked.checked, process.env).map((v) => v.name));
+  const resources = order.map((name) => ({
+    name,
+    kind: 'seed' as const,
+    dependsOn: [...new Set(file.resources[name]?.dependsOn ?? [])],
+    objects: (runs[name]?.template.objects ?? []).map((object) => ({
+      object: object.objectApiName,
+      count: object.recordCount,
+    })),
+  }));
+  const warnings = checked.checked.warnings.map(issueOf);
+  const checkpoint = checkpointSettingsRefusal(file);
+  if (checkpoint !== undefined) warnings.push({ path: 'checkpoint', message: checkpoint });
+  say(`${args.file}: valid, the environment ${file.name}`);
+  for (const resource of resources) {
+    say(
+      `  ${resource.name}: ${resource.objects.map((o) => `${o.object} ${o.count}`).join(', ')}` +
+        (resource.dependsOn.length > 0 ? `, after ${resource.dependsOn.join(', ')}` : ''),
+    );
+  }
+  for (const variable of variables) {
+    say(
+      `  variable ${variable.name} (the ${variable.role} org): ` +
+        (unset.has(variable.name) ? 'not set in this shell' : 'set'),
+    );
+  }
+  for (const warning of warnings) say(`warning: ${warning.path}: ${warning.message}`);
+  return {
+    answer: {
+      file: args.file,
+      valid: true,
+      env: file.name,
+      resources,
+      variables: variables.map((v) => ({ name: v.name, role: v.role, set: !unset.has(v.name) })),
+      issues: [],
+      warnings,
+    },
+    code: DONE_EXIT,
+  };
+}
+
+/** `state`: the states kept on this machine, those of one org, or of one file. */
+async function listStates(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  say: (line: string) => void,
+): Promise<EnvStateList> {
+  const journalDir = deps.journalDir ?? envJournalDirOf();
+  const opened = openEnvStore({ journalDir, fileFolder: null });
+  if ('refusal' in opened) throw stopWith(storeRefusal(opened.refusal, false));
+  const expired = await opened.store.sweep();
+  let envName: string | undefined;
+  if (args.fileGiven) {
+    const read = checkEnvFile(readDocument(args.file), dirname(args.file));
+    if ('refusals' in read) throw fileStop(args.file, read.refusals);
+    envName = read.checked.file.name;
+  }
+  const org = args.org;
+  const states = (await opened.store.list()).filter(
+    (listing) =>
+      (envName === undefined || listing.env === envName) &&
+      (org === undefined ||
+        listing.state?.org.alias === org ||
+        listing.organizationId.slice(0, 15) === org.slice(0, 15)),
+  );
+  for (const gone of expired) {
+    say(`expired and deleted: ${gone.env} on ${gone.alias ?? gone.organizationId}`);
+  }
+  if (states.length === 0) say(`no state kept in ${opened.store.root}`);
+  for (const listing of states) {
+    const state = listing.state;
+    if (state === undefined) {
+      say(`${listing.env} on ${listing.organizationId}: not used — ${listing.damaged ?? ''}`);
+      continue;
+    }
+    const resources = Object.entries(state.resources)
+      .map(([name, resource]) => `${name} ${resource.status}`)
+      .join(', ');
+    say(
+      `${state.env} on ${state.org.alias ?? state.org.organizationId} (${state.org.kind}, ` +
+        `${state.org.organizationId}): serial ${state.serial}, written ${state.updatedAt}` +
+        (listing.expiresAt !== undefined ? `, expires ${listing.expiresAt}` : '') +
+        (resources ? `; ${resources}` : ''),
+    );
+  }
+  return {
+    journalDir,
+    states: states.map((listing) => {
+      const state = listing.state;
+      if (state === undefined) {
+        return {
+          env: listing.env,
+          organizationId: listing.organizationId,
+          damaged: listing.damaged ?? 'not used',
+        };
+      }
+      const expiresAt = stateExpiresAt(state);
+      return {
+        env: state.env,
+        organizationId: state.org.organizationId,
+        ...(state.org.alias !== undefined ? { alias: state.org.alias } : {}),
+        kind: state.org.kind,
+        serial: state.serial,
+        resources: Object.fromEntries(
+          Object.entries(state.resources).map(([name, resource]) => [name, resource.status]),
+        ),
+        updatedAt: state.updatedAt,
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+      };
+    }),
+    expired: expired.map((gone) => ({
+      env: gone.env,
+      organizationId: gone.organizationId,
+      ...(gone.alias !== undefined ? { alias: gone.alias } : {}),
+      expiresAt: gone.expiresAt,
+    })),
+  };
+}
+
+/** Ask for the org's alias to be typed, or go on when `--yes` said so. */
+async function confirmed(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  question: string,
+  say: (line: string) => void,
+): Promise<boolean> {
+  if (args.yes) return true;
+  const answer = await (deps.ask ?? ((q: string) => typed(q)))(question);
+  if (answer === args.org) return true;
+  say('Nothing was written: the alias typed is not the org’s.');
+  return false;
+}
+
+/** The deps of an apply's or a destroy's steps. */
+function stepDeps(prepared: Prepared, deps: EnvCliDeps, say: (line: string) => void): EnvStepDeps {
+  return {
+    runner: prepared.runner,
+    store: prepared.store,
+    locksDir: prepared.locksDir,
+    journalDir: prepared.journalDir,
+    orgNow: orgClock(prepared.reached.conn, say),
+    say,
+    sandforgeVersion: sandforgeVersion(),
+    ...(deps.onStop !== undefined ? { onStop: deps.onStop } : {}),
+    ...(deps.lockOptions !== undefined ? { lockOptions: deps.lockOptions } : {}),
+  };
+}
+
+/** Run the command; exported so it can be run on the memory org. */
+export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {}): Promise<void> {
+  const args = parseArgs(argv, deps.cwd);
+  // On stderr with --json, where stdout carries the answer alone.
+  const say = (line: string): void => {
+    process[args.json ? 'stderr' : 'stdout'].write(`${line}\n`);
+  };
+  const answerJson = (value: unknown): void => {
+    if (args.json) process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  };
+  try {
+    switch (args.command) {
+      case 'validate': {
+        const { answer, code } = validate(args, say);
+        answerJson(answer);
+        endWith(code);
+        return;
+      }
+      case 'state': {
+        answerJson(await listStates(args, deps, say));
+        return;
+      }
+      case 'plan': {
+        const prepared = await prepare(args, deps, say);
+        const { plan } = await stoppable(deps, 'planning', (signal) =>
+          planOf(prepared, args, say, signal),
+        );
+        for (const line of planLines(plan)) say(line);
+        answerJson(plan);
+        const changed = args.failOnChange && planChanges(plan);
+        const drifted = args.failOnDrift && planDrifts(plan);
+        endWith(changed || drifted ? PARTIAL_EXIT : DONE_EXIT);
+        return;
+      }
+      case 'apply': {
+        if (args.quick) refuseLine('apply makes a whole plan: --quick is for plan alone.');
+        const prepared = await prepare(args, deps, say);
+        const { plan, dryRuns } = await stoppable(deps, 'planning', (signal) =>
+          planOf(prepared, args, say, signal),
+        );
+        for (const line of planLines(plan)) say(line);
+        const writes = plan.refusal === undefined && planChanges(plan);
+        if (
+          writes &&
+          !(await confirmed(
+            args,
+            deps,
+            `Type ${prepared.target.alias} to apply ${plan.env} to it as planned:`,
+            say,
+          ))
+        ) {
+          throw new Stop(
+            { refusal: { code: 'DECLINED', message: 'Nothing was written.' } },
+            FAILED_EXIT,
+          );
+        }
+        const outcome = await applyPlan(stepDeps(prepared, deps, say), {
+          plan,
+          resolved: prepared.resolved,
+          target: prepared.target,
+          state: prepared.state,
+          dryRuns,
+          acceptAutomation: args.acceptAutomation,
+        });
+        for (const line of runResultLines(outcome.result, 'apply')) say(line);
+        answerJson(outcome.result);
+        endWith(outcome.exitCode);
+        return;
+      }
+      case 'destroy': {
+        const prepared = await prepare(args, deps, say);
+        const org = {
+          organizationId: prepared.target.organizationId,
+          kind: prepared.target.kind,
+          alias: prepared.target.alias,
+        };
+        const previews = await stoppable(deps, 'reading what the org holds', (signal) =>
+          previewRuns(
+            prepared,
+            { includeChanged: args.includeChanged, acceptAutomation: args.acceptAutomation },
+            say,
+            signal,
+          ),
+        );
+        const plan = destructionPlan({
+          resolved: prepared.resolved,
+          org,
+          state: prepared.state,
+          previews,
+          warnings: prepared.warnings,
+        });
+        for (const line of planLines(plan)) say(line);
+        if (
+          plan.refusal === undefined &&
+          plan.actions.length > 0 &&
+          !(await confirmed(
+            args,
+            deps,
+            `Type ${prepared.target.alias} to take ${plan.env} back from it` +
+              (args.includeChanged
+                ? ', the records changed since included — on a shared org, others’ work:'
+                : ':'),
+            say,
+          ))
+        ) {
+          throw new Stop(
+            { refusal: { code: 'DECLINED', message: 'Nothing was deleted.' } },
+            FAILED_EXIT,
+          );
+        }
+        const outcome = await destroyEnvironment(stepDeps(prepared, deps, say), {
+          plan,
+          resolved: prepared.resolved,
+          target: prepared.target,
+          state: prepared.state,
+          includeChanged: args.includeChanged,
+          sweep: args.sweep,
+          acceptAutomation: args.acceptAutomation,
+        });
+        for (const line of runResultLines(outcome.result, 'destroy')) say(line);
+        answerJson(outcome.result);
+        endWith(outcome.exitCode);
+        return;
+      }
+    }
+  } catch (err: unknown) {
+    const stop =
+      err instanceof Stop
+        ? err
+        : new Stop(
+            {
+              refusal: {
+                code: 'FAILED',
+                message: err instanceof Error ? err.message : String(err),
+              },
+            },
+            FAILED_EXIT,
+          );
+    process.stderr.write(`${stop.message}\n`);
+    answerJson(stop.answer);
+    endWith(stop.code);
+  }
+}
+
+// `tsx` runs this file directly; the check keeps it silent under test.
+if (process.argv[1]?.includes('sandforge-env')) {
+  main()
+    .then(() => process.exit(process.exitCode ?? 0))
+    .catch((err: unknown) => {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
+}

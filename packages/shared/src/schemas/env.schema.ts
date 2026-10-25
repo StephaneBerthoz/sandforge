@@ -647,17 +647,36 @@ export const envActionSchema = z.strictObject({
   refusal: z.string().min(1).max(2_000).optional(),
 });
 
-/** The day's budget, summed across the resources a plan writes. */
+/**
+ * The day's budget, summed across the resources a plan writes. What the org
+ * has left is absent when its `/limits` did not say, and `unread` says why:
+ * a Standard User is not told its org's storage, and a sum held to nothing
+ * is no gate.
+ */
 const envPlanGatesSchema = z.strictObject({
   apiRequests: z.strictObject({
     estimate: countSchema,
-    leftToday: z.number().int(),
+    leftToday: z.number().int().optional(),
     /** A script whose dry run gives no estimate leaves the sum short of the truth. */
     partial: z.boolean(),
+    /** What the sum leaves out, each named: a dry run not run, a removal's requests. */
+    notCounted: z
+      .array(z.string().min(1).max(2_000))
+      .max(ENV_MAX_RESOURCES * 2)
+      .optional(),
+    unread: z.string().min(1).max(2_000).optional(),
   }),
-  storage: z.strictObject({ bytes: countSchema, left: z.number().int() }),
+  storage: z.strictObject({
+    bytes: countSchema,
+    left: z.number().int().optional(),
+    unread: z.string().min(1).max(2_000).optional(),
+  }),
   emails: z.array(
-    z.strictObject({ limit: envEmailLimitSchema, emails: countSchema, left: z.number().int() }),
+    z.strictObject({
+      limit: envEmailLimitSchema,
+      emails: countSchema,
+      left: z.number().int().optional(),
+    }),
   ),
 });
 
@@ -684,6 +703,10 @@ export const envPlanSchema = z.strictObject({
   drift: z.strictObject({ checkpoint: checkpointIdSchema, differs: z.boolean() }).optional(),
   /** What a real apply would meet now. */
   refusal: z.string().min(1).max(2_000).optional(),
+  /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
+  quick: z.literal(true).optional(),
+  /** What the plan says without refusing: an apply under way, a scratch org with no state. */
+  warnings: z.array(z.string().min(1).max(2_000)).max(50).optional(),
 });
 
 // ─── How each step ended ─────────────────────────────────────────────────────
@@ -706,6 +729,8 @@ export const envStepResultSchema = z.strictObject({
   /** The plan's action the step serves. */
   action: envActionKindSchema,
   phase: envStepPhaseSchema,
+  /** The rank of the run the step ran, or took back. */
+  run: z.number().int().positive().max(999_999),
   script: envScriptSchema,
   exitCode: z.number().int().min(0).max(255),
   /** The resource's status once the step ended. */
@@ -720,6 +745,94 @@ export const envStepResultSchema = z.strictObject({
 export const envRunResultSchema = z.strictObject({
   plan: envPlanSchema,
   steps: z.array(envStepResultSchema).max(ENV_MAX_RESOURCES * 4),
+  /** Resources no step ran for, each with why: a dependency left partial, a stop before them. */
+  skipped: z
+    .array(z.strictObject({ resource: envNameSchema, why: z.string().min(1).max(2_000) }))
+    .max(ENV_MAX_RESOURCES * 2)
+    .optional(),
   status: z.enum(['success', 'partial', 'failure', 'cancelled']),
-  state: z.strictObject({ serial: countSchema }),
+  /** Why nothing was done, when it was refused before its first step. */
+  refusal: z.string().min(1).max(4_000).optional(),
+  /** The state as the run left it; `deleted` once a destroy took back everything it named. */
+  state: z.strictObject({ serial: countSchema, deleted: z.literal(true).optional() }),
+});
+
+// ─── What the other verbs answer ─────────────────────────────────────────────
+
+/** One refusal or warning of the file, where it stands. */
+const envIssueSchema = z.strictObject({
+  /** Where in the file, as a line names it: `resources.accounts.objects[0].count`. */
+  path: z.string().max(1_000),
+  resource: envNameSchema.optional(),
+  message: z.string().min(1).max(4_000),
+});
+
+/** What a verb refused before it read or wrote anything, as `--json` answers it. */
+export const envRefusalAnswerSchema = z.strictObject({
+  refusal: z.strictObject({
+    /** What refused, in a word a pipeline reads: PRODUCTION, NOT_LISTED, LOCKED… */
+    code: z.string().regex(/^[A-Z][A-Z_]{1,40}$/),
+    message: z.string().min(1).max(8_000),
+    /** The file's refusals, each where it stands. */
+    issues: z.array(envIssueSchema).max(500).optional(),
+  }),
+});
+
+/** What `validate --json` answers: the file checked offline, or why it is not valid. */
+export const envValidationSchema = z.strictObject({
+  file: z.string().min(1).max(4_096),
+  valid: z.boolean(),
+  /** Present when valid. */
+  env: envNameSchema.optional(),
+  /** In the order apply runs them. */
+  resources: z
+    .array(
+      z.strictObject({
+        name: envNameSchema,
+        kind: envResourceKindSchema,
+        dependsOn: z.array(envNameSchema).max(50),
+        objects: z.array(z.strictObject({ object: apiNameSchema, count: countSchema })).max(1_000),
+      }),
+    )
+    .max(ENV_MAX_RESOURCES)
+    .optional(),
+  /** The variables the file reads, and whether this process has each set. */
+  variables: z
+    .array(
+      z.strictObject({ name: z.string().min(1).max(128), role: envNameSchema, set: z.boolean() }),
+    )
+    .max(ENV_MAX_ORG_ROLES)
+    .optional(),
+  issues: z.array(envIssueSchema).max(500),
+  warnings: z.array(envIssueSchema).max(500),
+});
+
+/** One state kept on this machine, as `state --json` lists it. */
+export const envStateListEntrySchema = z.strictObject({
+  env: envNameSchema,
+  organizationId: checkpointOrganizationIdSchema,
+  alias: z.string().min(1).max(255).optional(),
+  kind: envTargetKindSchema.optional(),
+  serial: countSchema.optional(),
+  resources: z.record(envNameSchema, envResourceStatusSchema).optional(),
+  updatedAt: instantSchema.optional(),
+  expiresAt: instantSchema.optional(),
+  /** Why the state is not used: it does not parse, or names another org. */
+  damaged: z.string().min(1).max(4_000).optional(),
+});
+
+/** What `state --json` answers: the states kept on this machine, and those it deleted on their date. */
+export const envStateListSchema = z.strictObject({
+  journalDir: z.string().min(1).max(4_096),
+  states: z.array(envStateListEntrySchema).max(10_000),
+  expired: z
+    .array(
+      z.strictObject({
+        env: envNameSchema,
+        organizationId: checkpointOrganizationIdSchema,
+        alias: z.string().min(1).max(255).optional(),
+        expiresAt: instantSchema,
+      }),
+    )
+    .max(10_000),
 });

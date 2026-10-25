@@ -112,7 +112,7 @@ import { seedTemplatePayloadSchema } from '../src/bridge/validatePayload.js';
 import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/seedRecordTypes.js';
 import { seedObjectAccess } from '../src/modules/seed/seedObjectAccess.js';
 import { seedLocaleOf } from '../src/modules/seed/seedLocale.js';
-import { seedStorageGate } from '../src/modules/seed/seedStorage.js';
+import { seedStorageBytes, seedStorageGate } from '../src/modules/seed/seedStorage.js';
 import {
   bypassesToAssign,
   emailCheckLines,
@@ -187,11 +187,13 @@ Options:
                          ${SUPPORTED_LOCALES.join(', ')}
                                      (default: the org's default locale)
   --record-type <Object>=<Name>[,<Name>]
-                         with --object, give that object's records this
-                         record type, by API name; several take turns at
-                         random. One the running user may not use is
-                         refused. Without it, records take the running
-                         user's default, and the run names the others.
+                         with --object or --template-file, give that
+                         object's records this record type, by API name;
+                         several take turns at random. One the running user
+                         may not use is refused, and so is one for an object
+                         a template file gives a RecordTypeId rule already.
+                         Without it, records take the running user's
+                         default, and the run names the others.
                          A person account record type on Account writes
                          person accounts: a first and last name, the
                          person's email and phones, and no Name
@@ -199,7 +201,10 @@ Options:
                          Saved to a file, it is what --remove takes the
                          run back from: it names what the run created.
                          The run's file does too, whatever becomes of the
-                         run (see SANDFORGE_JOURNAL_DIR).
+                         run (see SANDFORGE_JOURNAL_DIR). A dry run's says
+                         too the data storage and the API requests its
+                         records would take, each against what the target
+                         has left today.
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the org refused others            (default: off)
   --run-id <id>          the run's id, which names its file, its summary's
@@ -659,7 +664,11 @@ export function parseArgs(argv: string[]): CliArgs {
       );
     if (!match) refuse(`--record-type wants "Object=Name" or "Object=Name,Other", not "${pair}".`);
     const [, objectApiName, names] = match as RegExpExecArray;
-    if (!objects.some((object) => object.objectApiName === objectApiName)) {
+    // A template file's objects are read once the file is: checked there.
+    if (
+      templateFile === undefined &&
+      !objects.some((object) => object.objectApiName === objectApiName)
+    ) {
       refuse(`--record-type ${objectApiName}: give ${objectApiName} with --object too.`);
     }
     recordTypes[objectApiName] = [...new Set(names.split(','))];
@@ -815,6 +824,35 @@ export function runIdRefusal(runId: string, journalDir: string): string | undefi
   return kept === undefined
     ? undefined
     : `--run-id ${runId}: a run of that id is kept already, in ${kept}. Give an id no run has.`;
+}
+
+/**
+ * Why `--record-type` cannot give a template file's objects the record types
+ * it names, or nothing: an object the file does not write, or one the file
+ * gives a record type already, by a `RecordTypeId` rule — two answers to
+ * which record type its records take. Checked once the file is read, before
+ * any org is reached.
+ */
+export function templateRecordTypesRefusal(
+  template: Pick<SeedTemplate, 'objects'>,
+  recordTypes: Readonly<Record<string, readonly string[]>>,
+): string | undefined {
+  for (const objectApiName of Object.keys(recordTypes)) {
+    const object = template.objects.find((o) => o.objectApiName === objectApiName);
+    if (object === undefined) {
+      return (
+        `--record-type ${objectApiName}: the template file writes no ${objectApiName}; it writes ` +
+        `${template.objects.map((o) => o.objectApiName).join(', ')}.`
+      );
+    }
+    if (object.fieldRules.some((rule) => rule.fieldApiName === 'RecordTypeId')) {
+      return (
+        `--record-type ${objectApiName}: the template file gives ${objectApiName} its record ` +
+        'type already, by a RecordTypeId rule: give it in one place.'
+      );
+    }
+  }
+  return undefined;
 }
 
 /** A built-in template by id, or `null` when the flags describe the objects. */
@@ -1189,6 +1227,31 @@ export async function seedAutomationCheck(input: {
   };
 }
 
+/**
+ * What a dry run's `--json` summary says of its storage and API requests, as
+ * the gate counted them before the first write would go: the bytes its
+ * records take, the requests its writes make, each against what the target
+ * has left, and the refusal a real run would meet. Exported so it can be
+ * tested.
+ */
+export function dryRunGatesJson(
+  template: Pick<SeedTemplate, 'objects'>,
+  personObjects: readonly string[],
+  gate: Awaited<ReturnType<typeof seedStorageGate>>,
+): { storage: Record<string, unknown>; apiRequests: Record<string, unknown> } {
+  return {
+    storage: {
+      bytes: seedStorageBytes(template, personObjects),
+      ...gate.check,
+      ...(gate.refusedFor === 'storage' ? { refusal: gate.refusal } : {}),
+    },
+    apiRequests: {
+      ...gate.api,
+      ...(gate.refusedFor === 'apiRequests' ? { refusal: gate.refusal } : {}),
+    },
+  };
+}
+
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
@@ -1204,6 +1267,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       process.exit(2);
     }
     fileTemplate = read.template;
+    const refusal = templateRecordTypesRefusal(fileTemplate, args.recordTypes);
+    if (refusal !== undefined) {
+      process.stderr.write(`${refusal}\n`);
+      process.exit(2);
+    }
   }
   const takenRunId =
     args.runId !== undefined ? runIdRefusal(args.runId, journalDirOf()) : undefined;
@@ -1258,6 +1326,30 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const notes: string[] = [];
   /** The objects written as person accounts, which take 4 KB of data storage a record. */
   const personObjects: string[] = [];
+  // The record types --record-type gives a template file's objects, by API
+  // name, as it gives an --object's: a rule each, read off the object's
+  // describe, before the accounts' kind is told from them below. An
+  // environment's file names record types by DeveloperName, the one name
+  // every org gives a record type alike; their Ids are the org's own.
+  if (fileTemplate !== undefined && Object.keys(args.recordTypes).length > 0) {
+    const objects: SeedTemplate['objects'] = [];
+    for (const object of fileTemplate.objects) {
+      const chosen = args.recordTypes[object.objectApiName];
+      if (!chosen) {
+        objects.push(object);
+        continue;
+      }
+      const described = await conn.sobject(object.objectApiName).describe();
+      const typed = recordTypeRule(object.objectApiName, chosen, described.recordTypeInfos);
+      if ('refusal' in typed) {
+        process.stderr.write(`${typed.refusal}\n`);
+        process.exit(2);
+      }
+      objects.push({ ...object, fieldRules: [...object.fieldRules, typed.rule] });
+    }
+    fileTemplate = { ...fileTemplate, objects };
+    template = fileTemplate;
+  }
   // Accounts a template file gives a person account's record type are
   // person accounts, as the panel writes the template it is sent: without
   // Name, with a person's fields, and refused when the types mix the kinds.
@@ -1564,6 +1656,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             ...(automation.gate.refusal ? { refusal: automation.gate.refusal } : {}),
             ...(automation.gate.unknown ? { unknown: automation.gate.unknown } : {}),
           },
+          // What a dry run's gates counted, for whoever sums them across
+          // runs: an environment holds several seeds to one day's storage
+          // and requests, which each seed alone fits.
+          ...(args.dryRun ? dryRunGatesJson(template, personObjects, storage) : {}),
           result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),

@@ -38,6 +38,7 @@ import {
 } from '@sandforge/shared';
 import { seedTemplatePayloadSchema } from '../../src/bridge/validatePayload.js';
 import { SeedValidator } from '../../src/modules/seed/SeedValidator.js';
+import { LOCALE_DATA } from '../../src/modules/seed/LocaleData.js';
 
 /** What the file is refused for, and where. */
 export interface EnvFileRefusal {
@@ -444,6 +445,9 @@ function relationOf(relation: NonNullable<EnvSeedResource['relations']>[number])
   };
 }
 
+/** The locales the seed's command line draws in. */
+const SEED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
+
 /**
  * Hold a converted seed run to Seed's own payload schema and validator: their
  * refusals, said where the file wrote what they refuse.
@@ -466,7 +470,23 @@ function checkSeedRun(
   const validation = new SeedValidator().validate(run.template);
   const said = ({ field, message }: { field: string; message: string }): EnvFileRefusal =>
     refusalAt(validatorPathOf(base, resource, run.template, field), message);
-  return { refusals: validation.errors.map(said), warnings: validation.warnings.map(said) };
+  // The seed's command line draws in the locales it has data for, and
+  // refuses any other before it reads the org: met at the plan's dry run, it
+  // is met here instead.
+  const locale =
+    run.locale !== undefined && !SEED_LOCALES.includes(run.locale)
+      ? [
+          refusalAt(
+            [...base, 'locale'],
+            `the seed draws in ${SEED_LOCALES.join(', ')}, not ${run.locale}: name one of them, ` +
+              'or leave locale out to draw in the org’s own',
+          ),
+        ]
+      : [];
+  return {
+    refusals: [...validation.errors.map(said), ...locale],
+    warnings: validation.warnings.map(said),
+  };
 }
 
 /** Where the file wrote what a path of the converted template names. */

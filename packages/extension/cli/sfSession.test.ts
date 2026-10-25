@@ -99,6 +99,26 @@ describe('loadOrg', () => {
     expect(org.instanceUrl).toBe('https://example.my.salesforce.com');
   });
 
+  it('says a scratch org is one when the display names its Dev Hub, and nothing of any other org', async () => {
+    const shown = (devHubId?: unknown) =>
+      mockExecFileSync.mockImplementation((() =>
+        JSON.stringify({
+          result: {
+            instanceUrl: 'https://example.my.salesforce.com',
+            username: 'user@example.com',
+            ...(devHubId !== undefined ? { devHubId } : {}),
+          },
+        })) as unknown as typeof execFileSync);
+    const readToken = vi.fn().mockResolvedValue({ accessToken: LIVE_TOKEN });
+
+    shown('00Dxx0000000001EAA');
+    expect((await loadOrg('SCRATCH', readToken)).scratch).toBe(true);
+    shown('');
+    expect(await loadOrg('SCRATCH', readToken)).not.toHaveProperty('scratch');
+    shown();
+    expect(await loadOrg('SCRATCH', readToken)).not.toHaveProperty('scratch');
+  });
+
   it('refuses an alias a shell could read as a command, before running anything', async () => {
     await expect(loadOrg('dev & calc', vi.fn())).rejects.toThrow(/Invalid SF org alias/);
     expect(mockExecFileSync).not.toHaveBeenCalled();

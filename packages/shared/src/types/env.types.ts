@@ -266,11 +266,22 @@ export interface EnvAction {
   refusal?: string;
 }
 
-/** The day's budget, summed across the resources a plan writes. */
+/**
+ * The day's budget, summed across the resources a plan writes. What the org
+ * has left is absent when its `/limits` did not say, and `unread` says why.
+ */
 export interface EnvPlanGates {
-  apiRequests: { estimate: number; leftToday: number; partial: boolean };
-  storage: { bytes: number; left: number };
-  emails: Array<{ limit: EnvEmailLimit; emails: number; left: number }>;
+  apiRequests: {
+    estimate: number;
+    leftToday?: number;
+    /** A script whose dry run gives no estimate leaves the sum short of the truth. */
+    partial: boolean;
+    /** What the sum leaves out, each named: a dry run not run, a removal's requests. */
+    notCounted?: string[];
+    unread?: string;
+  };
+  storage: { bytes: number; left?: number; unread?: string };
+  emails: Array<{ limit: EnvEmailLimit; emails: number; left?: number }>;
 }
 
 /** What applying the file to an org would do; writes nothing, to the org or the state. */
@@ -293,6 +304,10 @@ export interface EnvPlan {
   drift?: { checkpoint: string; differs: boolean };
   /** What a real apply would meet now. */
   refusal?: string;
+  /** Made with `--quick`: no dry run, no removal preview, so no count of what the org holds. */
+  quick?: true;
+  /** What the plan says without refusing: an apply under way, a scratch org with no state. */
+  warnings?: string[];
 }
 
 // ─── How each step ended ─────────────────────────────────────────────────────
@@ -316,6 +331,8 @@ export interface EnvStepResult {
   /** The plan's action the step serves. */
   action: EnvActionKind;
   phase: EnvStepPhase;
+  /** The rank of the run the step ran, or took back. */
+  run: number;
   script: EnvScript;
   exitCode: number;
   /** The resource's status once the step ended. */
@@ -330,6 +347,72 @@ export interface EnvStepResult {
 export interface EnvRunResult {
   plan: EnvPlan;
   steps: EnvStepResult[];
+  /** Resources no step ran for, each with why: a dependency left partial, a stop before them. */
+  skipped?: Array<{ resource: string; why: string }>;
   status: 'success' | 'partial' | 'failure' | 'cancelled';
-  state: { serial: number };
+  /** Why nothing was done, when it was refused before its first step. */
+  refusal?: string;
+  /** The state as the run left it; `deleted` once a destroy took back everything it named. */
+  state: { serial: number; deleted?: true };
+}
+
+// ─── What the other verbs answer ─────────────────────────────────────────────
+
+/** One refusal or warning of the file, where it stands. */
+export interface EnvIssue {
+  /** Where in the file, as a line names it: `resources.accounts.objects[0].count`. */
+  path: string;
+  resource?: string;
+  message: string;
+}
+
+/** What a verb refused before it read or wrote anything, as `--json` answers it. */
+export interface EnvRefusalAnswer {
+  refusal: {
+    /** What refused, in a word a pipeline reads: PRODUCTION, NOT_LISTED, LOCKED… */
+    code: string;
+    message: string;
+    /** The file's refusals, each where it stands. */
+    issues?: EnvIssue[];
+  };
+}
+
+/** What `validate --json` answers: the file checked offline, or why it is not valid. */
+export interface EnvValidation {
+  file: string;
+  valid: boolean;
+  /** Present when valid. */
+  env?: string;
+  /** In the order apply runs them. */
+  resources?: Array<{
+    name: string;
+    kind: EnvResourceKind;
+    dependsOn: string[];
+    objects: Array<{ object: string; count: number }>;
+  }>;
+  /** The variables the file reads, and whether this process has each set. */
+  variables?: Array<{ name: string; role: string; set: boolean }>;
+  issues: EnvIssue[];
+  warnings: EnvIssue[];
+}
+
+/** One state kept on this machine, as `state --json` lists it. */
+export interface EnvStateListEntry {
+  env: string;
+  organizationId: string;
+  alias?: string;
+  kind?: EnvTargetKind;
+  serial?: number;
+  resources?: Record<string, EnvResourceStatus>;
+  updatedAt?: string;
+  expiresAt?: string;
+  /** Why the state is not used: it does not parse, or names another org. */
+  damaged?: string;
+}
+
+/** What `state --json` answers: the states kept on this machine, and those it deleted on their date. */
+export interface EnvStateList {
+  journalDir: string;
+  states: EnvStateListEntry[];
+  expired: Array<{ env: string; organizationId: string; alias?: string; expiresAt: string }>;
 }

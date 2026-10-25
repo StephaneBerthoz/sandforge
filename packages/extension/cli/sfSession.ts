@@ -29,6 +29,12 @@ export interface SfOrg {
   username: string;
   instanceUrl: string;
   accessToken: string;
+  /**
+   * The CLI shows a scratch org: `sf org display` names its Dev Hub. Absent
+   * otherwise. A scratch org says `IsSandbox` true, as a sandbox does, and
+   * nothing the org itself says tells the two apart.
+   */
+  scratch?: true;
 }
 
 /** Reads a live token for an org through the `sf` CLI. */
@@ -68,7 +74,9 @@ export async function loadOrg(
     maxBuffer: 50 * 1024 * 1024,
     shell: process.platform === 'win32',
   });
-  const parsed = JSON.parse(json) as { result?: { instanceUrl?: string; username?: string } };
+  const parsed = JSON.parse(json) as {
+    result?: { instanceUrl?: string; username?: string; devHubId?: unknown };
+  };
   if (!parsed.result?.instanceUrl) {
     throw new Error(`sf org display did not return a usable session for alias '${alias}'.`);
   }
@@ -89,6 +97,11 @@ export async function loadOrg(
     // The instance the token was read for, which the CLI reports afresh.
     instanceUrl: live.instanceUrl ?? parsed.result.instanceUrl,
     accessToken: live.accessToken,
+    // The extension types a scratch org by the same word of the display
+    // (`SfdxBridge.findOrg`).
+    ...(typeof parsed.result.devHubId === 'string' && parsed.result.devHubId !== ''
+      ? { scratch: true as const }
+      : {}),
   };
 }
 

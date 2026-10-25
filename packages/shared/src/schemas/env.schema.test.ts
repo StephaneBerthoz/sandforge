@@ -5,9 +5,12 @@ import {
   ENV_MAX_RESOURCES,
   envFileSchema,
   envPlanSchema,
+  envRefusalAnswerSchema,
   envRefsIn,
   envRunResultSchema,
+  envStateListSchema,
   envStateSchema,
+  envValidationSchema,
   isEnvRefPlace,
   secretKeyOf,
   secretKeysIn,
@@ -599,6 +602,7 @@ describe('the plan and the steps', () => {
           resource: 'accounts',
           action: 'replace',
           phase: 'remove',
+          run: 1,
           script: 'sandforge-seed',
           exitCode: 0,
           status: 'destroyed',
@@ -615,5 +619,123 @@ describe('the plan and the steps', () => {
       removed: 20,
     });
     expect(envRunResultSchema.safeParse({ ...result, status: 'done' }).success).toBe(false);
+  });
+
+  it('reads a plan whose org did not say what it has left, the sum said short of the truth', () => {
+    const unread = {
+      ...plan,
+      gates: {
+        apiRequests: {
+          estimate: 3,
+          partial: true,
+          notCounted: ['the removal of accounts'],
+          unread: 'the org does not tell this user its daily API requests',
+        },
+        storage: { bytes: 51_200, unread: 'the org does not tell this user its data storage' },
+        emails: [{ limit: 'SingleEmail', emails: 0 }],
+      },
+      quick: true,
+      warnings: ['no state of this environment on this scratch org'],
+    };
+
+    expect(envPlanSchema.safeParse(unread).success).toBe(true);
+    expect(envPlanSchema.safeParse({ ...unread, quick: false }).success).toBe(false);
+  });
+
+  it('reads a step by the rank of the run it served, a destroy that deleted its state, and what was skipped', () => {
+    const step = {
+      resource: 'accounts',
+      action: 'create',
+      phase: 'run',
+      run: 2,
+      script: 'sandforge-seed',
+      exitCode: 3,
+      status: 'partial',
+      objects: [{ object: 'Account', created: 18, refused: 2, deleted: 0, kept: 0 }],
+    };
+    const result = {
+      plan,
+      steps: [step],
+      skipped: [{ resource: 'contacts', why: 'it depends on accounts, left partial' }],
+      status: 'partial',
+      state: { serial: 7 },
+    };
+
+    expect(envRunResultSchema.safeParse(result).success).toBe(true);
+    expect(
+      envRunResultSchema.safeParse({ ...result, state: { serial: 0, deleted: true } }).success,
+    ).toBe(true);
+    const unranked: Record<string, unknown> = { ...step };
+    delete unranked['run'];
+    expect(envRunResultSchema.safeParse({ ...result, steps: [unranked] }).success).toBe(false);
+  });
+});
+
+describe('what the other verbs answer', () => {
+  it('reads a refusal by its code, with the file’s issues where it gives them', () => {
+    expect(
+      envRefusalAnswerSchema.safeParse({
+        refusal: {
+          code: 'INVALID_FILE',
+          message: 'The file does not validate',
+          issues: [{ path: 'resources.accounts.objects[0].count', message: 'Too big' }],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      envRefusalAnswerSchema.safeParse({ refusal: { code: 'production', message: 'no' } }).success,
+    ).toBe(false);
+  });
+
+  it('reads a validation, valid or not', () => {
+    expect(
+      envValidationSchema.safeParse({
+        file: '/work/sandforge.yaml',
+        valid: true,
+        env: 'case-flow',
+        resources: [
+          {
+            name: 'accounts',
+            kind: 'seed',
+            dependsOn: [],
+            objects: [{ object: 'Account', count: 20 }],
+          },
+        ],
+        variables: [{ name: 'SF_UAT_ALIAS', role: 'uat', set: false }],
+        issues: [],
+        warnings: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      envValidationSchema.safeParse({
+        file: '/work/sandforge.yaml',
+        valid: false,
+        issues: [{ path: 'the file', message: 'The file names no version' }],
+        warnings: [],
+        extra: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('reads the states kept on this machine, a damaged one by why alone', () => {
+    expect(
+      envStateListSchema.safeParse({
+        journalDir: '/home/me/.sandforge',
+        states: [
+          {
+            env: 'case-flow',
+            organizationId: '00Dxx0000001234AAA',
+            alias: 'pool-1',
+            kind: 'scratch',
+            serial: 3,
+            resources: { accounts: 'applied' },
+            updatedAt: '2026-10-25T12:00:00.000Z',
+            expiresAt: '2026-11-24T12:00:00.000Z',
+          },
+          { env: 'demo', organizationId: '00Dxx0000005678AAA', damaged: 'does not read' },
+        ],
+        expired: [],
+      }).success,
+    ).toBe(true);
   });
 });

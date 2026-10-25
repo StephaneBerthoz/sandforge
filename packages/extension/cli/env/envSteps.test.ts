@@ -39,6 +39,7 @@ import {
   StepAnswerError,
   readSeedDryRun,
   readSeedPreview,
+  readSeedRemoval,
   readSeedRun,
   seedApplyLine,
   seedDryRunLine,
@@ -145,9 +146,35 @@ describe('a seed resource’s lines', () => {
       dryRun: false,
     });
     expect(line).not.toContain('--accept-automation');
+  });
+
+  it('gives a run its locale and its record types, by object, as the seed reads them with a template file', () => {
+    const line = seedApplyLine({
+      target: 'TGT',
+      templateFile,
+      runId: RUN_ID,
+      locale: 'fr_FR',
+      recordTypes: { Asset: ['Hardware', 'Software'], Contact: ['Customer'] },
+    });
+
+    expect(parseArgs(seedLine(line))).toMatchObject({
+      templateFile,
+      locale: 'fr_FR',
+      recordTypes: { Asset: ['Hardware', 'Software'], Contact: ['Customer'] },
+    });
     expect(
-      seedApplyLine({ target: 'TGT', templateFile, runId: RUN_ID, acceptAutomation: true }),
-    ).toContain('--accept-automation');
+      parseArgs(
+        seedLine(
+          seedDryRunLine({
+            target: 'TGT',
+            templateFile,
+            runId: RUN_ID,
+            locale: 'de_DE',
+            recordTypes: { Asset: ['Hardware'] },
+          }),
+        ),
+      ),
+    ).toMatchObject({ locale: 'de_DE', recordTypes: { Asset: ['Hardware'] }, dryRun: true });
   });
 
   it('gives a dry run the same template and id, and --dry-run', () => {
@@ -219,6 +246,10 @@ describe('a seed resource’s answers, read off what the seed prints', () => {
     expect(answer.result.objectResults).toEqual([
       expect.objectContaining({ objectApiName: 'Asset', recordsCreated: 3, recordsFailed: 0 }),
     ]);
+    // What its gates counted: three assets of 2 KB, one REST call, against
+    // what the org's `/limits` say — this one lists no daily requests.
+    expect(answer.storage).toMatchObject({ bytes: 6_144, verdict: 'fits', remainingMB: 150 });
+    expect(answer.apiRequests).toMatchObject({ estimate: 1, verdict: 'unread' });
     // A dry run is not a run: read as one, it is refused.
     expect(() => readSeedRun(stdout.join(''))).toThrow(StepAnswerError);
   });
@@ -264,6 +295,24 @@ describe('a seed resource’s answers, read off what the seed prints', () => {
       },
     });
     expect(org.deletes).toEqual([]);
+
+    // Then the removal itself, read off what it printed.
+    stdout.length = 0;
+    await main(seedLine(seedRemoveLine({ target: 'TGT', summary })));
+
+    const removal = readSeedRemoval(stdout.join(''));
+    expect(removal).toMatchObject({
+      tool: SEED_SCRIPT,
+      action: 'remove',
+      summary,
+      result: {
+        status: 'success',
+        planned: 3,
+        objects: [{ objectApiName: 'Asset', planned: 3, deleted: 3, keptChanged: 0 }],
+      },
+    });
+    expect(org.all('Asset')).toEqual([]);
+    expect(() => readSeedPreview(stdout.join(''))).toThrow(StepAnswerError);
   });
 });
 

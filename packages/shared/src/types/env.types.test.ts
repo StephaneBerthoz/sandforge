@@ -10,20 +10,25 @@ import type {
   EnvResourceKind,
   EnvResourceState,
   EnvResourceStatus,
+  EnvRefusalAnswer,
   EnvRun,
   EnvRunResult,
   EnvScript,
   EnvSeedResource,
   EnvState,
+  EnvStateList,
+  EnvStateListEntry,
   EnvStepPhase,
   EnvStepResult,
   EnvTargetKind,
+  EnvValidation,
 } from './env.types.js';
 import {
   envActionKindSchema,
   envActionSchema,
   envFileSchema,
   envPlanSchema,
+  envRefusalAnswerSchema,
   envResourceKindSchema,
   envResourceSchema,
   envResourceStateSchema,
@@ -32,10 +37,13 @@ import {
   envRunSchema,
   envScriptSchema,
   envSeedResourceSchema,
+  envStateListEntrySchema,
+  envStateListSchema,
   envStateSchema,
   envStepPhaseSchema,
   envStepResultSchema,
   envTargetKindSchema,
+  envValidationSchema,
 } from '../schemas/env.schema.js';
 
 /*
@@ -102,5 +110,14 @@ describe('the plan and the steps, and their schemas', () => {
       'drifted',
       'blocked',
     ]);
+  });
+});
+
+describe('what the other verbs answer, and their schemas', () => {
+  it('reads exactly the shapes the refusal, validate and state answers declare', () => {
+    expectTypeOf<z.infer<typeof envRefusalAnswerSchema>>().toEqualTypeOf<EnvRefusalAnswer>();
+    expectTypeOf<z.infer<typeof envValidationSchema>>().toEqualTypeOf<EnvValidation>();
+    expectTypeOf<z.infer<typeof envStateListEntrySchema>>().toEqualTypeOf<EnvStateListEntry>();
+    expectTypeOf<z.infer<typeof envStateListSchema>>().toEqualTypeOf<EnvStateList>();
   });
 });

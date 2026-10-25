@@ -255,6 +255,55 @@ describe('writing a state', () => {
     expect(() => removalStarted(again, 'contacts')).toThrow(EnvStateError);
   });
 
+  it('ends a run with the summary it printed, once kept beside the state, and its outcome', async () => {
+    const store = storeOf();
+    const started = await store.update(stateOf(), seeding);
+
+    const ended = await store.update(started, (s) =>
+      stepEnded(s, {
+        resource: 'accounts',
+        status: 'applied',
+        run: {
+          summary: runSummaryPathOf('accounts', 1),
+          endedAt: '2026-10-25T12:00:30.000Z',
+          exitCode: 0,
+          objects: [{ objectApiName: 'Account', created: 20, refused: 0 }],
+        },
+      }),
+    );
+
+    expect(ended.resources['accounts']?.runs[0]).toMatchObject({
+      n: 1,
+      summary: 'runs/accounts/1.summary.json',
+      exitCode: 0,
+      objects: [{ objectApiName: 'Account', created: 20, refused: 0 }],
+    });
+  });
+
+  it('writes a run’s files whole in the state’s folder, its owner’s alone, and no file outside it', async () => {
+    const store = storeOf();
+
+    const file = await store.writeFile(ORG, 'case-flow', runSummaryPathOf('accounts', 1), '{}\n');
+
+    expect(file).toBe(join(store.folderOf(ORG, 'case-flow'), 'runs', 'accounts', '1.summary.json'));
+    expect(readFileSync(file, 'utf8')).toBe('{}\n');
+    expect(readdirSync(join(store.folderOf(ORG, 'case-flow'), 'runs', 'accounts'))).toEqual([
+      '1.summary.json',
+    ]);
+    if (POSIX) {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(join(store.folderOf(ORG, 'case-flow'), 'runs')).mode & 0o777).toBe(0o700);
+    }
+    await expectRefused(store.writeFile(ORG, 'case-flow', '../state.json', '{}'), 'invalid');
+    const { journalDir } = project();
+    const opened = openEnvStore({ journalDir, fileFolder: null });
+    if (!('store' in opened)) throw new Error('refused');
+    await expectRefused(
+      opened.store.writeFile(ORG, 'case-flow', runTemplatePathOf('accounts', 1), '{}'),
+      'invalid',
+    );
+  });
+
   it('keeps the state and its folders its owner’s alone', async () => {
     const store = storeOf();
 

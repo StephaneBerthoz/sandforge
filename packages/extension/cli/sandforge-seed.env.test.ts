@@ -76,15 +76,24 @@ const PERSON_TYPE = '012000000000001AAA';
 /**
  * A sandbox that takes every record it is sent through REST, runs nothing as
  * they are created and has room for them; `sent` keeps each call's records.
- * With `personTypes`, it has person accounts of those record types.
+ * With `personTypes`, it has person accounts of those record types; with
+ * `assetTypes`, Asset has those record types, as its describe lists them.
  */
-function fakeOrg(personTypes: string[] = []) {
+function fakeOrg(personTypes: string[] = [], assetTypes: unknown[] = []) {
   let made = 0;
   const sent: Array<{ objectApiName: string; records: Array<Record<string, unknown>> }> = [];
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+  const asset =
+    assetTypes.length === 0
+      ? ASSET
+      : {
+          ...ASSET,
+          recordTypeInfos: assetTypes,
+          fields: [...ASSET.fields, ...ACCOUNT.fields.filter((f) => f.name === 'RecordTypeId')],
+        };
   const conn = {
     sobject: (objectApiName: string) => ({
-      describe: async () => (objectApiName === 'Account' ? ACCOUNT : ASSET),
+      describe: async () => (objectApiName === 'Account' ? ACCOUNT : asset),
       create: async (records: Array<Record<string, unknown>>) => {
         sent.push({ objectApiName, records });
         return records.map(() => ({
@@ -93,7 +102,7 @@ function fakeOrg(personTypes: string[] = []) {
         }));
       },
     }),
-    describe: async (objectApiName: string) => (objectApiName === 'Account' ? ACCOUNT : ASSET),
+    describe: async (objectApiName: string) => (objectApiName === 'Account' ? ACCOUNT : asset),
     describeGlobal: async () => ({
       sobjects: [
         { name: 'Asset', createable: true },
@@ -200,8 +209,19 @@ function stubExit(): () => number | undefined {
   return () => code;
 }
 
-/** What a stream said, the journal folder written `<journal>`. */
-const said = (lines: readonly string[]): string => lines.join('').split(journal).join('<journal>');
+/**
+ * What a stream said, the journal folder written `<journal>` and the path
+ * under it with `/`: on Windows the folder comes back with backslashes, and
+ * doubled where the summary is JSON.
+ */
+const said = (lines: readonly string[]): string =>
+  lines
+    .join('')
+    .split(JSON.stringify(journal).slice(1, -1))
+    .join('<journal>')
+    .split(journal)
+    .join('<journal>')
+    .replace(/<journal>[\\/\w.-]+/g, (path) => path.replace(/\\{1,2}/g, '/'));
 
 describe('a seed run without the environment’s lines', () => {
   // Read off the command before --template-file and --run-id existed, the
@@ -227,6 +247,26 @@ describe('a seed run without the environment’s lines', () => {
     startedAt: '2026-10-01T09:00:00.000Z',
     finishedAt: '2026-10-01T09:00:00.000Z',
     emails: { checks: [] },
+    // A dry run's gates, added for an environment to sum them: the 2 KB each
+    // of the three assets takes, and the one REST call that writes them,
+    // against what the target's `/limits` say — this org's list no daily
+    // requests. A run's summary is as it was.
+    ...(dryRun
+      ? {
+          storage: {
+            bytes: 6_144,
+            verdict: 'fits',
+            estimateMB: 6_144 / (1024 * 1024),
+            maxMB: 200,
+            remainingMB: 150,
+          },
+          apiRequests: {
+            verdict: 'unread',
+            estimate: 1,
+            unread: 'the limits the org answered list no DailyApiRequests',
+          },
+        }
+      : {}),
     result: {
       templateId: 'cli-1790845200000',
       operationId: 'sandforge-seed-00000000-0000-4000-8000-000000000000',
@@ -285,7 +325,7 @@ describe('a seed run without the environment’s lines', () => {
     );
   });
 
-  it('prints a dry run’s --json summary and lines as it did, and keeps no file', async () => {
+  it('prints a dry run’s --json summary as it did with its gates added, its lines as they were, and keeps no file', async () => {
     await main([...LINE, '--dry-run', '--json']);
 
     expect(said(stdout)).toBe(`${JSON.stringify(summary(true), null, 2)}\n`);
@@ -511,6 +551,99 @@ describe('--template-file', () => {
     expect(answer.notes).toEqual([
       expect.stringContaining('Account: the template gives it person account record types'),
     ]);
+  });
+});
+
+describe('--record-type with --template-file', () => {
+  /** Asset's record types in the fake org: two open to the user, one inactive. */
+  const ASSET_TYPES = [
+    { recordTypeId: '012000000000010AAA', developerName: 'Hardware', available: true },
+    { recordTypeId: '012000000000011AAA', developerName: 'Software', available: true },
+    { recordTypeId: '012000000000012AAA', developerName: 'Legacy', available: true, active: false },
+  ];
+  const line = (file: string, ...more: string[]): string[] => [
+    'node',
+    'sandforge-seed.ts',
+    '--target',
+    'TGT',
+    '--template-file',
+    file,
+    '--seed',
+    '7',
+    '--locale',
+    'en_US',
+    ...more,
+    '--json',
+  ];
+
+  it('gives a template file’s object the record types it names, by their Ids in the org', async () => {
+    const { sent } = fakeOrg([], ASSET_TYPES);
+    const file = join(dir, 'assets.json');
+    writeFileSync(file, JSON.stringify(templateJson()));
+
+    await main(line(file, '--record-type', 'Asset=Hardware'));
+
+    expect(sent.flatMap((call) => call.records.map((record) => record.RecordTypeId))).toEqual([
+      '012000000000010AAA',
+      '012000000000010AAA',
+    ]);
+    stdout.length = 0;
+    sent.length = 0;
+
+    await main(line(file, '--record-type', 'Asset=Hardware,Software'));
+
+    for (const id of sent.flatMap((call) => call.records.map((record) => record.RecordTypeId))) {
+      expect(['012000000000010AAA', '012000000000011AAA']).toContain(id);
+    }
+  });
+
+  it('refuses a record type the object has not open, naming those it has, and writes nothing', async () => {
+    const { sent } = fakeOrg([], ASSET_TYPES);
+    const file = join(dir, 'assets.json');
+    writeFileSync(file, JSON.stringify(templateJson()));
+    const code = stubExit();
+
+    await expect(main(line(file, '--record-type', 'Asset=Legacy'))).rejects.toThrow('exit 2');
+
+    expect(code()).toBe(2);
+    expect(stderr.join('')).toContain(
+      '--record-type Asset=Legacy: record type Legacy is inactive. Open to them: Hardware, Software.',
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses an object the file does not write, and one it types already, before any org is reached', async () => {
+    fakeOrg([], ASSET_TYPES);
+    vi.mocked(makeConn).mockClear();
+    const file = join(dir, 'assets.json');
+    writeFileSync(file, JSON.stringify(templateJson()));
+    const code = stubExit();
+
+    await expect(main(line(file, '--record-type', 'Contact=Customer'))).rejects.toThrow('exit 2');
+    expect(stderr.join('')).toContain(
+      '--record-type Contact: the template file writes no Contact; it writes Asset.',
+    );
+
+    const typed = templateJson();
+    (
+      (typed.objects as Array<Record<string, unknown>>)[0].fieldRules as Array<
+        Record<string, unknown>
+      >
+    ).push({
+      fieldApiName: 'RecordTypeId',
+      fieldType: 'reference',
+      ruleType: 'static',
+      config: { staticValue: '012000000000011AAA' },
+    });
+    writeFileSync(file, JSON.stringify(typed));
+    await expect(main(line(file, '--record-type', 'Asset=Hardware'))).rejects.toThrow('exit 2');
+
+    expect(code()).toBe(2);
+    expect(stderr.join('')).toContain(
+      '--record-type Asset: the template file gives Asset its record type already, by a ' +
+        'RecordTypeId rule: give it in one place.',
+    );
+    expect(makeConn).not.toHaveBeenCalled();
   });
 });
 

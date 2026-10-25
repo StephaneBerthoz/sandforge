@@ -37,7 +37,12 @@ function valueOf(flag: string, value: string): string {
   return value;
 }
 
-/** What a seed resource's run, or its dry run, is given. */
+/**
+ * What a seed resource's run, or its dry run, is given. Nothing of it
+ * accepts automation: a seed's run refuses past the emails its records send,
+ * which no acceptance lifts, and reads no `--accept-automation` — given one,
+ * it refused the whole line. Its removal takes one.
+ */
 export interface SeedRunLine {
   /** sf CLI alias of the org the environment is applied to. */
   target: string;
@@ -47,41 +52,44 @@ export interface SeedRunLine {
   runId: string;
   /** What the run's draws are seeded with: the same records, run after run. */
   seed?: number;
-  /** Write although the target runs automation as the records go in: the resource's or the line's. */
-  acceptAutomation?: boolean;
+  /** The locale the faker draws in; the org's own when absent. */
+  locale?: string;
+  /** Record types by object, by DeveloperName: `EnvSeedRun.recordTypes`. */
+  recordTypes?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** What a run and its dry run are given alike: the same records, planned then written. */
+function seedRunSwitches(input: SeedRunLine): string[] {
+  return [
+    '--target',
+    valueOf('--target', input.target),
+    '--template-file',
+    valueOf('--template-file', input.templateFile),
+    '--run-id',
+    valueOf('--run-id', input.runId),
+    ...(input.seed !== undefined ? ['--seed', String(input.seed)] : []),
+    ...(input.locale !== undefined ? ['--locale', valueOf('--locale', input.locale)] : []),
+    ...Object.entries(input.recordTypes ?? {}).flatMap(([object, names]) => [
+      '--record-type',
+      valueOf('--record-type', `${object}=${names.join(',')}`),
+    ]),
+  ];
 }
 
 /** The line of a seed resource's run, its summary alone on stdout. */
 export function seedApplyLine(input: SeedRunLine): string[] {
   return [
-    '--target',
-    valueOf('--target', input.target),
-    '--template-file',
-    valueOf('--template-file', input.templateFile),
-    '--run-id',
-    valueOf('--run-id', input.runId),
-    ...(input.seed !== undefined ? ['--seed', String(input.seed)] : []),
+    ...seedRunSwitches(input),
     '--json',
     // A run that wrote some records and had others refused is partial: the
     // environment holds it to every record it planned.
     '--fail-on-partial',
-    ...(input.acceptAutomation === true ? ['--accept-automation'] : []),
   ];
 }
 
 /** The line of a seed resource's dry run: the same template, read and planned, nothing written. */
-export function seedDryRunLine(input: Omit<SeedRunLine, 'acceptAutomation'>): string[] {
-  return [
-    '--target',
-    valueOf('--target', input.target),
-    '--template-file',
-    valueOf('--template-file', input.templateFile),
-    '--run-id',
-    valueOf('--run-id', input.runId),
-    ...(input.seed !== undefined ? ['--seed', String(input.seed)] : []),
-    '--dry-run',
-    '--json',
-  ];
+export function seedDryRunLine(input: SeedRunLine): string[] {
+  return [...seedRunSwitches(input), '--dry-run', '--json'];
 }
 
 /** What the removal of a seed resource's run, or its preview, is given. */
@@ -207,15 +215,77 @@ export const seedRunAnswerSchema = z.object({
   runFile: z.string().min(1).optional(),
 });
 
+/** The data storage a dry run's records take, against what the target has left. */
+const dryRunStorageSchema = z.object({
+  bytes: countSchema,
+  verdict: z.enum(['fits', 'near', 'exceeds', 'unread']),
+  estimateMB: z.number().nonnegative(),
+  maxMB: z.number().optional(),
+  remainingMB: z.number().optional(),
+  unread: z.string().optional(),
+  /** What a real run would be refused for. */
+  refusal: z.string().optional(),
+});
+
+/** The API requests a dry run's writes would make, against what the target has left today. */
+const dryRunApiRequestsSchema = z.object({
+  estimate: countSchema,
+  verdict: z.enum(['fits', 'near', 'exceeds', 'unread']),
+  max: z.number().int().optional(),
+  remaining: z.number().int().optional(),
+  unread: z.string().optional(),
+  /** What a real run would be refused for. */
+  refusal: z.string().optional(),
+});
+
 /**
  * What `sandforge-seed --dry-run --json` prints: the records a run would
- * create, per object — counted, with stand-ins for ids (`dry-0`, …) — and
- * the emails they would make the target send. Nothing it names is in the org.
+ * create, per object — counted, with stand-ins for ids (`dry-0`, …) — the
+ * emails they would make the target send, and the data storage and API
+ * requests they would take, as the gates counted them. Nothing it names is
+ * in the org.
  */
 export const seedDryRunAnswerSchema = z.object({
   ...seedSummaryBase,
   dryRun: z.literal(true),
+  storage: dryRunStorageSchema,
+  apiRequests: dryRunApiRequestsSchema,
   result: seedResultSchema(z.string()),
+});
+
+/** One object of a removal, as the removal brick answers it: `ForgeUndoObjectResult`. */
+const removalObjectSchema = z.object({
+  objectApiName: z.string().min(1),
+  planned: countSchema,
+  deleted: countSchema,
+  alreadyGone: countSchema,
+  keptChanged: countSchema,
+  keptDependents: countSchema,
+  refused: countSchema,
+  notVisible: countSchema.optional(),
+  notReached: countSchema.optional(),
+  heldBy: z.array(z.string()),
+  reasons: z.array(z.string()),
+});
+
+/**
+ * What `sandforge-seed --remove … --json` prints once a removal ran: how it
+ * ended, and per object what it deleted, found gone, kept and was refused.
+ * A removal refused before its first delete prints nothing on stdout.
+ */
+export const seedRemovalAnswerSchema = z.object({
+  tool: z.literal(SEED_SCRIPT),
+  action: z.literal('remove'),
+  summary: z.string().min(1),
+  target: z.string().min(1),
+  includeChanged: z.boolean(),
+  result: z.object({
+    status: z.enum(['success', 'partial', 'failure', 'cancelled']),
+    planned: countSchema,
+    objects: z.array(removalObjectSchema),
+    sweep: z.object({ status: z.string() }).loose().optional(),
+  }),
+  elapsedMs: countSchema,
 });
 
 /** One object of a removal preview: `RemovalPreviewObject`. */
@@ -260,6 +330,7 @@ export const seedPreviewAnswerSchema = z.object({
 export type SeedRunAnswer = z.infer<typeof seedRunAnswerSchema>;
 export type SeedDryRunAnswer = z.infer<typeof seedDryRunAnswerSchema>;
 export type SeedPreviewAnswer = z.infer<typeof seedPreviewAnswerSchema>;
+export type SeedRemovalAnswer = z.infer<typeof seedRemovalAnswerSchema>;
 
 /** An answer a step's script printed that does not read as the one asked for. */
 export class StepAnswerError extends Error {
@@ -322,4 +393,9 @@ export function readSeedDryRun(stdout: string): SeedDryRunAnswer {
 /** What the preview of a seed run's removal printed, read: see {@link seedPreviewAnswerSchema}. */
 export function readSeedPreview(stdout: string): SeedPreviewAnswer {
   return readAnswer(SEED_SCRIPT, 'the preview of a removal', seedPreviewAnswerSchema, stdout);
+}
+
+/** What the removal of a seed run printed, read: see {@link seedRemovalAnswerSchema}. */
+export function readSeedRemoval(stdout: string): SeedRemovalAnswer {
+  return readAnswer(SEED_SCRIPT, 'the outcome of a removal', seedRemovalAnswerSchema, stdout);
 }
