@@ -53,6 +53,7 @@ export * from './types/quickSync.types.js';
 export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';
 export * from './types/checkpoint.types.js';
+export * from './types/env.types.js';
 
 // Barrel exports — Bridge
 // NOTE: PROTOCOL_VERSION + isVersionCompatible are re-exported as named exports
@@ -71,6 +72,7 @@ export * from './schemas/robustness-config.schema.js';
 export * from './schemas/quickSync.schema.js';
 export * from './schemas/ai/index.js';
 export * from './schemas/checkpoint.schema.js';
+export * from './schemas/env.schema.js';
 
 // Barrel exports — Constants
 export * from './constants/sf-limits.js';

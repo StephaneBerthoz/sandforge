@@ -43,18 +43,10 @@
  * process is gone.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto';
-import {
-  linkSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
-import { homedir, hostname } from 'node:os';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as z from 'zod';
 import {
@@ -68,13 +60,14 @@ import {
   type OrgCheckpoint,
 } from '@sandforge/shared';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
-import {
-  THIS_HOST,
-  WRITER_QUIET_MS,
-  writtenElsewhere,
-  type RunWriterChecks,
-} from '../sync/runWriter.js';
+import type { RunWriterChecks } from '../sync/runWriter.js';
 import { objectFingerprintSchema, type ObjectFingerprint } from './checkpointFingerprint.js';
+import {
+  linkedLockKind,
+  lockHolderShape,
+  type LinkedLockOptions,
+  type LockSelf,
+} from './linkedLock.js';
 
 /** What a folder of the store is made with: its owner alone lists and reads it. */
 export const CHECKPOINT_DIR_MODE = 0o700;
@@ -972,17 +965,9 @@ export type OrgLockOperation = 'take' | 'rewind' | 'undo' | 'delete' | 'sweep';
 
 /** An org's lock file, as it is written and read back. */
 const lockFileSchema = z.object({
-  version: z.literal(1),
-  /** The machine of the process that holds it. */
-  host: z.string().min(1).max(255),
-  pid: z.number().int().nonnegative(),
-  /** When that process started, by its machine's clock. */
-  hostStartedAt: z.iso.datetime({ offset: true }),
-  acquiredAt: z.iso.datetime({ offset: true }),
+  ...lockHolderShape,
   operation: z.enum(['take', 'rewind', 'undo', 'delete', 'sweep']),
   checkpointId: checkpointIdSchema.optional(),
-  /** Tells this lock from any other taken by the same process. */
-  token: z.string().min(1).max(64),
 });
 
 type LockFile = z.infer<typeof lockFileSchema>;
@@ -991,24 +976,10 @@ type LockFile = z.infer<typeof lockFileSchema>;
 export type OrgLockHolder = Omit<LockFile, 'version' | 'token'>;
 
 /** A process that takes locks: its machine, its id, and when it started. */
-export interface OrgLockSelf {
-  host: string;
-  pid: number;
-  startedAt: string;
-}
-
-/** This process. */
-const THIS_PROCESS: OrgLockSelf = {
-  host: hostname(),
-  pid: THIS_HOST.pid,
-  startedAt: THIS_HOST.startedAt,
-};
+export type OrgLockSelf = LockSelf;
 
 /** Who an org's lock is taken by, and how a holder is told alive from gone. */
-export interface OrgLockOptions {
-  self?: OrgLockSelf;
-  checks?: RunWriterChecks;
-}
+export type OrgLockOptions = LinkedLockOptions;
 
 /** An org's lock, held until it is released. */
 export interface OrgLock {
@@ -1020,16 +991,11 @@ export interface OrgLock {
 /** The lock, or who holds it. */
 export type OrgLockOutcome = { lock: OrgLock } | { busy: OrgLockHolder };
 
-/**
- * The locks this process holds, by process and file. A lock file naming this
- * process is believed only while it is listed here: one left by an operation
- * of this process that never let it go names no work under way.
- */
-const HELD_HERE = new Map<string, LockFile>();
-
-function heldKey(self: OrgLockSelf, file: string): string {
-  return `${self.host}\n${self.pid}\n${self.startedAt}\n${file}`;
-}
+/** The locks of orgs, on the link-file mechanism of `linkedLock.ts`. */
+const ORG_LOCKS = linkedLockKind((content) => {
+  const parsed = lockFileSchema.safeParse(content);
+  return parsed.success ? parsed.data : undefined;
+});
 
 /** Where an org's lock is. */
 export function orgLockFileOf(locksDir: string, organizationId: string): string {
@@ -1049,44 +1015,22 @@ export function acquireOrgLock(
   request: { operation: OrgLockOperation; checkpointId?: string },
   options: OrgLockOptions = {},
 ): OrgLockOutcome {
-  const self = options.self ?? THIS_PROCESS;
   const org = organizationKey(organizationId);
-  const file = join(locksDir, `${org}.lock`);
-  const key = heldKey(self, file);
-  const mine = HELD_HERE.get(key);
-  if (mine !== undefined) return { busy: holderOf(mine) };
-  mkdirSync(locksDir, { recursive: true, mode: CHECKPOINT_DIR_MODE });
-  const lock: LockFile = {
-    version: 1,
-    host: self.host,
-    pid: self.pid,
-    hostStartedAt: self.startedAt,
-    acquiredAt: new Date(options.checks?.now?.() ?? Date.now()).toISOString(),
-    operation: request.operation,
-    ...(request.checkpointId !== undefined
-      ? { checkpointId: parsedId(checkpointIdSchema, request.checkpointId) }
-      : {}),
-    token: randomUUID(),
-  };
-  const content = JSON.stringify(lock);
-  // Three tries at most: each one that fails follows a lock taken over, or
-  // one that went between two reads.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (linkedFresh(file, content)) {
-      HELD_HERE.set(key, lock);
-      return { lock: handleOf(org, file, key, lock) };
-    }
-    const raw = readQuietly(file);
-    if (raw === undefined) continue;
-    const holder = lockOf(raw);
-    if (holder !== undefined && isAlive(holder, file, self, options.checks)) {
-      return { busy: holderOf(holder) };
-    }
-    takeAway(file, raw);
-  }
-  const raw = readQuietly(file);
-  const holder = raw !== undefined ? lockOf(raw) : undefined;
-  return { busy: holderOf(holder ?? lock) };
+  const checkpointId =
+    request.checkpointId !== undefined
+      ? parsedId(checkpointIdSchema, request.checkpointId)
+      : undefined;
+  const outcome = ORG_LOCKS.acquire(
+    join(locksDir, `${org}.lock`),
+    (head) => ({
+      ...head,
+      operation: request.operation,
+      ...(checkpointId !== undefined ? { checkpointId } : {}),
+    }),
+    options,
+  );
+  if ('busy' in outcome) return { busy: holderOf(outcome.busy) };
+  return { lock: { organizationId: org, release: outcome.lock.release } };
 }
 
 /** Who holds the lock of an org, alive; undefined when nobody does. */
@@ -1095,134 +1039,12 @@ export function orgLockHolder(
   organizationId: string,
   options: OrgLockOptions = {},
 ): OrgLockHolder | undefined {
-  const self = options.self ?? THIS_PROCESS;
-  const file = orgLockFileOf(locksDir, organizationId);
-  const mine = HELD_HERE.get(heldKey(self, file));
-  if (mine !== undefined) return holderOf(mine);
-  const raw = readQuietly(file);
-  const holder = raw !== undefined ? lockOf(raw) : undefined;
-  return holder !== undefined && isAlive(holder, file, self, options.checks)
-    ? holderOf(holder)
-    : undefined;
+  const holder = ORG_LOCKS.holder(orgLockFileOf(locksDir, organizationId), options);
+  return holder !== undefined ? holderOf(holder) : undefined;
 }
 
 function holderOf({ version: _version, token: _token, ...holder }: LockFile): OrgLockHolder {
   return holder;
-}
-
-function handleOf(organizationId: string, file: string, key: string, lock: LockFile): OrgLock {
-  return {
-    organizationId,
-    release: () => {
-      if (HELD_HERE.get(key)?.token !== lock.token) return;
-      HELD_HERE.delete(key);
-      const raw = readQuietly(file);
-      // Only this lock: another process may hold the org's lock by now, had
-      // this one been taken over as gone.
-      if (raw !== undefined && lockOf(raw)?.token === lock.token) unlinkQuietly(file);
-    },
-  };
-}
-
-/**
- * Whether the process a lock names is still at work. This very process holds
- * it while the lock is listed in {@link HELD_HERE}. Another process of this
- * machine holds it while it runs, started after the machine did, within a
- * run's longest quiet ({@link writtenElsewhere}). A process of another machine
- * sharing this home folder cannot be asked, and holds it for that long.
- */
-function isAlive(
-  lock: LockFile,
-  file: string,
-  self: OrgLockSelf,
-  checks: RunWriterChecks | undefined,
-): boolean {
-  if (lock.host !== self.host) {
-    const now = checks?.now?.() ?? Date.now();
-    return now - Date.parse(lock.acquiredAt) < WRITER_QUIET_MS;
-  }
-  if (lock.pid === self.pid && lock.hostStartedAt === self.startedAt) {
-    return HELD_HERE.get(heldKey(self, file))?.token === lock.token;
-  }
-  return writtenElsewhere(
-    {
-      writer: { pid: lock.pid, hostStartedAt: lock.hostStartedAt },
-      startedAt: lock.acquiredAt,
-      lastWriteAt: lock.acquiredAt,
-    },
-    { pid: self.pid, startedAt: self.startedAt },
-    checks,
-  );
-}
-
-/** A lock file's content, read back; undefined when it is not one. */
-function lockOf(raw: string): LockFile | undefined {
-  try {
-    const parsed = lockFileSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Make the lock file with `content`, if no lock file is there: a file of its
- * own written whole, then linked to the lock's name, which fails when the
- * name is taken. Both are its owner's alone.
- */
-function linkedFresh(file: string, content: string): boolean {
-  const temp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
-  writeFileSync(temp, content, { encoding: 'utf8', mode: CHECKPOINT_FILE_MODE, flag: 'wx' });
-  try {
-    linkSync(temp, file);
-    return true;
-  } catch (err: unknown) {
-    if (codeOf(err) === 'EEXIST') return false;
-    throw err;
-  } finally {
-    unlinkQuietly(temp);
-  }
-}
-
-/**
- * Remove a lock judged gone, and that one only. It is moved aside first,
- * which one process alone can do; when what was moved is not the lock that
- * was judged — another process took it over between the read and the move —
- * it is put back where it was.
- */
-function takeAway(file: string, judged: string): void {
-  const aside = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.gone`;
-  try {
-    renameSync(file, aside);
-  } catch {
-    // Taken away by another process already.
-    return;
-  }
-  if (readQuietly(aside) !== judged) {
-    try {
-      linkSync(aside, file);
-    } catch {
-      // A third process holds the name now: the lock it made stands.
-    }
-  }
-  unlinkQuietly(aside);
-}
-
-function readQuietly(file: string): string | undefined {
-  try {
-    return readFileSync(file, 'utf8');
-  } catch (err: unknown) {
-    if (codeOf(err) === 'ENOENT') return undefined;
-    throw err;
-  }
-}
-
-function unlinkQuietly(file: string): void {
-  try {
-    unlinkSync(file);
-  } catch {
-    // Already gone.
-  }
 }
 
 // ─── Small helpers ───────────────────────────────────────────────────────────

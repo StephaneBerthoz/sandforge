@@ -75,10 +75,12 @@
  *   - a type imported without the `type` keyword counts as a value, and keeps
  *     its whole module reachable. Neither `verbatimModuleSyntax` nor a lint
  *     rule forbids that here, so the reading is the safe one.
- *   - the documented CLI (`packages/extension/cli`) and the recipe tools are
- *     run from the repository with tsx, never bundled, and are not entry
- *     points here: a module only they import reads as an orphan. Nothing is in
- *     that position today.
+ *   - the documented command lines (`packages/extension/cli`) are run from
+ *     the repository with tsx, never bundled, and every script of theirs is an
+ *     entry point here all the same: the contract of `sandforge.yaml`, in
+ *     `packages/shared`, is read by them alone, and is live code. The recipe
+ *     tools are not entry points: a module only they import reads as an
+ *     orphan. Nothing is in that position today.
  *
  * The exception, the one direction where this gate can be wrong about live
  * code: a module that exports nothing — a pure side effect behind an
@@ -113,10 +115,11 @@ const SRC_ROOTS = ['packages/extension/src', 'packages/shared/src', 'packages/we
  * `src/build/pagePreload.ts` is the build's own plugin, which `vite.config.ts`
  * imports to write `assets/preload.json`: reached by the build, not shipped.
  *
- * Deliberately excluded: `packages/extension/cli/*` and
- * `packages/extension/tools/*` (dev/CI utilities run through `tsx`, excluded
- * from the VSIX by `.vscodeignore`, never bundled) and vitest `setupFiles`
- * (test configuration, not shipped).
+ * Deliberately excluded: `packages/extension/tools/*` (recipe utilities run
+ * through `tsx`, excluded from the VSIX by `.vscodeignore`, never bundled) and
+ * vitest `setupFiles` (test configuration, not shipped). The command lines of
+ * `packages/extension/cli` are not shipped either, but they are a documented
+ * surface: their scripts are walked from as well ({@link CLI_ROOT}).
  */
 const ENTRIES = [
   'packages/extension/src/extension.ts',
@@ -128,6 +131,13 @@ const ENTRIES = [
   'packages/webview/src/zodJitless.ts',
   'packages/webview/src/build/pagePreload.ts',
 ];
+
+/**
+ * The command lines' folder. Every script in it, but tests and test support,
+ * is an entry point: the scripts are what a pipeline runs, and what they
+ * reach in the audited trees is in use, shipped in the VSIX or not.
+ */
+const CLI_ROOT = 'packages/extension/cli';
 
 /** Extensions tried, in order, when a specifier carries none. */
 const EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json'];
@@ -343,12 +353,15 @@ function main(): void {
       process.exit(1);
     }
   }
-  for (const entry of ENTRIES) {
+  for (const entry of [...ENTRIES, CLI_ROOT]) {
     if (!existsSync(resolve(repoRoot, entry))) {
       console.error(`[audit-orphan-modules] missing entry point: ${entry}`);
       process.exit(1);
     }
   }
+  const cliEntries = walkSources(resolve(repoRoot, CLI_ROOT), repoRoot).filter(
+    (path) => !isTestFile(path) && !isTestSupport(path) && !path.endsWith('.d.ts'),
+  );
 
   const parsed = new Map<string, ts.SourceFile>();
   const parse = (path: string): ts.SourceFile => {
@@ -661,7 +674,7 @@ function main(): void {
   // found among the target's exports. Demands are collected from reachable
   // modules only, so a dead module cannot keep another one alive by naming it,
   // and both sets grow monotonically, so the loop terminates.
-  const runtimeReachable = new Set<string>(ENTRIES);
+  const runtimeReachable = new Set<string>([...ENTRIES, ...cliEntries]);
   const demandedNames = new Map<string, Set<string>>();
   const demandedEverything = new Set<string>();
 
@@ -771,7 +784,8 @@ function main(): void {
   const orphans = unreachable.filter((path) => !allowed.has(path));
 
   console.log(
-    `[audit-orphan-modules] ${runtimeReachable.size} module(s) reachable from ${ENTRIES.length} production entry point(s); ` +
+    `[audit-orphan-modules] ${runtimeReachable.size} module(s) reachable from ${ENTRIES.length} production entry point(s) ` +
+      `and ${cliEntries.length} command-line script(s); ` +
       `${candidates.length} of ${production.length} module(s) carry runtime code.`,
   );
 
