@@ -37,12 +37,21 @@ export function stopExitCode(signal: StopSignal): number {
 export const STOP_MESSAGE = 'sandforge:stop';
 
 /**
+ * The variable a parent sets, with the IPC channel it opens, when the channel
+ * is the run's way to stop. Only then is the channel heard and let go of: a
+ * process that has one for another purpose — a test runner's worker, whose
+ * channel to its parent is what keeps it alive — kept the channel unheld, and
+ * the worker ended in the middle of its tests.
+ */
+export const STOP_CHANNEL_VARIABLE = 'SANDFORGE_STOP_CHANNEL';
+
+/**
  * Hear each stop signal once, as one stop: the first that comes calls `stop`
  * and lets every one of them go, so a second ends the process as the
  * platform ends it. Heard with `process.once`, as the commands heard Ctrl-C.
- * Started with an IPC channel, the run hears {@link STOP_MESSAGE} as Ctrl-C
- * too; the channel is let go of at once, so it never keeps alive a run whose
- * work is done.
+ * Started with an IPC channel for it ({@link STOP_CHANNEL_VARIABLE}), the run
+ * hears {@link STOP_MESSAGE} as Ctrl-C too; the channel is let go of at once,
+ * so it never keeps alive a run whose work is done.
  *
  * @returns What lets them go, once the run is over.
  */
@@ -63,7 +72,7 @@ export function onStopSignal(stop: (signal: StopSignal) => void): () => void {
     listeners.set(signal, listener);
     process.once(signal, listener);
   }
-  if (typeof process.send === 'function') {
+  if (process.env[STOP_CHANNEL_VARIABLE] === 'ipc' && typeof process.send === 'function') {
     message = (sent: unknown): void => {
       if (sent !== STOP_MESSAGE) return;
       release();

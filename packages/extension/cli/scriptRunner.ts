@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { FAILED_EXIT } from './exitCodes.js';
-import { STOP_MESSAGE, STOP_SIGNALS, stopExitCode } from './stopSignals.js';
+import { STOP_CHANNEL_VARIABLE, STOP_MESSAGE, STOP_SIGNALS, stopExitCode } from './stopSignals.js';
 
 /**
  * The scripts of this folder a runner starts: those the MCP server's tools
@@ -88,7 +88,7 @@ export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
         [...inheritedRuntimeFlags(), scriptPath(script), ...args],
         {
           stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
-          env: process.env,
+          env: windows ? { ...process.env, [STOP_CHANNEL_VARIABLE]: 'ipc' } : process.env,
           detached: !windows,
           windowsHide: true,
         },
