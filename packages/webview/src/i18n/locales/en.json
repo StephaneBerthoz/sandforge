@@ -2855,6 +2855,8 @@
       "automationHonestDesc": "Thirteen of the fifteen step types had nothing behind them and returned success, and Delay waited zero seconds. A pipeline holding a step that cannot run is now marked as such and refused before it starts, instead of being recorded as done.",
       "monitorReads": "Monitor and Compare show what the org holds",
       "monitorReadsDesc": "Run against real orgs for the first time: storage failed on every org, custom objects were counted forty-one for five, one org's alerts showed on another, and Compare read a different slice of each org's permission sets. They now read what they show, and a health signal that cannot be read says so instead of reporting a healthy org.",
+      "staging1670": "Mark a sandbox Staging",
+      "staging1670Desc": "A full copy or a UAT sandbox holds real data: tick Staging in its Edit dialog, and Production Guard asks before every delete, every deployment and every write of more than 10,000 records there. Its badge reads STAGING.",
       "checkpoints1660": "Checkpoints: put an org back as it was",
       "checkpoints1660Desc": "Keep a sandbox, a scratch org or a Developer Edition org as it is now, see what changed since, and rewind it: what was added is deleted, what changed gets its values back and what was deleted comes back, whoever did it. Undo the rewind for 15 days. Never a production org."
     },

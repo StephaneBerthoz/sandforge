@@ -5,6 +5,25 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.67.0] - 2026-10-25
+
+SandForge for AI agents: an MCP server, run from a checkout, gives an agent Seed, the record clone, run removal and Checkpoints, every write confirmed by the org's alias. And a sandbox holding real data can be marked Staging, so Production Guard asks before every delete there.
+
+### Added
+
+- **SandForge for AI agents**: `packages/extension/cli/sandforge-mcp.ts`, an MCP server run from a checkout, gives an AI agent ten tools — Seed's templates and runs, Forge's record clone, the removal of a Seed, Forge or Sync run, and Checkpoints (take, list, preview, rewind, undo, delete). Each tool runs the command-line script that does the same with `--json`, so all its guards hold. A call that writes needs `confirm`, the org's alias, or it is refused before anything is read; a question a script asks comes back as the call's error, never answered for you; the checkpoints of an org are listed only by its name, so no other org's alias reaches the agent. MCP 2026-07-28, and the `initialize` handshake of 2025-11-25, 2025-06-18 and 2025-03-26. [Guide](docs/mcp.md).
+- **The MCP server stays out of the VSIX**: the extension still gives the model no tool, and a gate reads vsce's packaged file list to keep `cli/` out.
+- **Organizations / Production Guard**: a sandbox can be marked **Staging** in its Edit dialog, for a full copy or UAT holding real data. Production Guard then treats it as a staging org: it asks before every delete, every metadata deployment and every write of more than 10,000 records there. Its badge reads STAGING, and a Frozen Dataset load refuses it. The mark survives a re-import or a reconnect. Before, no org could reach the staging tier, and a delete in a full copy asked nothing.
+
+### Fixed
+
+- **Seed and Autopilot**: when the org's limits do not give a user its data storage, as with a Standard User, the day's API requests are read on their own, as Sync does since 1.66.0. A run past what the org has left is refused with nothing written; before, it went on as if they were unread.
+- **Sync and Autopilot**: a flow, process or workflow rule that fires as the records go in, but whose definition was refused or not read past the read's limit, makes the run ask before it writes, naming it, and its emails are not counted. Before, it counted as sending none.
+- **Checkpoints**: a take refused before its scope is read (a production org, or a user without View All Data and Modify All Data) shows the refusal alone, as the command line prints it. It no longer shows "about 0 API requests of the 0 left today" or "0 objects · about 0 records" with it.
+- **Checkpoints**: once a rewind has ended, the journals of the org's earlier rewinds are deleted. Undo no longer reached them, and they held, unencrypted, the values those rewinds wrote over. Each is named in the log and in `sandforge-checkpoint`'s output (`result.removedJournals` with `--json`); a rewind stopped part way keeps its journal for the next one to take up. Before, they stayed until the checkpoint was deleted, and a pipeline rewinding a checkpoint kept for good piled them up.
+- **Frozen Dataset**: a dataset whose manifest does not say whether its extraction left out the encrypted fields it read masked (extracted before 1.66.0, or by 1.66.0 when it left out none) no longer has its masks, such as `****1234`, written as values. The load and its preview leave out every field the target encrypts, each named, unless **Write encrypted fields as the dataset holds them** is ticked (`load --write-encrypted` on the command line). An extraction now records `encryptedNotKept: []` when it left out none.
+- **Home, Seed, Sync and DataOps org badges**: a sandbox marked Staging reads STG, as its card and the pickers say STAGING; it read SBX.
+
 ## [1.66.0] - 2026-10-24
 
 Checkpoints: keep an org's data as it is now, see what changed since, and put the org back as it was, whoever made the changes, then take the rewind back if you need to.
