@@ -2857,6 +2857,8 @@
       "monitorReadsDesc": "Ejecutados por primera vez contra orgs reales: el almacenamiento fallaba en todas las orgs, los objetos personalizados se contaban cuarenta y uno por cinco, las alertas de una org aparecían en otra y Comparación leía una parte distinta de los conjuntos de permisos de cada org. Ahora leen lo que muestran, y una señal de salud que no se puede leer lo dice en lugar de informar de una org sana.",
       "staging1670": "Marcar un sandbox como Staging",
       "staging1670Desc": "Una copia completa o un sandbox de UAT contiene datos reales: marque Staging en su cuadro de edición, y Production Guard pregunta allí antes de cada eliminación, cada despliegue y cada escritura de más de 10.000 registros. Su distintivo muestra STAGING.",
+      "env1680": "Datos de prueba como código",
+      "env1680Desc": "Describa en un sandforge.yaml versionado con su proyecto los registros que necesita un entorno: sandforge-env los planifica, los aplica y los retira en una scratch org o una Developer Edition, desde la CI o un terminal — Seed, clones de Forge y cargas Frozen, con checkpoints antes y después.",
       "checkpoints1660": "Puntos de control: devolver una org a como estaba",
       "checkpoints1660Desc": "Conserve un sandbox, una scratch org o una org Developer Edition tal como está ahora, vea lo que cambió desde entonces y retroceda: lo añadido se elimina, lo que cambió recupera sus valores y lo eliminado se recupera, quienquiera que lo hiciera. El retroceso se puede deshacer durante 15 días. Nunca una org de producción."
     },

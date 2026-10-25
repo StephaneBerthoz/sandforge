@@ -2857,6 +2857,8 @@
       "monitorReadsDesc": "Zum ersten Mal gegen echte Orgs ausgeführt: Der Speicher schlug in jeder Org fehl, benutzerdefinierte Objekte wurden einundvierzig statt fünf gezählt, die Warnungen einer Org erschienen bei einer anderen, und der Vergleich las von jeder Org einen anderen Ausschnitt der Berechtigungssätze. Jetzt lesen sie, was sie anzeigen, und ein nicht lesbares Gesundheitssignal sagt das, statt eine gesunde Org zu melden.",
       "staging1670": "Eine Sandbox als Staging markieren",
       "staging1670Desc": "Eine Vollkopie oder eine UAT-Sandbox enthält echte Daten: Aktivieren Sie Staging in ihrem Bearbeitungsdialog, und Production Guard fragt dort vor jedem Löschen, jedem Deployment und jedem Schreiben von mehr als 10.000 Datensätzen. Ihr Badge zeigt STAGING.",
+      "env1680": "Testdaten als Code",
+      "env1680Desc": "Beschreiben Sie in einer mit Ihrem Projekt versionierten sandforge.yaml die Datensätze, die eine Umgebung braucht: sandforge-env plant, wendet sie an und nimmt sie wieder zurück, in einer Scratch-Org oder Developer Edition, aus der CI oder einem Terminal — Seeds, Forge-Klone und Frozen-Ladungen, mit Checkpoints davor und danach.",
       "checkpoints1660": "Prüfpunkte: eine Org auf einen früheren Stand zurücksetzen",
       "checkpoints1660Desc": "Bewahren Sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org auf, wie sie jetzt ist, sehen Sie, was sich seitdem geändert hat, und setzen Sie sie zurück: Hinzugefügtes wird gelöscht, Geändertes erhält seine Werte zurück und Gelöschtes wird zurückgeholt, egal wer es getan hat. Das Zurücksetzen lässt sich 15 Tage lang rückgängig machen. Nie eine Produktions-Org."
     },

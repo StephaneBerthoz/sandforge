@@ -2857,6 +2857,8 @@
       "monitorReadsDesc": "Lancés pour la première fois contre de vraies orgs : le stockage échouait sur chaque org, les objets personnalisés étaient comptés quarante et un pour cinq, les alertes d'une org s'affichaient sur une autre, et la Comparaison lisait une tranche différente des permission sets de chaque org. Ils lisent désormais ce qu'ils affichent, et un signal de santé illisible le dit au lieu d'annoncer une org saine.",
       "staging1670": "Marquer une sandbox en préproduction",
       "staging1670Desc": "Une copie complète ou une sandbox de recette contient des données réelles : cochez Préproduction dans sa fenêtre de modification, et Production Guard y demande avant chaque suppression, chaque déploiement et chaque écriture de plus de 10 000 enregistrements. Son badge affiche PRÉPROD.",
+      "env1680": "Les données de test en code",
+      "env1680Desc": "Décrivez dans un sandforge.yaml versionné avec votre projet les enregistrements dont un environnement a besoin : sandforge-env les planifie, les applique et les retire sur une scratch org ou une Developer Edition, depuis la CI ou un terminal — Seed, clones Forge et chargements Frozen, encadrés de checkpoints.",
       "checkpoints1660": "Points de contrôle : remettre une org dans l'état d'avant",
       "checkpoints1660Desc": "Conservez une sandbox, une scratch org ou une org Developer Edition telle qu'elle est maintenant, voyez ce qui a changé depuis, puis revenez à ce point : ce qui a été ajouté est supprimé, ce qui a changé retrouve ses valeurs et ce qui a été supprimé est rétabli, quel qu'en soit l'auteur. L'annulation du retour arrière reste possible 15 jours. Jamais une org de production."
     },

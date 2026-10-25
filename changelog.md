@@ -5,6 +5,44 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.68.0] - 2026-10-25
+
+Test data as code: a `sandforge.yaml` committed with your project describes the records an environment needs, and `sandforge-env` plans, applies and takes it back on any scratch org, Developer Edition or listed sandbox, from CI or a terminal. Seed resources, Forge clones and Frozen Dataset loads, references between them, and checkpoints around the applies, each run by the script that already does it, every guard of that script holding.
+
+### Added
+
+- **Environments as code (`sandforge-env`)**, a twelfth command-line script, run from a checkout: `validate`, `plan`, `apply`, `destroy`, `state` and `reset` of a `sandforge.yaml`, read as strict YAML 1.2, versioned, its values from the environment only where it writes `{ env: NAME }`, never a secret.
+  - **`plan`** says per resource create, keep, replace, delete, drifted or blocked, with why; it dry-runs each resource by its own script and adds up the API requests, data storage and daily emails they take against what the org has left, refusing before the first write when the sum is too much, or when the org to fill would refuse every row of a clone (a field only it requires, an object its user may not create), naming the way out. `--fail-on-change` and `--fail-on-drift` exit 3 for a pipeline.
+  - **`apply`** writes its state ahead of each step, outside the repository, keyed by the org's Organization Id: applied twice it writes nothing, stopped it takes up where it left off, and a resource whose file changed is replaced, what depends on it with it.
+  - **`destroy`** takes the resources back, the last applied first, into the recycle bin, through each script's own removal, and names what it cannot take back; the state stays, every resource destroyed, so the next apply needs nothing more.
+  - **What is refused**: a production org, with no flag to lift it; a sandbox unless the file lists its Organization Id; a Developer Edition or a sandbox this machine keeps no state of, without `--accept-no-state`; a journal directory or a dataset inside the file's repository.
+  - **Seed resources**: objects, counts, field rules and relations of the file's own, or a built-in template.
+  - **Forge resources**: one record and what hangs from it, by its id or by a query its source answers with exactly one row, or whole tables, from an org the file names by its role, with a template of the project's templates file and Forge's anonymization. Each run is held to its plan's dry-run count, so a source that grew since is refused, not written; what a run created is verified once it ends. A production source is refused unless the resource anonymizes or accepts real data (`accept: { realData: true }`).
+  - **Frozen resources**: a Frozen Dataset frozen beforehand, loaded from a committed configuration, pinned by version and digest, held to its dry run's count, replaced by a reload refused when it would leave records, and verified on every plan, a FAILED object reported as drift.
+  - **References**: a seed relation draws its parents from the records another resource created (`parents: { from: <resource>.<Object> }`), handed by id; the dependency is implied, cycles are refused.
+  - **Checkpoints**: `checkpoint.before`, taken before the first write, which `destroy --rewind` returns the org to; `checkpoint.after`, taken once an apply ended whole, which `reset` rewinds to between two test suites, and which `plan --fail-on-drift` compares the whole org with. Each take's cost is in the plan.
+- **sandforge-seed**: `--template-file` runs a seed template kept in a JSON file, checked by the panel's own schema before any org is reached; `--run-id` names a run; `--remove … --preview` says what a removal would do, object by object, writing nothing; a relation can draw its parents from records named by id (`--parent-ids`); `--dry-run --json` gives the data storage and API requests the records would take.
+- **sandforge-clone**: `--remove … --preview` says what a removal would do and writes nothing; `--template` goes with a clone of whole tables; `--dry-run --json` gives the count its gate is held to (`writePlan`) and what a real run would be refused for (`wouldBeRefused`).
+- **sandforge-frozen**: `remove --preview` says what removing a load would do; `load --max-total` holds a load to the count its dry run gave; the `--json` answers carry the dataset's digest and version, the mapping file, per-object counts and verify's per-object PASSED/FAILED verdict.
+- **Docs**: [Environments as code](docs/environments.md), every session of which its test replays word for word, and a CI section with a commented GitHub Actions job.
+
+### Changed
+
+- **sandforge-frozen load --reload** is a replace: it is refused before anything is written when taking back the earlier loads would leave records in the org (records changed since: `remove --include-changed` first). Before, the reload's purge deleted records changed since the load without a word.
+- **Marketplace listing**: the description names Checkpoints and rewind, in six languages, and the extension's homepage is sandforge.fr.
+
+### Fixed
+
+- **Every command-line script** keeps its output whole when it is read through a pipe — by the MCP server, a CI step or `sandforge-env`. On Linux and macOS a pipe is written asynchronously and the scripts ended at once: past 64 KB, a `--json` answer reached its reader cut.
+- **MCP server on Windows**: a call the client cancels stops its script as Ctrl-C does there too — before its next call to the org, saying what it wrote, its journal kept. Windows has no signals, and Node ended the script at once.
+- **Autopilot command line**: `sandforge-autopilot` holds a run to the day's API requests the target has left, as the panel does, and says them; past them nothing is written, where it wrote until the org answered REQUEST_LIMIT_EXCEEDED part way through.
+- **Seed**: a flow, process or workflow rule fired after a seed's records are saved, whose definition was refused, is named where the run says which emails it could not count; it counted as sending none.
+
+### Security
+
+- **Results page**: a refusal whose message holds a long run of spaces is grouped at once; 100,000 spaces took nearly seven seconds.
+- **Wide reads**: a key no Salesforce field can have, such as `__proto__`, is left out of a row read in several groups.
+
 ## [1.67.0] - 2026-10-25
 
 SandForge for AI agents: an MCP server, run from a checkout, gives an agent Seed, the record clone, run removal and Checkpoints, every write confirmed by the org's alias. And a sandbox holding real data can be marked Staging, so Production Guard asks before every delete there.
