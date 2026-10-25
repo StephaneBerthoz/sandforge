@@ -43,6 +43,7 @@ import {
   forgeRemoveLine,
   forgeRunCount,
   forgeRunOfResource,
+  forgeTargetRefusal,
   forgeVerifyLine,
   forgeWritten,
   readForgeDryRun,
@@ -775,5 +776,71 @@ describe('what a forge dry run counted, as the plan reads it', () => {
     expect(verificationShortOf(verify({ verdict: 'unstable', attempts: 3 }))).toBe(
       "no two of 3 readings agreed: something still writes to the run's records; verify again once it is done",
     );
+  });
+});
+
+describe('what the org to fill would refuse every row of a forge resource for', () => {
+  const answer = (gaps: unknown[]): ForgeDryRunAnswer =>
+    readForgeDryRun(
+      JSON.stringify({
+        tool: 'sandforge-clone',
+        version: 1,
+        dryRun: true,
+        result: { wouldInsertCount: 2, failedCount: 0 },
+        writePlan: {
+          totalRows: 2,
+          storageBytes: 4096,
+          objects: [{ objectApiName: 'Account', rows: 2, storageBytes: 4096 }],
+        },
+        targetGaps: { gaps },
+      }),
+    );
+  const required = {
+    id: 'g1',
+    kind: 'required_field_missing',
+    severity: 'blocking',
+    source: 'metadata',
+    objectApiName: 'Account',
+    field: 'Region__c',
+    rows: 0,
+    decisions: ['default_value'],
+  };
+
+  it('names a field only the org to fill requires and the clone does not write, with the way out', () => {
+    // Live, the plan said "Account 2 to write" of a run whose every account
+    // the org would refuse: the clone reads the gap and goes on.
+    const run = converted(tables);
+
+    expect(forgeTargetRefusal(answer([required]), run.template)).toBe(
+      'the org to fill would refuse its rows: Account.Region__c, which the org requires and the ' +
+        "clone does not write. Give a field the org requires a value in the template's " +
+        'defaultValues (template: { file, id }), leave out an object its user may not create, or ' +
+        'run it once the org has requests left',
+    );
+  });
+
+  it('lets through a field the template gives a value, which the clone writes', () => {
+    const run = converted(tables);
+    const given = {
+      ...run.template,
+      config: {
+        ...run.template.config,
+        defaultValues: [{ object: 'Account', field: 'region__c', value: 'EMEA' }],
+      },
+    };
+
+    expect(forgeTargetRefusal(answer([required]), given)).toBeUndefined();
+  });
+
+  it('names an object its user may not create, and leaves alone what only warns', () => {
+    const run = converted(tables);
+    const closed = { ...required, kind: 'object_not_createable', field: undefined };
+    const warning = { ...required, severity: 'warning' };
+
+    expect(forgeTargetRefusal(answer([closed, warning]), run.template)).toContain(
+      'Account, which the user it writes as may not create.',
+    );
+    expect(forgeTargetRefusal(answer([warning]), run.template)).toBeUndefined();
+    expect(forgeTargetRefusal(answer([]), run.template)).toBeUndefined();
   });
 });

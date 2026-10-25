@@ -571,6 +571,22 @@ export const forgeDryRunAnswerSchema = z.object({
     })
     .optional(),
   wouldBeRefused: z.array(z.string()).optional(),
+  /** What the org to fill holds against the rows, read from its metadata: see {@link forgeTargetRefusal}. */
+  targetGaps: z
+    .object({
+      gaps: z.array(
+        z
+          .object({
+            kind: z.string().min(1),
+            severity: z.string().min(1),
+            objectApiName: z.string().min(1),
+            field: z.string().min(1).optional(),
+          })
+          .loose(),
+      ),
+    })
+    .loose()
+    .optional(),
 });
 
 /**
@@ -663,6 +679,51 @@ export type ForgeRunAnswer = z.infer<typeof forgeRunAnswerSchema>;
 export type ForgeRemovalAnswer = z.infer<typeof forgeRemovalAnswerSchema>;
 export type ForgePreviewAnswer = z.infer<typeof forgePreviewAnswerSchema>;
 export type ForgeVerifyAnswer = z.infer<typeof forgeVerifyAnswerSchema>;
+
+/**
+ * What the org to fill would refuse every row of a forge resource for, read
+ * from its dry run: the gaps the clone calls blocking — a field only that org
+ * requires and the clone does not write, an object its user may not create,
+ * more requests than it has left today. They do not stop the clone, whose
+ * rows then go in refused, one by one: live, the plan said "Account 2 to
+ * write" of a run whose every account the org would refuse. A field the
+ * template gives a value (`defaultValues`) is written, which the clone's own
+ * reading of the org does not know. Undefined when nothing refuses them.
+ */
+export function forgeTargetRefusal(
+  answer: ForgeDryRunAnswer,
+  template: ForgeTemplateInput,
+): string | undefined {
+  const given = new Set(
+    (template.config.defaultValues ?? []).map((value) =>
+      `${value.object}.${value.field}`.toLowerCase(),
+    ),
+  );
+  const said = (answer.targetGaps?.gaps ?? [])
+    .filter((gap) => gap.severity === 'blocking')
+    .flatMap((gap): string[] => {
+      const name =
+        gap.field !== undefined ? `${gap.objectApiName}.${gap.field}` : gap.objectApiName;
+      switch (gap.kind) {
+        case 'required_field_missing':
+          return given.has(name.toLowerCase())
+            ? []
+            : [`${name}, which the org requires and the clone does not write`];
+        case 'object_not_createable':
+          return [`${name}, which the user it writes as may not create`];
+        case 'api_budget':
+          return ['more API requests than the org has left today'];
+        default:
+          return [`${name} (${gap.kind})`];
+      }
+    });
+  if (said.length === 0) return undefined;
+  return (
+    `the org to fill would refuse its rows: ${said.join('; ')}. Give a field the org requires ` +
+    "a value in the template's defaultValues (template: { file, id }), leave out an object its " +
+    'user may not create, or run it once the org has requests left'
+  );
+}
 
 /** What a forge resource's dry run printed, read: see {@link forgeDryRunAnswerSchema}. */
 export function readForgeDryRun(stdout: string): ForgeDryRunAnswer {

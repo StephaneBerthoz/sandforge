@@ -74,6 +74,7 @@ import { fingerprintOf, type EnvFileResolved, type EnvFileResource } from './env
 import {
   drawnCountsOf,
   dryRunCountOf,
+  targetRefusalOf,
   notesOf,
   type EnvDryRunAnswer,
   type EnvPreviewAnswer,
@@ -528,7 +529,12 @@ function countOf(
 ): { count: EnvDryRunCount } {
   const resource = resolved.resources.find((each) => each.name === name);
   const drawn = readTooEarly && resource !== undefined ? drawnCountsOf(resource) : undefined;
-  return { count: dryRunCountOf(answer, drawn) };
+  const count = dryRunCountOf(answer, drawn);
+  const target = resource !== undefined ? targetRefusalOf(resource, answer) : undefined;
+  return {
+    count:
+      target !== undefined && count.refusal === undefined ? { ...count, refusal: target } : count,
+  };
 }
 
 /** Whether a resource's records hang from records the org holds before its run. */

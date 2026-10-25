@@ -23,6 +23,7 @@ import {
   FORGE_SCRIPT,
   forgeApplyLine,
   forgeDryRunCount,
+  forgeTargetRefusal,
   forgeDryRunLine,
   forgeObjectsOf,
   forgePreviewLine,
@@ -339,6 +340,20 @@ export function readDryRunOf(kind: EnvAppliedKind, stdout: string): EnvDryRunAns
 /** The objects a seed resource writes under records written first in the same apply; none for another kind. */
 export function drawnCountsOf(resource: EnvFileResource): Map<string, number> | undefined {
   return resource.kind === 'seed' ? seedDrawnCounts(resource.run) : undefined;
+}
+
+/**
+ * What the org to fill would refuse every row of a resource for, beside what
+ * its own dry run refuses: a forge resource's blocking target gaps, which do
+ * not stop the clone. Undefined for another kind, or when nothing does.
+ */
+export function targetRefusalOf(
+  resource: EnvFileResource,
+  answer: EnvDryRunAnswer,
+): string | undefined {
+  return resource.kind === 'forge' && answer.tool === FORGE_SCRIPT
+    ? forgeTargetRefusal(answer, resource.run.template)
+    : undefined;
 }
 
 /** What a dry run counted, as every kind's is read. */
