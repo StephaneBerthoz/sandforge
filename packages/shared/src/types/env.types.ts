@@ -242,6 +242,12 @@ export interface EnvPlanObject {
   object: string;
   /** Records a create or a replace would write: its dry run's count. */
   wouldCreate?: number;
+  /**
+   * `wouldCreate` is the most it writes, not its count: its records hang from
+   * records a resource that runs first in the same apply writes, which its
+   * dry run could not read.
+   */
+  atMost?: true;
   /** Records of an earlier apply the org still holds as written. */
   present?: number;
   /** Records of an earlier apply deleted since. */

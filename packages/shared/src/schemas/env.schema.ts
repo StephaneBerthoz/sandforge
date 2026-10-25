@@ -622,6 +622,12 @@ const envPlanObjectSchema = z.strictObject({
   object: apiNameSchema,
   /** Records a create or a replace would write: its dry run's count. */
   wouldCreate: countSchema.optional(),
+  /**
+   * `wouldCreate` is the most it writes, not its count: its records hang from
+   * records a resource that runs first in the same apply writes, which its
+   * dry run could not read.
+   */
+  atMost: z.literal(true).optional(),
   /** Records of an earlier apply the org still holds as written. */
   present: countSchema.optional(),
   /** Records of an earlier apply deleted since, the recycle bin's included. */

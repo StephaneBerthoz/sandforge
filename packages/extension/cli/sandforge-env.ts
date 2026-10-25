@@ -601,6 +601,10 @@ async function previewRuns(
     const runs: EnvRunPreview[] = [];
     for (const run of [...resource.runs].reverse()) {
       if (signal.aborted) break;
+      // A run a removal took back whole holds nothing of the org's, and the
+      // removal passes it over: read again, it cost a script and the org's
+      // reads on every plan, one more at each replace.
+      if (run.takenBack === true) continue;
       const subject = removalSubjectOf(run, where, prepared);
       if (subject === undefined) {
         runs.push({ n: run.n, nothing: true });

@@ -117,8 +117,8 @@ plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: none on this machine
   create   accounts  Account 3 to write
            not applied to this org yet
-  create   contacts  Contact 6 to write
-           not applied to this org yet; its dry run read the org before accounts writes: its records are counted as the file gives them, and what it draws from those is not counted
+  create   contacts  Contact at most 6 to write
+           not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 2, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
@@ -136,7 +136,7 @@ It writes nothing, to the org or to the state. Each resource to write is dry-run
 | `delete`  | applied, and gone from the file                                                                                                                    | takes its runs back                                           |
 | `blocked` | its dry run, its removal's preview, a summed gate or what this SandForge does not do refuses it                                                    | nothing: the whole apply refuses before its first write       |
 
-The totals follow, then what the resources take of the org's day: the API requests, the data storage and the emails each dry run counted, added up against what the org has left. Each run of the seed holds itself to what the org has left; together, three that each fit can overrun it, so the plan blocks every write when a sum goes past it. `contacts` is read before `accounts` writes, so its dry run finds no parent: its records are counted as the file gives them, and the plan says so. `--quick` skips the dry runs and the removal previews: no counts, and no word on what the org holds.
+The totals follow, then what the resources take of the org's day: the API requests, the data storage and the emails each dry run counted, added up against what the org has left. Each run of the seed holds itself to what the org has left; together, three that each fit can overrun it, so the plan blocks every write when a sum goes past it. `contacts` is read before `accounts` writes, so its dry run finds no parent: what it draws from them is counted at most as the file gives it, and the plan says so. `--quick` skips the dry runs and the removal previews: no counts, and no word on what the org holds.
 
 ### Apply it: `apply`
 
@@ -150,8 +150,8 @@ plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: none on this machine
   create   accounts  Account 3 to write
            not applied to this org yet
-  create   contacts  Contact 6 to write
-           not applied to this org yet; its dry run read the org before accounts writes: its records are counted as the file gives them, and what it draws from those is not counted
+  create   contacts  Contact at most 6 to write
+           not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 2, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
@@ -240,8 +240,8 @@ plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 4
   replace  accounts  Account 4 to write, 3 in the org
            replaced: what it writes changed in the file since it was applied
-  replace  contacts  Contact 6 to write, 5 in the org, 1 gone
-           replaced: the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: its records are counted as the file gives them, and what it draws from those is not counted
+  replace  contacts  Contact at most 6 to write, 5 in the org, 1 gone
+           replaced: the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 2, 14000 left; not counted: the removal of accounts's runs, the removal of contacts's runs, what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
@@ -268,9 +268,7 @@ Someone edits one of the accounts:
 ```console
 $ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes
 contacts: reading what the org holds of run 2
-contacts: reading what the org holds of run 1
 accounts: reading what the org holds of run 2
-accounts: reading what the org holds of run 1
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 14
   delete   contacts  Contact 6 in the org
@@ -298,7 +296,6 @@ The account changed since is kept, the destroy exits `3`, and the state stays wi
 ```console
 $ sandforge-env destroy --file ../case-flow/sandforge.yaml --org pool-1 --yes --include-changed
 accounts: reading what the org holds of run 2
-accounts: reading what the org holds of run 1
 plan of case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
 state: kept on this machine, serial 19
   delete   accounts  Account 1 in the org, 1 changed
@@ -456,8 +453,8 @@ plan of case-flow on my-de (developer, 00Dxx0000001gPLEAY)
 state: none on this machine
   create   accounts  Account 3 to write
            not applied to this org yet
-  create   contacts  Contact 6 to write
-           not applied to this org yet; its dry run read the org before accounts writes: its records are counted as the file gives them, and what it draws from those is not counted
+  create   contacts  Contact at most 6 to write
+           not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 2, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left

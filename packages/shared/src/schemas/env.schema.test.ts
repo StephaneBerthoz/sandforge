@@ -594,6 +594,15 @@ describe('the plan and the steps', () => {
     expect(envPlanSchema.safeParse(unknown).success).toBe(false);
   });
 
+  it('reads a count given as the most a run writes, and only as true', () => {
+    const bounded = (atMost: unknown) => ({
+      ...plan,
+      actions: [{ ...plan.actions[0], objects: [{ object: 'Contact', wouldCreate: 6, atMost }] }],
+    });
+    expect(envPlanSchema.safeParse(bounded(true)).success).toBe(true);
+    expect(envPlanSchema.safeParse(bounded(false)).success).toBe(false);
+  });
+
   it('reads what apply answers, each step with the script’s own answer', () => {
     const result = {
       plan,

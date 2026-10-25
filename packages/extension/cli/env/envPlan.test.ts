@@ -528,12 +528,12 @@ describe('the plan, on the memory org', () => {
     // The contacts draw their accounts from what the accounts resource writes
     // first: their dry run, which read the org before, counted none of them,
     // and the plan said "Contact 0 to write" of a run that writes two. The
-    // file's count stands in.
+    // file's count stands in, as the most the run writes.
     expect(created.actions[1]).toMatchObject({
-      objects: [{ object: 'Contact', wouldCreate: 2 }],
+      objects: [{ object: 'Contact', wouldCreate: 2, atMost: true }],
       why:
-        'not applied to this org yet; its dry run read the org before accounts writes: its ' +
-        'records are counted as the file gives them, and what it draws from those is not counted',
+        'not applied to this org yet; its dry run read the org before accounts writes: what it ' +
+        'draws from those records is counted at most as the file gives it',
     });
     expect(created.gates).toEqual({
       apiRequests: {
@@ -554,6 +554,100 @@ describe('the plan, on the memory org', () => {
     expect(kept.state).toEqual({ found: true, serial: expect.any(Number) });
     expect(planChanges(kept)).toBe(false);
     expect(planDrifts(kept)).toBe(false);
+  });
+
+  /** The plan of a file, then its apply: what each resource's run created, object by object. */
+  async function plannedThenWritten(doc: unknown) {
+    const resolved = resolvedOf(doc);
+    const plan = await planOf(resolved, undefined);
+    const outcome = await applyPlan(deps(), {
+      plan,
+      resolved,
+      target: { alias: 'TGT', organizationId: ORG_ID, kind: 'developer', username: 'u' },
+      state: undefined,
+      dryRuns: await dryRunsOf(
+        resolved,
+        resolved.resources.map((resource) => resource.name),
+      ),
+      acceptAutomation: false,
+    });
+    const written = (resource: string) =>
+      outcome.result.steps
+        .find((step) => step.resource === resource && step.phase === 'run')
+        ?.objects.map((object) => [object.object, object.created]);
+    return { plan, outcome, written };
+  }
+
+  it('counts by its dry run what a resource writes under its own records, though it runs after what it depends on', async () => {
+    // A resource that depends on another running first had every object
+    // counted as the file gave it: six contacts said, of which the seed
+    // writes two, one under each of the two accounts the resource writes.
+    const doc = document({ contacts: false }) as { resources: Record<string, unknown> };
+    const named = (field: string) => [
+      { fieldApiName: field, ruleType: 'static', config: { staticValue: 'SFENV family' } },
+    ];
+    doc.resources['family'] = {
+      kind: 'seed',
+      seed: 3,
+      dependsOn: ['accounts'],
+      objects: [
+        { object: 'Account', count: 2, fields: named('Name') },
+        { object: 'Contact', count: 6, fields: named('LastName') },
+      ],
+      relations: [
+        {
+          lookup: 'Contact.AccountId',
+          parents: { object: 'Account' },
+          distribution: { mode: 'perParent', count: 1 },
+        },
+      ],
+    };
+
+    const { plan, outcome, written } = await plannedThenWritten(doc);
+
+    const family = plan.actions.find((action) => action.resource === 'family');
+    expect(family?.objects).toEqual([
+      { object: 'Account', wouldCreate: 2 },
+      { object: 'Contact', wouldCreate: 2 },
+    ]);
+    expect(family?.why).toBe('not applied to this org yet');
+    expect(outcome.exitCode).toBe(0);
+    expect(written('family')).toEqual([
+      ['Account', 2],
+      ['Contact', 2],
+    ]);
+  });
+
+  it('counts at most as the file gives them the records a resource draws from what runs before it, and says so', async () => {
+    // Six contacts, one per account, drawn from the two accounts the other
+    // resource writes first: the plan said "Contact 6 to write" of a run that
+    // wrote two. What the dry run could not read, the plan cannot count: the
+    // file's count is the most the run writes.
+    const doc = document() as {
+      resources: { contacts: { objects: Array<{ count: number }>; relations: unknown[] } };
+    };
+    const contacts = doc.resources.contacts;
+    const first = contacts.objects[0];
+    if (first) first.count = 6;
+    contacts.relations = [
+      {
+        lookup: 'Contact.AccountId',
+        parents: { object: 'Account', existing: { where: "Name = 'SFENV account'", limit: 6 } },
+        distribution: { mode: 'perParent', count: 1 },
+      },
+    ];
+
+    const { plan, outcome, written } = await plannedThenWritten(doc);
+
+    const action = plan.actions.find((each) => each.resource === 'contacts');
+    expect(action?.objects).toEqual([{ object: 'Contact', wouldCreate: 6, atMost: true }]);
+    expect(action?.why).toBe(
+      'not applied to this org yet; its dry run read the org before accounts writes: what it ' +
+        'draws from those records is counted at most as the file gives it',
+    );
+    expect(planLines(plan)).toContain('  create   contacts  Contact at most 6 to write');
+    expect(outcome.exitCode).toBe(0);
+    expect(written('contacts')).toEqual([['Contact', 2]]);
   });
 
   it('with --quick, reads no preview and no dry run, keeps from the state alone and says so', async () => {

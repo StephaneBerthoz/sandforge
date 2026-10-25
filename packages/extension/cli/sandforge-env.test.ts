@@ -336,6 +336,43 @@ describe('plan, apply, plan again, destroy', () => {
     expect(envStateListSchema.parse((await run(['state', '--json'])).answer).states).toEqual([]);
   });
 
+  it('reads no run a removal took back whole: plan, apply and destroy preview the current runs alone', async () => {
+    // Each plan previewed every run a replace had taken back, a script
+    // started and the org read for each: on a resource replaced at every
+    // merge, one more each time, on every plan, apply and destroy.
+    worldOf({ sandbox: true, scratch: true });
+    await run(['apply', '--org', 'TGT', '--yes', '--json']);
+    await run(['apply', '--org', 'TGT', '--yes', '--replace', 'accounts', '--json']);
+    await run(['apply', '--org', 'TGT', '--yes', '--replace', 'accounts', '--json']);
+    const previewed = (from: number) =>
+      world.calls
+        .slice(from)
+        .filter((call) => call.args.includes('--preview'))
+        .map((call) =>
+          /runs[\\/](\w+)[\\/](\d+)\.summary\.json$/.exec(call.args[1] ?? '')?.slice(1),
+        );
+    let from = world.calls.length;
+
+    const planned = await run(['plan', '--org', 'TGT', '--fail-on-change', '--json']);
+
+    expect(planned.code).toBe(0);
+    expect(envPlanSchema.parse(planned.answer).actions.map((a) => a.action)).toEqual([
+      'keep',
+      'keep',
+    ]);
+    expect(previewed(from)).toEqual([
+      ['contacts', '3'],
+      ['accounts', '3'],
+    ]);
+    from = world.calls.length;
+    expect((await run(['apply', '--org', 'TGT', '--yes', '--json'])).code).toBe(0);
+    expect(previewed(from)).toHaveLength(2);
+    from = world.calls.length;
+    expect((await run(['destroy', '--org', 'TGT', '--yes', '--json'])).code).toBe(0);
+    expect(previewed(from)).toHaveLength(2);
+    expect(world.records('Account')).toEqual([]);
+  });
+
   it('prints the plan and each step without --json, nothing on stdout but what it says', async () => {
     worldOf({ sandbox: true, scratch: true });
 

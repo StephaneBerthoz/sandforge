@@ -313,7 +313,10 @@ export async function dryRunsIn(
   return out;
 }
 
-/** Each run of each resource the state holds, previewed through the seed. */
+/**
+ * Each run of each resource the state holds, previewed through the seed, as
+ * the command line previews them: but those a removal took back whole.
+ */
 export async function previewsIn(
   world: EnvWorld,
   place: EnvPlanPlace,
@@ -324,6 +327,7 @@ export async function previewsIn(
   for (const [name, resource] of liveResources(state)) {
     const runs: EnvRunPreview[] = [];
     for (const run of [...resource.runs].reverse()) {
+      if (run.takenBack === true) continue;
       const subject = removalSubjectOf(
         run,
         { organizationId: state?.org.organizationId ?? '', env: state?.env ?? '' },

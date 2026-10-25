@@ -33,6 +33,7 @@
 
 import {
   BYTES_PER_MB,
+  seedDependencies,
   type EnvAction,
   type EnvActionGates,
   type EnvActionKind,
@@ -395,34 +396,64 @@ function dryRunRefusal(answer: SeedDryRunAnswer): string | undefined {
 }
 
 /**
- * Add the counts of a dry run to an action's objects, by object, or the
- * file's counts where its dry run read the org before what it draws from was
- * written: it counted none of those records, and said "Contact 0 to write"
- * of a run that writes three, its email gate counting all three.
+ * Add the counts of a dry run to an action's objects, by object. Where its
+ * dry run read the org before what an object draws from was written, the
+ * file's count stands in, as the most the run writes: the dry run counted
+ * none of those records, and the plan said "Contact 0 to write" of a run
+ * that wrote three; given the file's count as a count, it said "Contact 6 to
+ * write" of a run whose relation spread two over the two accounts written
+ * before it.
  */
 function withWouldCreate(
   objects: EnvPlanObject[],
   answer: SeedDryRunAnswer,
-  fileCounts?: ReadonlyMap<string, number>,
+  drawn?: ReadonlyMap<string, number>,
 ): EnvPlanObject[] {
   const merged = objects.map((object) => ({ ...object }));
   for (const result of answer.result.objectResults) {
-    const count = Math.max(result.recordsCreated, fileCounts?.get(result.objectApiName) ?? 0);
+    const most = drawn?.get(result.objectApiName);
+    const counted =
+      most !== undefined
+        ? { wouldCreate: Math.max(result.recordsCreated, most), atMost: true as const }
+        : { wouldCreate: result.recordsCreated };
     const at = merged.find((object) => object.object === result.objectApiName);
-    if (at) at.wouldCreate = count;
-    else merged.push({ object: result.objectApiName, wouldCreate: count });
+    if (at) Object.assign(at, counted);
+    else merged.push({ object: result.objectApiName, ...counted });
   }
   return merged;
 }
 
-/** The records the file gives each object of a resource. */
-function fileCountsOf(resolved: EnvFileResolved, name: string): Map<string, number> {
-  const resource = resolved.resources.find((each) => each.name === name);
+/**
+ * The objects of a resource whose records hang from records the org holds
+ * before its run — the children of a relation to `existing` parents, and
+ * what the template writes under those — with the file's count of each.
+ * What its dry run counts of these, it counts from what the org held when it
+ * read it; every other object it counts from the file alone, and exactly: a
+ * resource's contacts under its own accounts were given the file's six too,
+ * of which its dry run had rightly counted two.
+ */
+function drawnCountsOf(resolved: EnvFileResolved, name: string): Map<string, number> {
+  const template = resolved.resources.find((each) => each.name === name)?.run.template;
+  const relations = template?.relations ?? [];
+  const drawn = new Set(
+    relations
+      .filter((relation) => relation.parents.kind === 'existing')
+      .map((relation) => relation.childObject),
+  );
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const object of template?.objects ?? []) {
+      if (drawn.has(object.objectApiName)) continue;
+      if (seedDependencies(object, relations).some((parent) => drawn.has(parent))) {
+        drawn.add(object.objectApiName);
+        grew = true;
+      }
+    }
+  }
   return new Map(
-    (resource?.run.template.objects ?? []).map((object) => [
-      object.objectApiName,
-      object.recordCount,
-    ]),
+    (template?.objects ?? [])
+      .filter((object) => drawn.has(object.objectApiName))
+      .map((object) => [object.objectApiName, object.recordCount]),
   );
 }
 
@@ -559,14 +590,11 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     // A relation of it may draw existing parents from what they write: its
     // dry run read the org before they did, and counted none of those.
     const deps = before.get(draft.resource);
+    const drawn = deps !== undefined ? drawnCountsOf(input.resolved, draft.resource) : undefined;
     if (dry !== undefined && 'failed' in dry) {
       refusal ??= `its dry run did not answer: ${dry.failed}`;
     } else if (dry !== undefined) {
-      objects = withWouldCreate(
-        objects,
-        dry.answer,
-        deps !== undefined ? fileCountsOf(input.resolved, draft.resource) : undefined,
-      );
+      objects = withWouldCreate(objects, dry.answer, drawn);
       gates = {
         apiRequests: dry.answer.apiRequests.estimate,
         storageBytes: dry.answer.storage.bytes,
@@ -578,9 +606,9 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       refusal ??= 'it was not dry-run: plan again';
     }
     const why =
-      deps !== undefined && dry !== undefined
-        ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes: its records ` +
-          'are counted as the file gives them, and what it draws from those is not counted'
+      deps !== undefined && dry !== undefined && drawn !== undefined && drawn.size > 0
+        ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes: what it ` +
+          'draws from those records is counted at most as the file gives it'
         : draft.why;
     return {
       resource: draft.resource,
@@ -739,7 +767,9 @@ export function planLines(plan: EnvPlan): string[] {
     const counts = action.objects
       .map((object) => {
         const parts = [
-          object.wouldCreate !== undefined ? `${object.wouldCreate} to write` : '',
+          object.wouldCreate !== undefined
+            ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} to write`
+            : '',
           object.present !== undefined && object.present > 0 ? `${object.present} in the org` : '',
           (object.gone ?? 0) > 0 ? `${object.gone} gone` : '',
           (object.changed ?? 0) > 0 ? `${object.changed} changed` : '',
