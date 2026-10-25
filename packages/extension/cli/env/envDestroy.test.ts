@@ -347,7 +347,9 @@ describe('destroy', () => {
 
     expect(outcome.exitCode).toBe(0);
     const removal = world.calls.find(
-      (call) => call.args.includes('--remove') && call.args.join(' ').includes('runs/accounts/'),
+      (call) =>
+        call.args.includes('--remove') &&
+        call.args.join(' ').replace(/\\/g, '/').includes('runs/accounts/'),
     );
     expect(removal?.args).toContain('--accept-automation');
   });
@@ -378,7 +380,10 @@ describe('destroy', () => {
     let stop: ((signal: 'SIGTERM') => void) | undefined;
     const stopping: EnvStepDeps['runner'] = async (script, args, signal) => {
       const ran = await world.runner(script, args, signal);
-      if (args.includes('--remove') && args.join(' ').includes('runs/contacts/')) {
+      if (
+        args.includes('--remove') &&
+        args.join(' ').replace(/\\/g, '/').includes('runs/contacts/')
+      ) {
         stop?.('SIGTERM');
         return { ...ran, code: 143 };
       }

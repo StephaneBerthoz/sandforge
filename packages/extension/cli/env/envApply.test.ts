@@ -456,7 +456,8 @@ describe('how a step ends, and what the apply then does', () => {
   it('a script that cannot be started once another wrote: the apply stops, partial, naming what it did not run', async () => {
     const failing: CommandRunner = async (script, args, signal) => {
       const real = !args.includes('--dry-run') && !args.includes('--remove');
-      if (real && args.join(' ').includes('templates/accounts')) throw new Error('spawn EAGAIN');
+      if (real && args.join(' ').replace(/\\/g, '/').includes('templates/accounts'))
+        throw new Error('spawn EAGAIN');
       return world.runner(script, args, signal);
     };
 
@@ -476,7 +477,9 @@ describe('how a step ends, and what the apply then does', () => {
     const unstable: CommandRunner = async (script, args, signal) => {
       const ran = await world.runner(script, args, signal);
       const real = !args.includes('--dry-run') && !args.includes('--remove');
-      return real && args.join(' ').includes('accounts') ? { ...ran, code: 4 } : ran;
+      return real && args.join(' ').replace(/\\/g, '/').includes('accounts')
+        ? { ...ran, code: 4 }
+        : ran;
     };
 
     const outcome = await apply(resolvedOf(), {}, { runner: unstable });
