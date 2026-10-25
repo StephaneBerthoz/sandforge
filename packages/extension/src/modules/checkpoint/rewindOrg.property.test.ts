@@ -599,8 +599,12 @@ const FACT_DEFAULTS = factCombinations([])[0];
 /** A fixed seed: each property's histories are the same under each combination of facts. */
 const SEED = 1_792_700_234;
 
-/** Histories a property runs under each combination of facts. */
-const RUNS = 3;
+/**
+ * Histories a property runs under each combination of facts. One on a Windows
+ * runner, whose disk takes a rewind's journal some thirty times slower: the
+ * other runners try the histories, it tries the platform.
+ */
+const RUNS = process.platform === 'win32' ? 1 : 3;
 
 // ─── The properties ──────────────────────────────────────────────────────────
 
