@@ -135,6 +135,10 @@ Before a test session, a demo or a training, take a checkpoint of the org; after
 4. **Rewind \<alias\>…**, then type the org's alias: the records created since are deleted, the records changed since get their values back field by field, and the records deleted since come back from the recycle bin with their Ids, or, once it no longer holds them and you accept it, are made again with new Ids. The org is read again, and what still differs is named, with why.
 5. **Undo this rewind**, offered on the org's last rewind for 15 days, returns the org to how it was before the rewind and keeps what anyone changed since. What the rewind deleted comes back while the recycle bin holds it, and the preview names first what Undo could not bring back.
 
+![Checkpoints — an org's checkpoints, one about to expire, one kept until deleted, and a rewind that can still be undone](assets/screenshots/checkpoints.png)
+
+![Rewind preview — what a rewind would delete, give back and bring back, object by object, who last changed it, what it cannot undo, and its cost before anything is written](assets/screenshots/checkpoint-rewind.png)
+
 Checkpoints never takes a checkpoint of a production org nor rewinds one, with no setting or flag to lift it, and needs a user with View All Data and Modify All Data. It rewinds data, not metadata, users or files: [the guide](docs/modules/checkpoint.md) says what a rewind leaves as it is. From a checkout of this repository, the [`sandforge-checkpoint` script](docs/modules/checkpoint.md#from-the-command-line) takes, previews, rewinds and undoes the same way without the editor: between two test suites on a CI scratch org, say. An AI agent reaches the same commands, with Seed, Forge's record clone and the removal of a run, as the tools of [an MCP server](docs/mcp.md) run from the checkout, each write confirmed by the org's alias; the extension itself gives the model no tool.
 
 ---
@@ -145,7 +149,7 @@ Checkpoints never takes a checkpoint of a production org nor rewinds one, with n
 
 ![Forge results — the records a run created, their ids in the target, its emails and phone numbers neutralized, and the actions to verify or remove what it wrote](assets/screenshots/forge-results.png)
 
-![Home — orgs, health and the forge entry point](assets/screenshots/home.png)
+![Home — orgs, health, the forge entry point and the last checkpoint, ready to rewind](assets/screenshots/home.png)
 
 ![Sync — source and target orgs, emails and phone numbers neutralized by default, and a filtered object set](assets/screenshots/sync.png)
 

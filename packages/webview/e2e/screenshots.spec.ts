@@ -4,10 +4,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
+import type { CheckpointListEntry, CheckpointPreviewResponse } from '@sandforge/shared';
 import { MockBridge } from './helpers';
 import { encodeGif, type GifFrame } from './helpers/gifEncoder';
 import { readPng } from './helpers/readPng';
 import { MOCK_ORGS } from './fixtures';
+import { diffObject, listEntry, readyCheckpoint, USERS } from './fixtures/checkpoints';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
@@ -434,6 +436,123 @@ const MOCK_SYNC_OBJECTS = {
     'Task',
   ],
 };
+
+/** A day, in milliseconds. */
+const DAY_MS = 86_400_000;
+
+/**
+ * The instant `days` from FIXED_NOW.
+ *
+ * The checkpoint fixtures date from the moment a spec runs, since the page
+ * says each checkpoint's age and expiry from now. These shots run under a
+ * clock frozen at FIXED_NOW, against which a checkpoint dated from the real
+ * now reads as taken months ahead: every date the shots hand the page is set
+ * from here instead.
+ */
+const fromFixedNow = (days: number): string =>
+  new Date(FIXED_NOW.getTime() + days * DAY_MS).toISOString();
+
+/**
+ * The checkpoint the rewind shot previews: what people work on in the dev
+ * sandbox, taken two days ago before a UAT session, kept four weeks.
+ */
+const BEFORE_UAT = readyCheckpoint({
+  readFrom: fromFixedNow(-2),
+  takenAt: fromFixedNow(-2),
+  expiresAt: fromFixedNow(28),
+});
+
+/**
+ * The checkpoints of the dev sandbox, as `checkpoint:list` answers for it:
+ * the one taken before UAT; one taken before a demo, about to expire, with
+ * Keep; and a clean baseline kept until it is deleted, rewound to yesterday,
+ * whose rewind can still be undone — older than the recycle bin keeps
+ * records, which its line says, as the extension says it of any checkpoint
+ * that old.
+ */
+const MOCK_CHECKPOINTS: CheckpointListEntry[] = [
+  listEntry(BEFORE_UAT),
+  listEntry(
+    readyCheckpoint({
+      checkpointId: 'ck-before-demo',
+      name: 'Before demo',
+      readFrom: fromFixedNow(-12),
+      takenAt: fromFixedNow(-12),
+      expiresAt: fromFixedNow(2),
+    }),
+    { expiresSoon: true },
+  ),
+  listEntry(
+    readyCheckpoint({
+      checkpointId: 'ck-clean-baseline',
+      name: 'Clean baseline',
+      readFrom: fromFixedNow(-20),
+      takenAt: fromFixedNow(-20),
+      expiresAt: null,
+      lastRewind: { rewindId: 'rw-last', endedAt: fromFixedNow(-1), undoUntil: fromFixedNow(14) },
+    }),
+    { binReachSince: fromFixedNow(-15), undo: { rewindId: 'rw-last', until: fromFixedNow(14) } },
+  ),
+];
+
+/**
+ * What a rewind of the dev sandbox to "Before UAT" would do, as
+ * `checkpoint:preview` answers it, object by object: the contacts and
+ * accounts the session added deleted, the records it changed given their
+ * values back, and the few it deleted brought back from the recycle bin,
+ * with who last changed each. The org runs nothing as the rewind writes,
+ * and nothing is beyond a rewind: Rewind is offered as it stands.
+ */
+const MOCK_REWIND_PREVIEW: CheckpointPreviewResponse['payload'] = {
+  diff: {
+    checkpointId: BEFORE_UAT.checkpointId,
+    previewId: 'pv-before-uat',
+    readAt: fromFixedNow(0),
+    objects: [
+      diffObject('Contact', {
+        toDelete: { createdSince: 5, broughtBackSince: 0, comesBackWithParent: 0 },
+        toGiveBack: { records: 7, fields: 11, clearedLookups: 0 },
+        toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+        lastChangedBy: { [USERS.alice]: 9, [USERS.integration]: 5 },
+      }),
+      diffObject('Case', {
+        toGiveBack: { records: 12, fields: 12, clearedLookups: 0 },
+        lastChangedBy: { [USERS.integration]: 12 },
+      }),
+      diffObject('Account', {
+        toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
+        toGiveBack: { records: 4, fields: 9, clearedLookups: 0 },
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+        lastChangedBy: { [USERS.alice]: 8 },
+      }),
+    ],
+    undoCannot: [],
+    unread: [],
+    userNames: { [USERS.alice]: 'Alice Martin', [USERS.integration]: 'Integration User' },
+    activeLastHour: [],
+  },
+  automation: {
+    objectsRead: ['Contact', 'Case', 'Account'],
+    objects: [],
+    unread: [],
+    conditionsNotRead: 0,
+    conditionsBound: 25,
+    requests: 3,
+  },
+  estimate: { records: 34, apiRequests: 120, apiRequestsLeft: 14_900, seconds: 38, bytes: 0 },
+};
+
+/** Boot the Checkpoints page on the dev sandbox, its checkpoints listed. */
+async function openCheckpoints(page: import('@playwright/test').Page): Promise<MockBridge> {
+  const bridge = await openModule(page, 'checkpoint');
+  await page.waitForSelector('[data-testid="checkpoint-page"]');
+  await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+  await respondToAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+    checkpoints: MOCK_CHECKPOINTS,
+  });
+  await page.waitForSelector(`[data-testid="checkpoint-row-${BEFORE_UAT.checkpointId}"]`);
+  return bridge;
+}
 
 /** One object of a Forge graph, as discovery answers with it. */
 function forgeNode(
@@ -966,8 +1085,56 @@ test.describe('Marketplace Screenshots', () => {
     // answers. Leaving it unanswered shoots three blank cards.
     await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
     await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH);
+    // The KPI row reads the org list itself, apart from the read the panel
+    // makes as it boots: unanswered, the row stayed four grey slabs.
+    await respondToAll(page, 'org:list', 'org:list:response', { orgs: MOCK_ORGS });
+    // The Checkpoints tile says nothing until the org's checkpoints are listed.
+    await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+    await respondToAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+      checkpoints: MOCK_CHECKPOINTS,
+    });
+    // What the panel has seen run, as the extension announces each run, its
+    // start then its end, in its own words: a Seed of the UAT refresh
+    // template, then the clone of the account the Forge shots follow. The
+    // tile lists them, the week's count and the running count follow.
+    await bridge.stream([
+      {
+        type: 'operation:started',
+        payload: { operationId: 'op-seed-1', module: 'seed', description: 'Seed data generation' },
+      },
+      {
+        type: 'operation:completed',
+        payload: {
+          operationId: 'op-seed-1',
+          result: {
+            status: 'success',
+            totalRecords: MOCK_SEED_TEMPLATES.templates[0].totalRecords,
+          },
+        },
+      },
+      {
+        type: 'operation:started',
+        payload: {
+          operationId: 'op-forge-1',
+          module: 'forge',
+          description: 'Executing forge operation',
+        },
+      },
+      {
+        type: 'operation:completed',
+        payload: { operationId: 'op-forge-1', result: { status: MOCK_FORGE_RUN.status } },
+      },
+    ]);
     await page.waitForSelector('[data-testid="home-page"]');
+    await page.waitForSelector('[data-testid="home-kpi-row"]');
     await page.waitForSelector('[data-testid="forge-hero-card"]');
+    await page.waitForSelector('[data-testid="checkpoint-tile-latest"]');
+    await page.getByTestId('recent-op-item').nth(1).waitFor();
+    // The banner calls a sandbox empty whatever it holds: it reads nothing of
+    // the org, only that a sandbox is connected. Someone with a sandbox in
+    // use has closed it, and it stays closed.
+    await page.getByTestId('sandbox-banner-dismiss').click();
+    await blurFocus(page);
     await settle(page);
     await shoot(page, 'home');
   });
@@ -1126,6 +1293,29 @@ test.describe('Marketplace Screenshots', () => {
     await shoot(page, 'launcher', { launcher: true, maxHeight: 1000 });
   });
 
+  test('checkpoints', async ({ page }) => {
+    await openCheckpoints(page);
+    await settle(page);
+    await shoot(page, 'checkpoints');
+  });
+
+  test('checkpoint-rewind', async ({ page }) => {
+    const bridge = await openCheckpoints(page);
+    await page.getByTestId(`checkpoint-rewind-${BEFORE_UAT.checkpointId}`).click();
+    await bridge.waitForMessage('checkpoint:preview', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'checkpoint:preview',
+      'checkpoint:preview:response',
+      MOCK_REWIND_PREVIEW,
+    );
+    await page.waitForSelector('[data-testid="checkpoint-preview-table"]');
+    // The preview's heading takes the keyboard as it opens.
+    await blurFocus(page);
+    await settle(page);
+    await shoot(page, 'checkpoint-rewind', { maxHeight: 1400 });
+  });
+
   test('forge-simulation', async ({ page }) => {
     const bridge = await openForgeReview(page);
     await simulateFromReview(page, bridge);
@@ -1179,7 +1369,9 @@ test.describe('Marketplace Screenshots', () => {
     const run = await startRun(page, bridge);
     await finishRun(page, run);
     await settle(page);
-    await shoot(page, 'forge-results', { maxHeight: 1200 });
+    // The offer to take a checkpoint of the target sits above Verify and
+    // Remove since Checkpoints came: at 1200 pixels Remove fell off the foot.
+    await shoot(page, 'forge-results', { maxHeight: 1400 });
   });
 
   test('forge-flow', async ({ page }) => {
