@@ -14,6 +14,7 @@ import type {
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenRemovalPreview,
   FrozenRemovalResult,
   FrozenSelectProgress,
   FrozenSelectionSummary,
@@ -35,6 +36,7 @@ import {
   removalOrg,
   removeRunRecords,
   type RemovalOrg,
+  type RunRemovalOptions,
 } from '../../modules/forge/ForgeRunRemoval.js';
 import {
   listSweep,
@@ -81,6 +83,7 @@ import {
   frozenExtractPayloadSchema,
   frozenLoadPayloadSchema,
   frozenRemovePayloadSchema,
+  frozenRemovePreviewPayloadSchema,
   frozenRemoveSweepPayloadSchema,
   frozenRulesClearPayloadSchema,
   frozenVerifyPayloadSchema,
@@ -120,6 +123,7 @@ import {
   InsideRepoPathError,
   LoadConfigError,
   LoadGuardError,
+  LoadRecordsExceededError,
   MissingSaltError,
   NonReidentificationControl,
   PLATFORM_RECORDS_FILE_NAME,
@@ -208,9 +212,16 @@ const FROZEN_TYPES = new Set([
   'frozen:verify',
   'frozen:remove',
   'frozen:remove:sweep',
+  'frozen:remove:preview',
   'frozen:status',
   'frozen:rules:clear',
 ]);
+
+/**
+ * The code a replace is refused with, before anything is written, when a
+ * removal of the loads it replaces would leave records in the org.
+ */
+const REPLACE_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
 
 /** ConfigStore category for all frozen-dataset data. */
 const FROZEN_CATEGORY = 'frozen';
@@ -481,6 +492,122 @@ function keptByThePlatformNote(
   if (kept.length === 0) return '';
   const objects = kept.map(({ objectApiName, count }) => `${objectApiName} (${count})`).join(', ');
   return ` Kept in the org, the platform does not delete them: ${objects}.`;
+}
+
+/**
+ * Why a removal of the load a request names takes nothing, or undefined when
+ * it has records to take: no load recorded, another load since the one
+ * shown, one recorded before loads kept what they created, or none of its
+ * records left for a removal. Asked by the removal and by its preview alike,
+ * before either reads the org.
+ */
+function removalRefusalOf(
+  load: RecordedLoad | undefined,
+  request: { targetOrgId: string; loadedAt: string },
+): { message: string; code: string } | undefined {
+  if (!load) {
+    return {
+      message: 'No load into this org was recorded in this sas: there is nothing to remove.',
+      code: 'NO_LOAD',
+    };
+  }
+  if (load.orgId !== request.targetOrgId || load.endedAt !== request.loadedAt) {
+    return {
+      message:
+        'Another load was recorded since this one was shown, and nothing was removed: check what a removal takes now, then confirm it again.',
+      code: 'LOAD_CHANGED',
+    };
+  }
+  if (!load.created) {
+    return {
+      message:
+        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them, except those the load may have linked to.',
+      code: 'NOT_RECORDED',
+    };
+  }
+  if (loadRecordsLeft(load).length > 0) return undefined;
+  // What the load created that no removal takes is said, not counted as
+  // nothing created: see `loadRecordsKept`.
+  const kept = keptByThePlatformNote(loadRecordsKept(load));
+  if (load.removal) {
+    return {
+      message: `The records this load created were already removed, on ${load.removal.removedAt}.${kept}`,
+      code: 'ALREADY_REMOVED',
+    };
+  }
+  return kept
+    ? { message: `This load created no record a removal takes.${kept}`, code: 'NOTHING_TO_REMOVE' }
+    : { message: 'This load created no record to remove.', code: 'NOTHING_TO_REMOVE' };
+}
+
+/**
+ * The load's span as the target dated its writes, read back as it ended,
+ * and what earlier removals left on its records: what its removal, and the
+ * preview of one, read it by. This machine's clock is never compared with
+ * the org's. A load the target did not date — recorded before loads kept it,
+ * or whose dates could not all be read back — is dated by this machine's
+ * clock, as it began and as it wrote its last record, read on the org's clock
+ * as the removal starts.
+ */
+function removalSpanOf(
+  load: RecordedLoad,
+): Pick<
+  RunRemovalOptions,
+  | 'runStartedAt'
+  | 'runEndedAt'
+  | 'runDurationMs'
+  | 'runRecordedAt'
+  | 'removalStamps'
+  | 'removalSpans'
+> {
+  const span = load.writtenBetween;
+  const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
+  const ended = Date.parse(load.endedAt);
+  return {
+    ...(span
+      ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+      : {
+          ...(Number.isFinite(began) && Number.isFinite(ended)
+            ? { runDurationMs: Math.max(0, ended - began) }
+            : {}),
+          ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
+        }),
+    removalStamps: load.removalStamps,
+    removalSpans: load.removalSpans,
+  };
+}
+
+/**
+ * What a removal of the loads a reload replaces would leave in the org, per
+ * object, from the preview of each: the records it keeps as changed since,
+ * those of an object the user may not delete, those it cannot see and those
+ * it could not read. Empty when it would take them all.
+ */
+function leftByRemovalOf(
+  previews: ReadonlyArray<Pick<FrozenRemovalPreview, 'objects'>>,
+): Array<{ objectApiName: string; left: number; why: string[] }> {
+  const byObject = new Map<string, { left: number; why: Set<string> }>();
+  for (const { objects } of previews) {
+    for (const object of objects) {
+      const parts = [
+        object.keptChanged > 0 ? `${object.keptChanged} changed since the load` : '',
+        object.undeletable > 0 ? `${object.undeletable} the user may not delete` : '',
+        object.notVisible > 0 ? `${object.notVisible} out of the user's sight` : '',
+        object.unread > 0 ? `${object.unread} that could not be read` : '',
+      ].filter(Boolean);
+      const left = object.keptChanged + object.undeletable + object.notVisible + object.unread;
+      if (left === 0) continue;
+      const entry = byObject.get(object.objectApiName) ?? { left: 0, why: new Set<string>() };
+      entry.left += left;
+      for (const part of parts) entry.why.add(part);
+      byObject.set(object.objectApiName, entry);
+    }
+  }
+  return [...byObject].map(([objectApiName, { left, why }]) => ({
+    objectApiName,
+    left,
+    why: [...why],
+  }));
 }
 
 /**
@@ -811,6 +938,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         await this.writing.during(payloadText(msg, 'targetOrgId'), () =>
           this.handleRemoveSweep(msg),
         );
+        return true;
+      case 'frozen:remove:preview':
+        await this.handleRemovePreview(msg);
         return true;
       case 'frozen:status':
         await this.handleStatus(msg);
@@ -1381,6 +1511,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (err instanceof MissingSaltError) return 'SALT_MISSING';
     if (err instanceof VolumetryBudgetExceededError) return 'BUDGET_EXCEEDED';
     if (err instanceof LoadConfigError) return 'LOAD_CONFIG';
+    if (err instanceof LoadRecordsExceededError) return 'MAX_RECORDS';
     if (err instanceof TimeoutError) return 'TIMEOUT';
     return fallback;
   }
@@ -1988,6 +2119,27 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
       return;
     }
+    // A replace takes the loads before it back whole, or does not start:
+    // nothing purged, nothing inserted. Refused so, it is recorded as a load
+    // a check of its own stopped before it started.
+    const notReplaced = await this.replaceRefusal(parsed, config);
+    if (notReplaced) {
+      if (notReplaced.code === REPLACE_LEAVES_RECORDS) {
+        recordWriteRun(this.deps, {
+          action: 'frozen_load',
+          module: 'frozen',
+          operationId: msg.id,
+          orgId: parsed.targetOrgId,
+          outcome: 'stopped',
+          code: REPLACE_LEAVES_RECORDS,
+        });
+      }
+      sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, notReplaced.error, {
+        code: notReplaced.code,
+        retryable: notReplaced.retryable,
+      });
+      return;
+    }
 
     // The id of the request that started it, as Sync's runs use theirs: the
     // page knows it, and its Cancel reaches the registry's controller below,
@@ -2118,6 +2270,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         reload: parsed.reload,
         pilot: parsed.pilot ? {} : undefined,
         ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
+        ...(parsed.maxRecords !== undefined ? { maxRecords: parsed.maxRecords } : {}),
         onProgress: (event) => throttledProgress(event),
         onGuardDecision: (decision) => {
           guardDecision = strongerDecision(guardDecision, decision);
@@ -2351,6 +2504,18 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:load:preview:error');
     if (!config) return;
+    const notReplaced = await this.replaceRefusal(parsed, config);
+    if (notReplaced) {
+      sendHandlerError(
+        this.deps,
+        'frozen:load:preview',
+        'frozen:load:preview:error',
+        msg,
+        notReplaced.error,
+        { code: notReplaced.code, retryable: notReplaced.retryable },
+      );
+      return;
+    }
     try {
       const guard = new SasPathGuard();
       const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
@@ -2681,47 +2846,15 @@ export class FrozenDatasetHandler implements DomainHandler {
       });
       return;
     }
-    if (!load) {
-      refuse(
-        'No load into this org was recorded in this sas: there is nothing to remove.',
-        'NO_LOAD',
-      );
-      return;
-    }
-    if (load.orgId !== parsed.targetOrgId || load.endedAt !== parsed.loadedAt) {
-      refuse(
-        'Another load was recorded since this one was shown, and nothing was removed: check what a removal takes now, then confirm it again.',
-        'LOAD_CHANGED',
-      );
-      return;
-    }
-    if (!load.created) {
-      refuse(
-        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them, except those the load may have linked to.',
-        'NOT_RECORDED',
-      );
+    const refused = removalRefusalOf(load, parsed);
+    if (refused || !load) {
+      if (refused) refuse(refused.message, refused.code);
       return;
     }
     // What an earlier removal left, when one did: a removal that ended
     // partial marked the load, and the next one was refused as done already
     // while the status still counted the records it left.
     const plan = loadRecordsLeft(load);
-    if (plan.length === 0) {
-      // What the load created that no removal takes is said, not counted as
-      // nothing created: see `loadRecordsKept`.
-      const kept = keptByThePlatformNote(loadRecordsKept(load));
-      if (load.removal) {
-        refuse(
-          `The records this load created were already removed, on ${load.removal.removedAt}.${kept}`,
-          'ALREADY_REMOVED',
-        );
-      } else if (kept) {
-        refuse(`This load created no record a removal takes.${kept}`, 'NOTHING_TO_REMOVE');
-      } else {
-        refuse('This load created no record to remove.', 'NOTHING_TO_REMOVE');
-      }
-      return;
-    }
     const claim = store.filePath;
     if (this.removing.has(claim)) {
       refuse('The records of this load are being removed already.', 'DUPLICATE');
@@ -2747,6 +2880,221 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.removing.delete(claim);
       pending?.release();
     }
+  }
+
+  // ── frozen:remove:preview ──────────────────────────────────────────────
+
+  /**
+   * What a removal of the load would do, read as {@link handleRemove} reads
+   * it before its first write, and nothing written, to the org or to the sas:
+   * refused first, before the org is read, as the removal is — no load
+   * recorded, another load since the one named, one recorded before loads
+   * kept what they created, none of its records left to take — then Forge's
+   * removal, stopped before its first write (`RunRemovalOptions.previewOnly`),
+   * per object. Nothing is asked: Production Guard is not consulted for a
+   * confirmation, and what it would refuse is said among the refusals, with a
+   * target refreshed since the load, which a removal refuses too. No run is
+   * started, the sweep is not read, and nothing goes into the audit trail.
+   */
+  private async handleRemovePreview(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      frozenRemovePreviewPayloadSchema,
+      msg,
+      'frozen:remove:preview:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const config = this.requireConfig(msg, 'frozen:remove:preview:error');
+    if (!config) return;
+    const fail = (err: unknown, code: string, retryable = false): void =>
+      sendHandlerError(
+        this.deps,
+        'frozen:remove:preview',
+        'frozen:remove:preview:error',
+        msg,
+        err,
+        {
+          code,
+          retryable,
+        },
+      );
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const store = this.mappingStoreFor(sasDir, parsed.targetOrgId, guard);
+      const load = loadToRemove(await store.recordedLoads());
+      const refused = removalRefusalOf(load, parsed);
+      if (refused || !load) {
+        if (refused) fail(new Error(refused.message), refused.code);
+        return;
+      }
+      const planned = loadRecordsLeft(load).reduce((sum, object) => sum + object.ids.length, 0);
+      const refusals = this.removalGuardRefusals(load.orgId, planned);
+      let preview: Omit<FrozenRemovalPreview, 'refusals'>;
+      if (await store.isStale()) {
+        // Its records went with the refresh: a removal reads none of them.
+        refusals.push(
+          'The target org was refreshed after the load: the records it created went with the refresh, and a removal removes nothing.',
+        );
+        preview = { ...this.unreadPreviewOf(load, parsed.includeChanged === true), planned };
+      } else {
+        const conn = await getJsforceConnection(
+          load.orgId,
+          this.deps.orgRegistry,
+          this.deps.orgManager,
+        );
+        preview = await this.previewRemovalOf(conn, load, parsed.includeChanged === true);
+      }
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'frozen:remove:preview:response', {
+          preview: { ...preview, refusals },
+        }),
+      );
+    } catch (err: unknown) {
+      fail(err, this.errorCodeFor(err, 'REMOVE_PREVIEW_ERROR'), true);
+    }
+  }
+
+  /**
+   * What Production Guard would refuse a removal of `planned` records of the
+   * load for, asked without a confirmation: nothing for a sandbox or a
+   * Developer Edition org, the delete of a production org refused, and
+   * without the guard, everything.
+   */
+  private removalGuardRefusals(orgId: string, planned: number): string[] {
+    const productionGuard = this.deps.infraServices?.productionGuard;
+    if (!productionGuard) return [PRODUCTION_GUARD_MISSING.message];
+    const check = productionGuard.check({
+      orgId,
+      orgTier: this.targetTier(orgId),
+      operation: 'delete',
+      objectName: 'the records a Frozen load created',
+      recordCount: planned,
+      module: 'frozen',
+    });
+    return check.allowed
+      ? []
+      : [`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`];
+  }
+
+  /**
+   * What a removal of `load` would do, read before its first write and
+   * nothing written: Forge's removal of the records the mapping says the load
+   * created and no removal took yet, stopped before its first write, dated as
+   * the removal dates the load (`removalSpanOf`).
+   */
+  private async previewRemovalOf(
+    conn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    load: RecordedLoad,
+    includeChanged: boolean,
+  ): Promise<Omit<FrozenRemovalPreview, 'refusals'>> {
+    const plan = loadRecordsLeft(load);
+    const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove:preview'), plan, {
+      ...removalSpanOf(load),
+      includeChanged,
+      previewOnly: true,
+    });
+    if (!outcome.preview) throw new Error('The removal preview stopped before it was through.');
+    return {
+      ...this.unreadPreviewOf(load, includeChanged),
+      planned: plan.reduce((sum, object) => sum + object.ids.length, 0),
+      objects: outcome.preview.objects.map((object): FrozenRemovalPreview['objects'][number] => ({
+        objectApiName: object.objectApiName,
+        planned: object.planned,
+        toDelete: object.toDelete,
+        alreadyGone: object.alreadyGone,
+        changedSince: object.changedSince,
+        keptChanged: object.keptChanged,
+        changedBy: object.changedBy,
+        undeletable: object.undeletable,
+        notVisible: object.notVisible,
+        unread: object.unread,
+        reasons: object.reasons,
+      })),
+      userNames: outcome.preview.userNames,
+    };
+  }
+
+  /** A preview of the load's removal with nothing read of the org: its load, and what stays. */
+  private unreadPreviewOf(
+    load: RecordedLoad,
+    includeChanged: boolean,
+  ): Omit<FrozenRemovalPreview, 'refusals'> {
+    const keptByThePlatform = loadRecordsKept(load);
+    return {
+      loadedAt: load.endedAt,
+      includeChanged,
+      planned: 0,
+      objects: [],
+      userNames: {},
+      ...(load.removal ? { leftBy: load.removal.removedAt } : {}),
+      ...(keptByThePlatform.length > 0 ? { keptByThePlatform } : {}),
+    };
+  }
+
+  /**
+   * Why a reload asked to replace the loads before it (`replace`) may not
+   * start, or undefined when it may: a removal of them would leave records in
+   * the org — kept
+   * as changed since the load, of an object the user may not delete, out of
+   * the user's sight, unread — or when one of them was recorded before loads
+   * kept what they created: loaded again beside what they leave, the dataset
+   * would stand in the target twice, and the reload's purge would delete what
+   * someone changed since, which the removal keeps. Read with the removal's
+   * own preview of each load whose records are still to take, before
+   * anything is written. A load or a reload that does not replace, a pilot,
+   * which purges nothing, and a target refreshed since its loads, which took
+   * their records, are not asked.
+   *
+   * @returns The refusal, under {@link REPLACE_LEAVES_RECORDS}; or the failure
+   *   of the reads that would tell, which refuses the request too.
+   */
+  private async replaceRefusal(
+    request: { targetOrgId: string; reload?: boolean; pilot?: boolean; replace?: boolean },
+    config: FrozenProjectConfig,
+  ): Promise<{ error: unknown; code: string; retryable: boolean } | undefined> {
+    if (request.replace !== true || request.reload !== true || request.pilot === true) {
+      return undefined;
+    }
+    let refusal: string | undefined;
+    try {
+      const guard = new SasPathGuard();
+      const sasDir = guard.assertOutsideRepo(this.resolveSasDir(config));
+      const store = this.mappingStoreFor(sasDir, request.targetOrgId, guard);
+      const loads = await store.recordedLoads();
+      if (loads.length === 0 || (await store.isStale())) return undefined;
+      if (loads.some((load) => !load.created)) {
+        refusal =
+          'A load recorded before loads kept what they created is in this sas: which of its records it created cannot be told, and a reload leaves in place those it may have linked, so it would not replace that load whole. Nothing was written.';
+      } else {
+        const conn = await getJsforceConnection(
+          request.targetOrgId,
+          this.deps.orgRegistry,
+          this.deps.orgManager,
+        );
+        const previews: Array<Omit<FrozenRemovalPreview, 'refusals'>> = [];
+        for (const load of loads) {
+          if (loadRecordsLeft(load).length === 0) continue;
+          previews.push(await this.previewRemovalOf(conn, load, false));
+        }
+        const left = leftByRemovalOf(previews);
+        if (left.length > 0) {
+          const total = left.reduce((sum, object) => sum + object.left, 0);
+          refusal =
+            `A removal of the loads this reload replaces would leave ${total} of their records in ` +
+            `the org — ${left.map((o) => `${o.objectApiName} (${o.left}: ${o.why.join(', ')})`).join('; ')}: ` +
+            'loaded again, the dataset would stand beside them, and the reload would delete what ' +
+            'was changed since. Nothing was written. Take the load back first with a removal — ' +
+            'records changed since go too when it is told to include them — then load the ' +
+            'dataset again.';
+        }
+      }
+    } catch (err: unknown) {
+      return { error: err, code: this.errorCodeFor(err, 'LOAD_ERROR'), retryable: true };
+    }
+    return refusal === undefined
+      ? undefined
+      : { error: new Error(refusal), code: REPLACE_LEAVES_RECORDS, retryable: false };
   }
 
   /** Answer a `frozen:remove` that removes nothing, on its error channel. */
@@ -2922,15 +3270,6 @@ export class FrozenDatasetHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      // The load's span as the target dated its writes, read back as it
-      // ended; this machine's clock is never compared with the org's. A load
-      // the target did not date — recorded before loads kept it, or whose
-      // dates could not all be read back — is dated by this machine's clock,
-      // as it began and as it wrote its last record, read on the org's clock
-      // as the removal starts.
-      const span = load.writtenBetween;
-      const began = load.startedAt === undefined ? Number.NaN : Date.parse(load.startedAt);
-      const ended = Date.parse(load.endedAt);
       // Made by the removal once it has read the load's records: a child the
       // sweep deletes under one of them restamps that record when a roll-up
       // counts it, which read afterwards was a change since the load.
@@ -2949,16 +3288,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           }
         : undefined;
       const outcome = await removeRunRecords(removalOrg(conn, 'frozen:remove'), plan, {
-        ...(span
-          ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
-          : {
-              ...(Number.isFinite(began) && Number.isFinite(ended)
-                ? { runDurationMs: Math.max(0, ended - began) }
-                : {}),
-              ...(Number.isFinite(ended) ? { runRecordedAt: new Date(ended) } : {}),
-            }),
-        removalStamps: load.removalStamps,
-        removalSpans: load.removalSpans,
+        ...removalSpanOf(load),
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'frozen:remove'),
         includeChanged,

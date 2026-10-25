@@ -96,6 +96,11 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     channel: 'sync:config:delete',
     reason: 'Nothing deletes a saved sync configuration yet.',
   },
+  {
+    channel: 'frozen:remove:preview',
+    reason:
+      'sandforge-frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',
+  },
 ];
 
 function repoPath(...parts: string[]): string {

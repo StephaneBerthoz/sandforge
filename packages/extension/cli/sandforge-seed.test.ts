@@ -218,6 +218,57 @@ describe('parseArgs — relations', () => {
     expect(args.objects[0].recordCount).toBe(10);
   });
 
+  it('draws the parents from the records --parent-ids names, in that order, and counts the children from them', () => {
+    const args = parseArgs(
+      argv(
+        '--target',
+        'T',
+        '--object',
+        'Contact:1',
+        '--relation',
+        'Contact.AccountId=Account',
+        '--parent-ids',
+        '001000000000002AAA, 001000000000001',
+        '--per-parent',
+        '2',
+      ),
+    );
+
+    expect(args.relations[0].parents).toEqual({
+      kind: 'records',
+      ids: ['001000000000002AAA', '001000000000001'],
+    });
+    expect(args.objects).toEqual([{ objectApiName: 'Contact', recordCount: 4 }]);
+  });
+
+  it('refuses --parent-ids with what reads the parents of the org, ids that are not ids, and a record named twice', () => {
+    const relation = [
+      '--target',
+      'T',
+      '--object',
+      'Contact:1',
+      '--relation',
+      'Contact.AccountId=Account',
+    ];
+    const ids = ['--parent-ids', '001000000000001AAA'];
+    for (const line of [
+      [...ids, '--existing'],
+      ['--where', "Industry = 'Energy'", ...ids],
+      [...ids, '--parent-limit', '3'],
+    ]) {
+      const { code, message } = refuse(...relation, ...line);
+      expect(code).toBe(2);
+      expect(message).toContain('--parent-ids names the parents');
+    }
+    expect(
+      refuse(...relation, '--parent-ids', "001000000000001AAA,0010' OR Id != '").message,
+    ).toContain('15 or 18 letters and digits');
+    expect(
+      refuse(...relation, '--parent-ids', '001000000000001AAA,001000000000001').message,
+    ).toContain('names a record twice');
+    expect(refuse(...relation, '--parent-ids', ' , ').message).toContain('wants record ids');
+  });
+
   it('refuses a relation option given before any relation', () => {
     const { code, message } = refuse(...accountsThenContacts, '--per-parent', '3');
     expect(code).toBe(2);

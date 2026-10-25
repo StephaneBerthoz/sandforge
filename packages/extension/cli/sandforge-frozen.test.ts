@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   discoveryLine,
+  FROZEN_PREVIEW_UNREAD,
   messageLines,
   parseArgs,
   removalAsks,
   removalPlanLines,
+  removalPreviewLines,
   typeOrg,
 } from './sandforge-frozen.js';
 
@@ -137,6 +139,93 @@ describe('parseArgs', () => {
       code: 2,
       message: expect.stringContaining('go with remove'),
     });
+  });
+
+  it('reads a removal told only to say what it would do, which removes nothing unasked', () => {
+    expect(parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT')).preview).toBe(false);
+    expect(
+      parseArgs(argv('remove', '--config', 'f.json', '--target', 'TGT', '--preview', '--json')),
+    ).toMatchObject({ step: 'remove', preview: true, json: true });
+  });
+
+  it('refuses a preview of another step than remove, pointing a load at its dry run, and a preview with a sweep', () => {
+    expect(refuse('load', '--config', 'f.json', '--target', 'TGT', '--preview')).toMatchObject({
+      code: 2,
+      message: expect.stringContaining('a load says what it would do with --dry-run'),
+    });
+    for (const sweep of ['--sweep', '--sweep-list']) {
+      expect(
+        refuse('remove', '--config', 'f.json', '--target', 'TGT', '--preview', sweep),
+      ).toMatchObject({ code: 2, message: expect.stringContaining('--preview deletes nothing') });
+    }
+  });
+
+  it('reads the most records a load may insert, a whole number, with load alone', () => {
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--max-total', '120')),
+    ).toMatchObject({ step: 'load', maxTotal: 120 });
+    expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT'))).not.toHaveProperty(
+      'maxTotal',
+    );
+    for (const bad of ['0', '1.5', '-3', 'many', '1000001']) {
+      expect(
+        refuse('load', '--config', 'f.json', '--target', 'TGT', '--max-total', bad),
+      ).toMatchObject({ code: 2, message: expect.stringContaining('--max-total takes') });
+    }
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--max-total', '3'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('--max-total goes with load') });
+  });
+});
+
+describe('removalPreviewLines', () => {
+  it('says per object what a removal would delete, keep and find gone, who changed what, what it would be refused for, and what it cannot read', () => {
+    expect(
+      removalPreviewLines({
+        loadedAt: '2026-10-20T10:05:00.000Z',
+        includeChanged: false,
+        planned: 4,
+        objects: [
+          {
+            objectApiName: 'Contact',
+            planned: 3,
+            toDelete: 1,
+            alreadyGone: 1,
+            changedSince: 1,
+            keptChanged: 1,
+            changedBy: { '005000000000002AAA': 1 },
+            undeletable: 0,
+            notVisible: 0,
+            unread: 0,
+            reasons: [],
+          },
+          {
+            objectApiName: 'Account',
+            planned: 1,
+            toDelete: 1,
+            alreadyGone: 0,
+            changedSince: 0,
+            keptChanged: 0,
+            changedBy: {},
+            undeletable: 0,
+            notVisible: 0,
+            unread: 0,
+            reasons: [],
+          },
+        ],
+        userNames: { '005000000000002AAA': 'A Tester' },
+        keptByThePlatform: [{ objectApiName: 'BusinessHours', count: 1 }],
+        refusals: ['Operation blocked by Production Guard: delete is not allowed'],
+      }),
+    ).toEqual([
+      'preview: what a removal would do; nothing was deleted',
+      '  Contact: 1 to delete, 1 gone already, 1 kept, changed since the load of 3',
+      '      last changed by: A Tester 1',
+      '  Account: 1 to delete of 1',
+      'kept: the platform does not delete them — BusinessHours (1)',
+      'a removal would be refused: Operation blocked by Production Guard: delete is not allowed',
+      FROZEN_PREVIEW_UNREAD,
+    ]);
   });
 });
 

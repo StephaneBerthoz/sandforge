@@ -636,6 +636,8 @@ const FrozenMessages = [
   msg('frozen:remove:response'),
   msg('frozen:remove:sweep'),
   msg('frozen:remove:sweep:response'),
+  msg('frozen:remove:preview'),
+  msg('frozen:remove:preview:response'),
   msg('frozen:status'),
   msg('frozen:status:response'),
   msg('frozen:rules:clear'),
@@ -649,6 +651,7 @@ const FrozenMessages = [
   msg('frozen:verify:error'),
   msg('frozen:remove:error'),
   msg('frozen:remove:sweep:error'),
+  msg('frozen:remove:preview:error'),
   msg('frozen:rules:clear:error'),
 ] as const;
 export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);

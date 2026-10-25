@@ -9,6 +9,9 @@ import { SasReferenceIdMappingStore } from './SasReferenceIdMappingStore.js';
 import {
   FrozenDatasetLoader,
   LoadConfigError,
+  LoadRecordsExceededError,
+  loadPlanRecords,
+  loadRecordsRefusal,
   type FrozenDatasetLoaderDeps,
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
@@ -695,5 +698,58 @@ describe('FrozenDatasetLoader — a dataset that does not say it left out what i
       expect(plan.removals.some((r) => r.reason === 'may-hold-masks')).toBe(false);
       expect(await sentSsn({ manifest })).toEqual(['***-**-1234', '***-**-1234']);
     }
+  });
+});
+
+describe('FrozenDatasetLoader — the records a load may insert', () => {
+  it('counts what a load would insert as its preview counts it', async () => {
+    const s = scenario();
+    const sasDir = makeTmpDir();
+    const plan = await new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, s)).planLoad(
+      options(s.dataset, sasDir, { reload: true }),
+    );
+    // One account, the other found by its key on a reload, and two contacts.
+    expect(loadPlanRecords(plan)).toBe(3);
+    expect(loadRecordsRefusal(3, 3)).toBeUndefined();
+    expect(loadRecordsRefusal(3, undefined)).toBeUndefined();
+    expect(loadRecordsRefusal(4, 3)).toContain('would insert 4 record(s), more than the 3 it may');
+  });
+
+  it('refuses a reload past the records it may insert before its purge and its first write, the mapping left as it was', async () => {
+    // A load held to the count its preview gave writes nothing more than was
+    // previewed: a dataset or a target that changed since is said, not loaded.
+    const s = scenario();
+    const sasDir = makeTmpDir();
+    await earlierLoad(sasDir);
+    const mappingBefore = fs
+      .readdirSync(sasDir)
+      .map((name) => [name, fs.readFileSync(path.join(sasDir, name), 'utf8')]);
+    const calls: DmlCall[] = [];
+
+    await expect(
+      new FrozenDatasetLoader(makeDeps(makeWriter(calls), sasDir, s)).load(
+        options(s.dataset, sasDir, { reload: true, maxRecords: 2 }),
+      ),
+    ).rejects.toThrow(LoadRecordsExceededError);
+
+    expect(calls).toEqual([]);
+    expect(
+      fs
+        .readdirSync(sasDir)
+        .map((name) => [name, fs.readFileSync(path.join(sasDir, name), 'utf8')]),
+    ).toEqual(mappingBefore);
+  });
+
+  it('loads what it was previewed with when held to that count', async () => {
+    const s = scenario();
+    const sasDir = makeTmpDir();
+    const calls: DmlCall[] = [];
+
+    // Not a reload: both accounts go in, and both contacts.
+    const report = await new FrozenDatasetLoader(makeDeps(makeWriter(calls), sasDir, s)).load(
+      options(s.dataset, sasDir, { maxRecords: 4 }),
+    );
+
+    expect(report.perObject.reduce((sum, o) => sum + o.inserted, 0)).toBe(4);
   });
 });

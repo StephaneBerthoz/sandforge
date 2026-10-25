@@ -106,7 +106,10 @@ import { FieldMapper } from '../src/modules/seed/FieldMapper.js';
 import { ReferenceLinker } from '../src/modules/seed/ReferenceLinker.js';
 import { FakerFallback } from '../src/modules/seed/FakerFallback.js';
 import { AIDataGenerator } from '../src/modules/seed/AIDataGenerator.js';
-import { readExistingParentIds } from '../src/modules/seed/existingParents.js';
+import {
+  readExistingParentIds,
+  readPresentParentIds,
+} from '../src/modules/seed/existingParents.js';
 import { describedFieldsOf } from '../src/modules/seed/describedFields.js';
 import { seedTemplatePayloadSchema } from '../src/bridge/validatePayload.js';
 import { personRecordTypes, templateForAccountKinds } from '../src/modules/seed/seedRecordTypes.js';
@@ -319,6 +322,15 @@ Relations (with --object; the options after a --relation apply to it):
   --where <condition>    only records meeting this SOQL WHERE condition
                          (implies --existing)
   --parent-limit <n>     the most records --existing reads (default: 10)
+  --parent-ids <id>[,<id>]
+                         draw the parents from these records, by id, in this
+                         order: at most 2000, 15 or 18 characters each, each
+                         once. Each must be a record of the parent object the
+                         org holds: one that is not, or no longer is, refuses
+                         the run before its first write, named. Not with
+                         --existing, --where or --parent-limit. A template file
+                         gives the same as "parents": {"kind": "records",
+                         "ids": [...]}
 
 Exit codes: 0 the run finished, some of its records refused included (read the
 summary for per-object failures), or the removal took every record it set out
@@ -404,6 +416,37 @@ const RELATION_RE =
 /** How many existing parents a relation reads when --parent-limit does not say. */
 const DEFAULT_PARENT_LIMIT = 10;
 
+/** Why --parent-ids goes with none of the options that read the org's own parents. */
+const PARENT_IDS_ALONE =
+  '--parent-ids names the parents: it goes with neither --existing, --where nor --parent-limit.';
+
+/** A record id as an org writes one: 15 letters and digits, or 18. */
+const RECORD_ID_RE = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * The ids `--parent-ids` gives, comma-separated, each a record id, each
+ * record once, at most as many as a relation reads of the org's own.
+ */
+function parentIdsOf(raw: string | undefined, refuse: (line: string) => never): string[] {
+  const ids = (raw ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id !== '');
+  const most = SEED_RELATION_LIMITS.maxExistingParents;
+  if (ids.length === 0) refuse('--parent-ids wants record ids, comma-separated.');
+  if (ids.length > most) refuse(`--parent-ids takes ${most} ids at most, not ${ids.length}.`);
+  const notIds = ids.filter((id) => !RECORD_ID_RE.test(id));
+  if (notIds.length > 0) {
+    refuse(
+      `--parent-ids takes record ids, 15 or 18 letters and digits, not "${notIds.slice(0, 3).join('", "')}".`,
+    );
+  }
+  if (new Set(ids.map((id) => id.slice(0, 15))).size !== ids.length) {
+    refuse('--parent-ids names a record twice: give each parent once.');
+  }
+  return ids;
+}
+
 /**
  * The relations on the command line, each with the options that follow it up
  * to the next --relation.
@@ -421,6 +464,7 @@ function parseRelations(args: string[], refuse: (line: string) => never): SeedRe
   const existing = (
     relation: SeedRelation,
   ): Extract<SeedRelation['parents'], { kind: 'existing' }> => {
+    if (relation.parents.kind === 'records') refuse(PARENT_IDS_ALONE);
     if (relation.parents.kind !== 'existing') {
       relation.parents = { kind: 'existing', limit: DEFAULT_PARENT_LIMIT };
     }
@@ -451,6 +495,7 @@ function parseRelations(args: string[], refuse: (line: string) => never): SeedRe
       '--existing',
       '--where',
       '--parent-limit',
+      '--parent-ids',
     ].includes(flag);
     if (!isRelationOption) continue;
     const current = relations.at(-1);
@@ -482,6 +527,9 @@ function parseRelations(args: string[], refuse: (line: string) => never): SeedRe
     } else if (flag === '--where') {
       if (!value?.trim()) refuse('--where wants a SOQL condition.');
       existing(relation).where = value;
+    } else if (flag === '--parent-ids') {
+      if (relation.parents.kind === 'existing') refuse(PARENT_IDS_ALONE);
+      relation.parents = { kind: 'records', ids: parentIdsOf(value, refuse) };
     } else {
       existing(relation).limit = wholeIn(value, 1, SEED_RELATION_LIMITS.maxExistingParents, flag);
     }
@@ -507,6 +555,8 @@ function countChildren(
     let parents: number;
     if (relation.parents.kind === 'existing') {
       parents = relation.parents.limit;
+    } else if (relation.parents.kind === 'records') {
+      parents = relation.parents.ids.length;
     } else {
       const parent = counted.find((object) => object.objectApiName === relation.parentObject);
       if (!parent || relation.parentObject === relation.childObject) {
@@ -543,6 +593,7 @@ const RUN_FLAGS: CommandFlags = {
     '--ratio',
     '--where',
     '--parent-limit',
+    '--parent-ids',
   ],
 };
 
@@ -1119,6 +1170,8 @@ export function seedOrchestrator(deps: {
   describeCreateableFields: NonNullable<SeedOrchestratorDependencies['describeCreateableFields']>;
   describeVisibleFields?: SeedOrchestratorDependencies['describeVisibleFields'];
   readExistingParentIds: NonNullable<SeedOrchestratorDependencies['readExistingParentIds']>;
+  readPresentParentIds?: SeedOrchestratorDependencies['readPresentParentIds'];
+  describeKeyPrefix?: SeedOrchestratorDependencies['describeKeyPrefix'];
   describePicklistValues?: SeedOrchestratorDependencies['describePicklistValues'];
   describeRequiredFields?: SeedOrchestratorDependencies['describeRequiredFields'];
   objectAccess?: SeedOrchestratorDependencies['objectAccess'];
@@ -1131,6 +1184,8 @@ export function seedOrchestrator(deps: {
     ...(deps.signal ? { signal: deps.signal } : {}),
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
+    ...(deps.readPresentParentIds ? { readPresentParentIds: deps.readPresentParentIds } : {}),
+    ...(deps.describeKeyPrefix ? { describeKeyPrefix: deps.describeKeyPrefix } : {}),
     describeCreateableFields: deps.describeCreateableFields,
     ...(deps.describeVisibleFields ? { describeVisibleFields: deps.describeVisibleFields } : {}),
     ...(deps.describePicklistValues ? { describePicklistValues: deps.describePicklistValues } : {}),
@@ -1314,8 +1369,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     const parents =
       relation.parents.kind === 'generated'
         ? `the ${relation.parentObject} records this run writes`
-        : `at most ${relation.parents.limit} ${relation.parentObject} records already in the org` +
-          (relation.parents.where ? ` where ${relation.parents.where}` : '');
+        : relation.parents.kind === 'records'
+          ? `the ${relation.parents.ids.length} ${relation.parentObject} records named by id`
+          : `at most ${relation.parents.limit} ${relation.parentObject} records already in the org` +
+            (relation.parents.where ? ` where ${relation.parents.where}` : '');
     const count = args.objects.find((o) => o.objectApiName === relation.childObject)?.recordCount;
     log(
       `  relation ${relation.childObject}.${relation.lookupField}: up to ${count} record(s), ` +
@@ -1558,6 +1615,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // a read writes nothing.
     readExistingParentIds: (objectApiName, where, limit) =>
       readExistingParentIds(conn, objectApiName, where, limit),
+    // Parents named by id are checked before the first write, dry run or not.
+    readPresentParentIds: (objectApiName, ids) => readPresentParentIds(conn, objectApiName, ids),
+    describeKeyPrefix: described.keyPrefix,
     describeCreateableFields: described.createable,
     describeVisibleFields: described.visible,
     describePicklistValues: described.picklistValues,

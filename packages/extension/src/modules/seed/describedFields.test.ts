@@ -109,6 +109,19 @@ describe('describedFieldsOf', () => {
     expect(describe.mock.calls.map(([name]) => name)).toEqual(['Account', 'Contact']);
   });
 
+  it("reads the key prefix of an object's ids from the same describe, and none where it gives none", async () => {
+    const describe = vi.fn(async (objectApiName: string) =>
+      objectApiName === 'Account'
+        ? { ...ACCOUNT, keyPrefix: '001' }
+        : { fields: [], keyPrefix: null },
+    );
+    const fields = describedFieldsOf(describe);
+    expect(await fields.keyPrefix('Account')).toBe('001');
+    expect(await fields.keyPrefix('AccountHistory')).toBeUndefined();
+    await fields.createable('Account');
+    expect(describe).toHaveBeenCalledTimes(2);
+  });
+
   it('fails each read of an object its describe fails for', async () => {
     const fields = describedFieldsOf(async () => Promise.reject(new Error('NOT_FOUND')));
     await expect(fields.createable('Knowledge__kav')).rejects.toThrow('NOT_FOUND');

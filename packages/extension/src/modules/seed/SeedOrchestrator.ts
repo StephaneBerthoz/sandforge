@@ -27,6 +27,7 @@ import type { FieldMapper } from './FieldMapper';
 import type { ReferenceLinker } from './ReferenceLinker';
 import type { SeedGrappeAdapter } from './SeedGrappeAdapter';
 import { sendRefusedRowsAgain, type SentAgain } from './sendRefusedRowsAgain.js';
+import { recordParentsRefusals } from './existingParents.js';
 import type { CoreServices } from '../../services.js';
 
 /**
@@ -206,6 +207,17 @@ export interface SeedOrchestratorDependencies {
     where: string | undefined,
     limit: number,
   ) => Promise<string[]>;
+  /**
+   * Of the ids a relation names its parents by, those of records of
+   * `objectApiName` the org holds. Asked before the run's first write, with
+   * {@link describeKeyPrefix}: a relation naming a record no longer in the
+   * org, or one of another object, refuses the run, each named. Without it
+   * such a relation cannot be checked, and the run is refused before it
+   * writes.
+   */
+  readPresentParentIds?: (objectApiName: string, ids: readonly string[]) => Promise<string[]>;
+  /** The first three characters of the ids of `objectApiName`, when its describe gives them. */
+  describeKeyPrefix?: (objectApiName: string) => Promise<string | undefined>;
   /** Draws the children of a `range` relation; `Math.random` unless a caller fixes it. */
   random?: () => number;
   /**
@@ -259,6 +271,16 @@ export class SeedOrchestrator {
         validation.errors.map((e) => e.message),
         this.deps.now(),
       );
+    }
+
+    // Parents named by id are checked against the org before the first
+    // write: they are another run's records, which may have gone since.
+    const refusals = await recordParentsRefusals(template.relations, {
+      ...(this.deps.describeKeyPrefix ? { keyPrefixOf: this.deps.describeKeyPrefix } : {}),
+      ...(this.deps.readPresentParentIds ? { presentIds: this.deps.readPresentParentIds } : {}),
+    });
+    if (refusals.length > 0) {
+      return buildFailureResult(template.id, operationId, refusals, this.deps.now());
     }
 
     const totalRecords = template.objects.reduce((sum, o) => sum + o.recordCount, 0);
@@ -481,6 +503,11 @@ export class SeedOrchestrator {
     let parents: string[];
     if (relation.parents.kind === 'generated') {
       parents = existingIds.get(parent) ?? [];
+    } else if (relation.parents.kind === 'records') {
+      // Checked before the run's first write: each is a record of the parent
+      // object the org holds. Placed in the order given, as the org's own are
+      // placed in the order it returns them.
+      parents = [...relation.parents.ids];
     } else {
       const read = this.deps.readExistingParentIds;
       if (!read) {

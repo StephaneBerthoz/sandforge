@@ -554,6 +554,119 @@ describe('--template-file', () => {
   });
 });
 
+describe('--template-file with parents named by id', () => {
+  /** Accounts another resource created, by the ids an environment hands over. */
+  const ACCOUNTS = ['001000000000001AAA', '001000000000002AAA'];
+
+  /**
+   * The fake org, its assets taking an account, its accounts' ids starting
+   * 001, and holding of the accounts named those in `held`.
+   */
+  function orgHolding(held: readonly string[]) {
+    const org = fakeOrg();
+    const conn = vi.mocked(makeConn)({} as never) as unknown as {
+      query: (soql: string) => Promise<unknown>;
+      describe: (objectApiName: string) => Promise<unknown>;
+      sobject: (objectApiName: string) => Record<string, unknown>;
+    };
+    const assetWithAccount = {
+      ...ASSET,
+      keyPrefix: '02i',
+      fields: [
+        ...ASSET.fields,
+        {
+          name: 'AccountId',
+          type: 'reference',
+          createable: true,
+          nillable: true,
+          length: 18,
+          referenceTo: ['Account'],
+          defaultedOnCreate: false,
+          picklistValues: [],
+        },
+      ],
+    };
+    const described = (objectApiName: string) =>
+      objectApiName === 'Account' ? { ...ACCOUNT, keyPrefix: '001' } : assetWithAccount;
+    const asked: string[] = [];
+    const query = conn.query;
+    conn.query = async (soql: string) => {
+      if (soql.startsWith('SELECT Id FROM Account WHERE Id IN')) {
+        asked.push(soql);
+        return { totalSize: held.length, done: true, records: held.map((Id) => ({ Id })) };
+      }
+      return query(soql);
+    };
+    conn.describe = async (objectApiName: string) => described(objectApiName);
+    const sobject = conn.sobject;
+    conn.sobject = (objectApiName: string) => ({
+      ...sobject(objectApiName),
+      describe: async () => described(objectApiName),
+    });
+    return { ...org, asked };
+  }
+
+  /** Two assets, one under each account named. */
+  function assetsUnderAccounts(): string {
+    const file = join(dir, 'assets-under-accounts.json');
+    writeFileSync(
+      file,
+      JSON.stringify(
+        templateJson({
+          relations: [
+            {
+              childObject: 'Asset',
+              lookupField: 'AccountId',
+              parentObject: 'Account',
+              parents: { kind: 'records', ids: ACCOUNTS },
+              distribution: { mode: 'perParent', count: 1 },
+            },
+          ],
+        }),
+      ),
+    );
+    return file;
+  }
+
+  const line = (file: string): string[] => [
+    'node',
+    'sandforge-seed.ts',
+    '--target',
+    'TGT',
+    '--template-file',
+    file,
+    '--seed',
+    '7',
+    '--locale',
+    'en_US',
+    '--json',
+  ];
+
+  it('places each asset under an account it names, once the org holds them', async () => {
+    const { sent, asked } = orgHolding(ACCOUNTS);
+
+    await main(line(assetsUnderAccounts()));
+
+    expect(asked).toEqual([`SELECT Id FROM Account WHERE Id IN ('${ACCOUNTS.join("', '")}')`]);
+    expect(sent.flatMap((call) => call.records.map((record) => record.AccountId))).toEqual(
+      ACCOUNTS,
+    );
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it('refuses the run before its first write when an account it names is no longer in the org, naming it', async () => {
+    const { sent } = orgHolding([ACCOUNTS[0]]);
+
+    await main(line(assetsUnderAccounts()));
+
+    expect(sent).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    expect(stdout.join('')).toContain(
+      `1 of the 2 Account record(s) the relation on Asset.AccountId names are no longer in the org: ${ACCOUNTS[1]}.`,
+    );
+  });
+});
+
 describe('--record-type with --template-file', () => {
   /** Asset's record types in the fake org: two open to the user, one inactive. */
   const ASSET_TYPES = [

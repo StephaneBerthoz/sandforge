@@ -24,6 +24,7 @@ import { SasPathGuard } from './SasPathGuard.js';
 import { readCountingContract, type CountingContract } from './CountingContract.js';
 import { parseManifest, serializeManifest } from './manifest.js';
 import type { FrozenDataset } from './types.js';
+import type { FrozenObjectVerdict } from '@sandforge/shared';
 import type { FrozenLoadProgressEvent, TargetOrgAccess } from './loadTypes.js';
 
 /** Default pause between two measurements (ms). */
@@ -55,6 +56,11 @@ export interface PostLoadVerdict {
   measuredAt: string;
   /** Manifest path when the verdict was consigned. */
   manifestPath?: string;
+  /**
+   * Per object of the counting contract, what the stable reading found of it
+   * — the last one when no two agreed: see {@link objectVerdictsOf}.
+   */
+  objects: FrozenObjectVerdict[];
 }
 
 /** Dependencies of {@link PostLoadVerifier}. */
@@ -158,6 +164,7 @@ export class PostLoadVerifier {
       checks,
       attempts,
       measuredAt: now().toISOString(),
+      objects: objectVerdictsOf(contract, stableSnapshot ?? lastSnapshot),
     };
 
     if (options.manifestPath) {
@@ -667,6 +674,56 @@ function verdictOf(
     !measuredOrphans &&
     notLoadedOf(contract).whole.length === 0;
   return partOnly ? 'partial' : 'failed';
+}
+
+/**
+ * What a reading found of each object of the counting contract, among the
+ * records the load wrote: the records of it the org holds against those the
+ * contract expects, the records the load had to write and did not, the
+ * orphans on its mandatory lookups, its presence keys the org lacks and, for
+ * Account, the person accounts not holding the contact the load linked. An
+ * object passes when nothing of it is amiss: an environment reads which
+ * objects a verification failed, where the checks name them in a sentence.
+ * The records of an object the load could not send, as its preview said, fail
+ * nothing, as they fail no check.
+ */
+function objectVerdictsOf(
+  contract: CountingContract,
+  snapshot: VerificationSnapshot | null,
+): FrozenObjectVerdict[] {
+  const objectOf = (link: string): string => link.slice(0, link.indexOf('.'));
+  return Object.entries(contract.objects)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([objectApiName, entry]) => {
+      const notLoaded = [...NOT_LOADED_REASONS.refused, ...NOT_LOADED_REASONS.heldBack].reduce(
+        (sum, reason) => sum + (entry.exclusionReasons[reason] ?? 0),
+        0,
+      );
+      const found = snapshot?.counts[objectApiName] ?? 0;
+      const orphans = Object.entries(snapshot?.orphans ?? {})
+        .filter(([link]) => objectOf(link) === objectApiName)
+        .reduce((sum, [, ids]) => sum + ids.length, 0);
+      const missingKeys = snapshot?.presence[objectApiName]?.length ?? 0;
+      const unlinked =
+        objectApiName === 'Account' ? (snapshot?.personContact.unrestored.length ?? 0) : 0;
+      const passed =
+        snapshot !== null &&
+        found === entry.expected &&
+        notLoaded === 0 &&
+        orphans === 0 &&
+        missingKeys === 0 &&
+        unlinked === 0;
+      return {
+        objectApiName,
+        status: passed ? 'passed' : 'failed',
+        expected: entry.expected,
+        found,
+        notLoaded,
+        orphans,
+        missingKeys,
+        ...(unlinked > 0 ? { personContactsUnlinked: unlinked } : {}),
+      };
+    });
 }
 
 /** Ids per SOQL `IN` list: short enough for any statement to stay well inside the limit. */

@@ -254,6 +254,13 @@ export interface FrozenLoadOptions {
    * as `****1234`, and its load wrote them as values.
    */
   writeEncrypted?: boolean;
+  /**
+   * The most records the load may insert — the count its preview gave, for
+   * one that must write what was previewed and no more. Past it, the load is
+   * refused once it has read what it would write, before its first write and
+   * a reload's purge: see {@link loadRecordsRefusal}. Absent, no bound.
+   */
+  maxRecords?: number;
   /** Progress sink — the bridge consumes these callbacks. */
   onProgress?: (event: FrozenLoadProgressEvent) => void;
   /**
@@ -290,6 +297,45 @@ export class LoadConfigError extends Error {
     super(message);
     this.name = 'LoadConfigError';
   }
+}
+
+/**
+ * Raised when a load would insert more records than it may
+ * (`FrozenLoadOptions.maxRecords`), before anything is written.
+ */
+export class LoadRecordsExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LoadRecordsExceededError';
+  }
+}
+
+/**
+ * The records a load would insert, as its preview counts them: the dataset's
+ * records it writes, less those it links, the person accounts' contacts the
+ * platform writes with their account apart.
+ */
+export function loadPlanRecords(plan: Pick<FrozenLoadPlanInfo, 'perObject'>): number {
+  return plan.perObject.reduce((sum, object) => sum + object.toInsert, 0);
+}
+
+/**
+ * Why a load that would insert `records` may not, held to `maxRecords`, or
+ * undefined when it may. The bound is a count its preview gave: a load that
+ * would write more than it was previewed with writes into a target, or from a
+ * dataset, that changed since — run for real, a scope that grew between a
+ * count and its run wrote 34,216 records into a client sandbox.
+ */
+export function loadRecordsRefusal(
+  records: number,
+  maxRecords: number | undefined,
+): string | undefined {
+  if (maxRecords === undefined || records <= maxRecords) return undefined;
+  return (
+    `This load would insert ${records} record(s), more than the ${maxRecords} it may: nothing was ` +
+    'written. The dataset or the target changed since that count was taken: preview the load ' +
+    'again, and load with the count it gives.'
+  );
 }
 
 /**
@@ -1676,6 +1722,7 @@ export class FrozenDatasetLoader {
     // Begun with the load's first batch: one that writes nothing leaves none.
     this.journal = this.deps.mappingStore.journal?.(startedAt);
 
+    const prepared = await this.prepare(options, emit, running);
     const {
       previousLoads,
       working,
@@ -1698,7 +1745,22 @@ export class FrozenDatasetLoader {
       targetHasPersonAccounts,
       accountKindOf,
       plans,
-    } = await this.prepare(options, emit, running);
+    } = prepared;
+    // The load's own count gate, before its first write and a reload's purge:
+    // counted as its preview counts, from what it has just read.
+    const tooMany = loadRecordsRefusal(
+      loadPlanRecords(
+        loadPlanOf(prepared, undefined, {
+          orgId,
+          mode: { pilot: options.pilot !== undefined, reload: options.reload === true },
+          plannedAt: startedAt.toISOString(),
+          undeletableObjects: this.config.undeletableObjects ?? {},
+          requiredFieldDefaults: this.config.requiredFieldDefaults ?? {},
+        }),
+      ),
+      options.maxRecords,
+    );
+    if (tooMany) throw new LoadRecordsExceededError(tooMany);
 
     const purge: PurgeReport = { deleted: {}, deactivated: {}, failures: [] };
     const placeholders: PlaceholderCreation[] = [];

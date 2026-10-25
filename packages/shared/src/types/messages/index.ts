@@ -516,6 +516,7 @@ import type {
   FrozenVerifyRequest,
   FrozenRemoveRequest,
   FrozenRemoveSweepRequest,
+  FrozenRemovePreviewRequest,
   FrozenStatusRequest,
   FrozenRulesClearRequest,
   FrozenConfigGetResponse,
@@ -531,6 +532,7 @@ import type {
   FrozenVerifyResultMessage,
   FrozenRemoveResponse,
   FrozenRemoveSweepResponse,
+  FrozenRemovePreviewResponse,
   FrozenStatusResponse,
   FrozenRulesClearResponse,
   FrozenConfigSaveErrorMessage,
@@ -541,6 +543,7 @@ import type {
   FrozenVerifyErrorMessage,
   FrozenRemoveErrorMessage,
   FrozenRemoveSweepErrorMessage,
+  FrozenRemovePreviewErrorMessage,
   FrozenRulesClearErrorMessage,
 } from './frozen.messages.js';
 
@@ -790,6 +793,7 @@ export type WebViewToExtensionMessage =
   | FrozenVerifyRequest
   | FrozenRemoveRequest
   | FrozenRemoveSweepRequest
+  | FrozenRemovePreviewRequest
   | FrozenStatusRequest
   | FrozenRulesClearRequest
   // Checkpoint & Rewind
@@ -1088,6 +1092,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyResultMessage
   | FrozenRemoveResponse
   | FrozenRemoveSweepResponse
+  | FrozenRemovePreviewResponse
   | FrozenStatusResponse
   | FrozenRulesClearResponse
   | FrozenConfigSaveErrorMessage
@@ -1098,6 +1103,7 @@ export type ExtensionToWebViewMessage =
   | FrozenVerifyErrorMessage
   | FrozenRemoveErrorMessage
   | FrozenRemoveSweepErrorMessage
+  | FrozenRemovePreviewErrorMessage
   | FrozenRulesClearErrorMessage
   // Checkpoint & Rewind
   | CheckpointListResponse

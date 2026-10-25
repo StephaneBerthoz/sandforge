@@ -21,7 +21,8 @@
  *   verify   check the last load against the dataset, read-only
  *   remove   delete from the sandbox the records the last load created — what an
  *            earlier removal left of them, or, once they all went, those of the
- *            load before it — deletes
+ *            load before it — deletes; with --preview, what it would delete,
+ *            read from the target, and nothing deleted
  *   status   what the store knows so far
  *
  * The configuration is the panel's own (`FrozenProjectConfig`, as JSON) and
@@ -36,21 +37,28 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load    --config frozen.json --target TGT
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts load    --config frozen.json --target TGT --dry-run
  *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove  --config frozen.json --target TGT
+ *   pnpm exec tsx packages/extension/cli/sandforge-frozen.ts remove  --config frozen.json --target TGT --preview
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
  */
 
-import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Connection } from 'jsforce';
 import type {
   ForgeSweepListing,
   ForgeSweepResult,
   FrozenDiscoveryOrigin,
+  FrozenLoadPlanInfo,
+  FrozenLoadReportInfo,
+  FrozenObjectVerdict,
+  FrozenRemovalPreview,
+  FrozenRemovalResult,
   FrozenSelectProgress,
   FrozenSelectionStop,
+  FrozenVerifyVerdict,
   OrgType,
 } from '@sandforge/shared';
 import { orgTypeOf } from '@sandforge/shared';
@@ -73,6 +81,12 @@ import {
 } from './exitCodes.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { commandLineSaltKeeper } from '../src/modules/frozendataset/FrozenSalt.js';
+import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
+import {
+  loadPlanRecords,
+  loadRecordsRefusal,
+} from '../src/modules/frozendataset/FrozenDatasetLoader.js';
+import { referenceIdMappingFileName } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
 
@@ -85,7 +99,8 @@ Steps:
   load       replay the frozen dataset into a sandbox or a Developer Edition
              — WRITES                                                 (needs --target)
   verify     check the last load against the dataset                 (needs --target)
-  remove     delete the records a load created, the last first — DELETES (needs --target)
+  remove     delete the records a load created, the last first — DELETES (needs --target);
+             with --preview, say what it would delete, and delete nothing
   status     what the store knows so far
 
 Required:
@@ -100,7 +115,19 @@ Options:
                          SANDFORGE_FROZEN_SALT is not set
   --store <file>         where the run keeps its state   (default: <sasDir>/cli-store.json)
   --pilot                load one root folder only
-  --reload               purge what earlier loads created, then load again
+  --reload               replace the loads before: purge what earlier loads created,
+                         then load again. Refused before anything is written when a
+                         removal of those loads would leave records in the org —
+                         records changed since, of an object the user may not delete,
+                         out of the user's sight or unread — or when one of them was
+                         recorded before loads kept what they created: take the load
+                         back with remove first (--include-changed takes what changed
+                         since). With --pilot, a reload purges nothing, and is not
+                         asked
+  --max-total <n>        with load: the most records it may insert — the count its dry
+                         run gave. A load, or a reload, that would insert more is
+                         refused before anything is written, the purge included; a dry
+                         run says it would be, exit 1
   --dry-run              with load: say what the load would do — per object, what it
                          would insert, link, drop, rewrite and purge — and write nothing
   --write-encrypted      with load: write the fields the target encrypts as the dataset
@@ -122,13 +149,30 @@ Options:
                          of the load's records as records that stay (off otherwise)
   --sweep-list           with remove: list what --sweep would delete, per object
                          with a few names, and delete nothing
+  --preview              with remove: say what the removal would do, per object — the
+                         records it would delete, those it would keep as changed since
+                         the load and who changed them, those gone already, those it
+                         cannot see, and those it would leave because the user may not
+                         delete them — and what it would be refused for. It deletes
+                         nothing, writes nothing to the sas and asks nothing; it exits 0
+                         once it has said it. It cannot know what hangs from the records,
+                         which a removal reads at each object's turn. Not with --sweep
+                         or --sweep-list
   --yes                  do not ask before a load writes or a removal deletes.
                          Without it, a step with no terminal to answer the
                          question — a CI step — stops there, exit 2, and
                          writes nothing
   --json                 emit what the panel would receive, every other line on
                          stderr; a step that ends before its request, refused or
-                         with nothing to do, says "ended": true
+                         with nothing to do, says "ended": true. Beside it, "step";
+                         "dataset" — its folder, its digest (sha256 of the files a load
+                         reads, the manifest less the verdict a verification writes
+                         into it) and its version — for extract, load and verify;
+                         "mapping", the file in the sas naming the records the loads
+                         into the target created, for load, verify and remove; per
+                         object, what the step counted ("objects"); verify's verdict,
+                         and a load's, per object ("verdict"); and what a dry run or a
+                         removal's preview would be refused for ("refusals")
   --help                 this text
 
 The salt that makes pseudonyms repeatable is read from SANDFORGE_FROZEN_SALT,
@@ -145,13 +189,14 @@ Ctrl-C stops a step after the call under way, a load recorded in the sas with
 what it wrote, which remove takes back; a SIGTERM — a CI job cancelled or timed
 out — or a SIGHUP stops it the same way. Ctrl-C again ends it at once.
 
-Exit codes: 0 the step finished — a removal with nothing to take included —,
-and verify's verdict is PASSED; 1 it failed or could not start, or verify's
-verdict is FAILED; 2 a bad command line, or a question with no terminal to
-answer it (give --yes); 3 verify's verdict is PARTIAL, a load completed with
-errors, or a removal left records of the load; 4 verify's verdict is UNSTABLE:
-no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM, 129 a
-SIGHUP. A load is judged by its own report: the verification it runs after it
+Exit codes: 0 the step finished — a removal with nothing to take included, and a
+removal's preview once said, its refusals included —, and verify's verdict is
+PASSED; 1 it failed or could not start, verify's verdict is FAILED, or a dry run
+says the load would be refused; 2 a bad command line, or a question with no
+terminal to answer it (give --yes); 3 verify's verdict is PARTIAL, a load
+completed with errors, or a removal left records of the load; 4 verify's verdict
+is UNSTABLE: no two readings agreed; 130 Ctrl-C stopped the step, 143 a SIGTERM,
+129 a SIGHUP. A load is judged by its own report: the verification it runs after it
 is said, and the verify step gives it a code.
 `;
 
@@ -179,6 +224,10 @@ interface CliArgs {
   sweep: boolean;
   /** With remove: list what a sweep would delete, and delete nothing. */
   sweepList: boolean;
+  /** With remove: say what the removal would do, and delete nothing. */
+  preview: boolean;
+  /** With load: the most records it may insert. */
+  maxTotal?: number;
   yes: boolean;
   json: boolean;
 }
@@ -194,11 +243,15 @@ const FLAGS: CommandFlags = {
     '--include-changed',
     '--sweep',
     '--sweep-list',
+    '--preview',
     '--yes',
     '--json',
   ],
-  values: ['--config', '--source', '--target', '--author', '--salt-file', '--store'],
+  values: ['--config', '--source', '--target', '--author', '--salt-file', '--store', '--max-total'],
 };
+
+/** The most records `--max-total` takes: the bound of the load's request. */
+const MAX_TOTAL = 1_000_000;
 
 /** Read the command line, or explain why it cannot be read. */
 export function parseArgs(argv: string[]): CliArgs {
@@ -248,6 +301,35 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
     process.exit(2);
   }
+  if (args.includes('--preview') && step !== 'remove') {
+    // A load's is --dry-run; a removal's is --preview, as for the other removals.
+    process.stderr.write(
+      `--preview goes with remove${step === 'load' ? '; a load says what it would do with --dry-run' : ''}. Run with --help.\n`,
+    );
+    process.exit(2);
+  }
+  if (args.includes('--preview') && (args.includes('--sweep') || args.includes('--sweep-list'))) {
+    process.stderr.write(
+      '--preview deletes nothing, --sweep deletes and --sweep-list lists what it would: give ' +
+        '--preview without them. Run with --help.\n',
+    );
+    process.exit(2);
+  }
+  let maxTotal: number | undefined;
+  if (args.includes('--max-total')) {
+    const raw = get('--max-total');
+    maxTotal = Number(raw);
+    if (step !== 'load') {
+      process.stderr.write('--max-total goes with load. Run with --help.\n');
+      process.exit(2);
+    }
+    if (raw === undefined || !/^\d+$/.test(raw) || maxTotal < 1 || maxTotal > MAX_TOTAL) {
+      process.stderr.write(
+        `--max-total takes a whole number from 1 to ${MAX_TOTAL}, not "${raw ?? ''}".\n`,
+      );
+      process.exit(2);
+    }
+  }
 
   return {
     step,
@@ -264,6 +346,8 @@ export function parseArgs(argv: string[]): CliArgs {
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
+    preview: args.includes('--preview'),
+    ...(maxTotal !== undefined ? { maxTotal } : {}),
     yes: args.includes('--yes'),
     json: args.includes('--json'),
   };
@@ -579,7 +663,8 @@ export function failsTheStep(message: Posted): boolean {
   const type = String(message.type ?? '');
   if (!type.endsWith(':error')) return false;
   return !(
-    type === 'frozen:remove:error' && NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
+    (type === 'frozen:remove:error' || type === 'frozen:remove:preview:error') &&
+    NOTHING_TO_REMOVE_CODES.has(String(message.payload?.code))
   );
 }
 
@@ -630,7 +715,10 @@ export function frozenStepExit(step: string, posted: readonly Posted[]): number 
 export function messageLines(message: Posted): string[] {
   const type = String(message.type ?? '');
   const p = message.payload ?? {};
-  if (type === 'frozen:remove:error' && !failsTheStep(message)) {
+  if (
+    (type === 'frozen:remove:error' || type === 'frozen:remove:preview:error') &&
+    !failsTheStep(message)
+  ) {
     return [`nothing to remove: ${String(p.message ?? '')}`];
   }
   if (type.endsWith(':error')) {
@@ -1118,11 +1206,264 @@ export function messageLines(message: Posted): string[] {
     }
     case 'frozen:remove:sweep:response':
       return sweepListingLines(p.listing as ForgeSweepListing, 'the target org');
+    case 'frozen:remove:preview:response':
+      return removalPreviewLines(p.preview as FrozenRemovalPreview);
     case 'frozen:status:response':
       return [JSON.stringify(p.status, null, 2)];
     default:
       return [];
   }
+}
+
+/**
+ * What a removal's preview never reads, said with it: what hangs from the
+ * records, which a removal reads at each object's turn, record by record, and
+ * what the target's automation does as they go.
+ */
+export const FROZEN_PREVIEW_UNREAD =
+  "not read by a preview: what hangs from the records, which a removal reads at each object's " +
+  'turn — a record kept for records that stay is counted with those to delete — nor what the ' +
+  "target's automation does as they go";
+
+/** What `remove --preview` prints without --json. Exported so it can be tested. */
+export function removalPreviewLines(preview: FrozenRemovalPreview): string[] {
+  const named = (userId: string): string => preview.userNames[userId] ?? userId;
+  const lines = [
+    'preview: what a removal would do; nothing was deleted' +
+      (preview.leftBy ? ` — of what the removal of ${preview.leftBy} left` : ''),
+  ];
+  for (const o of preview.objects) {
+    const counts = [
+      o.toDelete > 0 ? `${o.toDelete} to delete` : '',
+      preview.includeChanged && o.changedSince > 0
+        ? `${o.changedSince} of them changed since the load`
+        : '',
+      o.alreadyGone > 0 ? `${o.alreadyGone} gone already` : '',
+      o.notVisible > 0 ? `${o.notVisible} not visible` : '',
+      o.keptChanged > 0 ? `${o.keptChanged} kept, changed since the load` : '',
+      o.undeletable > 0 ? `${o.undeletable} left, the user may not delete them` : '',
+      o.unread > 0 ? `${o.unread} left, not read` : '',
+    ].filter(Boolean);
+    lines.push(`  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}`);
+    const by = Object.entries(o.changedBy).sort((a, b) => b[1] - a[1]);
+    if (by.length > 0) {
+      lines.push(
+        `      last changed by: ${by.map(([userId, n]) => `${named(userId)} ${n}`).join(' · ')}`,
+      );
+    }
+    for (const reason of o.reasons) lines.push(`      ${reason}`);
+  }
+  lines.push(...keptByThePlatformLine(preview.keptByThePlatform));
+  for (const refusal of preview.refusals) lines.push(`a removal would be refused: ${refusal}`);
+  lines.push(FROZEN_PREVIEW_UNREAD);
+  return lines;
+}
+
+/** A dataset as an environment pins it: its folder, its digest and its version. */
+export interface FrozenAnswerDataset {
+  dir: string;
+  /** `sha256:` and 64 hexadecimal digits: see `frozenDatasetDigest`. */
+  digest: string;
+  version?: string;
+}
+
+/** Verify's verdict, as an environment reads it: the whole, and per object. */
+export interface FrozenAnswerVerdict {
+  status: 'PASSED' | 'PARTIAL' | 'FAILED' | 'UNSTABLE';
+  objects: Array<
+    Omit<FrozenObjectVerdict, 'status'> & {
+      verdict: 'PASSED' | 'FAILED';
+    }
+  >;
+}
+
+/**
+ * What a step prints with --json: what the panel would have received
+ * (`posted`), and beside it what an environment reads of the step, each
+ * where the step has it.
+ */
+export interface FrozenAnswer {
+  tool: 'sandforge-frozen';
+  step: string;
+  posted: readonly Posted[];
+  /** The dataset a step froze, loaded or verified. */
+  dataset?: FrozenAnswerDataset;
+  /** The file in the sas naming the records the loads into the target created. */
+  mapping?: string;
+  /** Per object, what the step counted. */
+  objects?: Array<Record<string, string | number>>;
+  /** Verify's verdict, and the one a load chains after it. */
+  verdict?: FrozenAnswerVerdict;
+  /** How a removal ended. */
+  status?: string;
+  /** Set on a removal's preview: nothing was deleted. */
+  preview?: true;
+  /** What a dry run or a removal's preview says a real run would be refused for. */
+  refusals?: string[];
+}
+
+/** What an answer is built from beside what was posted. */
+export interface FrozenAnswerContext {
+  /** The dataset the configuration points a load at. */
+  datasetDir: string;
+  /** The sas of the configuration. */
+  sasDir: string;
+  /** The target, by the id it is registered under. */
+  targetOrgId?: string;
+  /** What the step itself says a real run would be refused for. */
+  refusals?: readonly string[];
+}
+
+/** A dataset's folder, digest and version, or undefined when no dataset is there. */
+async function datasetOf(dir: string): Promise<FrozenAnswerDataset | undefined> {
+  const manifest = join(dir, 'manifest.json');
+  if (!existsSync(manifest)) return undefined;
+  try {
+    const digest = await frozenDatasetDigest(dir);
+    const { version } = JSON.parse(readFileSync(manifest, 'utf8')) as { version?: unknown };
+    return { dir, digest, ...(typeof version === 'string' ? { version } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The file of the sas naming what the loads into the target created: its
+ * own, or the one file a sas kept before mappings were kept per org, which
+ * the target's loads are read from while it has none of its own.
+ */
+function mappingFileOf(sasDir: string, targetOrgId: string): string {
+  const own = join(sasDir, referenceIdMappingFileName(targetOrgId));
+  const single = join(sasDir, 'referenceid-mapping.json');
+  return !existsSync(own) && existsSync(single) ? single : own;
+}
+
+/** A verdict as an environment reads it. */
+function verdictAnswer(verdict: FrozenVerifyVerdict): FrozenAnswerVerdict {
+  return {
+    status: verdict.status.toUpperCase() as FrozenAnswerVerdict['status'],
+    objects: (verdict.objects ?? []).map(({ status, ...counts }) => ({
+      ...counts,
+      verdict: status === 'passed' ? 'PASSED' : 'FAILED',
+    })),
+  };
+}
+
+/**
+ * What a step prints with --json, from what it posted and where its
+ * configuration points: the dataset with its digest for extract, load and
+ * verify; the mapping for load, verify and remove; per object what the step
+ * counted; the verdict per object; what a dry run or a preview says a run
+ * would be refused for. Exported so it can be tested.
+ */
+export async function frozenAnswer(
+  step: string,
+  posted: readonly Posted[],
+  context: FrozenAnswerContext,
+): Promise<FrozenAnswer> {
+  const last = (type: string): Record<string, unknown> | undefined =>
+    posted.filter((message) => message.type === type).at(-1)?.payload;
+  const mapping = context.targetOrgId
+    ? mappingFileOf(context.sasDir, context.targetOrgId)
+    : undefined;
+  const answer: FrozenAnswer = { tool: 'sandforge-frozen', step, posted };
+  const refusals: string[] = [];
+  const withDataset = async (dir: string): Promise<void> => {
+    const dataset = await datasetOf(dir);
+    if (dataset) answer.dataset = dataset;
+  };
+  switch (step) {
+    case 'extract': {
+      const extracted = last('frozen:extract:response');
+      if (!extracted) break;
+      await withDataset(
+        typeof extracted.datasetDir === 'string' ? extracted.datasetDir : context.datasetDir,
+      );
+      const measured =
+        (extracted.manifest as { volumetry?: { measured?: Record<string, number> } } | undefined)
+          ?.volumetry?.measured ?? {};
+      answer.objects = Object.entries(measured)
+        .filter(([, records]) => records > 0)
+        .map(([objectApiName, records]) => ({ objectApiName, records }));
+      break;
+    }
+    case 'load': {
+      await withDataset(context.datasetDir);
+      const report = last('frozen:load:response')?.report as FrozenLoadReportInfo | undefined;
+      const plan = last('frozen:load:preview:response')?.plan as FrozenLoadPlanInfo | undefined;
+      if (report) {
+        answer.mapping = report.mappingPath;
+        answer.objects = report.perObject.map((o) => ({
+          objectApiName: o.objectApiName,
+          fromFiles: o.fromFiles,
+          inserted: o.inserted,
+          reused: o.reused,
+          duplicates: o.skippedDuplicates.length,
+          failed: o.failed.length,
+        }));
+      } else if (plan) {
+        if (mapping) answer.mapping = mapping;
+        answer.objects = plan.perObject.map((o) => ({
+          objectApiName: o.objectApiName,
+          fromFiles: o.fromFiles,
+          toInsert: o.toInsert,
+          toLink: o.reusedByKeys + o.reusedFromCatalog,
+          notSent: o.notSent,
+          toPurge: o.toPurge,
+          toDeactivate: o.toDeactivate,
+        }));
+      }
+      const verdict = last('frozen:verify:result')?.verdict as FrozenVerifyVerdict | undefined;
+      if (verdict) answer.verdict = verdictAnswer(verdict);
+      break;
+    }
+    case 'verify': {
+      const verdict = last('frozen:verify:result')?.verdict as FrozenVerifyVerdict | undefined;
+      // The dataset of the load verified: the one whose manifest the verdict went into.
+      await withDataset(verdict?.manifestPath ? dirname(verdict.manifestPath) : context.datasetDir);
+      if (mapping) answer.mapping = mapping;
+      if (verdict) answer.verdict = verdictAnswer(verdict);
+      break;
+    }
+    case 'remove': {
+      if (mapping) answer.mapping = mapping;
+      const result = last('frozen:remove:response')?.result as FrozenRemovalResult | undefined;
+      const preview = last('frozen:remove:preview:response')?.preview as
+        FrozenRemovalPreview | undefined;
+      if (result) {
+        answer.status = result.status;
+        answer.objects = result.objects.map((o) => ({
+          objectApiName: o.objectApiName,
+          planned: o.planned,
+          deleted: o.deleted,
+          alreadyGone: o.alreadyGone,
+          keptChanged: o.keptChanged,
+          keptDependents: o.keptDependents,
+          refused: o.refused,
+          notReached: o.notReached ?? 0,
+          notVisible: o.notVisible ?? 0,
+        }));
+      } else if (preview) {
+        answer.preview = true;
+        answer.objects = preview.objects.map((o) => ({
+          objectApiName: o.objectApiName,
+          planned: o.planned,
+          toDelete: o.toDelete,
+          alreadyGone: o.alreadyGone,
+          changedSince: o.changedSince,
+          keptChanged: o.keptChanged,
+          undeletable: o.undeletable,
+          notVisible: o.notVisible,
+          unread: o.unread,
+        }));
+        refusals.push(...preview.refusals);
+      }
+      break;
+    }
+  }
+  refusals.push(...(context.refusals ?? []));
+  if (refusals.length > 0) answer.refusals = refusals;
+  return answer;
 }
 
 /** Run one step; exported so its parsing can be tested. */
@@ -1204,11 +1545,25 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!underWay) process.exit(stopExitCode(signal));
   };
   const releaseStop = onStopSignal(interrupt);
-  /** What a step prints on stdout with --json: what the panel would have received. */
-  const emit = (ended?: true): void => {
+  /** The dataset the configuration points a load at. */
+  const datasetDir =
+    typeof config.datasetDir === 'string' ? config.datasetDir : join(sasDir, 'dataset');
+  /** What a dry run says the load would be refused for, beside its plan. */
+  const refusals: string[] = [];
+  /**
+   * What a step prints on stdout with --json: what the panel would have
+   * received, and beside it what an environment reads of the step.
+   */
+  const emit = async (ended?: true): Promise<void> => {
     if (!args.json) return;
+    const answer = await frozenAnswer(args.step, posted, {
+      datasetDir,
+      sasDir,
+      ...(targetOrgId ? { targetOrgId } : {}),
+      ...(refusals.length > 0 ? { refusals } : {}),
+    });
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-frozen', posted, ...(ended ? { ended } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ ...answer, ...(ended ? { ended } : {}) }, null, 2)}\n`,
     );
   };
 
@@ -1232,20 +1587,21 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // remove: said already, and nothing more is — but on stdout with --json,
     // which printed nothing a parser could read.
     if (failed) process.exitCode = FAILED_EXIT;
-    emit(true);
+    await emit(true);
     return;
   }
   if (interrupted) {
-    emit();
-    process.stderr.write(`${frozenInterruptedLine(args.step)}\n`);
+    await emit();
+    process.stderr.write(`${frozenInterruptedLine(args.preview ? 'preview' : args.step)}\n`);
     process.exitCode = stopExitCode(interrupted);
     return;
   }
   // A verification FAILED, PARTIAL or UNSTABLE, and a load that completed
-  // with errors, exited 0: only an error message failed the step.
-  endWith(failed ? FAILED_EXIT : frozenStepExit(args.step, posted));
+  // with errors, exited 0: only an error message failed the step. A dry run
+  // a load would be refused after fails it too, as a preview's refusal does.
+  endWith(failed || refusals.length > 0 ? FAILED_EXIT : frozenStepExit(args.step, posted));
   if (args.json) {
-    emit();
+    await emit();
     return;
   }
   log(`done in ${Date.now() - t0}ms`);
@@ -1272,6 +1628,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         });
         break;
       case 'load': {
+        // A reload on the command line replaces the loads before it: refused
+        // before anything is written when their removal would leave records.
+        const replace = args.reload && !args.pilot;
         if (args.dryRun) {
           // Nothing is written: nothing to confirm.
           log(`reading what a load into ${args.target}${args.pilot ? ' (pilot)' : ''} would do…`);
@@ -1279,8 +1638,19 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             targetOrgId,
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
+            ...(replace ? { replace: true } : {}),
             ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           });
+          // The load's own count gate, said of the plan it would be held to.
+          const plan = posted.find((m) => m.type === 'frozen:load:preview:response')?.payload
+            ?.plan as FrozenLoadPlanInfo | undefined;
+          const tooMany = plan
+            ? loadRecordsRefusal(loadPlanRecords(plan), args.maxTotal)
+            : undefined;
+          if (tooMany) {
+            refusals.push(tooMany);
+            log(`a load would be refused: ${tooMany}`);
+          }
           break;
         }
         if (!args.yes) {
@@ -1297,7 +1667,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           targetOrgId,
           ...(args.pilot ? { pilot: true } : {}),
           ...(args.reload ? { reload: true } : {}),
+          ...(replace ? { replace: true } : {}),
           ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
+          ...(args.maxTotal !== undefined ? { maxRecords: args.maxTotal } : {}),
         });
         break;
       }
@@ -1318,6 +1690,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // Nothing to do is no failure.
           log(`No load into ${args.target} is recorded in this sas: nothing to remove.`);
           return 'ended';
+        }
+        if (args.preview) {
+          // What a removal would do, read as it reads before its first
+          // delete; nothing is deleted, nothing written to the sas, and
+          // nothing asked.
+          log(`reading what a removal from ${args.target} would do…`);
+          await send('frozen:remove:preview', {
+            targetOrgId,
+            loadedAt: records.loadedAt,
+            ...(args.includeChanged ? { includeChanged: true } : {}),
+          });
+          break;
         }
         if (args.sweepList) {
           // What a sweep would delete, read and said; nothing is deleted, the
@@ -1374,6 +1758,9 @@ export function frozenInterruptedLine(step: string): string {
       'interrupted: the removal stopped before it was through; what it deleted is recorded, and ' +
       '`remove` again takes what it left'
     );
+  }
+  if (step === 'preview') {
+    return 'interrupted: the preview stopped before it was through, and deleted nothing';
   }
   return `interrupted: the ${step} stopped before it was through`;
 }

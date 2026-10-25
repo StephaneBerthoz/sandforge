@@ -1083,6 +1083,11 @@ export const frozenLoadPayloadSchema = z.object({
   pilot: z.boolean().optional(),
   reload: z.boolean().optional(),
   writeEncrypted: z.boolean().optional(),
+  // With reload: refused before anything is written when a removal of the
+  // loads before it would leave records in the org.
+  replace: z.boolean().optional(),
+  // The most records the load may insert: the count its preview gave.
+  maxRecords: z.number().int().positive().max(1_000_000).optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1098,6 +1103,12 @@ export const frozenRemovePayloadSchema = z.object({
 export const frozenRemoveSweepPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   loadedAt: z.string().min(1).max(64),
+});
+// What a removal of a load would do, read and nothing written: the load, named as for its removal.
+export const frozenRemovePreviewPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  loadedAt: z.string().min(1).max(64),
+  includeChanged: z.boolean().optional(),
 });
 
 // ── checkpoint:* payload schemas ────────────────────────────────────────────

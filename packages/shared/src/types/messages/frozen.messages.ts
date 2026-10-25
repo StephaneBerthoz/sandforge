@@ -8,6 +8,7 @@ import type {
   FrozenLoadReportInfo,
   FrozenManifestInfo,
   FrozenProjectConfig,
+  FrozenRemovalPreview,
   FrozenRemovalResult,
   FrozenSelectionSummary,
   FrozenStatusInfo,
@@ -67,9 +68,22 @@ export interface FrozenLoadRequest extends BaseMessage {
    * `writeEncrypted`: write the fields the target encrypts as the dataset
    * holds them, though its manifest does not say its extraction left out what
    * it read masked; they are left out otherwise (`FrozenFieldRemoval`,
-   * `may-hold-masks`).
+   * `may-hold-masks`). `replace`, with `reload`: the reload takes the loads
+   * before it back whole, and is refused before anything is written when a
+   * removal of them would leave records in the org. `maxRecords`: the most
+   * records the load may insert, refused before anything is written past it.
    */
-  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean; writeEncrypted?: boolean };
+  payload: FrozenLoadOptionsPayload;
+}
+
+/** What a load, or its preview, is asked with. */
+export interface FrozenLoadOptionsPayload {
+  targetOrgId: string;
+  pilot?: boolean;
+  reload?: boolean;
+  writeEncrypted?: boolean;
+  replace?: boolean;
+  maxRecords?: number;
 }
 
 /**
@@ -79,7 +93,7 @@ export interface FrozenLoadRequest extends BaseMessage {
  */
 export interface FrozenLoadPreviewRequest extends BaseMessage {
   type: 'frozen:load:preview';
-  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean; writeEncrypted?: boolean };
+  payload: FrozenLoadOptionsPayload;
 }
 
 /**
@@ -133,6 +147,23 @@ export interface FrozenRemoveSweepRequest extends BaseMessage {
     targetOrgId: string;
     /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
     loadedAt: string;
+  };
+}
+
+/**
+ * `frozen:remove:preview`. Command line -> Extension. What a removal of the
+ * load would do — per object, what it would delete, keep and find gone —
+ * read before its first write, nothing written and nothing asked.
+ */
+export interface FrozenRemovePreviewRequest extends BaseMessage {
+  type: 'frozen:remove:preview';
+  payload: {
+    /** The org the load wrote to. */
+    targetOrgId: string;
+    /** When the load wrote its last record (`FrozenLoadRecordsInfo.loadedAt`). */
+    loadedAt: string;
+    /** Count the records modified since the load among those a removal deletes. */
+    includeChanged?: boolean;
   };
 }
 
@@ -267,6 +298,12 @@ export interface FrozenRemoveResponse extends BaseMessage {
   payload: { result: FrozenRemovalResult; operationId: string };
 }
 
+/** `frozen:remove:preview:response`. Extension -> Command line. What a removal of the load would do. */
+export interface FrozenRemovePreviewResponse extends BaseMessage {
+  type: 'frozen:remove:preview:response';
+  payload: { preview: FrozenRemovalPreview };
+}
+
 /** `frozen:remove:sweep:response`. Extension -> WebView. What a sweep of the load's removal would take. */
 export interface FrozenRemoveSweepResponse extends BaseMessage {
   type: 'frozen:remove:sweep:response';
@@ -334,6 +371,16 @@ export interface FrozenVerifyErrorMessage extends BaseMessage {
  */
 export interface FrozenRemoveErrorMessage extends BaseMessage {
   type: 'frozen:remove:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:remove:preview:error`. Extension -> Command line. A removal preview
+ * refused before it read the org (`NO_LOAD`, `NOT_RECORDED`, `LOAD_CHANGED`,
+ * `ALREADY_REMOVED`, `NOTHING_TO_REMOVE`), or one whose reads failed.
+ */
+export interface FrozenRemovePreviewErrorMessage extends BaseMessage {
+  type: 'frozen:remove:preview:error';
   payload: { message: string; code: string; retryable: boolean };
 }
 

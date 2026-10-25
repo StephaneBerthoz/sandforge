@@ -1009,6 +1009,7 @@ export class ExtensionHandlers {
         'frozen:verify',
         'frozen:remove',
         'frozen:remove:sweep',
+        'frozen:remove:preview',
         'frozen:status',
         'frozen:rules:clear',
       ],

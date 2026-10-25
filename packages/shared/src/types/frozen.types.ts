@@ -805,6 +805,34 @@ export interface FrozenVerifyVerdict {
   attempts: number;
   measuredAt: string;
   manifestPath?: string;
+  /**
+   * Per object of the counting contract, what the verification found of it.
+   * Absent from verdicts given before they were kept per object.
+   */
+  objects?: FrozenObjectVerdict[];
+}
+
+/**
+ * What a verification found of one object, among the records the load wrote:
+ * `passed` when the org holds every record of it the load says it wrote, the
+ * load wrote every record of it it had to, and none of them is an orphan on a
+ * mandatory lookup or misses its presence key.
+ */
+export interface FrozenObjectVerdict {
+  objectApiName: string;
+  status: 'passed' | 'failed';
+  /** Records the counting contract says the load wrote. */
+  expected: number;
+  /** Of those, the records the org holds. */
+  found: number;
+  /** Records the load had to write and did not: refused, or held back for a parent refused. */
+  notLoaded: number;
+  /** Orphans found on its mandatory lookups, at most the sample each lookup reads. */
+  orphans: number;
+  /** Presence keys of its records the org does not hold. */
+  missingKeys: number;
+  /** Person accounts not holding the contact the load linked: Account only. */
+  personContactsUnlinked?: number;
 }
 
 /**
@@ -886,6 +914,60 @@ export interface FrozenRemovalResult {
    * when the load created none.
    */
   keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
+}
+
+/**
+ * What a removal would do with one object's records, read before its first
+ * write: Forge's removal preview (`RunRemovalOptions.previewOnly`). `toDelete`,
+ * `alreadyGone`, `keptChanged`, `undeletable`, `notVisible` and `unread` add up
+ * to `planned`.
+ */
+export interface FrozenRemovalPreviewObject {
+  objectApiName: string;
+  /** The load's records of the object a removal sets out to take. */
+  planned: number;
+  /** In the org, and sent: the org may still refuse some, or a removal keep some for records that stay. */
+  toDelete: number;
+  /** Found deleted: gone, as a removal counts them. */
+  alreadyGone: number;
+  /** In the org and modified since the load, by anyone. */
+  changedSince: number;
+  /** Of those, the ones a removal keeps: all of them, unless changed records are included. */
+  keptChanged: number;
+  /** Who last modified the records changed since, by user Id: how many each. */
+  changedBy: Record<string, number>;
+  /** Of an object the user the removal runs as may not delete: left, never sent. */
+  undeletable: number;
+  /** Found neither in the org nor in its recycle bin: never counted as removed. */
+  notVisible: number;
+  /** Of an object the removal could not read: none of them would be sent. */
+  unread: number;
+  /** Why records stay, or could not be told, in the org's words where it gave them. */
+  reasons: string[];
+}
+
+/**
+ * What a removal of the load would do, read before its first write and
+ * nothing written (`frozen:remove:preview`): counts and names only — no
+ * record id but the users' who changed records since.
+ */
+export interface FrozenRemovalPreview {
+  /** When the load wrote its last record: which load. */
+  loadedAt: string;
+  /** Whether records modified since the load would go too. */
+  includeChanged: boolean;
+  /** The load's records a removal sets out to take. */
+  planned: number;
+  /** Per object, in the order a removal takes them: children before their parents. */
+  objects: FrozenRemovalPreviewObject[];
+  /** The names of the users `changedBy` counts, by user Id, where the org said them. */
+  userNames: Record<string, string>;
+  /** Set when an earlier removal left these records: when it ended. */
+  leftBy?: string;
+  /** Records the load created that no removal takes: the platform deletes none of them. */
+  keptByThePlatform?: Array<{ objectApiName: string; count: number }>;
+  /** What a removal run now would be refused for, each in its own words. */
+  refusals: string[];
 }
 
 /** The verdict of the last verification of a load into a target org. */

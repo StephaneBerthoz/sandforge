@@ -837,3 +837,110 @@ describe('PostLoadVerifier — what the load did not write', () => {
     });
   });
 });
+
+describe('PostLoadVerifier — the verdict per object', () => {
+  it('passes each object whose records the org holds as the contract expects, and fails the one it does not', async () => {
+    // An environment reads which objects a verification failed: the checks
+    // name them in a sentence alone.
+    const contractPath = writeContract(makeTmpDir(), ACCOUNT_CONTRACT);
+    const query = makeQuery([
+      { match: 'FROM Account', responses: [[{ cnt: 2 }]] },
+      { match: 'FROM Contact', responses: [[{ cnt: 1 }]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query);
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.objects).toEqual([
+      {
+        objectApiName: 'Account',
+        status: 'passed',
+        expected: 2,
+        found: 2,
+        notLoaded: 0,
+        orphans: 0,
+        missingKeys: 0,
+      },
+      {
+        objectApiName: 'Contact',
+        status: 'failed',
+        expected: 2,
+        found: 1,
+        notLoaded: 0,
+        orphans: 0,
+        missingKeys: 0,
+      },
+    ]);
+  });
+
+  it('fails an object of which the load did not write every record it had to, its orphans, or its keys', async () => {
+    const contractPath = writeContract(makeTmpDir(), {
+      Account: {
+        fromFiles: 3,
+        exclusionReasons: { 'dml-failed': 1 },
+        excluded: 1,
+        added: 0,
+        expected: 2,
+      },
+      Contact: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+      Product2: { fromFiles: 1, exclusionReasons: {}, excluded: 0, added: 0, expected: 1 },
+    });
+    const query = makeQuery([
+      { match: 'FROM Account', responses: [[{ cnt: 2 }]] },
+      { match: 'COUNT() FROM Contact', responses: [[{ cnt: 1 }]] },
+      { match: 'COUNT() FROM Product2', responses: [[{ cnt: 1 }]] },
+      { match: 'FROM Contact WHERE AccountId = null', responses: [[{ Id: '003ORPHAN1' }]] },
+      { match: 'FROM Product2 WHERE', responses: [[]] },
+    ]);
+    const { deps, options } = makeOptions(contractPath, query, {
+      mandatoryLookups: { Contact: ['AccountId'] },
+      presenceKeys: { Product2: 'ExternalId__c' },
+      dataset: {
+        datasetVersion: '1.0.0',
+        objects: [
+          {
+            objectApiName: 'Product2',
+            records: [{ referenceId: 'Product2-1', fields: { ExternalId__c: 'P-1' } }],
+          },
+        ],
+        recordTypes: {},
+        personContactSidecar: [],
+      } as unknown as FrozenDataset,
+    });
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(
+      verdict.objects.map(({ objectApiName, status, notLoaded, orphans, missingKeys }) => ({
+        objectApiName,
+        status,
+        notLoaded,
+        orphans,
+        missingKeys,
+      })),
+    ).toEqual([
+      { objectApiName: 'Account', status: 'failed', notLoaded: 1, orphans: 0, missingKeys: 0 },
+      { objectApiName: 'Contact', status: 'failed', notLoaded: 0, orphans: 1, missingKeys: 0 },
+      { objectApiName: 'Product2', status: 'failed', notLoaded: 0, orphans: 0, missingKeys: 1 },
+    ]);
+  });
+
+  it('passes an object whose only records not written are ones the load could not send', async () => {
+    const contractPath = writeContract(makeTmpDir(), {
+      EntitlementProcess: {
+        fromFiles: 2,
+        exclusionReasons: { 'object-not-loaded': 2 },
+        excluded: 2,
+        added: 0,
+        expected: 0,
+      },
+    });
+    const { deps, options } = makeOptions(contractPath, makeQuery([]));
+
+    const verdict = await new PostLoadVerifier(deps).verify(options);
+
+    expect(verdict.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'EntitlementProcess', status: 'passed' }),
+    ]);
+  });
+});

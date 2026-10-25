@@ -26,6 +26,8 @@ export interface SeedDescribeField {
 /** The part of an object's describe a seed reads. */
 export interface SeedDescribe {
   fields: readonly SeedDescribeField[];
+  /** The first three characters of the object's ids; none for an object whose ids have no fixed prefix. */
+  keyPrefix?: string | null;
 }
 
 /** The describe types whose values a pick is kept to. */
@@ -48,6 +50,12 @@ export interface DescribedFields {
    * lookups apart, as the wizard describes a field before giving it a rule.
    */
   required(objectApiName: string): Promise<DescribedSeedField[]>;
+  /**
+   * The first three characters of the object's ids, which a relation's
+   * parents named by id are checked against; undefined when the describe
+   * gives none.
+   */
+  keyPrefix(objectApiName: string): Promise<string | undefined>;
 }
 
 /** A field's active picklist values. */
@@ -92,6 +100,10 @@ export function describedFieldsOf(
         if (active.length > 0) values.set(field.name, active);
       }
       return values;
+    },
+    async keyPrefix(objectApiName) {
+      const { keyPrefix } = await describeOnce(objectApiName);
+      return typeof keyPrefix === 'string' && keyPrefix.length === 3 ? keyPrefix : undefined;
     },
     async required(objectApiName) {
       const { fields } = await describeOnce(objectApiName);

@@ -937,6 +937,77 @@ describe('SeedOrchestrator — relations', () => {
     expect(result.objectResults[0].recordsCreated).toBe(4);
   });
 
+  it('places the children under the records the relation names by id, in the order given, once the org says it holds them', async () => {
+    // An environment hands a seed the ids another resource created.
+    const org = recordingOrg();
+    const first = '001000000000002AAA';
+    const second = '001000000000001';
+    const readPresentParentIds = vi.fn(async () => ['001000000000001AAA', first]);
+    const template = accountsAndContacts(
+      contactsUnder({ kind: 'records', ids: [first, second] }, { mode: 'perParent', count: 2 }),
+      { accounts: 1, contacts: 20 },
+    );
+    template.objects = template.objects.filter((o) => o.objectApiName === 'Contact');
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      readPresentParentIds,
+      describeKeyPrefix: async () => '001',
+    }).execute(template, 'org-1');
+
+    expect(readPresentParentIds).toHaveBeenCalledWith('Account', [first, second]);
+    expect(org.contacts().map((record) => record['AccountId'])).toEqual([
+      first,
+      first,
+      second,
+      second,
+    ]);
+    expect(result.status).toBe('success');
+  });
+
+  it('refuses the run before its first write when a record the relation names is no longer in the org, naming it', async () => {
+    // Found at the contacts' turn, the accounts would have gone in first.
+    const org = recordingOrg();
+    const gone = '001000000000009AAA';
+    const template = accountsAndContacts(
+      contactsUnder({ kind: 'records', ids: ['001000000000001AAA', gone] }),
+      { accounts: 2, contacts: 6 },
+    );
+
+    const result = await orchestratorWith({
+      insert: org.insert,
+      readPresentParentIds: async () => ['001000000000001AAA'],
+      describeKeyPrefix: async () => '001',
+    }).execute(template, 'org-1');
+
+    expect(org.insert).not.toHaveBeenCalled();
+    expect(result.status).toBe('failure');
+    expect(result.objectResults).toHaveLength(1);
+    expect(result.objectResults[0].errors).toEqual([
+      `1 of the 2 Account record(s) the relation on Contact.AccountId names are no longer in the ` +
+        `org: ${gone}. Nothing was written. Run again what created them, or give the ids of ` +
+        'Account records the org holds.',
+    ]);
+  });
+
+  it('refuses the run before its first write when it has no way to check the records the relation names', async () => {
+    const org = recordingOrg();
+
+    const result = await orchestratorWith({ insert: org.insert }).execute(
+      accountsAndContacts(contactsUnder({ kind: 'records', ids: ['001000000000001AAA'] }), {
+        accounts: 2,
+        contacts: 3,
+      }),
+      'org-1',
+    );
+
+    expect(org.insert).not.toHaveBeenCalled();
+    expect(result.status).toBe('failure');
+    expect(result.objectResults[0].errors[0]).toContain(
+      'cannot check that the 1 Account record(s)',
+    );
+  });
+
   it('writes no child when no record of the org matches the filter, and says which filter', async () => {
     const org = recordingOrg();
     const template = accountsAndContacts(

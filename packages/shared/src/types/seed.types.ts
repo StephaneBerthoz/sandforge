@@ -67,7 +67,8 @@ export interface SeedRelation {
 
 /**
  * Where a relation's parents come from: the records this run writes for the
- * parent object, or records the org already holds, picked by a SOQL filter.
+ * parent object, records the org already holds, picked by a SOQL filter, or
+ * records named by their ids.
  */
 export type SeedRelationParents =
   | { kind: 'generated' }
@@ -77,6 +78,18 @@ export type SeedRelationParents =
       where?: string;
       /** The most parent records read from the org. */
       limit: number;
+    }
+  | {
+      kind: 'records';
+      /**
+       * The parents' ids, 15 or 18 characters, in the order the children are
+       * placed under them, each once: records another run created, which an
+       * environment hands over. At most as many as a relation reads of the
+       * org's own (`SEED_RELATION_LIMITS.maxExistingParents`). A filter of
+       * `Id IN (…)` would hold some ninety of them in the 2,000 characters a
+       * `where` takes; a list holds the bound, and needs no query text.
+       */
+      ids: string[];
     };
 
 /**

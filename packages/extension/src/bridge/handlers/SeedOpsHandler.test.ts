@@ -1646,6 +1646,47 @@ describe('SeedOpsHandler', () => {
       expect(ids).toEqual(['001000000000001AAA', '001000000000002AAA']);
     });
 
+    it('hands the run a reader of the records a relation names by id, and of the key prefix of their object', async () => {
+      const query = vi.fn(async () => ({
+        records: [{ Id: '001000000000001AAA' }],
+        done: true,
+        totalSize: 1,
+      }));
+      const describe = vi.fn(async () => ({ fields: [], keyPrefix: '001' }));
+      const relation = {
+        ...contactsUnderExistingAccounts,
+        parents: { kind: 'records', ids: ['001000000000001AAA'] },
+      };
+      const seen = (await run(templateWith(relation), { query, describe })) as {
+        seedDeps?: {
+          readPresentParentIds?: (o: string, ids: readonly string[]) => Promise<string[]>;
+          describeKeyPrefix?: (o: string) => Promise<string | undefined>;
+        };
+        template?: { relations?: unknown[] };
+      };
+
+      expect(seen.template?.relations).toEqual([relation]);
+      expect(
+        await seen.seedDeps?.readPresentParentIds?.('Account', ['001000000000001AAA']),
+      ).toEqual(['001000000000001AAA']);
+      expect(query).toHaveBeenCalledWith(
+        "SELECT Id FROM Account WHERE Id IN ('001000000000001AAA')",
+      );
+      expect(await seen.seedDeps?.describeKeyPrefix?.('Account')).toBe('001');
+    });
+
+    it('refuses a relation naming parents by what is not a record id, before touching the org', async () => {
+      await run(
+        templateWith({
+          ...contactsUnderExistingAccounts,
+          parents: { kind: 'records', ids: ["001' OR Name != '"] },
+        }),
+      );
+
+      expect(mockGetConn).not.toHaveBeenCalled();
+      expect(refusal()?.code).toBe('INVALID_PAYLOAD');
+    });
+
     it('refuses a relation whose filter goes on past the filter, before touching the org', async () => {
       await run(
         templateWith({

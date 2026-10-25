@@ -1165,7 +1165,8 @@ export class SeedOpsHandler implements DomainHandler {
       const { ReferenceLinker } = await import('../../modules/seed/ReferenceLinker.js');
       const { AIDataGenerator } = await import('../../modules/seed/AIDataGenerator.js');
       const { FakerFallback } = await import('../../modules/seed/FakerFallback.js');
-      const { readExistingParentIds } = await import('../../modules/seed/existingParents.js');
+      const { readExistingParentIds, readPresentParentIds } =
+        await import('../../modules/seed/existingParents.js');
       const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
       const { describedFieldsOf } = await import('../../modules/seed/describedFields.js');
 
@@ -1209,6 +1210,10 @@ export class SeedOpsHandler implements DomainHandler {
         // A relation may draw its parents from records already in this org.
         readExistingParentIds: (objectApiName: string, where: string | undefined, limit: number) =>
           readExistingParentIds(conn, objectApiName, where, limit),
+        // And from records it names by id, checked before the first write.
+        readPresentParentIds: (objectApiName: string, ids: readonly string[]) =>
+          readPresentParentIds(conn, objectApiName, ids),
+        describeKeyPrefix: describedFields.keyPrefix,
         planBuilder,
         fieldMapper,
         referenceLinker,

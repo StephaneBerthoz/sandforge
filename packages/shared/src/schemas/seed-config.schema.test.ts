@@ -373,6 +373,36 @@ describe('seedRelationSchema', () => {
     ).toThrow();
   });
 
+  it('accepts parents named by their ids, 15 or 18 characters, in the order given', () => {
+    const parents = { kind: 'records', ids: ['001000000000002AAA', '001000000000001'] };
+    expect(seedRelationSchema.parse(relation({ parents })).parents).toEqual(parents);
+  });
+
+  it('refuses parents named by ids that are not record ids, none, or more than existing parents may be', () => {
+    const records = (ids: string[]) => relation({ parents: { kind: 'records', ids } });
+    expect(() => seedRelationSchema.parse(records([]))).toThrow();
+    expect(() => seedRelationSchema.parse(records(['001000000000001AA']))).toThrow(
+      /15 or 18 letters and digits/,
+    );
+    expect(() => seedRelationSchema.parse(records(["001000000000001' OR Id != '"]))).toThrow();
+    const bound = Array.from(
+      { length: 2001 },
+      (_, n) => `001${String(n + 1).padStart(12, '0')}AAA`,
+    );
+    expect(() => seedRelationSchema.parse(records(bound))).toThrow();
+    expect(seedRelationSchema.parse(records(bound.slice(0, 2000))).parents).toMatchObject({
+      kind: 'records',
+    });
+  });
+
+  it('refuses a parent named twice, its 15 characters and its 18 being one record', () => {
+    expect(() =>
+      seedRelationSchema.parse(
+        relation({ parents: { kind: 'records', ids: ['001000000000001AAA', '001000000000001'] } }),
+      ),
+    ).toThrow(/given once/);
+  });
+
   it('refuses a range that starts above its end', () => {
     expect(() =>
       seedRelationSchema.parse(relation({ distribution: { mode: 'range', min: 5, max: 2 } })),

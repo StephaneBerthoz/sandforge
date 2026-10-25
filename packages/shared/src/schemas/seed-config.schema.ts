@@ -53,13 +53,30 @@ export const seedObjectConfigSchema = z.object({
   batchSize: z.number().int().positive().max(10000).default(200),
 });
 
-/** Where a relation's parents come from: this run, or the org. */
+/** A record id as an org writes one: 15 letters and digits, or 18 with the case-safe suffix. */
+const seedParentIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/, 'A record id is 15 or 18 letters and digits');
+
+/** Where a relation's parents come from: this run, the org by a filter, or records named by id. */
 export const seedRelationParentsSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('generated') }),
   z.object({
     kind: z.literal('existing'),
     where: z.string().max(2000).optional(),
     limit: z.number().int().positive().max(SEED_RELATION_LIMITS.maxExistingParents),
+  }),
+  z.object({
+    kind: z.literal('records'),
+    // The bound the org's own parents have. A record given twice — its 15
+    // characters and its 18 are one record — would take twice the children.
+    ids: z
+      .array(seedParentIdSchema)
+      .min(1)
+      .max(SEED_RELATION_LIMITS.maxExistingParents)
+      .refine((ids) => new Set(ids.map((id) => id.slice(0, 15))).size === ids.length, {
+        message: 'Each parent record is given once',
+      }),
   }),
 ]);
 

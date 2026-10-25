@@ -64,4 +64,24 @@ describe('template counts', () => {
   it('hands back the template itself when nothing is left out', () => {
     expect(templateWithCounts(CRM_STARTER, countsOf(CRM_STARTER))).toBe(CRM_STARTER);
   });
+
+  it('leaves a relation whose parents are named by id as it is: its children follow no count of the page', () => {
+    // An environment hands a seed the ids another resource created; the page
+    // sets no count of them, and keeps the relation whole.
+    const named = {
+      ...CRM_STARTER,
+      relations: (CRM_STARTER.relations ?? []).map((relation) =>
+        relation.childObject === 'Contact'
+          ? { ...relation, parents: { kind: 'records' as const, ids: ['001000000000001AAA'] } }
+          : relation,
+      ),
+    };
+    const counts = withCount(named, countsOf(named), 'Account', 4);
+    expect(counts['Contact']).toBe(countsOf(named)['Contact']);
+    const sent = templateWithCounts(named, { ...counts, Account: 0 });
+    expect(sent.relations?.find((r) => r.childObject === 'Contact')?.parents).toEqual({
+      kind: 'records',
+      ids: ['001000000000001AAA'],
+    });
+  });
 });

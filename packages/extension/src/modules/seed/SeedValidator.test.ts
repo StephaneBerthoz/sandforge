@@ -649,6 +649,39 @@ describe('SeedValidator — relations', () => {
     expect(result.errors.some((e) => e.field.endsWith('.parents.limit'))).toBe(true);
   });
 
+  it('accepts parents named by id, of an object the template does not write', () => {
+    const template = accountsAndContacts([
+      {
+        ...contactsPerAccount,
+        parents: { kind: 'records', ids: ['001000000000001AAA', '001000000000002'] },
+      },
+    ]);
+    template.objects = template.objects.filter((o) => o.objectApiName === 'Contact');
+    expect(new SeedValidator().validate(template).errors).toEqual([]);
+  });
+
+  it('refuses parents named by id that are none, too many, not record ids, or one record twice', () => {
+    const errorsOf = (ids: string[]) =>
+      new SeedValidator()
+        .validate(
+          accountsAndContacts([{ ...contactsPerAccount, parents: { kind: 'records', ids } }]),
+        )
+        .errors.filter((e) => e.field.endsWith('.parents.ids'))
+        .map((e) => e.message);
+    const many = Array.from({ length: 2001 }, (_, n) => `001${String(n).padStart(12, '0')}AAA`);
+
+    expect(errorsOf([])).toEqual([
+      'The relation on Contact.AccountId names between 1 and 2000 Account records by id, not 0',
+    ]);
+    expect(errorsOf(many)[0]).toContain('not 2001');
+    expect(errorsOf(['001000000000001AAA', 'Acme'])[0]).toContain(
+      'names 1 parent(s) by something that is not a record id, 15 or 18 letters and digits: Acme',
+    );
+    expect(errorsOf(['001000000000001AAA', '001000000000001'])).toEqual([
+      'The relation on Contact.AccountId names the same Account record more than once: each parent is given once',
+    ]);
+  });
+
   it('lets the relation answer for the rule on the lookup it fills', () => {
     // The wizard describes AccountId as a reference rule to Account. With the
     // parents read from the org, Account need not be in the template at all.

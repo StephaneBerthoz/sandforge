@@ -10,6 +10,7 @@ import {
   FrozenLoadCancelledError,
   FrozenLoadFailedError,
   LoadGuardError,
+  LoadRecordsExceededError,
   PostLoadVerifier,
   SasPathGuard,
   serializeManifest,
@@ -760,6 +761,23 @@ describe('FrozenDatasetHandler', () => {
         expect(loaderLoad).toHaveBeenCalledWith(expect.objectContaining({ writeEncrypted: true }));
       });
 
+      it('hands the loader the most records it may insert, and says a load past it refused under its own code', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderLoad.mockImplementationOnce(async () => {
+          throw new LoadRecordsExceededError(
+            'This load would insert 3 record(s), more than the 2 it may',
+          );
+        });
+
+        await handler.handle(buildMsg('frozen:load', { targetOrgId: 'org-2', maxRecords: 2 }));
+
+        expect(loaderLoad).toHaveBeenCalledWith(expect.objectContaining({ maxRecords: 2 }));
+        expect(posted(deps, 'frozen:load:error').map((m) => m.payload.code)).toEqual([
+          'MAX_RECORDS',
+        ]);
+      });
+
       it('hands the loader a writer that refuses every write', async () => {
         const { config } = writeDataset();
         wire(config);
@@ -1066,6 +1084,7 @@ describe('FrozenDatasetHandler', () => {
           status: 'passed',
           checks: [],
           attempts: 2,
+          objects: [],
           measuredAt: '2026-09-02T12:00:00.000Z',
         });
         onTestFinished(() => verify.mockRestore());
@@ -1119,6 +1138,7 @@ describe('FrozenDatasetHandler', () => {
           status: 'passed',
           checks: [],
           attempts: 2,
+          objects: [],
           measuredAt: '2026-09-02T12:00:00.000Z',
         });
         onTestFinished(() => verify.mockRestore());
@@ -1196,6 +1216,7 @@ describe('FrozenDatasetHandler', () => {
           status,
           checks: [],
           attempts: 2,
+          objects: [],
           measuredAt,
         });
 

@@ -25,6 +25,7 @@ export * from './FrozenDatasetAnonymizer.js';
 export * from './NonReidentificationControl.js';
 export * from './manifest.js';
 export * from './FrozenDatasetWriter.js';
+export * from './datasetDigest.js';
 
 // Load phase and post-load verification.
 export * from './loadTypes.js';

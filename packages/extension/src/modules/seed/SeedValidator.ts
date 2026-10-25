@@ -27,6 +27,9 @@ export interface ValidationError {
   message: string;
 }
 
+/** A record id as an org writes one: 15 letters and digits, or 18. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
 /** All valid field rule types for validation checks */
 const VALID_RULE_TYPES: ReadonlySet<FieldRuleType> = new Set<FieldRuleType>([
   'static',
@@ -279,6 +282,33 @@ function validateRelations(template: SeedTemplate, errors: ValidationError[]): v
           field,
           message: `The relation draws ${child}'s parents from the ${parent} records this run writes, and the template writes none`,
         });
+      }
+    } else if (relation.parents.kind === 'records') {
+      const ids: readonly unknown[] = Array.isArray(relation.parents.ids)
+        ? relation.parents.ids
+        : [];
+      const most = SEED_RELATION_LIMITS.maxExistingParents;
+      if (ids.length < 1 || ids.length > most) {
+        errors.push({
+          field: `${field}.parents.ids`,
+          message: `The relation on ${child}.${lookup} names between 1 and ${most} ${parent} records by id, not ${ids.length}`,
+        });
+      } else {
+        const notIds = ids.filter((id) => typeof id !== 'string' || !RECORD_ID.test(id));
+        const keys = ids
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => id.slice(0, 15));
+        if (notIds.length > 0) {
+          errors.push({
+            field: `${field}.parents.ids`,
+            message: `The relation on ${child}.${lookup} names ${notIds.length} parent(s) by something that is not a record id, 15 or 18 letters and digits: ${notIds.slice(0, 3).map(String).join(', ')}`,
+          });
+        } else if (new Set(keys).size !== keys.length) {
+          errors.push({
+            field: `${field}.parents.ids`,
+            message: `The relation on ${child}.${lookup} names the same ${parent} record more than once: each parent is given once`,
+          });
+        }
       }
     } else if (
       !isWholeNumberIn(relation.parents.limit, 1, SEED_RELATION_LIMITS.maxExistingParents)
