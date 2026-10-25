@@ -700,11 +700,6 @@ export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'):
   }
   for (const skip of result.skipped ?? []) lines.push(`  ${skip.resource}: not run, ${skip.why}`);
   if (result.refusal !== undefined) lines.push(`${verb} refused: ${result.refusal}`);
-  lines.push(
-    `${verb}: ${result.status}` +
-      (result.state.deleted === true
-        ? '; the state is deleted'
-        : `; state serial ${result.state.serial}`),
-  );
+  lines.push(`${verb}: ${result.status}; state serial ${result.state.serial}`);
   return lines;
 }

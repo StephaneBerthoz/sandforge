@@ -27,8 +27,8 @@
  * - an apply stopped part way, applied again, ends where one never stopped
  *   ends: no record written twice;
  * - destroy leaves no record of the environment, and every record of the
- *   org's own as it was, and deletes the state; or it exits 3, naming per
- *   object exactly what it left;
+ *   org's own as it was, and keeps the state with every resource destroyed;
+ *   or it exits 3, naming per object exactly what it left;
  * - a run a removal took back whole is never taken back, or read, again;
  * - what a plan says a resource would write is what the apply then writes.
  *
@@ -895,9 +895,10 @@ class History {
   }
 
   private async destroyed(stop?: StopPlan): Promise<number> {
+    const held = (await this.state()) !== undefined;
     const ran = await this.destroy([], stop);
     if (isStopCode(ran.code)) return ran.code;
-    if (this.checks.has('destroy')) await this.destroyLeavesNothingUnsaid(ran);
+    if (this.checks.has('destroy')) await this.destroyLeavesNothingUnsaid(ran, held);
     return ran.code;
   }
 
@@ -909,7 +910,7 @@ class History {
       this.said.push('destroy --include-changed');
       const again = await this.destroy(['--include-changed']);
       expect(again.code, this.message()).toBe(0);
-      if (this.checks.has('destroy')) await this.destroyLeavesNothingUnsaid(again);
+      if (this.checks.has('destroy')) await this.destroyLeavesNothingUnsaid(again, true);
     }
   }
 
@@ -1078,14 +1079,21 @@ class History {
    * the environment and no state, or exit 3, the state kept, and per object
    * exactly what is left named as kept.
    */
-  private async destroyLeavesNothingUnsaid(ran: Answered): Promise<void> {
+  /** `held`: whether a state was kept before the destroy, which then keeps it. */
+  private async destroyLeavesNothingUnsaid(ran: Answered, held: boolean): Promise<void> {
     const message = `${this.message()}\n${ran.said}`;
     expect(this.ownSnapshot(), `the org's own records\n${message}`).toBe(this.ownBefore);
     const left = this.liveRecords();
     if (![...this.changed].some((id) => this.isLive(id))) expect(ran.code, message).toBe(0);
     if (ran.code === 0) {
       expect(left, message).toEqual([]);
-      expect(await this.state(), message).toBeUndefined();
+      // Kept, every resource destroyed: the next apply creates them again.
+      const kept = await this.state();
+      expect(
+        Object.values(kept?.resources ?? {}).map((resource) => resource.status),
+        message,
+      ).toEqual(Object.keys(kept?.resources ?? {}).map(() => 'destroyed'));
+      expect(kept !== undefined, `the state kept\n${message}`).toBe(held);
       return;
     }
     expect(ran.code, message).toBe(3);
@@ -1203,7 +1211,7 @@ describe('an environment on the memory org, over random files and histories', ()
   );
 
   it(
-    'destroy leaves no record of the environment and the org’s own records as they were, and deletes the state, or exits 3 naming per object exactly what it left',
+    'destroy leaves no record of the environment and the org’s own records as they were, and keeps the state with every resource destroyed, or exits 3 naming per object exactly what it left',
     () => overHistories(['destroy']),
     paced(60_000),
   );

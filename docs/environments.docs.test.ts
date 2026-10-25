@@ -735,7 +735,12 @@ describe('docs/environments.md', () => {
       [
         CLI,
         'a month after its last write, as a scratch org does: deleted',
-        'any other stays until a `destroy` takes everything back',
+        'Any other state stays, a `destroy` that took everything back included, until you delete its folder',
+      ],
+      [
+        CLI,
+        'for (const expired of await store.sweep()) {',
+        'every command but `validate` first deletes those whose date has come, and says so',
       ],
       [
         DESTROY,
@@ -794,16 +799,17 @@ describe('docs/environments.md', () => {
     expect(CLI).toContain('resolved.checked.file.resources[name]?.accept?.automation === true;');
   });
 
-  it('says a destroy that took everything back deletes the state, which the next apply then misses', () => {
-    // Positive control: the state goes with the last record, and no state on
+  it('says a destroy that took everything back keeps the state, so the next apply needs no --accept-no-state', () => {
+    // Anchors: the destroy keeps the state and says so, and only no state on
     // a Developer Edition org or a sandbox refuses an apply.
-    expect(DESTROY).toContain('deleted = await deps.store.remove(target.organizationId, env);');
+    expect(DESTROY).not.toContain('deps.store.remove(');
+    expect(DESTROY).toContain("'destroyed, and the next apply creates it again'");
     expect(GUARDS).toContain(
       "if (target.kind === 'scratch' || acceptNoState) return { warning: said };",
     );
 
     expect(DOC).toContain(
-      'A `destroy` that took everything back deletes the state, so the next `apply` to a Developer Edition org or a sandbox meets the same refusal',
+      'A `destroy` that took everything back keeps the state, every resource in it destroyed: the next `apply` creates them again, with no `--accept-no-state`.',
     );
   });
 

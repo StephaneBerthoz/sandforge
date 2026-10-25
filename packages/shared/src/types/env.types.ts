@@ -360,8 +360,8 @@ export interface EnvRunResult {
   status: 'success' | 'partial' | 'failure' | 'cancelled';
   /** Why nothing was done, when it was refused before its first step. */
   refusal?: string;
-  /** The state as the run left it; `deleted` once a destroy took back everything it named. */
-  state: { serial: number; deleted?: true };
+  /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
+  state: { serial: number };
 }
 
 // ─── What the other verbs answer ─────────────────────────────────────────────

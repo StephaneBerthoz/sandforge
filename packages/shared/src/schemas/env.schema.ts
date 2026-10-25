@@ -761,8 +761,8 @@ export const envRunResultSchema = z.strictObject({
   status: z.enum(['success', 'partial', 'failure', 'cancelled']),
   /** Why nothing was done, when it was refused before its first step. */
   refusal: z.string().min(1).max(4_000).optional(),
-  /** The state as the run left it; `deleted` once a destroy took back everything it named. */
-  state: z.strictObject({ serial: countSchema, deleted: z.literal(true).optional() }),
+  /** The state as the run left it: a destroy that took everything back keeps it, every resource destroyed. */
+  state: z.strictObject({ serial: countSchema }),
 });
 
 // ─── What the other verbs answer ─────────────────────────────────────────────

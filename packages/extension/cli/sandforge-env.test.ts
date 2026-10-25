@@ -328,12 +328,16 @@ describe('plan, apply, plan again, destroy', () => {
     world.org.trash('Contact', String(contact?.['Id']));
     expect((await run(['plan', '--org', 'TGT', '--fail-on-drift'])).code).toBe(3);
 
-    // Destroyed: everything taken back, the state gone.
+    // Destroyed: everything taken back, the state kept with each resource destroyed.
     const destroyed = await run(['destroy', '--org', 'TGT', '--yes', '--json']);
     expect(destroyed.code).toBe(0);
-    expect(envRunResultSchema.parse(destroyed.answer).state.deleted).toBe(true);
+    envRunResultSchema.parse(destroyed.answer);
     expect(world.records('Account')).toEqual([]);
-    expect(envStateListSchema.parse((await run(['state', '--json'])).answer).states).toEqual([]);
+    expect(
+      envStateListSchema
+        .parse((await run(['state', '--json'])).answer)
+        .states.map((entry) => entry.resources),
+    ).toEqual([{ accounts: 'destroyed', contacts: 'destroyed' }]);
   });
 
   it('reads no run a removal took back whole: plan, apply and destroy preview the current runs alone', async () => {
@@ -546,6 +550,21 @@ describe('the guards, as the command line meets them', () => {
 
     const accepted = await run(['apply', '--org', 'DEV', '--yes', '--accept-no-state']);
     expect(accepted.code).toBe(0);
+    expect(world.records('Account')).toHaveLength(2);
+  });
+
+  it('applies again to a Developer Edition org a destroy took everything back from, without --accept-no-state', async () => {
+    // Deleted with its last record, the state left the next apply refused as
+    // if a cache had been lost: a pipeline that destroys after each run gave
+    // the flag every time, and the refusal kept nothing apart.
+    worldOf();
+    expect((await run(['apply', '--org', 'DEV', '--yes', '--accept-no-state'])).code).toBe(0);
+    expect((await run(['destroy', '--org', 'DEV', '--yes'])).code).toBe(0);
+    expect(world.records('Account')).toEqual([]);
+
+    const again = await run(['apply', '--org', 'DEV', '--yes', '--json']);
+
+    expect(again.code).toBe(0);
     expect(world.records('Account')).toHaveLength(2);
   });
 

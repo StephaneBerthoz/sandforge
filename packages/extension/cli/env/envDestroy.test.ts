@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EnvState, ForgeTargetAutomation } from '@sandforge/shared';
@@ -220,8 +220,16 @@ function removalsSince(from: number): string[] {
     });
 }
 
+/** The status of each resource the state keeps. */
+async function statusesKept(): Promise<Record<string, string>> {
+  const state = await store.read(ORG_ID, 'case-flow');
+  return Object.fromEntries(
+    Object.entries(state?.resources ?? {}).map(([name, resource]) => [name, resource.status]),
+  );
+}
+
 describe('destroy', () => {
-  it('takes every resource back, the last applied first, then deletes the state, exit 0', async () => {
+  it('takes every resource back, the last applied first, and keeps the state with each destroyed, exit 0', async () => {
     await applied();
     const from = world.calls.length;
 
@@ -239,8 +247,9 @@ describe('destroy', () => {
     ]);
     expect(world.records('Account')).toEqual([]);
     expect(world.records('Contact')).toEqual([]);
-    expect(outcome.result.state.deleted).toBe(true);
-    expect(existsSync(store.folderOf(ORG_ID, 'case-flow'))).toBe(false);
+    // Deleted, the state left the next apply to a Developer Edition or a
+    // sandbox refused for want of one, as if a cache had been lost.
+    expect(await statusesKept()).toEqual({ accounts: 'destroyed', contacts: 'destroyed' });
   });
 
   it('runs backwards because the forward order keeps every parent: the accounts first keep theirs, exit 3', async () => {
@@ -285,7 +294,7 @@ describe('destroy', () => {
     expect(world.records('Contact').map((c) => c['LastName'])).toEqual(['Edited']);
   });
 
-  it('takes what changed since too with --include-changed, then deletes the state', async () => {
+  it('takes what changed since too with --include-changed, then keeps the state with each destroyed', async () => {
     await applied();
     const [contact] = world.records('Contact');
     world.org.edit('Contact', String(contact?.['Id']), { LastName: 'Edited' }, OTHER_USER);
@@ -296,7 +305,7 @@ describe('destroy', () => {
     expect(outcome.exitCode).toBe(0);
     expect(world.records('Contact')).toEqual([]);
     expect(world.records('Account')).toEqual([]);
-    expect(outcome.result.state.deleted).toBe(true);
+    expect(await statusesKept()).toEqual({ accounts: 'destroyed', contacts: 'destroyed' });
   });
 
   it('refuses before its first delete when a removal would be refused for the org’s automation, and goes with the acceptance', async () => {
@@ -400,7 +409,7 @@ describe('destroy', () => {
     const again = await destroy();
     expect(again.exitCode).toBe(0);
     expect(world.records('Account')).toEqual([]);
-    expect(again.result.state.deleted).toBe(true);
+    expect(await statusesKept()).toEqual({ accounts: 'destroyed', contacts: 'destroyed' });
   });
 
   it('with no state, takes nothing back and reaches nothing, exit 0', async () => {

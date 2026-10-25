@@ -24,7 +24,12 @@
  * go and the line gave no `--accept-automation`, a user who may not delete
  * some objects — stops the destroy there, before the resources that
  * resource depended on: their records would be kept for it anyway. Once
- * every resource is taken back whole, the state is deleted with its folder.
+ * every resource is taken back whole, the state stays, every resource in it
+ * destroyed: the next apply creates them again. Deleted, it left the next
+ * apply to a Developer Edition org or a sandbox with no state, refused
+ * without --accept-no-state as if a cache had been lost: a pipeline that
+ * destroys after each run gave the flag every time, and the refusal kept
+ * nothing apart.
  *
  * A destroy is not undone as a whole: children deleted before their parent
  * cannot come back with it from the recycle bin. It is undone by applying
@@ -204,10 +209,11 @@ export async function destroyEnvironment(
     }
 
     const whole = Object.values(current.resources).every((r) => r.status === 'destroyed');
-    let deleted = false;
     if (whole && stoppedAt === undefined) {
-      deleted = await deps.store.remove(target.organizationId, env);
-      deps.say(`every record of ${env} is taken back from ${target.alias}: its state is deleted`);
+      deps.say(
+        `every record of ${env} is taken back from ${target.alias}: the state keeps it as ` +
+          'destroyed, and the next apply creates it again',
+      );
     }
     const exitCode =
       stoppedBy !== undefined
@@ -223,7 +229,7 @@ export async function destroyEnvironment(
       steps,
       ...(skipped.length > 0 ? { skipped } : {}),
       status: statusOf(exitCode),
-      state: { serial: current.serial, ...(deleted ? { deleted: true as const } : {}) },
+      state: { serial: current.serial },
     };
     return { result, exitCode };
   } finally {

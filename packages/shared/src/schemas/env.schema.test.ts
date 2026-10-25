@@ -671,9 +671,10 @@ describe('the plan and the steps', () => {
     };
 
     expect(envRunResultSchema.safeParse(result).success).toBe(true);
+    // A destroy keeps the state: a result says no state was deleted.
     expect(
       envRunResultSchema.safeParse({ ...result, state: { serial: 0, deleted: true } }).success,
-    ).toBe(true);
+    ).toBe(false);
     const unranked: Record<string, unknown> = { ...step };
     delete unranked['run'];
     expect(envRunResultSchema.safeParse({ ...result, steps: [unranked] }).success).toBe(false);

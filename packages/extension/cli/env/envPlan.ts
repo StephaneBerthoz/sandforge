@@ -527,7 +527,7 @@ function sumGates(
   const notCounted: string[] = [];
   for (const draft of drafts) {
     if (draft.action === 'delete' || draft.action === 'replace') {
-      notCounted.push(`the removal of ${draft.resource}'s runs`);
+      notCounted.push(`the removal of the runs of ${draft.resource}`);
     }
     if (!RUNS.has(draft.action)) continue;
     const dry = dryRuns?.[draft.resource];
@@ -702,7 +702,7 @@ export function destructionPlan(
     };
   });
   const blocked = actions.filter((action) => action.action === 'blocked');
-  const removals = actions.map((action) => `the removal of ${action.resource}'s runs`);
+  const removals = actions.map((action) => `the removal of the runs of ${action.resource}`);
   const state = input.state;
   return {
     env: input.resolved.checked.file.name,

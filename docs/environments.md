@@ -243,7 +243,7 @@ state: kept on this machine, serial 4
   replace  contacts  Contact at most 6 to write, 5 in the org, 1 gone
            replaced: the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 2, 14000 left; not counted: the removal of accounts's runs, the removal of contacts's runs, what contacts draws from the records accounts writes first
+API requests: about 2, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
 contacts: taking back run 1
 accounts: taking back run 1
@@ -276,7 +276,7 @@ state: kept on this machine, serial 14
   delete   accounts  Account 4 in the org, 1 changed
            taken back by destroy, into the recycle bin
 totals: 0 to create, 0 to replace, 2 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 0; not counted: the removal of contacts's runs, the removal of accounts's runs
+API requests: about 0; not counted: the removal of the runs of contacts, the removal of the runs of accounts
 data storage: about 0 MB
 contacts: taking back run 2
 accounts: taking back run 2
@@ -301,17 +301,17 @@ state: kept on this machine, serial 19
   delete   accounts  Account 1 in the org, 1 changed
            taken back by destroy, into the recycle bin
 totals: 0 to create, 0 to replace, 1 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 0; not counted: the removal of accounts's runs
+API requests: about 0; not counted: the removal of the runs of accounts
 data storage: about 0 MB
 accounts: taking back run 2
-every record of case-flow is taken back from pool-1: its state is deleted
+every record of case-flow is taken back from pool-1: the state keeps it as destroyed, and the next apply creates it again
 
   accounts removal of run 2: exit 0, destroyed  Account 1 deleted
-destroy: success; the state is deleted
+destroy: success; state serial 22
 $ echo $?
 0
 $ sandforge-env state
-no state kept in /home/dev/.sandforge/env
+case-flow on pool-1 (scratch, 00Dxx0000001gPLEAY): serial 22, written 2026-10-25T09:12:00.000Z, expires 2026-11-24T09:12:00.000Z; accounts destroyed, contacts destroyed
 ```
 
 On a terminal, `destroy` asks for the alias too, and with `--include-changed` its question says what it takes: `Type pool-1 to take case-flow back from it, the records changed since included — on a shared org, others’ work:`. [What destroy leaves](#what-destroy-takes-back-and-what-it-leaves) has the rest.
@@ -466,7 +466,7 @@ $ echo $?
 1
 ```
 
-A `destroy` that took everything back deletes the state, so the next `apply` to a Developer Edition org or a sandbox meets the same refusal: give `--accept-no-state` once you know the org holds nothing of the environment.
+A `destroy` that took everything back keeps the state, every resource in it destroyed: the next `apply` creates them again, with no `--accept-no-state`. Only a state lost, or never kept on this machine, meets that refusal: give the flag once you know the org holds nothing of the environment.
 
 **The journal directory inside the repository that holds the file**, exit `2`, every command but `validate`:
 
@@ -495,7 +495,7 @@ What `apply` keeps of the org: **ids, counts and dates, never a record's values*
 - **Outside the repository.** The journal directory must sit outside the repository that holds the file: committed, the state and the run summaries would publish the org's record ids with the project.
 - **Between jobs.** Keep the journal directory between the jobs that apply and destroy, in a cache keyed by the org: in GitHub Actions, `$RUNNER_TEMP/sandforge`, restored before and saved after. Lost, the next plan cannot tell the environment's records from the org's own -- the refusal above.
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
-- **How long.** A scratch org's state is deleted 30 days after its last write; any other stays until a `destroy` takes everything back.
+- **How long.** A scratch org's state is deleted 30 days after its last write: every command but `validate` first deletes those whose date has come, and says so. Any other state stays, a `destroy` that took everything back included, until you delete its folder.
 - **Read strictly.** A state that does not parse is refused, never guessed; one that changed since it was read -- another apply ran, a cache put back an older one -- is refused, never written over.
 
 ## What destroy takes back, and what it leaves
