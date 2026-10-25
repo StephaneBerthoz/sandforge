@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: Salesforce Sandbox にリアルなデータを",
-  "description": "空の Salesforce Sandbox、スクラッチ組織、Developer Edition にリアルなテストデータを。テンプレートから生成（AI キー不要）するか、別の組織からレコードとそのリレーショングラフをクローンします。データの匿名化とデータセットの再現も。本番環境ガードレールは既定で有効です。",
+  "description": "空の Salesforce Sandbox、スクラッチ組織、Developer Edition にリアルなテストデータを。テンプレートから生成（AI キー不要）するか、別の組織からレコードとそのリレーショングラフをクローンします。データの匿名化、チェックポイントの作成と巻き戻しも。本番環境ガードレールは既定で有効です。",
   "capabilities.untrustedWorkspaces.description": "SandForge は Salesforce の認証情報を読み取り、開いているフォルダーの構成に従って組織にレコードを書き込みます。有効にするにはフォルダーを信頼してください。",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

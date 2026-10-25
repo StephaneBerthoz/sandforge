@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: dados realistas para sandboxes do Salesforce",
-  "description": "Preencha uma sandbox, uma scratch org ou uma Developer Edition do Salesforce vazia com dados de teste realistas: gere-os a partir de modelos, sem chave de IA, ou clone um registro e seu grafo de relacionamentos de outra org. Proteções de produção ativas por padrão.",
+  "description": "Preencha uma sandbox, uma scratch org ou uma Developer Edition do Salesforce vazia com dados de teste realistas: gere-os a partir de modelos, sem chave de IA, ou clone um registro e seu grafo de outra org. Anonimize, crie um ponto de verificação e retroceda. Proteções de produção ativas por padrão.",
   "capabilities.untrustedWorkspaces.description": "O SandForge lê credenciais do Salesforce e grava registros nas suas orgs, a partir da configuração da pasta aberta. Confie na pasta para ativá-lo.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

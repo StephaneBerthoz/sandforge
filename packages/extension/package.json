@@ -31,7 +31,7 @@
     "type": "git",
     "url": "https://github.com/StephaneBerthoz/sandforge"
   },
-  "homepage": "https://github.com/StephaneBerthoz/sandforge#readme",
+  "homepage": "https://sandforge.fr/en/",
   "bugs": {
     "url": "https://github.com/StephaneBerthoz/sandforge/issues"
   },
@@ -62,7 +62,7 @@
     "org cloning",
     "sandbox seeding",
     "anonymization",
-    "anonymize",
+    "checkpoint",
     "sfdc",
     "sfdx",
     "sfdmu",
@@ -70,7 +70,7 @@
     "bulk api",
     "gdpr",
     "backup",
-    "monitoring",
+    "snapshot",
     "csv",
     "pii"
   ],

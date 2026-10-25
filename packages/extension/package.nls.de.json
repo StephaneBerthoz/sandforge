@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: Realistische Daten für Salesforce-Sandboxes",
-  "description": "Füllen Sie eine leere Salesforce-Sandbox, Scratch-Org oder Developer Edition mit realistischen Testdaten: aus Vorlagen erzeugt, ohne KI-Schlüssel, oder als Klon eines Datensatzes samt Beziehungsgraph aus einer anderen Org. Schutzmechanismen für die Produktion sind standardmäßig aktiv.",
+  "description": "Füllen Sie eine leere Salesforce-Sandbox, Scratch-Org oder Developer Edition mit realistischen Testdaten: aus Vorlagen erzeugt, ohne KI-Schlüssel, oder als Klon eines Datensatzes samt Graph. Anonymisieren, Prüfpunkt setzen, später zurücksetzen. Produktionsschutz standardmäßig aktiv.",
   "capabilities.untrustedWorkspaces.description": "SandForge liest Salesforce-Anmeldedaten und schreibt Datensätze in Ihre Orgs, gesteuert durch die Konfiguration des geöffneten Ordners. Vertrauen Sie dem Ordner, um die Erweiterung zu aktivieren.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

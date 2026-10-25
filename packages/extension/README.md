@@ -15,6 +15,8 @@
 
 ![A Forge clone from start to finish: a record Id, its relationship graph, the automation the target runs, a simulation, the gaps decided, the run, its results, and the removal of what it created](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge-flow.gif)
 
+Website: [sandforge.fr](https://sandforge.fr/en/) · [en français](https://sandforge.fr/)
+
 ---
 
 ## One empty org? Fill it in a minute
@@ -39,6 +41,8 @@ New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get st
 - **No mandatory CSV round-trip.** Records move org to org over the API. CSV import is still there when you want it — one door in, not the only one.
 - **Production Guard on by default.** Forge refuses a production org as a target, and so do a Frozen Dataset load and Checkpoints, which does not even take a checkpoint of one; Seed, Sync, Autopilot and DataOps ask you before every write to one, and DELETE there is blocked outright. Nothing to switch on, nothing to remember.
 - **Your existing SFDMU config keeps working.** The Migration module imports an `export.json` into a Sync config, so what you already built comes with you.
+
+Side by side, with sources: [SandForge, SFDMU and Data Loader compared](https://sandforge.fr/en/compare/).
 
 ---
 
@@ -253,6 +257,7 @@ Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Po
 
 ## Support
 
+- [Website and guides: sandforge.fr](https://sandforge.fr/en/)
 - [Report an issue](https://github.com/StephaneBerthoz/sandforge/issues)
 - [Ask a question (Q&A)](https://github.com/StephaneBerthoz/sandforge/discussions)
 - [Changelog](https://github.com/StephaneBerthoz/sandforge/blob/master/changelog.md)

@@ -3,3 +3,9 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/StephaneBerthoz/sandforge/blob/master/SECURITY.md
     about: Do NOT open a public issue for security findings — use the responsible disclosure flow.
+  - name: Question or idea
+    url: https://github.com/StephaneBerthoz/sandforge/discussions
+    about: Ask in Q&A or share an idea in Discussions; issues are for bugs and feature requests.
+  - name: Guides and comparison
+    url: https://sandforge.fr/en/
+    about: What each module does, a first clone step by step, and SandForge beside SFDMU and Data Loader.

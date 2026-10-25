@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge : des données réalistes pour vos sandboxes Salesforce",
-  "description": "Remplissez une sandbox, une scratch org ou une Developer Edition Salesforce vide : générez des données synthétiques réalistes depuis des modèles, sans clé d'IA, ou clonez un enregistrement et son graphe de relations depuis une autre org. Garde-fous de production actifs par défaut.",
+  "description": "Remplissez une sandbox, une scratch org ou une Developer Edition Salesforce vide : générez des données synthétiques réalistes depuis des modèles, sans clé d'IA, ou clonez un enregistrement et son graphe. Anonymisez, posez un point de contrôle, revenez-y. Garde-fous de production actifs par défaut.",
   "capabilities.untrustedWorkspaces.description": "SandForge lit des identifiants Salesforce et écrit des enregistrements dans vos orgs, à partir de la configuration du dossier ouvert. Approuvez le dossier pour l'activer.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

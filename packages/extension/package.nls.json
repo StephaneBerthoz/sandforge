@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: Realistic Data for Salesforce Sandboxes",
-  "description": "Fill an empty Salesforce sandbox, scratch org or Developer Edition with realistic test data: generate it from templates, no AI key needed, or clone a record and its relationship graph from another org. Anonymize and replay datasets, with production guardrails on by default.",
+  "description": "Fill an empty Salesforce sandbox, scratch org or Developer Edition with realistic test data: generate it from templates, no AI key needed, or clone a record and its graph from another org. Anonymize it, take a checkpoint of the org and rewind it later. Production guardrails on by default.",
   "capabilities.untrustedWorkspaces.description": "SandForge reads Salesforce credentials and writes records to your orgs, driven by configuration taken from the open folder. Trust the folder to enable it.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",

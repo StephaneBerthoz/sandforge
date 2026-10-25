@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge: datos realistas para sandboxes de Salesforce",
-  "description": "Llene un sandbox, una scratch org o una Developer Edition de Salesforce vacíos con datos de prueba realistas: genérelos desde plantillas, sin clave de IA, o clone un registro y su grafo de relaciones desde otra org. Salvaguardas de producción activas por defecto.",
+  "description": "Llene un sandbox, una scratch org o una Developer Edition de Salesforce vacíos con datos de prueba realistas: genérelos desde plantillas, sin clave de IA, o clone un registro y su grafo desde otra org. Anonimice, cree un punto de control y retroceda. Salvaguardas de producción activas por defecto.",
   "capabilities.untrustedWorkspaces.description": "SandForge lee credenciales de Salesforce y escribe registros en sus orgs, a partir de la configuración de la carpeta abierta. Confíe en la carpeta para activarla.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
