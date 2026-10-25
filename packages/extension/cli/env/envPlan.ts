@@ -11,7 +11,8 @@
  * - `keep`: applied from the same fingerprint, and the org holds every record
  *   of its run as written;
  * - `drifted`: applied from the same fingerprint, and records of it are gone,
- *   changed since by someone, or could not be read: left alone unless
+ *   changed since by someone, or could not be read — or, for a frozen
+ *   resource, its verification FAILED an object, named: left alone unless
  *   `--replace` or `--replace-drifted` asks;
  * - `replace`: what it writes changed in the file; a resource it depends on
  *   runs again (new records, new Ids); its last run was stopped part way,
@@ -21,6 +22,12 @@
  * - `blocked`: its dry run, its removal's preview, a summed gate or what this
  *   SandForge does not do refuses it — and the whole apply with it, before
  *   its first write.
+ *
+ * A seed resource whose relations draw their parents from the records
+ * another resource created is counted exactly once that resource has run:
+ * its dry run is handed their ids. While that resource runs in the same
+ * apply, nobody knows them: its count is the most the file gives, and the
+ * plan says so, and how many parents each relation draws once they are known.
  *
  * Each script gates its own run against what the org has left, and sees no
  * other: three seeds that each fit can together overrun a Developer Edition's
@@ -42,6 +49,7 @@
 import {
   BYTES_PER_MB,
   type EnvAction,
+  type EnvActionDraw,
   type EnvActionGates,
   type EnvActionKind,
   type EnvEmailLimit,
@@ -72,9 +80,16 @@ import {
 } from './envKinds.js';
 import type { EnvDryRunCount } from './kinds/common.js';
 
+/**
+ * What a resource's own verification of its last run found, where its kind
+ * has one a plan reads (a frozen resource's): the objects it FAILED, each
+ * named; or why it could not say.
+ */
+export type EnvRefreshed = { failed: string[] } | { unread: string };
+
 /** What a removal preview of one run of a resource said, or why it said nothing. */
 export type EnvRunPreview =
-  | { n: number; preview: EnvPreviewAnswer }
+  | { n: number; preview: EnvPreviewAnswer; refreshed?: EnvRefreshed }
   /** The run left nothing to take back from: no summary, no run file, so it wrote nothing. */
   | { n: number; nothing: true }
   | { n: number; failed: string };
@@ -111,6 +126,11 @@ export interface EnvPlanInput {
   checkpointEstimate?: CheckpointEstimateRead;
   /** The whole org against the checkpoint taken after the last apply; absent with `--quick`. */
   drift?: EnvPlanDrift;
+  /**
+   * Of each seed resource whose relations draw their parents from another
+   * resource's records: what each draw is handed, and why one cannot be.
+   */
+  draws?: Readonly<Record<string, { draws: EnvActionDraw[]; refusals: string[] }>>;
 }
 
 /** A resource's action before its dry run and the gates are read. */
@@ -197,16 +217,30 @@ interface Held {
   changedBy: Map<string, number>;
   refusals: string[];
   failed: string[];
+  /** What its verification FAILED, each object named. */
+  verified: string[];
 }
 
 function heldOf(previews: readonly EnvRunPreview[]): Held {
-  const held: Held = { objects: new Map(), changedBy: new Map(), refusals: [], failed: [] };
+  const held: Held = {
+    objects: new Map(),
+    changedBy: new Map(),
+    refusals: [],
+    failed: [],
+    verified: [],
+  };
   for (const run of previews) {
     if ('failed' in run) {
       held.failed.push(`run ${run.n}: ${run.failed}`);
       continue;
     }
     if ('nothing' in run) continue;
+    const refreshed = run.refreshed;
+    if (refreshed !== undefined && 'unread' in refreshed) {
+      held.failed.push(`run ${run.n}: its verification did not say (${refreshed.unread})`);
+    } else if (refreshed !== undefined) {
+      held.verified.push(...refreshed.failed);
+    }
     const { preview } = run.preview;
     for (const object of preview.objects) {
       const counts = held.objects.get(object.objectApiName) ?? {
@@ -251,6 +285,7 @@ function driftOf(held: Held): string | undefined {
     ].filter(Boolean);
     return said.length > 0 ? [`${object} ${said.join(', ')}`] : [];
   });
+  if (held.verified.length > 0) parts.push(`its verification: ${held.verified.join('; ')}`);
   if (parts.length === 0) return undefined;
   const by = [...held.changedBy].sort((a, b) => b[1] - a[1]);
   const who =
@@ -270,9 +305,17 @@ const STATUS_WHY: Readonly<Partial<Record<EnvResourceState['status'], string>>> 
 /**
  * Why a resource cannot be planned, before anything of the org is read: a
  * forge resource whose source the plan did not read, or could not — its
- * fingerprint is of the org its alias reaches and the record its query names.
+ * fingerprint is of the org its alias reaches and the record its query names;
+ * a frozen resource whose dataset the plan did not read, or is not the one
+ * the file pins.
  */
 function sourceRefusal(resource: EnvFileResource): string | undefined {
+  if (resource.kind === 'frozen') {
+    const read = resource.dataset.read;
+    if (read === undefined)
+      return `its dataset at ${resource.dataset.dir} was not read: plan again`;
+    return 'refusal' in read ? read.refusal : undefined;
+  }
   if (resource.kind !== 'forge') return undefined;
   const read = resource.source.read;
   if (read === undefined) {
@@ -494,6 +537,18 @@ function drawsFromEarlier(resolved: EnvFileResolved, name: string): boolean {
   return resource !== undefined && (drawnCountsOf(resource)?.size ?? 0) > 0;
 }
 
+/** The resources of `deps` a seed resource's relations draw their parents from. */
+function drawnFromAmong(
+  resolved: EnvFileResolved,
+  name: string,
+  deps: readonly string[],
+): string[] {
+  const resource = resolved.resources.find((each) => each.name === name);
+  if (resource?.kind !== 'seed') return [];
+  const from = new Set((resource.run.draws ?? []).map((draw) => draw.from));
+  return deps.filter((dep) => from.has(dep));
+}
+
 /**
  * What a dry run counted that a run is held to: its records in all, as its
  * kind counts them. A forge run is given it as its `--max-total`, so a
@@ -626,6 +681,11 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     // dry run read the org before they did, and counted none of those.
     const deps = before.get(draft.resource);
     const drawn = deps !== undefined && drawsFromEarlier(input.resolved, draft.resource);
+    const draws = RUNS.has(draft.action) ? input.draws?.[draft.resource] : undefined;
+    if (draws !== undefined && draws.refusals.length > 0) {
+      refusal ??= draws.refusals.join(' ');
+    }
+    let dryNotes: string[] = [];
     if (dry !== undefined && 'failed' in dry) {
       refusal ??= `its dry run did not answer: ${dry.failed}`;
     } else if (dry !== undefined) {
@@ -640,14 +700,25 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       };
       const own = counted.count.refusal;
       if (own !== undefined) refusal ??= `its own dry run says a real run would be refused: ${own}`;
+      dryNotes = counted.count.notes ?? [];
     } else if (RUNS.has(draft.action) && !quick) {
       refusal ??= 'it was not dry-run: plan again';
     }
-    const why =
+    // The resources it draws its parents from by their ids, among those that
+    // run first: nobody knows their records before they run.
+    const unknown = deps !== undefined ? drawnFromAmong(input.resolved, draft.resource, deps) : [];
+    const counted =
       deps !== undefined && dry !== undefined && drawn
-        ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes: what it ` +
-          'draws from those records is counted at most as the file gives it'
-        : draft.why;
+        ? unknown.length > 0
+          ? `; it draws its parents from the records ${unknown.join(', ')} creates in this ` +
+            'apply, which nobody knows before it runs: counted at most as the file gives it'
+          : `; its dry run read the org before ${deps.join(', ')} writes: what it draws from ` +
+            'those records is counted at most as the file gives it'
+        : '';
+    // What its own dry run says of the load (encrypted fields, rewritten
+    // picklists) goes with why; what the file asks of its data (real data
+    // from production) on lines of its own.
+    const why = `${draft.why}${counted}${dryNotes.length > 0 ? `; ${dryNotes.join('; ')}` : ''}`;
     const resource = input.resolved.resources.find((each) => each.name === draft.resource);
     const notes = resource !== undefined && RUNS.has(draft.action) ? notesOf(resource) : [];
     return {
@@ -656,6 +727,7 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       action: refusal !== undefined ? 'blocked' : draft.action,
       why,
       objects,
+      ...(draws !== undefined && draws.draws.length > 0 ? { draws: draws.draws } : {}),
       ...(gates !== undefined ? { gates } : {}),
       ...(refusal !== undefined ? { refusal } : {}),
       ...(notes.length > 0 ? { notes } : {}),
@@ -852,6 +924,14 @@ export function planLines(plan: EnvPlan): string[] {
       .join('; ');
     lines.push(`  ${action.action.padEnd(8)} ${action.resource}${counts ? `  ${counts}` : ''}`);
     lines.push(`           ${action.why}`);
+    for (const draw of action.draws ?? []) {
+      lines.push(
+        `           ${draw.lookup} draws its parents from ` +
+          (draw.parents !== undefined
+            ? `the ${draw.parents} ${draw.object} record(s) ${draw.from} created`
+            : `the ${draw.object} records ${draw.from} creates first`),
+      );
+    }
     for (const note of action.notes ?? []) lines.push(`           ${note}`);
     if (action.refusal !== undefined) lines.push(`           refused: ${action.refusal}`);
   }

@@ -20,12 +20,18 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
 import { acquireOrgLock } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
-import { applyPlan, applySteps, runResultLines, type EnvStepDeps } from './envApply.js';
+import {
+  applyPlan,
+  applySteps,
+  removalSubjectOf,
+  runResultLines,
+  type EnvStepDeps,
+} from './envApply.js';
 import { readEnvFile, type EnvFileResolved } from './envFile.js';
 import type { EnvTarget } from './envGuards.js';
 import { acquireEnvLock } from './envLock.js';
 import { classifyResources, envPlan, type EnvDryRun, type EnvPlanInput } from './envPlan.js';
-import { openEnvStore, type EnvStore } from './envState.js';
+import { newEnvState, openEnvStore, runStarted, stepEnded, type EnvStore } from './envState.js';
 
 /*
  * Applying a plan on the memory org: each step runs `sandforge-seed`'s own
@@ -747,5 +753,179 @@ describe('what an apply says', () => {
       '  contacts: not run, it depends on accounts (partial)',
       `apply: partial; state serial ${outcome.result.state.serial}`,
     ]);
+  });
+});
+
+describe('a frozen resource’s steps, and a draw’s', () => {
+  /** A state of one resource applied, its one run as given. */
+  function stateOf(
+    name: string,
+    kind: 'seed' | 'frozen',
+    run: Partial<EnvState['resources'][string]['runs'][number]>,
+  ): EnvState {
+    const state = newEnvState({
+      env: 'case-flow',
+      org: { organizationId: ORG_ID, kind: 'developer', username: 'test-user@example.com' },
+      fileDigest: 'a'.repeat(64),
+      sandforgeVersion: '1.68.0',
+    });
+    return stepEnded(
+      runStarted(state, {
+        resource: name,
+        kind,
+        fingerprint: 'b'.repeat(64),
+        dependsOn: [],
+        run: {
+          script: kind === 'frozen' ? 'sandforge-frozen' : 'sandforge-seed',
+          startedAt: new Date(T0).toISOString(),
+          ...run,
+        },
+      }),
+      { resource: name, status: 'applied' },
+    );
+  }
+
+  it('replaces a frozen resource in one run, a reload, with no removal of its own; a seed’s replace takes its runs back first', () => {
+    const state = stateOf('claims', 'frozen', { sas: 'frozen/claims' });
+    const plan = envPlan({
+      resolved: resolvedOf(),
+      org: { organizationId: ORG_ID, kind: 'developer', alias: 'TGT' },
+      state,
+      previews: {},
+      dryRuns: {},
+      budget: BUDGET,
+    });
+    const replacing = {
+      ...plan,
+      actions: [
+        {
+          resource: 'claims',
+          kind: 'frozen' as const,
+          action: 'replace' as const,
+          why: 'replaced',
+          objects: [],
+        },
+      ],
+    };
+
+    expect(applySteps(replacing, state)).toEqual([
+      { phase: 'run', resource: 'claims', action: 'replace' },
+    ]);
+    const seeded = stateOf('claims', 'seed', {});
+    expect(
+      applySteps(
+        { ...replacing, actions: [{ ...replacing.actions[0]!, kind: 'seed' as const }] },
+        seeded,
+      ),
+    ).toEqual([
+      { phase: 'remove', resource: 'claims', action: 'replace' },
+      { phase: 'run', resource: 'claims', action: 'replace' },
+    ]);
+  });
+
+  it('takes a frozen run back from the configuration it was given, which names its sas, never from its summary', async () => {
+    const run = { n: 1, sas: 'frozen/claims', summary: 'runs/claims/1.summary.json' };
+    const where = { organizationId: ORG_ID, env: 'case-flow' };
+    const kept = { store, journalDir };
+
+    expect(removalSubjectOf(run, where, kept)).toBeUndefined();
+    const config = await store.writeFile(ORG_ID, 'case-flow', 'templates/claims.1.json', '{}');
+    await store.writeFile(ORG_ID, 'case-flow', 'runs/claims/1.summary.json', '{}');
+    expect(removalSubjectOf(run, where, kept)).toBe(config);
+    // Positive control: a seed's run is taken back from its summary.
+    expect(removalSubjectOf({ n: 1, summary: 'runs/claims/1.summary.json' }, where, kept)).toBe(
+      store.fileOf(ORG_ID, 'case-flow', 'runs/claims/1.summary.json'),
+    );
+  });
+
+  it('refuses a draw whose resource’s records cannot be read before its script starts: nothing spawned, nothing written, exit 1', async () => {
+    const drawing = {
+      version: 1,
+      name: 'case-flow',
+      resources: {
+        accounts: {
+          kind: 'seed',
+          objects: [
+            {
+              object: 'Account',
+              count: 1,
+              fields: [
+                { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'SFENV a' } },
+              ],
+            },
+          ],
+        },
+        contacts: {
+          kind: 'seed',
+          objects: [
+            {
+              object: 'Contact',
+              count: 1,
+              fields: [
+                {
+                  fieldApiName: 'LastName',
+                  ruleType: 'static',
+                  config: { staticValue: 'SFENV c' },
+                },
+              ],
+            },
+          ],
+          relations: [
+            {
+              lookup: 'Contact.AccountId',
+              parents: { from: 'accounts.Account' },
+              distribution: { mode: 'perParent', count: 1 },
+            },
+          ],
+        },
+      },
+    };
+    const read = readEnvFile(drawing, fileFolder, {});
+    if ('refusals' in read) throw new Error(JSON.stringify(read.refusals));
+    // The accounts applied, their run's summary gone.
+    const state = await store.update(
+      stateOf('accounts', 'seed', { summary: 'runs/accounts/1.summary.json' }),
+      (s) => s,
+    );
+    const plan = {
+      ...envPlan({
+        resolved: read.resolved,
+        org: { organizationId: ORG_ID, kind: 'developer', alias: 'TGT' },
+        state,
+        previews: {},
+        dryRuns: {},
+        budget: BUDGET,
+      }),
+      actions: [
+        {
+          resource: 'contacts',
+          kind: 'seed' as const,
+          action: 'create' as const,
+          why: 'not applied',
+          objects: [],
+        },
+      ],
+      refusal: undefined,
+    };
+    delete plan.refusal;
+
+    const outcome = await applyPlan(deps(), {
+      plan,
+      resolved: read.resolved,
+      target: TARGET,
+      state,
+      dryRuns: {},
+      acceptAutomation: false,
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(world.calls).toEqual([]);
+    expect(outcome.result.skipped).toEqual([
+      {
+        resource: 'contacts',
+        why: 'the relation on Contact.AccountId draws its parents from accounts, whose records cannot be read: accounts: its run keeps no record of what it created',
+      },
+    ]);
+    expect(world.records('Contact')).toEqual([]);
   });
 });

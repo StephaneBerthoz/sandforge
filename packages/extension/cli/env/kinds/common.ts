@@ -5,7 +5,8 @@
  * answer with zod; and the shapes of the removal brick's answers, which
  * every script that takes a run back gives alike.
  *
- * A kind of resource is one module beside this one (`seed.ts`, `forge.ts`):
+ * A kind of resource is one module beside this one (`seed.ts`, `forge.ts`,
+ * `frozen.ts`):
  * what its resource converts into and is checked by, what it writes for its
  * fingerprint, the lines of its script, and the readers of what that script
  * answers. The environment's plan, apply and destroy reach a kind through
@@ -161,6 +162,8 @@ export interface EnvDryRunCount {
   emails: Array<{ limit: EnvEmailLimit; emails: number }>;
   /** What the script says a real run would be refused for now. */
   refusal?: string;
+  /** What the script says a run would leave out, or write otherwise, without refusing it. */
+  notes?: string[];
 }
 
 /** What a run wrote, per object, read the same way for every kind. */
@@ -168,6 +171,8 @@ export interface EnvRunCount {
   objects: Array<{ object: string; created: number; refused: number; errors: string[] }>;
   /** The records it created, in all. */
   created: number;
+  /** What the script refused the run for before it wrote, in its own words. */
+  refusal?: string;
 }
 
 /** An answer a step's script printed that does not read as the one asked for. */

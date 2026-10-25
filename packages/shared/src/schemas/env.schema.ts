@@ -38,9 +38,9 @@ import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js'
  * {@link secretKeysIn} and {@link envRefsIn} find each one, so a refusal can
  * say where the thing goes instead.
  *
- * Version 1 holds the `seed` and `forge` kinds of resource. `targets` and
- * `checkpoint` are read and checked; what they ask is applied by the guards
- * and the checkpoint steps.
+ * Version 1 holds the `seed`, `forge` and `frozen` kinds of resource.
+ * `targets` and `checkpoint` are read and checked; what they ask is applied
+ * by the guards and the checkpoint steps.
  */
 
 // ─── Names and values ───────────────────────────────────────────────────────
@@ -177,15 +177,25 @@ export const envRefSchema = strictObject('a variable', {
 });
 
 /**
- * Where `{ env: NAME }` may stand, as a refusal names it. Version 1 has one
- * place: the alias of an org role. A frozen dataset's path joins it with the
- * `frozen` kind.
+ * Where `{ env: NAME }` may stand, as a refusal names it. Version 1 has two
+ * places: the alias of an org role, and the path of a frozen resource's
+ * dataset, which a pipeline downloads where its runner says.
  */
-export const ENV_REF_PLACES: readonly string[] = ['orgs.<role>.alias'];
+export const ENV_REF_PLACES: readonly string[] = [
+  'orgs.<role>.alias',
+  'resources.<frozen>.dataset.path',
+];
 
-/** Whether `path` is a place {@link ENV_REF_PLACES} names. */
+/**
+ * Whether `path` is a place {@link ENV_REF_PLACES} names. A dataset's path
+ * stands in a frozen resource alone: no other kind takes a `dataset`, which
+ * its strict schema refuses.
+ */
 export function isEnvRefPlace(path: ReadonlyArray<string | number>): boolean {
-  return path.length === 3 && path[0] === 'orgs' && path[2] === 'alias';
+  if (path.length === 3 && path[0] === 'orgs' && path[2] === 'alias') return true;
+  return (
+    path.length === 4 && path[0] === 'resources' && path[2] === 'dataset' && path[3] === 'path'
+  );
 }
 
 /**
@@ -265,16 +275,67 @@ const seedObjectFileSchema = strictObject('an object of a seed resource', {
 });
 
 /**
+ * The resource a relation draws its parents from, and the object of its
+ * records it draws: `accounts`, or `accounts.Account`.
+ */
+const drawnFromSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]{0,62}(?:\.[A-Za-z][A-Za-z0-9_]*)?$/, {
+    error:
+      'from names a resource of the file, or a resource and the object of its records, as ' +
+      'accounts or accounts.Account',
+  })
+  .max(144);
+
+/**
  * Where a relation's parents come from: the records this resource writes of
- * `object`, or, with `existing`, records the org already holds.
+ * `object`; with `existing`, records the org already holds; with `from`, the
+ * records another resource of the file created, by their ids.
  */
 const seedParentsFileSchema = strictObject('a relation’s parents', {
-  object: apiNameSchema,
+  object: apiNameSchema.optional(),
   existing: strictObject('existing parents', {
     /** A SOQL WHERE condition, without the keyword; held to the SOQL rule where it is checked. */
     where: z.string().min(1).max(2000).optional(),
     limit: z.number().int().positive().max(SEED_RELATION_LIMITS.maxExistingParents),
   }).optional(),
+  /** Another resource of the file, whose records of `object` the parents are. */
+  from: drawnFromSchema.optional(),
+  /** With `from`: the most of those records drawn, the first created first. */
+  limit: z.number().int().positive().max(SEED_RELATION_LIMITS.maxExistingParents).optional(),
+}).superRefine((parents, ctx) => {
+  const [, named] = parents.from?.split('.') ?? [];
+  if (parents.object === undefined && named === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['object'],
+      message:
+        'A relation’s parents name their object: object: Account, or from: <resource>.Account',
+    });
+  }
+  if (parents.object !== undefined && named !== undefined && named !== parents.object) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['from'],
+      message: `from names ${named} records and object names ${parents.object}: keep one of them`,
+    });
+  }
+  if (parents.from !== undefined && parents.existing !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['existing'],
+      message:
+        'The parents are the records another resource created (from) or records the org holds ' +
+        '(existing), not both: keep one',
+    });
+  }
+  if (parents.limit !== undefined && parents.from === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['limit'],
+      message: 'limit goes with from: existing parents take their own, under existing',
+    });
+  }
 });
 
 const seedDistributionFileSchema = z
@@ -528,16 +589,61 @@ export const envForgeResourceSchema = strictObject('a forge resource', {
   }
 });
 
+// ─── The file: the frozen kind ───────────────────────────────────────────────
+
+/**
+ * A path on the machine that runs the command, from its root: a dataset sits
+ * outside the project's repository, where a pipeline downloads it, so it is
+ * never named from the file's folder.
+ */
+const absolutePathSchema = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine((path) => /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path), {
+    error:
+      'A dataset is named by its path from the root, as /data/claims, or by { env: NAME }: it ' +
+      'lives outside the repository',
+  });
+
+/** A dataset's version, as its manifest stamps it. */
+const datasetVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, {
+  error: 'A dataset’s version is the one its manifest says, as 1.4.0',
+});
+
+/**
+ * A dataset's digest, as `sandforge-frozen --json` gives it: `sha256:` and 64
+ * hexadecimal digits, over the files a load reads.
+ */
+const datasetDigestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/, {
+  error: 'A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge-frozen gives it',
+});
+
+export const envFrozenResourceSchema = strictObject('a frozen resource', {
+  kind: z.literal('frozen'),
+  ...commonResourceShape,
+  /** The Frozen configuration, committed with the project: it holds no record. */
+  config: relativePathSchema,
+  /** The dataset a person froze beforehand, pinned by its version and its digest. */
+  dataset: strictObject('a dataset', {
+    path: z.union([absolutePathSchema, envRefSchema], {
+      error: 'A dataset is named by its path from the root, or by { env: NAME }',
+    }),
+    version: datasetVersionSchema,
+    digest: datasetDigestSchema,
+  }),
+});
+
 /** Kinds that come with a later version of the file. */
-const LATER_KINDS: readonly string[] = ['frozen', 'mask'];
+const LATER_KINDS: readonly string[] = ['mask'];
 
 /** The kinds this version applies, as a refusal names them. */
-const KINDS_APPLIED = 'seed and forge resources';
+const KINDS_APPLIED = 'seed, forge and frozen resources';
 
 /** A resource of the file, told apart by its `kind`. */
 export const envResourceSchema = z.discriminatedUnion(
   'kind',
-  [envSeedResourceSchema, envForgeResourceSchema],
+  [envSeedResourceSchema, envForgeResourceSchema, envFrozenResourceSchema],
   {
     error: (issue) => {
       const input = issue.input;
@@ -823,13 +929,27 @@ const envActionGatesSchema = z.strictObject({
   emails: z.array(z.strictObject({ limit: envEmailLimitSchema, emails: countSchema })).optional(),
 });
 
+/**
+ * A relation whose parents are the records another resource created: how many
+ * there are, once that resource has run; absent while it runs in the same
+ * apply, before which nobody knows.
+ */
+const envActionDrawSchema = z.strictObject({
+  lookup: lookupSchema,
+  from: envNameSchema,
+  object: apiNameSchema,
+  parents: countSchema.optional(),
+});
+
 export const envActionSchema = z.strictObject({
   resource: envNameSchema,
   kind: envResourceKindSchema,
   action: envActionKindSchema,
   /** Why, in a sentence: "replaced: its objects changed in the file". */
-  why: z.string().min(1).max(2_000),
+  why: z.string().min(1).max(4_000),
   objects: z.array(envPlanObjectSchema).max(1_000),
+  /** The relations whose parents another resource created. */
+  draws: z.array(envActionDrawSchema).max(100).optional(),
   gates: envActionGatesSchema.optional(),
   /** What refuses a blocked action. */
   refusal: z.string().min(1).max(2_000).optional(),
@@ -1089,9 +1209,16 @@ export const envValidationSchema = z.strictObject({
   /** The variables the file reads, and whether this process has each set. */
   variables: z
     .array(
-      z.strictObject({ name: z.string().min(1).max(128), role: envNameSchema, set: z.boolean() }),
+      z.strictObject({
+        name: z.string().min(1).max(128),
+        /** The org role whose alias it holds. */
+        role: envNameSchema.optional(),
+        /** The frozen resource whose dataset's path it holds. */
+        resource: envNameSchema.optional(),
+        set: z.boolean(),
+      }),
     )
-    .max(ENV_MAX_ORG_ROLES)
+    .max(ENV_MAX_ORG_ROLES + ENV_MAX_RESOURCES)
     .optional(),
   issues: z.array(envIssueSchema).max(500),
   warnings: z.array(envIssueSchema).max(500),

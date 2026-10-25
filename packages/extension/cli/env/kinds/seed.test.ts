@@ -36,11 +36,13 @@ import { main, parseArgs, parseRemoveArgs } from '../../sandforge-seed.js';
 import { ANSWER_EXCERPT_CHARS, StepAnswerError } from './common.js';
 import {
   SEED_SCRIPT,
+  type SeedDryRunAnswer,
   readSeedDryRun,
   readSeedPreview,
   readSeedRemoval,
   readSeedRun,
   seedApplyLine,
+  seedDryRunCount,
   seedDryRunLine,
   seedPreviewLine,
   seedRemoveLine,
@@ -348,5 +350,72 @@ describe('an answer that does not read', () => {
     expect(() => readSeedRun('')).toThrow(
       'sandforge-seed did not answer the summary of a run (not JSON): it printed nothing on stdout',
     );
+  });
+});
+
+describe('what a seed’s dry run counts, as the plan reads it', () => {
+  /** A dry run's answer whose result is `result`. */
+  const answer = (result: SeedDryRunAnswer['result']): SeedDryRunAnswer => ({
+    tool: SEED_SCRIPT,
+    target: 'TGT',
+    seed: 1,
+    startedAt: '2026-10-25T09:00:00.000Z',
+    finishedAt: '2026-10-25T09:00:00.000Z',
+    emails: { checks: [] },
+    elapsedMs: 1,
+    dryRun: true,
+    storage: { bytes: 0, verdict: 'fits', estimateMB: 0 },
+    apiRequests: { estimate: 0, verdict: 'fits' },
+    result,
+  });
+
+  it('is the refusal a run would meet when the seed refused it before its first write, in the seed’s words', () => {
+    const refused = answer({
+      operationId: 'x',
+      status: 'failure',
+      objectResults: [
+        {
+          objectApiName: 'validation',
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [
+            '1 of the 2 Account record(s) the relation on Contact.AccountId names are no longer in the org: 001000000000001AAA. Nothing was written.',
+          ],
+        },
+      ],
+      totalRecordsCreated: 0,
+      totalRecordsFailed: 0,
+    });
+
+    expect(seedDryRunCount(refused)).toMatchObject({
+      objects: [],
+      total: 0,
+      refusal:
+        '1 of the 2 Account record(s) the relation on Contact.AccountId names are no longer in the org: 001000000000001AAA. Nothing was written.',
+    });
+  });
+
+  it('is no refusal when its objects were skipped, finding no parent in the org yet', () => {
+    const skipped = answer({
+      operationId: 'x',
+      status: 'failure',
+      objectResults: [
+        {
+          objectApiName: 'Contact',
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: ['Skipped: no Account record in the org matches the relation'],
+        },
+      ],
+      totalRecordsCreated: 0,
+      totalRecordsFailed: 0,
+    });
+
+    expect(seedDryRunCount(skipped, new Map([['Contact', 3]]))).toMatchObject({
+      objects: [{ object: 'Contact', wouldCreate: 3, atMost: true }],
+    });
+    expect(seedDryRunCount(skipped).refusal).toBeUndefined();
   });
 });

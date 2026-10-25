@@ -10,9 +10,14 @@
  * a seed resource into a `SeedTemplate`, checked by `seedTemplatePayloadSchema`
  * as `seed:execute` checks the panel's, and by the validator a seed run
  * starts with; a forge resource into an exported template, checked by
- * `forgeTemplateSchema` as the clone's `--template` reads it. What the check
- * accepted is what the run is given: a refusal the run would meet after its
- * first objects were written is met here, before any.
+ * `forgeTemplateSchema` as the clone's `--template` reads it; a frozen
+ * resource's committed configuration by Frozen's own schema, held strict.
+ * What the check accepted is what the run is given: a refusal the run would
+ * meet after its first objects were written is met here, before any.
+ *
+ * Resources form a graph: what each depends on, and the resource a relation
+ * draws its parents from (`parents.from`), which it depends on too. A name
+ * that is no resource of the file, and a circle, are refused.
  *
  * Text becomes a document in one place, {@link documentOf}, which reads YAML
  * 1.2 — JSON included. Everything after it takes the parsed document.
@@ -21,7 +26,7 @@
  * way out, as the command lines' refusals do.
  */
 
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import {
   ENV_REF_PLACES,
@@ -32,11 +37,14 @@ import {
   type EnvDocumentPath,
   type EnvFile,
   type EnvForgeRun,
+  type EnvFrozenRun,
   type EnvSeedRun,
 } from '@sandforge/shared';
-import { convertResource, writtenOf, type EnvKindRun } from './envKinds.js';
+import { SasPathGuard, findRepoRoot } from '../../src/modules/frozendataset/SasPathGuard.js';
+import { convertResource, objectsOfRun, writtenOf, type EnvKindRun } from './envKinds.js';
 import { canonicalJson, pathText, refusalAt, sha256, type EnvFileRefusal } from './kinds/common.js';
 import type { EnvSourceRead } from './kinds/forge.js';
+import type { EnvDatasetRead } from './kinds/frozen.js';
 
 export { canonicalJson, pathText, type EnvFileRefusal };
 
@@ -124,7 +132,9 @@ export interface EnvFileVariable {
   name: string;
   path: EnvDocumentPath;
   /** The org role whose alias it holds. */
-  role: string;
+  role?: string;
+  /** The frozen resource whose dataset's path it holds. */
+  resource?: string;
 }
 
 /** A file that passed the check, offline: what `validate` answers from. */
@@ -218,12 +228,22 @@ export function checkEnvFile(
     warnings.push(...converted.warnings);
     runs[name] = converted.run;
   }
+  refusals.push(...drawnObjectRefusals(runs));
   if (refusals.length > 0) return { refusals };
 
   const variables: EnvFileVariable[] = [];
   for (const [role, { alias }] of Object.entries(file.orgs)) {
     if (typeof alias !== 'string') {
       variables.push({ name: alias.env, path: ['orgs', role, 'alias'], role });
+    }
+  }
+  for (const [name, resource] of Object.entries(file.resources)) {
+    if (resource.kind === 'frozen' && typeof resource.dataset.path !== 'string') {
+      variables.push({
+        name: resource.dataset.path.env,
+        path: ['resources', name, 'dataset', 'path'],
+        resource: name,
+      });
     }
   }
   return {
@@ -241,10 +261,39 @@ export function unsetVariablesOf(
 
 // ─── The order ───────────────────────────────────────────────────────────────
 
+/** The resources a seed resource's relations draw their parents from, each with where the file says it. */
+function drawnFrom(
+  name: string,
+  resource: EnvFile['resources'][string],
+): Array<{ from: string; path: EnvDocumentPath }> {
+  if (resource.kind !== 'seed') return [];
+  return (resource.relations ?? []).flatMap((relation, index) => {
+    const from = relation.parents.from?.split('.')[0];
+    return from === undefined
+      ? []
+      : [{ from, path: ['resources', name, 'relations', index, 'parents', 'from'] }];
+  });
+}
+
+/**
+ * What a resource depends on: what its `dependsOn` names, and the resources
+ * its relations draw their parents from, which run first and are taken back
+ * after it.
+ */
+export function dependenciesOf(name: string, resource: EnvFile['resources'][string]): string[] {
+  return [
+    ...new Set([
+      ...(resource.dependsOn ?? []),
+      ...drawnFrom(name, resource).map(({ from }) => from),
+    ]),
+  ];
+}
+
 /**
  * The resources in the order apply runs them: each after what it depends on,
- * ties in file order; a destroy runs it backwards. A dependency on no resource
- * of the file, or a circle of them, is refused: no order would apply it.
+ * and after what its relations draw their parents from, ties in file order;
+ * a destroy runs it backwards. A dependency on no resource of the file, or a
+ * circle of them, is refused: no order would apply it.
  */
 function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusal[] } {
   const names = Object.keys(file.resources);
@@ -252,6 +301,23 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
   const edges = new Map<string, string[]>();
   for (const [name, resource] of Object.entries(file.resources)) {
     const deps: string[] = [];
+    for (const { from, path } of drawnFrom(name, resource)) {
+      if (from === name) {
+        refusals.push(
+          refusalAt(
+            path,
+            `a relation draws its parents from the records another resource created: ${name}'s ` +
+              'own are drawn by their object alone, without from',
+          ),
+        );
+      } else if (!(from in file.resources)) {
+        refusals.push(
+          refusalAt(path, `"${from}" is no resource of this file: name one of ${names.join(', ')}`),
+        );
+      } else if (!deps.includes(from)) {
+        deps.push(from);
+      }
+    }
     (resource.dependsOn ?? []).forEach((dependency, index) => {
       const path = ['resources', name, 'dependsOn', index];
       if (dependency === name) {
@@ -283,7 +349,8 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
         refusalAt(
           ['resources', circle[0] ?? ''],
           `the resources depend on each other in a circle, ${circle.join(' → ')}: no order ` +
-            'applies them. Take one of them out of the dependsOn of the next.',
+            'applies them. Take one of them out of the dependsOn of the next, or out of what ' +
+            'its relations draw their parents from.',
         ),
       ],
     };
@@ -301,6 +368,34 @@ function orderOf(file: EnvFile): { order: string[] } | { refusals: EnvFileRefusa
     placed.add(next);
   }
   return { order };
+}
+
+/**
+ * Why a relation may not draw its parents from the records another resource
+ * created: that resource writes no record of the parent object. Told offline
+ * of a seed resource, which writes the objects its file lists; a forge or a
+ * frozen resource writes what its source's graph or its dataset holds, which
+ * its plan reads.
+ */
+function drawnObjectRefusals(runs: Readonly<Record<string, EnvKindRun>>): EnvFileRefusal[] {
+  const refusals: EnvFileRefusal[] = [];
+  for (const [name, run] of Object.entries(runs)) {
+    if (run.kind !== 'seed') continue;
+    for (const draw of run.draws ?? []) {
+      const source = runs[draw.from];
+      if (source?.kind !== 'seed') continue;
+      const written = objectsOfRun(source).map(({ object }) => object);
+      if (written.includes(draw.relation.parentObject)) continue;
+      refusals.push(
+        refusalAt(
+          ['resources', name, 'relations', draw.at, 'parents', 'from'],
+          `${draw.from} writes no ${draw.relation.parentObject} records: it writes ` +
+            `${written.join(', ') || 'none'}`,
+        ),
+      );
+    }
+  }
+  return refusals;
 }
 
 /** The first circle of dependencies, from the resource it starts at back to it; undefined when none. */
@@ -357,10 +452,19 @@ export interface EnvForgeSource {
   read?: EnvSourceRead;
 }
 
+/** The dataset a frozen resource loads: its folder, and what a plan read of it. */
+export interface EnvFrozenDatasetPlace {
+  /** From the root. */
+  dir: string;
+  /** Read at each plan; absent until it is, and for a destroy, which reads no dataset. */
+  read?: EnvDatasetRead;
+}
+
 /** A resource ready to plan: what it runs, and the fingerprint it would be applied from. */
 export type EnvFileResource =
   | (EnvFileResourceBase & { kind: 'seed'; run: EnvSeedRun })
-  | (EnvFileResourceBase & { kind: 'forge'; run: EnvForgeRun; source: EnvForgeSource });
+  | (EnvFileResourceBase & { kind: 'forge'; run: EnvForgeRun; source: EnvForgeSource })
+  | (EnvFileResourceBase & { kind: 'frozen'; run: EnvFrozenRun; dataset: EnvFrozenDatasetPlace });
 
 /** A file whose variables are read: what `plan`, `apply` and `destroy` work from. */
 export interface EnvFileResolved {
@@ -386,6 +490,9 @@ const ALIAS = /^[^-\s][^\s]{0,199}$/;
  *   resource: the org its alias reaches and the record its query names,
  *   which its fingerprint is of. A resource whose source was not read is
  *   fingerprinted without it, and a plan blocks it.
+ * @param datasets - What a plan read of each frozen resource's dataset, by
+ *   resource: its digest and version held to the file's pin. A resource
+ *   whose dataset was not read, or is not the one pinned, a plan blocks.
  */
 export function resolveEnvFile(
   checked: EnvFileChecked,
@@ -393,6 +500,7 @@ export function resolveEnvFile(
   options: {
     aliases?: Readonly<Record<string, string>>;
     sources?: Readonly<Record<string, EnvSourceRead>>;
+    datasets?: Readonly<Record<string, EnvDatasetRead>>;
   } = {},
 ): { resolved: EnvFileResolved } | { refusals: EnvFileRefusal[] } {
   const roles = Object.keys(checked.file.orgs);
@@ -448,6 +556,13 @@ export function resolveEnvFile(
       orgs[role] = value;
     }
   }
+  const datasetDirs: Record<string, string> = {};
+  for (const [name, resource] of Object.entries(checked.file.resources)) {
+    if (resource.kind !== 'frozen') continue;
+    const read = datasetDirOf(name, resource.dataset.path, env, checked.folder);
+    if ('refusal' in read) refusals.push(read.refusal);
+    else datasetDirs[name] = read.dir;
+  }
   if (refusals.length > 0) return { refusals };
 
   const fingerprints: Record<string, string> = {};
@@ -456,11 +571,22 @@ export function resolveEnvFile(
     const kindRun = checked.runs[name];
     const resource = checked.file.resources[name];
     if (kindRun === undefined || resource === undefined) continue;
-    const dependsOn = [...new Set(resource.dependsOn ?? [])];
+    const dependsOn = dependenciesOf(name, resource);
     let ready: EnvFileResource;
     if (kindRun.kind === 'seed') {
       const { kind, ...run } = kindRun;
       ready = { name, kind, dependsOn, fingerprint: '', run };
+    } else if (kindRun.kind === 'frozen') {
+      const { kind, ...run } = kindRun;
+      const read = options.datasets?.[name];
+      ready = {
+        name,
+        kind,
+        dependsOn,
+        fingerprint: '',
+        run,
+        dataset: { dir: datasetDirs[name] ?? '', ...(read !== undefined ? { read } : {}) },
+      };
     } else {
       const { kind, ...run } = kindRun;
       const read = options.sources?.[name];
@@ -494,6 +620,63 @@ export function resolveEnvFile(
 }
 
 /**
+ * The folder of a frozen resource's dataset: the path the file gives, or the
+ * variable's; or why it may not be read. Unset, or not from the root, it is
+ * refused. Inside the repository that holds the file it is refused too: a
+ * dataset is pseudonymized business data, kept outside the project, as the
+ * sas of every load is.
+ */
+function datasetDirOf(
+  name: string,
+  path: string | { env: string },
+  env: NodeJS.ProcessEnv,
+  fileFolder: string,
+): { dir: string } | { refusal: EnvFileRefusal } {
+  const at: EnvDocumentPath = ['resources', name, 'dataset', 'path'];
+  let dir: string;
+  if (typeof path === 'string') {
+    dir = path;
+  } else {
+    dir = (env[path.env] ?? '').trim();
+    if (dir === '') {
+      return {
+        refusal: refusalAt(
+          at,
+          `the variable ${path.env} is not set: set it in the job's environment to the folder ` +
+            `the dataset of ${name} was downloaded to`,
+        ),
+      };
+    }
+    if (!isAbsolute(dir)) {
+      return {
+        refusal: refusalAt(
+          at,
+          `the variable ${path.env} holds ${dir}, which is not a path from the root: give the ` +
+            'folder of the dataset from the root',
+        ),
+      };
+    }
+  }
+  let repoRoot: string | undefined;
+  try {
+    repoRoot = findRepoRoot(fileFolder);
+  } catch {
+    repoRoot = undefined;
+  }
+  if (repoRoot !== undefined && new SasPathGuard(repoRoot).isInsideRepo(resolve(dir))) {
+    return {
+      refusal: refusalAt(
+        at,
+        `the dataset of ${name}, ${resolve(dir)}, is inside the repository ${repoRoot} that ` +
+          'holds the file: a frozen dataset is pseudonymized business data, and stays outside ' +
+          'the project. Keep it where the pipeline downloads it, and name that folder.',
+      ),
+    };
+  }
+  return { dir: resolve(dir) };
+}
+
+/**
  * Check a parsed document and read its variables: what every verb that
  * reaches an org starts from.
  */
@@ -504,6 +687,7 @@ export function readEnvFile(
   options: {
     aliases?: Readonly<Record<string, string>>;
     sources?: Readonly<Record<string, EnvSourceRead>>;
+    datasets?: Readonly<Record<string, EnvDatasetRead>>;
     now?: Date;
   } = {},
 ): { resolved: EnvFileResolved } | { refusals: EnvFileRefusal[] } {
@@ -512,5 +696,6 @@ export function readEnvFile(
   return resolveEnvFile(checked.checked, env, {
     ...(options.aliases ? { aliases: options.aliases } : {}),
     ...(options.sources ? { sources: options.sources } : {}),
+    ...(options.datasets ? { datasets: options.datasets } : {}),
   });
 }

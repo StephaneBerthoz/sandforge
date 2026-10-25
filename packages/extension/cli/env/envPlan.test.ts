@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EnvActionKind, EnvPlan, EnvState } from '@sandforge/shared';
@@ -32,9 +32,10 @@ import {
   type EnvBudget,
   type EnvDryRun,
   type EnvPlanInput,
+  type EnvRefreshed,
   type EnvRunPreview,
 } from './envPlan.js';
-import { openEnvStore, stepEnded, type EnvStore } from './envState.js';
+import { newEnvState, openEnvStore, runStarted, stepEnded, type EnvStore } from './envState.js';
 import type { SeedDryRunAnswer } from './kinds/seed.js';
 
 /*
@@ -935,5 +936,333 @@ describe('the plan of a forge resource', () => {
       refusal:
         'its own dry run says a real run would be refused: The run would write 2 records, more than --max-total 1.',
     });
+  });
+});
+
+describe('the plan of a frozen resource', () => {
+  const DIGEST = `sha256:${'c'.repeat(64)}`;
+  /** A file loading the claims dataset, from a folder outside the project. */
+  const frozenDocument = {
+    version: 1,
+    name: 'case-flow',
+    resources: {
+      claims: {
+        kind: 'frozen',
+        config: 'claims.frozen.json',
+        dataset: { path: '/data/claims', version: '1.0.0', digest: DIGEST },
+      },
+    },
+  };
+
+  /** The file, its dataset read as `read` says, or not read at all. */
+  function frozenResolved(
+    read?: { digest: string; version: string } | { refusal: string },
+  ): EnvFileResolved {
+    writeFileSync(
+      join(fileFolder, 'claims.frozen.json'),
+      JSON.stringify({ rootObject: 'Account', axes: [], edgeCases: [] }),
+    );
+    const result = readEnvFile(
+      frozenDocument,
+      fileFolder,
+      {},
+      read !== undefined ? { datasets: { claims: read } } : {},
+    );
+    if ('refusals' in result) throw new Error(JSON.stringify(result.refusals));
+    return result.resolved;
+  }
+
+  /** A load's dry run that would insert two accounts, `refused` the handler's refusal. */
+  function dryRunOf(refused?: string, plan: Record<string, unknown> = {}): EnvDryRun {
+    return {
+      answer: {
+        tool: 'sandforge-frozen',
+        step: 'load',
+        posted: refused
+          ? [
+              {
+                type: 'frozen:load:preview:error',
+                payload: { message: refused, code: 'GUARD_REFUSED' },
+              },
+            ]
+          : [{ type: 'frozen:load:preview:response', payload: { plan } }],
+        ...(refused
+          ? {}
+          : {
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  fromFiles: 2,
+                  toInsert: 2,
+                  toLink: 0,
+                  notSent: 0,
+                  toPurge: 0,
+                  toDeactivate: 0,
+                },
+              ],
+            }),
+      },
+    };
+  }
+
+  /** A state holding the claims resource applied from `fingerprint`, its one load ended. */
+  function appliedState(fingerprint: string): EnvState {
+    const state = newEnvState({
+      env: 'case-flow',
+      org: { organizationId: ORG_ID, kind: 'developer', username: 'test-user@example.com' },
+      fileDigest: 'a'.repeat(64),
+      sandforgeVersion: '1.68.0',
+    });
+    const running = runStarted(state, {
+      resource: 'claims',
+      kind: 'frozen',
+      fingerprint,
+      dependsOn: [],
+      run: {
+        script: 'sandforge-frozen',
+        sas: 'frozen/claims',
+        startedAt: new Date(T0).toISOString(),
+      },
+    });
+    return stepEnded(running, {
+      resource: 'claims',
+      status: 'applied',
+      run: { endedAt: new Date(T0).toISOString(), exitCode: 0, objects: [] },
+    });
+  }
+
+  /** What a preview of the load's removal says: two accounts in the org, as loaded. */
+  const previewOf = (refreshed?: EnvRefreshed): EnvRunPreview => ({
+    n: 1,
+    preview: {
+      tool: 'sandforge-frozen',
+      preview: {
+        planned: 2,
+        objects: [
+          {
+            objectApiName: 'Account',
+            planned: 2,
+            toDelete: 2,
+            alreadyGone: 0,
+            changedSince: 0,
+            keptChanged: 0,
+            changedBy: {},
+            undeletable: 0,
+            notVisible: 0,
+            unread: 0,
+            reasons: [],
+          },
+        ],
+        userNames: {},
+      },
+      refusals: [],
+    },
+    ...(refreshed !== undefined ? { refreshed } : {}),
+  });
+
+  const planWith = (resolved: EnvFileResolved, over: Partial<EnvPlanInput> = {}) =>
+    envPlan({
+      resolved,
+      org: ORG,
+      state: undefined,
+      previews: {},
+      dryRuns: {},
+      budget: BUDGET,
+      ...over,
+    });
+
+  it('blocks a resource whose dataset the plan did not read, or is not the one pinned, before any dry run', () => {
+    const unread = planWith(frozenResolved());
+    const moved = planWith(
+      frozenResolved({ refusal: 'its dataset at /data/claims has the digest x' }),
+    );
+
+    expect(unread.actions[0]).toMatchObject({
+      kind: 'frozen',
+      action: 'blocked',
+      refusal: 'its dataset at /data/claims was not read: plan again',
+    });
+    expect(moved.actions[0]?.refusal).toBe('its dataset at /data/claims has the digest x');
+  });
+
+  it('counts exactly what its dry run would insert, says what the load would leave out, and leaves its requests out of the sum', () => {
+    const plan = planWith(frozenResolved({ digest: DIGEST, version: '1.0.0' }), {
+      dryRuns: {
+        claims: dryRunOf(undefined, {
+          removals: [
+            {
+              objectApiName: 'Account',
+              field: 'Tax__c',
+              reason: 'may-hold-masks',
+              affectedRecords: 2,
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(plan.actions[0]).toMatchObject({
+      action: 'create',
+      objects: [{ object: 'Account', wouldCreate: 2 }],
+      gates: { storageBytes: 4096, emails: [] },
+    });
+    expect(plan.actions[0]?.why).toContain(
+      'not applied to this org yet; it would leave out, encrypted in the target, Account.Tax__c (2)',
+    );
+    expect(plan.gates.apiRequests.notCounted).toEqual([
+      'the requests of the run of claims, which its script does not estimate',
+    ]);
+  });
+
+  it('blocks a resource its load refuses, in the handler’s own words', () => {
+    const plan = planWith(frozenResolved({ digest: DIGEST, version: '1.0.0' }), {
+      dryRuns: { claims: dryRunOf('Refusing frozen-dataset load on protected environment TGT') },
+    });
+
+    expect(plan.actions[0]).toMatchObject({
+      action: 'blocked',
+      refusal:
+        'its own dry run says a real run would be refused: Refusing frozen-dataset load on protected environment TGT',
+    });
+  });
+
+  it('keeps it while its verification passes, says it drifted, naming the object, when one FAILED, and blocks it when it could not say', () => {
+    const resolved = frozenResolved({ digest: DIGEST, version: '1.0.0' });
+    const state = appliedState(resolved.resources[0]?.fingerprint ?? '');
+    const planned = (refreshed?: EnvRefreshed) =>
+      planWith(resolved, { state, previews: { claims: [previewOf(refreshed)] } }).actions[0];
+
+    expect(planned({ failed: [] })).toMatchObject({ action: 'keep' });
+    expect(planned({ failed: ['Account FAILED (1 of 2 found)'] })).toMatchObject({
+      action: 'drifted',
+      why: expect.stringContaining('its verification: Account FAILED (1 of 2 found)'),
+    });
+    expect(planned({ unread: 'NO_LOAD' })).toMatchObject({
+      action: 'blocked',
+      refusal: expect.stringContaining('run 1: its verification did not say (NO_LOAD)'),
+    });
+    // Positive control: without a verification the preview alone keeps it.
+    expect(planned()).toMatchObject({ action: 'keep' });
+  });
+});
+
+describe('the plan of a resource drawing its parents from another', () => {
+  /** Accounts, then contacts drawn from the accounts it created. */
+  const drawingDocument = {
+    version: 1,
+    name: 'case-flow',
+    resources: {
+      accounts: {
+        kind: 'seed',
+        objects: [
+          {
+            object: 'Account',
+            count: 2,
+            fields: [
+              { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'SFENV a' } },
+            ],
+          },
+        ],
+      },
+      contacts: {
+        kind: 'seed',
+        objects: [
+          {
+            object: 'Contact',
+            count: 4,
+            fields: [
+              { fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'SFENV c' } },
+            ],
+          },
+        ],
+        relations: [
+          {
+            lookup: 'Contact.AccountId',
+            parents: { from: 'accounts.Account' },
+            distribution: { mode: 'perParent', count: 1 },
+          },
+        ],
+      },
+    },
+  };
+
+  it('counts at most as the file gives it what it draws from a resource that runs first, and says so', async () => {
+    const resolved = resolvedOf(drawingDocument);
+
+    const plan = await planOf(resolved, undefined, {
+      draws: {
+        contacts: {
+          draws: [{ lookup: 'Contact.AccountId', from: 'accounts', object: 'Account' }],
+          refusals: [],
+        },
+      },
+    });
+
+    const contacts = plan.actions.find((action) => action.resource === 'contacts');
+    expect(contacts).toMatchObject({
+      action: 'create',
+      objects: [{ object: 'Contact', wouldCreate: 4, atMost: true }],
+      draws: [{ lookup: 'Contact.AccountId', from: 'accounts', object: 'Account' }],
+    });
+    expect(contacts?.why).toBe(
+      'not applied to this org yet; it draws its parents from the records accounts creates in this apply, which nobody knows before it runs: counted at most as the file gives it',
+    );
+    expect(planLines(plan)).toContain(
+      '           Contact.AccountId draws its parents from the Account records accounts creates first',
+    );
+  });
+
+  it('says how many parents it draws from a resource that ran, and counts them as no more than at most', () => {
+    const resolved = resolvedOf(drawingDocument);
+
+    const plan = envPlan({
+      resolved,
+      org: ORG,
+      state: undefined,
+      previews: {},
+      dryRuns: {},
+      budget: BUDGET,
+      draws: {
+        contacts: {
+          draws: [{ lookup: 'Contact.AccountId', from: 'accounts', object: 'Account', parents: 2 }],
+          refusals: [],
+        },
+      },
+    });
+
+    expect(plan.actions.find((each) => each.resource === 'contacts')?.draws).toEqual([
+      { lookup: 'Contact.AccountId', from: 'accounts', object: 'Account', parents: 2 },
+    ]);
+    expect(planLines(plan)).toContain(
+      '           Contact.AccountId draws its parents from the 2 Account record(s) accounts created',
+    );
+  });
+
+  it('blocks it, before the apply’s first write, when its draw cannot be handed its parents', () => {
+    const resolved = resolvedOf(drawingDocument);
+
+    const plan = envPlan({
+      resolved,
+      org: ORG,
+      state: undefined,
+      previews: {},
+      dryRuns: {},
+      budget: BUDGET,
+      draws: {
+        contacts: {
+          draws: [{ lookup: 'Contact.AccountId', from: 'accounts', object: 'Account' }],
+          refusals: [
+            'the relation on Contact.AccountId draws its parents from the Account records accounts created, and it created none',
+          ],
+        },
+      },
+    });
+
+    expect(plan.actions.find((action) => action.resource === 'contacts')).toMatchObject({
+      action: 'blocked',
+      refusal:
+        'the relation on Contact.AccountId draws its parents from the Account records accounts created, and it created none',
+    });
+    expect(plan.refusal).toContain('contacts (the relation on Contact.AccountId');
   });
 });

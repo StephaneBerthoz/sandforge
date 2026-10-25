@@ -20,7 +20,17 @@
  * A forge run that ended is verified (`--verify`): what it created is read
  * back from the target, and its lookups checked on a sample against the
  * source. Records not there, or lookups that do not hold, make it partial;
- * readings that never agree make it unstable, which stops the apply.
+ * readings that never agree make it unstable, which stops the apply. A
+ * frozen run is a load held to its dry run's count, in the sas the state
+ * keeps for its resource, and judged by the verification the load chains
+ * after it: an object it FAILED makes it partial. A frozen resource's
+ * replace is one run, a reload, whose purge takes back what the loads before
+ * it created, or refuses before anything is written.
+ *
+ * A seed resource whose relations draw their parents from another
+ * resource's records is handed their ids as its run begins, read from what
+ * that resource's last run keeps: run first in the same apply, its records
+ * are the ones it has just created.
  *
  * The order: what is taken back first — every `delete`, and the removal half
  * of every `replace` — each resource before those it depended on when it was
@@ -76,9 +86,11 @@ import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.j
 import {
   applyLineOf,
   dryRunCountOf,
+  payloadOf,
   readRemovalOf,
   removalObjectsOf,
   removeLineOf,
+  replacesInOneRun,
   type EnvKindScript,
   type EnvRemovalAnswer,
 } from './envKinds.js';
@@ -105,7 +117,17 @@ import {
   readForgeVerify,
   verificationShortOf,
 } from './kinds/forge.js';
+import {
+  frozenRunCount,
+  frozenSasOf,
+  frozenVerdictShortOf,
+  readFrozenRun,
+  reloadDeleted,
+  reloadPurgedWhole,
+  resourceOfSas,
+} from './kinds/frozen.js';
 import { readSeedRun, seedRunCount } from './kinds/seed.js';
+import { drawnOf } from './envReferences.js';
 
 /** What a step runs with, beside its line: the product's own, or a test's. */
 export interface EnvStepDeps {
@@ -204,14 +226,25 @@ function answerOf<T>(
 /**
  * What a run of a resource is taken back from: the summary it printed, kept
  * beside the state, or — for a run stopped before it printed one — its run
- * file, by its id, which the seed writes as the org takes its records; or
- * nothing, for a run that never wrote: no summary and no run file.
+ * file, by its id, which the seed writes as the org takes its records; for a
+ * frozen run, the configuration it was given, which names the sas its loads
+ * are kept in; or nothing, for a run that never wrote: no summary and no run
+ * file.
  */
 export function removalSubjectOf(
-  run: { summary?: string; runId?: string },
+  run: { n: number; summary?: string; runId?: string; sas?: string },
   where: Where,
   deps: Pick<EnvStepDeps, 'store' | 'journalDir'>,
 ): string | undefined {
+  const frozen = resourceOfSas(run.sas);
+  if (frozen !== undefined) {
+    const file = deps.store.fileOf(
+      where.organizationId,
+      where.env,
+      runTemplatePathOf(frozen, run.n),
+    );
+    return existsSync(file) ? file : undefined;
+  }
   if (run.summary !== undefined) {
     const file = deps.store.fileOf(where.organizationId, where.env, run.summary);
     if (existsSync(file)) return file;
@@ -351,10 +384,16 @@ type ApplyStep =
 export function applySteps(plan: EnvPlan, state: EnvState | undefined): ApplyStep[] {
   const byName = new Map(plan.actions.map((action) => [action.resource, action]));
   const live = new Set(liveResources(state).map(([name]) => name));
+  // A frozen resource's replace is a reload: its run takes back what the
+  // loads before it created, or refuses before anything is written.
   const removed = removalOrder(
     state,
     plan.actions
-      .filter((a) => (a.action === 'delete' || a.action === 'replace') && live.has(a.resource))
+      .filter(
+        (a) =>
+          (a.action === 'delete' || (a.action === 'replace' && !replacesInOneRun(a.kind))) &&
+          live.has(a.resource),
+      )
       .map((a) => a.resource),
   ).map((resource): ApplyStep => ({
     phase: 'remove',
@@ -435,6 +474,8 @@ interface RunStepInput {
   dry: EnvDryRun | undefined;
   /** What it depends on ran first in this apply: its dry run read the org before them. */
   readTooEarly: boolean;
+  /** Whether the run replaces runs of it still in the org: a frozen resource's is a reload. */
+  replace: boolean;
   signal: AbortSignal;
 }
 
@@ -453,6 +494,8 @@ interface RunStepOutcome {
   /** What a whole run of it creates, as its dry run counted it. */
   planned?: number;
   verified?: Verified;
+  /** A reload whose purge took the loads before it whole: their runs are taken back. */
+  tookBackEarlier?: true;
 }
 
 /**
@@ -528,6 +571,10 @@ async function runResourceStep(
     };
   }
 
+  if (resource.kind === 'frozen') {
+    return runFrozenStep(deps, state, input, startedAt, planned);
+  }
+
   // A forge run: its summary named in the state before the clone starts it.
   const summary = runSummaryPathOf(resource.name, n);
   const summaryFile = await deps.store.prepareFile(where.organizationId, env, summary);
@@ -594,6 +641,120 @@ async function runResourceStep(
     ...(planned !== undefined ? { planned } : {}),
     ...(verified !== undefined ? { verified } : {}),
   };
+}
+
+/**
+ * Run a frozen resource's load: its sas named in the state before the
+ * script starts, held to its dry run's count, a reload for a replace. Its
+ * answer is kept beside the state, and the verification the load chains
+ * after it is read as its own. A load stopped part way keeps its mapping in
+ * the sas, which the next apply's reload purges, or the destroy's removal
+ * takes back.
+ */
+async function runFrozenStep(
+  deps: EnvStepDeps,
+  state: EnvState,
+  input: RunStepInput,
+  startedAt: string,
+  planned: number | undefined,
+): Promise<RunStepOutcome> {
+  const { resource, n, where, target, templateFile, dry, signal } = input;
+  const current = await deps.store.update(state, (s) =>
+    runStarted(s, {
+      resource: resource.name,
+      kind: 'frozen',
+      fingerprint: resource.fingerprint,
+      dependsOn: resource.dependsOn,
+      run: { script: 'sandforge-frozen', sas: frozenSasOf(resource.name), startedAt },
+    }),
+  );
+  // Held to what its dry run counted to insert: a dataset or a target that
+  // changed since is refused before its first write, the purge included.
+  const maxTotal = dryRunTotalOf(dry);
+  const line = applyLineOf(resource, {
+    target: target.alias,
+    templateFile,
+    runId: '',
+    summaryFile: '',
+    replace: input.replace,
+    ...(maxTotal !== undefined ? { maxTotal } : {}),
+  });
+  const ran = await deps.runner(line.script, line.args, signal);
+  const answer = answerOf(readFrozenRun, ran.stdout, deps.say);
+  const count = answer !== undefined ? frozenRunCount(answer) : undefined;
+  if (count?.refusal !== undefined) deps.say(`${resource.name}: ${count.refusal}`);
+  // Killed, it said nothing: what it wrote is in the sas, which the state names.
+  const wrote =
+    answer === undefined
+      ? isStopCode(ran.code)
+      : (count?.created ?? 0) > 0 || reloadDeleted(answer);
+  const summary =
+    answer !== undefined
+      ? await deps.store
+          .writeFile(
+            where.organizationId,
+            where.env,
+            runSummaryPathOf(resource.name, n),
+            ran.stdout,
+          )
+          .then(() => runSummaryPathOf(resource.name, n))
+      : undefined;
+  const verdict = answer?.verdict;
+  const verified: Verified | undefined =
+    verdict !== undefined
+      ? frozenVerdictShortOf(verdict)
+      : ran.code === DONE_EXIT && (count?.created ?? 0) > 0
+        ? { unread: 'the load chained no verification' }
+        : undefined;
+  return {
+    state: current,
+    script: line.script,
+    code: ran.code,
+    ...(count !== undefined ? { count } : {}),
+    ...(answer !== undefined ? { answer } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    wrote,
+    ...(planned !== undefined ? { planned } : {}),
+    ...(verified !== undefined ? { verified } : {}),
+    ...(input.replace && answer !== undefined && reloadPurgedWhole(answer)
+      ? { tookBackEarlier: true }
+      : {}),
+  };
+}
+
+/**
+ * The payload a resource's run is given: a seed's template with the parents
+ * its draws are handed, read from the runs of the resources they draw from as
+ * the state names them now; a frozen resource's configuration, its sas
+ * prepared in the state's folder; or why the run cannot start.
+ */
+async function runPayloadOf(
+  deps: EnvStepDeps,
+  state: EnvState,
+  resource: EnvFileResource,
+  where: Where,
+  target: EnvTarget,
+): Promise<{ payload: unknown } | { refusal: string }> {
+  if (resource.kind === 'frozen') {
+    const sasDir = await deps.store.prepareFolder(
+      where.organizationId,
+      where.env,
+      frozenSasOf(resource.name),
+    );
+    return { payload: payloadOf(resource, { sasDir }) };
+  }
+  if (resource.kind !== 'seed' || (resource.run.draws ?? []).length === 0) {
+    return { payload: payloadOf(resource, {}) };
+  }
+  const drawn = await drawnOf(
+    resource,
+    state,
+    new Set(),
+    { ...where, target: target.alias },
+    { store: deps.store, journalDir: deps.journalDir },
+  );
+  if (drawn.refusals.length > 0) return { refusal: drawn.refusals.join(' ') };
+  return { payload: payloadOf(resource, { drawn: drawn.ids }) };
 }
 
 /** The status a run result says, from the exit code an apply or a destroy ends with. */
@@ -806,11 +967,20 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
         // The run half: the template, then the state ahead of the spawn.
         if (resource === undefined) continue;
         const n = nextRunNumber(current.resources[step.resource]);
+        const payload = await runPayloadOf(deps, current, resource, where, target);
+        if ('refusal' in payload) {
+          // Refused before its script starts: nothing of it was written.
+          deps.say(`${step.resource}: not run, ${payload.refusal}`);
+          codes.push(FAILED_EXIT);
+          skipped.push({ resource: step.resource, why: payload.refusal });
+          notWhole.set(step.resource, 'not run');
+          break;
+        }
         const templateFile = await deps.store.writeFile(
           where.organizationId,
           env,
           runTemplatePathOf(step.resource, n),
-          `${JSON.stringify(resource.run.template, null, 2)}\n`,
+          `${JSON.stringify(payload.payload, null, 2)}\n`,
         );
         // Held to what its dry run counted, unless what it depends on ran first
         // in this apply: the dry run read the org before those records were
@@ -825,6 +995,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           templateFile,
           dry: input.dryRuns[step.resource],
           readTooEarly,
+          replace: step.action === 'replace' && replacesInOneRun(resource.kind),
           signal: stop.signal,
         });
         current = outcome.state;
@@ -851,6 +1022,16 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             },
           }),
         );
+        if (outcome.tookBackEarlier === true) {
+          // The reload's purge took what the loads before it created: no
+          // removal looks for them again.
+          for (const earlier of current.resources[step.resource]?.runs ?? []) {
+            if (earlier.n === n || earlier.takenBack === true) continue;
+            current = await deps.store.update(current, (s) =>
+              runTakenBack(s, step.resource, earlier.n),
+            );
+          }
+        }
         const objects = runObjects(outcome.count);
         results.push({
           resource: step.resource,
@@ -872,8 +1053,13 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           stoppedCode = outcome.code;
           deps.say(
             `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
-              `${resource.kind === 'forge' ? 'summary what it created' : 'run file what it wrote'}: ` +
-              'apply again takes it back and runs it whole',
+              `${
+                resource.kind === 'forge'
+                  ? 'summary what it created'
+                  : resource.kind === 'frozen'
+                    ? 'sas what it loaded'
+                    : 'run file what it wrote'
+              }: apply again takes it back and runs it whole`,
           );
           continue;
         }

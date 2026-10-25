@@ -12,6 +12,9 @@
  *   state.json                            0600  written beside, then renamed over
  *   runs/<resource>/<n>.summary.json            each run's --json summary
  *   templates/<resource>.<n>.json               the payload the run was given
+ *   frozen/<resource>/                    0700  a frozen resource's sas: the mapping
+ *                                               of what each load created, its
+ *                                               counting contract, the script's store
  * ```
  *
  * `<journal>` is the folder `SANDFORGE_JOURNAL_DIR` names, else `.sandforge`
@@ -67,6 +70,9 @@ const SUMMARY_FILE = /^runs\/[a-z][a-z0-9-]{0,62}\/[1-9][0-9]{0,5}\.summary\.jso
 
 /** The payload a run was given, from its state's folder. */
 const TEMPLATE_FILE = /^templates\/[a-z][a-z0-9-]{0,62}\.[1-9][0-9]{0,5}\.json$/;
+
+/** A frozen resource's sas, from its state's folder. */
+const SAS_FOLDER = /^frozen\/[a-z][a-z0-9-]{0,62}$/;
 
 /** Why the states refused, or failed, what they were asked. */
 export type EnvStateErrorCode =
@@ -239,7 +245,7 @@ export interface EnvRunStart {
   /** The fingerprint the resource is applied from. */
   fingerprint: string;
   dependsOn: string[];
-  run: Pick<EnvRun, 'script' | 'runId' | 'summary' | 'seed' | 'startedAt'>;
+  run: Pick<EnvRun, 'script' | 'runId' | 'summary' | 'sas' | 'seed' | 'startedAt'>;
 }
 
 /** The rank the next run of a resource takes. */
@@ -554,6 +560,39 @@ export class EnvStore {
       if (refusal !== undefined) throw new EnvStateError('folder', refusal);
     }
     return file;
+  }
+
+  /**
+   * Make a frozen resource's sas — `frozen/<resource>` of a state's folder —
+   * its owner's alone, and give its path: the folder its loads are kept in,
+   * which the script writes itself.
+   *
+   * @throws {EnvStateError} `invalid`, when the states were opened to be
+   *   listed or the path is not a sas of a state's folder; `folder`, when a
+   *   folder of it cannot be used.
+   */
+  async prepareFolder(organizationId: string, env: string, relativePath: string): Promise<string> {
+    if (this.fileFolder === null) {
+      throw new EnvStateError('invalid', 'The states were opened to be listed, not written');
+    }
+    if (!SAS_FOLDER.test(relativePath)) {
+      throw new EnvStateError('invalid', `Not a folder of a state's folder: "${relativePath}"`);
+    }
+    const folder = this.folderOf(organizationId, env);
+    const sas = join(folder, ...relativePath.split('/'));
+    for (const dir of [dirname(folder), folder, dirname(sas), sas]) {
+      const refusal = openFolder(dir, this.uid);
+      if (refusal !== undefined) throw new EnvStateError('folder', refusal);
+    }
+    return sas;
+  }
+
+  /** Where a frozen resource's sas is in a state's folder, whether it is there or not. */
+  sasOf(organizationId: string, env: string, relativePath: string): string {
+    if (!SAS_FOLDER.test(relativePath)) {
+      throw new EnvStateError('invalid', `Not a folder of a state's folder: "${relativePath}"`);
+    }
+    return join(this.folderOf(organizationId, env), ...relativePath.split('/'));
   }
 
   /** Delete an environment's folder, its state with it: a destroy ended clean, or a state forgotten. */

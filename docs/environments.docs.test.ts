@@ -51,6 +51,8 @@ import { main } from '../packages/extension/cli/sandforge-env.js';
 import type { CommandRunner } from '../packages/extension/cli/scriptRunner.js';
 import { runnerWithCheckpoints } from '../packages/extension/cli/testing/envCheckpointWorld.js';
 import { EnvWorld, type EnvWorldOptions } from '../packages/extension/cli/testing/envWorld.js';
+import { freezeDataset } from '../packages/extension/cli/testing/frozenDataset.js';
+import { frozenDatasetDigest } from '../packages/extension/src/modules/frozendataset/datasetDigest.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
@@ -69,19 +71,26 @@ const DESTROY = source(`${CLI_DIR}/env/envDestroy.ts`);
 const STATE = source(`${CLI_DIR}/env/envState.ts`);
 const FILE = source(`${CLI_DIR}/env/envFile.ts`);
 const SEED_KIND = source(`${CLI_DIR}/env/kinds/seed.ts`);
+const FROZEN_KIND = source(`${CLI_DIR}/env/kinds/frozen.ts`);
+const REFERENCES = source(`${CLI_DIR}/env/envReferences.ts`);
+const FROZEN = source(`${CLI_DIR}/sandforge-frozen.ts`);
 const LOCK = source(`${CLI_DIR}/env/envLock.ts`);
 const SEED = source(`${CLI_DIR}/sandforge-seed.ts`);
 const EXIT_CODES = source(`${CLI_DIR}/exitCodes.ts`);
 const STOP_SIGNALS = source(`${CLI_DIR}/stopSignals.ts`);
 const SCHEMA = source('packages/shared/src/schemas/env.schema.ts');
 
-/** The body of a heading of the page, up to the next heading of its level or above. */
+/**
+ * The body of a heading of the page, up to the next heading of its level or
+ * above: a comment line of a fenced block, `# sandforge.yaml`, is none.
+ */
 function section(text: string, heading: string): string {
   const level = /^#+/.exec(heading)?.[0].length ?? 2;
   const start = text.indexOf(`\n${heading}\n`);
   if (start === -1) throw new Error(`"${heading}" is missing: re-point this test`);
   const rest = text.slice(start + heading.length + 1);
-  const next = rest.search(new RegExp(`\\n#{1,${level}} `));
+  const masked = rest.replace(/```[\s\S]*?```/g, (block) => block.replace(/#/g, ' '));
+  const next = masked.search(new RegExp(`\\n#{1,${level}} `));
   return next === -1 ? rest : rest.slice(0, next);
 }
 
@@ -129,6 +138,13 @@ function commandsRead(): string[] {
   return [...list.matchAll(/'([a-z]+)'/g)].map((m) => m[1] as string);
 }
 
+/** The flags `sandforge-frozen` reads, from its own table: what the page names of its lines. */
+function frozenFlags(): Set<string> {
+  const table = /const FLAGS: CommandFlags = \{([\s\S]*?)\n\};/.exec(FROZEN)?.[1];
+  if (!table) throw new Error('the FLAGS of sandforge-frozen.ts are gone: re-point this test');
+  return flagsIn(table);
+}
+
 /** The flags each command reads, from the script's table of them. */
 function flagsOf(): Map<string, Set<string>> {
   const table = /const FLAGS: [^=]*= \{\n([\s\S]*?)\n\};\n/.exec(CLI)?.[1];
@@ -150,6 +166,7 @@ const T0 = Date.parse('2026-10-25T09:00:00.000Z');
 /** The orgs a session starts on, as the page names them. */
 const WORLDS: Readonly<Record<string, EnvWorldOptions>> = {
   scratch: { sandbox: true, scratch: true },
+  frozen: { sandbox: true, scratch: true },
   developer: { sandbox: false, edition: 'Developer Edition' },
   production: { sandbox: false, edition: 'Enterprise Edition' },
   sandbox: { sandbox: true },
@@ -175,6 +192,19 @@ function example(): string {
   return `${yaml}\n`;
 }
 
+/** The file a frozen resource's sessions start from: the example of its section. */
+function frozenExample(): string {
+  const yaml = fenced(section(DOC, '### A frozen resource'), 'yaml')[0];
+  if (!yaml) throw new Error('the frozen section gives no example file: re-point this test');
+  return `${yaml}\n`;
+}
+
+/** The dataset of a frozen session, as the page's digest pins it: two claims, a contact each. */
+const CLAIMS = { accounts: 2, perAccount: 1, mark: 'claim' } as const;
+
+/** The variable the frozen example names its dataset by. */
+const DATASET_VARIABLE = 'SANDFORGE_CLAIMS_DATASET';
+
 /** Edit the file as it stands, failing when the text to change is not there. */
 function edit(replay: Replay, from: string, to: string): void {
   const text = readFileSync(replay.file, 'utf8');
@@ -183,7 +213,7 @@ function edit(replay: Replay, from: string, to: string): void {
 }
 
 /** What happens between two sessions, as the page says it. */
-const EVENTS: Readonly<Record<string, (replay: Replay) => void>> = {
+const EVENTS: Readonly<Record<string, (replay: Replay) => void | Promise<void>>> = {
   'the accounts lose their field rule': (replay) =>
     edit(
       replay,
@@ -219,6 +249,25 @@ const EVENTS: Readonly<Record<string, (replay: Replay) => void>> = {
   'the file asks a checkpoint before the first write': (replay) =>
     edit(replay, '\nresources:\n', '\ncheckpoint:\n  before: true\n\nresources:\n'),
   'a test creates an account': (replay) => createdByATest(replay),
+  'a contact of the load deleted': (replay) => {
+    const contact = replay.world
+      .records('Contact')
+      .find((row) => String(row['LastName']).startsWith('SFENV claim'));
+    replay.world.org.trash('Contact', String(contact?.['Id']));
+  },
+  'the dataset frozen again': async (replay) => {
+    const dataset = join(replay.dir, 'datasets', 'claims');
+    rmSync(dataset, { recursive: true, force: true });
+    await freezeDataset(dataset, { ...CLAIMS, accounts: 3, version: '1.1.0' });
+  },
+  'the file pins the new dataset': async (replay) => {
+    const digest = await frozenDatasetDigest(join(replay.dir, 'datasets', 'claims'));
+    edit(replay, '      version: 1.0.0\n', '      version: 1.1.0\n');
+    const pinned = /digest: (sha256:[0-9a-f]{64})/.exec(readFileSync(replay.file, 'utf8'))?.[1];
+    if (!pinned) throw new Error('the frozen example pins no digest: re-point this test');
+    edit(replay, pinned, digest);
+  },
+  'followers ask for four': (replay) => edit(replay, '        count: 3\n', '        count: 4\n'),
 };
 
 /** An account a test creates, as the colleague the sessions name. */
@@ -231,19 +280,33 @@ function createdByATest(replay: Replay): void {
   });
 }
 
-/** A new session: an org of `kind`, the project with its example file, an empty journal. */
-function begin(kind: string): Replay {
+/**
+ * A new session: an org of `kind`, the project with its example file, an
+ * empty journal. A frozen session's project is the frozen section's, its
+ * Frozen configuration committed beside the file, its dataset frozen outside
+ * it, where the variable the file names points.
+ */
+async function begin(kind: string): Promise<Replay> {
   const options = WORLDS[kind];
   if (!options) throw new Error(`no org "${kind}" to replay a session on`);
   vi.setSystemTime(T0);
   // Where its links lead, as the repository rule follows the file's folder:
   // macOS's temporary folder is a link, and the refusal named both forms.
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sandforge-env-docs-')));
-  const project = join(dir, 'case-flow');
+  const project = join(dir, kind === 'frozen' ? 'claims-flow' : 'case-flow');
   mkdirSync(join(project, '.git'), { recursive: true });
   mkdirSync(join(dir, 'sandforge'));
   const file = join(project, 'sandforge.yaml');
-  writeFileSync(file, example());
+  writeFileSync(file, kind === 'frozen' ? frozenExample() : example());
+  if (kind === 'frozen') {
+    mkdirSync(join(project, 'frozen'));
+    writeFileSync(
+      join(project, 'frozen', 'claims.frozen.json'),
+      JSON.stringify({ rootObject: 'Account', axes: [], edgeCases: [] }, null, 2),
+    );
+    const dataset = await freezeDataset(join(dir, 'datasets', 'claims'), CLAIMS);
+    process.env[DATASET_VARIABLE] = dataset;
+  }
   const world = new EnvWorld({
     organizationId: ORG_ID,
     tick: () => vi.setSystemTime(Date.now() + 30_000),
@@ -382,16 +445,30 @@ describe('docs/environments.md', () => {
     const read = new Set([...flagsOf().values()].flatMap((set) => [...set]));
     read.add('--help');
     // The help block aside, and the checkpoint script's own lines, which its guide holds.
-    const named = flagsIn(
-      DOC.replace(/```text\n[\s\S]*?\n```/, '').replace(/sandforge-checkpoint [^\n`]*/g, ''),
+    const base = DOC.replace(/```text\n[\s\S]*?\n```/, '').replace(
+      /sandforge-checkpoint [^\n`]*/g,
+      '',
     );
+    const named = flagsIn(base);
     // Positive control: the flags of a plan, an apply and a destroy are all there.
     for (const flag of ['--fail-on-drift', '--accept-no-state', '--include-changed', '--sweep']) {
       expect(named.has(flag)).toBe(true);
     }
     // What the page names as not there yet is named so.
     const later = new Set(['--out', '--plan']);
-    expect([...named].filter((flag) => !read.has(flag) && !later.has(flag))).toEqual([]);
+    // The frozen section names the lines of sandforge-frozen too: the flags
+    // that script reads, there alone.
+    const frozen = section(DOC, '### A frozen resource');
+    const outside = flagsIn(base.replace(frozen, ''));
+    expect([...outside].filter((flag) => !read.has(flag) && !later.has(flag))).toEqual([]);
+    const frozenRead = frozenFlags();
+    expect(frozenRead.has('--max-total')).toBe(true);
+    expect([...flagsIn(frozen)].filter((flag) => !read.has(flag) && !frozenRead.has(flag))).toEqual(
+      [],
+    );
+    expect(
+      [...named].filter((flag) => !read.has(flag) && !frozenRead.has(flag) && !later.has(flag)),
+    ).toEqual([]);
     for (const flag of later) expect(read.has(flag), flag).toBe(false);
   });
 
@@ -477,6 +554,33 @@ describe('docs/environments.md', () => {
         }),
       ],
     ];
+    const frozen = (resource: Record<string, unknown>) => ({
+      version: 1,
+      name: 'e',
+      resources: {
+        r: {
+          kind: 'frozen',
+          config: 'f.json',
+          dataset: { path: '/d', version: '1.0.0', digest: `sha256:${'0'.repeat(64)}` },
+          ...resource,
+        },
+      },
+    });
+    places.push(
+      ['`resources.<name>`, `kind: frozen`', 'a frozen resource', frozen({ misspelt: 1 })],
+      [
+        '`resources.<name>.dataset`',
+        'a dataset',
+        frozen({
+          dataset: {
+            path: '/d',
+            version: '1.0.0',
+            digest: `sha256:${'0'.repeat(64)}`,
+            misspelt: 1,
+          },
+        }),
+      ],
+    );
     places.push(
       ['`resources.<name>`, `kind: forge`', 'a forge resource', forge({ misspelt: 1 })],
       [
@@ -547,9 +651,11 @@ describe('docs/environments.md', () => {
     expect(FILE).toContain('const MAX_ALIASES = 100;');
     expect(rules).toContain('more than 100 aliases');
     expect(SCHEMA).toContain(
-      "export const ENV_REF_PLACES: readonly string[] = ['orgs.<role>.alias'];",
+      "export const ENV_REF_PLACES: readonly string[] = [\n  'orgs.<role>.alias',\n  'resources.<frozen>.dataset.path',\n];",
     );
-    expect(rules).toContain('and that is the alias of an org role alone');
+    expect(rules).toContain(
+      "and that is the alias of an org role and the path of a frozen resource's dataset alone",
+    );
     const secrets = [...SCHEMA.matchAll(/\{ name: '([A-Za-z]+)', words:/g)].map((m) => m[1]);
     const said = /A key shaped like a secret -- (.+?) --/.exec(rules)?.[1] ?? '';
     const listed = ticked(said);
@@ -563,23 +669,24 @@ describe('docs/environments.md', () => {
     const all = sessions();
     // Positive control: the walk-through and the refusals, on every kind of org.
     expect(new Set(all.map((s) => s.start))).toEqual(
-      new Set(['scratch', 'then', 'production', 'sandbox', 'developer']),
+      new Set(['frozen', 'scratch', 'then', 'production', 'sandbox', 'developer']),
     );
-    expect(all.length).toBeGreaterThan(14);
+    expect(all.length).toBeGreaterThan(20);
 
     let replay: Replay | undefined;
     const done: Replay[] = [];
+    const dataset = process.env[DATASET_VARIABLE];
     try {
       for (const session of all) {
         if (session.start !== 'then') {
-          replay = begin(session.start);
+          replay = await begin(session.start);
           done.push(replay);
         }
         if (!replay) throw new Error('the first session of the page names no org');
         if (session.event !== undefined) {
           const event = EVENTS[session.event];
           if (!event) throw new Error(`nothing replays "${session.event}"`);
-          event(replay);
+          await event(replay);
         }
         let last = 0;
         const parts = session.block.split(/^\$ /m).slice(1);
@@ -602,6 +709,8 @@ describe('docs/environments.md', () => {
       }
     } finally {
       for (const one of done) rmSync(one.dir, { recursive: true, force: true });
+      if (dataset === undefined) delete process.env[DATASET_VARIABLE];
+      else process.env[DATASET_VARIABLE] = dataset;
     }
   });
 
@@ -639,7 +748,7 @@ describe('docs/environments.md', () => {
       "Its lines go on to this process's stderr as they\n * come",
     );
     expect(DOC).toContain(
-      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`',
+      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource --, run in a process of its own with `--json`',
     );
     expect(DOC).toContain('Each script it runs says its own lines too, on stderr, as they come');
     // The file's two checks: its own schema, then Seed's, as the panel's.
@@ -752,8 +861,8 @@ describe('docs/environments.md', () => {
       ],
       [
         SCHEMA,
-        'the records this resource writes of\n * `object`, or, with `existing`, records the org already holds',
-        'the records this resource writes of it, or, with `existing`, records the org holds',
+        'the records this resource writes of\n * `object`; with `existing`, records the org already holds; with `from`, the\n * records another resource of the file created, by their ids',
+        'the records this resource writes of it; with `existing`, records the org holds; with `from`, the records another resource created',
       ],
       [SCHEMA, 'A SOQL WHERE condition, without the keyword', 'a SOQL condition, without `WHERE`'],
       [help(), 'validate  check the file, offline', 'It reaches no org, and needs no `--org`'],
@@ -990,18 +1099,18 @@ describe('docs/environments.md', () => {
 
   it('says what this SandForge does not do yet, as the code refuses it', () => {
     const later = section(DOC, '## Not yet');
-    expect(SCHEMA).toContain("const LATER_KINDS: readonly string[] = ['frozen', 'mask'];");
-    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed and forge resources';");
+    expect(SCHEMA).toContain("const LATER_KINDS: readonly string[] = ['mask'];");
+    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed, forge and frozen resources';");
     expect(SCHEMA).toContain(
       '`Resources of kind ${kind} come with a later SandForge: this one applies ${KINDS_APPLIED}`',
     );
     expect(later).toContain(
-      '`Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`',
+      '`Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources`',
     );
     // No saved plan, no output.
     expect(commandsRead()).not.toContain('output');
     expect(later).toContain('no `plan --out`, no `apply --plan`');
-    // A relation's parents take an object and existing parents alone.
+    // A relation's parents may be another resource's records: no longer not yet.
     const parents = checkEnvFile(
       {
         version: 1,
@@ -1023,9 +1132,9 @@ describe('docs/environments.md', () => {
       HERE,
     );
     expect('refusals' in parents && parents.refusals[0]?.message).toContain(
-      '"from" is not a key of a relation’s parents',
+      '"accounts" is no resource of this file',
     );
-    expect(later).toContain("a relation's `parents` take an `object` and `existing` alone");
+    expect(later).not.toContain('Parents drawn by Id');
     // The MCP server runs no environment.
     expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).not.toContain("'sandforge-env'");
     expect(later).toContain("and the MCP server's tools for environments");
@@ -1190,6 +1299,135 @@ describe('docs/environments.md: checkpoints, reset, destroy --rewind and real da
 
 // ─── The pages that send a reader to the guide ───────────────────────────────
 
+describe('the frozen resource and the references between resources, on the page', () => {
+  it('says what a frozen resource is checked by, pinned by and given, in the words of the code that does it', () => {
+    const frozen = section(DOC, '### A frozen resource');
+    const pins: Array<[string, string, string]> = [
+      [
+        FROZEN_KIND,
+        'frozenProjectConfigPayloadSchema.strict().safeParse(raw)',
+        "held to Frozen's own schema, strict, a key it does not name refused",
+      ],
+      [FROZEN_KIND, 'a load never reads the salt', 'a load never reads the salt'],
+      [
+        FILE,
+        'is inside the repository ${repoRoot} that ',
+        'A dataset inside the repository that holds the file is refused, exit `2`',
+      ],
+      [
+        FROZEN_KIND,
+        'and the file pins ${pinned.digest}: ',
+        "A dataset whose digest or version is not the file's blocks the resource, both named",
+      ],
+      [
+        FROZEN_KIND,
+        'dataset: { digest: run.dataset.digest, version: run.dataset.version }',
+        'The fingerprint is of the digest, never of the path',
+      ],
+      [
+        FROZEN_KIND,
+        "const SET_BY_THE_ENVIRONMENT = ['sasDir', 'datasetDir'] as const;",
+        'a `sasDir` or a `datasetDir` the configuration gives is warned of and not used',
+      ],
+      [FROZEN_KIND, "'--max-total',", 'the run (`load`) is held to that count with `--max-total`'],
+      [
+        FROZEN_KIND,
+        "return `${object.objectApiName} FAILED (${parts.join(', ')})`;",
+        'an object it FAILED leaves the resource partial',
+      ],
+      [
+        PLAN,
+        'its verification: ${held.verified',
+        'an object FAILED, a record gone or changed since, and the resource is drifted',
+      ],
+      [
+        FROZEN_KIND,
+        "...(input.reload ? ['--reload'] : []),",
+        'the replace is one run, `load --reload`',
+      ],
+      [FROZEN_KIND, "'may-hold-masks'", 'a field the target encrypts that may hold masks'],
+      [
+        FROZEN_KIND,
+        'a Frozen load and its removal take no acceptance of automation',
+        '`accept: { automation: true }` on a frozen resource is warned of',
+      ],
+    ];
+    for (const [code, said, page] of pins) {
+      expect(code, said).toContain(said);
+      expect(frozen, page).toContain(page);
+    }
+  });
+
+  it('says where the ids of a reference are read from, how many, and when they are counted exactly, as the references and the plan do', () => {
+    const references = section(DOC, '### References between resources');
+    const pins: Array<[string, string, string]> = [
+      [
+        REFERENCES,
+        "a seed's run file, written as the org took each record, or the\n * summary it printed",
+        "a seed's run file or its summary",
+      ],
+      [REFERENCES, 'never one it linked to', 'never those it linked to'],
+      [
+        REFERENCES,
+        'the records its mapping in the sas lists among\n * its creations',
+        "a Frozen load's mapping in its sas",
+      ],
+      [
+        REFERENCES,
+        "more than the ${most} a relation's parents hold: give the",
+        'refuses the relation unless it gives `limit`',
+      ],
+      [
+        SCHEMA,
+        'limit goes with from: existing parents take their own, under existing',
+        '`limit` goes with `from`',
+      ],
+      [
+        FILE,
+        'Take one of them out of the dependsOn of the next, or out of what its relations draw their parents from.',
+        'a circle of dependencies, through `dependsOn` or `from`, are refused',
+      ],
+      [
+        FILE,
+        'writes no ${draw.relation.parentObject} records: it writes',
+        'so is a seed resource drawn from for an object it does not write',
+      ],
+      [
+        PLAN,
+        'which nobody knows before it runs: counted at most as the file gives it',
+        'the plan counts the drawing resource at most as the file gives it, and says so',
+      ],
+      [
+        PLAN,
+        '`the ${draw.object} records ${draw.from} creates first`',
+        '`draws its parents from the Account records claims creates first`',
+      ],
+      [
+        PLAN,
+        '`the ${draw.parents} ${draw.object} record(s) ${draw.from} created`',
+        '`draws its parents from the 3 Account record(s) claims created`',
+      ],
+      [
+        PLAN,
+        'the resources it depends on run again, with new records',
+        '`the resources it depends on run again`',
+      ],
+      [
+        SEED_KIND,
+        'parents named by id no\n * longer in the org',
+        "one deleted since refuses the run, in the seed's words",
+      ],
+    ];
+    for (const [code, said, page] of pins) {
+      expect(code.replace(/[`'] \+\n\s+[`']/g, ''), said).toContain(said);
+      expect(references, page).toContain(page);
+    }
+    // Positive control: a draw is a dependency, and the page says so.
+    expect(FILE).toContain('...drawnFrom(name, resource).map(({ from }) => from),');
+    expect(references).toContain('`from` makes the resource depend on the one it draws from');
+  });
+});
+
 describe('the pages that send a reader to docs/environments.md', () => {
   const GUIDE = source('ci-examples/README.md');
   const PIPELINE = source('ci-examples/github-actions.yml');
@@ -1311,7 +1549,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
     expect(faq).toContain('](environments.md)');
     expect(faq).toContain('refuses a production org before anything is read');
     expect(faq).toContain("ids, counts and dates, never a record's values");
-    expect(faq).toContain('Frozen Dataset loads and masking are not yet among them');
+    expect(faq).toContain('masking is not yet among them');
   });
 
   it('the FAQ names the states and the locks among what SandForge keeps on the machine', () => {

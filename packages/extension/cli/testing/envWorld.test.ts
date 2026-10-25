@@ -23,8 +23,13 @@ vi.mock('../../src/modules/forge/RunVerifier.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/forge/RunVerifier.js')>()),
   verifiedOrg: vi.fn(),
 }));
+vi.mock('../../src/core/connection/ConnectionHelper.js', async (original) => ({
+  ...(await original<typeof import('../../src/core/connection/ConnectionHelper.js')>()),
+  getJsforceConnection: vi.fn(),
+}));
 
 import { EnvWorld, runInProcess } from './envWorld.js';
+import { freezeDataset } from './frozenDataset.js';
 
 /*
  * The world the environment's tests run in: what the seed writes lands in the
@@ -90,7 +95,7 @@ describe('the world of the environment’s tests', () => {
     expect(world.records('Asset')).toEqual([]);
     expect(world.calls.map((call) => call.code)).toEqual([0, 0]);
     await expect(world.runner('sandforge-clone', [], signal)).rejects.toThrow(
-      'The world runs sandforge-seed alone',
+      'The world runs sandforge-seed, sandforge-frozen alone, not sandforge-clone',
     );
   });
 
@@ -160,6 +165,50 @@ describe('the world of the environment’s tests', () => {
     expect(world.records('Account')).toEqual([]);
     expect(world.records('Contact')).toEqual([]);
     expect(world.source?.all('Account')).toHaveLength(2);
+  });
+
+  it('runs a Frozen load in this process, through the panel’s handler: its records land in the memory org, verified, and its removal takes them back', async () => {
+    const world = new EnvWorld();
+    const datasetDir = await freezeDataset(join(dir, 'dataset'), {
+      accounts: 2,
+      perAccount: 1,
+      mark: 'world',
+    });
+    const config = join(dir, 'frozen.json');
+    writeFileSync(
+      config,
+      JSON.stringify({
+        rootObject: 'Account',
+        axes: [],
+        edgeCases: [],
+        sasDir: join(dir, 'sas'),
+        datasetDir,
+      }),
+    );
+    const signal = new AbortController().signal;
+    const frozen = (args: string[]) =>
+      world.runner(
+        'sandforge-frozen',
+        [...args, '--config', config, '--target', 'TGT', '--json'],
+        signal,
+      );
+
+    const loaded = await frozen(['load', '--yes']);
+
+    expect(loaded.code, loaded.stderr).toBe(0);
+    expect(world.records('Account').map((row) => row['Name'])).toEqual([
+      'SFENV world 1',
+      'SFENV world 2',
+    ]);
+    const accounts = new Set(world.records('Account').map((row) => row['Id']));
+    for (const contact of world.records('Contact')) {
+      expect(accounts.has(contact['AccountId'])).toBe(true);
+    }
+    expect(JSON.parse(loaded.stdout)).toMatchObject({ verdict: { status: 'PASSED' } });
+    const removed = await frozen(['remove', '--yes']);
+    expect(removed.code, removed.stderr).toBe(0);
+    expect(world.records('Account')).toEqual([]);
+    expect(world.records('Contact')).toEqual([]);
   });
 
   it('gives back the exit code a script set or exited with, what it printed, and restores the process', async () => {

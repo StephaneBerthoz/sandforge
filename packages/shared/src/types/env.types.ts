@@ -17,7 +17,7 @@
 
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
 import type { ForgeDepth } from './forge.types.js';
-import type { FieldRule, SeedTemplate } from './seed.types.js';
+import type { FieldRule, SeedRelation, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
 
@@ -86,15 +86,21 @@ export interface EnvSeedObject {
 
 /**
  * Where a relation's parents come from: the records the resource writes of
- * `object`, or, with `existing`, records the org already holds.
+ * `object`; with `existing`, records the org already holds; with `from`, the
+ * records another resource of the file created, by their ids.
  */
 export interface EnvSeedParents {
-  object: string;
+  /** The parent object; `from` may name it instead, as `accounts.Account`. */
+  object?: string;
   existing?: {
     /** A SOQL WHERE condition, without the keyword. */
     where?: string;
     limit: number;
   };
+  /** Another resource of the file, or a resource and an object: `accounts`, `accounts.Account`. */
+  from?: string;
+  /** With `from`: the most of those records drawn, the first created first. */
+  limit?: number;
 }
 
 /** How many children each parent receives, as Seed's relations say it. */
@@ -177,8 +183,28 @@ export interface EnvForgeResource {
   maxTotal?: number;
 }
 
-/** A resource of the file. Version 1 holds the `seed` and `forge` kinds. */
-export type EnvResource = EnvSeedResource | EnvForgeResource;
+/** The dataset a frozen resource loads, pinned: a path outside the repository, its version and its digest. */
+export interface EnvFrozenDataset {
+  /** From the root, or the variable that holds it. */
+  path: string | EnvRef;
+  /** Its manifest's version. */
+  version: string;
+  /** `sha256:` and 64 hexadecimal digits, over the files a load reads. */
+  digest: string;
+}
+
+/** A Frozen Dataset a person froze beforehand, loaded by `sandforge-frozen`. */
+export interface EnvFrozenResource {
+  kind: 'frozen';
+  dependsOn?: string[];
+  accept?: EnvAccept;
+  /** The Frozen configuration, from the folder of the file: committed, it holds no record. */
+  config: string;
+  dataset: EnvFrozenDataset;
+}
+
+/** A resource of the file. Version 1 holds the `seed`, `forge` and `frozen` kinds. */
+export type EnvResource = EnvSeedResource | EnvForgeResource | EnvFrozenResource;
 
 /** `sandforge.yaml`, version 1, as read: defaults in place, variables as written. */
 export interface EnvFile {
@@ -197,12 +223,44 @@ export interface EnvFile {
  * the flags given beside it.
  */
 export interface EnvSeedRun {
+  /** The template, but for the relations whose parents another resource created: see `draws`. */
   template: SeedTemplate;
   locale?: string;
   seed?: number;
   /** Record types by object, by DeveloperName. */
   recordTypes?: Record<string, string[]>;
   acceptAutomation: boolean;
+  /**
+   * The relations whose parents are the records another resource created,
+   * handed to the seed by their ids once that resource has run: what the
+   * template is given before each dry run and each run.
+   */
+  draws?: EnvSeedDraw[];
+}
+
+/** A relation of a seed resource whose parents another resource of the file created. */
+export interface EnvSeedDraw {
+  /** Its place among the resource's relations, as the file lists them. */
+  at: number;
+  /** The relation, all but its parents. */
+  relation: Omit<SeedRelation, 'parents'>;
+  /** The resource whose records the parents are. */
+  from: string;
+  /** The most of those records drawn, the first created first; at most 2,000 in any case. */
+  limit?: number;
+}
+
+/**
+ * What a frozen resource loads: the committed configuration, checked by
+ * Frozen's own schema, which the environment gives the folders it keeps the
+ * loads in and the dataset is read from; and the dataset, pinned.
+ */
+export interface EnvFrozenRun {
+  /** The configuration's file, from the folder of the file. */
+  configFile: string;
+  /** What it holds, checked; without `sasDir` and `datasetDir`, which the environment sets. */
+  config: Record<string, unknown>;
+  dataset: EnvFrozenDataset;
 }
 
 /**
@@ -344,6 +402,19 @@ export interface EnvActionGates {
   emails?: Array<{ limit: EnvEmailLimit; emails: number }>;
 }
 
+/**
+ * A relation whose parents are the records another resource created: how many
+ * there are, once that resource has run; absent while it runs in the same
+ * apply, before which nobody knows.
+ */
+export interface EnvActionDraw {
+  /** The lookup, named with its object: `Contact.AccountId`. */
+  lookup: string;
+  from: string;
+  object: string;
+  parents?: number;
+}
+
 /** One resource's line of a plan. */
 export interface EnvAction {
   resource: string;
@@ -351,6 +422,8 @@ export interface EnvAction {
   action: EnvActionKind;
   why: string;
   objects: EnvPlanObject[];
+  /** The relations whose parents another resource created. */
+  draws?: EnvActionDraw[];
   gates?: EnvActionGates;
   refusal?: string;
   /** What the plan says of it beside why: a production source's data, and what is done to it. */
@@ -584,7 +657,14 @@ export interface EnvValidation {
     objects: Array<{ object: string; count?: number }>;
   }>;
   /** The variables the file reads, and whether this process has each set. */
-  variables?: Array<{ name: string; role: string; set: boolean }>;
+  variables?: Array<{
+    name: string;
+    /** The org role whose alias it holds. */
+    role?: string;
+    /** The frozen resource whose dataset's path it holds. */
+    resource?: string;
+    set: boolean;
+  }>;
   issues: EnvIssue[];
   warnings: EnvIssue[];
 }

@@ -8,6 +8,13 @@
  * `seed:execute` checks the panel's — so a refusal its run would meet after
  * its first objects were written is met before any.
  *
+ * A relation whose parents are the records another resource of the file
+ * created (`parents.from`) is kept apart from the template, as a draw: the
+ * ids are known once that resource has run, and the environment hands them
+ * to the seed as parents named by id (`records`), at most 2,000, the bound
+ * of the parents a relation reads of the org. The template is checked with
+ * such a relation in its place, its parents read of the org standing in.
+ *
  * It runs `sandforge-seed`: a dry run and a run of the template the
  * environment converted from its file (`--template-file`), under the run id it
  * chose (`--run-id`); the removal of that run from the summary it printed,
@@ -23,8 +30,11 @@
 import { z } from 'zod';
 import {
   PREBUILT_SEED_TEMPLATES,
+  SEED_RELATION_LIMITS,
   seedDependencies,
   type EnvDocumentPath,
+  type EnvSeedDraw,
+  type EnvSeedParents,
   type EnvSeedResource,
   type EnvSeedRun,
   type SeedRelation,
@@ -92,6 +102,7 @@ function seedRunOf(
     updatedAt: at,
   };
   let template: SeedTemplate;
+  const draws: EnvSeedDraw[] = [];
   if (resource.template !== undefined) {
     const builtIn = PREBUILT_SEED_TEMPLATES.find((t) => t.id === resource.template);
     if (builtIn === undefined) {
@@ -123,7 +134,20 @@ function seedRunOf(
         batchSize: object.batchSize ?? 200,
       })),
       ...(resource.relations !== undefined
-        ? { relations: resource.relations.map(relationOf) }
+        ? {
+            relations: resource.relations.flatMap((relation, at) => {
+              const from = relation.parents.from;
+              if (from === undefined) return [relationOf(relation)];
+              const { childObject, lookupField, parentObject, distribution } = relationOf(relation);
+              draws.push({
+                at,
+                relation: { childObject, lookupField, parentObject, distribution },
+                from: from.split('.')[0] ?? from,
+                ...(relation.parents.limit !== undefined ? { limit: relation.parents.limit } : {}),
+              });
+              return [];
+            }),
+          }
         : {}),
     };
   }
@@ -139,8 +163,14 @@ function seedRunOf(
       ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
       ...(Object.keys(recordTypes).length > 0 ? { recordTypes } : {}),
       acceptAutomation: resource.accept?.automation === true,
+      ...(draws.length > 0 ? { draws } : {}),
     },
   };
+}
+
+/** The object a relation's parents are of: `object`, or the one `from` names after its resource. */
+function parentObjectOf(parents: EnvSeedParents): string {
+  return parents.object ?? parents.from?.split('.')[1] ?? '';
 }
 
 function relationOf(relation: NonNullable<EnvSeedResource['relations']>[number]): SeedRelation {
@@ -149,7 +179,7 @@ function relationOf(relation: NonNullable<EnvSeedResource['relations']>[number])
   return {
     childObject,
     lookupField,
-    parentObject: relation.parents.object,
+    parentObject: parentObjectOf(relation.parents),
     parents:
       existing === undefined
         ? { kind: 'generated' }
@@ -159,6 +189,64 @@ function relationOf(relation: NonNullable<EnvSeedResource['relations']>[number])
             limit: existing.limit,
           },
     distribution: relation.distribution,
+  };
+}
+
+/**
+ * The parents a draw stands in with where its ids are not known: what the org
+ * holds of the parent object, read as a relation reads existing parents, as
+ * many as it may draw. What the template is checked with, and what a dry run
+ * reads before the resource it draws from has run, whose records nobody
+ * knows yet; never what a run is given.
+ */
+function standInOf(draw: EnvSeedDraw): SeedRelation['parents'] {
+  return { kind: 'existing', limit: draw.limit ?? SEED_RELATION_LIMITS.maxExistingParents };
+}
+
+/** A resource's relations in the order the file lists them: its own, and its draws with `parentsOf`. */
+function relationsWithDraws(
+  run: EnvSeedRun,
+  parentsOf: (draw: EnvSeedDraw) => SeedRelation['parents'],
+): SeedRelation[] {
+  const own = [...(run.template.relations ?? [])];
+  const draws = run.draws ?? [];
+  const out: SeedRelation[] = [];
+  for (let at = 0; at < own.length + draws.length; at++) {
+    const draw = draws.find((each) => each.at === at);
+    const next = draw !== undefined ? { ...draw.relation, parents: parentsOf(draw) } : own.shift();
+    if (next !== undefined) out.push(next);
+  }
+  return out;
+}
+
+/**
+ * The template a seed resource's dry run or run is given: its own, and each
+ * draw's relation in its place, its parents the ids of the records the
+ * resource it draws from created (`drawn`, by the draw's place). A draw whose
+ * ids are not known stands in with what the org holds of the parent object
+ * (`standIns`, a dry run's alone); a run is never given one.
+ *
+ * @throws When a draw's ids are not known and stand-ins are not allowed.
+ */
+export function seedTemplateOf(
+  run: EnvSeedRun,
+  drawn: ReadonlyMap<number, readonly string[]> | undefined,
+  options: { standIns: boolean },
+): SeedTemplate {
+  if ((run.draws ?? []).length === 0) return run.template;
+  return {
+    ...run.template,
+    relations: relationsWithDraws(run, (draw) => {
+      const ids = drawn?.get(draw.at);
+      if (ids !== undefined && ids.length > 0) return { kind: 'records', ids: [...ids] };
+      if (!options.standIns) {
+        throw new Error(
+          `The relation on ${draw.relation.childObject}.${draw.relation.lookupField} draws its ` +
+            `parents from ${draw.from}, whose records are not known: plan again.`,
+        );
+      }
+      return standInOf(draw);
+    }),
   };
 }
 
@@ -175,7 +263,10 @@ function checkSeedRun(
   run: EnvSeedRun,
 ): { refusals: EnvFileRefusal[]; warnings: EnvFileRefusal[] } {
   const base: EnvDocumentPath = ['resources', name];
-  const payload = seedTemplatePayloadSchema.safeParse(run.template);
+  // Checked whole, each draw in its place: its lookup, its distribution and
+  // its child are Seed's to judge, its parents read of the org standing in.
+  const checking = seedTemplateOf(run, undefined, { standIns: true });
+  const payload = seedTemplatePayloadSchema.safeParse(checking);
   if (!payload.success) {
     return {
       refusals: payload.error.issues.map((issue) =>
@@ -184,9 +275,9 @@ function checkSeedRun(
       warnings: [],
     };
   }
-  const validation = new SeedValidator().validate(run.template);
+  const validation = new SeedValidator().validate(checking);
   const said = ({ field, message }: { field: string; message: string }): EnvFileRefusal =>
-    refusalAt(validatorPathOf(base, resource, run.template, field), message);
+    refusalAt(validatorPathOf(base, resource, checking, field), message);
   // The seed's command line draws in the locales it has data for, and
   // refuses any other before it reads the org: met at the plan's dry run, it
   // is met here instead.
@@ -289,6 +380,10 @@ export function seedWritten(run: EnvSeedRun): Record<string, unknown> {
     locale: run.locale ?? null,
     seed: run.seed ?? null,
     recordTypes: run.recordTypes ?? {},
+    // The relations whose parents another resource created, as the file
+    // gives them: what they draw changes with that resource, whose
+    // fingerprint the resource's is chained to.
+    draws: run.draws,
   };
 }
 
@@ -311,7 +406,9 @@ export function seedObjectsOf(run: EnvSeedRun): Array<{ object: string; count: n
  */
 export function seedDrawnCounts(run: EnvSeedRun): Map<string, number> {
   const { template } = run;
-  const relations = template.relations ?? [];
+  const relations = relationsWithDraws(run, standInOf);
+  // A draw's parents, before the resource it draws from has run, stand in
+  // as parents the org holds: counted the same way.
   const drawn = new Set(
     relations
       .filter((relation) => relation.parents.kind === 'existing')
@@ -612,12 +709,27 @@ export function readSeedRemoval(stdout: string): SeedRemovalAnswer {
 // ─── The answers, as the plan and the apply read every kind's ────────────────
 
 /**
+ * The object the seed's orchestrator names the result of a template it
+ * refuses before its first insert: its validator's refusals, or parents
+ * named by id the org no longer holds (`buildFailureResult`).
+ */
+const REFUSED_BEFORE_WRITING = 'validation';
+
+/**
  * What a seed's dry run counted. Where it read the org before what an object
  * draws from was written, the file's count stands in, as the most the run
  * writes: the dry run counted none of those records, and the plan said
  * "Contact 0 to write" of a run that wrote three; given the file's count as
  * a count, it said "Contact 6 to write" of a run whose relation spread two
  * over the two accounts written before it.
+ *
+ * A dry run the seed refused before it would write — parents named by id no
+ * longer in the org, which it checks before its first write — is the refusal
+ * a run would meet, in the seed's words: read as counts, the plan said
+ * "replace" of a resource whose run then wrote nothing. The orchestrator
+ * answers such a refusal as one result of no object of the template
+ * ({@link REFUSED_BEFORE_WRITING}), its refusals the errors of it; a dry run
+ * whose objects were skipped — no parent in the org yet — is not one.
  *
  * @param drawn - The objects whose records hang from records written first
  *   in the same apply, with the file's count of each ({@link seedDrawnCounts}).
@@ -626,6 +738,23 @@ export function seedDryRunCount(
   answer: SeedDryRunAnswer,
   drawn?: ReadonlyMap<string, number>,
 ): EnvDryRunCount {
+  const results = answer.result.objectResults;
+  if (
+    answer.result.status === 'failure' &&
+    results.length > 0 &&
+    results.every((result) => result.objectApiName === REFUSED_BEFORE_WRITING)
+  ) {
+    const said = results.flatMap((result) => result.errors);
+    return {
+      objects: [],
+      total: 0,
+      created: 0,
+      apiRequests: answer.apiRequests.estimate,
+      storageBytes: 0,
+      emails: [],
+      refusal: said.length > 0 ? said.join(' ') : 'the seed refused its dry run',
+    };
+  }
   const objects = answer.result.objectResults.map((result) => {
     const most = drawn?.get(result.objectApiName);
     return most !== undefined

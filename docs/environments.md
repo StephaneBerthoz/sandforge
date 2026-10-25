@@ -2,9 +2,9 @@
 
 A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge-env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
 
-This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own -- and **forge resources**: records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
+This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- and **frozen resources**: a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)). A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
@@ -20,9 +20,9 @@ The script runs from the checkout, so `--file` names your project's file; withou
 
 - **YAML 1.2, read strictly.** JSON is YAML, so a `.json` file named with `--file` reads too. A key the file does not take is refused with the keys it does; so are a key given twice in one mapping, a tag YAML 1.2 does not know, a second document in the file, and more than 100 aliases.
 - **`version: 1`** at the top. A file written for a later SandForge is refused.
-- **No secret.** A key shaped like a secret -- `password`, `token`, `secret`, `authUrl`, `privateKey`, `apiKey`, `salt`, and their spellings -- is refused wherever it stands: org credentials stay with the `sf` CLI. A value comes from the process environment only where the file writes `{ env: NAME }`, and that is the alias of an org role alone.
+- **No secret.** A key shaped like a secret -- `password`, `token`, `secret`, `authUrl`, `privateKey`, `apiKey`, `salt`, and their spellings -- is refused wherever it stands: org credentials stay with the `sf` CLI. A value comes from the process environment only where the file writes `{ env: NAME }`, and that is the alias of an org role and the path of a frozen resource's dataset alone.
 - **The org to fill is never in the file.** `--org` names it, on every command that reaches an org, so one file fills `pool-1`, `pool-2` and your own scratch org alike.
-- **Two checks.** The file is held to its own schema, then each resource is turned into its module's payload: a seed resource into a Seed template, held to Seed's own schema and rules, as the Seed panel's are; a forge resource into a Forge template, held to Forge's own template schema, as the clone reads a template file. What `validate` accepts is what the script is given.
+- **Two checks.** The file is held to its own schema, then each resource is turned into its module's payload: a seed resource into a Seed template, held to Seed's own schema and rules, as the Seed panel's are; a forge resource into a Forge template, held to Forge's own template schema, as the clone reads a template file; a frozen resource's configuration is held to Frozen's own schema, strict. What `validate` accepts is what the script is given.
 
 ### An example
 
@@ -74,7 +74,7 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | `resources.<name>.accept`                   | `automation`                                                                                                                                              | `true`: the `--accept-automation` of the line, for this resource, reviewed in the file                                                                                                                                                                                                                                                            |
 | `resources.<name>.objects[]`                | `object`, `count`, `fields`, `recordTypes`, `batchSize`                                                                                                   | an object, listed once; how many records; Seed's field rules, as the Seed panel saves them ([Generated values](modules/seed.md#generated-values)); record types by API name, several taking turns at random                                                                                                                                       |
 | `resources.<name>.relations[]`              | `lookup`, `parents`, `distribution`                                                                                                                       | a lookup named with its object, as `Contact.AccountId`; where its parents come from; how many children each one gets                                                                                                                                                                                                                              |
-| `resources.<name>.relations[].parents`      | `object`, `existing`                                                                                                                                      | the parent object: the records this resource writes of it, or, with `existing`, records the org holds                                                                                                                                                                                                                                             |
+| `resources.<name>.relations[].parents`      | `object`, `existing`, `from`, `limit`                                                                                                                     | the parent object: the records this resource writes of it; with `existing`, records the org holds; with `from`, the records another resource created, `limit` of them at most ([References between resources](#references-between-resources))                                                                                                     |
 | `….parents.existing`                        | `where`, `limit`                                                                                                                                          | a SOQL condition, without `WHERE`; how many parents at most                                                                                                                                                                                                                                                                                       |
 | `resources.<name>.relations[].distribution` | `mode`, `count`, `min`, `max`, `ratio`                                                                                                                    | `perParent` with `count`, `range` with `min` and `max`, or `ratio` with `ratio`                                                                                                                                                                                                                                                                   |
 | `resources.<name>`, `kind: forge`           | `kind`, `dependsOn`, `accept`, `source`, `record`, `tables`, `template`, `depth`, `customDepth`, `maxNodes`, `anonymize`, `keepContactPoints`, `maxTotal` | `kind: forge`; `source`, the org role it clones from; `record` or `tables`, not both; `template`, an entry of the project's templates file; the clone's depth, its custom depth and its cap of objects; Forge's anonymization; `keepContactPoints`, to write emails and phone numbers as read; `maxTotal`, the most records a run of it may write |
@@ -83,6 +83,8 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | `resources.<name>.template`                 | `file`, `id`                                                                                                                                              | a templates file of the project, from the file's folder, as `.sandforge/forge-templates.json`; the id of the template it takes the decisions, exclusions, filters and mappings of                                                                                                                                                                 |
 | `resources.<name>.anonymize`                | `presetId`, `rules`, `fields`                                                                                                                             | Forge's anonymization, as a template holds it: the method of each category, and the personal fields of each object                                                                                                                                                                                                                                |
 | `resources.<name>.accept`, `kind: forge`    | `automation`, `realData`                                                                                                                                  | `automation`, as for a seed resource; `realData: true`, to clone a production source without anonymizing it, reviewed in the file ([Real data](#real-data-from-a-production-org))                                                                                                                                                                 |
+| `resources.<name>`, `kind: frozen`          | `kind`, `dependsOn`, `accept`, `config`, `dataset`                                                                                                        | `kind: frozen`; `config`, the project's Frozen configuration, from the file's folder; `dataset`, the dataset it loads, pinned                                                                                                                                                                                                                     |
+| `resources.<name>.dataset`                  | `path`, `version`, `digest`                                                                                                                               | the dataset's folder, from the root, or `{ env: NAME }`; the version its manifest says; its digest, `sha256:` and 64 hexadecimal digits, as `sandforge-frozen --json` gives it                                                                                                                                                                    |
 
 A built-in template is one of `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` and `prebuilt-sales-cloud-starter`, the templates of Seed's gallery. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote.
 
@@ -131,6 +133,212 @@ resources:
 The refusal names both ways out: `Give the resource anonymize — Forge’s anonymization, a method for each category of personal field — or, reviewed in the file, accept: { realData: true }`. It is met before a record of the source is read: the plan neither reads the record its query names nor dry-runs the clone.
 
 Either way, the clone neutralizes emails and phone numbers before it writes them, as it does from any source, unless the resource sets `keepContactPoints: true`, and the plan says which, under the resource: `real data: its source, the prod org (PROD), is a production org; what it clones is anonymized as its anonymize says (name fake, email fake, address mask)`, then `contact points: neutralized before writing (emails under .invalid, phone numbers in a fictional range), as the clone does unless keepContactPoints`.
+
+### A frozen resource
+
+```yaml
+# sandforge.yaml: the claims the claim-flow tests need, and contacts under them
+version: 1
+name: claims-flow
+
+resources:
+  claims:
+    kind: frozen
+    config: frozen/claims.frozen.json # the Frozen configuration, committed: it holds no record
+    dataset:
+      path: { env: SANDFORGE_CLAIMS_DATASET } # where the pipeline put it, outside the repository
+      version: 1.0.0
+      digest: sha256:5a4160a5f7b1e116b0367fc2bd1ce2ff3d8720910092aedb6b658fb65db83c5b
+
+  followers:
+    kind: seed
+    seed: 7
+    objects:
+      - object: Contact
+        count: 3
+        fields:
+          - { fieldApiName: LastName, ruleType: static, config: { staticValue: CI follower } }
+    relations:
+      - lookup: Contact.AccountId
+        parents: { from: claims.Account } # the accounts claims loaded, by their ids
+        distribution: { mode: perParent, count: 1 }
+```
+
+A frozen resource loads a [Frozen Dataset](modules/frozen-dataset.md) a person froze beforehand -- selected, extracted, pseudonymized and checked by the non-reidentification control -- with [`sandforge-frozen`](modules/frozen-dataset.md#removing-a-load), which drives the **Load** tab's own handler.
+
+- **Its configuration is committed, its dataset is not.** `config` names the project's Frozen configuration, from the file's folder, as the panel saves it: held to Frozen's own schema, strict, a key it does not name refused, and no key shaped like a secret -- a load never reads the salt. The dataset is pseudonymized business data: it stays outside the repository, where the pipeline downloads it, named by its path from the root or by a `{ env: NAME }` variable. A dataset inside the repository that holds the file is refused, exit `2`.
+- **Pinned by its version and its digest.** `version` is the one its manifest stamps, and `digest` what `sandforge-frozen --json` gives it: `sha256:` over the files a load reads, the same wherever the folder is moved. A dataset whose digest or version is not the file's blocks the resource, both named: what was reviewed is what is loaded. The fingerprint is of the digest, never of the path: a dataset moved keeps the resource, a dataset frozen again replaces it once the file pins it.
+- **The environment sets its folders.** Each run is given the committed configuration with its `sasDir` set to a folder of the state, `frozen/<resource>`, which keeps the resource's loads -- the mapping of what each created, its counting contract, the script's own store -- and its `datasetDir` set to the dataset pinned; a `sasDir` or a `datasetDir` the configuration gives is warned of and not used.
+- **Held to its plan's count, and verified.** The plan dry-runs the load (`load --dry-run`) and shows what it would insert per object; the run (`load`) is held to that count with `--max-total`, and judged by the verification the load chains after it: an object it FAILED leaves the resource partial. On each plan after, its verification (`verify`) and the preview of its removal read what the org holds of it: an object FAILED, a record gone or changed since, and the resource is drifted, each named.
+- **Replaced by a reload.** A dataset changed, a resource it depends on run again, or its last load stopped part way: the replace is one run, `load --reload`, whose purge takes back what the loads before it created, then loads again. It is refused before anything is written when that purge would leave records -- changed since, of an object the user may not delete -- and the plan blocks the resource in the load's own words, as it does what else a load refuses: an org its entry guards turn away, a protected one, a required field the dataset leaves empty with no default. What the load would leave out without refusing -- a field the target encrypts that may hold masks, a picklist value a restricted picklist refuses and its rule rewrites -- the plan says beside its counts.
+- **Taken back by its own removal**, `remove`, the last load first, given the configuration its run was given; `destroy` previews it with `remove --preview`. A Frozen load and its removal take no `--accept-automation`, and `accept: { automation: true }` on a frozen resource is warned of.
+
+<!-- replay: frozen -->
+
+```console
+$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+claims: reading its dataset at /home/dev/datasets/claims
+claims: dry run
+followers: dry run
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   claims  Account 2 to write; Contact 2 to write
+           not applied to this org yet
+  create   followers  Contact at most 3 to write
+           not applied to this org yet; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
+           Contact.AccountId draws its parents from the Account records claims creates first
+totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
+data storage: about 0.02 MB, 5 MB left
+warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+```
+
+The dataset is read first, and held to its pin; the load's dry run counts what it would insert, as the **Load** tab's preview counts it. Applied:
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
+claims: reading its dataset at /home/dev/datasets/claims
+claims: dry run
+followers: dry run
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   claims  Account 2 to write; Contact 2 to write
+           not applied to this org yet
+  create   followers  Contact at most 3 to write
+           not applied to this org yet; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
+           Contact.AccountId draws its parents from the Account records claims creates first
+totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
+data storage: about 0.02 MB, 5 MB left
+warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+claims: run 1 (create)
+followers: run 1 (create)
+
+  claims run 1: exit 0, applied  Account 2 created; Contact 2 created
+  followers run 1: exit 0, applied  Contact 2 created
+apply: success; state serial 4
+```
+
+A test deletes one of the contacts the load wrote:
+
+<!-- replay: then; a contact of the load deleted -->
+
+```console
+$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1 --fail-on-drift
+claims: reading its dataset at /home/dev/datasets/claims
+followers: reading what the org holds of run 1
+claims: reading what the org holds of run 1
+claims: verifying run 1
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 4
+  drifted  claims  Contact 1 in the org, 1 gone; Account 2 in the org
+           its records changed since it was applied: Contact 1 gone; its verification: Contact FAILED (1 of 2 found). Left as they are: --replace claims or --replace-drifted replaces it
+  keep     followers  Contact 2 in the org
+           applied, and the org holds its 2 record(s) as written
+totals: 0 to create, 0 to replace, 0 to delete, 1 kept, 1 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+$ echo $?
+3
+```
+
+Its verification FAILED the contacts, and its removal's preview finds one gone: `claims` is drifted, both said, and `--fail-on-drift` exits `3`. `followers` holds its records as written.
+
+The dataset is frozen again, at the same path, with a third account; the file still pins the one before:
+
+<!-- replay: then; the dataset frozen again -->
+
+```console
+$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+claims: reading its dataset at /home/dev/datasets/claims
+followers: reading what the org holds of run 1
+claims: reading what the org holds of run 1
+claims: verifying run 1
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 4
+  blocked  claims  Contact 1 in the org, 1 gone; Account 2 in the org
+           applied from the same file
+           refused: its dataset at /home/dev/datasets/claims has the digest sha256:c974d7172f004402b9101fc85cb74a65ab54bec2a71f82e693d3b554e975633e, and the file pins sha256:5a4160a5f7b1e116b0367fc2bd1ce2ff3d8720910092aedb6b658fb65db83c5b: it is not the dataset the file was reviewed with. Point the path at that one, or pin this digest once this dataset is reviewed
+  keep     followers  Contact 2 in the org
+           applied, and the org holds its 2 record(s) as written
+totals: 0 to create, 0 to replace, 0 to delete, 1 kept, 0 drifted, 1 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+an apply now would be refused: A resource is blocked, and the apply refuses before its first write: claims (its dataset at /home/dev/datasets/claims has the digest sha256:c974d7172f004402b9101fc85cb74a65ab54bec2a71f82e693d3b554e975633e, and the file pins sha256:5a4160a5f7b1e116b0367fc2bd1ce2ff3d8720910092aedb6b658fb65db83c5b: it is not the dataset the file was reviewed with. Point the path at that one, or pin this digest once this dataset is reviewed)
+```
+
+Blocked, both digests named: an apply refuses before its first write.
+
+Once the file pins it, the apply reloads it:
+
+<!-- replay: then; the file pins the new dataset -->
+
+```console
+$ sandforge-env apply --file ../claims-flow/sandforge.yaml --org pool-1 --yes
+claims: reading its dataset at /home/dev/datasets/claims
+followers: reading what the org holds of run 1
+claims: reading what the org holds of run 1
+claims: verifying run 1
+claims: dry run
+followers: dry run
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 4
+  replace  claims  Contact 3 to write, 1 in the org, 1 gone; Account 3 to write, 2 in the org
+           replaced: what it writes changed in the file since it was applied
+  replace  followers  Contact at most 3 to write, 2 in the org
+           replaced: the resources it depends on run again, with new records: claims; it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it
+           Contact.AccountId draws its parents from the Account records claims creates first
+totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 1, 14000 left; not counted: the removal of the runs of claims, the requests of the run of claims, which its script does not estimate, the removal of the runs of followers, what followers draws from the records claims writes first
+data storage: about 0.02 MB, 5 MB left
+followers: taking back run 1
+claims: run 2 (replace)
+followers: run 2 (replace)
+
+  followers removal of run 1: exit 0, destroyed  Contact 2 deleted
+  claims run 2: exit 0, applied  Account 3 created; Contact 3 created
+  followers run 2: exit 0, applied  Contact 3 created
+apply: success; state serial 12
+```
+
+One run of `claims`, a reload: its purge took back what the load before it created -- the contact deleted since was gone already -- then it loaded the new dataset. `followers`, drawn from it, was taken back first and run again, under the three new accounts.
+
+### References between resources
+
+A seed relation may draw its parents from the records another resource of the file created: `parents: { from: claims.Account }`, or `from: claims` beside `object: Account`, as `followers` does above. The other resource may be a seed, a forge or a frozen resource.
+
+- **By their ids, read from its run.** The ids are those the resource's last run created, read from what that run keeps: a seed's run file or its summary, a clone's summary -- the target ids its remap table gives the records it created, never those it linked to --, a Frozen load's mapping in its sas -- the records it created, never those it found and linked. They are handed to the seed as parents named by id, which it checks against the org before its first write: one deleted since refuses the run, in the seed's words.
+- **At most 2,000.** A relation draws as many parents as an `existing` one may: a resource that created more of the object refuses the relation unless it gives `limit`, and its parents are then the first records created. `limit` goes with `from`; an `existing` relation keeps its own.
+- **An order, and no circle.** `from` makes the resource depend on the one it draws from, as `dependsOn` does: it runs after it, and is taken back before it. A name that is no resource of the file, the resource itself, and a circle of dependencies, through `dependsOn` or `from`, are refused; so is a seed resource drawn from for an object it does not write.
+- **Counted exactly once the other has run.** While the resource drawn from runs in the same apply, nobody knows its records: the plan counts the drawing resource at most as the file gives it, and says so -- `draws its parents from the Account records claims creates first`. Once it has run, its ids are known: the plan hands them to the dry run, counts exactly, and says how many -- `draws its parents from the 3 Account record(s) claims created` --, and the run is held to that count.
+- **Replaced with what it draws from.** A resource drawn from that runs again has new records, with new ids: what draws from it is replaced too, `the resources it depends on run again`.
+
+After the reload above, `followers` asks for four contacts:
+
+<!-- replay: then; followers ask for four -->
+
+```console
+$ sandforge-env plan --file ../claims-flow/sandforge.yaml --org pool-1
+claims: reading its dataset at /home/dev/datasets/claims
+followers: reading what the org holds of run 2
+claims: reading what the org holds of run 2
+claims: verifying run 2
+followers: dry run
+plan of claims-flow on pool-1 (scratch, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 12
+  keep     claims  Contact 3 in the org; Account 3 in the org
+           applied, and the org holds its 6 record(s) as written
+  replace  followers  Contact 3 to write, 3 in the org
+           replaced: what it writes changed in the file since it was applied
+           Contact.AccountId draws its parents from the 3 Account record(s) claims created
+totals: 0 to create, 1 to replace, 0 to delete, 1 kept, 0 drifted, 0 blocked
+API requests: about 1, 14000 left; not counted: the removal of the runs of followers
+data storage: about 0.01 MB, 5 MB left
+```
+
+The accounts are known now: three, so three contacts, exactly, one under each. `claims` is kept.
 
 ## A walk through
 
@@ -644,6 +852,17 @@ directory: they hold the org's values in clear. plan says what each take costs a
 it, which refuses the apply before its first write. A destroy that took everything back deletes
 them; reset keeps them, and sandforge-checkpoint undo takes a reset back.
 
+A frozen resource loads a Frozen Dataset frozen beforehand, through sandforge-frozen: its
+configuration committed beside the file, its dataset named by its path from the root or in a
+{ env: NAME } variable, and pinned by its version and its digest — a dataset whose digest is not
+the file's is refused, both named. Each load is held to the count its dry run gave and judged by
+the verification it chains; a replace is a reload, refused when it would leave records.
+
+A seed relation may draw its parents from the records another resource created:
+parents: { from: <resource>.<Object> }. They are read from that resource's own run, handed to
+the seed by their ids, at most 2,000 or the relation's limit, and counted exactly once that
+resource has run; the resource drawn from runs first, and is taken back last.
+
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
 sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
@@ -651,10 +870,11 @@ apart by the Dev Hub the sf CLI names for it; one it names none for is taken for
 
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
-beside the run files of the seeds and clones it ran. That folder must be outside the repository
-that holds the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org.
-A scratch org's state is deleted 30 days after its last write. Two machines applying to one org
-at once are not kept apart: give the jobs one concurrency group.
+beside the run files of the seeds and clones it ran; each frozen resource's loads are kept
+there, in a sas of its own. That folder must be outside the repository that holds the file.
+Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch org's
+state is deleted 30 days after its last write. Two machines applying to one org at once are not
+kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
 whole, or nothing to do; destroy: every record taken back; reset and destroy --rewind: read again,
@@ -665,13 +885,13 @@ without --accept-automation, more API requests, storage or emails than the org h
 checkpoint the file asks that its script refuses, a production source without anonymize or
 accept: { realData: true }, no checkpoint to reset or rewind to, a rewind refused for want of
 --accept-automation or --accept-no-undo —, or nothing written; 2 a bad command line, a file that
-does not validate, a variable not set, the journal directory inside the file's repository, a
-question with no terminal (give --yes); 3 partial (apply: a resource partial, or failed after
-others wrote; destroy: records left, each with why; reset and destroy --rewind: records still
-differ; plan with --fail-on-change or --fail-on-drift: changes or drift found); 4 unstable (a
-forge run's verification found records still changing; reset and destroy --rewind: someone
-changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
-takes up from the state.
+does not validate, a variable not set, the journal directory or a dataset inside the file's
+repository, a question with no terminal (give --yes); 3 partial (apply: a resource partial, or
+failed after others wrote; destroy: records left, each with why; reset and destroy --rewind:
+records still differ; plan with --fail-on-change or --fail-on-drift: changes or drift found); 4
+unstable (a forge run's or a frozen load's verification found records still changing; reset and
+destroy --rewind: someone changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP
+stopped it — run it again: it takes up from the state.
 ```
 
 ## What is refused
@@ -734,6 +954,8 @@ $ echo $?
 
 A `destroy` that took everything back keeps the state, every resource in it destroyed: the next `apply` creates them again, with no `--accept-no-state`. Only a state lost, or never kept on this machine, meets that refusal: give the flag once you know the org holds nothing of the environment.
 
+**A frozen resource's dataset that is not the one its file pins**: the plan blocks it, both digests named -- [A frozen resource](#a-frozen-resource) shows it. A dataset inside the repository that holds the file is refused, exit `2`, as the journal directory is.
+
 **The journal directory inside the repository that holds the file**, exit `2`, every command but `validate`:
 
 <!-- replay: scratch; the journal inside the repository -->
@@ -758,9 +980,9 @@ And:
 
 ## The state
 
-What `apply` keeps of the org: **ids, counts and dates, never a record's values**. Per resource, the fingerprint it was applied from, the order, and how each run ended; the records themselves are named by each seed run's own summary and run file, which the state points at.
+What `apply` keeps of the org: **ids, counts and dates, never a record's values**. Per resource, the fingerprint it was applied from, the order, and how each run ended; the records themselves are named by each seed run's own summary and run file, a clone's summary and a Frozen load's mapping, which the state points at.
 
-- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox.
+- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran; a frozen resource's loads are kept there too, in `frozen/<resource>/`, its sas: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox.
 - **Outside the repository.** The journal directory must sit outside the repository that holds the file: committed, the state and the run summaries would publish the org's record ids with the project.
 - **Between jobs.** Keep the journal directory between the jobs that apply and destroy, in a cache keyed by the org: in GitHub Actions, `$RUNNER_TEMP/sandforge`, restored before and saved after. Lost, the next plan cannot tell the environment's records from the org's own -- the refusal above.
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
@@ -785,7 +1007,7 @@ Once every resource is taken back, the environment's checkpoints are deleted fro
 
 ## Stopped part way
 
-Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the run under way before its next call to the org, and the command exits `130`, `143` or `129`. The state named the run before it started, and the seed's run file names what it wrote, a clone's summary what it created, so the next plan says `replaced: its last run was stopped part way: what it wrote is taken back from its run file, then it runs again`, and `apply` takes up from there.
+Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the run under way before its next call to the org, and the command exits `130`, `143` or `129`. The state named the run before it started, and the seed's run file names what it wrote, a clone's summary what it created, a Frozen load's sas what it loaded, so the next plan says `replaced: its last run was stopped part way: what it wrote is taken back from its run file, then it runs again`, and `apply` takes up from there.
 
 ## Exit codes
 
@@ -795,18 +1017,17 @@ The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`                 | Done: `validate`, the file is valid; `plan`, answered, whatever it found; `apply`, every resource applied whole, or nothing to do; `destroy`, every record taken back; `reset` and `destroy --rewind`, read again, the org matches the checkpoint                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left, a checkpoint the file asks that its script refuses, a production source without `anonymize` or `accept: { realData: true }`, no checkpoint to reset or rewind to, a rewind refused for want of `--accept-no-undo` or the automation acceptance; the alias typed is not the org's |
-| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory inside the file's repository, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory or a dataset inside the file's repository, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `reset` and `destroy --rewind`, records still differ; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found, the whole org against the checkpoint after the last apply included                                                                                                                                                                                                                                                                                                                                          |
-| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends; `reset` and `destroy --rewind`, someone changed records during the rewind                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends, and a frozen load by the verification it chains; `reset` and `destroy --rewind`, someone changed records during the rewind                                                                                                                                                                                                                                                                                                                                                            |
 | `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Not yet
 
-This version applies seed and forge resources; the rest waits for a later one:
+This version applies seed, forge and frozen resources; the rest waits for a later one:
 
-- **Frozen Dataset loads and masking** as resources: `kind: frozen` and `kind: mask` are refused, `Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`.
+- **Masking** as a resource: `kind: mask` is refused, `Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources`.
 - **Saved plans**: no `plan --out`, no `apply --plan`. `apply` plans again, against the org as it is then.
-- **Parents drawn by Id from another resource's records**: a relation's `parents` take an `object` and `existing` alone. Draw them with a `where`, as the example does.
 - **Outputs**, and the MCP server's tools for environments.
 
 ## In CI

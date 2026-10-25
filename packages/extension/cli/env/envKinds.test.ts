@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import type { EnvForgeResource, EnvSeedResource } from '@sandforge/shared';
+import { join } from 'node:path';
+import type {
+  EnvForgeResource,
+  EnvFrozenResource,
+  EnvSeedResource,
+  SeedTemplate,
+} from '@sandforge/shared';
 import {
   applyLineOf,
   convertResource,
@@ -8,8 +15,12 @@ import {
   dryRunLineOf,
   isAppliedKind,
   objectsOfRun,
+  payloadOf,
+  previewedRunsOf,
   previewLineOf,
+  refreshLineOf,
   removeLineOf,
+  replacesInOneRun,
   scriptOfKind,
   writtenOf,
 } from './envKinds.js';
@@ -40,17 +51,60 @@ const forge: EnvForgeResource = {
   tables: [{ object: 'Account', where: "Name = 'SFENV'" }],
 };
 
+/** The project folder a frozen resource's configuration is read from. */
+const project = mkdtempSync(join(tmpdir(), 'sandforge-env-kinds-'));
+afterAll(() => rmSync(project, { recursive: true, force: true }));
+writeFileSync(
+  join(project, 'claims.frozen.json'),
+  JSON.stringify({ rootObject: 'Account', axes: [], edgeCases: [] }),
+);
+const frozen: EnvFrozenResource = {
+  kind: 'frozen',
+  config: 'claims.frozen.json',
+  dataset: { path: '/data/claims', version: '1.0.0', digest: `sha256:${'0'.repeat(64)}` },
+};
+
+/** Contacts drawing their accounts from what another resource created. */
+const drawing: EnvSeedResource = {
+  kind: 'seed',
+  objects: [
+    {
+      object: 'Contact',
+      count: 4,
+      fields: [{ fieldApiName: 'LastName', ruleType: 'static', config: { staticValue: 'SFENV' } }],
+    },
+  ],
+  relations: [
+    {
+      lookup: 'Contact.AccountId',
+      parents: { from: 'accounts.Account' },
+      distribution: { mode: 'perParent', count: 2 },
+    },
+  ],
+};
+
 /** A resource of the file, ready to plan, as `resolveEnvFile` makes one. */
 function ready(
-  resource: EnvSeedResource | EnvForgeResource,
+  resource: EnvSeedResource | EnvForgeResource | EnvFrozenResource,
   read?: { organizationId: string; recordId?: string },
 ): EnvFileResource {
-  const converted = convertResource('demo', 'r', resource, tmpdir(), NOW);
+  const converted = convertResource('demo', 'r', resource, project, NOW);
   if ('refusals' in converted) throw new Error(converted.refusals.map((r) => r.message).join('; '));
   const { run } = converted;
   if (run.kind === 'seed') {
     const { kind, ...rest } = run;
     return { name: 'r', kind, dependsOn: [], fingerprint: '', run: rest };
+  }
+  if (run.kind === 'frozen') {
+    const { kind, ...rest } = run;
+    return {
+      name: 'r',
+      kind,
+      dependsOn: [],
+      fingerprint: '',
+      run: rest,
+      dataset: { dir: '/data/claims' },
+    };
   }
   const { kind, ...rest } = run;
   return {
@@ -64,11 +118,13 @@ function ready(
 }
 
 describe('the kinds of resource', () => {
-  it('applies seed and forge resources, each by its script, and refuses a kind a later SandForge applies', () => {
+  it('applies seed, forge and frozen resources, each by its script, and refuses a kind a later SandForge applies', () => {
     expect(isAppliedKind('seed')).toBe(true);
-    expect(isAppliedKind('frozen')).toBe(false);
+    expect(isAppliedKind('frozen')).toBe(true);
+    expect(isAppliedKind('mask')).toBe(false);
     expect(scriptOfKind('seed')).toBe('sandforge-seed');
     expect(scriptOfKind('forge')).toBe('sandforge-clone');
+    expect(scriptOfKind('frozen')).toBe('sandforge-frozen');
     expect(() => scriptOfKind('mask')).toThrow(
       'The state holds a resource of kind mask, which a later SandForge applies',
     );
@@ -134,6 +190,115 @@ describe('the kinds of resource', () => {
         context,
       ).args,
     ).toEqual(expect.arrayContaining(['--record', '500000000000001AAA']));
+  });
+
+  it('gives a frozen resource’s lines to sandforge-frozen: its dry run, its run held to a count, a reload for a replace, its verification and its removal', () => {
+    const context = { target: 'TGT', templateFile: '/tmp/r.1.json', runId: '' };
+
+    expect(dryRunLineOf(ready(frozen), context).args).toEqual([
+      'load',
+      '--config',
+      '/tmp/r.1.json',
+      '--target',
+      'TGT',
+      '--dry-run',
+      '--json',
+    ]);
+    expect(
+      dryRunLineOf(ready(frozen), { ...context, replace: true, storeFile: '/tmp/store.json' }).args,
+    ).toEqual(expect.arrayContaining(['--reload', '--store', '/tmp/store.json', '--dry-run']));
+    expect(
+      applyLineOf(ready(frozen), { ...context, summaryFile: '', maxTotal: 4, replace: true }).args,
+    ).toEqual([
+      'load',
+      '--config',
+      '/tmp/r.1.json',
+      '--target',
+      'TGT',
+      '--reload',
+      '--max-total',
+      '4',
+      '--yes',
+      '--json',
+    ]);
+    // Held to a count, or not run: --max-total takes no nought.
+    expect(() => applyLineOf(ready(frozen), { ...context, summaryFile: '' })).toThrow(
+      'r has no count from its dry run to be held to: plan again.',
+    );
+    const removal = {
+      target: 'TGT',
+      subject: '/tmp/r.1.json',
+      includeChanged: true,
+      acceptAutomation: true,
+    };
+    expect(removeLineOf('frozen', { ...removal, sweep: false }).args).toEqual([
+      'remove',
+      '--config',
+      '/tmp/r.1.json',
+      '--target',
+      'TGT',
+      '--include-changed',
+      '--yes',
+      '--json',
+    ]);
+    expect(previewLineOf('frozen', removal).args).toEqual(
+      expect.arrayContaining(['remove', '--preview', '--json']),
+    );
+    expect(refreshLineOf('frozen', { target: 'TGT', subject: '/tmp/r.1.json' })?.args).toEqual([
+      'verify',
+      '--config',
+      '/tmp/r.1.json',
+      '--target',
+      'TGT',
+      '--json',
+    ]);
+    expect(refreshLineOf('seed', { target: 'TGT', subject: '/tmp/s.json' })).toBeUndefined();
+  });
+
+  it('replaces a frozen resource in one run, a reload, and previews the removal of its last load alone', () => {
+    expect(replacesInOneRun('frozen')).toBe(true);
+    expect(replacesInOneRun('seed')).toBe(false);
+    expect(replacesInOneRun('forge')).toBe(false);
+    const runs = [{ n: 1 }, { n: 2, takenBack: true as const }, { n: 3 }];
+    expect(previewedRunsOf('frozen', runs).map((run) => run.n)).toEqual([3]);
+    expect(previewedRunsOf('seed', runs).map((run) => run.n)).toEqual([3, 1]);
+  });
+
+  it('gives a frozen run the committed configuration with the sas and the dataset the environment sets', () => {
+    expect(payloadOf(ready(frozen), { sasDir: '/journal/env/o/e/frozen/r' })).toEqual({
+      rootObject: 'Account',
+      axes: [],
+      edgeCases: [],
+      sasDir: '/journal/env/o/e/frozen/r',
+      datasetDir: '/data/claims',
+    });
+    expect(() => payloadOf(ready(frozen), {})).toThrow('r is given no folder to keep its loads in');
+  });
+
+  it('gives a seed the parents its draw is handed by id, a dry run a stand-in before they are known, and a run none', () => {
+    const resource = ready(drawing);
+    const relationOf = (template: unknown) => (template as SeedTemplate).relations?.[0];
+
+    expect(
+      relationOf(payloadOf(resource, { drawn: new Map([[0, ['001000000000001AAA']]]) })),
+    ).toMatchObject({
+      childObject: 'Contact',
+      lookupField: 'AccountId',
+      parentObject: 'Account',
+      parents: { kind: 'records', ids: ['001000000000001AAA'] },
+    });
+    expect(relationOf(payloadOf(resource, { standIns: true }))?.parents).toEqual({
+      kind: 'existing',
+      limit: 2000,
+    });
+    expect(() => payloadOf(resource, {})).toThrow(
+      'The relation on Contact.AccountId draws its parents from accounts, whose records are not known: plan again.',
+    );
+    // Its fingerprint is of the draw as the file gives it, never of the ids.
+    expect(writtenOf(resource)).toMatchObject({
+      draws: [expect.objectContaining({ at: 0, from: 'accounts' })],
+    });
+    expect(JSON.stringify(writtenOf(ready(seed)))).not.toContain('draws');
   });
 
   it('reads each dry run by the script that printed it', () => {

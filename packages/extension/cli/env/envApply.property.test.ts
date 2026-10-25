@@ -1,9 +1,11 @@
 /**
  * Properties of an environment on the memory org, over random files and
  * random histories: files of one to four resources — seed resources, some
- * drawing their contacts from the accounts another writes, and forge
+ * drawing their contacts from the accounts another writes, by a condition on
+ * their name or by the ids that resource created (`parents.from`); forge
  * resources cloning a group of accounts and their contacts from a memory
- * source org — and what a team does to them
+ * source org; frozen resources loading a dataset of a group's accounts and
+ * contacts — and what a team does to them
  * over weeks — a count edited, a resource added to the file or taken out of
  * it, apply, apply with --replace or --replace-drifted, a colleague deleting
  * or changing records by id, a validation rule refusing a record, a CI job
@@ -11,8 +13,8 @@
  * scripts an apply or a destroy spawns, destroy.
  *
  * Each history runs the command line's own `main`, as a terminal or a CI
- * step runs it, its scripts `sandforge-seed`'s and `sandforge-clone`'s own
- * `main` in this process.
+ * step runs it, its scripts `sandforge-seed`'s, `sandforge-clone`'s and
+ * `sandforge-frozen`'s own `main` in this process.
  * The records are counted by the ids each run kept, through the run the state
  * names, and by what the org took as each script ran: never by what a script
  * said it wrote.
@@ -44,7 +46,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as fc from 'fast-check';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   envPlanSchema,
   envRefusalAnswerSchema,
@@ -73,7 +75,18 @@ vi.mock('../../src/modules/forge/RunVerifier.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/forge/RunVerifier.js')>()),
   verifiedOrg: vi.fn(),
 }));
+vi.mock('../../src/core/connection/ConnectionHelper.js', async (original) => ({
+  ...(await original<typeof import('../../src/core/connection/ConnectionHelper.js')>()),
+  getJsforceConnection: vi.fn(),
+}));
 
+import { frozenDatasetDigest } from '../../src/modules/frozendataset/datasetDigest.js';
+import {
+  SasReferenceIdMappingStore,
+  mappedOrgIds,
+} from '../../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import { loadCreatedRecords } from '../../src/modules/frozendataset/loadRecords.js';
+import { SasPathGuard } from '../../src/modules/frozendataset/SasPathGuard.js';
 import { nodeSeedRunCreations } from '../../src/modules/seed/SeedRunCreations.js';
 import { orgStamp } from '../../src/test/memoryRemovalOrg.js';
 import { paced } from '../../src/test/runnerPace.js';
@@ -81,6 +94,7 @@ import { main as envMain } from '../sandforge-env.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import type { StopSignal } from '../stopSignals.js';
 import { EnvWorld, runInProcess } from '../testing/envWorld.js';
+import { freezeDataset } from '../testing/frozenDataset.js';
 import { isStopCode } from './envApply.js';
 import { openEnvStore, type EnvStore } from './envState.js';
 import { readForgeRun } from './kinds/forge.js';
@@ -137,14 +151,21 @@ interface ObjectSpec {
 
 interface ResourceSpec {
   name: string;
-  /** A seed resource, or a forge resource cloning a group of the source's accounts. */
-  kind: 'seed' | 'forge';
+  /**
+   * A seed resource; a forge resource cloning a group of the source's
+   * accounts; or a frozen resource loading a group's dataset.
+   */
+  kind: 'seed' | 'forge' | 'frozen';
   seed?: number;
   dependsOn: string[];
-  /** A forge resource's: its group's accounts and their contacts, as many of each. */
+  /** A forge or a frozen resource's: its group's accounts and their contacts, as many of each. */
   objects: ObjectSpec[];
-  /** Its contacts, placed under accounts: its own (`from` is its name), or those another writes. */
-  parents?: { from: string; perParent: number };
+  /**
+   * Its contacts, placed under accounts: its own (`from` is its name), or
+   * those another writes — found by their name, or, `byIds`, drawn from the
+   * records that resource created.
+   */
+  parents?: { from: string; perParent: number; byIds?: true };
 }
 
 /**
@@ -154,11 +175,35 @@ interface ResourceSpec {
 const GROUPS = [1, 2, 3];
 const groupMark = (group: number): string => `SFENV g${group}`;
 
-/** The group a forge resource clones, from its count of accounts. */
+/** The group a forge resource clones, or a frozen resource loads, from its count of accounts. */
 const groupOf = (resource: ResourceSpec): number =>
   resource.objects.find((object) => object.object === 'Account')?.count ?? 1;
 
 const markOf = (resource: string): string => `SFENV ${resource}`;
+
+/**
+ * The datasets a frozen resource loads, one per group — g accounts and a
+ * contact under each — frozen once for every history, outside every project,
+ * each with its digest, which the file pins.
+ */
+const DATASETS = new Map<number, { dir: string; digest: string }>();
+let datasetsRoot: string;
+beforeAll(async () => {
+  datasetsRoot = mkdtempSync(join(tmpdir(), 'sandforge-env-props-datasets-'));
+  for (const group of GROUPS) {
+    const dir = await freezeDataset(join(datasetsRoot, `g${group}`), {
+      accounts: group,
+      perAccount: 1,
+      mark: `frozen g${group}`,
+      version: `1.${group}.0`,
+    });
+    DATASETS.set(group, { dir, digest: await frozenDatasetDigest(dir) });
+  }
+});
+afterAll(() => rmSync(datasetsRoot, { recursive: true, force: true }));
+
+/** The configuration a frozen resource names, committed in the project. */
+const FROZEN_CONFIG = 'frozen.json';
 
 /** The file a history writes, as `sandforge.yaml`: JSON, which YAML 1.2 reads. */
 function documentOf(spec: readonly ResourceSpec[]): Record<string, unknown> {
@@ -169,53 +214,66 @@ function documentOf(spec: readonly ResourceSpec[]): Record<string, unknown> {
     resources: Object.fromEntries(
       spec.map((resource) => [
         resource.name,
-        resource.kind === 'forge'
+        resource.kind === 'frozen'
           ? {
-              kind: 'forge',
-              source: 'uat',
+              kind: 'frozen',
               ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-              tables: [
-                { object: 'Account', where: `Name = '${groupMark(groupOf(resource))}'` },
-                { object: 'Contact', where: `LastName = '${groupMark(groupOf(resource))}'` },
-              ],
+              config: FROZEN_CONFIG,
+              dataset: {
+                path: DATASETS.get(groupOf(resource))?.dir ?? '',
+                version: `1.${groupOf(resource)}.0`,
+                digest: DATASETS.get(groupOf(resource))?.digest ?? '',
+              },
             }
-          : {
-              kind: 'seed',
-              ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
-              ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-              objects: resource.objects.map((object) => ({
-                object: object.object,
-                count: object.count,
-                fields: [
-                  {
-                    fieldApiName: NAME_FIELD[object.object],
-                    ruleType: 'static',
-                    config: { staticValue: markOf(resource.name) },
-                  },
+          : resource.kind === 'forge'
+            ? {
+                kind: 'forge',
+                source: 'uat',
+                ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+                tables: [
+                  { object: 'Account', where: `Name = '${groupMark(groupOf(resource))}'` },
+                  { object: 'Contact', where: `LastName = '${groupMark(groupOf(resource))}'` },
                 ],
-                ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
-              })),
-              ...(resource.parents !== undefined
-                ? {
-                    relations: [
-                      {
-                        lookup: 'Contact.AccountId',
-                        parents:
-                          resource.parents.from === resource.name
-                            ? { object: 'Account' }
-                            : {
-                                object: 'Account',
-                                existing: {
-                                  where: `Name = '${markOf(resource.parents.from)}'`,
-                                  limit: PARENTS_LIMIT,
-                                },
-                              },
-                        distribution: { mode: 'perParent', count: resource.parents.perParent },
-                      },
-                    ],
-                  }
-                : {}),
-            },
+              }
+            : {
+                kind: 'seed',
+                ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
+                ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+                objects: resource.objects.map((object) => ({
+                  object: object.object,
+                  count: object.count,
+                  fields: [
+                    {
+                      fieldApiName: NAME_FIELD[object.object],
+                      ruleType: 'static',
+                      config: { staticValue: markOf(resource.name) },
+                    },
+                  ],
+                  ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
+                })),
+                ...(resource.parents !== undefined
+                  ? {
+                      relations: [
+                        {
+                          lookup: 'Contact.AccountId',
+                          parents:
+                            resource.parents.from === resource.name
+                              ? { object: 'Account' }
+                              : resource.parents.byIds === true
+                                ? { from: `${resource.parents.from}.Account` }
+                                : {
+                                    object: 'Account',
+                                    existing: {
+                                      where: `Name = '${markOf(resource.parents.from)}'`,
+                                      limit: PARENTS_LIMIT,
+                                    },
+                                  },
+                          distribution: { mode: 'perParent', count: resource.parents.perParent },
+                        },
+                      ],
+                    }
+                  : {}),
+              },
       ]),
     ),
   };
@@ -233,18 +291,25 @@ function expectedCount(
   resource: ResourceSpec,
   object: ObjectSpec,
 ): number {
-  // A forge resource clones its group: as many accounts, a contact under each.
-  if (resource.kind === 'forge') return groupOf(resource);
+  // A forge resource clones its group, a frozen one loads it: as many
+  // accounts, a contact under each.
+  if (resource.kind !== 'seed') return groupOf(resource);
   if (object.object !== 'Contact' || resource.parents === undefined) return object.count;
   const from = spec.find((each) => each.name === resource.parents?.from);
-  const accounts = from === undefined ? 0 : countOf(from, 'Account');
-  const parents = from === resource ? accounts : Math.min(PARENTS_LIMIT, accounts);
+  const accounts =
+    from === undefined ? 0 : from.kind === 'seed' ? countOf(from, 'Account') : groupOf(from);
+  // Drawn by their ids, the parents are every account it created; by their
+  // name, at most the limit the relation reads.
+  const parents =
+    from === resource || resource.parents.byIds === true
+      ? accounts
+      : Math.min(PARENTS_LIMIT, accounts);
   return Math.min(object.count, resource.parents.perParent * parents);
 }
 
 /** What a resource of a generated file is made of, before its name and place are known. */
 interface Draft {
-  shape: 'accounts' | 'assets' | 'family' | 'contacts' | 'under' | 'forge';
+  shape: 'accounts' | 'assets' | 'family' | 'contacts' | 'under' | 'drawn' | 'forge' | 'frozen';
   counts: [number, number];
   perParent: number;
   /** Which earlier resource writing accounts an `under` resource draws from. */
@@ -260,10 +325,16 @@ const MAX_RESOURCES = 4;
 
 function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]): ResourceSpec {
   // Contacts drawn from another resource's accounts find them by their name,
-  // which a forge resource's, named as the source names them, do not bear.
+  // which a forge or a frozen resource's, named as their source names them,
+  // do not bear; drawn by their ids, any resource's accounts will do.
   const sources = earlier.filter((each) => each.kind === 'seed' && countOf(each, 'Account') > 0);
+  const creators = earlier.filter((each) => each.kind !== 'seed' || countOf(each, 'Account') > 0);
   // Contacts drawn from accounts no resource before writes: the accounts, then.
-  const shape = draft.shape === 'under' && sources.length === 0 ? 'accounts' : draft.shape;
+  const shape =
+    (draft.shape === 'under' && sources.length === 0) ||
+    (draft.shape === 'drawn' && creators.length === 0)
+      ? 'accounts'
+      : draft.shape;
   const [first, second] = draft.counts;
   const batch = draft.batchSize !== undefined ? { batchSize: draft.batchSize } : {};
   const dependsOn = new Set<string>();
@@ -271,11 +342,11 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
   if (draft.chain && previous !== undefined) dependsOn.add(previous.name);
   let objects: ObjectSpec[];
   let parents: ResourceSpec['parents'];
-  if (shape === 'forge') {
+  if (shape === 'forge' || shape === 'frozen') {
     const group = GROUPS[first % GROUPS.length] ?? 1;
     return {
       name,
-      kind: 'forge',
+      kind: shape,
       dependsOn: [...dependsOn],
       objects: [
         { object: 'Account', count: group },
@@ -306,6 +377,14 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
       objects = [{ object: 'Contact', count: first, ...batch }];
       parents = { from: source.name, perParent: draft.perParent };
       dependsOn.add(source.name);
+      break;
+    }
+    case 'drawn': {
+      // Drawn by the ids its source created: the dependency is implied.
+      const source = creators[draft.from % creators.length];
+      if (source === undefined) throw new Error('no source');
+      objects = [{ object: 'Contact', count: first, ...batch }];
+      parents = { from: source.name, perParent: draft.perParent, byIds: true };
       break;
     }
   }
@@ -339,10 +418,12 @@ const draftArb: fc.Arbitrary<Draft> = fc.record({
   shape: fc.oneof(
     { weight: 2, arbitrary: fc.constant('accounts' as const) },
     { weight: 2, arbitrary: fc.constant('family' as const) },
-    { weight: 4, arbitrary: fc.constant('under' as const) },
+    { weight: 2, arbitrary: fc.constant('under' as const) },
+    { weight: 3, arbitrary: fc.constant('drawn' as const) },
     { weight: 1, arbitrary: fc.constant('contacts' as const) },
     { weight: 1, arbitrary: fc.constant('assets' as const) },
     { weight: 2, arbitrary: fc.constant('forge' as const) },
+    { weight: 2, arbitrary: fc.constant('frozen' as const) },
   ),
   counts: fc.tuple(fc.integer({ min: 1, max: 6 }), fc.integer({ min: 1, max: 6 })),
   perParent: fc.integer({ min: 1, max: 2 }),
@@ -491,6 +572,9 @@ const isWriting = (call: Pick<Call, 'kind'>): boolean =>
   call.kind === 'run' || call.kind === 'remove';
 
 function kindOf(args: readonly string[]): Call['kind'] {
+  // A Frozen line names its step first.
+  if (args[0] === 'verify') return 'verify';
+  if (args[0] === 'remove') return args.includes('--preview') ? 'preview' : 'remove';
   if (args.includes('--verify')) return 'verify';
   if (args.includes('--preview')) return 'preview';
   if (args.includes('--remove')) return 'remove';
@@ -507,6 +591,15 @@ function resourceRunOf(args: readonly string[]): { resource: string; n: number; 
   if (args.includes('--template') && args.includes('--dry-run')) {
     const template = /[\\/]([a-z][a-z0-9]*)\.json$/.exec(valueAfter(args, '--template'));
     if (template !== null) return { resource: template[1] ?? '', n: 0 };
+  }
+  // A Frozen line names its resource and rank by the configuration it was
+  // given: the run's beside the state, or the dry run's of the plan.
+  if (args.includes('--config')) {
+    const config = valueAfter(args, '--config');
+    const ofRun = /templates[\\/]([a-z][a-z0-9]*)\.(\d+)\.json$/.exec(config);
+    if (ofRun !== null) return { resource: ofRun[1] ?? '', n: Number(ofRun[2]) };
+    const ofDryRun = /[\\/]([a-z][a-z0-9]*)\.json$/.exec(config);
+    if (ofDryRun !== null) return { resource: ofDryRun[1] ?? '', n: 0 };
   }
   const subject = args.includes('--remove')
     ? valueAfter(args, '--remove')
@@ -558,6 +651,9 @@ function ownRecords(world: EnvWorld): string[] {
 
 /** The clones the histories ran, which a property holds itself to having seen. */
 let clonesRun = 0;
+/** The Frozen loads the histories ran, and the seeds drawing parents by their ids. */
+let loadsRun = 0;
+let drawsRun = 0;
 
 /** The key of a run of the state: a seed's run id, or a clone's rank in its state's lineage. */
 const keyOfRun = (lineage: string, resource: string, run: Pick<EnvRun, 'runId' | 'n'>): string =>
@@ -627,6 +723,10 @@ class History {
     this.journalDir = join(root, 'journal');
     this.locksDir = join(root, 'locks');
     mkdirSync(join(this.project, '.git'), { recursive: true });
+    writeFileSync(
+      join(this.project, FROZEN_CONFIG),
+      JSON.stringify({ rootObject: 'Account', axes: [], edgeCases: [] }),
+    );
     // Half a minute between two scripts, by the org's clock: past the leeway
     // a removal gives a run's end, so a change made after it reads as one.
     this.world = new EnvWorld({
@@ -754,6 +854,13 @@ class History {
     );
     this.calls.push({ kind, run, code: ran.code });
     if (script === 'sandforge-clone' && kind === 'run') clonesRun += 1;
+    if (script === 'sandforge-frozen' && kind === 'run') loadsRun += 1;
+    if (script === 'sandforge-seed' && kind === 'run' && ran.code === 0) {
+      const template = valueAfter(args, '--template-file');
+      if (existsSync(template) && readFileSync(template, 'utf8').includes('"records"')) {
+        drawsRun += 1;
+      }
+    }
     if (stop?.when === 'after') this.fire();
     return ran;
   };
@@ -809,10 +916,26 @@ class History {
   /**
    * What a run of the state took: a seed's by its run file and by the summary
    * kept beside the state; a clone's by the summary it wrote there as it went,
-   * the target ids its remap table gives the source records it created.
+   * the target ids its remap table gives the source records it created; a
+   * Frozen load's by the mapping of its sas, which names what every load of
+   * the resource there created that a removal or a reload has not taken.
    */
-  async idsOfRun(run: Pick<EnvRun, 'script' | 'runId' | 'summary'>): Promise<Set<string>> {
+  async idsOfRun(run: Pick<EnvRun, 'script' | 'runId' | 'summary' | 'sas'>): Promise<Set<string>> {
     const ids = new Set<string>();
+    if (run.script === 'sandforge-frozen') {
+      if (run.sas === undefined) return ids;
+      const sas = this.store.sasOf(ORG_ID, ENV, run.sas);
+      const guard = new SasPathGuard();
+      for (const orgId of await mappedOrgIds(sas, guard)) {
+        const loads = await new SasReferenceIdMappingStore(sas, { orgId, guard }).recordedLoads();
+        for (const load of loads) {
+          for (const object of loadCreatedRecords(load)) {
+            for (const id of object.ids) ids.add(id.slice(0, 15));
+          }
+        }
+      }
+      return ids;
+    }
     const file =
       run.summary !== undefined ? this.store.fileOf(ORG_ID, ENV, run.summary) : undefined;
     if (run.script === 'sandforge-clone') {
@@ -893,8 +1016,9 @@ class History {
     switch (op.op) {
       case 'edit': {
         const resource = this.spec[op.at % this.spec.length];
-        if (resource?.kind === 'forge') {
-          // Another group of the source: as many accounts, a contact under each.
+        if (resource?.kind === 'forge' || resource?.kind === 'frozen') {
+          // Another group of the source, or another dataset: as many
+          // accounts, a contact under each.
           const group = GROUPS[op.count % GROUPS.length] ?? 1;
           for (const object of resource.objects) object.count = group;
           return;
@@ -1088,7 +1212,8 @@ class History {
         const spec = resource.objects.find((each) => each.object === object);
         const expected = spec === undefined ? 0 : expectedCount(this.spec, resource, spec);
         // Contacts drawn from another resource's accounts count what that
-        // one holds once others deleted or renamed some of it.
+        // one holds once others deleted or renamed some of it; drawn by
+        // their ids, what it created, of which others may have deleted some.
         const drawsFromAnother =
           resource.parents !== undefined && resource.parents.from !== resource.name;
         if (!(this.drifted && drawsFromAnother && object === 'Contact')) {
@@ -1355,10 +1480,13 @@ describe('an environment on the memory org, over random files and histories', ()
   it(
     'writes what its plan counted: for each resource it runs, the records created are the plan’s, object by object',
     async () => {
-      const before = clonesRun;
+      const before = { clones: clonesRun, loads: loadsRun, draws: drawsRun };
       await overHistories(['counts']);
-      // Positive control: the histories cloned from the source, not only seeded.
-      expect(clonesRun).toBeGreaterThan(before);
+      // Positive control: the histories cloned from the source, loaded a
+      // dataset and drew parents by their ids, not only seeded.
+      expect(clonesRun).toBeGreaterThan(before.clones);
+      expect(loadsRun).toBeGreaterThan(before.loads);
+      expect(drawsRun).toBeGreaterThan(before.draws);
     },
     paced(60_000),
   );

@@ -1,5 +1,7 @@
-import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { seedTemplatePayloadSchema } from '../../src/bridge/validatePayload.js';
 import {
@@ -272,7 +274,9 @@ describe('checking the file', () => {
       },
     });
     for (const run of Object.values(runs)) {
-      expect(seedTemplatePayloadSchema.safeParse(run.template).success).toBe(true);
+      expect(
+        run.kind !== 'frozen' && seedTemplatePayloadSchema.safeParse(run.template).success,
+      ).toBe(true);
     }
   });
 
@@ -307,7 +311,7 @@ describe('checking the file', () => {
     expect(checkEnvFile(salt, FOLDER)).toMatchObject({ refusals: [{ resource: 'accounts' }] });
   });
 
-  it('refuses { env } anywhere but an org role’s alias, naming where it may stand', () => {
+  it('refuses { env } anywhere but an org role’s alias and a dataset’s path, naming where it may stand', () => {
     const where = fileWith(
       ['resources', 'contacts', 'relations', 0, 'parents', 'existing', 'where'],
       { env: 'FILTER' },
@@ -315,8 +319,9 @@ describe('checking the file', () => {
 
     expect(refusedWith(where)).toEqual([
       'resources.contacts.relations[0].parents.existing.where: { env } stands in ' +
-        'orgs.<role>.alias alone: write this value in the file. A variable inside a query or a ' +
-        'field value would let a CI variable into what is written.',
+        'orgs.<role>.alias and resources.<frozen>.dataset.path alone: write this value in the ' +
+        'file. A variable inside a query or a field value would let a CI variable into what is ' +
+        'written.',
     ]);
   });
 
@@ -324,8 +329,8 @@ describe('checking the file', () => {
     expect(refusedWith(fileWith(['resources', 'accounts', 'dry_run'], true))).toEqual([
       expect.stringMatching(/^resources\.accounts: "dry_run" is not a key of a seed resource/),
     ]);
-    expect(refusedWith(fileWith(['resources', 'claims'], { kind: 'frozen' }))).toEqual([
-      'resources.claims.kind: Resources of kind frozen come with a later SandForge: this one applies seed and forge resources',
+    expect(refusedWith(fileWith(['resources', 'masked'], { kind: 'mask' }))).toEqual([
+      'resources.masked.kind: Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources',
     ]);
     expect(
       refusedWith(fileWith(['resources', 'api-token'], { kind: 'seed', template: 'x' })),
@@ -353,7 +358,8 @@ describe('checking the file', () => {
 
     expect(refusedWith(circle)).toEqual([
       'resources.b: the resources depend on each other in a circle, b → d → c → b: no order ' +
-        'applies them. Take one of them out of the dependsOn of the next.',
+        'applies them. Take one of them out of the dependsOn of the next, or out of what its ' +
+        'relations draw their parents from.',
     ]);
   });
 
@@ -671,6 +677,234 @@ describe('a forge resource in the file', () => {
     expect(refusedWith(withForge({ template: { file: 'none.json', id: 't' } }))).toEqual([
       expect.stringMatching(/^resources\.cloned\.template: none\.json cannot be read: /),
     ]);
+  });
+});
+
+describe('a relation drawing its parents from another resource', () => {
+  /** The contacts drawing their accounts from what `from` created, in place of the org's. */
+  function drawing(from: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+    const document = fileWith(['resources', 'contacts', 'relations', 0, 'parents'], {
+      from,
+      ...over,
+    });
+    return edited(document, ['resources', 'contacts', 'dependsOn'], undefined);
+  }
+
+  it('keeps the relation apart from the template, as a draw, the dependency it implies in place', () => {
+    const read = checked(drawing('accounts.Account', { limit: 5 }));
+    const contacts = read.runs['contacts'];
+
+    expect(read.order).toEqual(['accounts', 'contacts']);
+    expect(contacts?.kind === 'seed' ? contacts.template.relations : 'not a seed').toEqual([]);
+    expect(contacts?.kind === 'seed' ? contacts.draws : 'not a seed').toEqual([
+      {
+        at: 0,
+        relation: {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          distribution: { mode: 'perParent', count: 3 },
+        },
+        from: 'accounts',
+        limit: 5,
+      },
+    ]);
+    // Implied by the draw: what it draws from runs first, and is taken back after it.
+    expect(resolved(drawing('accounts.Account')).resources[1]?.dependsOn).toEqual(['accounts']);
+  });
+
+  it('runs what a relation draws from first, whatever the file order', () => {
+    const document = drawing('accounts.Account');
+    const resources = document['resources'] as Record<string, unknown>;
+    const reordered = {
+      ...document,
+      resources: { contacts: resources['contacts'], accounts: resources['accounts'] },
+    };
+
+    expect(checked(reordered).order).toEqual(['accounts', 'contacts']);
+  });
+
+  it('refuses a draw from no resource of the file, from itself, or of an object a seed resource does not write', () => {
+    const at = 'resources.contacts.relations[0].parents.from';
+    expect(refusedWith(drawing('acounts.Account'))).toEqual([
+      `${at}: "acounts" is no resource of this file: name one of accounts, contacts`,
+    ]);
+    expect(refusedWith(drawing('contacts.Account'))).toEqual([
+      `${at}: a relation draws its parents from the records another resource created: ` +
+        "contacts's own are drawn by their object alone, without from",
+    ]);
+    // Positive control: accounts writes Account, the parents' object.
+    expect(refusedWith(drawing('accounts.Account'))).toEqual([]);
+    const assets = edited(
+      drawing('accounts', { object: 'Asset' }),
+      ['resources', 'contacts', 'relations', 0, 'lookup'],
+      'Contact.AccountId',
+    );
+    expect(refusedWith(assets)).toEqual([
+      `${at}: accounts writes no Asset records: it writes Account`,
+    ]);
+  });
+
+  it('refuses a circle a draw closes, naming it', () => {
+    const document = drawing('accounts.Account');
+    edited(document, ['resources', 'accounts', 'dependsOn'], ['contacts']);
+
+    expect(refusedWith(document)).toEqual([
+      expect.stringContaining(
+        'the resources depend on each other in a circle, accounts → contacts → accounts',
+      ),
+    ]);
+  });
+
+  it('holds the draw to what Seed holds a relation to, its parents read of the org standing in', () => {
+    const document = drawing('accounts.Account');
+    edited(document, ['resources', 'contacts', 'relations', 0, 'lookup'], 'Case.AccountId');
+
+    expect(refusedWith(document)).toEqual([
+      'resources.contacts.relations[0]: The relation on Case.AccountId fills an object the template does not write',
+    ]);
+  });
+
+  it('chains a drawing resource’s fingerprint to what it draws from, and to the draw as the file gives it', () => {
+    const before = fingerprintsOf(drawing('accounts.Account'));
+    const accountsEdited = fingerprintsOf(
+      edited(drawing('accounts.Account'), ['resources', 'accounts', 'objects', 0, 'count'], 21),
+    );
+    const limited = fingerprintsOf(drawing('accounts.Account', { limit: 5 }));
+
+    expect(accountsEdited['contacts']).not.toBe(before['contacts']);
+    expect(limited['contacts']).not.toBe(before['contacts']);
+    expect(limited['accounts']).toBe(before['accounts']);
+  });
+});
+
+describe('a frozen resource in the file', () => {
+  let project: string;
+  let outside: string;
+  beforeEach(() => {
+    outside = mkdtempSync(join(tmpdir(), 'sandforge-env-file-frozen-'));
+    project = join(outside, 'project');
+    mkdirSync(join(project, '.git'), { recursive: true });
+    mkdirSync(join(project, 'frozen'));
+    writeFileSync(
+      join(project, 'frozen', 'claims.frozen.json'),
+      JSON.stringify({
+        rootObject: 'Account',
+        axes: [],
+        edgeCases: [],
+        identityKeys: { Account: ['Name'] },
+        sasDir: '/home/someone/.sandforge-sas',
+      }),
+    );
+  });
+  afterEach(() => rmSync(outside, { recursive: true, force: true }));
+
+  const DIGEST = `sha256:${'a'.repeat(64)}`;
+  function withFrozen(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return fileWith(['resources', 'claims'], {
+      kind: 'frozen',
+      config: 'frozen/claims.frozen.json',
+      dataset: { path: { env: 'CLAIMS_DATASET' }, version: '1.4.0', digest: DIGEST },
+      ...over,
+    });
+  }
+  function read(document: unknown, env: NodeJS.ProcessEnv) {
+    return readEnvFile(document, project, { ...ENV, ...env }, { now: NOW });
+  }
+
+  it('reads its committed configuration, checked, without the folders the environment sets, and warns of them', () => {
+    const result = checkEnvFile(withFrozen(), project, { now: NOW });
+    if ('refusals' in result) throw new Error(result.refusals.map(refusalLine).join('\n'));
+
+    expect(result.checked.runs['claims']).toEqual({
+      kind: 'frozen',
+      configFile: 'frozen/claims.frozen.json',
+      config: {
+        rootObject: 'Account',
+        axes: [],
+        edgeCases: [],
+        identityKeys: { Account: ['Name'] },
+      },
+      dataset: { path: { env: 'CLAIMS_DATASET' }, version: '1.4.0', digest: DIGEST },
+    });
+    expect(result.checked.warnings.map(refusalLine)).toEqual([
+      'resources.claims.config: frozen/claims.frozen.json gives sasDir, which the environment sets: the loads are kept beside the state, and the dataset is the one the file pins',
+    ]);
+    expect(result.checked.variables).toContainEqual({
+      name: 'CLAIMS_DATASET',
+      path: ['resources', 'claims', 'dataset', 'path'],
+      resource: 'claims',
+    });
+  });
+
+  it('refuses a configuration Frozen’s schema refuses, a key it does not name, and a secret in it', () => {
+    const configure = (config: Record<string, unknown>) => {
+      writeFileSync(join(project, 'frozen', 'claims.frozen.json'), JSON.stringify(config));
+      const result = checkEnvFile(withFrozen(), project, { now: NOW });
+      return 'refusals' in result ? result.refusals.map(refusalLine) : [];
+    };
+
+    expect(configure({ rootObject: 'Account', axes: [], edgeCases: [] })).toEqual([]);
+    expect(configure({ rootObject: 'Account', axes: [], edgeCases: [], identitykeys: {} })).toEqual(
+      [expect.stringContaining('frozen/claims.frozen.json is refused by Frozen')],
+    );
+    expect(configure({ axes: [], edgeCases: [] })).toEqual([
+      expect.stringContaining("Frozen's configuration schema at rootObject"),
+    ]);
+    expect(configure({ rootObject: 'Account', axes: [], edgeCases: [], salt: 'x' })).toEqual([
+      expect.stringContaining('holds a key shaped like a secret (salt) at salt'),
+    ]);
+  });
+
+  it('reads its dataset’s path from the variable the file names, refusing it unset, not from the root, or inside the repository', () => {
+    const dataset = join(outside, 'claims-dataset');
+    const ok = read(withFrozen(), { CLAIMS_DATASET: dataset });
+    if ('refusals' in ok) throw new Error(ok.refusals.map(refusalLine).join('\n'));
+    expect(ok.resolved.resources.find((r) => r.name === 'claims')).toMatchObject({
+      kind: 'frozen',
+      dataset: { dir: dataset },
+    });
+
+    const refused = (env: NodeJS.ProcessEnv) => {
+      const result = read(withFrozen(), env);
+      return 'refusals' in result ? result.refusals.map(refusalLine) : [];
+    };
+    expect(refused({})).toEqual([
+      "resources.claims.dataset.path: the variable CLAIMS_DATASET is not set: set it in the job's environment to the folder the dataset of claims was downloaded to",
+    ]);
+    expect(refused({ CLAIMS_DATASET: 'datasets/claims' })).toEqual([
+      'resources.claims.dataset.path: the variable CLAIMS_DATASET holds datasets/claims, which is not a path from the root: give the folder of the dataset from the root',
+    ]);
+    expect(refused({ CLAIMS_DATASET: join(project, 'datasets', 'claims') })).toEqual([
+      expect.stringContaining(
+        `the dataset of claims, ${join(project, 'datasets', 'claims')}, is inside the repository ${project} that holds the file`,
+      ),
+    ]);
+  });
+
+  it('fingerprints it by its dataset’s digest and what the load writes by, never the dataset’s path', () => {
+    const print = (document: unknown, env: NodeJS.ProcessEnv) => {
+      const result = read(document, env);
+      if ('refusals' in result) throw new Error(result.refusals.map(refusalLine).join('\n'));
+      return result.resolved.resources.find((r) => r.name === 'claims')?.fingerprint;
+    };
+    const here = print(withFrozen(), { CLAIMS_DATASET: join(outside, 'a') });
+
+    expect(print(withFrozen(), { CLAIMS_DATASET: join(outside, 'b') })).toBe(here);
+    expect(
+      print(
+        withFrozen({
+          dataset: {
+            path: { env: 'CLAIMS_DATASET' },
+            version: '1.4.0',
+            digest: `sha256:${'b'.repeat(64)}`,
+          },
+        }),
+        {
+          CLAIMS_DATASET: join(outside, 'a'),
+        },
+      ),
+    ).not.toBe(here);
   });
 });
 

@@ -11,12 +11,22 @@
  * its writes to the target, and its removal, its preview and its
  * verification read and delete there, as they do the seed's.
  *
+ * The world runs `sandforge-frozen`'s own `main` too, its load, its dry run,
+ * its verification, its removal and its preview reading and writing the
+ * memory target through the panel's own handler, as the command line drives
+ * it: a dataset frozen by the module's writer (`frozenDataset.ts`) goes in
+ * record by record, its mapping and its counting contract kept in the sas
+ * the environment names.
+ *
  * A test file that uses it mocks, as the seed's own tests do, `../sfSession.js`
  * (`loadOrg`, `makeConn`), `../sandforge-clone.js` (`targetAutomationReader`)
  * and `../../src/modules/forge/ForgeRunRemoval.js` (`removalOrg`); the world
  * points each at itself. A file that runs the clone keeps the rest of
  * `../sfSession.js` (the clone counts its requests with `countRequests`) and
- * mocks `../../src/modules/forge/RunVerifier.js` (`verifiedOrg`) as well.
+ * mocks `../../src/modules/forge/RunVerifier.js` (`verifiedOrg`) as well. A
+ * file that runs a Frozen load mocks
+ * `../../src/core/connection/ConnectionHelper.js` (`getJsforceConnection`),
+ * which the handler reaches its target through.
  *
  * The seed's writes go through REST, a record at a time as its batches send
  * them, each added to the memory org dated by the org's clock to the second.
@@ -30,9 +40,17 @@ import type { Connection } from 'jsforce';
 import type { EnvState, ForgeTargetAutomation } from '@sandforge/shared';
 import { removalSubjectOf } from '../env/envApply.js';
 import type { EnvFileResolved } from '../env/envFile.js';
-import { dryRunLineOf, previewLineOf, readDryRunOf, readPreviewOf } from '../env/envKinds.js';
+import {
+  dryRunLineOf,
+  payloadOf,
+  previewedRunsOf,
+  previewLineOf,
+  readDryRunOf,
+  readPreviewOf,
+} from '../env/envKinds.js';
 import { liveResources, type EnvDryRun, type EnvRunPreview } from '../env/envPlan.js';
 import type { EnvStore } from '../env/envState.js';
+import { getJsforceConnection } from '../../src/core/connection/ConnectionHelper.js';
 import { removalOrg } from '../../src/modules/forge/ForgeRunRemoval.js';
 import { verifiedOrg, type VerifiedOrg } from '../../src/modules/forge/RunVerifier.js';
 import {
@@ -44,6 +62,7 @@ import {
 } from '../../src/test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../src/test/memoryRestoreOrg.js';
 import { main as cloneMain, targetAutomationReader } from '../sandforge-clone.js';
+import { main as frozenMain } from '../sandforge-frozen.js';
 import { main as seedMain } from '../sandforge-seed.js';
 import type { CommandRun, CommandRunner } from '../scriptRunner.js';
 import { loadOrg, makeConn } from '../sfSession.js';
@@ -209,6 +228,11 @@ export class EnvWorld {
     vi.mocked(targetAutomationReader).mockReturnValue({
       read: async (): Promise<ForgeTargetAutomation> => this.automation,
     } as unknown as ReturnType<typeof targetAutomationReader>);
+    // A file that runs a Frozen load reaches the target through the handler's
+    // own helper, which it points at the memory org.
+    if (vi.isMockFunction(getJsforceConnection)) {
+      vi.mocked(getJsforceConnection).mockImplementation(async () => conn as unknown as Connection);
+    }
     // A file that runs the clone reads its verification from the memory orgs.
     if (vi.isMockFunction(verifiedOrg)) {
       vi.mocked(verifiedOrg).mockImplementation(
@@ -245,9 +269,14 @@ export class EnvWorld {
       run = await runInProcess(() =>
         withoutPauses(() => cloneMain(['node', 'sandforge-clone.ts', ...args])),
       );
+    } else if (script === 'sandforge-frozen' && vi.isMockFunction(getJsforceConnection)) {
+      run = await runInProcess(() =>
+        withoutPauses(() => frozenMain(['node', 'sandforge-frozen.ts', ...args])),
+      );
     } else {
       throw new Error(
-        `The world runs sandforge-seed${this.source !== undefined ? ' and sandforge-clone' : ''} alone, not ${script}`,
+        `The world runs sandforge-seed${this.source !== undefined ? ', sandforge-clone' : ''}` +
+          `${vi.isMockFunction(getJsforceConnection) ? ', sandforge-frozen' : ''} alone, not ${script}`,
       );
     }
     this.calls.push({ script, args: [...args], code: run.code });
@@ -311,6 +340,15 @@ export class EnvWorld {
             );
             return { success: true, id, errors: [] };
           }),
+        // What a Frozen reload's purge deletes, and what it sets again.
+        destroy: async (ids: string | string[]) =>
+          this.org.destroy(objectApiName, Array.isArray(ids) ? ids : [ids]),
+        update: async (records: Array<Record<string, unknown>>) =>
+          records.map((record) => {
+            const { Id: id, ...values } = record;
+            this.org.edit(objectApiName, String(id), values);
+            return { success: true, id: String(id), errors: [] };
+          }),
       }),
       describe: async (objectApiName: string) => this.describeOf(objectApiName),
       describe$: async (objectApiName: string) => this.describeOf(objectApiName),
@@ -334,14 +372,20 @@ export class EnvWorld {
           ]);
         }
         // What a script reads of the records the org holds: a relation's
-        // existing parents, the dates of what a clone wrote.
-        if (/^SELECT [\w, ]+ FROM (Account|Contact|Asset)\b/.test(soql))
+        // existing parents, the dates of what a clone wrote, the counts a
+        // Frozen verification reads.
+        if (/^SELECT (?:[\w, ]+|COUNT\(\)) FROM (Account|Contact|Asset)\b/.test(soql))
           return this.org.query(soql);
         return page([]);
       },
       queryMore: async (url: string) => this.org.queryMore(url),
       tooling: { query: async () => page([]), queryMore: async () => page([]) },
       identity: async () => ({ user_id: MEMORY_ORG_USER }),
+      // What a Frozen load asks of the user it writes as, and of the org's clock.
+      soap: {
+        getUserInfo: async () => ({ userId: MEMORY_ORG_USER }),
+        getServerTimestamp: async () => ({ timestamp: new Date().toISOString() }),
+      },
       request: async (request: { url?: string; body?: string } | string) => {
         const url = typeof request === 'string' ? request : (request.url ?? '');
         if (url.endsWith('/limits')) return this.options.limits ?? DEVELOPER_LIMITS;
@@ -446,7 +490,12 @@ export async function dryRunsIn(
       if (read === undefined || 'refusal' in read) continue;
     }
     const templateFile = join(place.dir, `${resource.name}.dry.json`);
-    writeFileSync(templateFile, JSON.stringify(resource.run.template));
+    writeFileSync(
+      templateFile,
+      JSON.stringify(
+        payloadOf(resource, { standIns: true, sasDir: join(place.dir, `${resource.name}.sas`) }),
+      ),
+    );
     const line = dryRunLineOf(resource, {
       target: place.alias,
       templateFile,
@@ -477,8 +526,7 @@ export async function previewsIn(
   const out: Record<string, EnvRunPreview[]> = {};
   for (const [name, resource] of liveResources(state)) {
     const runs: EnvRunPreview[] = [];
-    for (const run of [...resource.runs].reverse()) {
-      if (run.takenBack === true) continue;
+    for (const run of previewedRunsOf(resource.kind, resource.runs)) {
       const subject = removalSubjectOf(
         run,
         { organizationId: state?.org.organizationId ?? '', env: state?.env ?? '' },

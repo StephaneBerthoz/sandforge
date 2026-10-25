@@ -326,6 +326,28 @@ describe('writing a state', () => {
     );
   });
 
+  it('makes a frozen resource’s sas in the state’s folder, its owner’s alone, and refuses any other folder', async () => {
+    const store = storeOf();
+
+    const sas = await store.prepareFolder(ORG, 'case-flow', 'frozen/claims');
+
+    expect(sas).toBe(join(store.folderOf(ORG, 'case-flow'), 'frozen', 'claims'));
+    expect(store.sasOf(ORG, 'case-flow', 'frozen/claims')).toBe(sas);
+    expect(readdirSync(sas)).toEqual([]);
+    if (POSIX) {
+      for (const dir of [join(store.folderOf(ORG, 'case-flow'), 'frozen'), sas]) {
+        expect(statSync(dir).mode & 0o777).toBe(0o700);
+      }
+    }
+    await expectRefused(store.prepareFolder(ORG, 'case-flow', 'frozen/../runs'), 'invalid');
+    await expectRefused(store.prepareFolder(ORG, 'case-flow', 'runs/claims'), 'invalid');
+    expect(() => store.sasOf(ORG, 'case-flow', '../frozen/claims')).toThrow(EnvStateError);
+    const { journalDir } = project();
+    const opened = openEnvStore({ journalDir, fileFolder: null });
+    if (!('store' in opened)) throw new Error('refused');
+    await expectRefused(opened.store.prepareFolder(ORG, 'case-flow', 'frozen/claims'), 'invalid');
+  });
+
   it('keeps the state and its folders its owner’s alone', async () => {
     const store = storeOf();
 

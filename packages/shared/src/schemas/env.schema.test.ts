@@ -126,12 +126,12 @@ describe('the file', () => {
     ]);
   });
 
-  it('applies seed and forge resources, and says when a kind comes with a later SandForge', () => {
-    expect(refusalsOf(exampleWith(['resources', 'claims'], { kind: 'frozen' }))).toEqual([
-      'resources.claims.kind: Resources of kind frozen come with a later SandForge: this one applies seed and forge resources',
+  it('applies seed, forge and frozen resources, and says when a kind comes with a later SandForge', () => {
+    expect(refusalsOf(exampleWith(['resources', 'masked'], { kind: 'mask' }))).toEqual([
+      'resources.masked.kind: Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources',
     ]);
     expect(refusalsOf(exampleWith(['resources', 'x'], { kind: 'clone' }))).toEqual([
-      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed and forge resources',
+      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed, forge and frozen resources',
     ]);
     expect(
       refusalsOf(exampleWith(['resources', 'x'], { template: 'prebuilt-minimal-demo' })),
@@ -373,6 +373,125 @@ describe('a forge resource', () => {
   });
 });
 
+/** A frozen resource as a project's file pins its dataset. */
+function frozen(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    kind: 'frozen',
+    config: 'frozen/claims.frozen.json',
+    dataset: {
+      path: { env: 'SANDFORGE_CLAIMS_DATASET' },
+      version: '1.4.0',
+      digest: `sha256:${'3f'.repeat(32)}`,
+    },
+    ...over,
+  };
+}
+
+describe('a frozen resource', () => {
+  it('reads a committed configuration and a dataset pinned by its version and its digest, its path a variable or from the root', () => {
+    expect(refusalsOf(exampleWith(['resources', 'claims'], frozen()))).toEqual([]);
+    expect(
+      refusalsOf(
+        exampleWith(
+          ['resources', 'claims'],
+          frozen({
+            dataset: { path: '/data/claims', version: '1.4.0', digest: `sha256:${'0'.repeat(64)}` },
+          }),
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      refusalsOf(
+        exampleWith(
+          ['resources', 'claims'],
+          frozen({
+            dataset: {
+              path: 'C:\\data\\claims',
+              version: '1.4.0',
+              digest: `sha256:${'0'.repeat(64)}`,
+            },
+          }),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('refuses a dataset named from the file’s folder, a version or a digest its manifest would not give, and one left unpinned', () => {
+    const dataset = (over: Record<string, unknown>) =>
+      refusalsOf(
+        exampleWith(
+          ['resources', 'claims'],
+          frozen({
+            dataset: {
+              path: '/data/claims',
+              version: '1.4.0',
+              digest: `sha256:${'0'.repeat(64)}`,
+              ...over,
+            },
+          }),
+        ),
+      );
+    expect(dataset({ path: 'datasets/claims' })).toEqual([
+      expect.stringContaining('resources.claims.dataset.path: A dataset is named by its path'),
+    ]);
+    expect(dataset({ version: 'v1' })).toEqual([
+      'resources.claims.dataset.version: A dataset’s version is the one its manifest says, as 1.4.0',
+    ]);
+    expect(dataset({ digest: '3f1c' })).toEqual([
+      'resources.claims.dataset.digest: A dataset’s digest is sha256: and 64 hexadecimal digits, as sandforge-frozen gives it',
+    ]);
+    expect(dataset({ digest: undefined })).toEqual([
+      expect.stringContaining('resources.claims.dataset.digest'),
+    ]);
+    expect(
+      refusalsOf(exampleWith(['resources', 'claims'], frozen({ config: '../frozen.json' }))),
+    ).toEqual([
+      expect.stringContaining(
+        'resources.claims.config: A path is written from the folder of the file',
+      ),
+    ]);
+    expect(refusalsOf(exampleWith(['resources', 'claims'], frozen({ salted: true })))).toEqual([
+      expect.stringContaining(
+        '"salted" is not a key of a frozen resource, which takes kind, dependsOn, accept, config, dataset',
+      ),
+    ]);
+  });
+});
+
+describe('a relation drawing its parents from another resource', () => {
+  const contacts = (parents: Record<string, unknown>) =>
+    exampleWith(['resources', 'contacts', 'relations', 0, 'parents'], parents);
+
+  it('reads from a resource with its object, or from a resource and its object together, a limit beside it', () => {
+    expect(refusalsOf(contacts({ object: 'Account', from: 'accounts' }))).toEqual([]);
+    expect(refusalsOf(contacts({ from: 'accounts.Account' }))).toEqual([]);
+    expect(refusalsOf(contacts({ object: 'Account', from: 'accounts.Account', limit: 5 }))).toEqual(
+      [],
+    );
+  });
+
+  it('refuses parents with no object, two objects, existing records beside them, and a limit with no from', () => {
+    const at = 'resources.contacts.relations.0.parents';
+    expect(refusalsOf(contacts({ from: 'accounts' }))).toEqual([
+      `${at}.object: A relation’s parents name their object: object: Account, or from: <resource>.Account`,
+    ]);
+    expect(refusalsOf(contacts({ object: 'Account', from: 'accounts.Contact' }))).toEqual([
+      `${at}.from: from names Contact records and object names Account: keep one of them`,
+    ]);
+    expect(
+      refusalsOf(contacts({ object: 'Account', from: 'accounts', existing: { limit: 2 } })),
+    ).toEqual([
+      `${at}.existing: The parents are the records another resource created (from) or records the org holds (existing), not both: keep one`,
+    ]);
+    expect(refusalsOf(contacts({ object: 'Account', limit: 2 }))).toEqual([
+      `${at}.limit: limit goes with from: existing parents take their own, under existing`,
+    ]);
+    expect(refusalsOf(contacts({ object: 'Account', from: 'Accounts' }))).toEqual([
+      expect.stringContaining(`${at}.from: from names a resource of the file`),
+    ]);
+  });
+});
+
 describe('keys shaped like secrets', () => {
   it('catches each secret it names, in every spelling a key is written in', () => {
     const caught: Array<[string, string]> = [
@@ -451,9 +570,12 @@ describe('keys shaped like secrets', () => {
 });
 
 describe('values from the environment', () => {
-  it('reads { env: NAME } as an org role’s alias, and nowhere else', () => {
+  it('reads { env: NAME } as an org role’s alias and a dataset’s path, and nowhere else', () => {
     expect(isEnvRefPlace(['orgs', 'uat', 'alias'])).toBe(true);
+    expect(isEnvRefPlace(['resources', 'claims', 'dataset', 'path'])).toBe(true);
     for (const path of [
+      ['resources', 'claims', 'dataset', 'version'],
+      ['resources', 'claims', 'config'],
       ['resources', 'accounts', 'objects', 0, 'count'],
       ['name'],
       ['orgs', 'uat'],
@@ -613,6 +735,7 @@ describe('the JSON Schema of the file', () => {
         }),
       ),
     ).toEqual([]);
+    expect(holdsTo(jsonSchema, exampleWith(['resources', 'claims'], frozen()))).toEqual([]);
   });
 
   it('refuses what the zod schema refuses, by the same shape', () => {
@@ -620,6 +743,7 @@ describe('the JSON Schema of the file', () => {
       exampleWith(['dry_run'], true),
       exampleWith(['version'], 2),
       exampleWith(['resources', 'claims'], { kind: 'frozen' }),
+      exampleWith(['resources', 'masked'], { kind: 'mask' }),
       exampleWith(['resources', 'accounts', 'objects', 0, 'count'], { env: 'COUNT' }),
       exampleWith(['resources', 'accounts', 'objects', 0, 'count'], 0),
       exampleWith(['resources', 'Accounts'], { kind: 'seed', template: 't' }),
@@ -764,6 +888,18 @@ describe('the plan and the steps', () => {
     });
     expect(envPlanSchema.safeParse(bounded(true)).success).toBe(true);
     expect(envPlanSchema.safeParse(bounded(false)).success).toBe(false);
+  });
+
+  it('reads the parents a relation draws from another resource, counted once that one has run and not before', () => {
+    const drawing = (draws: unknown) => ({
+      ...plan,
+      actions: [{ ...plan.actions[0], resource: 'contacts', draws }],
+    });
+    const draw = { lookup: 'Contact.AccountId', from: 'accounts', object: 'Account' };
+    expect(envPlanSchema.safeParse(drawing([{ ...draw, parents: 20 }])).success).toBe(true);
+    expect(envPlanSchema.safeParse(drawing([draw])).success).toBe(true);
+    expect(envPlanSchema.safeParse(drawing([{ ...draw, parents: -1 }])).success).toBe(false);
+    expect(envPlanSchema.safeParse(drawing([{ ...draw, ids: ['001'] }])).success).toBe(false);
   });
 
   it('reads what apply answers, each step with the script’s own answer', () => {
@@ -962,7 +1098,10 @@ describe('what the other verbs answer', () => {
             objects: [{ object: 'Account', count: 20 }],
           },
         ],
-        variables: [{ name: 'SF_UAT_ALIAS', role: 'uat', set: false }],
+        variables: [
+          { name: 'SF_UAT_ALIAS', role: 'uat', set: false },
+          { name: 'SANDFORGE_CLAIMS_DATASET', resource: 'claims', set: true },
+        ],
         issues: [],
         warnings: [],
       }).success,
