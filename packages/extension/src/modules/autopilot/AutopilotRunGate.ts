@@ -33,6 +33,7 @@ import {
   storageRefusal,
   writePlanOf,
   type ApiBudget,
+  type ApiBudgetCheck,
   type DataStorage,
   type EmailCheck,
   type EmailLimit,
@@ -126,6 +127,28 @@ function unreadEmailsOf(
 }
 
 /** Why a run's gate stopped it: Forge's codes for the same stops. */
+/**
+ * The plan's calls against the daily API requests the target has left, read
+ * from the same `/limits` as its storage, or on their own when the storage
+ * could not be, as Sync reads them: a Standard User's `/limits` list the
+ * daily requests and not the storage, and the run took both for unread.
+ *
+ * @param readApiBudget - The target's daily API requests, read on their own.
+ */
+export async function autopilotApiCheck(
+  plan: Pick<WritePlan, 'objects'>,
+  storage: DataStorage | { unread: string },
+  readApiBudget: () => Promise<ApiBudget>,
+): Promise<ApiBudgetCheck> {
+  const budget =
+    'unread' in storage
+      ? await readApiBudget().catch((err: unknown) => ({
+          unread: err instanceof Error ? err.message : String(err),
+        }))
+      : storage.dailyApiRequests;
+  return apiBudgetCheckOf(runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))), budget);
+}
+
 export type AutopilotGateCode =
   'STORAGE_EXCEEDED' | 'API_BUDGET_EXCEEDED' | 'WRITE_DECLINED' | 'CONFIRMATION_UNAVAILABLE';
 
@@ -175,21 +198,9 @@ export async function gateAutopilotWrite(input: {
       check,
     };
   }
-  // Its calls against the daily API requests the target has left, read
-  // from the same `/limits` as its storage: refused past them, as the run
-  // would stop part way through. Read on their own when the storage could
-  // not be, as Sync reads them: a Standard User's `/limits` list the daily
-  // requests and not the storage, and the run took both for unread.
-  const budget =
-    'unread' in input.storage
-      ? await input.readApiBudget().catch((err: unknown) => ({
-          unread: err instanceof Error ? err.message : String(err),
-        }))
-      : input.storage.dailyApiRequests;
-  const api = apiBudgetCheckOf(
-    runRequestsEstimate(plan.objects.map(({ rows }) => ({ rows }))),
-    budget,
-  );
+  // Refused past the daily API requests the target has left, as the run
+  // would stop part way through.
+  const api = await autopilotApiCheck(plan, input.storage, input.readApiBudget);
   const overBudget = apiBudgetRefusal(api, input.org);
   if (overBudget) return { go: false, code: 'API_BUDGET_EXCEEDED', message: overBudget, check };
   const threshold = input.confirmAboveRecords;

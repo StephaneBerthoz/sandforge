@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Connection } from 'jsforce';
 import {
+  apiRequestsLine,
   contactPointLines,
   everyPage,
   outcomeLines,
@@ -394,6 +395,25 @@ describe('sandforge-autopilot — the plan', () => {
         '10 contact(s) of person accounts at none of their own',
     ]);
     expect(personAccountLines(new Map())).toEqual([]);
+  });
+
+  it('says the daily API requests the run takes against what the target has left, or why it cannot', () => {
+    expect(
+      apiRequestsLine({ verdict: 'exceeds', estimate: 3, max: 15_000, remaining: 1 }, 'TGT'),
+    ).toBe(
+      '  API requests: about 3, of the 1 TGT has left of its 15000 a day: more than it has left',
+    );
+    expect(
+      apiRequestsLine({ verdict: 'near', estimate: 3, max: 15_000, remaining: 1_000 }, 'TGT'),
+    ).toBe(
+      '  API requests: about 3, of the 1000 TGT has left of its 15000 a day: it would leave less than a tenth of them',
+    );
+    expect(
+      apiRequestsLine({ verdict: 'fits', estimate: 3, max: 15_000, remaining: 14_000 }, 'TGT'),
+    ).toBe('  API requests: about 3, of the 14000 TGT has left of its 15000 a day');
+    expect(apiRequestsLine({ verdict: 'unread', estimate: 3, unread: 'refused' }, 'TGT')).toBe(
+      '  API requests: about 3; what TGT has left today could not be read (refused)',
+    );
   });
 });
 

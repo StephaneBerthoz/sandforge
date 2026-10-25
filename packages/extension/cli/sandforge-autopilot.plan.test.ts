@@ -75,7 +75,7 @@ function orgs(
             done: true as const,
           }
         : target.conn.query(soql),
-    request: vi.fn(async () => ({
+    request: vi.fn(async (): Promise<Record<string, unknown>> => ({
       DataStorageMB: { Max: 200, Remaining: remainingMB },
       SingleEmail: { Max: 15, Remaining: singleEmailsLeft },
     })),
@@ -90,7 +90,7 @@ function orgs(
   vi.mocked(makeConn).mockImplementation(
     (session) => (session.alias === 'SRC' ? source.conn : conn) as never,
   );
-  return { source, create };
+  return { source, create, limits: conn.request };
 }
 
 describe('sandforge-autopilot — what a plan copies', () => {
@@ -171,6 +171,41 @@ describe('sandforge-autopilot — what a plan copies', () => {
       /data storage.*Nothing was written\./,
     );
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a run past the target's daily API requests before it writes anything", async () => {
+    // The panel's run was held to them; the command line wrote until the
+    // org answered REQUEST_LIMIT_EXCEEDED, part way through.
+    const { create, limits } = orgs(150);
+    limits.mockResolvedValue({
+      DataStorageMB: { Max: 200, Remaining: 150 },
+      DailyApiRequests: { Max: 15_000, Remaining: 1 },
+      SingleEmail: { Max: 15, Remaining: 15 },
+    });
+
+    const run = main(argv('--object', 'Lead', '--object', 'Obj004__c'));
+
+    await expect(run).rejects.toThrow(/API requests.*REQUEST_LIMIT_EXCEEDED/);
+    const message = await run.then(
+      () => '',
+      (err: unknown) => String(err),
+    );
+    expect(message.match(/Nothing was written\./g)).toHaveLength(1);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('reads the daily API requests on their own when the target says nothing of its storage, and says them with --plan-only', async () => {
+    // A Standard User's limits list the daily requests and not the storage.
+    const { limits } = orgs(150);
+    limits.mockResolvedValue({ DailyApiRequests: { Max: 15_000, Remaining: 0 } });
+
+    await main(argv('--object', 'Lead', '--plan-only', '--json'));
+
+    const printed = JSON.parse(out.join('')) as {
+      writeGate: { apiRequests: { verdict: string; remaining: number }; refusals: string[] };
+    };
+    expect(printed.writeGate.apiRequests).toMatchObject({ verdict: 'exceeds', remaining: 0 });
+    expect(printed.writeGate.refusals.some((r) => r.includes('REQUEST_LIMIT_EXCEEDED'))).toBe(true);
   });
 
   it('refuses a run past --max-total, and says what a plan-only run would meet', async () => {

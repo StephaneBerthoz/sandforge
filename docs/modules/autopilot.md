@@ -33,7 +33,7 @@ Before you start, know three things:
 ## Before a run writes
 
 - **Production Guard** asks before a run writes to a production org; a sandbox, a scratch org and a Developer Edition org are not production orgs.
-- **The volume**: past `sandforge.safety.confirmAboveRecords` records (2,000 unless you set it), or near the target's data storage, a confirmation lists the records per object; a plan whose records take more data storage than the target has left is refused, and nothing is written.
+- **The volume**: past `sandforge.safety.confirmAboveRecords` records (2,000 unless you set it), or near the target's data storage, a confirmation lists the records per object; a plan whose records take more data storage, or more of the day's API requests, than the target has left is refused, and nothing is written.
 - **Emails**: what the target's flows would send as the records go in is counted against the emails it has left today -- on a Developer Edition, 15 single emails a day, its email alerts among them -- and a run past them is asked about. So is a run whose target's automation -- or its flows, processes or workflow rules -- could not be read: the confirmation says their emails were not counted, and why, as a Sync run's does.
 
 ## While it runs

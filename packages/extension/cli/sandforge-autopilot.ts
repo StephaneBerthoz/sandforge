@@ -72,19 +72,23 @@ import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 import { detectPersonalFields } from '../src/modules/autopilot/personalFields.js';
 import {
+  autopilotApiCheck,
   autopilotEmails,
   autopilotWritePlan,
   objectsThePlanWrites,
 } from '../src/modules/autopilot/AutopilotRunGate.js';
 import {
   DEFAULT_MAX_TOTAL,
+  apiBudgetRefusal,
   emailCheckLines,
   emailRefusal,
+  readApiBudget,
   readDataStorage,
   readEmailLimits,
   storageCheckOf,
   storageRefusal,
   writePlanLines,
+  type ApiBudgetCheck,
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { targetAutomationReader } from './sandforge-clone.js';
@@ -127,8 +131,9 @@ Options:
 A selected object is copied whole. Of any other object, only the records the
 selection references are read, by id; a lookup past the bounds is left empty,
 and the plan says which. Before it writes, the run is held to --max-total, to
-the data storage the target has left, and to the daily emails the target's
-flows would send for its records: past any, nothing is written.
+the data storage and the daily API requests the target has left, and to the
+daily emails the target's flows would send for its records: past any, nothing
+is written.
 
 Ctrl-C stops the run between two calls, as the panel's Stop does: the summary
 says what it wrote and which objects it did not, and --json names every record
@@ -488,8 +493,13 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     storage = { unread: extractErrorMessage(err) };
   }
   const check = storageCheckOf(writePlan, storage);
+  // Its calls against the daily API requests the target has left, as the
+  // panel's run is held to them: a run past them stopped part way through,
+  // its records refused with REQUEST_LIMIT_EXCEEDED.
+  const api = await autopilotApiCheck(writePlan, storage, () => readApiBudget(targetConn));
   log('');
   for (const line of writePlanLines(writePlan, check, args.target)) log(line);
+  log(apiRequestsLine(api, args.target));
   for (const line of personAccountLines(scan.personAccounts)) log(line);
   // The emails the target's flows send as the plan's records go in, against
   // what it has left today: its automation read as Forge reads it, its limits
@@ -510,6 +520,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         `${args.maxTotal}: narrow it (--object, --max-depth, --max-objects), or raise --max-total.`
       : undefined,
     storageRefusal(check, args.target),
+    // Its own refusal closes on the sentence the thrown error adds once.
+    apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
     emailRefusal(emails.checks, args.target),
   ].filter((reason): reason is string => reason !== undefined);
 
@@ -526,6 +538,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             writeGate: {
               records: writePlan.totalRows,
               storage: check,
+              apiRequests: api,
               personAccounts: Object.fromEntries(scan.personAccounts),
               emails: emails.checks,
               ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
@@ -722,6 +735,25 @@ export function scopeLines(scope: AutopilotPlanScope): string[] {
     );
   }
   return lines;
+}
+
+/**
+ * The daily API requests the run takes of the target, against what it has
+ * left, as a sync says them. Exported so it can be tested.
+ */
+export function apiRequestsLine(api: ApiBudgetCheck, target: string): string {
+  if (api.verdict === 'unread') {
+    return `  API requests: about ${api.estimate}; what ${target} has left today could not be read (${api.unread})`;
+  }
+  return (
+    `  API requests: about ${api.estimate}, of the ${api.remaining} ${target} has left ` +
+    `of its ${api.max} a day` +
+    (api.verdict === 'exceeds'
+      ? ': more than it has left'
+      : api.verdict === 'near'
+        ? ': it would leave less than a tenth of them'
+        : '')
+  );
 }
 
 /**
