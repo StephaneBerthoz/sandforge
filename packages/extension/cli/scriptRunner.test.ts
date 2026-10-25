@@ -1,11 +1,13 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { spawnRunner, type CommandRun } from './sandforge-mcp.js';
+import { scriptFile, spawnRunner, type CommandRun, type RunnableScript } from './scriptRunner.js';
 
 /*
- * How the server starts a script and stops it, on a real process: a probe
+ * How the MCP server, and an environment, start a script and stop it, on a
+ * real process: a probe
  * that hears its stop signals as every command of the folder does
  * (`testing/stopProbe.ts`), run under tsx's loader as the server's scripts
  * run. Each CI runner runs it, Windows's included, where Node ends a child
@@ -47,7 +49,7 @@ function runProbe(
   return run('sandforge-seed', [mode, ...args], call.signal);
 }
 
-describe('sandforge-mcp — a script in a process of its own', () => {
+describe('a script in a process of its own', () => {
   it(
     'runs a script under the runtime the server runs under, its arguments as given and its output kept',
     async () => {
@@ -91,6 +93,46 @@ describe('sandforge-mcp — a script in a process of its own', () => {
 
       expect(ran.stderr).toContain('stopped by SIGINT');
       expect(ran.code).toBe(130);
+    },
+    STARTS_WITHIN,
+  );
+});
+
+describe('the scripts a runner starts', () => {
+  /** Every script the runner may be asked for: the type refuses a name missing here. */
+  const RUNNABLE: Record<RunnableScript, true> = {
+    'sandforge-seed': true,
+    'sandforge-clone': true,
+    'sandforge-sync': true,
+    'sandforge-checkpoint': true,
+    'sandforge-frozen': true,
+    'sandforge-dataops': true,
+  };
+
+  it('starts each of them from its own file in this folder', () => {
+    for (const script of Object.keys(RUNNABLE) as RunnableScript[]) {
+      expect(scriptFile(script)).toBe(join(__dirname, `${script}.ts`));
+      expect(existsSync(scriptFile(script)), script).toBe(true);
+    }
+  });
+
+  it(
+    'runs a script the MCP server has no tool for by its name, as an environment runs its steps',
+    async () => {
+      const asked: string[] = [];
+      const run = spawnRunner({
+        platform: process.platform,
+        scriptPath: (script) => {
+          asked.push(script);
+          return PROBE;
+        },
+      });
+
+      const ran = await run('sandforge-frozen', ['exit', 'load'], new AbortController().signal);
+
+      expect(asked).toEqual(['sandforge-frozen']);
+      expect(ran.code).toBe(0);
+      expect(JSON.parse(ran.stdout)).toMatchObject({ args: ['load'] });
     },
     STARTS_WITHIN,
   );

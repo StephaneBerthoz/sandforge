@@ -22,6 +22,8 @@ function source(path: string): string {
 
 const DOC = source('docs/mcp.md');
 const SERVER = source('packages/extension/cli/sandforge-mcp.ts');
+/** What starts and stops the scripts the server runs. */
+const RUNNER = source('packages/extension/cli/scriptRunner.ts');
 
 /** A section of the guide, from its heading to the next one of its level. */
 function section(heading: string): string {
@@ -135,8 +137,9 @@ describe('docs/mcp.md', () => {
     expect(section('What holds')).toContain(
       'On Windows, which has no signals, the server sends the script a stop message over an IPC channel instead',
     );
-    expect(SERVER).toContain("stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc']");
-    expect(SERVER).toContain('child.send(STOP_MESSAGE');
+    expect(SERVER).toContain("from './scriptRunner.js'");
+    expect(RUNNER).toContain("stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc']");
+    expect(RUNNER).toContain('child.send(STOP_MESSAGE');
   });
 
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {

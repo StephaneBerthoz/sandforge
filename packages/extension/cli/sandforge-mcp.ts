@@ -37,7 +37,6 @@
  *   claude mcp add sandforge -- pnpm exec tsx packages/extension/cli/sandforge-mcp.ts
  */
 
-import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -47,13 +46,8 @@ import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
 import { refuseUnreadArguments } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes.js';
 import { NO_TERMINAL_EXIT } from './prompt.js';
-import {
-  STOP_MESSAGE,
-  STOP_SIGNALS,
-  onStopSignal,
-  stopExitCode,
-  type StopSignal,
-} from './stopSignals.js';
+import { spawnCommand, type CommandRun, type CommandRunner as RunnerOf } from './scriptRunner.js';
+import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -115,22 +109,14 @@ export const INSTRUCTIONS =
 export type Script =
   'sandforge-seed' | 'sandforge-clone' | 'sandforge-sync' | 'sandforge-checkpoint';
 
-/** What one run of a script came to. */
-export interface CommandRun {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
+export type { CommandRun };
 
 /**
- * Runs a script of this folder with the arguments after its name, and settles
- * once it has ended. The signal stops it as Ctrl-C stops it on a terminal.
+ * Runs a script a tool runs, in a process of its own (`scriptRunner.ts`), and
+ * settles once it has ended. The signal stops it as Ctrl-C stops it on a
+ * terminal.
  */
-export type CommandRunner = (
-  script: Script,
-  args: readonly string[],
-  signal: AbortSignal,
-) => Promise<CommandRun>;
+export type CommandRunner = RunnerOf<Script>;
 
 /** A call that runs a script, or one this server answers itself. */
 type Run =
@@ -862,87 +848,6 @@ export function resultOf(
     isError: !ANSWERED.has(ran.code),
   };
 }
-
-// ─── Running a script ────────────────────────────────────────────────────────
-
-/** The runtime flags a script inherits: tsx's loader, never a debugger's port. */
-function inheritedRuntimeFlags(): string[] {
-  return process.execArgv.filter((flag) => !/^--inspect/.test(flag));
-}
-
-/** How {@link spawnRunner} starts a script; each defaults to the server's own. */
-export interface SpawnOptions {
-  /** The platform it runs on, which says how a script is stopped. */
-  platform?: NodeJS.Platform;
-  /** The file a script runs from: the script of this folder by that name. */
-  scriptPath?: (script: Script) => string;
-}
-
-/**
- * Run a script of this folder in a process of its own, under the runtime this
- * server runs under, from the folder it was started in. It has no terminal: a
- * question it asks stops it. Its lines go on to this server's stderr as they
- * come, for whoever reads it, and are kept for the answer.
- *
- * On POSIX it leads a process group of its own: a Ctrl-C typed at the
- * terminal that started this server reaches the server alone, which stops
- * the script with one SIGINT. Two would end it at once, past where it stops
- * cleanly. Windows has no signals, and Node ends a child it is asked to
- * SIGINT there at once: the script is started with an IPC channel instead,
- * and stopped with the message its stop signals hear as Ctrl-C
- * (`STOP_MESSAGE`).
- */
-export function spawnRunner(options: SpawnOptions = {}): CommandRunner {
-  const windows = (options.platform ?? process.platform) === 'win32';
-  const scriptPath = options.scriptPath ?? ((script: Script) => join(__dirname, `${script}.ts`));
-  return (script, args, signal) =>
-    new Promise((resolve, reject) => {
-      const child = spawn(
-        process.execPath,
-        [...inheritedRuntimeFlags(), scriptPath(script), ...args],
-        {
-          stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
-          env: process.env,
-          detached: !windows,
-          windowsHide: true,
-        },
-      );
-      const out: Buffer[] = [];
-      const err: Buffer[] = [];
-      child.stdout?.on('data', (chunk: Buffer) => out.push(chunk));
-      child.stderr?.on('data', (chunk: Buffer) => {
-        err.push(chunk);
-        process.stderr.write(chunk);
-      });
-      const stop = (): void => {
-        if (!windows || !child.connected) {
-          child.kill('SIGINT');
-          return;
-        }
-        child.send(STOP_MESSAGE, (error) => {
-          if (error) child.kill('SIGINT');
-        });
-      };
-      if (signal.aborted) stop();
-      else signal.addEventListener('abort', stop, { once: true });
-      child.on('error', (error) => {
-        signal.removeEventListener('abort', stop);
-        reject(error);
-      });
-      child.on('close', (code, ended) => {
-        signal.removeEventListener('abort', stop);
-        const bySignal = STOP_SIGNALS.find((each) => each === ended);
-        resolve({
-          code: code ?? (bySignal !== undefined ? stopExitCode(bySignal) : FAILED_EXIT),
-          stdout: Buffer.concat(out).toString('utf8'),
-          stderr: Buffer.concat(err).toString('utf8'),
-        });
-      });
-    });
-}
-
-/** The server's own runner: the scripts of this folder, on the platform it runs on. */
-export const spawnCommand: CommandRunner = spawnRunner();
 
 // ─── Serving ─────────────────────────────────────────────────────────────────
 

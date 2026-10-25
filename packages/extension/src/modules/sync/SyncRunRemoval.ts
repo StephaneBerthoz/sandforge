@@ -32,6 +32,7 @@ import {
   removeRunRecords,
   type RemovalOrg,
   type RunRemovalOptions,
+  type RunRemovalOutcome,
 } from '../forge/ForgeRunRemoval.js';
 import { removalMark, removalStatus } from '../forge/removalOutcome.js';
 import type { SyncCopiedFile } from './SyncFiles.js';
@@ -531,6 +532,34 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
     ...(linksForgotten ? { linksForgotten } : {}),
     ...(earlierStamped.length > 0 ? { earlierStamped } : {}),
   };
+}
+
+/**
+ * What a removal of a run's creations would do, read as {@link removeSyncRun}
+ * reads the run before its first write — the run's span, what its earlier
+ * removals stamped and when they ran — and nothing written, to the org or to
+ * where what the run's removals did is kept (`RunRemovalOptions.previewOnly`).
+ * What it would give back of the records the run wrote over, and bring back
+ * of those it deleted, is not read: a Seed run, the one previewed so far,
+ * only creates.
+ *
+ * @returns The removal's outcome, its `preview` set unless it was stopped,
+ *   and how many records it sets out to take.
+ */
+export async function previewSyncRun(
+  input: Pick<SyncRunRemovalInput, 'run' | 'org' | 'includeChanged' | 'signal'>,
+): Promise<{ outcome: RunRemovalOutcome; planned: number }> {
+  const { run } = input;
+  const plan = syncRemovalPlan(run);
+  const outcome = await removeRunRecords(input.org, plan, {
+    ...runTimes(run),
+    ...(run.removal?.removalStamps ? { removalStamps: run.removal.removalStamps } : {}),
+    ...(run.removal?.removalSpans ? { removalSpans: run.removal.removalSpans } : {}),
+    includeChanged: input.includeChanged,
+    previewOnly: true,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+  return { outcome, planned: plan.reduce((sum, object) => sum + object.ids.length, 0) };
 }
 
 /**

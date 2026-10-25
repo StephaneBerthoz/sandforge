@@ -1,6 +1,6 @@
 /**
- * A script for the MCP server's tests of how it starts and stops a script
- * (`sandforge-mcp.spawn.test.ts`), hearing its stop signals as every command
+ * A script for the tests of how a script of this folder is started and stopped
+ * (`scriptRunner.test.ts`), hearing its stop signals as every command
  * of this folder does. `exit` prints its arguments and ends, its stop signals
  * still heard; `wait` says so on stderr and waits until it is stopped, then
  * leaves as a run stopped by that signal leaves.

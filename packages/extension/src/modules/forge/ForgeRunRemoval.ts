@@ -575,6 +575,68 @@ export interface RunRemovalOptions {
    * it in the recycle bin for good once its parent went after it.
    */
   goesWithParent?: (row: Readonly<Record<string, unknown>>, runEnd: number) => boolean;
+  /**
+   * Read the run's records as the removal reads them before its first write —
+   * what is still in the org, in its recycle bin or nowhere, what changed
+   * since the run and who changed it, which objects the user may not delete —
+   * and stop there, writing nothing: what it would do is said per object
+   * (`RunRemovalOutcome.preview`). The sweep is not made and `onUndeletable`
+   * is not asked. What hangs from the records, which a real removal reads at
+   * each object's turn, record by record, is not read: a record kept for
+   * records that stay is counted with those it would delete.
+   */
+  previewOnly?: boolean;
+}
+
+/**
+ * What a removal would do with one object's records, read before its first
+ * write (`RunRemovalOptions.previewOnly`). Every record of the object is
+ * counted once: `toDelete`, `alreadyGone`, `keptChanged`, `undeletable`,
+ * `notVisible` and `unread` add up to `planned`.
+ */
+export interface RemovalPreviewObject {
+  objectApiName: string;
+  /** The run's records of the object: what the removal sets out to take. */
+  planned: number;
+  /**
+   * In the org, and sent: unchanged since the run, or changed since and
+   * included. The org may still refuse some, and the removal keep some for
+   * records that stay, which only a real removal finds out.
+   */
+  toDelete: number;
+  /**
+   * Found deleted, as a read of the recycle bin finds them: gone, as the
+   * removal counts them, and never counted as records a restore brings back.
+   * A record emptied from the bin reads deleted as one still in it, and a
+   * child deleted on its own before its parent stays in the bin for good once
+   * the parent goes too: no read tells either from one that would come back.
+   */
+  alreadyGone: number;
+  /** In the org and modified since the run ended, by the org's clock, by anyone. */
+  changedSince: number;
+  /** Of those, the ones the removal keeps: all of them, unless changed records are included. */
+  keptChanged: number;
+  /** Who last modified the records changed since, by user Id: how many each. */
+  changedBy: Record<string, number>;
+  /** In the org, of an object the user the removal runs as may not delete: left, never sent. */
+  undeletable: number;
+  /**
+   * Found neither in the org nor in its recycle bin: out of the sight of the
+   * user the removal runs as, or deleted for good. Never counted as removed.
+   */
+  notVisible: number;
+  /** Of an object the removal could not read at all: none of them would be sent. */
+  unread: number;
+  /** Why records stay, or could not be told, in the org's words where it gave them. */
+  reasons: string[];
+}
+
+/** What a removal of a run's records would do, read before its first write, nothing written. */
+export interface RunRemovalPreview {
+  /** Per object, in the order the removal would take them: children before their parents. */
+  objects: RemovalPreviewObject[];
+  /** The names of the users `changedBy` counts, by user Id, where the org said them. */
+  userNames: Record<string, string>;
 }
 
 /**
@@ -721,6 +783,12 @@ export interface RunRemovalOutcome {
    * started. Absent when no other part was given, or when it wrote nothing.
    */
   otherPartStamps?: Array<Record<string, string>>;
+  /**
+   * What the removal would do, set when it was asked for that alone
+   * (`RunRemovalOptions.previewOnly`) and read through: it wrote nothing,
+   * `objects` is empty and `left` gives back every record it was handed.
+   */
+  preview?: RunRemovalPreview;
 }
 
 /** One row of a delete's answer, or an update's. */
@@ -1124,7 +1192,8 @@ export async function removeRunRecords(
     (objectApiName, count) => count - (snapshots.get(objectApiName)?.missing.size ?? 0),
   );
   const undeletableNames = new Set(undeletable.map((object) => object.objectApiName));
-  if (undeletable.length > 0 && options.onUndeletable) {
+  // A preview asks nothing: it says which objects stay.
+  if (undeletable.length > 0 && options.onUndeletable && options.previewOnly !== true) {
     if (stopped()) return untouched();
     if (!(await options.onUndeletable(undeletable))) {
       return { ...untouched(), objects: [], undeletable, stoppedForUndeletable: true };
@@ -1132,8 +1201,11 @@ export async function removeRunRecords(
   }
   // Read before the removal's first write: what the org creates from then on,
   // as the user the removal runs as, is the removal's doing, dated by the same
-  // clock as the run.
-  const [clock, removalUser] = await Promise.all([removalClockOf(session), removalUserOf(session)]);
+  // clock as the run. A preview writes nothing, and needs the clock alone.
+  const [clock, removalUser] = await Promise.all([
+    removalClockOf(session),
+    options.previewOnly === true ? undefined : removalUserOf(session),
+  ]);
 
   // A record in the org is changed when it was modified after the run ended,
   // both by the org's clock — or after what an earlier removal of the run
@@ -1157,6 +1229,29 @@ export async function removeRunRecords(
         if (!unchanged) changed.add(key);
       }
     }
+  }
+  // The preview ends here, every record read and nothing written: what the
+  // removal goes on to read — the run's other parts, what hangs from each
+  // record — is read for its writes.
+  if (options.previewOnly === true) {
+    if (stopped()) return untouched();
+    const preview = await previewOf(session, records, order, {
+      snapshots,
+      changed,
+      undeletable: undeletableNames,
+      includeChanged: options.includeChanged,
+      stopped,
+    });
+    if (!preview) return untouched();
+    return {
+      ...(undeletable.length > 0 ? { undeletable } : {}),
+      objects: [],
+      cancelled: false,
+      gone: [],
+      stamps: {},
+      left: () => everyRecordOf(records),
+      preview,
+    };
   }
   // The run's other parts are read before the first write too, as their own
   // removals would read them: what this one stamps of their records is said
@@ -1470,6 +1565,128 @@ export async function removeRunRecords(
     await settleTakenAlong(session, removal, snapshots.get(removal.result.objectApiName));
   }
   return outcome(false);
+}
+
+/** What {@link previewOf} reads the run's records against: the removal's own reading of them. */
+interface PreviewReading {
+  snapshots: ReadonlyMap<string, ObjectSnapshot>;
+  /** Keys of the records changed since the run. */
+  changed: ReadonlySet<string>;
+  /** The objects whose records the user may not delete. */
+  undeletable: ReadonlySet<string>;
+  includeChanged: boolean;
+  stopped: () => boolean;
+}
+
+/**
+ * What the removal would do with each object's records, from what it read
+ * of them before its first write, each record counted as its turn would
+ * count it: found deleted, nowhere, of an object it may not delete or could
+ * not read, kept as changed since, or sent. Of the records changed since, who
+ * last changed them is read, a few lists at a time, with those users' names.
+ *
+ * @returns Undefined when the removal was stopped meanwhile.
+ */
+async function previewOf(
+  org: RemovalOrg,
+  records: RunRecords,
+  order: ReadonlyArray<{ readonly objectApiName: string; readonly count: number }>,
+  reading: PreviewReading,
+): Promise<RunRemovalPreview | undefined> {
+  const objects: RemovalPreviewObject[] = [];
+  const modifiers = new Set<string>();
+  for (const { objectApiName, count } of order) {
+    const object: RemovalPreviewObject = {
+      objectApiName,
+      planned: count,
+      toDelete: 0,
+      alreadyGone: 0,
+      changedSince: 0,
+      keptChanged: 0,
+      changedBy: {},
+      undeletable: 0,
+      notVisible: 0,
+      unread: 0,
+      reasons: [],
+    };
+    objects.push(object);
+    const snapshot = reading.snapshots.get(objectApiName);
+    if (!snapshot || snapshot.error !== undefined) {
+      object.unread = count;
+      object.reasons.push(snapshot?.error ?? 'The org gave no reason.');
+      continue;
+    }
+    const changedIds: string[] = [];
+    for await (const page of records.pages(objectApiName)) {
+      for (const id of page) {
+        const key = recordKey(id);
+        if (snapshot.missing.has(key)) {
+          if (snapshot.binned.has(key)) object.alreadyGone++;
+          else object.notVisible++;
+        } else if (reading.undeletable.has(objectApiName)) {
+          object.undeletable++;
+        } else if (reading.changed.has(key)) {
+          object.changedSince++;
+          changedIds.push(id);
+          if (reading.includeChanged) object.toDelete++;
+          else object.keptChanged++;
+        } else {
+          object.toDelete++;
+        }
+      }
+    }
+    if (object.notVisible > 0) {
+      object.reasons.push(notVisibleNoteOf(object.notVisible, snapshot.binError));
+    }
+    if (object.undeletable > 0) {
+      object.reasons.push(undeletableReason(objectApiName, object.undeletable));
+    }
+    // An object whose records keep no `LastModifiedDate` keeps no last
+    // modifier either: its changes were read by their system stamp.
+    if (changedIds.length === 0 || snapshot.modifiedColumn !== 'LastModifiedDate') continue;
+    if (reading.stopped()) return undefined;
+    try {
+      const rows = await readRecordsById(
+        org,
+        objectApiName,
+        ['LastModifiedById'],
+        changedIds,
+        DEPENDENT_READS_AT_ONCE,
+      );
+      for (const row of rows) {
+        const by = row.LastModifiedById;
+        if (typeof by !== 'string' || by === '') continue;
+        object.changedBy[by] = (object.changedBy[by] ?? 0) + 1;
+        modifiers.add(by);
+      }
+    } catch (err: unknown) {
+      object.reasons.push(
+        `Who changed them since the run could not be read: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+  if (reading.stopped()) return undefined;
+  return { objects, userNames: await userNamesOf(org, [...modifiers]) };
+}
+
+/**
+ * The names of the users `ids` names, by user Id, as the org gives them; a
+ * read that fails leaves them named by their Id.
+ */
+async function userNamesOf(
+  org: Pick<RemovalOrg, 'query'>,
+  ids: readonly string[],
+): Promise<Record<string, string>> {
+  const names: Record<string, string> = {};
+  if (ids.length === 0) return names;
+  try {
+    for (const row of await readRecordsById(org, 'User', ['Name'], [...ids].sort())) {
+      if (typeof row.Id === 'string' && typeof row.Name === 'string') names[row.Id] = row.Name;
+    }
+  } catch {
+    // Unread: the users stay named by their Id.
+  }
+  return names;
 }
 
 /** What reading back the records the org refused to delete found. */
