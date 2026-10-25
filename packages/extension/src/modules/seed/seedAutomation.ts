@@ -236,6 +236,17 @@ export function seedEmailGate(
   const limits: EmailLimits =
     preview.limitsUnread !== undefined ? { unread: preview.limitsUnread } : (preview.limits ?? {});
   const checks = emailChecksOf(plan, preview.emailsPerRecord, limits);
+  // A flow, process or rule fired after the save whose definition was
+  // refused, or not read past the read's bound, counts as sending nothing:
+  // only the past-the-bound ones were said, by their number.
+  const created = new Set(objects.filter((o) => o.recordCount > 0).map((o) => o.objectApiName));
+  const notRead = preview.objects.flatMap((object) =>
+    created.has(object.objectApiName)
+      ? object.entries
+          .filter((entry) => entry.unread && !entry.keptQuiet && entry.when !== 'before')
+          .map((entry) => `"${entry.name}" on ${object.objectApiName}`)
+      : [],
+  );
   const unknown = [
     ...checks
       .filter((check) => check.verdict === 'unread')
@@ -247,12 +258,17 @@ export function seedEmailGate(
     ...(preview.blinded
       ? [`part of what ${org} runs could not be read: emails it sends may not be counted`]
       : []),
-    ...(preview.conditionsNotRead > 0
+    ...(notRead.length > 0
       ? [
-          `${preview.conditionsNotRead} start condition(s) of ${org} not read: the emails of ` +
-            'those flows are not counted',
+          `the emails of ${listed(notRead)} are not counted: what ` +
+            `${notRead.length === 1 ? 'it does' : 'they do'} was not read`,
         ]
-      : []),
+      : preview.conditionsNotRead > 0
+        ? [
+            `${preview.conditionsNotRead} start condition(s) of ${org} not read: the emails of ` +
+              'those flows are not counted',
+          ]
+        : []),
   ];
   const over = checks.find((check) => check.verdict === 'exceeds');
   if (!over) return unknown.length > 0 ? { checks, unknown } : { checks };

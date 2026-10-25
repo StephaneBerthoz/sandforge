@@ -351,6 +351,31 @@ describe('seedEmailGate', () => {
     ]);
   });
 
+  it('names a flow fired after the save whose definition was refused, its emails not counted', () => {
+    // Refused, its definition reads as no action at all: the gate counted it
+    // as sending nothing, and only flows past the read's bound were said.
+    const automation = trapAutomation({ held: true, ruleBypass: true });
+    automation.objects[0]?.flows.push(
+      contactFlow({ apiName: 'Partner_Notice', label: 'Partner Notice', condition: 'unreadable' }),
+      contactFlow({
+        apiName: 'Defaults',
+        label: 'Defaults',
+        timing: 'beforeSave',
+        condition: 'unreadable',
+      }),
+    );
+    const gate = seedEmailGate(read(automation), CRM_COUNTS, 'my-dev-org');
+    expect(gate.refusal).toBeUndefined();
+    expect(gate.unknown).toEqual([
+      'the emails of "Partner Notice" on Contact are not counted: what it does was not read',
+    ]);
+    // A seed that creates no contact fires none of it.
+    const noContacts = CRM_COUNTS.map((c) =>
+      c.objectApiName === 'Contact' ? { ...c, recordCount: 0 } : c,
+    );
+    expect(seedEmailGate(read(automation), noContacts, 'my-dev-org').unknown).toBeUndefined();
+  });
+
   it('comes to the figures the confirmation counts from the same read', () => {
     const { preview } = read() as { preview: Parameters<typeof seedEmailEstimates>[0] };
     for (const contacts of [0, 5, 6, 75]) {
