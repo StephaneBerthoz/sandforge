@@ -1,7 +1,9 @@
 /**
  * Properties of an environment on the memory org, over random files and
- * random histories: files of one to four seed resources, some drawing their
- * contacts from the accounts another writes, and what a team does to them
+ * random histories: files of one to four resources — seed resources, some
+ * drawing their contacts from the accounts another writes, and forge
+ * resources cloning a group of accounts and their contacts from a memory
+ * source org — and what a team does to them
  * over weeks — a count edited, a resource added to the file or taken out of
  * it, apply, apply with --replace or --replace-drifted, a colleague deleting
  * or changing records by id, a validation rule refusing a record, a CI job
@@ -9,7 +11,8 @@
  * scripts an apply or a destroy spawns, destroy.
  *
  * Each history runs the command line's own `main`, as a terminal or a CI
- * step runs it, its scripts `sandforge-seed`'s own `main` in this process.
+ * step runs it, its scripts `sandforge-seed`'s and `sandforge-clone`'s own
+ * `main` in this process.
  * The records are counted by the ids each run kept, through the run the state
  * names, and by what the org took as each script ran: never by what a script
  * said it wrote.
@@ -53,7 +56,11 @@ import {
 vi.mock('../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('../sfSession.js', () => ({ loadOrg: vi.fn(), makeConn: vi.fn() }));
+vi.mock('../sfSession.js', async (original) => ({
+  ...(await original<typeof import('../sfSession.js')>()),
+  loadOrg: vi.fn(),
+  makeConn: vi.fn(),
+}));
 vi.mock('../sandforge-clone.js', async (original) => ({
   ...(await original<typeof import('../sandforge-clone.js')>()),
   targetAutomationReader: vi.fn(),
@@ -61,6 +68,10 @@ vi.mock('../sandforge-clone.js', async (original) => ({
 vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
+}));
+vi.mock('../../src/modules/forge/RunVerifier.js', async (original) => ({
+  ...(await original<typeof import('../../src/modules/forge/RunVerifier.js')>()),
+  verifiedOrg: vi.fn(),
 }));
 
 import { nodeSeedRunCreations } from '../../src/modules/seed/SeedRunCreations.js';
@@ -72,11 +83,15 @@ import type { StopSignal } from '../stopSignals.js';
 import { EnvWorld, runInProcess } from '../testing/envWorld.js';
 import { isStopCode } from './envApply.js';
 import { openEnvStore, type EnvStore } from './envState.js';
-import { readSeedRun } from './envSteps.js';
+import { readForgeRun } from './kinds/forge.js';
+import { readSeedRun } from './kinds/seed.js';
+import type { EnvRun } from '@sandforge/shared';
 
 const ORG_ID = '00D000000000007AAA';
 const OTHER_USER = '005000000000009AAA';
 const ALIAS = 'TGT';
+/** The source org a forge resource clones from, by its alias. */
+const SOURCE_ALIAS = 'SRC';
 const ENV = 'props';
 const T0 = Date.parse('2026-10-25T09:00:00.000Z');
 const DAY = 86_400_000;
@@ -122,12 +137,26 @@ interface ObjectSpec {
 
 interface ResourceSpec {
   name: string;
+  /** A seed resource, or a forge resource cloning a group of the source's accounts. */
+  kind: 'seed' | 'forge';
   seed?: number;
   dependsOn: string[];
+  /** A forge resource's: its group's accounts and their contacts, as many of each. */
   objects: ObjectSpec[];
   /** Its contacts, placed under accounts: its own (`from` is its name), or those another writes. */
   parents?: { from: string; perParent: number };
 }
+
+/**
+ * The groups of the source org a forge resource clones: group g holds g
+ * accounts named `SFENV g<g>`, a contact of the same name under each.
+ */
+const GROUPS = [1, 2, 3];
+const groupMark = (group: number): string => `SFENV g${group}`;
+
+/** The group a forge resource clones, from its count of accounts. */
+const groupOf = (resource: ResourceSpec): number =>
+  resource.objects.find((object) => object.object === 'Account')?.count ?? 1;
 
 const markOf = (resource: string): string => `SFENV ${resource}`;
 
@@ -136,46 +165,57 @@ function documentOf(spec: readonly ResourceSpec[]): Record<string, unknown> {
   return {
     version: 1,
     name: ENV,
+    orgs: { uat: { alias: SOURCE_ALIAS } },
     resources: Object.fromEntries(
       spec.map((resource) => [
         resource.name,
-        {
-          kind: 'seed',
-          ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
-          ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-          objects: resource.objects.map((object) => ({
-            object: object.object,
-            count: object.count,
-            fields: [
-              {
-                fieldApiName: NAME_FIELD[object.object],
-                ruleType: 'static',
-                config: { staticValue: markOf(resource.name) },
-              },
-            ],
-            ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
-          })),
-          ...(resource.parents !== undefined
-            ? {
-                relations: [
+        resource.kind === 'forge'
+          ? {
+              kind: 'forge',
+              source: 'uat',
+              ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+              tables: [
+                { object: 'Account', where: `Name = '${groupMark(groupOf(resource))}'` },
+                { object: 'Contact', where: `LastName = '${groupMark(groupOf(resource))}'` },
+              ],
+            }
+          : {
+              kind: 'seed',
+              ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
+              ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+              objects: resource.objects.map((object) => ({
+                object: object.object,
+                count: object.count,
+                fields: [
                   {
-                    lookup: 'Contact.AccountId',
-                    parents:
-                      resource.parents.from === resource.name
-                        ? { object: 'Account' }
-                        : {
-                            object: 'Account',
-                            existing: {
-                              where: `Name = '${markOf(resource.parents.from)}'`,
-                              limit: PARENTS_LIMIT,
-                            },
-                          },
-                    distribution: { mode: 'perParent', count: resource.parents.perParent },
+                    fieldApiName: NAME_FIELD[object.object],
+                    ruleType: 'static',
+                    config: { staticValue: markOf(resource.name) },
                   },
                 ],
-              }
-            : {}),
-        },
+                ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
+              })),
+              ...(resource.parents !== undefined
+                ? {
+                    relations: [
+                      {
+                        lookup: 'Contact.AccountId',
+                        parents:
+                          resource.parents.from === resource.name
+                            ? { object: 'Account' }
+                            : {
+                                object: 'Account',
+                                existing: {
+                                  where: `Name = '${markOf(resource.parents.from)}'`,
+                                  limit: PARENTS_LIMIT,
+                                },
+                              },
+                        distribution: { mode: 'perParent', count: resource.parents.perParent },
+                      },
+                    ],
+                  }
+                : {}),
+            },
       ]),
     ),
   };
@@ -193,6 +233,8 @@ function expectedCount(
   resource: ResourceSpec,
   object: ObjectSpec,
 ): number {
+  // A forge resource clones its group: as many accounts, a contact under each.
+  if (resource.kind === 'forge') return groupOf(resource);
   if (object.object !== 'Contact' || resource.parents === undefined) return object.count;
   const from = spec.find((each) => each.name === resource.parents?.from);
   const accounts = from === undefined ? 0 : countOf(from, 'Account');
@@ -202,7 +244,7 @@ function expectedCount(
 
 /** What a resource of a generated file is made of, before its name and place are known. */
 interface Draft {
-  shape: 'accounts' | 'assets' | 'family' | 'contacts' | 'under';
+  shape: 'accounts' | 'assets' | 'family' | 'contacts' | 'under' | 'forge';
   counts: [number, number];
   perParent: number;
   /** Which earlier resource writing accounts an `under` resource draws from. */
@@ -217,7 +259,9 @@ const RESOURCE_NAMES = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'];
 const MAX_RESOURCES = 4;
 
 function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]): ResourceSpec {
-  const sources = earlier.filter((each) => countOf(each, 'Account') > 0);
+  // Contacts drawn from another resource's accounts find them by their name,
+  // which a forge resource's, named as the source names them, do not bear.
+  const sources = earlier.filter((each) => each.kind === 'seed' && countOf(each, 'Account') > 0);
   // Contacts drawn from accounts no resource before writes: the accounts, then.
   const shape = draft.shape === 'under' && sources.length === 0 ? 'accounts' : draft.shape;
   const [first, second] = draft.counts;
@@ -227,6 +271,18 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
   if (draft.chain && previous !== undefined) dependsOn.add(previous.name);
   let objects: ObjectSpec[];
   let parents: ResourceSpec['parents'];
+  if (shape === 'forge') {
+    const group = GROUPS[first % GROUPS.length] ?? 1;
+    return {
+      name,
+      kind: 'forge',
+      dependsOn: [...dependsOn],
+      objects: [
+        { object: 'Account', count: group },
+        { object: 'Contact', count: group },
+      ],
+    };
+  }
   switch (shape) {
     case 'accounts':
       objects = [{ object: 'Account', count: first, ...batch }];
@@ -255,6 +311,7 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
   }
   return {
     name,
+    kind: 'seed',
     ...(draft.seed !== undefined ? { seed: draft.seed } : {}),
     dependsOn: [...dependsOn],
     objects,
@@ -285,6 +342,7 @@ const draftArb: fc.Arbitrary<Draft> = fc.record({
     { weight: 4, arbitrary: fc.constant('under' as const) },
     { weight: 1, arbitrary: fc.constant('contacts' as const) },
     { weight: 1, arbitrary: fc.constant('assets' as const) },
+    { weight: 2, arbitrary: fc.constant('forge' as const) },
   ),
   counts: fc.tuple(fc.integer({ min: 1, max: 6 }), fc.integer({ min: 1, max: 6 })),
   perParent: fc.integer({ min: 1, max: 2 }),
@@ -407,7 +465,7 @@ const quietHistoryArb = fc.array(opArb(fc.constant(undefined)), { minLength: 0, 
 
 /** What a script was run for, read off its line. */
 interface Call {
-  kind: 'run' | 'dry-run' | 'preview' | 'remove';
+  kind: 'run' | 'dry-run' | 'preview' | 'remove' | 'verify';
   /**
    * The run it ran, previewed or took back: `<lineage>:<resource>:<n>`, the
    * ranks starting again from 1 in a state made again after a destroy.
@@ -433,6 +491,7 @@ const isWriting = (call: Pick<Call, 'kind'>): boolean =>
   call.kind === 'run' || call.kind === 'remove';
 
 function kindOf(args: readonly string[]): Call['kind'] {
+  if (args.includes('--verify')) return 'verify';
   if (args.includes('--preview')) return 'preview';
   if (args.includes('--remove')) return 'remove';
   if (args.includes('--dry-run')) return 'dry-run';
@@ -444,9 +503,18 @@ const valueAfter = (args: readonly string[], flag: string): string =>
 
 /** The resource and rank a line names, by its run id or by the summary it takes back. */
 function resourceRunOf(args: readonly string[]): { resource: string; n: number; runId?: string } {
+  // A clone's dry run names its resource by the template it was given alone.
+  if (args.includes('--template') && args.includes('--dry-run')) {
+    const template = /[\\/]([a-z][a-z0-9]*)\.json$/.exec(valueAfter(args, '--template'));
+    if (template !== null) return { resource: template[1] ?? '', n: 0 };
+  }
   const subject = args.includes('--remove')
     ? valueAfter(args, '--remove')
-    : valueAfter(args, '--run-id');
+    : args.includes('--verify')
+      ? valueAfter(args, '--verify')
+      : args.includes('--summary')
+        ? valueAfter(args, '--summary')
+        : valueAfter(args, '--run-id');
   const byId = new RegExp(`^env-${ENV}-([a-z][a-z0-9]*)-(\\d+)-`).exec(subject);
   if (byId !== null) {
     return { resource: byId[1] ?? '', n: Number(byId[2]), runId: subject };
@@ -488,6 +556,32 @@ function ownRecords(world: EnvWorld): string[] {
   return ids;
 }
 
+/** The clones the histories ran, which a property holds itself to having seen. */
+let clonesRun = 0;
+
+/** The key of a run of the state: a seed's run id, or a clone's rank in its state's lineage. */
+const keyOfRun = (lineage: string, resource: string, run: Pick<EnvRun, 'runId' | 'n'>): string =>
+  run.runId ?? `${lineage}:${resource}#${run.n}`;
+
+/** The source org's groups: group g, g accounts and a contact under each, made a day before. */
+function sourceGroups(world: EnvWorld): void {
+  for (const group of GROUPS) {
+    world.seedSource(
+      'Account',
+      Array.from({ length: group }, () => ({ Name: groupMark(group) })),
+    );
+    for (const account of world.source?.all('Account') ?? []) {
+      if (account['Name'] !== groupMark(group)) continue;
+      world.seedSource('Contact', [{ LastName: groupMark(group), AccountId: account.Id }]);
+    }
+  }
+}
+
+/** Every record of the source org: what no clone ever writes to. */
+function sourceSnapshotOf(world: EnvWorld): string {
+  return JSON.stringify(OBJECTS.map((object) => world.source?.all(object) ?? []));
+}
+
 /** What a history holds itself to as it goes: each property its own. */
 type Check = 'idempotent' | 'holds' | 'destroy' | 'once' | 'counts';
 
@@ -514,6 +608,7 @@ class History {
   private readonly locksDir: string;
   private readonly own: readonly string[];
   private readonly ownBefore: string;
+  private readonly sourceBefore: string;
   private hear: ((signal: StopSignal) => void) | undefined;
   private stop: StopPlan | undefined;
   private writing = 0;
@@ -538,8 +633,11 @@ class History {
       organizationId: ORG_ID,
       sandbox: true,
       scratch: true,
+      source: { alias: SOURCE_ALIAS },
       tick: () => vi.setSystemTime(Date.now() + 30_000),
     });
+    sourceGroups(this.world);
+    this.sourceBefore = sourceSnapshotOf(this.world);
     this.own = ownRecords(this.world);
     this.ownBefore = this.ownSnapshot();
     const opened = openEnvStore({ journalDir: this.journalDir, fileFolder: this.project });
@@ -597,7 +695,9 @@ class History {
   private readonly runner: CommandRunner = async (script, args, signal) => {
     const kind = kindOf(args);
     const named = resourceRunOf(args);
-    const run = `${(await this.state())?.lineage ?? 'none'}:${named.resource}:${named.n}`;
+    const lineage = (await this.state())?.lineage ?? 'none';
+    const run = `${lineage}:${named.resource}:${named.n}`;
+    const key = named.runId ?? keyOfRun(lineage, named.resource, { n: named.n });
     const at = isWriting({ kind }) ? this.writing++ : -1;
     const readAt = isWriting({ kind }) ? -1 : this.reading++;
     const stop =
@@ -644,12 +744,16 @@ class History {
       for (const object of OBJECTS) {
         for (const row of this.world.org.all(object)) {
           if (!before.has(row.Id)) {
-            this.wrote.set(row.Id, { runId: named.runId ?? '', resource: named.resource, object });
+            this.wrote.set(row.Id, { runId: key, resource: named.resource, object });
           }
         }
       }
     }
+    expect(sourceSnapshotOf(this.world), `a ${kind} wrote to the source\n${this.message()}`).toBe(
+      this.sourceBefore,
+    );
     this.calls.push({ kind, run, code: ran.code });
+    if (script === 'sandforge-clone' && kind === 'run') clonesRun += 1;
     if (stop?.when === 'after') this.fire();
     return ran;
   };
@@ -702,17 +806,36 @@ class History {
     return this.store.read(ORG_ID, ENV);
   }
 
-  /** What a run of the state took, by its run file and by the summary kept beside the state. */
-  async idsOfRun(runId: string, summary: string | undefined): Promise<Set<string>> {
+  /**
+   * What a run of the state took: a seed's by its run file and by the summary
+   * kept beside the state; a clone's by the summary it wrote there as it went,
+   * the target ids its remap table gives the source records it created.
+   */
+  async idsOfRun(run: Pick<EnvRun, 'script' | 'runId' | 'summary'>): Promise<Set<string>> {
     const ids = new Set<string>();
-    const kept = await nodeSeedRunCreations(this.journalDir).get(runId);
-    for (const object of kept?.created ?? []) for (const id of object.ids) ids.add(id.slice(0, 15));
-    if (summary !== undefined) {
-      const file = this.store.fileOf(ORG_ID, ENV, summary);
-      if (existsSync(file)) {
-        for (const object of readSeedRun(readFileSync(file, 'utf8')).result.objectResults) {
-          for (const id of object.createdIds) ids.add(id.slice(0, 15));
+    const file =
+      run.summary !== undefined ? this.store.fileOf(ORG_ID, ENV, run.summary) : undefined;
+    if (run.script === 'sandforge-clone') {
+      if (file === undefined || !existsSync(file)) return ids;
+      const text = readFileSync(file, 'utf8');
+      const remap = (JSON.parse(text) as { result: { remapTable: Record<string, string> } }).result
+        .remapTable;
+      for (const object of readForgeRun(text).result.createdByObject) {
+        for (const source of object.sourceIds) {
+          const id = remap[source];
+          if (id !== undefined) ids.add(id.slice(0, 15));
         }
+      }
+      return ids;
+    }
+    const kept =
+      run.runId !== undefined
+        ? await nodeSeedRunCreations(this.journalDir).get(run.runId)
+        : undefined;
+    for (const object of kept?.created ?? []) for (const id of object.ids) ids.add(id.slice(0, 15));
+    if (file !== undefined && existsSync(file)) {
+      for (const object of readSeedRun(readFileSync(file, 'utf8')).result.objectResults) {
+        for (const id of object.createdIds) ids.add(id.slice(0, 15));
       }
     }
     return ids;
@@ -752,10 +875,7 @@ class History {
     const held: Record<string, Record<string, number>> = {};
     for (const resource of this.spec) {
       const current = state?.resources[resource.name]?.runs.at(-1);
-      const ids =
-        current?.runId !== undefined
-          ? await this.idsOfRun(current.runId, current.summary)
-          : new Set<string>();
+      const ids = current !== undefined ? await this.idsOfRun(current) : new Set<string>();
       held[resource.name] = Object.fromEntries(
         OBJECTS.map((object) => [
           object,
@@ -773,6 +893,12 @@ class History {
     switch (op.op) {
       case 'edit': {
         const resource = this.spec[op.at % this.spec.length];
+        if (resource?.kind === 'forge') {
+          // Another group of the source: as many accounts, a contact under each.
+          const group = GROUPS[op.count % GROUPS.length] ?? 1;
+          for (const object of resource.objects) object.count = group;
+          return;
+        }
         const object = resource?.objects[op.object % resource.objects.length];
         if (object === undefined) return;
         const before = object.count;
@@ -948,9 +1074,9 @@ class History {
       expect(kept?.status, `${resource.name}\n${message}`).toBe('applied');
       const run = kept?.runs.at(-1);
       expect(run?.takenBack, message).toBeUndefined();
-      if (run?.runId === undefined) throw new Error(`${resource.name} has no run id\n${message}`);
-      current.add(run.runId);
-      const ids = await this.idsOfRun(run.runId, run.summary);
+      if (run === undefined) throw new Error(`${resource.name} has no run\n${message}`);
+      current.add(keyOfRun(state.lineage, resource.name, run));
+      const ids = await this.idsOfRun(run);
       // A count read by the run's own ids: an object it should not have
       // written shows here, as a count the file does not give.
       for (const object of OBJECTS) {
@@ -999,10 +1125,12 @@ class History {
   private async driftIsSaid(): Promise<void> {
     const state = await this.state();
     const held = new Set(
-      Object.values(state?.resources ?? {})
-        .filter((resource) => resource.status !== 'destroyed')
-        .flatMap((resource) =>
-          resource.runs.filter((run) => run.takenBack !== true).map((run) => run.runId ?? ''),
+      Object.entries(state?.resources ?? {})
+        .filter(([, resource]) => resource.status !== 'destroyed')
+        .flatMap(([name, resource]) =>
+          resource.runs
+            .filter((run) => run.takenBack !== true)
+            .map((run) => keyOfRun(state?.lineage ?? '', name, run)),
         ),
     );
     const touched = [...this.wrote].filter(
@@ -1019,8 +1147,8 @@ class History {
   private async everyRecordTakenBackable(): Promise<void> {
     const state = await this.state();
     const runs = new Map(
-      Object.values(state?.resources ?? {}).flatMap((resource) =>
-        resource.runs.map((run) => [run.runId ?? '', run] as const),
+      Object.entries(state?.resources ?? {}).flatMap(([name, resource]) =>
+        resource.runs.map((run) => [keyOfRun(state?.lineage ?? '', name, run), run] as const),
       ),
     );
     for (const [id, by] of this.liveRecords()) {
@@ -1028,7 +1156,7 @@ class History {
       const message = `${id} of ${by.resource}, run ${by.runId}\n${this.message()}`;
       expect(run, `the state names no run that wrote ${message}`).toBeDefined();
       if (run === undefined) continue;
-      const ids = await this.idsOfRun(by.runId, run.summary);
+      const ids = await this.idsOfRun(run);
       expect(ids.has(id.slice(0, 15)), `no removal can reach ${message}`).toBe(true);
     }
   }
@@ -1056,7 +1184,9 @@ class History {
       if (action.action !== 'create' && action.action !== 'replace') continue;
       const step = result.steps.find((s) => s.resource === action.resource && s.phase === 'run');
       if (step === undefined || step.exitCode !== 0) continue;
-      const runId = state?.resources[action.resource]?.runs.find((r) => r.n === step.run)?.runId;
+      const ran = state?.resources[action.resource]?.runs.find((r) => r.n === step.run);
+      const runId =
+        ran !== undefined ? keyOfRun(state?.lineage ?? '', action.resource, ran) : undefined;
       for (const object of OBJECTS) {
         const counted = action.objects.find((each) => each.object === object);
         const said = step.objects.find((each) => each.object === object)?.created ?? 0;
@@ -1224,7 +1354,12 @@ describe('an environment on the memory org, over random files and histories', ()
 
   it(
     'writes what its plan counted: for each resource it runs, the records created are the plan’s, object by object',
-    () => overHistories(['counts']),
+    async () => {
+      const before = clonesRun;
+      await overHistories(['counts']);
+      // Positive control: the histories cloned from the source, not only seeded.
+      expect(clonesRun).toBeGreaterThan(before);
+    },
     paced(60_000),
   );
 

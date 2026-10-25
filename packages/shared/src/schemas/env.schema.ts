@@ -6,6 +6,7 @@ import {
   checkpointIgnoredFieldsSchema,
   checkpointOrganizationIdSchema,
 } from './checkpoint.schema.js';
+import { forgeAnonymizationRulesSchema, forgeDepthSchema } from './forge.schema.js';
 import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
 
 /**
@@ -37,9 +38,9 @@ import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js'
  * {@link secretKeysIn} and {@link envRefsIn} find each one, so a refusal can
  * say where the thing goes instead.
  *
- * Version 1 holds the `seed` kind of resource. `targets` and `checkpoint`
- * are read and checked; what they ask is applied by the guards and the
- * checkpoint steps.
+ * Version 1 holds the `seed` and `forge` kinds of resource. `targets` and
+ * `checkpoint` are read and checked; what they ask is applied by the guards
+ * and the checkpoint steps.
  */
 
 // ─── Names and values ───────────────────────────────────────────────────────
@@ -370,24 +371,176 @@ export const envSeedResourceSchema = strictObject('a seed resource', {
   });
 });
 
+// ─── The file: the forge kind ────────────────────────────────────────────────
+
+/** A record's id, 15 or 18 characters: the source's, which the file names a long-lived record by. */
+const recordIdSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/, {
+  error: 'A record id is 15 or 18 letters and digits',
+});
+
+/**
+ * A SOQL condition, written without WHERE, held as the clone holds its
+ * `--where`: 512 characters at most, no comment marker and no trailing `;`,
+ * which would end the statement it goes into; and never starting with `-`,
+ * which a script's line would read as a flag.
+ */
+const whereClauseSchema = z
+  .string()
+  .trim()
+  .min(1, { error: 'A condition is not empty' })
+  .max(512, { error: 'A condition is 512 characters at most, as the clone takes one' })
+  .refine((where) => !/--|\/\*|\*\/|;\s*$/.test(where) && !where.startsWith('-'), {
+    error:
+      'A condition holds no comment marker (--, /*, */), ends with no ; and does not start with -',
+  });
+
+/**
+ * A path the file names, from the folder it is in: never absolute, never up
+ * out of that folder, so the file reads the same in every checkout of the
+ * repository and names nothing outside it.
+ */
+const relativePathSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine(
+    (path) =>
+      !/^(?:[\\/]|[A-Za-z]:)/.test(path) && !path.split(/[\\/]/).some((part) => part === '..'),
+    { error: 'A path is written from the folder of the file, never absolute and never up with ..' },
+  );
+
+/**
+ * The record a forge resource clones: by its id, for a source that lives on,
+ * or by its object and a condition its source answers with exactly one row,
+ * read at each plan, for a source made again: the same case of a scratch org
+ * made again tomorrow has another id.
+ */
+const forgeRecordFileSchema = strictObject('a record', {
+  id: recordIdSchema.optional(),
+  object: apiNameSchema.optional(),
+  where: whereClauseSchema.optional(),
+}).superRefine((record, ctx) => {
+  const byId = record.id !== undefined;
+  const byQuery = record.object !== undefined || record.where !== undefined;
+  if (byId === byQuery) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message:
+        'A record is named by its id, or by its object and a where its source answers with ' +
+        'exactly one row: give one of them',
+    });
+  } else if (byQuery && (record.object === undefined || record.where === undefined)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [record.object === undefined ? 'object' : 'where'],
+      message: 'A record named by a query gives its object and its where both',
+    });
+  }
+});
+
+/** A table a forge resource clones whole, under its condition. */
+const forgeTableFileSchema = strictObject('a table', {
+  object: apiNameSchema,
+  where: whereClauseSchema.optional(),
+});
+
+/** An entry of a Forge templates file, as the Template tab saves them, by its id. */
+const forgeTemplateRefFileSchema = strictObject('a template', {
+  file: relativePathSchema,
+  id: z.string().min(1).max(200),
+});
+
+/** Forge's anonymization, as a template holds it, held strict. */
+const forgeAnonymizeFileSchema = strictObject('anonymize', {
+  presetId: z.string().min(1).max(100).optional(),
+  rules: forgeAnonymizationRulesSchema,
+  fields: z
+    .array(
+      strictObject('the personal fields of an object', {
+        objectApiName: apiNameSchema,
+        fieldNames: z.array(apiNameSchema).max(500),
+      }),
+    )
+    .max(2_000)
+    .optional(),
+});
+
+/** The most tables one forge resource clones, as discovery's graph holds them. */
+export const ENV_FORGE_MAX_TABLES = 50;
+
+export const envForgeResourceSchema = strictObject('a forge resource', {
+  kind: z.literal('forge'),
+  ...commonResourceShape,
+  /** The org role it clones from: a key of the file's orgs, never the target. */
+  source: envNameSchema,
+  /** One record and what discovery reaches from it. */
+  record: forgeRecordFileSchema.optional(),
+  /** Whole tables, the first the one discovery starts from. */
+  tables: z.array(forgeTableFileSchema).min(1).max(ENV_FORGE_MAX_TABLES).optional(),
+  /** A template the Template tab saved: its decisions, exclusions, filters and mappings. */
+  template: forgeTemplateRefFileSchema.optional(),
+  depth: forgeDepthSchema.optional(),
+  customDepth: z.number().int().positive().max(10).optional(),
+  maxNodes: z.number().int().min(10).max(500).optional(),
+  anonymize: forgeAnonymizeFileSchema.optional(),
+  keepContactPoints: z.boolean().optional(),
+  /** The most records a run of it may write; each run is held to its plan's count below it. */
+  maxTotal: z.number().int().positive().max(1_000_000).optional(),
+}).superRefine((resource, ctx) => {
+  if ((resource.record === undefined) === (resource.tables === undefined)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [],
+      message:
+        'A forge resource clones one record (record) or whole tables (tables): give one of them',
+    });
+  }
+  const seen = new Set<string>();
+  (resource.tables ?? []).forEach((table, index) => {
+    if (seen.has(table.object)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tables', index, 'object'],
+        message: `${table.object} is listed twice: a table is listed once, with its condition`,
+      });
+    }
+    seen.add(table.object);
+  });
+  if (resource.customDepth !== undefined && (resource.depth ?? 'custom') !== 'custom') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['customDepth'],
+      message: `customDepth goes with depth: custom, not depth: ${resource.depth ?? ''}`,
+    });
+  }
+});
+
 /** Kinds that come with a later version of the file. */
-const LATER_KINDS: readonly string[] = ['forge', 'frozen', 'mask'];
+const LATER_KINDS: readonly string[] = ['frozen', 'mask'];
+
+/** The kinds this version applies, as a refusal names them. */
+const KINDS_APPLIED = 'seed and forge resources';
 
 /** A resource of the file, told apart by its `kind`. */
-export const envResourceSchema = z.discriminatedUnion('kind', [envSeedResourceSchema], {
-  error: (issue) => {
-    const input = issue.input;
-    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-      return 'A resource is a mapping of keys, starting with its kind: kind: seed';
-    }
-    const kind = (input as Record<string, unknown>)['kind'];
-    if (kind === undefined) return 'A resource says its kind: kind: seed';
-    if (typeof kind === 'string' && LATER_KINDS.includes(kind)) {
-      return `Resources of kind ${kind} come with a later SandForge: this one applies seed resources`;
-    }
-    return `"${String(kind)}" is not a kind of resource: this SandForge applies seed resources`;
+export const envResourceSchema = z.discriminatedUnion(
+  'kind',
+  [envSeedResourceSchema, envForgeResourceSchema],
+  {
+    error: (issue) => {
+      const input = issue.input;
+      if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return 'A resource is a mapping of keys, starting with its kind: kind: seed';
+      }
+      const kind = (input as Record<string, unknown>)['kind'];
+      if (kind === undefined) return 'A resource says its kind: kind: seed';
+      if (typeof kind === 'string' && LATER_KINDS.includes(kind)) {
+        return `Resources of kind ${kind} come with a later SandForge: this one applies ${KINDS_APPLIED}`;
+      }
+      return `"${String(kind)}" is not a kind of resource: this SandForge applies ${KINDS_APPLIED}`;
+    },
   },
-});
+);
 
 /** The most resources one file holds, and the most org roles. */
 export const ENV_MAX_RESOURCES = 100;
@@ -427,6 +580,21 @@ export const envFileSchema = strictObject('the file', {
       code: 'custom',
       path: ['orgs'],
       message: `A file names ${ENV_MAX_ORG_ROLES} org roles at most`,
+    });
+  }
+  // The org a forge resource clones from is named by a role the file
+  // declares, its alias given there or on the line: never by an alias of its
+  // own, which a pipeline could not point at another org.
+  const roles = Object.keys(file.orgs);
+  for (const [name, resource] of Object.entries(file.resources)) {
+    if (resource.kind !== 'forge' || roles.includes(resource.source)) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['resources', name, 'source'],
+      message:
+        `"${resource.source}" is no org role of the file: declare it under orgs, as ` +
+        `orgs: { ${resource.source}: { alias: { env: … } } }` +
+        (roles.length > 0 ? ` (its roles are ${roles.join(', ')})` : ''),
     });
   }
 });
@@ -799,7 +967,12 @@ export const envValidationSchema = z.strictObject({
         name: envNameSchema,
         kind: envResourceKindSchema,
         dependsOn: z.array(envNameSchema).max(50),
-        objects: z.array(z.strictObject({ object: apiNameSchema, count: countSchema })).max(1_000),
+        /** The org role a forge resource clones from. */
+        source: envNameSchema.optional(),
+        /** The objects it writes; a forge resource's are counted by its dry run alone. */
+        objects: z
+          .array(z.strictObject({ object: apiNameSchema, count: countSchema.optional() }))
+          .max(1_000),
       }),
     )
     .max(ENV_MAX_RESOURCES)

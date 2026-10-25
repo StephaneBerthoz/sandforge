@@ -325,7 +325,7 @@ describe('checking the file', () => {
       expect.stringMatching(/^resources\.accounts: "dry_run" is not a key of a seed resource/),
     ]);
     expect(refusedWith(fileWith(['resources', 'claims'], { kind: 'frozen' }))).toEqual([
-      'resources.claims.kind: Resources of kind frozen come with a later SandForge: this one applies seed resources',
+      'resources.claims.kind: Resources of kind frozen come with a later SandForge: this one applies seed and forge resources',
     ]);
     expect(
       refusedWith(fileWith(['resources', 'api-token'], { kind: 'seed', template: 'x' })),
@@ -363,9 +363,11 @@ describe('checking the file', () => {
     );
     const demo = PREBUILT_SEED_TEMPLATES.find((t) => t.id === 'prebuilt-minimal-demo');
 
-    expect(builtIn.runs['demo']?.template.objects).toEqual(demo?.objects);
-    expect(builtIn.runs['demo']?.template.relations).toEqual(demo?.relations);
-    expect(builtIn.runs['demo']?.template.objects).not.toBe(demo?.objects);
+    const run = builtIn.runs['demo'];
+    if (run?.kind !== 'seed') throw new Error('demo is a seed resource');
+    expect(run.template.objects).toEqual(demo?.objects);
+    expect(run.template.relations).toEqual(demo?.relations);
+    expect(run.template.objects).not.toBe(demo?.objects);
     expect(
       refusedWith(fileWith(['resources'], { demo: { kind: 'seed', template: 'crm' } })),
     ).toEqual([
@@ -573,6 +575,102 @@ describe('fingerprints', () => {
 
     expect(resolved(file(), { SF_UAT_ALIAS: 'OTHER-SRC' }).digest).not.toBe(digest);
     expect(resolved(fileWith(['description'], 'x')).digest).not.toBe(digest);
+  });
+});
+
+describe('a forge resource in the file', () => {
+  /** The file with a forge resource cloning marked accounts from the uat role, which the contacts follow. */
+  function withForge(resource: Record<string, unknown> = {}): Record<string, unknown> {
+    const document = file();
+    const resources = document['resources'] as Record<string, Record<string, unknown>>;
+    return {
+      ...document,
+      resources: {
+        cloned: {
+          kind: 'forge',
+          source: 'uat',
+          tables: [{ object: 'Account', where: "Name LIKE 'SFENV%'" }],
+          ...resource,
+        },
+        ...resources,
+        contacts: { ...resources['contacts'], dependsOn: ['accounts', 'cloned'] },
+      },
+    };
+  }
+  const SOURCE = { organizationId: '00D000000000008AAA' };
+
+  function forgeResolved(
+    document: unknown,
+    sources: Record<string, { organizationId: string; recordId?: string } | { refusal: string }> = {
+      cloned: SOURCE,
+    },
+    aliases: Record<string, string> = {},
+  ): EnvFileResolved {
+    const result = readEnvFile(document, FOLDER, ENV, { now: NOW, sources, aliases });
+    if ('refusals' in result) throw new Error(result.refusals.map(refusalLine).join('\n'));
+    return result.resolved;
+  }
+
+  it('converts it beside the seeds, each by its kind, the order taking both', () => {
+    const read = checked(withForge());
+
+    expect(read.order).toEqual(['cloned', 'accounts', 'contacts']);
+    expect(read.runs['cloned']).toMatchObject({
+      kind: 'forge',
+      source: 'uat',
+      tables: [{ object: 'Account', where: "Name LIKE 'SFENV%'" }],
+      template: {
+        config: { inputMode: 'soql', soqlQuery: "SELECT Id FROM Account WHERE Name LIKE 'SFENV%'" },
+      },
+    });
+    expect(read.runs['accounts']?.kind).toBe('seed');
+  });
+
+  it('resolves its source’s alias, and keeps what the plan read of the source with it', () => {
+    const resource = forgeResolved(withForge()).resources[0];
+
+    expect(resource).toMatchObject({
+      name: 'cloned',
+      kind: 'forge',
+      source: { role: 'uat', alias: 'SRC-ORG', read: SOURCE },
+    });
+    const unread = resolved(withForge()).resources[0];
+    expect(unread?.kind === 'forge' ? unread.source.read : 'not a forge resource').toBeUndefined();
+  });
+
+  it('fingerprints it by the org its alias reaches, never the alias, and chains what depends on it', () => {
+    const fingerprints = (resolvedFile: EnvFileResolved) =>
+      Object.fromEntries(resolvedFile.resources.map((r) => [r.name, r.fingerprint]));
+    const first = fingerprints(forgeResolved(withForge()));
+    const renamed = fingerprints(
+      forgeResolved(withForge(), { cloned: SOURCE }, { uat: 'OTHER-ALIAS' }),
+    );
+    const moved = fingerprints(
+      forgeResolved(withForge(), { cloned: { organizationId: '00D000000000007AAA' } }),
+    );
+
+    expect(renamed).toEqual(first);
+    expect(moved['cloned']).not.toBe(first['cloned']);
+    // The contacts depend on it: its records move, so do theirs.
+    expect(moved['contacts']).not.toBe(first['contacts']);
+    expect(moved['accounts']).toBe(first['accounts']);
+  });
+
+  it('fingerprints a record named by a query by the record it resolved to', () => {
+    const byQuery = withForge({
+      tables: undefined,
+      record: { object: 'Case', where: "CaseNumber = '1'" },
+    });
+    const one = forgeResolved(byQuery, { cloned: { ...SOURCE, recordId: '500000000000001AAA' } });
+    const other = forgeResolved(byQuery, { cloned: { ...SOURCE, recordId: '500000000000002AAA' } });
+
+    expect(one.resources[0]?.fingerprint).not.toBe(other.resources[0]?.fingerprint);
+  });
+
+  it('refuses a resource the forge module refuses, where the file names it', () => {
+    expect(refusedWith(withForge({ template: { file: 'none.json', id: 't' } }))).toEqual([
+      expect.stringMatching(/^resources\.cloned\.template: none\.json cannot be read: /),
+    ]);
   });
 });
 

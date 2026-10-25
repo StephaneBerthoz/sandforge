@@ -304,6 +304,28 @@ describe('writing a state', () => {
     );
   });
 
+  it('makes the folders of a file a script writes itself, its owner’s alone, and writes nothing there', async () => {
+    const store = storeOf();
+
+    const file = await store.prepareFile(ORG, 'case-flow', runSummaryPathOf('cloned', 1));
+
+    expect(file).toBe(join(store.folderOf(ORG, 'case-flow'), 'runs', 'cloned', '1.summary.json'));
+    expect(readdirSync(join(store.folderOf(ORG, 'case-flow'), 'runs', 'cloned'))).toEqual([]);
+    if (POSIX) {
+      expect(statSync(join(store.folderOf(ORG, 'case-flow'), 'runs', 'cloned')).mode & 0o777).toBe(
+        0o700,
+      );
+    }
+    await expectRefused(store.prepareFile(ORG, 'case-flow', '../state.json'), 'invalid');
+    const { journalDir } = project();
+    const opened = openEnvStore({ journalDir, fileFolder: null });
+    if (!('store' in opened)) throw new Error('refused');
+    await expectRefused(
+      opened.store.prepareFile(ORG, 'case-flow', runSummaryPathOf('cloned', 1)),
+      'invalid',
+    );
+  });
+
   it('keeps the state and its folders its owner’s alone', async () => {
     const store = storeOf();
 

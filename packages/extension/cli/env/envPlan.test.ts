@@ -35,7 +35,7 @@ import {
   type EnvRunPreview,
 } from './envPlan.js';
 import { openEnvStore, stepEnded, type EnvStore } from './envState.js';
-import type { SeedDryRunAnswer } from './envSteps.js';
+import type { SeedDryRunAnswer } from './kinds/seed.js';
 
 /*
  * The plan, on the memory org: every action a plan gives, each from what the
@@ -469,7 +469,9 @@ const CASES: PlanCase[] = [
       const dryRuns = Object.fromEntries(
         Object.entries(dry).map(([name, run]) => [
           name,
-          'answer' in run ? { answer: sending(run.answer, 10) } : run,
+          'answer' in run && run.answer.tool === 'sandforge-seed'
+            ? { answer: sending(run.answer, 10) }
+            : run,
         ]),
       );
       return { resolved, over: { dryRuns } };
@@ -782,5 +784,99 @@ describe('the plan of a destroy', () => {
       'accounts: a removal of its runs would be refused now: TGT runs a flow as accounts are ' +
         'deleted. Nothing was deleted.',
     );
+  });
+});
+
+describe('the plan of a forge resource', () => {
+  /** A file cloning marked accounts from the uat role. */
+  const forgeDocument = {
+    version: 1,
+    name: 'case-flow',
+    orgs: { uat: { alias: 'SRC' } },
+    resources: {
+      cloned: {
+        kind: 'forge',
+        source: 'uat',
+        tables: [{ object: 'Account', where: "Name = 'SFENV'" }],
+      },
+    },
+  };
+
+  /** The file, its source read as `read` says, or not read at all. */
+  function forgeResolved(read?: { organizationId: string } | { refusal: string }): EnvFileResolved {
+    const result = readEnvFile(
+      forgeDocument,
+      fileFolder,
+      {},
+      read !== undefined ? { sources: { cloned: read } } : {},
+    );
+    if ('refusals' in result) throw new Error(JSON.stringify(result.refusals));
+    return result.resolved;
+  }
+
+  /** A clone's dry run that counts two accounts, `wouldBeRefused` what it says a real run would meet. */
+  function dryRunOf(wouldBeRefused?: string[]): EnvDryRun {
+    return {
+      answer: {
+        tool: 'sandforge-clone',
+        version: 1,
+        dryRun: true,
+        result: { wouldInsertCount: 2, failedCount: 0 },
+        writePlan: {
+          totalRows: 2,
+          storageBytes: 4096,
+          objects: [{ objectApiName: 'Account', rows: 2, storageBytes: 4096 }],
+        },
+        ...(wouldBeRefused !== undefined ? { wouldBeRefused } : {}),
+      },
+    };
+  }
+
+  const planWith = (resolved: EnvFileResolved, dryRuns: Record<string, EnvDryRun> = {}) =>
+    envPlan({ resolved, org: ORG, state: undefined, previews: {}, dryRuns, budget: BUDGET });
+
+  it('blocks a resource whose source the plan did not read, or could not, before any dry run', () => {
+    const unread = planWith(forgeResolved());
+    const refused = planWith(
+      forgeResolved({ refusal: 'the uat org (SRC) could not be reached: expired' }),
+    );
+
+    expect(unread.actions[0]).toMatchObject({
+      kind: 'forge',
+      action: 'blocked',
+      refusal: 'its source, the uat org, was not read: plan again',
+    });
+    expect(refused.actions[0]?.refusal).toBe('the uat org (SRC) could not be reached: expired');
+  });
+
+  it('counts what its dry run’s gate counts, and leaves its requests out of the sum, saying so', () => {
+    const plan = planWith(forgeResolved({ organizationId: '00D000000000008AAA' }), {
+      cloned: dryRunOf(),
+    });
+
+    expect(plan.actions[0]).toMatchObject({
+      action: 'create',
+      objects: [{ object: 'Account', wouldCreate: 2 }],
+      gates: { storageBytes: 4096, emails: [] },
+    });
+    expect(plan.actions[0]?.gates).not.toHaveProperty('apiRequests');
+    expect(plan.gates.apiRequests).toMatchObject({
+      estimate: 0,
+      partial: true,
+      notCounted: ['the requests of the run of cloned, which its script does not estimate'],
+    });
+    expect(plan.gates.storage.bytes).toBe(4096);
+  });
+
+  it('blocks a resource its own dry run says a real run would be refused, in the clone’s words', () => {
+    const plan = planWith(forgeResolved({ organizationId: '00D000000000008AAA' }), {
+      cloned: dryRunOf(['The run would write 2 records, more than --max-total 1.']),
+    });
+
+    expect(plan.actions[0]).toMatchObject({
+      action: 'blocked',
+      refusal:
+        'its own dry run says a real run would be refused: The run would write 2 records, more than --max-total 1.',
+    });
   });
 });

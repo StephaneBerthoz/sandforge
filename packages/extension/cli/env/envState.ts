@@ -535,6 +535,27 @@ export class EnvStore {
     return file;
   }
 
+  /**
+   * Make the folders of a file of a state's folder that a script writes
+   * itself — a forge run's summary, which the clone writes as it goes — its
+   * owner's alone, and give the file's path. Nothing is written: a file
+   * already there is left as it is, and the clone refuses to write over it.
+   *
+   * @throws {EnvStateError} as {@link writeFile} does.
+   */
+  async prepareFile(organizationId: string, env: string, relativePath: string): Promise<string> {
+    if (this.fileFolder === null) {
+      throw new EnvStateError('invalid', 'The states were opened to be listed, not written');
+    }
+    const file = this.fileOf(organizationId, env, relativePath);
+    const folder = this.folderOf(organizationId, env);
+    for (const dir of [dirname(folder), folder, dirname(file)]) {
+      const refusal = openFolder(dir, this.uid);
+      if (refusal !== undefined) throw new EnvStateError('folder', refusal);
+    }
+    return file;
+  }
+
   /** Delete an environment's folder, its state with it: a destroy ended clean, or a state forgotten. */
   async remove(organizationId: string, env: string): Promise<boolean> {
     const folder = this.folderOf(organizationId, env);

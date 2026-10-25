@@ -4,15 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 
-vi.mock('../../src/logger.js', () => ({
+vi.mock('../../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('../sfSession.js', () => ({
+vi.mock('../../sfSession.js', () => ({
   loadOrg: vi.fn(async (alias: string) => ({ alias })),
   makeConn: vi.fn(),
 }));
-vi.mock('../sandforge-clone.js', async (original) => ({
-  ...(await original<typeof import('../sandforge-clone.js')>()),
+vi.mock('../../sandforge-clone.js', async (original) => ({
+  ...(await original<typeof import('../../sandforge-clone.js')>()),
   targetAutomationReader: vi.fn(() => ({
     read: async () => ({
       objectsRead: [],
@@ -24,19 +24,18 @@ vi.mock('../sandforge-clone.js', async (original) => ({
     }),
   })),
 }));
-vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
-  ...(await original<typeof import('../../src/modules/forge/ForgeRunRemoval.js')>()),
+vi.mock('../../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
+  ...(await original<typeof import('../../../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
 }));
 
-import { makeConn } from '../sfSession.js';
-import { removalOrg } from '../../src/modules/forge/ForgeRunRemoval.js';
-import { MemoryRemovalOrg } from '../../src/test/memoryRemovalOrg.js';
-import { main, parseArgs, parseRemoveArgs } from '../sandforge-seed.js';
+import { makeConn } from '../../sfSession.js';
+import { removalOrg } from '../../../src/modules/forge/ForgeRunRemoval.js';
+import { MemoryRemovalOrg } from '../../../src/test/memoryRemovalOrg.js';
+import { main, parseArgs, parseRemoveArgs } from '../../sandforge-seed.js';
+import { ANSWER_EXCERPT_CHARS, StepAnswerError } from './common.js';
 import {
-  ANSWER_EXCERPT_CHARS,
   SEED_SCRIPT,
-  StepAnswerError,
   readSeedDryRun,
   readSeedPreview,
   readSeedRemoval,
@@ -45,7 +44,7 @@ import {
   seedDryRunLine,
   seedPreviewLine,
   seedRemoveLine,
-} from './envSteps.js';
+} from './seed.js';
 
 /*
  * A seed resource's lines are read by the seed's own parsers, and its

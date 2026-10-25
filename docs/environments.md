@@ -2,9 +2,9 @@
 
 A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge-env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by `sandforge-seed`, run in a process of its own with `--json`, and taken back by the seed's own removal: every guard, gate and run file of the seed holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own.
 
-This version applies **seed resources** alone: records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own. [Not yet](#not-yet) says what it does not do.
+This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own -- and **forge resources**: records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)). [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
@@ -22,7 +22,7 @@ The script runs from the checkout, so `--file` names your project's file; withou
 - **`version: 1`** at the top. A file written for a later SandForge is refused.
 - **No secret.** A key shaped like a secret -- `password`, `token`, `secret`, `authUrl`, `privateKey`, `apiKey`, `salt`, and their spellings -- is refused wherever it stands: org credentials stay with the `sf` CLI. A value comes from the process environment only where the file writes `{ env: NAME }`, and that is the alias of an org role alone.
 - **The org to fill is never in the file.** `--org` names it, on every command that reaches an org, so one file fills `pool-1`, `pool-2` and your own scratch org alike.
-- **Two checks.** The file is held to its own schema, then each resource is turned into a Seed template and held to Seed's own schema and rules, as the Seed panel's are: what `validate` accepts is what the seed is given.
+- **Two checks.** The file is held to its own schema, then each resource is turned into its module's payload: a seed resource into a Seed template, held to Seed's own schema and rules, as the Seed panel's are; a forge resource into a Forge template, held to Forge's own template schema, as the clone reads a template file. What `validate` accepts is what the script is given.
 
 ### An example
 
@@ -64,21 +64,49 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 
 ### Every key
 
-| Where                                       | Keys                                                                                | What they hold                                                                                                                                                                                                                                                 |
-| ------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the file                                    | `version`, `name`, `description`, `targets`, `orgs`, `checkpoint`, `resources`      | `version: 1`; `name`, lower-case letters, digits and dashes, which names the state; `resources`, by name                                                                                                                                                       |
-| `targets`                                   | `kinds`, `sandboxes`, `protect`                                                     | the kinds of org it may be applied to, `scratch` and `developer` unless it says otherwise; the Organization Ids of the sandboxes it may write to, with `sandbox` among the kinds; the Organization Ids it refuses whatever else says                           |
-| `orgs.<role>`                               | `alias`                                                                             | an sf CLI alias, or `{ env: NAME }`, the variable that holds one; `--alias <role>=<alias>` wins over it; an unset variable refuses every command but `validate`, exit `2`. No seed resource names a role                                                       |
-| `checkpoint`                                | `before`, `after`, `ignoreFields`                                                   | read and checked, [not yet](#not-yet) taken                                                                                                                                                                                                                    |
-| `resources.<name>`                          | `kind`, `dependsOn`, `accept`, `template`, `objects`, `relations`, `locale`, `seed` | `kind: seed`; the resources applied before it; `template`, the id of one of Seed's built-in templates, or `objects` and `relations` of its own, not both; `locale`, the country names and addresses are drawn for, the org's own without it; `seed`, the draws |
-| `resources.<name>.accept`                   | `automation`                                                                        | `true`: the `--accept-automation` of the line, for this resource, reviewed in the file                                                                                                                                                                         |
-| `resources.<name>.objects[]`                | `object`, `count`, `fields`, `recordTypes`, `batchSize`                             | an object, listed once; how many records; Seed's field rules, as the Seed panel saves them ([Generated values](modules/seed.md#generated-values)); record types by API name, several taking turns at random                                                    |
-| `resources.<name>.relations[]`              | `lookup`, `parents`, `distribution`                                                 | a lookup named with its object, as `Contact.AccountId`; where its parents come from; how many children each one gets                                                                                                                                           |
-| `resources.<name>.relations[].parents`      | `object`, `existing`                                                                | the parent object: the records this resource writes of it, or, with `existing`, records the org holds                                                                                                                                                          |
-| `….parents.existing`                        | `where`, `limit`                                                                    | a SOQL condition, without `WHERE`; how many parents at most                                                                                                                                                                                                    |
-| `resources.<name>.relations[].distribution` | `mode`, `count`, `min`, `max`, `ratio`                                              | `perParent` with `count`, `range` with `min` and `max`, or `ratio` with `ratio`                                                                                                                                                                                |
+| Where                                       | Keys                                                                                                                                                      | What they hold                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the file                                    | `version`, `name`, `description`, `targets`, `orgs`, `checkpoint`, `resources`                                                                            | `version: 1`; `name`, lower-case letters, digits and dashes, which names the state; `resources`, by name                                                                                                                                                                                                                                          |
+| `targets`                                   | `kinds`, `sandboxes`, `protect`                                                                                                                           | the kinds of org it may be applied to, `scratch` and `developer` unless it says otherwise; the Organization Ids of the sandboxes it may write to, with `sandbox` among the kinds; the Organization Ids it refuses whatever else says                                                                                                              |
+| `orgs.<role>`                               | `alias`                                                                                                                                                   | an sf CLI alias, or `{ env: NAME }`, the variable that holds one; `--alias <role>=<alias>` wins over it; an unset variable refuses every command but `validate`, exit `2`. A forge resource names one as its `source`                                                                                                                             |
+| `checkpoint`                                | `before`, `after`, `ignoreFields`                                                                                                                         | read and checked, [not yet](#not-yet) taken                                                                                                                                                                                                                                                                                                       |
+| `resources.<name>`                          | `kind`, `dependsOn`, `accept`, `template`, `objects`, `relations`, `locale`, `seed`                                                                       | `kind: seed`; the resources applied before it; `template`, the id of one of Seed's built-in templates, or `objects` and `relations` of its own, not both; `locale`, the country names and addresses are drawn for, the org's own without it; `seed`, the draws                                                                                    |
+| `resources.<name>.accept`                   | `automation`                                                                                                                                              | `true`: the `--accept-automation` of the line, for this resource, reviewed in the file                                                                                                                                                                                                                                                            |
+| `resources.<name>.objects[]`                | `object`, `count`, `fields`, `recordTypes`, `batchSize`                                                                                                   | an object, listed once; how many records; Seed's field rules, as the Seed panel saves them ([Generated values](modules/seed.md#generated-values)); record types by API name, several taking turns at random                                                                                                                                       |
+| `resources.<name>.relations[]`              | `lookup`, `parents`, `distribution`                                                                                                                       | a lookup named with its object, as `Contact.AccountId`; where its parents come from; how many children each one gets                                                                                                                                                                                                                              |
+| `resources.<name>.relations[].parents`      | `object`, `existing`                                                                                                                                      | the parent object: the records this resource writes of it, or, with `existing`, records the org holds                                                                                                                                                                                                                                             |
+| `….parents.existing`                        | `where`, `limit`                                                                                                                                          | a SOQL condition, without `WHERE`; how many parents at most                                                                                                                                                                                                                                                                                       |
+| `resources.<name>.relations[].distribution` | `mode`, `count`, `min`, `max`, `ratio`                                                                                                                    | `perParent` with `count`, `range` with `min` and `max`, or `ratio` with `ratio`                                                                                                                                                                                                                                                                   |
+| `resources.<name>`, `kind: forge`           | `kind`, `dependsOn`, `accept`, `source`, `record`, `tables`, `template`, `depth`, `customDepth`, `maxNodes`, `anonymize`, `keepContactPoints`, `maxTotal` | `kind: forge`; `source`, the org role it clones from; `record` or `tables`, not both; `template`, an entry of the project's templates file; the clone's depth, its custom depth and its cap of objects; Forge's anonymization; `keepContactPoints`, to write emails and phone numbers as read; `maxTotal`, the most records a run of it may write |
+| `resources.<name>.record`                   | `id`, `object`, `where`                                                                                                                                   | the record it clones and what hangs from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan                                                                                                                                                                                             |
+| `resources.<name>.tables[]`                 | `object`, `where`                                                                                                                                         | a table it clones whole, the first the one discovery starts from; a SOQL condition, without `WHERE`, every row without it                                                                                                                                                                                                                         |
+| `resources.<name>.template`                 | `file`, `id`                                                                                                                                              | a templates file of the project, from the file's folder, as `.sandforge/forge-templates.json`; the id of the template it takes the decisions, exclusions, filters and mappings of                                                                                                                                                                 |
+| `resources.<name>.anonymize`                | `presetId`, `rules`, `fields`                                                                                                                             | Forge's anonymization, as a template holds it: the method of each category, and the personal fields of each object                                                                                                                                                                                                                                |
 
 A built-in template is one of `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` and `prebuilt-sales-cloud-starter`, the templates of Seed's gallery. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote.
+
+### A forge resource
+
+```yaml
+orgs:
+  uat: { alias: { env: SF_UAT_ALIAS } } # the org it clones from, never the org to fill
+
+resources:
+  bug-1234:
+    kind: forge
+    source: uat
+    record: { object: Case, where: "CaseNumber = '00001026'" } # exactly one row, read at each plan
+    template: { file: .sandforge/forge-templates.json, id: case-with-history }
+    maxTotal: 500
+```
+
+A forge resource is cloned by [`sandforge-clone`](forge-reference.md#the-command-line) from the org its `source` role names, into the org to fill: one `record` and what discovery reaches from it, or whole `tables`, each under its condition. It is turned into a Forge template -- the entry of the project's templates file it names, the file's `depth`, caps, anonymization and contact points over it -- and the clone is given that template with the record or the tables beside it.
+
+- **The record of a query is read at each plan**, on the source: no row, or more than one, blocks the resource with the count. A scratch org made again gives the same case another id, which a record named by its `id` could not follow.
+- **The source by its Organization Id.** What the resource's fingerprint is of names the org its role's alias reaches, and the record its query resolved to, never the alias: an alias pointed at another org replaces it, one renamed keeps it. A source that is the org to fill is refused.
+- **Held to its plan's count.** The plan dry-runs the clone and keeps the count its gate gives, and the run is held to it as the most records it may write in all: a source that grew between the plan and the run is refused before its first write, and nothing is written. `maxTotal` is the most the file lets a run write, which the dry run is held to.
+- **Verified.** Once a run ended, the clone's own verification reads back from the org filled what it created, and checks its lookups on a sample against the source: records not there, or lookups that do not hold, leave it partial, and readings that never agree end the apply with `4`.
+- **Taken back by the clone's own removal**, from the summary the run wrote beside the state as it went: a run stopped part way is taken back from what its summary says it had created, then run again.
 
 ## A walk through
 
@@ -336,8 +364,8 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-env.ts <command> [--file <sandforge.yaml>] --org <alias> [options]
 
 Commands:
-  validate  check the file, offline: its schema, each resource against Seed's own rules, the
-            order of the resources, the variables it names; reaches no org
+  validate  check the file, offline: its schema, each resource against its module's own rules,
+            the order of the resources, the variables it names; reaches no org
   plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
             it is blocked; what an earlier apply left there and what changed since; per object the
             records it would write; the API requests, storage and emails it takes; writes nothing
@@ -383,6 +411,12 @@ The file holds no secret: org credentials stay with the sf CLI. A value comes fr
 only where the file writes { env: NAME }. The org to fill is never in the file. A resource's
 accept: { automation: true } is the file's --accept-automation for that resource.
 
+A forge resource clones from the org its source names: a role of the file's orgs, its alias
+given there, in a { env: NAME } variable or with --alias. A record named by a query is the one
+row its source answers, read at each plan. Each forge run is held to the count its dry run gave
+the plan: a source that grew since is refused, not written. Once it ended, the clone verifies
+what it created: records not there, or lookups that do not hold, leave it partial.
+
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
 sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
@@ -390,10 +424,10 @@ apart by the Dev Hub the sf CLI names for it; one it names none for is taken for
 
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
-beside the run files of the seeds it ran. That folder must be outside the repository that holds
-the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch
-org's state is deleted 30 days after its last write. Two machines applying to one org at once are
-not kept apart: give the jobs one concurrency group.
+beside the run files of the seeds and clones it ran. That folder must be outside the repository
+that holds the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org.
+A scratch org's state is deleted 30 days after its last write. Two machines applying to one org
+at once are not kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
 whole, or nothing to do; destroy: every record taken back); 1 refused before it read or wrote — a
@@ -404,8 +438,8 @@ the org has left —, or nothing written; 2 a bad command line, a file that does
 variable not set, the journal directory inside the file's repository, a question with no
 terminal (give --yes); 3 partial (apply: a resource partial, or failed after others wrote;
 destroy: records left, each with why; plan with --fail-on-change or --fail-on-drift: changes or
-drift found); 4 unstable; 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
-takes up from the state.
+drift found); 4 unstable (a forge run's verification found records still changing); 130, 143, 129
+Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it takes up from the state.
 ```
 
 ## What is refused
@@ -500,7 +534,7 @@ What `apply` keeps of the org: **ids, counts and dates, never a record's values*
 
 ## What destroy takes back, and what it leaves
 
-Each resource is taken back by the seed's own removal, the last applied first, into the recycle bin. What it cannot take back it names, exits `3`, and keeps in the state for the next destroy:
+Each resource is taken back by its script's own removal, the last applied first, into the recycle bin. What it cannot take back it names, exits `3`, and keeps in the state for the next destroy:
 
 - **Records changed since the apply**, kept unless `--include-changed`, which takes them, and what was created under them since: on a CI scratch org, what you want; on a shared sandbox, a colleague's work, which the question says.
 - **Records that stay because records of the org depend on them.**
@@ -513,7 +547,7 @@ A destroy is not undone as a whole: children deleted before their parent cannot 
 
 ## Stopped part way
 
-Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the run under way before its next call to the org, and the command exits `130`, `143` or `129`. The state named the run before it started, and the seed's run file names what it wrote, so the next plan says `replaced: its last run was stopped part way: what it wrote is taken back from its run file, then it runs again`, and `apply` takes up from there.
+Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the run under way before its next call to the org, and the command exits `130`, `143` or `129`. The state named the run before it started, and the seed's run file names what it wrote, a clone's summary what it created, so the next plan says `replaced: its last run was stopped part way: what it wrote is taken back from its run file, then it runs again`, and `apply` takes up from there.
 
 ## Exit codes
 
@@ -525,14 +559,14 @@ The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/
 | `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left; the alias typed is not the org's |
 | `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory inside the file's repository, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                      |
 | `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found                                                                                                                                                                                                                    |
-| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it                                                                                                                                                                                                                                                                              |
+| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends                                                                                                                                                                                                                                        |
 | `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                         |
 
 ## Not yet
 
-This version applies seed resources; the rest waits for a later one:
+This version applies seed and forge resources; the rest waits for a later one:
 
-- **Forge clones, Frozen Dataset loads and masking** as resources: `kind: forge`, `kind: frozen` and `kind: mask` are refused, `Resources of kind forge come with a later SandForge: this one applies seed resources`.
+- **Frozen Dataset loads and masking** as resources: `kind: frozen` and `kind: mask` are refused, `Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`.
 - **Checkpoints in the file**: `checkpoint.before` and `checkpoint.after` are read and checked, and `validate` warns of them; the plan of a file that asks one says an apply would be refused, and `apply` refuses it, `which a later SandForge takes`. Take one with [`sandforge-checkpoint`](modules/checkpoint.md#from-the-command-line) before the apply instead.
 - **Saved plans**: no `plan --out`, no `apply --plan`. `apply` plans again, against the org as it is then.
 - **Parents drawn by Id from another resource's records**: a relation's `parents` take an `object` and `existing` alone. Draw them with a `where`, as the example does.

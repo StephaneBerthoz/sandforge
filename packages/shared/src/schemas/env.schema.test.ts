@@ -125,12 +125,12 @@ describe('the file', () => {
     ]);
   });
 
-  it('applies seed resources alone, and says when a kind comes with a later SandForge', () => {
-    expect(refusalsOf(exampleWith(['resources', 'bug-1234'], { kind: 'forge' }))).toEqual([
-      'resources.bug-1234.kind: Resources of kind forge come with a later SandForge: this one applies seed resources',
+  it('applies seed and forge resources, and says when a kind comes with a later SandForge', () => {
+    expect(refusalsOf(exampleWith(['resources', 'claims'], { kind: 'frozen' }))).toEqual([
+      'resources.claims.kind: Resources of kind frozen come with a later SandForge: this one applies seed and forge resources',
     ]);
     expect(refusalsOf(exampleWith(['resources', 'x'], { kind: 'clone' }))).toEqual([
-      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed resources',
+      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed and forge resources',
     ]);
     expect(
       refusalsOf(exampleWith(['resources', 'x'], { template: 'prebuilt-minimal-demo' })),
@@ -217,6 +217,138 @@ describe('the file', () => {
 
     expect(refusalsOf(exampleWith(['resources'], resources))).toEqual([
       `resources: A file holds ${ENV_MAX_RESOURCES} resources at most: split it into two environments`,
+    ]);
+  });
+});
+
+describe('a forge resource', () => {
+  /** The example with one forge resource beside its seeds, cloning from the uat role. */
+  const withForge = (resource: Record<string, unknown>): Record<string, unknown> =>
+    exampleWith(['resources', 'bug-1234'], { kind: 'forge', source: 'uat', ...resource });
+
+  it('reads one record by a query or by its id, and whole tables with a template, an anonymization and a ceiling', () => {
+    const byQuery = envFileSchema.parse(
+      withForge({
+        record: { object: 'Case', where: "  CaseNumber = '00001026'  " },
+        template: { file: '.sandforge/forge-templates.json', id: 'case-with-history' },
+        anonymize: { rules: { email: 'fake', phone: 'mask', name: 'fake' } },
+        maxTotal: 500,
+        accept: { automation: true },
+      }),
+    );
+    const tables = envFileSchema.parse(
+      withForge({
+        tables: [{ object: 'Account', where: "Name LIKE 'SFENV%'" }, { object: 'Contact' }],
+        depth: 'custom',
+        customDepth: 2,
+        maxNodes: 20,
+        keepContactPoints: false,
+      }),
+    );
+
+    expect(byQuery.resources['bug-1234']).toMatchObject({
+      kind: 'forge',
+      source: 'uat',
+      // Trimmed as the clone trims its --where: the same condition, the same fingerprint.
+      record: { object: 'Case', where: "CaseNumber = '00001026'" },
+      maxTotal: 500,
+    });
+    expect(
+      envFileSchema.safeParse(withForge({ record: { id: '500xx0000001234AAA' } })).success,
+    ).toBe(true);
+    expect(tables.resources['bug-1234']).toMatchObject({
+      tables: [{ object: 'Account', where: "Name LIKE 'SFENV%'" }, { object: 'Contact' }],
+      customDepth: 2,
+    });
+  });
+
+  it('clones one record or whole tables, one of them, a record named one way', () => {
+    expect(refusalsOf(withForge({}))).toEqual([
+      'resources.bug-1234: A forge resource clones one record (record) or whole tables (tables): give one of them',
+    ]);
+    expect(
+      refusalsOf(withForge({ record: { id: '500xx0000001234AAA' }, tables: [{ object: 'Case' }] })),
+    ).toHaveLength(1);
+    expect(
+      refusalsOf(
+        withForge({ record: { id: '500xx0000001234AAA', object: 'Case', where: 'x = 1' } }),
+      ),
+    ).toEqual([
+      'resources.bug-1234.record: A record is named by its id, or by its object and a where its source answers with exactly one row: give one of them',
+    ]);
+    expect(refusalsOf(withForge({ record: { object: 'Case' } }))).toEqual([
+      'resources.bug-1234.record.where: A record named by a query gives its object and its where both',
+    ]);
+    expect(refusalsOf(withForge({ record: { id: '500-not-an-id' } }))).toEqual([
+      'resources.bug-1234.record.id: A record id is 15 or 18 letters and digits',
+    ]);
+  });
+
+  it('refuses a table listed twice, and a custom depth beside another depth', () => {
+    expect(
+      refusalsOf(
+        withForge({ tables: [{ object: 'Account' }, { object: 'Account', where: 'x = 1' }] }),
+      ),
+    ).toEqual([
+      'resources.bug-1234.tables.1.object: Account is listed twice: a table is listed once, with its condition',
+    ]);
+    expect(
+      refusalsOf(withForge({ tables: [{ object: 'Account' }], depth: 'full', customDepth: 3 })),
+    ).toEqual([
+      'resources.bug-1234.customDepth: customDepth goes with depth: custom, not depth: full',
+    ]);
+  });
+
+  it('holds each condition to the rule the clone holds its --where to', () => {
+    const refusedWhere = (where: string) =>
+      refusalsOf(withForge({ tables: [{ object: 'Case', where }] }));
+
+    expect(refusedWhere("Subject = 'a' --")).toHaveLength(1);
+    expect(refusedWhere("Subject = 'a' /* b */")).toHaveLength(1);
+    expect(refusedWhere("Subject = 'a';")).toHaveLength(1);
+    expect(refusedWhere('-1 < Amount')).toHaveLength(1);
+    expect(refusedWhere(`Subject = '${'a'.repeat(512)}'`)).toEqual([
+      'resources.bug-1234.tables.0.where: A condition is 512 characters at most, as the clone takes one',
+    ]);
+    expect(refusedWhere("Subject = 'a-b'")).toEqual([]);
+  });
+
+  it('clones from a role the file declares, never from an alias of its own', () => {
+    expect(refusalsOf(withForge({ source: 'prod', tables: [{ object: 'Case' }] }))).toEqual([
+      'resources.bug-1234.source: "prod" is no org role of the file: declare it under orgs, as orgs: { prod: { alias: { env: … } } } (its roles are uat)',
+    ]);
+    expect(refusalsOf(withForge({ source: 'uat', tables: [{ object: 'Case' }] }))).toEqual([]);
+  });
+
+  it('reads a template from a path of the project, never one absolute or up out of its folder', () => {
+    const refusedPath = (file: string) =>
+      refusalsOf(withForge({ tables: [{ object: 'Case' }], template: { file, id: 't' } }));
+
+    expect(refusedPath('/etc/forge-templates.json')).toHaveLength(1);
+    expect(refusedPath('C:\\templates.json')).toHaveLength(1);
+    expect(refusedPath('../other/.sandforge/forge-templates.json')).toHaveLength(1);
+    expect(refusedPath('config\\..\\..\\t.json')).toHaveLength(1);
+    expect(refusedPath('config/forge-templates.json')).toEqual([]);
+  });
+
+  it('holds its anonymization to Forge’s categories and methods, and refuses a key it does not name', () => {
+    expect(
+      refusalsOf(
+        withForge({ tables: [{ object: 'Case' }], anonymize: { rules: { emails: 'fake' } } }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      refusalsOf(
+        withForge({ tables: [{ object: 'Case' }], anonymize: { rules: { email: 'scramble' } } }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      refusalsOf(
+        withForge({ tables: [{ object: 'Case' }], anonymize: { rules: {}, preset: 'gdpr' } }),
+      ),
+    ).toEqual([expect.stringContaining('"preset" is not a key of anonymize')]);
+    expect(refusalsOf(withForge({ tables: [{ object: 'Case' }], sourceAlias: 'UAT' }))).toEqual([
+      expect.stringContaining('"sourceAlias" is not a key of a forge resource'),
     ]);
   });
 });
@@ -450,6 +582,17 @@ describe('the JSON Schema of the file', () => {
   it('is generated from the zod schema, and describes the example', () => {
     expect(jsonSchema['$schema']).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(holdsTo(jsonSchema, example())).toEqual([]);
+    expect(
+      holdsTo(
+        jsonSchema,
+        exampleWith(['resources', 'bug-1234'], {
+          kind: 'forge',
+          source: 'uat',
+          record: { object: 'Case', where: "CaseNumber = '00001026'" },
+          anonymize: { rules: { email: 'fake' } },
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it('refuses what the zod schema refuses, by the same shape', () => {

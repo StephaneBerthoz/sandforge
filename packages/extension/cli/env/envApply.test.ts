@@ -351,7 +351,12 @@ describe('how a step ends, and what the apply then does', () => {
     const resolved = resolvedOf();
     const { dryRuns } = await planned(resolved);
     const accounts = dryRuns['accounts'];
-    if (accounts === undefined || !('answer' in accounts)) throw new Error('no dry run');
+    if (
+      accounts === undefined ||
+      !('answer' in accounts) ||
+      accounts.answer.tool !== 'sandforge-seed'
+    )
+      throw new Error('no dry run');
     accounts.answer.result.totalRecordsCreated = 5;
 
     const outcome = await apply(resolved, { dryRuns });
@@ -729,7 +734,7 @@ describe('what an apply says', () => {
     const resolved = resolvedOf();
     const { dryRuns } = await planned(resolved);
     const accounts = dryRuns['accounts'];
-    if (accounts !== undefined && 'answer' in accounts)
+    if (accounts !== undefined && 'answer' in accounts && accounts.answer.tool === 'sandforge-seed')
       accounts.answer.result.totalRecordsCreated = 5;
 
     const outcome = await apply(resolved, { dryRuns });

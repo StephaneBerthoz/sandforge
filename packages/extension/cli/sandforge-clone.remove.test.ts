@@ -367,7 +367,7 @@ describe('sandforge-clone --remove', () => {
     it.each([
       ['no org', ['--remove', 'clone-summary.json']],
       ['no summary', ['--remove', '--target', 'TGT']],
-      ['a flag of the clone', ['--remove', 'clone-summary.json', '--target', 'TGT', '--dry-run']],
+      ['a flag of the clone', ['--remove', 'clone-summary.json', '--target', 'TGT', '--upsert']],
       [
         'a record to clone',
         ['--remove', 'clone-summary.json', '--target', 'TGT', '--record', ACCOUNT],

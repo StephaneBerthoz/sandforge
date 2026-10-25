@@ -145,7 +145,7 @@ Checkpoints never takes a checkpoint of a production org nor rewinds one, with n
 
 ## Test data as code, for the command line & CI
 
-A `sandforge.yaml` committed with your project says what records its tests need -- so many accounts, so many contacts under each -- and the `sandforge-env` script, run from a checkout of this repository, applies it to a scratch org, a Developer Edition or a sandbox the file lists by its Organization Id: `plan` says what it would create, keep, replace and take back, `apply` writes it through Seed and, applied again, writes nothing, and `destroy` takes it back into the recycle bin. A production org is refused before anything is read. [The guide](docs/environments.md) has the file, a session of every command, and the pattern for a pipeline.
+A `sandforge.yaml` committed with your project says what records its tests need -- so many accounts, so many contacts under each, or records cloned from an org it names -- and the `sandforge-env` script, run from a checkout of this repository, applies it to a scratch org, a Developer Edition or a sandbox the file lists by its Organization Id: `plan` says what it would create, keep, replace and take back, `apply` writes it through Seed and Forge and, applied again, writes nothing, and `destroy` takes it back into the recycle bin. A production org is refused before anything is read. [The guide](docs/environments.md) has the file, a session of every command, and the pattern for a pipeline.
 
 ---
 

@@ -5,14 +5,22 @@
  *
  * The environment writes nothing to the org itself. A step spawns the script
  * that does the work — `sandforge-seed` with the template the file converts
- * into, under a run id of the environment's making — and every guard, gate
- * and run file of the script holds as it holds on a terminal.
+ * into, under a run id of the environment's making; `sandforge-clone` with
+ * the template a forge resource converts into, held to its dry run's count
+ * and writing its summary as it goes — and every guard, gate and run file of
+ * the script holds as it holds on a terminal.
  *
  * Write-ahead: before a script is spawned, its resource goes to `applying`
  * (or `destroying`) in the state, with the run's rank, id and the time on the
  * org's clock, written and renamed over before the spawn. A process killed
  * anywhere leaves a state that names the run, and the seed's run file names
- * what it wrote: the next plan replaces the resource from it.
+ * what it wrote, the clone's summary what it created: the next plan replaces
+ * the resource from it.
+ *
+ * A forge run that ended is verified (`--verify`): what it created is read
+ * back from the target, and its lookups checked on a sample against the
+ * source. Records not there, or lookups that do not hold, make it partial;
+ * readings that never agree make it unstable, which stops the apply.
  *
  * The order: what is taken back first — every `delete`, and the removal half
  * of every `replace` — each resource before those it depended on when it was
@@ -27,7 +35,7 @@
  * | 0, having created what its dry run counted | `applied`            | goes on                        |
  * | 0 short of it, or 3: records refused     | `partial`              | goes on, but not with what depends on it |
  * | 1 or 2                                   | `failed`               | stops                          |
- * | 4                                        | `partial`              | stops                          |
+ * | 4, or a verification that never agreed   | `partial`              | stops                          |
  * | 129, 130, 143                            | stays `applying`       | stops; the next apply replaces it |
  *
  * The apply exits with the worst of its steps (`worstExit`), but 1 only when
@@ -37,7 +45,7 @@
  * second writes nothing and leaves the state's serial where it was.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   EnvActionKind,
@@ -53,10 +61,19 @@ import { SEED_RUNS_DIR } from '../../src/modules/seed/SeedRunCreations.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, worstExit } from '../exitCodes.js';
 import type { CommandRunner } from '../scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from '../stopSignals.js';
-import type { EnvFileResolved } from './envFile.js';
+import type { EnvFileResolved, EnvFileResource } from './envFile.js';
 import { checkpointActRefusal, lockRefusal, type EnvTarget } from './envGuards.js';
+import {
+  applyLineOf,
+  dryRunCountOf,
+  readRemovalOf,
+  removalObjectsOf,
+  removeLineOf,
+  type EnvKindScript,
+  type EnvRemovalAnswer,
+} from './envKinds.js';
 import { acquireEnvLock, checkpointLockRefusal, type EnvLockOperation } from './envLock.js';
-import { liveResources, removalOrder, type EnvDryRun } from './envPlan.js';
+import { dryRunTotalOf, liveResources, removalOrder, type EnvDryRun } from './envPlan.js';
 import {
   EnvStateError,
   envRunIdOf,
@@ -70,16 +87,15 @@ import {
   stepEnded,
   type EnvStore,
 } from './envState.js';
+import { StepAnswerError, type EnvRunCount } from './kinds/common.js';
 import {
-  SEED_SCRIPT,
-  StepAnswerError,
-  readSeedRemoval,
-  readSeedRun,
-  seedApplyLine,
-  seedRemoveLine,
-  type SeedRemovalAnswer,
-  type SeedRunAnswer,
-} from './envSteps.js';
+  forgeRunCount,
+  forgeVerifyLine,
+  readForgeRun,
+  readForgeVerify,
+  verificationShortOf,
+} from './kinds/forge.js';
+import { readSeedRun, seedRunCount } from './kinds/seed.js';
 
 /** What a step runs with, beside its line: the product's own, or a test's. */
 export interface EnvStepDeps {
@@ -88,7 +104,7 @@ export interface EnvStepDeps {
   store: EnvStore;
   /** Where the environment locks and the checkpoint locks are. */
   locksDir: string;
-  /** The folder `SANDFORGE_JOURNAL_DIR` names, where the seed keeps its run files. */
+  /** The folder `SANDFORGE_JOURNAL_DIR` names, where the seed keeps its run files and the clone its journals. */
   journalDir: string;
   /** Now, as the org stamps a write: the state's spans are on its clock. */
   orgNow: () => Promise<string>;
@@ -120,8 +136,8 @@ interface Where {
 }
 
 /** A removal's answer, per object, as a step names it. */
-function removalObjects(answer: SeedRemovalAnswer | undefined): EnvStepObject[] {
-  return (answer?.result.objects ?? []).map((object) => {
+function removalObjects(answer: EnvRemovalAnswer | undefined): EnvStepObject[] {
+  return removalObjectsOf(answer).map((object) => {
     const reasons = [
       object.keptChanged > 0 ? `${object.keptChanged} changed since the run, kept` : '',
       object.keptDependents > 0
@@ -143,12 +159,12 @@ function removalObjects(answer: SeedRemovalAnswer | undefined): EnvStepObject[] 
   });
 }
 
-/** A run's answer, per object, as a step names it. */
-function runObjects(answer: SeedRunAnswer | undefined): EnvStepObject[] {
-  return (answer?.result.objectResults ?? []).map((object) => ({
-    object: object.objectApiName,
-    created: object.recordsCreated,
-    refused: object.recordsFailed,
+/** What a run wrote, per object, as a step names it. */
+function runObjects(count: EnvRunCount | undefined): EnvStepObject[] {
+  return (count?.objects ?? []).map((object) => ({
+    object: object.object,
+    created: object.created,
+    refused: object.refused,
     deleted: 0,
     kept: 0,
     ...(object.errors.length > 0
@@ -225,8 +241,8 @@ export interface RemovalAsk {
 }
 
 /**
- * Take back every run of a resource, the last first, through the seed's own
- * removal: the resource `destroying` in the state before the first spawn,
+ * Take back every run of a resource, the last first, through its script's
+ * own removal: the resource `destroying` in the state before the first spawn,
  * then `ends.whole` or `ends.left` once they ended. A run taken back whole
  * already costs its removal nothing: it says so from its summary's sidecar,
  * without reaching the org. A removal refused, failed or stopped stops here:
@@ -253,19 +269,16 @@ export async function removeResource(
     const subject = removalSubjectOf(run, where, deps);
     if (subject === undefined) continue;
     deps.say(`${ask.resource}: taking back run ${run.n}`);
-    const ran = await deps.runner(
-      SEED_SCRIPT,
-      seedRemoveLine({
-        target: ask.target.alias,
-        summary: subject,
-        includeChanged: ask.includeChanged,
-        acceptAutomation: ask.acceptAutomation,
-        sweep: ask.sweep,
-      }),
-      signal,
-    );
-    const answer = answerOf(readSeedRemoval, ran.stdout, deps.say);
-    const deleted = (answer?.result.objects ?? []).reduce((sum, o) => sum + o.deleted, 0);
+    const line = removeLineOf(before.kind, {
+      target: ask.target.alias,
+      subject,
+      includeChanged: ask.includeChanged,
+      acceptAutomation: ask.acceptAutomation,
+      sweep: ask.sweep,
+    });
+    const ran = await deps.runner(line.script, line.args, signal);
+    const answer = answerOf((out) => readRemovalOf(before.kind, out), ran.stdout, deps.say);
+    const deleted = removalObjectsOf(answer).reduce((sum, o) => sum + o.deleted, 0);
     wrote ||= answer !== undefined ? deleted > 0 : ran.code !== FAILED_EXIT && ran.code !== 2;
     const stopped = isStopCode(ran.code);
     const ok = ran.code === DONE_EXIT || ran.code === PARTIAL_EXIT;
@@ -281,7 +294,7 @@ export async function removeResource(
       action: ask.action,
       phase: 'remove',
       run: run.n,
-      script: SEED_SCRIPT,
+      script: line.script,
       exitCode: ran.code,
       status,
       ...(run.summary !== undefined ? { summary: run.summary } : {}),
@@ -347,12 +360,12 @@ export function applySteps(plan: EnvPlan, state: EnvState | undefined): ApplySte
 /** The status of a run step, and the code it counts for in the apply's, from how its script exited. */
 function runEnd(
   code: number,
-  answer: SeedRunAnswer | undefined,
+  count: EnvRunCount | undefined,
   planned: number | undefined,
 ): { status: EnvResourceStatus; counts: number; stops: boolean; short?: string } {
   if (isStopCode(code)) return { status: 'applying', counts: code, stops: true };
-  if (code === DONE_EXIT && answer !== undefined) {
-    const created = answer.result.totalRecordsCreated;
+  if (code === DONE_EXIT && count !== undefined) {
+    const created = count.created;
     if (planned !== undefined && created !== planned) {
       return {
         status: 'partial',
@@ -366,6 +379,211 @@ function runEnd(
   if (code === PARTIAL_EXIT) return { status: 'partial', counts: PARTIAL_EXIT, stops: false };
   if (code === UNSTABLE_EXIT) return { status: 'partial', counts: UNSTABLE_EXIT, stops: true };
   return { status: 'failed', counts: FAILED_EXIT, stops: true };
+}
+
+/** What a verification of a forge run found: what the target holds short of what it created. */
+type Verified = { short?: string; unstable: boolean } | { unread: string };
+
+/**
+ * A run's end, once its verification is read: an applied run whose records
+ * are not all there, or whose lookups do not hold, is partial; one whose
+ * readings never agreed is partial too and stops the apply, as the
+ * verification exits 4. A verification that did not answer leaves the run as
+ * its script said it ended, and says so.
+ */
+function verifiedEnd(
+  ended: ReturnType<typeof runEnd>,
+  verified: Verified | undefined,
+): ReturnType<typeof runEnd> {
+  if (verified === undefined || ended.status !== 'applied') return ended;
+  if ('unread' in verified) return { ...ended, short: `not verified: ${verified.unread}` };
+  if (verified.unstable) {
+    return {
+      status: 'partial',
+      counts: UNSTABLE_EXIT,
+      stops: true,
+      short: `its verification is unstable: ${verified.short ?? ''}`,
+    };
+  }
+  if (verified.short === undefined) return ended;
+  return {
+    status: 'partial',
+    counts: PARTIAL_EXIT,
+    stops: false,
+    short: `its verification found ${verified.short}`,
+  };
+}
+
+/** What a run step is given: its resource, its rank, and where it writes. */
+interface RunStepInput {
+  resource: EnvFileResource;
+  n: number;
+  where: Where;
+  target: EnvTarget;
+  /** The payload the resource converts into, written beside the state. */
+  templateFile: string;
+  dry: EnvDryRun | undefined;
+  /** What it depends on ran first in this apply: its dry run read the org before them. */
+  readTooEarly: boolean;
+  signal: AbortSignal;
+}
+
+/** How a run step's script ended, read as every kind is read. */
+interface RunStepOutcome {
+  state: EnvState;
+  script: EnvKindScript;
+  code: number;
+  count?: EnvRunCount;
+  /** The script's own `--json` answer. */
+  answer?: unknown;
+  /** Its summary, from the state's folder, once there is one. */
+  summary?: string;
+  /** Whether it may have written records. */
+  wrote: boolean;
+  /** What a whole run of it creates, as its dry run counted it. */
+  planned?: number;
+  verified?: Verified;
+}
+
+/**
+ * Run a resource's script: the state ahead of the spawn, then the script, then
+ * its answer read as its kind reads it.
+ *
+ * A seed runs under a run id of the environment's making, its draws the dry
+ * run's when the file pins none, and its summary is what it printed. A forge
+ * run is held to its dry run's count (`--max-total`) and writes its summary
+ * beside the state as it goes, which the state names before the spawn: a run
+ * stopped part way leaves what it created there for the next apply to take
+ * back. A forge run that ended is then verified.
+ */
+async function runResourceStep(
+  deps: EnvStepDeps,
+  state: EnvState,
+  input: RunStepInput,
+): Promise<RunStepOutcome> {
+  const { resource, n, where, target, templateFile, dry, signal } = input;
+  const env = where.env;
+  const dryAnswer = dry !== undefined && 'answer' in dry ? dry.answer : undefined;
+  const planned =
+    dryAnswer === undefined || input.readTooEarly ? undefined : dryRunCountOf(dryAnswer).created;
+  const startedAt = await deps.orgNow();
+  if (resource.kind === 'seed') {
+    const runId = envRunIdOf(env, resource.name, n);
+    // The seed the dry run drew, when the file pins none: the run writes
+    // the records the dry run counted.
+    const seed =
+      resource.run.seed ?? (dryAnswer?.tool === 'sandforge-seed' ? dryAnswer.seed : undefined);
+    const current = await deps.store.update(state, (s) =>
+      runStarted(s, {
+        resource: resource.name,
+        kind: 'seed',
+        fingerprint: resource.fingerprint,
+        dependsOn: resource.dependsOn,
+        run: {
+          script: 'sandforge-seed',
+          runId,
+          ...(seed !== undefined ? { seed } : {}),
+          startedAt,
+        },
+      }),
+    );
+    const line = applyLineOf(resource, {
+      target: target.alias,
+      templateFile,
+      runId,
+      summaryFile: '',
+      ...(seed !== undefined ? { seed } : {}),
+    });
+    const ran = await deps.runner(line.script, line.args, signal);
+    const answer = answerOf(readSeedRun, ran.stdout, deps.say);
+    const count = answer !== undefined ? seedRunCount(answer) : undefined;
+    const wrote =
+      (count?.created ?? 0) > 0 ||
+      existsSync(join(deps.journalDir, SEED_RUNS_DIR, `${runId}.ndjson`));
+    const summary =
+      answer !== undefined
+        ? await deps.store
+            .writeFile(where.organizationId, env, runSummaryPathOf(resource.name, n), ran.stdout)
+            .then(() => runSummaryPathOf(resource.name, n))
+        : undefined;
+    return {
+      state: current,
+      script: line.script,
+      code: ran.code,
+      ...(count !== undefined ? { count } : {}),
+      ...(answer !== undefined ? { answer } : {}),
+      ...(summary !== undefined ? { summary } : {}),
+      wrote,
+      ...(planned !== undefined ? { planned } : {}),
+    };
+  }
+
+  // A forge run: its summary named in the state before the clone starts it.
+  const summary = runSummaryPathOf(resource.name, n);
+  const summaryFile = await deps.store.prepareFile(where.organizationId, env, summary);
+  const current = await deps.store.update(state, (s) =>
+    runStarted(s, {
+      resource: resource.name,
+      kind: 'forge',
+      fingerprint: resource.fingerprint,
+      dependsOn: resource.dependsOn,
+      run: { script: 'sandforge-clone', summary, startedAt },
+    }),
+  );
+  // Held to its dry run's count: a scope that widened since is refused, not written.
+  const maxTotal = dryRunTotalOf(dry);
+  const line = applyLineOf(resource, {
+    target: target.alias,
+    templateFile,
+    runId: '',
+    summaryFile,
+    ...(maxTotal !== undefined ? { maxTotal } : {}),
+  });
+  const ran = await deps.runner(line.script, line.args, signal);
+  // The summary as the clone wrote it, read back: it says what the run
+  // created however it ended, where stdout says nothing of a run killed.
+  const kept = existsSync(summaryFile) ? readFileSync(summaryFile, 'utf8') : undefined;
+  const answer =
+    answerOf(readForgeRun, kept ?? '', deps.say) ?? answerOf(readForgeRun, ran.stdout, deps.say);
+  const count = answer !== undefined ? forgeRunCount(answer) : undefined;
+  const wrote = count !== undefined ? count.created > 0 : kept !== undefined;
+  let verified: Verified | undefined;
+  if (ran.code === DONE_EXIT && kept !== undefined && (count?.created ?? 0) > 0) {
+    deps.say(`${resource.name}: verifying run ${n}`);
+    const checked = await deps.runner(
+      line.script,
+      forgeVerifyLine({
+        summary: summaryFile,
+        target: target.alias,
+        source: resource.source.alias,
+      }),
+      signal,
+    );
+    const verification =
+      checked.stdout.trim() === ''
+        ? undefined
+        : answerOf(readForgeVerify, checked.stdout, deps.say);
+    if (verification !== undefined) {
+      const short = verificationShortOf(verification);
+      verified = {
+        unstable: verification.result.verdict === 'unstable',
+        ...(short !== undefined ? { short } : {}),
+      };
+    } else if (checked.code !== DONE_EXIT) {
+      verified = { unread: `its verification ended ${checked.code} without an answer` };
+    }
+  }
+  return {
+    state: current,
+    script: line.script,
+    code: ran.code,
+    ...(count !== undefined ? { count } : {}),
+    ...(answer !== undefined ? { answer } : {}),
+    ...(kept !== undefined ? { summary } : {}),
+    wrote,
+    ...(planned !== undefined ? { planned } : {}),
+    ...(verified !== undefined ? { verified } : {}),
+  };
 }
 
 /** The status a run result says, from the exit code an apply or a destroy ends with. */
@@ -534,67 +752,33 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
         // The run half: the template, then the state ahead of the spawn.
         if (resource === undefined) continue;
         const n = nextRunNumber(current.resources[step.resource]);
-        const runId = envRunIdOf(env, step.resource, n);
         const templateFile = await deps.store.writeFile(
           where.organizationId,
           env,
           runTemplatePathOf(step.resource, n),
           `${JSON.stringify(resource.run.template, null, 2)}\n`,
         );
-        const dry = input.dryRuns[step.resource];
-        const dryAnswer = dry !== undefined && 'answer' in dry ? dry.answer : undefined;
-        // The seed the dry run drew, when the file pins none: the run writes
-        // the records the dry run counted.
-        const seed = resource.run.seed ?? dryAnswer?.seed;
-        const startedAt = await deps.orgNow();
-        current = await deps.store.update(current, (s) =>
-          runStarted(s, {
-            resource: step.resource,
-            kind: 'seed',
-            fingerprint: resource.fingerprint,
-            dependsOn: resource.dependsOn,
-            run: { script: SEED_SCRIPT, runId, ...(seed !== undefined ? { seed } : {}), startedAt },
-          }),
-        );
-        deps.say(`${step.resource}: run ${n} (${step.action})`);
-        const ran = await deps.runner(
-          SEED_SCRIPT,
-          seedApplyLine({
-            target: target.alias,
-            templateFile,
-            runId,
-            ...(seed !== undefined ? { seed } : {}),
-            ...(resource.run.locale !== undefined ? { locale: resource.run.locale } : {}),
-            ...(resource.run.recordTypes !== undefined
-              ? { recordTypes: resource.run.recordTypes }
-              : {}),
-          }),
-          stop.signal,
-        );
-        const answer = answerOf(readSeedRun, ran.stdout, deps.say);
-        const created = answer?.result.totalRecordsCreated ?? 0;
-        wrote ||=
-          created > 0 || existsSync(join(deps.journalDir, SEED_RUNS_DIR, `${runId}.ndjson`));
-        runThisApply.add(step.resource);
-        const summary =
-          answer !== undefined
-            ? await deps.store
-                .writeFile(
-                  where.organizationId,
-                  env,
-                  runSummaryPathOf(step.resource, n),
-                  ran.stdout,
-                )
-                .then(() => runSummaryPathOf(step.resource, n))
-            : undefined;
         // Held to what its dry run counted, unless what it depends on ran first
         // in this apply: the dry run read the org before those records were
         // there, and a relation drawing them as existing parents counted none.
         const readTooEarly = resource.dependsOn.some((dep) => runThisApply.has(dep));
-        const ended = runEnd(
-          ran.code,
-          answer,
-          readTooEarly ? undefined : dryAnswer?.result.totalRecordsCreated,
+        deps.say(`${step.resource}: run ${n} (${step.action})`);
+        const outcome = await runResourceStep(deps, current, {
+          resource,
+          n,
+          where,
+          target,
+          templateFile,
+          dry: input.dryRuns[step.resource],
+          readTooEarly,
+          signal: stop.signal,
+        });
+        current = outcome.state;
+        wrote ||= outcome.wrote;
+        runThisApply.add(step.resource);
+        const ended = verifiedEnd(
+          runEnd(outcome.code, outcome.count, outcome.planned),
+          outcome.verified,
         );
         const endedAt = await deps.orgNow();
         current = await deps.store.update(current, (s) =>
@@ -603,38 +787,39 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             status: ended.status,
             run: {
               endedAt,
-              exitCode: ran.code,
-              objects: (answer?.result.objectResults ?? []).map((object) => ({
-                objectApiName: object.objectApiName,
-                created: object.recordsCreated,
-                refused: object.recordsFailed,
+              exitCode: outcome.code,
+              objects: (outcome.count?.objects ?? []).map((object) => ({
+                objectApiName: object.object,
+                created: object.created,
+                refused: object.refused,
               })),
-              ...(summary !== undefined ? { summary } : {}),
+              ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
             },
           }),
         );
-        const objects = runObjects(answer);
+        const objects = runObjects(outcome.count);
         results.push({
           resource: step.resource,
           action: step.action,
           phase: 'run',
           run: n,
-          script: SEED_SCRIPT,
-          exitCode: ran.code,
+          script: outcome.script,
+          exitCode: outcome.code,
           status: ended.status,
-          ...(summary !== undefined ? { summary } : {}),
+          ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
           objects:
             ended.short !== undefined && objects[0] !== undefined
               ? [{ ...objects[0], reason: ended.short }, ...objects.slice(1)]
               : objects,
-          ...(answer !== undefined ? { answer } : {}),
+          ...(outcome.answer !== undefined ? { answer: outcome.answer } : {}),
         });
         if (ended.short !== undefined) deps.say(`${step.resource}: ${ended.short}`);
-        if (isStopCode(ran.code)) {
-          stoppedCode = ran.code;
+        if (isStopCode(outcome.code)) {
+          stoppedCode = outcome.code;
           deps.say(
-            `${step.resource}: its run was stopped; the state keeps it applying, and its run ` +
-              'file what it wrote: apply again takes it back and runs it whole',
+            `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
+              `${resource.kind === 'forge' ? 'summary what it created' : 'run file what it wrote'}: ` +
+              'apply again takes it back and runs it whole',
           );
           continue;
         }

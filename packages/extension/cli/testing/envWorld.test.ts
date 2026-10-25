@@ -6,7 +6,11 @@ import { join } from 'node:path';
 vi.mock('../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('../sfSession.js', () => ({ loadOrg: vi.fn(), makeConn: vi.fn() }));
+vi.mock('../sfSession.js', async (original) => ({
+  ...(await original<typeof import('../sfSession.js')>()),
+  loadOrg: vi.fn(),
+  makeConn: vi.fn(),
+}));
 vi.mock('../sandforge-clone.js', async (original) => ({
   ...(await original<typeof import('../sandforge-clone.js')>()),
   targetAutomationReader: vi.fn(),
@@ -14,6 +18,10 @@ vi.mock('../sandforge-clone.js', async (original) => ({
 vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   ...(await original<typeof import('../../src/modules/forge/ForgeRunRemoval.js')>()),
   removalOrg: vi.fn(),
+}));
+vi.mock('../../src/modules/forge/RunVerifier.js', async (original) => ({
+  ...(await original<typeof import('../../src/modules/forge/RunVerifier.js')>()),
+  verifiedOrg: vi.fn(),
 }));
 
 import { EnvWorld, runInProcess } from './envWorld.js';
@@ -84,6 +92,74 @@ describe('the world of the environment’s tests', () => {
     await expect(world.runner('sandforge-clone', [], signal)).rejects.toThrow(
       'The world runs sandforge-seed alone',
     );
+  });
+
+  it('runs the clone in this process, from the source org to the target: its records land in the target, its preview and its verification read them, and its removal takes them back', async () => {
+    const world = new EnvWorld({ source: { alias: 'SRC' } });
+    world.seedSource('Account', [{ Name: 'SFENV clone' }, { Name: 'SFENV other' }]);
+    const [account] = world.source?.all('Account') ?? [];
+    world.seedSource('Contact', [{ LastName: 'SFENV clone', AccountId: account?.Id }]);
+    const summary = join(dir, 'clone-summary.json');
+    const signal = new AbortController().signal;
+    const tables = [
+      '--object',
+      'Account',
+      '--where',
+      "Name = 'SFENV clone'",
+      '--object',
+      'Contact',
+    ];
+
+    const dry = await world.runner(
+      'sandforge-clone',
+      ['--source', 'SRC', '--target', 'TGT', ...tables, '--skip-preflight', '--dry-run', '--json'],
+      signal,
+    );
+    const run = await world.runner(
+      'sandforge-clone',
+      [
+        '--source',
+        'SRC',
+        '--target',
+        'TGT',
+        ...tables,
+        '--skip-preflight',
+        '--summary',
+        summary,
+        '--json',
+      ],
+      signal,
+    );
+
+    expect(dry.code).toBe(0);
+    expect(JSON.parse(dry.stdout)).toMatchObject({ writePlan: { totalRows: 2 } });
+    expect(run.code, run.stderr).toBe(0);
+    expect(world.records('Account').map((record) => record['Name'])).toEqual(['SFENV clone']);
+    const [cloned] = world.records('Account');
+    expect(world.records('Contact')).toEqual([
+      expect.objectContaining({ LastName: 'SFENV clone', AccountId: cloned?.['Id'] }),
+    ]);
+    const preview = await world.runner(
+      'sandforge-clone',
+      ['--remove', summary, '--target', 'TGT', '--preview', '--json'],
+      signal,
+    );
+    expect(JSON.parse(preview.stdout)).toMatchObject({ preview: { planned: 2 } });
+    const verified = await world.runner(
+      'sandforge-clone',
+      ['--verify', summary, '--target', 'TGT', '--source', 'SRC', '--json'],
+      signal,
+    );
+    expect(JSON.parse(verified.stdout)).toMatchObject({ result: { verdict: 'verified' } });
+    const removed = await world.runner(
+      'sandforge-clone',
+      ['--remove', summary, '--target', 'TGT', '--json'],
+      signal,
+    );
+    expect(removed.code, removed.stderr).toBe(0);
+    expect(world.records('Account')).toEqual([]);
+    expect(world.records('Contact')).toEqual([]);
+    expect(world.source?.all('Account')).toHaveLength(2);
   });
 
   it('gives back the exit code a script set or exited with, what it printed, and restores the process', async () => {

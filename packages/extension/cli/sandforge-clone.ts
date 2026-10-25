@@ -31,7 +31,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
  *       [--leave-undeletable] [--json]
- *       [--sweep | --sweep-list] [--audit <file>]
+ *       [--preview | --sweep | --sweep-list] [--audit <file>]
  *   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
  *     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
  *
@@ -159,7 +159,9 @@ import {
   removalOrg,
   removeRunRecords,
   setBackToDraftOf,
+  type RemovalPreviewObject,
   type RunRemovalOutcome,
+  type UndeletableObject,
 } from '../src/modules/forge/ForgeRunRemoval.js';
 import {
   removalAuditObjects,
@@ -221,6 +223,7 @@ import {
   writePlanLines,
   writePlanOf,
   type DataStorage,
+  type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
 import {
@@ -382,7 +385,7 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
       [--leave-undeletable] [--json]
-      [--sweep | --sweep-list] [--audit <file>]
+      [--preview | --sweep | --sweep-list] [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
 
@@ -456,8 +459,9 @@ Clone whole tables, in place of --record:
                          by one external id, the first whose value each row
                          the run reads of it holds and no two share. A run that
                          copies files (--files) reads each table whole. Not
-                         with --record, --template, --expand-orphans or
-                         --rehearse.
+                         with --record, --expand-orphans or --rehearse. With
+                         --template, the template's choices go with the
+                         tables, its record or query aside.
 
 Options:
   --depth <mode>         direct | full | custom    (default: custom)
@@ -609,8 +613,8 @@ Options:
                          them, and its depth, caps, anonymization, contact
                          points and orphan parents, each unless its flag is
                          given. Its record is cloned when --record is not
-                         given; a template of a query needs --record. Not
-                         with --config.
+                         given; a template of a query needs --record, or
+                         --object. Not with --config.
   --remap-csv <file>     write the source→target ID remap table to a CSV
                          file (header: sourceId,targetId). BA reconciliation:
                          "where did source X go on the target sandbox?"
@@ -664,6 +668,16 @@ Remove what a run created:
                          run, leaving those with what they hang from; without
                          it the removal stops before its first delete and
                          names them                             (default: off)
+  --preview              say what the removal would do, and do nothing: per
+                         object the records it would delete, those gone
+                         already, those changed since the run and who changed
+                         them, those it could not see, and what a removal run
+                         now would be refused for. It reads the records, as
+                         the removal reads them before its first delete, and
+                         writes nothing: not to the org, not beside the
+                         summary. Not with --sweep, --sweep-list or --audit.
+                         A removal takes no --dry-run: one that did not read
+                         it would delete for real.
   --sweep                before the run's records go, delete too what the
                          target's automation created during the run, as the
                          run's user, that the run's id map does not hold: in
@@ -725,7 +739,8 @@ Environment:
 
 Exit codes:
   0  the clone ran; the rehearsal ran, whatever it found refused; the removal
-     took every record it set out to take
+     took every record it set out to take; the preview said what a removal
+     would do, refusals included
   1  the clone or the removal could not run; the clone produced only failures,
      or its files were refused; the target is a production org; the target
      runs automation on insert or on the updates the clone makes after its
@@ -1173,9 +1188,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   // filter, read and written as the panel runs a query.
   const tables = tableArgs(args);
   if (tables) {
-    const refused = ['--record', '--template', '--expand-orphans', '--rehearse'].filter((flag) =>
-      has(flag),
-    );
+    const refused = ['--record', '--expand-orphans', '--rehearse'].filter((flag) => has(flag));
     if (refused.length > 0) {
       process.stderr.write(
         `--object clones whole tables, as the panel runs a query: it does not go with ` +
@@ -1184,10 +1197,19 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
       );
       process.exit(2);
     }
+    // A template's choices go with the tables, its record or query aside: the
+    // tables are the line's. Its orphan parents are refused as the flag is.
+    if (template?.config.expandOrphanParents === true) {
+      process.stderr.write(
+        '--template: the template brings orphan parents (expandOrphanParents), which go with ' +
+          'a clone of one record (--record), not with --object.\n',
+      );
+      process.exit(2);
+    }
   }
   const templateRecord =
     template?.config.inputMode === 'record' ? template.config.recordId : undefined;
-  if (template && !has('--record') && !templateRecord) {
+  if (template && !tables && !has('--record') && !templateRecord) {
     process.stderr.write(
       `--template: the template clones from a ${template.config.inputMode === 'record' ? 'record it does not name' : 'query'}, ` +
         'and the command clones from a record: give --record.\n',
@@ -3116,12 +3138,15 @@ export interface RemoveArgs {
   sweepList: boolean;
   /** The file the removal's entry in the audit trail goes to; undefined = no entry. */
   audit: string | undefined;
+  /** Say what the removal would do, and do nothing. Absent unless given. */
+  preview?: true;
 }
 
 /** The flags a removal reads. */
 const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--remove',
   '--target',
+  '--preview',
   '--include-changed',
   '--json',
   '--accept-automation',
@@ -3159,9 +3184,19 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
       if (args[i + 1] !== undefined && !args[i + 1].startsWith('--')) i++;
       continue;
     }
+    if (arg === '--dry-run') {
+      // A removal that ignored it would delete for real: the word for a
+      // removal that writes nothing is --preview.
+      process.stderr.write(
+        '--remove does not take --dry-run: a removal that did not read it would delete for ' +
+          'real. --preview says what the removal would do, and writes nothing. Run with --help ' +
+          'for usage.\n',
+      );
+      process.exit(2);
+    }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --accept-automation, --leave-undeletable, --sweep, --sweep-list, --json and --audit, not "${arg}". ` +
+        `--remove takes --target, --preview, --include-changed, --accept-automation, --leave-undeletable, --sweep, --sweep-list, --json and --audit, not "${arg}". ` +
           'Run with --help for usage.\n',
       );
       process.exit(2);
@@ -3182,6 +3217,14 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     );
     process.exit(2);
   }
+  // A preview writes nothing, so it has nothing to sweep and nothing to record.
+  const withPreview = ['--sweep', '--sweep-list', '--audit'].filter((flag) => has(flag));
+  if (has('--preview') && withPreview.length > 0) {
+    process.stderr.write(
+      `--preview writes nothing: give it without ${withPreview.join(', ')}. Run with --help for usage.\n`,
+    );
+    process.exit(2);
+  }
   return {
     summaryPath,
     target,
@@ -3192,6 +3235,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     sweep: has('--sweep'),
     sweepList: has('--sweep-list'),
     audit: auditArg(args),
+    ...(has('--preview') ? { preview: true as const } : {}),
   };
 }
 
@@ -3882,6 +3926,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     process.stderr.write(`--remove ${args.summaryPath} ${read.refusal}\n`);
     process.exit(2);
   }
+  if (args.preview) return previewRemoval(args, read.summary, say, t0);
   /** The org, reached once: before the plan when the run's journal has calls to look for. */
   let reached: { session: SfOrg; conn: Connection; org: TypedOrg } | undefined;
   const reach = async (): Promise<{ session: SfOrg; conn: Connection; org: TypedOrg }> => {
@@ -4296,6 +4341,296 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   if (status !== 'success' || (sweep && sweep.status !== 'success')) {
     process.exit(RECORDS_LEFT_EXIT);
   }
+}
+
+// ─── --remove --preview ──────────────────────────────────────────────────────
+
+/** What `--remove --preview` says a removal of the run would do. */
+export interface CloneRemovalPreview {
+  /** The run's records a removal would set out to take. */
+  planned: number;
+  /** Per object, in the order a removal would take them: children before their parents. */
+  objects: RemovalPreviewObject[];
+  /** The objects whose records the user may not delete, with how many are in the org. */
+  undeletable?: UndeletableObject[];
+  /** The names of the users who changed records of the run since, by user Id. */
+  userNames: Record<string, string>;
+}
+
+/**
+ * What a preview never reads, said with each: what the target's automation
+ * does as the records go, and what hangs from them, which a removal reads
+ * record by record at each object's turn.
+ */
+export const CLONE_PREVIEW_UNREAD =
+  "not read by a preview: what the target's automation does as the records go — a trigger " +
+  'or a flow that deletes, keeps or creates other records — and what hangs from them, which a ' +
+  'removal reads at each object’s turn: a record kept for records that stay is counted with ' +
+  'those to delete';
+
+/** What `--remove --preview --json` prints: one JSON document, alone on stdout. Exported so it can be tested. */
+export function clonePreviewJson(answer: {
+  summary: string;
+  target: string;
+  targetOrgId?: string;
+  includeChanged: boolean;
+  preview: CloneRemovalPreview;
+  /** What a removal run now would be refused for, each in its own words. */
+  refusals: readonly string[];
+  notes: readonly string[];
+  elapsedMs: number;
+}): string {
+  return `${JSON.stringify(
+    {
+      tool: 'sandforge-clone',
+      version: 1,
+      action: 'remove-preview',
+      summary: answer.summary,
+      target: answer.target,
+      ...(answer.targetOrgId !== undefined ? { targetOrgId: answer.targetOrgId } : {}),
+      includeChanged: answer.includeChanged,
+      preview: answer.preview,
+      refusals: answer.refusals,
+      notes: answer.notes,
+      elapsedMs: answer.elapsedMs,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+/** What `--remove --preview` prints without `--json`. Exported so it can be tested. */
+export function clonePreviewLines(
+  preview: CloneRemovalPreview,
+  refusals: readonly string[],
+  notes: readonly string[],
+  includeChanged: boolean,
+): string[] {
+  const named = (userId: string): string => preview.userNames[userId] ?? userId;
+  const lines = ['preview: what a removal would do; nothing was written'];
+  for (const o of preview.objects) {
+    const counts = [
+      o.toDelete > 0 ? `${o.toDelete} to delete` : '',
+      includeChanged && o.changedSince > 0 ? `${o.changedSince} of them changed since the run` : '',
+      o.alreadyGone > 0 ? `${o.alreadyGone} gone already` : '',
+      o.notVisible > 0 ? `${o.notVisible} not visible` : '',
+      o.keptChanged > 0 ? `${o.keptChanged} kept, changed since the run` : '',
+      o.undeletable > 0 ? `${o.undeletable} left, the user may not delete them` : '',
+      o.unread > 0 ? `${o.unread} left, not read` : '',
+    ].filter(Boolean);
+    lines.push(`  ${o.objectApiName}: ${counts.join(', ') || 'nothing'} of ${o.planned}`);
+    const by = Object.entries(o.changedBy).sort((a, b) => b[1] - a[1]);
+    if (by.length > 0) {
+      lines.push(
+        `      last changed by: ${by.map(([userId, n]) => `${named(userId)} ${n}`).join(' · ')}`,
+      );
+    }
+    for (const reason of o.reasons) lines.push(`      ${reason}`);
+  }
+  for (const refusal of refusals) lines.push(`a removal would be refused: ${refusal}`);
+  return [...lines, ...notes];
+}
+
+/**
+ * Say what a removal of the run would do, and do nothing (`--preview`): the
+ * removal's own reading of the run's records before its first write
+ * (`removeRunRecords` with `previewOnly`), what the target runs as they go,
+ * and what a removal would be refused for — a production org, another org
+ * than the one the run wrote to, that automation without
+ * `--accept-automation`, objects the user may not delete without
+ * `--leave-undeletable`. Nothing is written: not to the org, not to the run's
+ * journal, whose calls under way when the run stopped a removal looks for in
+ * the target first, not beside the summary; and nothing is asked. A preview
+ * only reads, so a production org is read and the refusal a removal would
+ * meet is said; an org that is not the one the run wrote to is refused, exit
+ * 1, as the removal refuses it.
+ */
+async function previewRemoval(
+  args: RemoveArgs,
+  read: RunSummary,
+  say: (line: string) => void,
+  t0: number,
+): Promise<void> {
+  let summary = read;
+  const notes: string[] = [];
+  const answer = (preview: CloneRemovalPreview, refusals: readonly string[], orgId?: string) => {
+    notes.push(CLONE_PREVIEW_UNREAD);
+    if (args.json) {
+      process.stdout.write(
+        clonePreviewJson({
+          summary: args.summaryPath,
+          target: args.target,
+          ...(orgId !== undefined ? { targetOrgId: orgId } : {}),
+          includeChanged: args.includeChanged,
+          preview,
+          refusals,
+          notes,
+          elapsedMs: Date.now() - t0,
+        }),
+      );
+      return;
+    }
+    say('');
+    for (const line of clonePreviewLines(preview, refusals, notes, args.includeChanged)) say(line);
+    say(`\ndone in ${Date.now() - t0}ms`);
+  };
+
+  say(`sandforge-clone --remove  ${args.summaryPath}  --preview  of ${args.target}`);
+  if (summary.targetOrgId === undefined && summary.target !== args.target) {
+    process.stderr.write(
+      `The run wrote to ${summary.target}, and its records are read in that org only: ` +
+        `give --target ${summary.target}.\n`,
+    );
+    process.exit(2);
+  }
+  const journalOfRun = summary.journal;
+  if (
+    journalOfRun !== undefined &&
+    existsSync(journalOfRun) &&
+    nodeRunJournal(journalDirOf()).callsInFlightAt(journalOfRun) > 0
+  ) {
+    notes.push(
+      "the run's journal names calls under way when it stopped: a removal looks for their rows " +
+        'in the target first and removes those it finds with the rest; this preview counts only ' +
+        'what the summary names',
+    );
+  }
+  const unreachable = (summary.result.mayHaveBeenWritten ?? []).reduce(
+    (sum, { sourceIds }) => sum + sourceIds.length,
+    0,
+  );
+  if (unreachable > 0) {
+    notes.push(
+      `${unreachable} record(s) a call of the run may have written before its answer was lost ` +
+        'may be in the org, under ids the run never learned: no removal reaches them',
+    );
+  }
+  const created = removalPlan(summary);
+  if (created.length === 0) {
+    notes.push('The run created no record: there is nothing of it to remove.');
+    answer({ planned: 0, objects: [], userNames: {} }, []);
+    return;
+  }
+  // What earlier removals of the summary took, and left on the run's records:
+  // read, never written, as the removal reads it before its first delete.
+  const removalsFile = removalsPath(args.summaryPath);
+  let removalsText: string | undefined;
+  try {
+    removalsText = readFileSync(removalsFile, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+      process.stderr.write(
+        `${removalsFile} cannot be read: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(2);
+    }
+  }
+  const before = readEarlierRemovals(removalsText, runKey(created));
+  if ('refusal' in before) {
+    process.stderr.write(`${removalsFile} ${before.refusal}\n`);
+    process.exit(2);
+  }
+  const { earlier } = before;
+  const plan = forgeRemovalPlanLeft({ objects: created, removalLeft: earlier?.removalLeft });
+  const count = (objects: readonly ForgeRunObjectRecords[]): number =>
+    objects.reduce((sum, object) => sum + object.ids.length, 0);
+  const removedEarlier = count(created) - count(plan);
+  if (removedEarlier > 0) {
+    notes.push(`${removedEarlier} record(s) removed by an earlier --remove of this summary`);
+  }
+  if (plan.length === 0) {
+    notes.push('nothing left of the run to remove');
+    answer({ planned: 0, objects: [], userNames: {} }, []);
+    return;
+  }
+
+  const session = await loadOrg(args.target);
+  const conn = makeConn(session);
+  const org = await typeOrg(conn);
+  if (summary.targetOrgId !== undefined && !sameRecord(summary.targetOrgId, org.id)) {
+    process.stderr.write(
+      `${args.target} is not the org the run wrote to (${summary.targetOrgId}): its records ` +
+        'are read in that org only. Nothing of the run was read.\n',
+    );
+    process.exit(1);
+  }
+  const refusals: string[] = [];
+  const production = productionRefusal(args.target, org, 'remove');
+  if (production) refusals.push(production);
+  summary = await datedFromItsJournal(conn, summary);
+  // What the target runs as a removal takes the run back, read and said as
+  // the removal says it before its first delete.
+  const removed = plan.map((object) => object.objectApiName);
+  const drafted = setBackToDraftOf(removed);
+  const automation = await targetAutomationReader(conn).read(args.target, removed);
+  say('');
+  for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
+    say(line);
+  }
+  const automationStop = removalAutomationRefusal(automation, args.target, {
+    drafted,
+    assign: bypassesToAssign(
+      automation,
+      removalBypassesOf(automation, drafted),
+      session.username ? { alias: args.target, username: session.username } : undefined,
+    ),
+  });
+  if (automationStop && !args.acceptAutomation) refusals.push(automationStop);
+
+  // Ctrl-C stops the reads before the next one; nothing is said of a preview
+  // stopped part way.
+  const stop = new AbortController();
+  let stoppedBy: StopSignal | undefined;
+  const releaseStop = onStopSignal((signal) => {
+    stoppedBy = signal;
+    stop.abort();
+  });
+  const span = summary.result.writtenBetween;
+  let outcome: RunRemovalOutcome;
+  try {
+    outcome = await removeRunRecords(removalOrg(conn, 'sandforge-clone --remove --preview'), plan, {
+      ...(span
+        ? { runStartedAt: new Date(span.first), runEndedAt: new Date(span.last) }
+        : {
+            runDurationMs: summary.elapsedMs,
+            ...(summary.finishedAt ? { runRecordedAt: new Date(summary.finishedAt) } : {}),
+          }),
+      ...(earlier
+        ? { removalStamps: earlier.removalStamps, removalSpans: earlier.removalSpans }
+        : {}),
+      includeChanged: args.includeChanged,
+      previewOnly: true,
+      signal: stop.signal,
+    });
+  } finally {
+    releaseStop();
+  }
+  const preview = outcome.preview;
+  if (!preview) {
+    process.stderr.write(
+      'interrupted: the preview stopped before it was through, and wrote nothing\n',
+    );
+    process.exit(stopExitCode(stoppedBy ?? 'SIGINT'));
+  }
+  const undeletable = outcome.undeletable ?? [];
+  if (undeletable.length > 0 && !args.leaveUndeletable) {
+    const named = undeletable.map((o) => `${o.objectApiName} (${o.records} records)`).join(', ');
+    refusals.push(
+      `The user SandForge connects as may not delete the records of ${named} in ` +
+        `${args.target}: a removal stops before its first delete, unless given ` +
+        '--leave-undeletable, which removes the rest and leaves those.',
+    );
+  }
+  answer(
+    {
+      planned: count(plan),
+      objects: preview.objects,
+      ...(undeletable.length > 0 ? { undeletable } : {}),
+      userNames: preview.userNames,
+    },
+    refusals,
+    org.id,
+  );
 }
 
 /**
@@ -5161,6 +5496,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   });
   runAudit().automationRead({ automation: targetAutomation }, updated);
   if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
+  /**
+   * What a dry run says a real run would be refused for, each in its own
+   * words: given with --json under `wouldBeRefused`, where a pipeline reads
+   * it, as the lines say it on stderr.
+   */
+  const dryRunRefusals: string[] = [];
   if (automationStop && !args.acceptAutomation) {
     if (!args.dryRun) {
       recordClone({
@@ -5171,6 +5512,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.stderr.write(`${automationStop}\n`);
       process.exit(1);
     }
+    dryRunRefusals.push(automationStop);
     say(
       '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
         'and updates, or could not be read, above',
@@ -5478,6 +5820,21 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // and to what the target has left. A dry run says what a real run would
   // meet there, and writes nothing.
   const targetConn = conns.get(args.target)!;
+  /**
+   * What a dry run's gate counted as the write would have begun: per object
+   * the records, the storage they take and the emails they send, and in all
+   * the records `--max-total` holds a run to. Given with --json under
+   * `writePlan`: an environment holds the real run to this count, so a scope
+   * that grew since its dry run is refused, not written.
+   */
+  let dryRunWritePlan:
+    | {
+        totalRows: number;
+        storageBytes: number;
+        objects: WritePlan['objects'];
+        emails?: Array<{ limit: string; emails: number }>;
+      }
+    | undefined;
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
     const plan = writePlanOf(boundary.objects);
     let storage: DataStorage | { unread: string };
@@ -5497,6 +5854,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // the workflow emails, and took its single emails from −75 to −117.
     const sending = emailsPerInsertOf(targetAutomation);
     let overEmails: string | undefined;
+    let emailCounts: Array<{ limit: string; emails: number }> | undefined;
     if (sending.length > 0) {
       const limits = await readEmailLimits(targetConn).catch((err: unknown) => ({
         unread: extractErrorMessage(err),
@@ -5504,6 +5862,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       const emails = countedEmailChecksOf(plan, sending, limits);
       for (const line of emailCheckLines(emails, args.target)) say(line);
       overEmails = emailRefusal(emails, args.target);
+      emailCounts = emails.map((check) => ({ limit: check.limit, emails: check.emails }));
     }
     const overTotal =
       plan.totalRows > args.maxTotal
@@ -5517,6 +5876,13 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     );
     if (boundary.dryRun) {
       for (const reason of reasons) say(`  a real run would be refused: ${reason}`);
+      dryRunRefusals.push(...reasons);
+      dryRunWritePlan = {
+        totalRows: plan.totalRows,
+        storageBytes: plan.storageBytes,
+        objects: plan.objects,
+        ...(emailCounts !== undefined ? { emails: emailCounts } : {}),
+      };
       return;
     }
     if (reasons.length > 0) {
@@ -5594,6 +5960,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // The external ids --upsert may match by that the run writes neutralized.
     ...(upsertKeys.length > 0 ? { neutralizedUpsertKeys: upsertKeys } : {}),
     result: jsonResult(counted, args.readCeiling),
+    // Of a dry run, what its gate counted, and what a real run would be refused for.
+    ...(args.dryRun && dryRunWritePlan !== undefined ? { writePlan: dryRunWritePlan } : {}),
+    ...(args.dryRun && dryRunRefusals.length > 0 ? { wouldBeRefused: dryRunRefusals } : {}),
     elapsedMs: at.getTime() - t0,
     finishedAt: at.toISOString(),
     // The journal the run wrote as it went, and its part: where the ids are

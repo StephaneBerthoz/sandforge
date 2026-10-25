@@ -4,8 +4,9 @@
  *
  * Every resource the state holds is taken back through the script that
  * wrote it — `sandforge-seed --remove … --json`, from the summary its run
- * printed, or from its run file for a run stopped before it printed one —
- * each before the resources it depended on when it was applied: the removal
+ * printed, or from its run file for a run stopped before it printed one;
+ * `sandforge-clone --remove … --json`, from the summary its run wrote as it
+ * went — each before the resources it depended on when it was applied: the removal
  * keeps a record while records that stay hang from it, so taking the
  * accounts back before the contacts under them would keep every account.
  *

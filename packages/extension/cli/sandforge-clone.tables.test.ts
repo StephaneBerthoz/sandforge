@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
 
@@ -326,13 +328,104 @@ describe('sandforge-clone of whole tables', () => {
       ['--record with --object', argv('--record', '001000000000001AAA')],
       ['--expand-orphans, of a clone of one record', argv('--expand-orphans')],
       ['--rehearse, which holds every row it reads', argv('--rehearse')],
-      ['--template, which clones a record', argv('--template', 'template.json')],
       ['--filter and --where on the same table', argv('--filter', "Contact=Title = 'x'")],
       ['a --where with a comment marker', argv('--object', 'Case', '--where', "Subject = 'a' --")],
     ])('refuses %s with exit 2, before any org is reached', (_label, args) => {
       expect(() => parseArgs(args)).toThrow(ExitCalled);
       expect(vi.mocked(process.exit)).toHaveBeenCalledWith(2);
       expect(execFileSync).not.toHaveBeenCalled();
+    });
+
+    it('takes a template’s choices with the tables, its record or query aside, the flags over it', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-tables-template-'));
+      try {
+        const template = join(dir, 'template.json');
+        writeFileSync(
+          template,
+          JSON.stringify({
+            id: 'env-case-flow-claims',
+            name: 'case-flow/claims',
+            description: '',
+            config: {
+              inputMode: 'soql',
+              soqlQuery: `SELECT Id FROM Account WHERE AccountNumber = '${MARK}'`,
+              depth: 'custom',
+              customDepth: 2,
+              maxNodes: 20,
+              anonymizePII: true,
+              skipEmpty: true,
+              batchSize: 'auto',
+              excludedObjects: ['Task'],
+              fieldExclusions: { Contact: ['Department'] },
+            },
+            anonymization: { rules: { email: 'fake' } },
+            objectCount: 0,
+            recordCount: 0,
+            createdAt: '2026-10-25T09:00:00.000Z',
+            lastUsedAt: '2026-10-25T09:00:00.000Z',
+          }),
+        );
+
+        const args = parseArgs(argv('--template', template));
+
+        expect(args.record).toBeUndefined();
+        expect(args.tables?.map((table) => table.objectApiName)).toEqual(['Account', 'Contact']);
+        expect(args).toMatchObject({
+          depth: 'custom',
+          customDepth: 2,
+          maxNodes: 20,
+          anonymize: true,
+          anonymizationRules: { email: 'fake' },
+          excludedObjects: ['Task'],
+          fieldExclusions: { Contact: ['Department'] },
+          // The line's conditions, each the filter of its table.
+          objectSoqlFilters: {
+            Account: `AccountNumber = '${MARK}'`,
+            Contact: `Department = '${MARK}'`,
+          },
+          choicesFrom: { flag: '--template', path: template },
+        });
+        expect(execFileSync).not.toHaveBeenCalled();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses a template that brings orphan parents with the tables, as it refuses --expand-orphans', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sandforge-clone-tables-template-'));
+      try {
+        const template = join(dir, 'template.json');
+        writeFileSync(
+          template,
+          JSON.stringify({
+            id: 't',
+            name: 't',
+            description: '',
+            config: {
+              inputMode: 'record',
+              recordId: '001000000000001AAA',
+              depth: 'direct',
+              anonymizePII: false,
+              skipEmpty: true,
+              batchSize: 'auto',
+              expandOrphanParents: true,
+            },
+            objectCount: 0,
+            recordCount: 0,
+            createdAt: '2026-10-25T09:00:00.000Z',
+            lastUsedAt: '2026-10-25T09:00:00.000Z',
+          }),
+        );
+
+        expect(() => parseArgs(argv('--template', template))).toThrow(ExitCalled);
+        expect(vi.mocked(process.exit)).toHaveBeenCalledWith(2);
+        expect(stderr.join('')).toContain(
+          '--template: the template brings orphan parents (expandOrphanParents), which go with ' +
+            'a clone of one record (--record), not with --object.',
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it('still asks for a record or a table', () => {
@@ -596,6 +689,47 @@ describe('sandforge-clone of whole tables', () => {
         { objectApiName: 'Contact', where: `Department = '${MARK}'` },
       ]);
       expect(removalPlan(ofJournal.summary).map((object) => object.ids.length)).toEqual([3, 2]);
+    });
+
+    it('gives with a dry run what its gate counted, the count a run is held to, and writes nothing', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(await run(argv('--dry-run', '--json'))).toBeUndefined();
+
+      const summary = JSON.parse(stdout.join('')) as Record<string, unknown>;
+      expect(summary['writePlan']).toEqual({
+        totalRows: 5,
+        storageBytes: 5 * 2048,
+        objects: [
+          { objectApiName: 'Contact', rows: 3, storageBytes: 3 * 2048 },
+          { objectApiName: 'Account', rows: 2, storageBytes: 2 * 2048 },
+        ],
+      });
+      expect(summary).not.toHaveProperty('wouldBeRefused');
+      expect(orgs.TGT.creates).toEqual([]);
+    });
+
+    it('says with a dry run what a real run would be refused for: more records than --max-total', async () => {
+      withFakeOrgs();
+
+      expect(await run(argv('--dry-run', '--json', '--max-total', '4'))).toBeUndefined();
+
+      const summary = JSON.parse(stdout.join('')) as { wouldBeRefused?: string[] };
+      expect(summary.wouldBeRefused).toEqual([
+        expect.stringContaining('The run would write 5 records, more than --max-total 4'),
+      ]);
+    });
+
+    it('holds a real run to --max-total, writing nothing past it, and gives no write plan of its own', async () => {
+      const orgs = withFakeOrgs();
+
+      expect(await run(argv('--json', '--max-total', '4'))).toBe(1);
+      expect(orgs.TGT.creates).toEqual([]);
+      expect(stderr.join('')).toContain('The run would write 5 records, more than --max-total 4');
+
+      stdout = [];
+      expect(await run(argv('--json', '--max-total', '5'))).toBeUndefined();
+      expect(JSON.parse(stdout.join(''))).not.toHaveProperty('writePlan');
     });
 
     it('refuses a table discovery did not reach from the first, before a row is read', async () => {

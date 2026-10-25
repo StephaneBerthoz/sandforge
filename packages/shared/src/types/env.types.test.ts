@@ -5,6 +5,7 @@ import type {
   EnvAction,
   EnvActionKind,
   EnvFile,
+  EnvForgeResource,
   EnvPlan,
   EnvResource,
   EnvResourceKind,
@@ -27,6 +28,7 @@ import {
   envActionKindSchema,
   envActionSchema,
   envFileSchema,
+  envForgeResourceSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
   envResourceKindSchema,
@@ -58,6 +60,7 @@ describe('the file and its schema', () => {
     expectTypeOf<z.infer<typeof envFileSchema>>().toEqualTypeOf<EnvFile>();
     expectTypeOf<z.infer<typeof envResourceSchema>>().toEqualTypeOf<EnvResource>();
     expectTypeOf<z.infer<typeof envSeedResourceSchema>>().toEqualTypeOf<EnvSeedResource>();
+    expectTypeOf<z.infer<typeof envForgeResourceSchema>>().toEqualTypeOf<EnvForgeResource>();
     expectTypeOf<EnvFile['version']>().toEqualTypeOf<1>();
     expectTypeOf<EnvFile['targets']['kinds']>().toEqualTypeOf<EnvTargetKind[]>();
   });

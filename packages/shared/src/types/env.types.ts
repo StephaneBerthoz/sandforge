@@ -15,6 +15,8 @@
  * does not would make a state its own writer cannot read back.
  */
 
+import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
+import type { ForgeDepth } from './forge.types.js';
 import type { FieldRule, SeedTemplate } from './seed.types.js';
 
 // ─── The file (sandforge.yaml, version 1) ───────────────────────────────────
@@ -115,8 +117,59 @@ export interface EnvSeedResource {
   seed?: number;
 }
 
-/** A resource of the file. Version 1 holds the `seed` kind. */
-export type EnvResource = EnvSeedResource;
+/**
+ * The record a forge resource clones: by its id, or by its object and a
+ * condition its source answers with exactly one row, read at each plan.
+ */
+export interface EnvForgeRecord {
+  id?: string;
+  object?: string;
+  /** A SOQL condition, without the keyword. */
+  where?: string;
+}
+
+/** A table a forge resource clones whole, under its condition. */
+export interface EnvForgeTable {
+  object: string;
+  /** A SOQL condition, without the keyword; every row when absent. */
+  where?: string;
+}
+
+/** An entry of a Forge templates file, by its id. */
+export interface EnvForgeTemplateRef {
+  /** From the folder of the file, as `.sandforge/forge-templates.json`. */
+  file: string;
+  id: string;
+}
+
+/** Forge's anonymization, as a template holds it. */
+export interface EnvForgeAnonymize {
+  presetId?: string;
+  rules: NonNullable<ForgeTemplateInput['anonymization']>['rules'];
+  fields?: Array<{ objectApiName: string; fieldNames: string[] }>;
+}
+
+/** Records cloned by Forge from an org the file names by its role: one record and its graph, or whole tables. */
+export interface EnvForgeResource {
+  kind: 'forge';
+  dependsOn?: string[];
+  accept?: EnvAccept;
+  /** The org role it clones from: a key of the file's orgs. */
+  source: string;
+  record?: EnvForgeRecord;
+  tables?: EnvForgeTable[];
+  template?: EnvForgeTemplateRef;
+  depth?: ForgeDepth;
+  customDepth?: number;
+  maxNodes?: number;
+  anonymize?: EnvForgeAnonymize;
+  keepContactPoints?: boolean;
+  /** The most records a run of it may write. */
+  maxTotal?: number;
+}
+
+/** A resource of the file. Version 1 holds the `seed` and `forge` kinds. */
+export type EnvResource = EnvSeedResource | EnvForgeResource;
 
 /** `sandforge.yaml`, version 1, as read: defaults in place, variables as written. */
 export interface EnvFile {
@@ -140,6 +193,23 @@ export interface EnvSeedRun {
   seed?: number;
   /** Record types by object, by DeveloperName. */
   recordTypes?: Record<string, string[]>;
+  acceptAutomation: boolean;
+}
+
+/**
+ * What a forge resource runs: the template `sandforge-clone` is given as a
+ * file, exported from the resource and checked by Forge's own template
+ * schema, and what it clones, which the line names beside it.
+ */
+export interface EnvForgeRun {
+  /** The org role it clones from. */
+  source: string;
+  template: ForgeTemplateInput;
+  /** One record, by its id or by the query read at each plan; or the tables. */
+  record?: EnvForgeRecord;
+  tables?: EnvForgeTable[];
+  /** The most records a run may write, the file's; the plan's count holds it lower. */
+  maxTotal?: number;
   acceptAutomation: boolean;
 }
 
@@ -396,7 +466,10 @@ export interface EnvValidation {
     name: string;
     kind: EnvResourceKind;
     dependsOn: string[];
-    objects: Array<{ object: string; count: number }>;
+    /** The org role a forge resource clones from. */
+    source?: string;
+    /** The objects it writes; a forge resource's are counted by its dry run alone. */
+    objects: Array<{ object: string; count?: number }>;
   }>;
   /** The variables the file reads, and whether this process has each set. */
   variables?: Array<{ name: string; role: string; set: boolean }>;

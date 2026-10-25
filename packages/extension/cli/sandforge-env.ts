@@ -6,6 +6,7 @@
  *
  * It writes nothing to an org itself. Each resource is planned, applied,
  * previewed and taken back by the script that already does it —
+ * `sandforge-clone` for a forge resource, and
  * `sandforge-seed` for a seed resource — spawned with `--json` as the MCP
  * server spawns its tools, so every guard, gate and run file of the script
  * holds unchanged. What it adds is what no script has: the declared file, a
@@ -14,7 +15,9 @@
  *
  * What it reads in its own process: the file, the state, the plan's
  * arithmetic, the org's kind and its `/limits` — the guard needs them before
- * anything runs. Every record is read and written by a spawned script.
+ * anything runs — and, for a forge resource, its source's Organization Id and
+ * the one row its record's query answers, which its fingerprint is of. Every
+ * record is written by a spawned script.
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
@@ -60,13 +63,25 @@ import {
   pathText,
   readEnvFile,
   refusalLine,
+  resolveEnvFile,
   unsetVariablesOf,
   type EnvFileRefusal,
   type EnvFileResolved,
 } from './env/envFile.js';
 import {
+  dryRunLineOf,
+  objectsOfRun,
+  previewLineOf,
+  readDryRunOf,
+  readPreviewOf,
+  type EnvKindRun,
+} from './env/envKinds.js';
+import { StepAnswerError } from './env/kinds/common.js';
+import { readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
+import {
   envTargetOf,
   noStateGuard,
+  sameOrganization,
   stateRefusal,
   stateTargetRefusal,
   storeRefusal,
@@ -99,14 +114,6 @@ import {
   stateExpiresAt,
   type EnvStore,
 } from './env/envState.js';
-import {
-  SEED_SCRIPT,
-  StepAnswerError,
-  readSeedDryRun,
-  readSeedPreview,
-  seedDryRunLine,
-  seedPreviewLine,
-} from './env/envSteps.js';
 
 const HELP = `sandforge-env — apply a sandforge.yaml to an org: the data an environment needs, declared in
 your repository, created, kept and taken back, without the editor.
@@ -115,8 +122,8 @@ Usage:
   pnpm exec tsx packages/extension/cli/sandforge-env.ts <command> [--file <sandforge.yaml>] --org <alias> [options]
 
 Commands:
-  validate  check the file, offline: its schema, each resource against Seed's own rules, the
-            order of the resources, the variables it names; reaches no org
+  validate  check the file, offline: its schema, each resource against its module's own rules,
+            the order of the resources, the variables it names; reaches no org
   plan      say what apply would do to the org: per resource, create, keep, replace, delete, or why
             it is blocked; what an earlier apply left there and what changed since; per object the
             records it would write; the API requests, storage and emails it takes; writes nothing
@@ -162,6 +169,12 @@ The file holds no secret: org credentials stay with the sf CLI. A value comes fr
 only where the file writes { env: NAME }. The org to fill is never in the file. A resource's
 accept: { automation: true } is the file's --accept-automation for that resource.
 
+A forge resource clones from the org its source names: a role of the file's orgs, its alias
+given there, in a { env: NAME } variable or with --alias. A record named by a query is the one
+row its source answers, read at each plan. Each forge run is held to the count its dry run gave
+the plan: a source that grew since is refused, not written. Once it ended, the clone verifies
+what it created: records not there, or lookups that do not hold, leave it partial.
+
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
 sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
@@ -169,10 +182,10 @@ apart by the Dev Hub the sf CLI names for it; one it names none for is taken for
 
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
-beside the run files of the seeds it ran. That folder must be outside the repository that holds
-the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch
-org's state is deleted 30 days after its last write. Two machines applying to one org at once are
-not kept apart: give the jobs one concurrency group.
+beside the run files of the seeds and clones it ran. That folder must be outside the repository
+that holds the file. Keep it between the jobs that apply and destroy, in a cache keyed by the org.
+A scratch org's state is deleted 30 days after its last write. Two machines applying to one org
+at once are not kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
 whole, or nothing to do; destroy: every record taken back); 1 refused before it read or wrote — a
@@ -183,8 +196,8 @@ the org has left —, or nothing written; 2 a bad command line, a file that does
 variable not set, the journal directory inside the file's repository, a question with no
 terminal (give --yes); 3 partial (apply: a resource partial, or failed after others wrote;
 destroy: records left, each with why; plan with --fail-on-change or --fail-on-drift: changes or
-drift found); 4 unstable; 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
-takes up from the state.
+drift found); 4 unstable (a forge run's verification found records still changing); 130, 143, 129
+Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it takes up from the state.
 `;
 
 // ─── The command line ────────────────────────────────────────────────────────
@@ -475,7 +488,7 @@ async function prepare(
   const document = readDocument(args.file);
   const read = readEnvFile(document, dirname(args.file), process.env, { aliases: args.aliases });
   if ('refusals' in read) throw fileStop(args.file, read.refusals);
-  const { resolved } = read;
+  let resolved = read.resolved;
   const names = resolved.resources.map((resource) => resource.name);
   for (const name of args.replace) {
     if (!names.includes(name)) {
@@ -553,6 +566,20 @@ async function prepare(
   if (holder !== undefined) {
     warnings.push(`${envLockLine(holder)}: this plan may be out of date when it ends`);
   }
+  // The source of each forge resource, read for a plan and an apply: the org
+  // its alias reaches and the record its query names, which its fingerprint
+  // is of. A destroy takes back what the state names, and reads no source.
+  if (args.command !== 'destroy') {
+    const sources = await readSources(resolved, target, deps, say);
+    if (Object.keys(sources).length > 0) {
+      const again = resolveEnvFile(resolved.checked, process.env, {
+        aliases: args.aliases,
+        sources,
+      });
+      if ('refusals' in again) throw fileStop(args.file, again.refusals);
+      resolved = again.resolved;
+    }
+  }
   return {
     resolved,
     store,
@@ -567,6 +594,52 @@ async function prepare(
   };
 }
 
+/**
+ * What each forge resource's source answers: the org its role's alias
+ * reaches, and the one row its record's query names. Each alias is reached
+ * once. A source that cannot be reached, a query that answers no row or
+ * more than one, and a source that is the org to fill are said, and the plan
+ * blocks the resource: a clone reads one org and writes another.
+ */
+async function readSources(
+  resolved: EnvFileResolved,
+  target: EnvTarget,
+  deps: EnvCliDeps,
+  say: (line: string) => void,
+): Promise<Record<string, EnvSourceRead>> {
+  const reached = new Map<string, Promise<Reached>>();
+  const sources: Record<string, EnvSourceRead> = {};
+  for (const resource of resolved.resources) {
+    if (resource.kind !== 'forge') continue;
+    const { role, alias } = resource.source;
+    say(`${resource.name}: reading its source, the ${role} org (${alias})`);
+    let conn: Connection;
+    try {
+      let reaching = reached.get(alias);
+      if (reaching === undefined) {
+        reaching = (deps.reach ?? reachOrg)(alias);
+        reached.set(alias, reaching);
+      }
+      conn = (await reaching).conn;
+    } catch (err: unknown) {
+      sources[resource.name] = {
+        refusal: `the ${role} org (${alias}) could not be reached: ${err instanceof Error ? err.message : String(err)}`,
+      };
+      continue;
+    }
+    const read = await readForgeSource(conn, resource.run, role, alias);
+    sources[resource.name] =
+      'organizationId' in read && sameOrganization(read.organizationId, target.organizationId)
+        ? {
+            refusal:
+              `its source, the ${role} org (${alias}), is the org to fill: a clone reads one ` +
+              'org and writes another',
+          }
+        : read;
+  }
+  return sources;
+}
+
 /** The production way to reach an org: the sf CLI's session. */
 async function reachOrg(alias: string): Promise<Reached> {
   const session = await loadOrg(alias);
@@ -575,7 +648,7 @@ async function reachOrg(alias: string): Promise<Reached> {
 
 /**
  * Preview the removal of every run of the resources the state holds, through
- * the seed's own `--remove … --preview`: what the org holds of each, what is
+ * its script's own `--remove … --preview`: what the org holds of each, what is
  * gone and what changed since, and what a removal would be refused for now.
  */
 async function previewRuns(
@@ -611,18 +684,15 @@ async function previewRuns(
         continue;
       }
       say(`${name}: reading what the org holds of run ${run.n}`);
-      const ran = await prepared.runner(
-        SEED_SCRIPT,
-        seedPreviewLine({
-          target: target.alias,
-          summary: subject,
-          includeChanged: options.includeChanged,
-          acceptAutomation: accept,
-        }),
-        signal,
-      );
+      const line = previewLineOf(resource.kind, {
+        target: target.alias,
+        subject,
+        includeChanged: options.includeChanged,
+        acceptAutomation: accept,
+      });
+      const ran = await prepared.runner(line.script, line.args, signal);
       try {
-        runs.push({ n: run.n, preview: readSeedPreview(ran.stdout) });
+        runs.push({ n: run.n, preview: readPreviewOf(resource.kind, ran.stdout) });
       } catch (err: unknown) {
         if (!(err instanceof StepAnswerError)) throw err;
         runs.push({ n: run.n, failed: `exit ${ran.code}: ${lastLine(ran.stderr)}` });
@@ -633,7 +703,11 @@ async function previewRuns(
   return previews;
 }
 
-/** Dry-run each resource to create or replace, through the seed's own `--dry-run --json`. */
+/**
+ * Dry-run each resource to create or replace, through its script's own
+ * `--dry-run --json`. A forge resource whose source was not read is not: the
+ * plan blocks it for that.
+ */
 async function dryRun(
   prepared: Prepared,
   names: readonly string[],
@@ -647,31 +721,27 @@ async function dryRun(
   try {
     for (const resource of resolved.resources) {
       if (!names.includes(resource.name) || signal.aborted) continue;
+      if (resource.kind === 'forge') {
+        const read = resource.source.read;
+        if (read === undefined || 'refusal' in read) continue;
+      }
       const templateFile = join(folder, `${resource.name}.json`);
       writeFileSync(templateFile, `${JSON.stringify(resource.run.template, null, 2)}\n`, {
         mode: 0o600,
       });
       say(`${resource.name}: dry run`);
-      const ran = await prepared.runner(
-        SEED_SCRIPT,
-        seedDryRunLine({
-          target: target.alias,
-          templateFile,
-          runId: envRunIdOf(
-            resolved.checked.file.name,
-            resource.name,
-            nextRunNumber(state?.resources[resource.name]),
-          ),
-          ...(resource.run.seed !== undefined ? { seed: resource.run.seed } : {}),
-          ...(resource.run.locale !== undefined ? { locale: resource.run.locale } : {}),
-          ...(resource.run.recordTypes !== undefined
-            ? { recordTypes: resource.run.recordTypes }
-            : {}),
-        }),
-        signal,
-      );
+      const line = dryRunLineOf(resource, {
+        target: target.alias,
+        templateFile,
+        runId: envRunIdOf(
+          resolved.checked.file.name,
+          resource.name,
+          nextRunNumber(state?.resources[resource.name]),
+        ),
+      });
+      const ran = await prepared.runner(line.script, line.args, signal);
       try {
-        dryRuns[resource.name] = { answer: readSeedDryRun(ran.stdout) };
+        dryRuns[resource.name] = { answer: readDryRunOf(resource.kind, ran.stdout) };
       } catch (err: unknown) {
         if (!(err instanceof StepAnswerError)) throw err;
         dryRuns[resource.name] = { failed: `exit ${ran.code}: ${lastLine(ran.stderr)}` };
@@ -779,6 +849,27 @@ function orgClock(conn: Connection, say: (line: string) => void): () => Promise<
 
 // ─── The verbs ───────────────────────────────────────────────────────────────
 
+/**
+ * What `validate` says a resource writes: a seed's objects with their counts;
+ * a forge resource's source and what it clones, which its dry run alone counts.
+ */
+function validatedLine(run: EnvKindRun): string {
+  if (run.kind === 'seed') {
+    return objectsOfRun(run)
+      .map((o) => `${o.object} ${o.count ?? ''}`)
+      .join(', ');
+  }
+  const where = (object: string, condition: string | undefined): string =>
+    condition !== undefined ? `${object} WHERE ${condition}` : object;
+  const what =
+    run.tables !== undefined
+      ? `tables ${run.tables.map((table) => where(table.object, table.where)).join(', ')}`
+      : run.record?.id !== undefined
+        ? `record ${run.record.id}`
+        : `the one record of ${where(run.record?.object ?? '', run.record?.where)}`;
+  return `cloned from the ${run.source} org: ${what}`;
+}
+
 /** `validate`: the file checked offline, its variables named. */
 function validate(
   args: CliArgs,
@@ -801,22 +892,27 @@ function validate(
   }
   const { file, order, runs, variables } = checked.checked;
   const unset = new Set(unsetVariablesOf(checked.checked, process.env).map((v) => v.name));
-  const resources = order.map((name) => ({
-    name,
-    kind: 'seed' as const,
-    dependsOn: [...new Set(file.resources[name]?.dependsOn ?? [])],
-    objects: (runs[name]?.template.objects ?? []).map((object) => ({
-      object: object.objectApiName,
-      count: object.recordCount,
-    })),
-  }));
+  const resources = order.flatMap((name) => {
+    const run = runs[name];
+    if (run === undefined) return [];
+    return [
+      {
+        name,
+        kind: run.kind,
+        dependsOn: [...new Set(file.resources[name]?.dependsOn ?? [])],
+        ...(run.kind === 'forge' ? { source: run.source } : {}),
+        objects: objectsOfRun(run),
+      },
+    ];
+  });
   const warnings = checked.checked.warnings.map(issueOf);
   const checkpoint = checkpointSettingsRefusal(file);
   if (checkpoint !== undefined) warnings.push({ path: 'checkpoint', message: checkpoint });
   say(`${args.file}: valid, the environment ${file.name}`);
   for (const resource of resources) {
+    const run = runs[resource.name];
     say(
-      `  ${resource.name}: ${resource.objects.map((o) => `${o.object} ${o.count}`).join(', ')}` +
+      `  ${resource.name}: ${run !== undefined ? validatedLine(run) : ''}` +
         (resource.dependsOn.length > 0 ? `, after ${resource.dependsOn.join(', ')}` : ''),
     );
   }

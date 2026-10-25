@@ -60,6 +60,7 @@ const APPLY = source(`${CLI_DIR}/env/envApply.ts`);
 const DESTROY = source(`${CLI_DIR}/env/envDestroy.ts`);
 const STATE = source(`${CLI_DIR}/env/envState.ts`);
 const FILE = source(`${CLI_DIR}/env/envFile.ts`);
+const SEED_KIND = source(`${CLI_DIR}/env/kinds/seed.ts`);
 const LOCK = source(`${CLI_DIR}/env/envLock.ts`);
 const SEED = source(`${CLI_DIR}/sandforge-seed.ts`);
 const EXIT_CODES = source(`${CLI_DIR}/exitCodes.ts`);
@@ -393,6 +394,12 @@ describe('docs/environments.md', () => {
       resources: { r: { kind: 'seed', objects: [object], ...resource } },
       ...top,
     });
+    const forge = (resource: Record<string, unknown>) => ({
+      version: 1,
+      name: 'e',
+      orgs: { uat: { alias: 'A' } },
+      resources: { r: { kind: 'forge', source: 'uat', tables: [{ object: 'Case' }], ...resource } },
+    });
     const places: Array<[string, string, Record<string, unknown>]> = [
       ['the file', 'the file', file({}, { misspelt: 1 })],
       ['`targets`', 'targets', file({}, { targets: { misspelt: 1 } })],
@@ -425,6 +432,29 @@ describe('docs/environments.md', () => {
         }),
       ],
     ];
+    places.push(
+      ['`resources.<name>`, `kind: forge`', 'a forge resource', forge({ misspelt: 1 })],
+      [
+        '`resources.<name>.record`',
+        'a record',
+        forge({ tables: undefined, record: { id: '500000000000001AAA', misspelt: 1 } }),
+      ],
+      [
+        '`resources.<name>.tables[]`',
+        'a table',
+        forge({ tables: [{ object: 'Case', misspelt: 1 }] }),
+      ],
+      [
+        '`resources.<name>.template`',
+        'a template',
+        forge({ template: { file: 't.json', id: 't', misspelt: 1 } }),
+      ],
+      [
+        '`resources.<name>.anonymize`',
+        'anonymize',
+        forge({ anonymize: { rules: {}, misspelt: 1 } }),
+      ],
+    );
     const table = rows(section(DOC, '### Every key'));
     for (const [where, what, doc] of places) {
       const row = table.find(([cell]) => cell === where);
@@ -463,7 +493,7 @@ describe('docs/environments.md', () => {
     const line = DOC.split('\n').find((l) => l.startsWith('A built-in template is one of'));
     const named = ticked(line ?? '');
     expect(named).toEqual(ids);
-    expect(FILE).toContain('A built-in template is its content, not its id, so a SandForge');
+    expect(SEED_KIND).toContain('A built-in template is its content, not its id, so a SandForge');
   });
 
   it('says what the file refuses, in the rules the schema and the reader keep', () => {
@@ -563,12 +593,12 @@ describe('docs/environments.md', () => {
       "Its lines go on to this process's stderr as they\n * come",
     );
     expect(DOC).toContain(
-      'Each resource of the file is applied by `sandforge-seed`, run in a process of its own with `--json`',
+      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource --, run in a process of its own with `--json`',
     );
     expect(DOC).toContain('Each script it runs says its own lines too, on stderr, as they come');
     // The file's two checks: its own schema, then Seed's, as the panel's.
-    expect(FILE).toContain(
-      'checked by `seedTemplatePayloadSchema` as `seed:execute` checks the\n * panel',
+    expect(SEED_KIND).toContain(
+      'checked by `seedTemplatePayloadSchema` as\n * `seed:execute` checks the panel',
     );
     expect(DOC).toContain("held to Seed's own schema and rules, as the Seed panel's are");
     // Write-ahead, and the two orders of an apply.
@@ -657,7 +687,7 @@ describe('docs/environments.md', () => {
         'A seed resource names a built-in template or its objects, not both',
         'or `objects` and `relations` of its own, not both',
       ],
-      [FILE, 'or leave locale out to draw in the org’s own', "the org's own without it"],
+      [SEED_KIND, 'or leave locale out to draw in the org’s own', "the org's own without it"],
       [
         help(),
         "accept: { automation: true } is the file's --accept-automation for that resource",
@@ -688,12 +718,12 @@ describe('docs/environments.md', () => {
       ],
       [
         CLI,
-        "through\n * the seed's own `--remove … --preview`",
+        "through\n * its script's own `--remove … --preview`",
         "read back from the org by the seed's removal preview, which deletes nothing",
       ],
       [
         CLI,
-        "through the seed's own `--dry-run --json`",
+        "through its script's own\n * `--dry-run --json`",
         'Each resource to write is dry-run by the seed',
       ],
       [
@@ -914,12 +944,13 @@ describe('docs/environments.md', () => {
 
   it('says what this SandForge does not do yet, as the code refuses it', () => {
     const later = section(DOC, '## Not yet');
-    expect(SCHEMA).toContain("const LATER_KINDS: readonly string[] = ['forge', 'frozen', 'mask'];");
+    expect(SCHEMA).toContain("const LATER_KINDS: readonly string[] = ['frozen', 'mask'];");
+    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed and forge resources';");
     expect(SCHEMA).toContain(
-      '`Resources of kind ${kind} come with a later SandForge: this one applies seed resources`',
+      '`Resources of kind ${kind} come with a later SandForge: this one applies ${KINDS_APPLIED}`',
     );
     expect(later).toContain(
-      '`Resources of kind forge come with a later SandForge: this one applies seed resources`',
+      '`Resources of kind frozen come with a later SandForge: this one applies seed and forge resources`',
     );
     expect(PLAN).toContain('which a later SandForge takes: this one applies');
     expect(later).toContain('`which a later SandForge takes`');
@@ -1082,7 +1113,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
     expect(faq).toContain('](environments.md)');
     expect(faq).toContain('refuses a production org before anything is read');
     expect(faq).toContain("ids, counts and dates, never a record's values");
-    expect(faq).toContain('Forge clones, Frozen Dataset loads and masking are not yet among them');
+    expect(faq).toContain('Frozen Dataset loads and masking are not yet among them');
   });
 
   it('the FAQ names the states and the locks among what SandForge keeps on the machine', () => {
