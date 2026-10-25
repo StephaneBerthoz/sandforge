@@ -2858,7 +2858,7 @@
       "staging1670": "Marcar uma sandbox como Staging",
       "staging1670Desc": "Uma cópia completa ou uma sandbox de UAT contém dados reais: marque Staging na sua caixa de edição, e o Production Guard pergunta ali antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros. O seu selo mostra STAGING.",
       "env1680": "Dados de teste como código",
-      "env1680Desc": "Descreva em um sandforge.yaml versionado com o seu projeto os registros de que um ambiente precisa: o sandforge-env os planeja, aplica e remove em uma scratch org ou Developer Edition, a partir da CI ou de um terminal — Seed, clones do Forge e cargas Frozen, com checkpoints antes e depois.",
+      "env1680Desc": "Descreva em um sandforge.yaml versionado com o seu projeto os registros de que um ambiente precisa: o sandforge-env os planeja, aplica e remove em uma scratch org ou Developer Edition, a partir da CI ou de um terminal — Seed, clones do Forge e cargas Frozen, com pontos de verificação antes e depois.",
       "checkpoints1660": "Pontos de verificação: devolver uma org ao estado anterior",
       "checkpoints1660Desc": "Guarde uma sandbox, uma scratch org ou uma org Developer Edition como está agora, veja o que mudou desde então e retroceda: o que foi adicionado é excluído, o que mudou recebe de volta os seus valores e o que foi excluído é recuperado, não importa quem o fez. O retrocesso pode ser desfeito por 15 dias. Nunca uma org de produção."
     },
