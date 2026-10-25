@@ -613,6 +613,7 @@ export const DataOpsPage: React.FC = () => {
               orgType={String(currentOrg.orgType)}
               status={currentOrg.status}
               instanceUrl={currentOrg.instanceUrl}
+              staging={currentOrg.staging}
             />
           ) : undefined
         }

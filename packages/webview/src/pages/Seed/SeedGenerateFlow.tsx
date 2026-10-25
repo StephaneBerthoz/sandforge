@@ -173,6 +173,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
                     orgType={String(state.selectedOrg.orgType)}
                     status={state.selectedOrg.status}
                     instanceUrl={state.selectedOrg.instanceUrl}
+                    staging={state.selectedOrg.staging}
                   />
                 ) : undefined
               }

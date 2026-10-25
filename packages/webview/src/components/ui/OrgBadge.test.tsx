@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import { OrgBadge } from './OrgBadge';
@@ -34,6 +34,14 @@ describe('OrgBadge', () => {
   it('should display SCR for Scratch type', () => {
     render(<OrgBadge {...defaultProps} orgType="Scratch" />);
     expect(screen.getByTestId('org-badge-type').textContent).toBe('SCR');
+  });
+
+  it('says STG for a sandbox marked Staging, which Production Guard asks about, and only a sandbox', () => {
+    render(<OrgBadge {...defaultProps} staging />);
+    expect(screen.getByTestId('org-badge-type').textContent).toBe('STG');
+    cleanup();
+    render(<OrgBadge {...defaultProps} orgType="Production" staging />);
+    expect(screen.getByTestId('org-badge-type').textContent).toBe('PROD');
   });
 
   it('names the status dot as an image, the role that lets its label be read', () => {

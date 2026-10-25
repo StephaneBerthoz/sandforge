@@ -1673,6 +1673,14 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Home with a sandbox marked Staging, its badge reading STG', async ({ page }) => {
+      await navigateToModule(bridge, page, 'home', 'home-page', { theme });
+      await bridge.seedOrgs([MOCK_ORGS[0], { ...MOCK_ORGS[1], staging: true } as MockOrg]);
+      await expect(page.getByTestId('org-badge-type').filter({ hasText: /^STG$/ })).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Organizations with a scratch org past its date, said gone with what to do and no reconnect', async ({
       page,
     }) => {

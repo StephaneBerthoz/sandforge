@@ -367,6 +367,7 @@ export const SyncPage: React.FC = () => {
                 orgType={String(sourceOrg.orgType)}
                 status={sourceOrg.status}
                 instanceUrl={sourceOrg.instanceUrl}
+                staging={sourceOrg.staging}
               />
             )}
             {sourceOrg && targetOrg && (
@@ -381,6 +382,7 @@ export const SyncPage: React.FC = () => {
                 orgType={String(targetOrg.orgType)}
                 status={targetOrg.status}
                 instanceUrl={targetOrg.instanceUrl}
+                staging={targetOrg.staging}
               />
             )}
           </div>

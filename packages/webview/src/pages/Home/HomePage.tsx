@@ -304,6 +304,7 @@ export const HomePage: React.FC = () => {
                     orgType={org.orgType}
                     status={org.status}
                     instanceUrl={org.instanceUrl}
+                    staging={org.staging}
                   />
                 ))}
                 {connectedOrgs.length > 4 && (

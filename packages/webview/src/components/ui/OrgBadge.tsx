@@ -12,6 +12,8 @@ export interface OrgBadgeProps {
   status: string;
   /** Optional Salesforce instance URL. */
   instanceUrl?: string;
+  /** A sandbox the user marked Staging, which Production Guard asks about. */
+  staging?: boolean;
   /** Additional CSS classes. */
   className?: string;
 }
@@ -33,6 +35,9 @@ const orgTypeConfig: Record<string, { label: string; bg: string }> = {
   Scratch: { label: 'SCR', bg: 'bg-status-success' },
 };
 
+/** A sandbox marked Staging: told apart from the others, as Production Guard tells it. */
+const STAGING_TYPE = { label: 'STG', bg: 'bg-status-warning' };
+
 /**
  * Displays a Salesforce org connection badge with status indicator,
  * alias, org type label, and optional instance URL.
@@ -42,6 +47,7 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   orgType,
   status,
   instanceUrl,
+  staging,
   className,
 }) => {
   const { t, i18n } = useTranslation();
@@ -49,10 +55,11 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   // A status the catalogue has no word for is read as the host wrote it.
   const statusKey = `common.orgStatus_${status}`;
   const statusLabel = i18n.exists(statusKey) ? t(statusKey) : status;
-  const typeInfo = orgTypeConfig[orgType] ?? {
-    label: orgType.slice(0, 3).toUpperCase(),
-    bg: 'bg-status-info',
-  };
+  const typeInfo = (staging === true && orgType === 'Sandbox' ? STAGING_TYPE : undefined) ??
+    orgTypeConfig[orgType] ?? {
+      label: orgType.slice(0, 3).toUpperCase(),
+      bg: 'bg-status-info',
+    };
 
   /** Truncate instance URL to hostname only. */
   const truncatedUrl = instanceUrl

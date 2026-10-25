@@ -68,6 +68,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
               orgType={String(selectedSourceOrg.orgType)}
               status={selectedSourceOrg.status}
               instanceUrl={selectedSourceOrg.instanceUrl}
+              staging={selectedSourceOrg.staging}
             />
           )}
         </div>
@@ -97,6 +98,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
               orgType={String(targetOrg.orgType)}
               status={targetOrg.status}
               instanceUrl={targetOrg.instanceUrl}
+              staging={targetOrg.staging}
             />
           ) : (
             // The target is the org selected in SandForge: with none, the
