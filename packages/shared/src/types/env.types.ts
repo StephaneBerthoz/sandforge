@@ -186,6 +186,8 @@ export interface EnvRun {
   endedAt?: string;
   exitCode?: number;
   objects: EnvRunObject[];
+  /** Taken back whole by a removal: a later removal of the resource skips it. */
+  takenBack?: true;
 }
 
 /** What the state keeps of one resource. */

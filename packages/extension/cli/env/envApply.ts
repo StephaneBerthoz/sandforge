@@ -65,6 +65,7 @@ import {
   removalStarted,
   runStarted,
   runSummaryPathOf,
+  runTakenBack,
   runTemplatePathOf,
   stepEnded,
   type EnvStore,
@@ -248,6 +249,7 @@ export async function removeResource(
   let left = false;
   let wrote = false;
   for (const run of [...before.runs].reverse()) {
+    if (run.takenBack === true) continue;
     const subject = removalSubjectOf(run, where, deps);
     if (subject === undefined) continue;
     deps.say(`${ask.resource}: taking back run ${run.n}`);
@@ -287,6 +289,9 @@ export async function removeResource(
       ...(answer !== undefined ? { answer } : {}),
     });
     if (ran.code === PARTIAL_EXIT) left = true;
+    if (ran.code === DONE_EXIT) {
+      current = await deps.store.update(current, (s) => runTakenBack(s, ask.resource, run.n));
+    }
     if (!ok) {
       if (!stopped)
         current = await deps.store.update(current, (s) =>

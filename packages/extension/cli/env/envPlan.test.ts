@@ -494,6 +494,31 @@ describe('the plan, on the memory org', () => {
     });
   }
 
+  it('says a resource replaced because what it depends on runs again changed nothing of its own in the file', async () => {
+    // A fingerprint is chained through what it depends on: the contacts read
+    // "what it writes changed in the file" when only the accounts' count had.
+    const state = await applied();
+    const plan = await planOf(resolvedOf(document({ accounts: 3 })), state);
+    const contacts = plan.actions.find((action) => action.resource === 'contacts');
+
+    expect(contacts?.action).toBe('replace');
+    expect(contacts?.why).toContain(
+      'the resources it depends on run again, with new records: accounts',
+    );
+    expect(contacts?.why).not.toContain('what it writes changed in the file');
+
+    // Its own count changed as well: both are said.
+    const both = document({ accounts: 3 }) as {
+      resources: { contacts: { objects: Array<{ count: number }> } };
+    };
+    const firstObject = both.resources.contacts.objects[0];
+    if (firstObject) firstObject.count = 3;
+    const again = await planOf(resolvedOf(both), state);
+    const changed = again.actions.find((action) => action.resource === 'contacts');
+    expect(changed?.why).toContain('what it writes changed in the file since it was applied');
+    expect(changed?.why).toContain('the resources it depends on run again');
+  });
+
   it('counts per object what a create would write, what the org holds of a kept resource, and the gates', async () => {
     const created = await planOf(resolvedOf(document()), undefined);
     expect(created.actions[0]).toMatchObject({
@@ -501,12 +526,14 @@ describe('the plan, on the memory org', () => {
       gates: { apiRequests: 1, storageBytes: 4_096, emails: [] },
     });
     // The contacts draw their accounts from what the accounts resource writes
-    // first: their dry run, which read the org before, could count none.
+    // first: their dry run, which read the org before, counted none of them,
+    // and the plan said "Contact 0 to write" of a run that writes two. The
+    // file's count stands in.
     expect(created.actions[1]).toMatchObject({
-      objects: [{ object: 'Contact', wouldCreate: 0 }],
+      objects: [{ object: 'Contact', wouldCreate: 2 }],
       why:
-        'not applied to this org yet; its dry run read the org before accounts writes, so ' +
-        'what it draws from those records is not counted',
+        'not applied to this org yet; its dry run read the org before accounts writes: its ' +
+        'records are counted as the file gives them, and what it draws from those is not counted',
     });
     expect(created.gates).toEqual({
       apiRequests: {

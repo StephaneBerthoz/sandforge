@@ -589,6 +589,30 @@ describe('replacing', () => {
     expect(world.records('Asset')).toHaveLength(1);
   });
 
+  it('takes a run back once: a later replace leaves alone the runs an earlier one took back whole', async () => {
+    // Each replace took back every earlier run again, a script started and
+    // the org read for each: four empty removals before the fifth run.
+    await apply();
+    await apply(resolvedOf(), { replace: ['accounts'] });
+    const from = world.calls.length;
+
+    const outcome = await apply(resolvedOf(), { replace: ['accounts'] });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(runsSince(from)).toEqual([
+      'remove contacts',
+      'remove accounts',
+      'run accounts',
+      'run contacts',
+    ]);
+    const kept = (await store.read(ORG_ID, 'case-flow'))?.resources['accounts']?.runs ?? [];
+    expect(kept.map((run) => [run.n, run.takenBack === true])).toEqual([
+      [1, true],
+      [2, true],
+      [3, false],
+    ]);
+  });
+
   it('replaces what --replace-drifted asks, naming the changed records the removal keeps, exit 3', async () => {
     await apply();
     const [account] = world.records('Account');

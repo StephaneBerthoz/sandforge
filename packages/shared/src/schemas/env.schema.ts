@@ -556,6 +556,8 @@ export const envRunSchema = z.strictObject({
   endedAt: instantSchema.optional(),
   exitCode: z.number().int().min(0).max(255).optional(),
   objects: z.array(envRunObjectSchema).max(1_000),
+  /** Taken back whole by a removal: a later removal of the resource skips it. */
+  takenBack: z.literal(true).optional(),
 });
 
 export const envResourceStateSchema = z

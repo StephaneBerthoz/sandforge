@@ -44,7 +44,7 @@ import {
   type EnvState,
 } from '@sandforge/shared';
 import { formatMB } from '../../src/modules/forge/ForgeRunGate.js';
-import type { EnvFileResolved } from './envFile.js';
+import { fingerprintOf, type EnvFileResolved } from './envFile.js';
 import type { SeedDryRunAnswer, SeedPreviewAnswer } from './envSteps.js';
 
 /** What a removal preview of one run of a resource said, or why it said nothing. */
@@ -259,7 +259,16 @@ export function classifyResources(
     }
     const held = heldOf(previews?.[resource.name] ?? []);
     const reasons: string[] = [];
-    if (kept.fingerprint !== resource.fingerprint) {
+    // A fingerprint is chained through what the resource depends on: one it
+    // depends on changed moves it too. Said as its own change, a resource
+    // the file left as it was read "what it writes changed in the file".
+    const asIfDepsKept = fingerprintOf(
+      resource.run,
+      Object.fromEntries(
+        resource.dependsOn.map((dep) => [dep, state?.resources[dep]?.fingerprint]),
+      ),
+    );
+    if (kept.fingerprint !== resource.fingerprint && kept.fingerprint !== asIfDepsKept) {
       reasons.push('what it writes changed in the file since it was applied');
     }
     const statusWhy = STATUS_WHY[kept.status];
@@ -385,15 +394,36 @@ function dryRunRefusal(answer: SeedDryRunAnswer): string | undefined {
   return answer.storage.refusal ?? answer.apiRequests.refusal ?? answer.emails.refusal;
 }
 
-/** Add `counts` of a dry run to an action's objects, by object. */
-function withWouldCreate(objects: EnvPlanObject[], answer: SeedDryRunAnswer): EnvPlanObject[] {
+/**
+ * Add the counts of a dry run to an action's objects, by object, or the
+ * file's counts where its dry run read the org before what it draws from was
+ * written: it counted none of those records, and said "Contact 0 to write"
+ * of a run that writes three, its email gate counting all three.
+ */
+function withWouldCreate(
+  objects: EnvPlanObject[],
+  answer: SeedDryRunAnswer,
+  fileCounts?: ReadonlyMap<string, number>,
+): EnvPlanObject[] {
   const merged = objects.map((object) => ({ ...object }));
   for (const result of answer.result.objectResults) {
+    const count = Math.max(result.recordsCreated, fileCounts?.get(result.objectApiName) ?? 0);
     const at = merged.find((object) => object.object === result.objectApiName);
-    if (at) at.wouldCreate = result.recordsCreated;
-    else merged.push({ object: result.objectApiName, wouldCreate: result.recordsCreated });
+    if (at) at.wouldCreate = count;
+    else merged.push({ object: result.objectApiName, wouldCreate: count });
   }
   return merged;
+}
+
+/** The records the file gives each object of a resource. */
+function fileCountsOf(resolved: EnvFileResolved, name: string): Map<string, number> {
+  const resource = resolved.resources.find((each) => each.name === name);
+  return new Map(
+    (resource?.run.template.objects ?? []).map((object) => [
+      object.objectApiName,
+      object.recordCount,
+    ]),
+  );
 }
 
 /**
@@ -526,10 +556,17 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     let gates: EnvActionGates | undefined;
     let refusal = draft.refusal;
     const dry = RUNS.has(draft.action) ? input.dryRuns?.[draft.resource] : undefined;
+    // A relation of it may draw existing parents from what they write: its
+    // dry run read the org before they did, and counted none of those.
+    const deps = before.get(draft.resource);
     if (dry !== undefined && 'failed' in dry) {
       refusal ??= `its dry run did not answer: ${dry.failed}`;
     } else if (dry !== undefined) {
-      objects = withWouldCreate(objects, dry.answer);
+      objects = withWouldCreate(
+        objects,
+        dry.answer,
+        deps !== undefined ? fileCountsOf(input.resolved, draft.resource) : undefined,
+      );
       gates = {
         apiRequests: dry.answer.apiRequests.estimate,
         storageBytes: dry.answer.storage.bytes,
@@ -540,13 +577,10 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     } else if (RUNS.has(draft.action) && !quick) {
       refusal ??= 'it was not dry-run: plan again';
     }
-    // A relation of it may draw existing parents from what they write: its
-    // dry run read the org before they did, and counted none of those.
-    const deps = before.get(draft.resource);
     const why =
       deps !== undefined && dry !== undefined
-        ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes, so what it ` +
-          'draws from those records is not counted'
+        ? `${draft.why}; its dry run read the org before ${deps.join(', ')} writes: its records ` +
+          'are counted as the file gives them, and what it draws from those is not counted'
         : draft.why;
     return {
       resource: draft.resource,

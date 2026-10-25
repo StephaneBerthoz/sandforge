@@ -278,6 +278,20 @@ export function removalStarted(state: EnvState, resource: string): EnvState {
   return withResource(state, resource, { ...before, status: 'destroying' });
 }
 
+/**
+ * The state once a removal took run `n` of a resource back whole: a later
+ * removal skips it. Each replace and each destroy took back every earlier
+ * run again, a script started and an org read for each, run after run.
+ */
+export function runTakenBack(state: EnvState, resource: string, n: number): EnvState {
+  const before = state.resources[resource];
+  if (before === undefined) {
+    throw new EnvStateError('invalid', `The state holds no resource ${resource}`);
+  }
+  const runs = before.runs.map((run) => (run.n === n ? { ...run, takenBack: true as const } : run));
+  return withResource(state, resource, { ...before, runs });
+}
+
 /** How a step ended, as its script's exit code and answer said. */
 export interface EnvStepEnd {
   resource: string;

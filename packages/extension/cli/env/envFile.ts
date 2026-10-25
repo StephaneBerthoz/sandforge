@@ -550,6 +550,17 @@ function validatorPathOf(
 
 // ─── Resolution and fingerprints ─────────────────────────────────────────────
 
+/**
+ * The fingerprint of a resource that runs `run`, given the fingerprints of
+ * what it depends on: chained, so that one of them changed moves it too.
+ */
+export function fingerprintOf(
+  run: EnvSeedRun,
+  dependsOn: Readonly<Record<string, string | undefined>>,
+): string {
+  return sha256(canonicalJson({ ...seedWritten(run), dependsOn }));
+}
+
 /** A resource ready to plan: what it runs, and the fingerprint it would be applied from. */
 export interface EnvFileResource {
   name: string;
@@ -648,11 +659,9 @@ export function resolveEnvFile(
     const resource = checked.file.resources[name];
     if (run === undefined || resource === undefined) continue;
     const dependsOn = [...new Set(resource.dependsOn ?? [])];
-    const fingerprint = sha256(
-      canonicalJson({
-        ...seedWritten(run),
-        dependsOn: Object.fromEntries(dependsOn.map((dep) => [dep, fingerprints[dep]])),
-      }),
+    const fingerprint = fingerprintOf(
+      run,
+      Object.fromEntries(dependsOn.map((dep) => [dep, fingerprints[dep]])),
     );
     fingerprints[name] = fingerprint;
     resources.push({ name, kind: 'seed', dependsOn, fingerprint, run });
