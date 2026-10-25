@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { EnvActionKind, EnvPlan, EnvState } from '@sandforge/shared';
 
 vi.mock('../../src/logger.js', () => ({
@@ -1080,7 +1080,8 @@ describe('the plan of a frozen resource', () => {
     expect(unread.actions[0]).toMatchObject({
       kind: 'frozen',
       action: 'blocked',
-      refusal: 'its dataset at /data/claims was not read: plan again',
+      // Resolved as the platform resolves it: under a drive on Windows.
+      refusal: `its dataset at ${resolve('/data/claims')} was not read: plan again`,
     });
     expect(moved.actions[0]?.refusal).toBe('its dataset at /data/claims has the digest x');
   });
