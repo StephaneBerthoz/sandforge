@@ -84,6 +84,7 @@ import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
 
@@ -2461,6 +2462,7 @@ async function undo(
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-checkpoint')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

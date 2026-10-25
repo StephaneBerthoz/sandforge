@@ -92,6 +92,7 @@ import {
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { targetAutomationReader } from './sandforge-clone.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
 
@@ -858,6 +859,7 @@ export function outcomeLines(result: ExecutionResult): string[] {
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-autopilot')) {
+  holdOutputWhole();
   main().catch((err: unknown) => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

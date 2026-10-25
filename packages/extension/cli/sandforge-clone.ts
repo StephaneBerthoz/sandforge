@@ -257,6 +257,7 @@ import {
   writtenWithoutByObject,
   type SourceOrg,
 } from '../src/modules/forge/RunVerifier.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 export interface CliArgs {
   /** The record a clone of one record starts from; undefined for a clone of whole tables. */
@@ -6224,6 +6225,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
 
 // Only when run as a script: importing the module must not start a clone.
 if (/sandforge-clone\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  holdOutputWhole();
   main().catch((err) => {
     console.error('FATAL:', err instanceof Error ? err.stack : err);
     process.exit(1);

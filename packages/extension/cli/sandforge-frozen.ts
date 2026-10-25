@@ -87,6 +87,7 @@ import {
   loadRecordsRefusal,
 } from '../src/modules/frozendataset/FrozenDatasetLoader.js';
 import { referenceIdMappingFileName } from '../src/modules/frozendataset/SasReferenceIdMappingStore.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-frozen — build and replay a Frozen Dataset, without the editor.
 
@@ -1767,6 +1768,7 @@ export function frozenInterruptedLine(step: string): string {
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-frozen')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

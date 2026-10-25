@@ -57,6 +57,7 @@ import { ACCOUNT } from '../src/core/common/platformRecords.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
 import type { AnonymizationTemplateRule } from '@sandforge/shared';
 import { orgTypeOf } from '@sandforge/shared';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-dataops — mask an org's records, and put them back, without the editor.
 
@@ -927,6 +928,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (/sandforge-dataops\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit())
     .catch((err: unknown) => {

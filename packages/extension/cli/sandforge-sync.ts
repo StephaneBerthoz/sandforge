@@ -191,6 +191,7 @@ import {
   sweepListingLines,
   targetAutomationReader,
 } from './sandforge-clone.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-sync — run a Sync between two orgs, without the editor.
 
@@ -2970,6 +2971,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
 // `tsx` runs this file directly; the import check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-sync')) {
+  holdOutputWhole();
   main().catch((err: unknown) => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

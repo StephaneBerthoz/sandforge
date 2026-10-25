@@ -33,6 +33,7 @@ import { loadOrg, makeConn } from './sfSession.js';
 import { refuseProductionTarget } from './targetKind.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { endWith } from './exitCodes.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 /** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
 const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
@@ -413,6 +414,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 // Only when run as a script: importing the module must not start a cleanup.
 if (/sandforge-cleanup\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err) => {

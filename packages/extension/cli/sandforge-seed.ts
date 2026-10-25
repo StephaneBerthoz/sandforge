@@ -145,6 +145,7 @@ import {
   sweepListingLines,
   targetAutomationReader,
 } from './sandforge-clone.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
@@ -2621,6 +2622,7 @@ async function previewRemoval(
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-seed')) {
+  holdOutputWhole();
   main().catch((err: unknown) => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

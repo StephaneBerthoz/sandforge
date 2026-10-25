@@ -33,6 +33,7 @@ import type { PanelAnswer, PanelRequest } from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { endWith, FAILED_EXIT } from './exitCodes.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-monitor — read an org the way the Monitor page does, without the editor.
 
@@ -450,6 +451,7 @@ export function monitorExitCode(answers: readonly PanelAnswer[]): number {
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-monitor')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

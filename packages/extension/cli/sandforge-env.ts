@@ -151,6 +151,7 @@ import {
   stateExpiresAt,
   type EnvStore,
 } from './env/envState.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-env — apply a sandforge.yaml to an org: the data an environment needs, declared in
 your repository, created, kept and taken back, without the editor.
@@ -1567,6 +1568,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-env')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

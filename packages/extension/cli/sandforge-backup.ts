@@ -49,6 +49,7 @@ import { confirm } from './prompt.js';
 import { endWith, PARTIAL_EXIT, restoreExitCode } from './exitCodes.js';
 import { AuthProvider } from '../src/core/connection/AuthProvider.js';
 import type { ReplacedOrgRestoreQuestion } from '../src/bridge/handlers/HandlerTypes.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-backup — take and restore DataOps snapshots, without the editor.
 
@@ -520,6 +521,7 @@ export function snapshotTaken(payload: TakenSnapshot): { line: string; exitCode:
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-backup')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

@@ -45,6 +45,7 @@ import type { PanelAnswer } from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { openBackupStore, toolStoreOf } from './backupStore.js';
 import { DONE_EXIT, endWith, FAILED_EXIT, PARTIAL_EXIT } from './exitCodes.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-compare — compare two orgs the way the Compare page does, without the editor.
 
@@ -573,6 +574,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
 // `tsx` runs this file directly; the check keeps it silent under test.
 if (process.argv[1]?.includes('sandforge-compare')) {
+  holdOutputWhole();
   main()
     .then(() => process.exit(process.exitCode ?? 0))
     .catch((err: unknown) => {

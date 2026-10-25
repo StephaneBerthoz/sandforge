@@ -48,6 +48,7 @@ import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT } from './exitCodes
 import { NO_TERMINAL_EXIT } from './prompt.js';
 import { spawnCommand, type CommandRun, type CommandRunner as RunnerOf } from './scriptRunner.js';
 import { STOP_SIGNALS, onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
+import { holdOutputWhole } from './wholeOutput.js';
 
 // ─── The protocol ────────────────────────────────────────────────────────────
 
@@ -1249,6 +1250,7 @@ export async function main(argv: readonly string[] = process.argv): Promise<void
 // It ends once its input has and nothing is left to run, its last answers
 // written: an exit called on its heels could cut them short on a pipe.
 if (/sandforge-mcp\.[cm]?[jt]s$/.test(process.argv[1] ?? '')) {
+  holdOutputWhole();
   main().catch((err: unknown) => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
