@@ -729,6 +729,32 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).not.toContain('Undo is never needed in CI');
   });
 
+  it('says the journals of an org’s earlier rewinds go once a rewind of it has ended, each named, but for one stopped part way', () => {
+    // Anchor: once its journal ended, the rewind deletes the journals Undo no
+    // longer reaches — the store offers it for the org's last rewind alone —
+    // keeping one still open; the panel's log and the command's output name each.
+    expect(REWIND).toMatch(
+      /await journal\.end\(\);[\s\S]*?removeEarlierJournals\(this\.deps\.store, this\.lock, \{/,
+    );
+    expect(JOURNAL).toContain(
+      'const open = journal.facts.endedAt === undefined && journal.facts.undos.length === 0;',
+    );
+    expect(STORE).toContain('latest?.checkpointId === folder.checkpointId &&');
+    expect(HANDLER).toContain(
+      '`[INFO] Removed the journal of rewind ${gone.rewindId} of checkpoint',
+    );
+    expect(CLI).toContain('`  removed the journal of rewind ${gone.rewindId}');
+
+    expect(section(DOC, '## Where checkpoints are kept')).toContain(
+      "Undo reaches an org's last rewind alone: once a rewind of the org has ended, the journals " +
+        'of its earlier rewinds, which hold the values they wrote over, are deleted, each named in ' +
+        "the log and in the command's output -- but for one stopped part way, which the next " +
+        'rewind of its checkpoint takes up.',
+    );
+    // Read as: they pile up until the checkpoint goes.
+    expect(DOC).not.toContain('the journals of earlier rewinds stay with their checkpoint');
+  });
+
   it('opens from the third line of the side bar, as its quick start says', () => {
     // Positive control: the side bar's primary modules, in their order.
     const primary = /const PRIMARY_MODULES: NavItem\[\] = \[([\s\S]*?)\n\];/.exec(SIDE_PANEL)?.[1];

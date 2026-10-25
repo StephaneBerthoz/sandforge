@@ -63,7 +63,13 @@ export interface FrozenManifestGetRequest extends BaseMessage {
  */
 export interface FrozenLoadRequest extends BaseMessage {
   type: 'frozen:load';
-  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean };
+  /**
+   * `writeEncrypted`: write the fields the target encrypts as the dataset
+   * holds them, though its manifest does not say its extraction left out what
+   * it read masked; they are left out otherwise (`FrozenFieldRemoval`,
+   * `may-hold-masks`).
+   */
+  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean; writeEncrypted?: boolean };
 }
 
 /**
@@ -73,7 +79,7 @@ export interface FrozenLoadRequest extends BaseMessage {
  */
 export interface FrozenLoadPreviewRequest extends BaseMessage {
   type: 'frozen:load:preview';
-  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean };
+  payload: { targetOrgId: string; pilot?: boolean; reload?: boolean; writeEncrypted?: boolean };
 }
 
 /**

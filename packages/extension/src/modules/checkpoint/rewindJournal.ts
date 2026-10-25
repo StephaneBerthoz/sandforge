@@ -36,6 +36,8 @@
  * that the undo always reaches the org as it was before the first pass. Of a
  * record written over twice — a second pass, a resume — the values kept
  * first stand: each object's file of values is added to, never begun again.
+ * Once a rewind has ended, the journals of the org's earlier rewinds, which
+ * Undo no longer reaches, are deleted (`removeEarlierJournals`).
  *
  * Read back, the journal is three plans for its undo: what to bring back
  * from the recycle bin, what to give back its values, and what to send back
@@ -91,10 +93,12 @@ import {
 import {
   CHECKPOINT_FILE_MODE,
   CheckpointStoreError,
+  latestRewindOf,
   makePrivateDir,
   newFolderId,
   rewindDirOf,
   type CheckpointFolder,
+  type OrgCheckpointStore,
   type OrgLock,
 } from './OrgCheckpointStore.js';
 import type { RewoundObject } from './rewindEstimate.js';
@@ -1429,6 +1433,69 @@ export async function reopenRewindJournal(
   const kept = await keptJournal(folder, rewindId);
   if (!kept) throw new CheckpointStoreError('notFound', 'No journal of this rewind is kept.');
   return reopened(kept, now);
+}
+
+/** The journal of an earlier rewind of an org, deleted once a later one ended. */
+export interface EarlierJournalRemoved {
+  checkpointId: string;
+  /** The name of the checkpoint it rewound to. */
+  name: string;
+  rewindId: string;
+}
+
+/**
+ * Delete the journals of an org's earlier rewinds, once a rewind of the org
+ * has ended: Undo is offered for the org's last rewind alone
+ * (`latestRewindOf`), and each journal holds, unencrypted, the values its
+ * rewind wrote over. Kept until their checkpoint went, they built up, one per
+ * rewind, in a pipeline that rewinds a checkpoint it keeps for good.
+ *
+ * Kept: the rewind that ended, the org's last rewind, which Undo reaches, and
+ * a journal still open — a rewind stopped part way, which the next rewind of
+ * its checkpoint takes up. So is a journal that cannot be read, which no
+ * rewind starts over (`openRewindJournal`), a folder that holds no journal
+ * yet, and what a damaged checkpoint holds, deleted with it. Run under the
+ * org's lock, held for the rewind.
+ *
+ * @param ended - The rewind that ended, and the checkpoint it rewound to.
+ * @returns Each journal deleted, to be named as the sweep names what it deletes.
+ */
+export async function removeEarlierJournals(
+  store: Pick<OrgCheckpointStore, 'checkpointsOf'>,
+  lock: OrgLock,
+  ended: { checkpointId: string; rewindId: string },
+): Promise<EarlierJournalRemoved[]> {
+  const reads = await store.checkpointsOf(lock.organizationId);
+  const latest = latestRewindOf(reads);
+  const removed: EarlierJournalRemoved[] = [];
+  // Ids are named by when the take began: named in that order.
+  const byTake = [...reads].sort((a, b) =>
+    a.folder.checkpointId < b.folder.checkpointId ? -1 : 1,
+  );
+  for (const { folder, checkpoint } of byTake) {
+    if (checkpoint === undefined) continue;
+    let rewindIds: string[];
+    try {
+      rewindIds = (await readdir(folder.rewindsDir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && rewindIdSchema.safeParse(entry.name).success)
+        .map((entry) => entry.name)
+        .sort();
+    } catch {
+      continue;
+    }
+    const kept = (rewindId: string, of: { checkpointId: string; rewindId: string } | undefined) =>
+      of?.checkpointId === folder.checkpointId && of.rewindId === rewindId;
+    for (const rewindId of rewindIds) {
+      if (kept(rewindId, ended) || kept(rewindId, latest)) continue;
+      const journal = await keptJournal(folder, rewindId).catch(() => undefined);
+      if (journal === undefined) continue;
+      const open = journal.facts.endedAt === undefined && journal.facts.undos.length === 0;
+      if (open) continue;
+      await rm(rewindDirOf(folder, rewindId), { recursive: true, force: true });
+      removed.push({ checkpointId: folder.checkpointId, name: checkpoint.name, rewindId });
+    }
+  }
+  return removed;
 }
 
 // ─── The undo's plans ────────────────────────────────────────────────────────

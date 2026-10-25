@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { BaseMessage } from '@sandforge/shared';
+
+// The background composition's guard asks through VS Code's modal; its
+// strings stay as the guard words them.
+vi.mock('vscode', () => ({
+  window: { showWarningMessage: vi.fn(), showInformationMessage: vi.fn() },
+  l10n: {
+    t: (message: string, ...args: unknown[]): string =>
+      message.replace(/\{(\d+)\}/g, (_m, i: string) => String(args[Number(i)] ?? '')),
+  },
+}));
+
+import * as vscode from 'vscode';
+import { OrgSafetyTier, type BaseMessage, type SalesforceOrg } from '@sandforge/shared';
 
 import type { HandlerDeps } from './HandlerTypes.js';
 import { runGuardedRemoval } from './guardedRemoval.js';
@@ -11,6 +23,10 @@ import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { deleteRecords } from '../../modules/dataops/RecordRemoval.js';
+import { createBackgroundComposition } from '../../composition/backgroundComposition.js';
+import { OrgManager } from '../../core/connection/OrgManager.js';
+import { OrgRegistry } from '../../core/connection/OrgRegistry.js';
+import type { SecretVault } from '../../core/storage/SecretVault.js';
 
 function deps(orgType: string, guard?: ProductionGuard, edition?: string): HandlerDeps {
   const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
@@ -316,5 +332,99 @@ describe('runGuardedRemoval', () => {
         expect.objectContaining({ outcome: 'stopped', details: { code: 'RUN_CANCELLED' } }),
       ]);
     });
+  });
+});
+
+describe('runGuardedRemoval on a sandbox marked Staging', () => {
+  /*
+   * The panel's path, as a run met it live: the org as the registry holds it,
+   * the guard of the background composition, and its modal. No type
+   * Salesforce gives an org is a staging one: before the mark, a sandbox was
+   * a development org, and no delete there asked anything — a full copy
+   * holding real data included.
+   */
+  const SANDBOX: SalesforceOrg = {
+    id: 'org-1',
+    alias: 'UAT',
+    username: 'admin@example.test.uat',
+    instanceUrl: 'https://example--uat.sandbox.my.salesforce.com',
+    orgId: 'org-1',
+    orgType: 'Sandbox',
+    sandboxType: 'Full',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.MEDIUM,
+    appearance: { color: '#4a9eff', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '62.0', edition: 'Enterprise Edition', features: [] },
+    status: 'connected',
+    lastConnected: '2026-10-01T00:00:00.000Z',
+    tags: [],
+  };
+
+  /** The org registered, marked as given, and the background composition's guard. */
+  function onThePanelPath(staging: boolean): HandlerDeps {
+    const configStore = new ConfigStore(new InMemoryConfigStoreBackend());
+    configStore.initialize();
+    const orgManager = new OrgManager();
+    const registry = new OrgRegistry(configStore, {} as SecretVault, orgManager);
+    registry.updateOrgMetadata({ ...SANDBOX, ...(staging ? { staging: true } : {}) });
+    const { productionGuard } = createBackgroundComposition({
+      configStore,
+      orgNameOf: (orgId) => orgManager.getOrg(orgId)?.alias,
+    });
+    let id = 0;
+    return {
+      log: vi.fn(),
+      broker: { postToWebview: vi.fn() },
+      orgManager,
+      configStore,
+      nextId: () => String(++id),
+      infraServices: { productionGuard },
+    } as unknown as HandlerDeps;
+  }
+
+  it('asks before a delete, naming the staging org, and its Cancel stops the removal before anything is deleted, recorded as declined', async () => {
+    // Cancel, or the modal closed: no button chosen.
+    vi.mocked(vscode.window.showWarningMessage)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
+    const d = onThePanelPath(true);
+    const run = removal();
+
+    const result = await runGuardedRemoval(d, run);
+
+    expect(result).toMatchObject({ ran: false, guard: 'declined' });
+    expect(run.run).not.toHaveBeenCalled();
+    expect(posted(d)).toEqual([]);
+    const [title, options] = vi.mocked(vscode.window.showWarningMessage).mock.calls[0] as [
+      string,
+      { modal: boolean; detail: string },
+    ];
+    expect(title).toBe('SandForge: operation to confirm');
+    expect(options.modal).toBe(true);
+    expect(options.detail).toContain('Delete 2 records (Contact) in the staging org "UAT".');
+    expect(new AuditTrailStore(d.configStore).list().entries).toEqual([
+      expect.objectContaining({ outcome: 'stopped', guard: 'declined' }),
+    ]);
+  });
+
+  it('runs once the question is answered Execute, recorded as confirmed', async () => {
+    vi.mocked(vscode.window.showWarningMessage)
+      .mockReset()
+      .mockResolvedValue('Execute' as never);
+    const d = onThePanelPath(true);
+    const run = removal();
+
+    expect(await runGuardedRemoval(d, run)).toMatchObject({ ran: true, guard: 'confirmed' });
+    expect(run.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks nothing before the same delete in a sandbox not marked, which runs', async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    const d = onThePanelPath(false);
+    const run = removal();
+
+    expect(await runGuardedRemoval(d, run)).toMatchObject({ ran: true, guard: 'allowed' });
+    expect(run.run).toHaveBeenCalledTimes(1);
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
   });
 });

@@ -776,6 +776,8 @@ const FROZEN_RELOAD_PLAN = {
   ],
   removals: [
     { objectApiName: 'Contact', field: 'Legacy__c', reason: 'not-in-target', affectedRecords: 5 },
+    // A dataset that does not say it left out what it read masked.
+    { objectApiName: 'Contact', field: 'SSN__c', reason: 'may-hold-masks', affectedRecords: 5 },
   ],
   placeholders: [
     {
@@ -1691,6 +1693,24 @@ for (const theme of SCANNED_THEMES) {
       ]);
       await expect(page.getByTestId(`org-scratch-expired-${MOCK_ORGS[0].id}`)).toBeVisible();
       await expect(page.getByTestId(`org-reconnect-${MOCK_ORGS[0].id}`)).toHaveCount(0);
+
+      await expectReadable(page, theme);
+    });
+
+    test('Organizations edit dialog of a sandbox, offering to mark it Staging', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'orgs', 'org-manager-page', { theme });
+      // The dialog reads the colour the org was given, as every stored org has one.
+      await bridge.seedOrgs(
+        MOCK_ORGS.map((org) => ({
+          ...org,
+          appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
+        })),
+      );
+      await page.getByText('Edit').first().click();
+      await expect(page.getByTestId('edit-staging-input')).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('edit-staging-input').check();
 
       await expectReadable(page, theme);
     });
@@ -11185,6 +11205,13 @@ for (const theme of STATE_THEMES) {
         .waitFor({ state: 'visible', timeout: 10_000 });
       await page
         .getByTestId('frozen-preview-defaults-per-record')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      // The fields it would leave out as maybe masks, and the box that writes them.
+      await page
+        .getByTestId('frozen-preview-may-hold-masks')
+        .waitFor({ state: 'visible', timeout: 10_000 });
+      await page
+        .getByTestId('frozen-load-write-encrypted')
         .waitFor({ state: 'visible', timeout: 10_000 });
 
       await expectReadable(page, theme);

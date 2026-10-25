@@ -92,7 +92,8 @@
       "devPro": "DEV PRO",
       "partial": "PARTIAL",
       "full": "FULL",
-      "sandbox": "SANDBOX"
+      "sandbox": "SANDBOX",
+      "staging": "STAGING"
     },
     "relativeTime": {
       "justNow": "たった今",
@@ -167,6 +168,8 @@
     "color_orange": "オレンジ",
     "tags": "タグ",
     "tagsHint": "カンマ区切り",
+    "staging": "ステージング",
+    "stagingHint": "フルコピーや UAT など、実データを保持する Sandbox。Production Guard は、そこでのすべての削除、すべてのデプロイ、10,000 件を超えるすべての書き込みの前に確認します。",
     "tagsPlaceholder": "dev, team-a",
     "aliasPlaceholder": "my-sandbox",
     "bannerConnected": "{{total}}件の組織のうち{{count}}件が接続済み",
@@ -3989,6 +3992,9 @@
       "targetOrg": "ターゲット組織（Sandbox）",
       "pilot": "パイロット（1案件）",
       "reload": "更新なしの再ロード",
+      "writeEncrypted": "暗号化項目をデータセットの値のまま書き込む",
+      "writeEncryptedHint": "このデータセットは、抽出時にマスクされて読み取られた暗号化項目を除外したかどうかを示していません。****1234 のようなマスクを含む可能性があるため、これをオンにしない限り除外されます。",
+      "mayHoldMasks": "除外された、この組織で暗号化されている項目: {{fields}}。データセットは、抽出時にマスクされて読み取られたものを除外したかどうかを示していないため、****1234 のようなマスクを含む可能性があります。書き込むには「暗号化項目をデータセットの値のまま書き込む」をオンにしてください。",
       "run": "ロードを実行",
       "runPilot": "パイロットを実行",
       "progress": "進行状況",

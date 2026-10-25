@@ -77,7 +77,7 @@ Top to bottom, the launcher gives you:
    - **Device Flow** -- OAuth device flow: SandForge shows a code, opens the Salesforce page to enter it on, and waits up to ten minutes for your approval. It needs your own external client app with the device flow enabled
 3. Click **Import from SF CLI** to import your existing CLI-authenticated orgs automatically. When the CLI holds no org, the page opens the OAuth Web form instead
 4. After the first org connects, a card offers to fill it with demo data (Seed's template gallery on that org) or to clone a record into it from another org (Forge)
-5. Once connected, your org appears as a card with its alias, type badge, and status dot. The badge reads PROD, SCRATCH or DEVELOPER (a Developer Edition org), the kind of a sandbox (DEV, DEV PRO, PARTIAL or FULL, or SANDBOX when the kind is not known), or, for a sandbox or a Developer Edition org, an environment tag you gave it such as UAT or QA
+5. Once connected, your org appears as a card with its alias, type badge, and status dot. The badge reads PROD, SCRATCH or DEVELOPER (a Developer Edition org), STAGING (a sandbox you marked **Staging** in its **Edit** dialog, where Production Guard asks before every delete), the kind of a sandbox (DEV, DEV PRO, PARTIAL or FULL, or SANDBOX when the kind is not known), or, for a sandbox or a Developer Edition org, an environment tag you gave it such as UAT or QA
 
 OAuth Web, Username/Password, JWT and Device Flow log in through `login.salesforce.com` or `test.salesforce.com`. They also accept a My Domain host (`*.my.salesforce.com`) and `*.force.com` or `*.cloudforce.com` hosts, and refuse any other login host.
 

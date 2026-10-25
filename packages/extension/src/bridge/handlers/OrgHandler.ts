@@ -841,7 +841,9 @@ export class OrgHandler implements DomainHandler {
   }
 
   /**
-   * Save the alias, colour and tags typed in the org edit dialog.
+   * Save the alias, colour and tags typed in the org edit dialog, and the
+   * Staging mark of a sandbox: Production Guard takes a sandbox so marked for
+   * a staging org, and asks before every delete there.
    *
    * The dialog used to change only the panel's own copy of the org: the next
    * org list from the host put the old values back, and a reload lost them.
@@ -873,6 +875,7 @@ export class OrgHandler implements DomainHandler {
         alias: parsed.alias,
         appearance: { ...org.appearance, color: parsed.color },
         tags: parsed.tags,
+        ...(parsed.staging !== undefined ? { staging: parsed.staging } : {}),
       });
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'org:update', 'org:error', msg, err, {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { registeredOrgType } from '@sandforge/shared';
 import { Dialog } from '../../components/ui/Dialog';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -9,12 +10,16 @@ import { Button } from '../../components/ui/Button';
 /**
  * OrgEditPayload — fields that can be edited. The safety tier is not one of
  * them: the production guard decides from the org type, so a tier picked here
- * would change nothing it checks.
+ * would change nothing it checks. What it does read of a sandbox is whether
+ * it is marked Staging: a full copy or UAT holding real data, where it asks
+ * before every delete.
  */
 export interface OrgEditPayload {
   alias: string;
   color: string;
   tags: string[];
+  /** A sandbox's alone: marked Staging. */
+  staging?: boolean;
 }
 
 /** OrgEditDialog component props. */
@@ -40,12 +45,18 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
   const [alias, setAlias] = useState('');
   const [color, setColor] = useState('#3B82F6');
   const [tagsStr, setTagsStr] = useState('');
+  const [staging, setStaging] = useState(false);
+  // Read as every guard reads it: a scratch org, a Developer Edition org and a
+  // production org are told apart by Salesforce, a staging sandbox is not.
+  const isSandbox =
+    org !== null && registeredOrgType(org.orgType, org.metadata?.edition) === 'Sandbox';
 
   useEffect(() => {
     if (org) {
       setAlias(org.alias);
       setColor(org.appearance.color);
       setTagsStr(org.tags.join(', '));
+      setStaging(org.staging === true);
     }
   }, [org]);
 
@@ -55,8 +66,8 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    onSave(org.id, { alias: alias.trim(), color, tags });
-  }, [org, alias, color, tagsStr, onSave]);
+    onSave(org.id, { alias: alias.trim(), color, tags, ...(isSandbox ? { staging } : {}) });
+  }, [org, alias, color, tagsStr, staging, isSandbox, onSave]);
 
   return (
     <Dialog
@@ -99,6 +110,23 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
           placeholder={t('org.tagsPlaceholder')}
           data-testid="edit-tags-input"
         />
+        {isSandbox && (
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-xs text-(--sf-text-primary)">
+              <input
+                type="checkbox"
+                checked={staging}
+                onChange={(e) => setStaging(e.target.checked)}
+                aria-describedby="edit-staging-hint"
+                data-testid="edit-staging-input"
+              />
+              {t('org.staging')}
+            </label>
+            <p id="edit-staging-hint" className="text-[11px] text-(--sf-text-secondary)">
+              {t('org.stagingHint')}
+            </p>
+          </div>
+        )}
       </div>
     </Dialog>
   );

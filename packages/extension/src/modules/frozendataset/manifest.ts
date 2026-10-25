@@ -94,8 +94,11 @@ export interface ManifestCoverage {
   /**
    * The fields, as `Object.Field`, not kept: classic encrypted fields the
    * user the source was read as reads masked, lacking View Encrypted Data,
-   * which the dataset would have held as their masks. Absent when none is,
-   * and from manifests written before it was recorded.
+   * which the dataset would have held as their masks. Empty when none is.
+   * Absent from manifests written before it was recorded, whose datasets may
+   * hold the masks — and from those of 1.66.0 that named none: a load of
+   * such a dataset leaves out the fields the target encrypts unless told to
+   * write them (`FrozenLoadOptions.writeEncrypted`).
    */
   encryptedNotKept?: string[];
 }

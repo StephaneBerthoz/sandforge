@@ -78,6 +78,41 @@ describe('SchemaAligner — field alignment', () => {
     expect(result.alignedRecords).toEqual([{ LastName: 'Doe' }]);
     expect(result.removals[0]).toMatchObject({ field: 'Formula__c', reason: 'not-createable' });
   });
+
+  it('leaves out, when told, the fields the target encrypts, listing those that held a value as maybe masks; written as held otherwise', async () => {
+    const aligner = new SchemaAligner({
+      query: vi.fn(),
+      describe: vi.fn(),
+      picklistValues: vi.fn(),
+    });
+    // As a user without View Encrypted Data read them, and an extraction
+    // before SandForge left them out kept them.
+    const records: FrozenRecord[] = [
+      { referenceId: 'Contact-000001', fields: { LastName: 'Doe', SSN__c: '***-**-1234' } },
+      { referenceId: 'Contact-000002', fields: { LastName: 'Roe', SSN__c: '****5678' } },
+      { referenceId: 'Contact-000003', fields: { LastName: 'Poe', SSN__c: null } },
+    ];
+    const describe = makeDescribe([
+      field({ name: 'LastName' }),
+      field({ name: 'SSN__c', type: 'encryptedstring' }),
+    ]);
+
+    const leftOut = await aligner.alignObject(
+      makeInput({ records, describe, leaveOutEncrypted: true }),
+    );
+    const written = await aligner.alignObject(makeInput({ records, describe }));
+
+    expect(leftOut.alignedRecords).toEqual([
+      { LastName: 'Doe' },
+      { LastName: 'Roe' },
+      { LastName: 'Poe' },
+    ]);
+    expect(leftOut.removals).toEqual([
+      { objectApiName: 'Contact', field: 'SSN__c', reason: 'may-hold-masks', affectedRecords: 2 },
+    ]);
+    expect(written.alignedRecords.map((r) => r.SSN__c)).toEqual(['***-**-1234', '****5678', null]);
+    expect(written.removals).toEqual([]);
+  });
 });
 
 describe('SchemaAligner — restricted picklists', () => {

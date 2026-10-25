@@ -1,5 +1,5 @@
 import type { SalesforceOrg } from '@sandforge/shared';
-import { expiredScratchDate, registeredOrgType } from '@sandforge/shared';
+import { expiredScratchDate, guardTierOf, registeredOrgType } from '@sandforge/shared';
 import type { TFunction } from 'i18next';
 
 /**
@@ -53,6 +53,9 @@ export function orgTypeLabel(org: SalesforceOrg, t: TFunction): string {
   const orgType = registeredOrgType(org.orgType, org.metadata?.edition);
   if (orgType === 'Production') return t('common.orgType.prod');
   if (orgType === 'Scratch') return t('common.orgType.scratch');
+  // Marked Staging, as Production Guard takes it: said before the user's own
+  // environment tags, which no guard reads.
+  if (guardTierOf(org) === 'staging') return t('common.orgType.staging');
   const envTags = org.tags
     .map((tag) => tag.toUpperCase())
     .filter((tag): tag is string => (ENV_TAGS as readonly string[]).includes(tag));

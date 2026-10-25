@@ -1830,10 +1830,11 @@ export class FrozenDatasetHandler implements DomainHandler {
           // What went in clear text with no rule saying so: the platform's own words.
           ...(keptUnruled.length > 0 ? { keptWithoutARule: keptUnruled } : {}),
           // What the dataset does not hold, read masked: encrypted fields the
-          // source's user may not view in clear.
-          ...((extracted.encryptedNotKept ?? []).length > 0
-            ? { encryptedNotKept: extracted.encryptedNotKept }
-            : {}),
+          // source's user may not view in clear. Written when it names none
+          // too: a manifest without it was written before the extraction left
+          // them out, and a load of it leaves out the fields the target
+          // encrypts unless told to write them.
+          encryptedNotKept: extracted.encryptedNotKept ?? [],
         },
       });
 
@@ -2116,6 +2117,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         sasDir,
         reload: parsed.reload,
         pilot: parsed.pilot ? {} : undefined,
+        ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
         onProgress: (event) => throttledProgress(event),
         onGuardDecision: (decision) => {
           guardDecision = strongerDecision(guardDecision, decision);
@@ -2410,6 +2412,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         sasDir,
         reload: parsed.reload,
         pilot: parsed.pilot ? {} : undefined,
+        ...(parsed.writeEncrypted ? { writeEncrypted: true } : {}),
       });
       this.deps.broker.postToWebview(
         buildResponse(this.deps, msg, 'frozen:load:preview:response', { plan }),

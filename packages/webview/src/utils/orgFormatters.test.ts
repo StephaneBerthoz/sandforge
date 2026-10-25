@@ -66,6 +66,19 @@ describe('orgTypeLabel', () => {
     expect(orgTypeLabel(org({ tags: ['uat'] }), keyOf)).toBe('UAT');
   });
 
+  it('says Staging of a sandbox marked so, as Production Guard takes it, before any environment tag, and of no other org', () => {
+    expect(orgTypeLabel(org({ staging: true, tags: ['uat'] }), keyOf)).toBe(
+      '«common.orgType.staging»',
+    );
+    expect(orgTypeLabel(org({ staging: true, sandboxType: 'Full' }), instance.t)).toBe('STAGING');
+    expect(orgTypeLabel(org({ staging: true, orgType: 'Scratch' }), keyOf)).toBe(
+      '«common.orgType.scratch»',
+    );
+    expect(orgTypeLabel(org({ staging: false, sandboxType: 'Full' }), keyOf)).toBe(
+      '«common.orgType.full»',
+    );
+  });
+
   it('names a Developer Edition org in English as it did', () => {
     expect(orgTypeLabel(org({ orgType: 'Developer' }), instance.t)).toBe('DEVELOPER');
   });

@@ -1082,6 +1082,7 @@ export const frozenLoadPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   pilot: z.boolean().optional(),
   reload: z.boolean().optional(),
+  writeEncrypted: z.boolean().optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1565,14 +1566,16 @@ export const orgOpenInBrowserPayloadSchema = z.object({ orgId: orgIdSchema }).st
 /**
  * What the org edit dialog saves. The colour is one of the dialog's hex
  * swatches and each tag a trimmed word; the bounds keep a crafted payload from
- * bloating the registry every activation loads. Any other key — a safety tier
- * included — is dropped, not stored.
+ * bloating the registry every activation loads. `staging` marks a sandbox
+ * Staging, which Production Guard reads; absent, the mark stays as stored.
+ * Any other key — a safety tier included — is dropped, not stored.
  */
 export const orgUpdatePayloadSchema = z.object({
   orgId: orgIdSchema,
   alias: z.string().trim().min(1).max(100),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
   tags: z.array(z.string().trim().min(1).max(50)).max(20),
+  staging: z.boolean().optional(),
 });
 
 // ── settings:* / onboarding / plugins / telemetry payload schemas ──────────

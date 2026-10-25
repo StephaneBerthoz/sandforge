@@ -1,9 +1,18 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { OrgCheckpoint } from '@sandforge/shared';
 
 import { MEMORY_ORG_USER } from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
@@ -21,6 +30,7 @@ import {
   IDS_PER_LINE,
   openRewindJournal,
   readRewindJournal,
+  removeEarlierJournals,
   reopenRewindJournal,
   rewoundObjects,
   undoPlansOf,
@@ -30,6 +40,7 @@ import {
   type RewindJournalRead,
 } from './rewindJournal.js';
 import type { IdSpool } from './spooledRunRecords.js';
+import { fingerprintOf } from './checkpointFingerprint.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -973,5 +984,184 @@ describe('the undo’s plans, kept on disk', () => {
       { objectApiName: 'Contact', deleted: 1, broughtBack: 0, givenBack: 0 },
       { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
     ]);
+  });
+});
+
+describe('the journals of earlier rewinds', () => {
+  const OTHER_CHECKPOINT = 'ck-20261022-090000-c3d4';
+  const at = (time: string) => () => new Date(`2026-10-22T${time}.000Z`);
+  const PRINT = fingerprintOf([
+    { name: 'Id', type: 'id', createable: false, updateable: false, nillable: false },
+  ]);
+
+  /** A ready checkpoint of the org, its last rewind the one named. */
+  function checkpointFile(
+    checkpointId: string,
+    name: string,
+    lastRewind: OrgCheckpoint['lastRewind'],
+    organizationId = ORG_ID,
+  ): OrgCheckpoint {
+    return {
+      version: 1,
+      checkpointId,
+      name,
+      org: {
+        organizationId,
+        alias: 'DEV-ED',
+        username: 'admin@example.com',
+        instanceUrl: 'https://example-dev-ed.my.salesforce.com',
+        isSandbox: false,
+        organizationType: 'Developer Edition',
+        tier: 'developer',
+      },
+      takenBy: { userId: MEMORY_ORG_USER, viewAllData: true, modifyAllData: true },
+      readFrom: '2026-10-22T08:00:00.000Z',
+      takenAt: '2026-10-22T08:01:00.000Z',
+      scope: { mode: 'everything', leftOut: [] },
+      objects: [
+        {
+          objectApiName: 'Account',
+          records: 1,
+          inBin: 0,
+          readOrder: 0,
+          readMode: 'query',
+          undeletable: true,
+          cascadeParents: [],
+          fingerprint: PRINT.digest,
+          fields: ['Id'],
+          leftOutFields: [],
+        },
+      ],
+      ignoredFields: [],
+      snapshotId: 'op-1',
+      movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+      bytes: 1024,
+      expiresAt: null,
+      status: 'ready',
+      takenOn: { host: 'workstation', pid: 4242 },
+      ...(lastRewind ? { lastRewind } : {}),
+    };
+  }
+
+  /** A rewind of `of` that began at `time`, ended or undone as asked, or left open. */
+  async function rewindOf(
+    of: CheckpointFolder,
+    time: string,
+    ending: 'end' | 'undo' | 'open',
+    under: OrgLock = lock,
+  ): Promise<string> {
+    const journal = await openRewindJournal({
+      folder: of,
+      lock: under,
+      startedAt: TR,
+      userId: MEMORY_ORG_USER,
+      now: at(time),
+    });
+    await journal.keep('Account', [{ Id: account(1), Name: 'Before the rewind' }]);
+    if (ending === 'end') await journal.end();
+    if (ending === 'undo') {
+      await journal.end();
+      await journal.undone({}, 'success');
+    }
+    await journal.close();
+    return journal.rewindId;
+  }
+
+  it('deletes, once a rewind of the org ended, the journals of its earlier rewinds — of its checkpoint and of the org’s others — and names each; keeps the one that ended, one stopped part way, one it cannot read, and what another org holds', async () => {
+    const other = await store.create(ORG_ID, OTHER_CHECKPOINT);
+    const elsewhere = await store.create(OTHER_ORG, CHECKPOINT_ID);
+    const first = await rewindOf(folder, '10:00:00', 'end');
+    const undone = await rewindOf(folder, '10:30:00', 'undo');
+    const otherEnded = await rewindOf(other, '09:00:00', 'end');
+    const otherStopped = await rewindOf(other, '11:00:00', 'open');
+    const otherLock = locked(OTHER_ORG);
+    const elsewhereEnded = await rewindOf(elsewhere, '09:30:00', 'end', otherLock);
+    // A journal that cannot be read, and a rewind stopped before its head.
+    const damaged = 'rw-20261022-101500-dddd';
+    mkdirSync(rewindDirOf(folder, damaged), { recursive: true });
+    appendFileSync(join(rewindDirOf(folder, damaged), 'journal.ndjson'), 'not a line\n');
+    const blank = 'rw-20261022-102000-bbbb';
+    mkdirSync(rewindDirOf(folder, blank), { recursive: true });
+    const ended = await rewindOf(folder, '12:00:00', 'end');
+    await store.write(
+      checkpointFile(CHECKPOINT_ID, 'Before UAT', {
+        rewindId: ended,
+        undoUntil: '2026-11-06T12:00:00.000Z',
+        endedAt: '2026-10-22T12:05:00.000Z',
+      }),
+    );
+    await store.write(
+      checkpointFile(OTHER_CHECKPOINT, 'Baseline', {
+        rewindId: otherStopped,
+        undoUntil: '2026-11-06T11:00:00.000Z',
+      }),
+    );
+    await store.write(
+      checkpointFile(
+        CHECKPOINT_ID,
+        'Elsewhere',
+        { rewindId: elsewhereEnded, undoUntil: '2026-11-06T09:30:00.000Z' },
+        OTHER_ORG,
+      ),
+    );
+
+    const removed = await removeEarlierJournals(store, lock, {
+      checkpointId: CHECKPOINT_ID,
+      rewindId: ended,
+    });
+
+    expect(removed).toEqual([
+      { checkpointId: OTHER_CHECKPOINT, name: 'Baseline', rewindId: otherEnded },
+      { checkpointId: CHECKPOINT_ID, name: 'Before UAT', rewindId: first },
+      { checkpointId: CHECKPOINT_ID, name: 'Before UAT', rewindId: undone },
+    ]);
+    for (const { checkpointId, rewindId } of removed) {
+      expect(existsSync(rewindDirOf(store.folderOf(ORG_ID, checkpointId), rewindId))).toBe(false);
+    }
+    for (const [of, rewindId] of [
+      [folder, ended],
+      [folder, damaged],
+      [folder, blank],
+      [other, otherStopped],
+      [elsewhere, elsewhereEnded],
+    ] as const) {
+      expect(existsSync(rewindDirOf(of, rewindId))).toBe(true);
+    }
+    // The rewind stopped part way is still taken up by its checkpoint's next one.
+    const resumed = await openRewindJournal({
+      folder: other,
+      lock,
+      startedAt: TR_LATER,
+      userId: MEMORY_ORG_USER,
+    });
+    await resumed.close();
+    expect(resumed.rewindId).toBe(otherStopped);
+  });
+
+  it('keeps the org’s last rewind, which Undo reaches, when the rewind that ended is an earlier one taken up', async () => {
+    const other = await store.create(ORG_ID, OTHER_CHECKPOINT);
+    const taken = await rewindOf(folder, '10:00:00', 'end');
+    const last = await rewindOf(other, '11:00:00', 'end');
+    await store.write(
+      checkpointFile(CHECKPOINT_ID, 'Before UAT', {
+        rewindId: taken,
+        undoUntil: '2026-11-06T10:00:00.000Z',
+      }),
+    );
+    await store.write(
+      checkpointFile(OTHER_CHECKPOINT, 'Baseline', {
+        rewindId: last,
+        undoUntil: '2026-11-06T11:00:00.000Z',
+      }),
+    );
+
+    const removed = await removeEarlierJournals(store, lock, {
+      checkpointId: CHECKPOINT_ID,
+      rewindId: taken,
+    });
+
+    expect(removed).toEqual([]);
+    expect(existsSync(rewindDirOf(other, last))).toBe(true);
+    expect(existsSync(rewindDirOf(folder, taken))).toBe(true);
   });
 });

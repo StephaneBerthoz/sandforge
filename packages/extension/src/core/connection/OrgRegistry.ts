@@ -151,7 +151,8 @@ export class OrgRegistry {
    * A CLI re-import and a reconnect build the org afresh, with a default
    * alias, colour, icon and no tags. Saving that over a stored org used to
    * wipe what the user set in the edit dialog. When the org is already
-   * stored, those four keep their stored values; everything Salesforce owns
+   * stored, those four keep their stored values, and so does its Staging
+   * mark, which Production Guard reads; everything Salesforce owns
    * (status, instance URL, type, safety tier, metadata) is taken from the
    * incoming org. The production red an org stored as a production org was
    * given goes with that type, as it does at load: retyped since, imported
@@ -181,6 +182,7 @@ export class OrgRegistry {
             icon: stored.appearance?.icon ?? org.appearance.icon,
           },
           tags: stored.tags ?? org.tags,
+          ...(stored.staging !== undefined ? { staging: stored.staging } : {}),
         }
       : org;
     this.configStore.set(key, merged, ORG_CATEGORY);

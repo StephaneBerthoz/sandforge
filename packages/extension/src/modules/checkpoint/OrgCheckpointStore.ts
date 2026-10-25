@@ -597,6 +597,15 @@ export class OrgCheckpointStore {
     return readFieldPrints(folder, checkpoint.objects);
   }
 
+  /**
+   * The checkpoints kept of one org, damaged or not, read from this machine
+   * alone: what a rewind that ended reads, under the org's lock, for the
+   * journals of the org's earlier rewinds (`removeEarlierJournals`).
+   */
+  async checkpointsOf(organizationId: string): Promise<CheckpointRead[]> {
+    return this.readsOf(organizationKey(organizationId));
+  }
+
   /** A kept checkpoint, damaged or not; undefined when none of that id is kept. */
   async read(checkpointId: string): Promise<CheckpointRead | undefined> {
     const id = parsedId(checkpointIdSchema, checkpointId);
@@ -809,7 +818,7 @@ async function readFolder(folder: CheckpointFolder): Promise<CheckpointRead> {
 }
 
 /** The org's latest rewind, by id: Undo is offered for it alone. */
-function latestRewindOf(
+export function latestRewindOf(
   reads: readonly CheckpointRead[],
 ): { checkpointId: string; rewindId: string } | undefined {
   let latest: { checkpointId: string; rewindId: string } | undefined;

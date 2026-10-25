@@ -18,6 +18,10 @@
  * - any other org is a production org, with every guard a production org has
  *   — and so is an org whose edition was never read, or whose stored type is
  *   none of these: nothing then shows it holds nobody's business.
+ *
+ * A sandbox the user marks Staging in Org Manager is a staging org: a full
+ * copy or a UAT sandbox holds real data, and Production Guard asks before
+ * every delete there. Nothing Salesforce says tells one apart.
  */
 
 import { OrgSafetyTier } from '../types/org.types.js';
@@ -40,6 +44,8 @@ export interface OrgFacts {
 export interface OrgTypeAndEdition {
   orgType?: string;
   metadata?: { edition?: unknown };
+  /** Marked Staging in Org Manager: read of a sandbox alone (`guardTierOf`). */
+  staging?: boolean;
 }
 
 /**
@@ -120,9 +126,20 @@ export function orgTypeToGuardTier(orgType: string, edition?: unknown): GuardTie
 /**
  * The guard's tier of an org as the registry holds it: {@link orgTypeToGuardTier}
  * of its type and edition. An org the registry does not know is a production org.
+ *
+ * A sandbox marked Staging is a staging org, where Production Guard asks
+ * before every delete, every deployment and every large write
+ * (`checkStaging`). Typed by the org alone, the tier was never reached: no
+ * Salesforce type is a staging one, and the Guard asked nothing before a
+ * delete in a full copy holding real data. The mark is read of a sandbox
+ * alone: a scratch org and a Developer Edition org hold nobody's business,
+ * and a production org stays one.
  */
 export function guardTierOf(org: OrgTypeAndEdition | undefined): GuardTier {
-  return orgTypeToGuardTier(org?.orgType ?? '', org?.metadata?.edition);
+  const orgType = registeredOrgType(org?.orgType ?? '', org?.metadata?.edition);
+  return org?.staging === true && orgType === 'Sandbox'
+    ? 'staging'
+    : orgTypeToGuardTier(org?.orgType ?? '', org?.metadata?.edition);
 }
 
 /**

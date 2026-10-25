@@ -245,6 +245,15 @@ export interface FrozenLoadOptions {
   reload?: boolean;
   /** Pilot mode: load ONE root folder (~2 min smoke test) before the full load. */
   pilot?: { rootReferenceId?: string };
+  /**
+   * Write the fields the target encrypts as the dataset holds them, though
+   * its manifest does not say its extraction left out the encrypted fields it
+   * read masked (`ManifestCoverage.encryptedNotKept`). Left out otherwise,
+   * each listed (`may-hold-masks`): a dataset extracted before SandForge left
+   * them out holds the masks a user without View Encrypted Data reads, such
+   * as `****1234`, and its load wrote them as values.
+   */
+  writeEncrypted?: boolean;
   /** Progress sink — the bridge consumes these callbacks. */
   onProgress?: (event: FrozenLoadProgressEvent) => void;
   /**
@@ -1439,6 +1448,11 @@ export class FrozenDatasetLoader {
         : 'business';
     /** Per object, its required lookups at an object `excludedObjects` names: see `heldForAnExcludedParent`. */
     const lookupsAtExcluded = new Map<string, ExcludedParentLookup[]>();
+    // A manifest written since the extraction left out what it read masked
+    // names those fields, or none; one written before has no such list, and
+    // the dataset may hold the masks of the fields the target encrypts.
+    const leaveOutEncrypted =
+      options.writeEncrypted !== true && options.manifest?.coverage?.encryptedNotKept === undefined;
     for (const objectData of loading.objects) {
       const objectApiName = objectData.objectApiName;
       // An extraction writes a file for every object of the graph, and most
@@ -1536,6 +1550,7 @@ export class FrozenDatasetLoader {
         ruleFor: (obj, field) => this.picklistRuleFor(obj, field),
         linked: reused,
         ...(objectApiName === ACCOUNT ? { accountKindOf } : {}),
+        ...(leaveOutEncrypted ? { leaveOutEncrypted } : {}),
       });
       alignment.objectResults.push(result);
       alignment.removals.push(...result.removals);

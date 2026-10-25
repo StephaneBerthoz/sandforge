@@ -133,6 +133,23 @@ describe('guardTierOf and isDevelopmentOrg', () => {
     expect(guardTierOf(undefined)).toBe('production');
     expect(isDevelopmentOrg(undefined)).toBe(false);
   });
+
+  it('take a sandbox marked Staging for a staging org, still no production one, and read the mark of a sandbox alone', () => {
+    expect(guardTierOf({ orgType: 'Sandbox', staging: true })).toBe('staging');
+    expect(isDevelopmentOrg({ orgType: 'Sandbox', staging: true })).toBe(true);
+    expect(guardTierOf({ orgType: 'Sandbox', staging: false })).toBe('development');
+    expect(guardTierOf({ orgType: 'Sandbox' })).toBe('development');
+    expect(guardTierOf({ orgType: 'Scratch', staging: true })).toBe('scratch');
+    expect(guardTierOf({ orgType: 'Developer', staging: true })).toBe('development');
+    expect(
+      guardTierOf({
+        orgType: 'Production',
+        metadata: { edition: 'Developer Edition' },
+        staging: true,
+      }),
+    ).toBe('development');
+    expect(guardTierOf({ orgType: 'Production', staging: true })).toBe('production');
+  });
 });
 
 describe('orgRegistrationOf', () => {

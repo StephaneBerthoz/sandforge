@@ -984,6 +984,7 @@ function resultOf(h: Harness, requestId: string, type: string) {
     status: string;
     residual: unknown[];
     apiRequests: { used: number; leftToday: number };
+    removedJournals?: unknown[];
   };
 }
 
@@ -1340,6 +1341,37 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     });
     expect(answerOf(h, 'wv-undo-1').payload.code).toBe('INVALID_PAYLOAD');
     expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('names in the log, as the sweep names what it deletes, the journal of the rewind before it that a rewind deleted once it ended', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-1',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, await previewed(h, checkpointId, 'wv-preview-1')),
+    );
+    const first = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+    clock += 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed again' }, COLLEAGUE);
+
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, await previewed(h, checkpointId, 'wv-preview-2')),
+    );
+
+    const second = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    expect(second.removedJournals).toEqual([
+      { checkpointId, name: 'Before UAT', rewindId: first.rewindId },
+    ]);
+    expect(h.logs).toContainEqual(
+      `[INFO] Removed the journal of rewind ${first.rewindId} of checkpoint 'Before UAT': ` +
+        'Undo reaches the last rewind of the org alone',
+    );
   });
 
   it('stops a rewind from Live Operations’ Cancel: before it writes, answered CANCELLED; part way, answered with its result, its journal taken up by the next rewind', async () => {

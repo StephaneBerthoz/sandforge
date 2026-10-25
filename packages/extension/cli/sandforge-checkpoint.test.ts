@@ -1072,6 +1072,27 @@ describe('rewindLines, undoLines and resultJson', () => {
     ]);
   });
 
+  it('names each journal of an earlier rewind the rewind deleted once it ended, before what it sent, and keeps them in its JSON', () => {
+    const removedJournals = [
+      {
+        checkpointId: 'ck-20261021-090000-bbbb',
+        name: 'Baseline',
+        rewindId: 'rw-20261021-100000-aaaa',
+      },
+    ];
+    const result = resultOf({ ...DID, removedJournals });
+    const lines = rewindLines('DEV-SB', checkpoint, result);
+
+    expect(lines.slice(-2)).toEqual([
+      "  removed the journal of rewind rw-20261021-100000-aaaa of 'Baseline': undo reaches the last rewind of the org alone",
+      '  sent 40 API requests to the org; 14,860 left today',
+    ]);
+    expect(
+      (resultJson('rewind', 'DEV-SB', checkpoint, result) as { result: RewindResult }).result
+        .removedJournals,
+    ).toEqual(removedJournals);
+  });
+
   it('says Undo couldn’t bring back, in a line of its own, what the rewind deleted before a record it points at, and gives the reason in its JSON', () => {
     const cannot = [
       { objectApiName: 'OpportunityLineItem', count: 3 },

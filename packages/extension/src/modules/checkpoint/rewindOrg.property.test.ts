@@ -893,6 +893,18 @@ describe('a rewind on the memory org, over random histories since the checkpoint
               (second.recreated ?? []).filter((object) => object.created === 0),
             );
             if (first.undo === undefined) return;
+            // A second rewind that wrote, as one did in a full run of the
+            // suite, kept a journal of its own: Undo reaches it alone, and the
+            // first's journal went as it ended.
+            if (second.rewindId !== first.rewindId && second.undo !== undefined) {
+              expect(second.removedJournals, message).toEqual([
+                expect.objectContaining({ rewindId: first.rewindId }),
+              ]);
+              await expect(undone(t, first.rewindId), message).rejects.toMatchObject({
+                code: 'notFound',
+              });
+              return;
+            }
             await undone(t, first.rewindId);
             const after = keptOf(t.org, t.checkpoint);
             const cannot = new Set(first.undo.cannot.map(({ objectApiName }) => objectApiName));

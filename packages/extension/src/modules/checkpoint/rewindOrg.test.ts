@@ -1508,6 +1508,26 @@ describe('rewindOrg: stopped, and taken up again', () => {
     expect('lock' in after).toBe(true);
     if ('lock' in after) after.lock.release();
   });
+
+  it('once through, deletes the journal of the rewind before it, which Undo no longer reaches, names it in its result, and keeps its own for its undo', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const first = resultOf(await rewound(t, (await previewed(t)).previewId));
+    expect(first.removedJournals).toBeUndefined();
+
+    clock.now += 60_000;
+    t.org.edit('Account', account(1), { Name: 'Renamed again' }, COLLEAGUE);
+    const second = resultOf(await rewound(t, (await previewed(t)).previewId));
+
+    expect(second.status).toBe('success');
+    expect(second.removedJournals).toEqual([
+      { checkpointId: t.checkpoint.checkpointId, name: 'Before UAT', rewindId: first.rewindId },
+    ]);
+    expect(readdirSync(t.folder.rewindsDir)).toEqual([second.rewindId]);
+    const undo = await undone(t, second.rewindId);
+    expect(undo.status).toBe('success');
+    expect(t.org.all('Account').find((row) => row.Id === account(1))?.Name).toBe('Renamed again');
+  });
 });
 
 describe('rewindOrg: what it costs', () => {

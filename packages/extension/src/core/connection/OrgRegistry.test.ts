@@ -150,6 +150,23 @@ describe('OrgRegistry', () => {
       expect((await registry.getCredentials('003'))?.accessToken).toBe('fresh');
     });
 
+    it('keeps the Staging mark the user gave a sandbox when the same org is imported or reconnected again', async () => {
+      const org = createTestOrg('005');
+      await registry.saveOrg(org);
+      registry.updateOrgMetadata({ ...org, staging: true });
+
+      // A re-import knows nothing of the mark.
+      await registry.saveOrg({ ...createTestOrg('005'), status: 'expired' });
+
+      for (const saved of [orgManager.getOrg('005'), configStore.get<SalesforceOrg>('org.005')]) {
+        expect(saved?.staging).toBe(true);
+        expect(saved?.status).toBe('expired');
+      }
+      const reloaded = new OrgManager();
+      new OrgRegistry(configStore, secretVault, reloaded).loadAll();
+      expect(reloaded.getOrg('005')?.staging).toBe(true);
+    });
+
     it('takes the colour and tags from the incoming org when the stored entry has none', async () => {
       // Entries written by older builds carry neither `appearance` nor `tags`,
       // and nothing validates the shape on the way out of storage.

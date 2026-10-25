@@ -113,7 +113,9 @@
  * pass; one whose work the fresh read finds done is taken up only to end it.
  * Once through, the journal ends, and the checkpoint's last rewind says when,
  * and until when Undo can bring back what it deleted; what Undo couldn't
- * bring back is counted from the journal, every pass of it. A rewind that finds
+ * bring back is counted from the journal, every pass of it. The journals of
+ * the org's earlier rewinds, which Undo no longer reaches, are deleted then,
+ * each named in the result (`removeEarlierJournals`). A rewind that finds
  * nothing to write keeps no journal, and sends the org no more than the
  * guard, the day's limits and its one read.
  */
@@ -200,7 +202,13 @@ import {
   rewindWritesCost,
   type ObjectRelationships,
 } from './rewindEstimate.js';
-import { IDS_PER_LINE, openRewindJournal, type RewindJournal } from './rewindJournal.js';
+import {
+  IDS_PER_LINE,
+  openRewindJournal,
+  removeEarlierJournals,
+  type EarlierJournalRemoved,
+  type RewindJournal,
+} from './rewindJournal.js';
 import {
   heldInPlaceReason,
   rewindPlan,
@@ -463,8 +471,12 @@ export interface RewindDeps {
   org: RewindOrg;
   /** Takes records out of the recycle bin by their ids (`conn.soap.undelete`). */
   undelete: UndeleteCall;
-  /** The store the checkpoint is kept in: the org's lock, and the checkpoint's last rewind. */
-  store: Pick<OrgCheckpointStore, 'lock' | 'update'>;
+  /**
+   * The store the checkpoint is kept in: the org's lock, the checkpoint's
+   * last rewind, and the org's checkpoints, whose earlier rewinds' journals
+   * go once the rewind ended.
+   */
+  store: Pick<OrgCheckpointStore, 'lock' | 'update' | 'checkpointsOf'>;
   /**
    * What the org runs as records of `objects` are brought back, updated or
    * deleted. Not given, nothing of it is read, and nothing is refused for it.
@@ -1534,6 +1546,7 @@ class Rewind {
             : 'failure'
           : 'success';
 
+    let removedJournals: EarlierJournalRemoved[] = [];
     if (!cancelled) {
       await journal.end();
       this.ended = true;
@@ -1549,6 +1562,19 @@ class Rewind {
             'its list may not offer to undo it.',
         );
       }
+      // Undo reaches the org's last rewind alone: the journals of its earlier
+      // rewinds, which hold the values they wrote over, go now, each named.
+      try {
+        removedJournals = await removeEarlierJournals(this.deps.store, this.lock, {
+          checkpointId: checkpoint.checkpointId,
+          rewindId: journal.rewindId,
+        });
+      } catch (err: unknown) {
+        this.notes.push(
+          `The journals of the earlier rewinds of ${this.request.orgName} could not be deleted ` +
+            `(${extractErrorMessage(err)}): they stay until their checkpoint goes.`,
+        );
+      }
     }
     const undoCannot = await this.undoCannotOf(journal);
     return {
@@ -1562,6 +1588,7 @@ class Rewind {
         passes: second ? 2 : 1,
         leftToday: remaining,
         undo: { until: undoUntil, cannot: undoCannot },
+        removedJournals,
       }),
       notes: this.notes,
     };
@@ -1618,6 +1645,8 @@ class Rewind {
     /** The requests the org had left today when the rewind began. */
     leftToday: number;
     undo?: RewindResult['undo'];
+    /** The journals of the org's earlier rewinds it deleted once it ended. */
+    removedJournals?: EarlierJournalRemoved[];
   }): RewindResult {
     const used = this.count.used();
     return {
@@ -1634,6 +1663,9 @@ class Rewind {
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
       passes: parts.passes,
       ...(parts.undo ? { undo: parts.undo } : {}),
+      ...((parts.removedJournals ?? []).length > 0
+        ? { removedJournals: parts.removedJournals }
+        : {}),
       apiRequests: { used, leftToday: Math.max(0, parts.leftToday - used) },
       finishedAt: this.now().toISOString(),
     };

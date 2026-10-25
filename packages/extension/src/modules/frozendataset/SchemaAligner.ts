@@ -5,6 +5,9 @@
  *
  *   - fields absent from the target describe (or not createable) are
  *     REMOVED and listed;
+ *   - fields the target encrypts, of a dataset whose manifest does not say
+ *     its extraction left out what it read masked, are REMOVED and listed,
+ *     unless the load is told to write them (`leaveOutEncrypted`);
  *   - restricted picklist values inactive at the global level are
  *     cleared/replaced per the DECLARED rule and listed;
  *   - RecordType assignment gaps: a value active globally may be
@@ -27,8 +30,10 @@ import {
   leftOutForAccountKind,
   type AccountKind,
 } from '../../core/common/platformRecords.js';
+import { ENCRYPTED_FIELD_TYPE } from '../sync/encryptedFields.js';
 import type { FrozenRecord } from './types.js';
 import type {
+  FieldRemoval,
   MissingRequiredField,
   PicklistAdjustment,
   PicklistRule,
@@ -62,7 +67,18 @@ export interface SchemaAlignObjectInput {
    * (`accountKindRequiring`). Absent for any other object.
    */
   accountKindOf?: (referenceId: string) => AccountKind;
+  /**
+   * Leave out the values of the fields the target encrypts, each listed with
+   * the records that held one (`may-hold-masks`): the dataset's manifest does
+   * not say its extraction left out the encrypted fields its user read
+   * masked, and a dataset extracted before it did holds the masks, such as
+   * `****1234`, as values a load would write.
+   */
+  leaveOutEncrypted?: boolean;
 }
+
+/** Why a field is removed, as its removal says it. */
+type RemovalReason = FieldRemoval['reason'];
 
 /**
  * Aligns dataset records with the target schema. Holds a per-run cache of
@@ -76,10 +92,7 @@ export class SchemaAligner {
   /** Align one object's records against its target describe. */
   async alignObject(input: SchemaAlignObjectInput): Promise<SchemaAlignObjectResult> {
     const fieldsByName = new Map(input.describe.fields.map((f) => [f.name, f]));
-    const removalCounts = new Map<
-      string,
-      { reason: 'not-in-target' | 'not-createable'; count: number }
-    >();
+    const removalCounts = new Map<string, { reason: RemovalReason; count: number }>();
     const adjustments: PicklistAdjustment[] = [];
     const uiApiWarnings: string[] = [];
     const alignedRecords: Array<Record<string, unknown>> = [];
@@ -100,6 +113,13 @@ export class SchemaAligner {
         }
         if (!fd.createable) {
           this.countRemoval(removalCounts, field, 'not-createable');
+          continue;
+        }
+        if (input.leaveOutEncrypted === true && fd.type === ENCRYPTED_FIELD_TYPE) {
+          // An empty one writes nothing, mask or not.
+          if (value !== null && value !== undefined && value !== '') {
+            this.countRemoval(removalCounts, field, 'may-hold-masks');
+          }
           continue;
         }
         let aligned = value;
@@ -305,9 +325,9 @@ export class SchemaAligner {
   }
 
   private countRemoval(
-    counts: Map<string, { reason: 'not-in-target' | 'not-createable'; count: number }>,
+    counts: Map<string, { reason: RemovalReason; count: number }>,
     field: string,
-    reason: 'not-in-target' | 'not-createable',
+    reason: RemovalReason,
   ): void {
     const entry = counts.get(field);
     if (entry) {

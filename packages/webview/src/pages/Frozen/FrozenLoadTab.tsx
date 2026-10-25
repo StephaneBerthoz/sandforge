@@ -4,6 +4,7 @@ import { Eye, Play, ShieldCheck, Square } from 'lucide-react';
 import type {
   ErrorHint,
   ForgeFieldRefusal,
+  FrozenFieldRemoval,
   FrozenLoadPlanInfo,
   FrozenLoadProgress,
   FrozenLoadReportInfo,
@@ -83,6 +84,18 @@ function loadWrote(report: FrozenLoadReportInfo): boolean {
   return sumPerObject(report, (o) => o.inserted) > 0 || purged.some((count) => count > 0);
 }
 
+/**
+ * The fields the target encrypts that a load leaves out, or would, as the
+ * dataset may hold their masks, each with the records that held a value; ''
+ * when it leaves out none.
+ */
+function maybeMasks(removals: readonly FrozenFieldRemoval[] | undefined): string {
+  return (removals ?? [])
+    .filter((removal) => removal.reason === 'may-hold-masks')
+    .map((removal) => `${removal.objectApiName}.${removal.field} (${removal.affectedRecords})`)
+    .join(', ');
+}
+
 /** The rows of a table of failure reasons, one per object, status code and message. */
 function reasonRows(reasons: readonly FrozenFailureReason[]): Array<Record<string, unknown>> {
   return reasons.map((reason) => ({
@@ -137,6 +150,12 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const setTargetOrgId = useFrozenStore((s) => s.setTargetOrgId);
   const [pilot, setPilot] = useState(false);
   const [reload, setReload] = useState(false);
+  const [writeEncrypted, setWriteEncrypted] = useState(false);
+  // A dataset whose manifest does not say its extraction left out the
+  // encrypted fields it read masked may hold their masks: its load leaves out
+  // the fields the target encrypts unless told to write them.
+  const encryptedUnchecked =
+    status?.manifest != null && status.manifest.coverage?.encryptedNotKept === undefined;
 
   // A load goes on in the extension until it ends, and answers then: held to
   // thirty minutes, a large one lost its page and its Cancel while it wrote.
@@ -195,6 +214,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     targetOrgId: effectiveTarget,
     ...(pilot ? { pilot: true } : {}),
     ...(reload ? { reload: true } : {}),
+    ...(encryptedUnchecked && writeEncrypted ? { writeEncrypted: true } : {}),
   });
 
   const handleLoad = (): void => {
@@ -206,6 +226,8 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   };
 
   const plan = previewMutation.data?.plan;
+  const planMasks = maybeMasks(plan?.removals);
+  const reportMasks = maybeMasks(loadReport?.alignment.removals);
   const planOrg = plan ? (orgs.find((o) => o.id === plan.orgId)?.alias ?? plan.orgId) : '';
   const planColumns = plan
     ? [
@@ -413,6 +435,23 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               </label>
             </div>
           </div>
+          {encryptedUnchecked && (
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-xs text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={writeEncrypted}
+                  onChange={(e) => setWriteEncrypted(e.target.checked)}
+                  aria-describedby="frozen-load-write-encrypted-hint"
+                  data-testid="frozen-load-write-encrypted"
+                />
+                {t('frozen.load.writeEncrypted')}
+              </label>
+              <p id="frozen-load-write-encrypted-hint" className="text-[11px] text-text-secondary">
+                {t('frozen.load.writeEncryptedHint')}
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Button
               variant="primary"
@@ -525,6 +564,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                     ))}
                   </ul>
                 </div>
+              )}
+              {planMasks !== '' && (
+                <p
+                  className="text-[11px] text-status-warning"
+                  data-testid="frozen-preview-may-hold-masks"
+                >
+                  {t('frozen.load.mayHoldMasks', { fields: planMasks })}
+                </p>
               )}
               {(plan.heldForExcludedParents?.length ?? 0) > 0 && (
                 <p
@@ -936,6 +983,14 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                   <span className="text-xs font-medium text-text-primary">
                     {t('frozen.report.removals')}
                   </span>
+                  {reportMasks !== '' && (
+                    <p
+                      className="text-[11px] text-status-warning"
+                      data-testid="frozen-report-may-hold-masks"
+                    >
+                      {t('frozen.load.mayHoldMasks', { fields: reportMasks })}
+                    </p>
+                  )}
                   <DataTable
                     columns={[
                       { key: 'field', header: t('frozen.report.field'), sortable: true },

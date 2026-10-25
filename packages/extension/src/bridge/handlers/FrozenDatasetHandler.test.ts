@@ -739,6 +739,27 @@ describe('FrozenDatasetHandler', () => {
         expect(deps.configStore.get('frozen:lastRun')).toBeUndefined();
       });
 
+      it('hands the loader, for the preview and for the load, the choice to write the fields the target encrypts as the dataset holds them', async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderPlan.mockResolvedValueOnce(PLAN).mockResolvedValueOnce(PLAN);
+        loaderLoad.mockResolvedValueOnce(report());
+        const before = loaderPlan.mock.calls.length;
+
+        await handler.handle(
+          buildMsg('frozen:load:preview', { targetOrgId: 'org-2', writeEncrypted: true }),
+        );
+        await handler.handle(
+          buildMsg('frozen:load', { targetOrgId: 'org-2', writeEncrypted: true }),
+        );
+        await handler.handle(buildMsg('frozen:load:preview', { targetOrgId: 'org-2' }));
+
+        const [asked, unasked] = loaderPlan.mock.calls.slice(before).map(([options]) => options);
+        expect(asked).toMatchObject({ writeEncrypted: true });
+        expect(unasked).not.toHaveProperty('writeEncrypted');
+        expect(loaderLoad).toHaveBeenCalledWith(expect.objectContaining({ writeEncrypted: true }));
+      });
+
       it('hands the loader a writer that refuses every write', async () => {
         const { config } = writeDataset();
         wire(config);
@@ -2642,6 +2663,24 @@ describe('FrozenDatasetHandler', () => {
       expect(manifest.coverage.keptWithoutARule ?? []).not.toContain('Opportunity.Code__c');
     });
 
+    it('records in the manifest that it left out no encrypted field when it left out none: a manifest without the list is one written before, which a load asks about', async () => {
+      vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+      const { conn } = fakeOrg();
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      const config = realConfig();
+      await readyToExtract(config);
+      deps = createMockDeps(config);
+      handler = new FrozenDatasetHandler(deps);
+
+      await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+      expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+      const manifest = posted(deps, 'frozen:extract:response')[0].payload.manifest as {
+        coverage: { encryptedNotKept?: string[] };
+      };
+      expect(manifest.coverage.encryptedNotKept).toEqual([]);
+    });
+
     it('hands the extraction the objects the configuration excludes by name, reached or not', async () => {
       // Marked on the graph's nodes alone, an object discovery never reached
       // was no exclusion: past the cap, the extraction fetched the prices of
@@ -2772,6 +2811,8 @@ describe('FrozenDatasetHandler', () => {
         requiredLeftEmpty: ['OpportunityLineItem.Quantity'],
         // A required picklist holds the schema's words, restricted or not.
         keptWithoutARule: ['Opportunity.StageName'],
+        // None read masked, and said so: a load asks about a manifest without it.
+        encryptedNotKept: [],
       });
     });
 

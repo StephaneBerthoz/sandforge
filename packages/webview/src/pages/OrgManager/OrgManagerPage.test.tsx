@@ -674,7 +674,19 @@ describe('OrgManagerPage', () => {
         alias: 'QA sandbox',
         color: '#10B981',
         tags: ['dev'],
+        staging: false,
       });
+    });
+
+    it('should send org:update with the Staging mark of a sandbox ticked in the dialog', () => {
+      useOrgStore.setState({ orgs: [mockOrg] });
+      render(<OrgManagerPage />);
+
+      fireEvent.click(within(screen.getByTestId('org-card-org-1')).getByText('Edit'));
+      fireEvent.click(screen.getByTestId('edit-staging-input'));
+      fireEvent.click(screen.getByText('Save'));
+
+      expect(mockUpdateMutate).toHaveBeenCalledWith(expect.objectContaining({ staging: true }));
     });
 
     it('should not rename the card before the host has saved the edit', () => {

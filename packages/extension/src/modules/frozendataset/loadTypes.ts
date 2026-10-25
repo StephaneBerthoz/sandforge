@@ -296,7 +296,8 @@ export interface FrozenLoadProgressEvent {
 export interface FieldRemoval {
   objectApiName: string;
   field: string;
-  reason: 'not-in-target' | 'not-createable';
+  /** `may-hold-masks`: see `SchemaAlignObjectInput.leaveOutEncrypted`. */
+  reason: 'not-in-target' | 'not-createable' | 'may-hold-masks';
   /** Number of records that carried the field. */
   affectedRecords: number;
 }

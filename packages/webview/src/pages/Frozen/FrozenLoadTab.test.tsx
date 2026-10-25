@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
-import type { FrozenLoadPlanInfo, FrozenStatusInfo } from '@sandforge/shared';
+import type { FrozenLoadPlanInfo, FrozenLoadReportInfo, FrozenStatusInfo } from '@sandforge/shared';
 import { FrozenLoadTab } from './FrozenLoadTab';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -243,6 +243,90 @@ describe('FrozenLoadTab', () => {
         expect.objectContaining({ level: 'warning', title: 'Could not cancel the load' }),
       ]);
       expect(screen.getByTestId('frozen-load-cancel').getAttribute('aria-disabled')).toBeNull();
+    });
+  });
+
+  describe('a dataset that does not say it left out the encrypted fields it read masked', () => {
+    const WITH_COVERAGE = (encryptedNotKept?: string[]): FrozenStatusInfo => ({
+      ...STATUS,
+      manifest: STATUS.manifest && {
+        ...STATUS.manifest,
+        coverage: {
+          objects: 2,
+          truncated: false,
+          maxNodes: 50,
+          unboundedObjects: [],
+          filesLeftOut: [],
+          ...(encryptedNotKept ? { encryptedNotKept } : {}),
+        },
+      },
+    });
+
+    it('offers to write the fields the target encrypts as the dataset holds them, and asks the load and its preview to once ticked', () => {
+      useFrozenStore.setState({ status: WITH_COVERAGE() });
+      render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-write-encrypted'));
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load:preview', { targetOrgId: 'org-dev' }],
+        ['frozen:load:preview', { targetOrgId: 'org-dev', writeEncrypted: true }],
+        ['frozen:load', { targetOrgId: 'org-dev', writeEncrypted: true }],
+      ]);
+      expect(screen.getByText(/may hold masks such as \*\*\*\*1234/)).toBeDefined();
+    });
+
+    it('offers nothing of it for a dataset that says which encrypted fields it left out, none or some', () => {
+      for (const encryptedNotKept of [[], ['Contact.SSN__c']]) {
+        useFrozenStore.setState({ status: WITH_COVERAGE(encryptedNotKept) });
+        const { unmount } = render(tab());
+
+        expect(screen.queryByTestId('frozen-load-write-encrypted')).toBeNull();
+        unmount();
+      }
+    });
+
+    it('names, in the preview and in the report, the fields it leaves out as they may hold masks', () => {
+      const masked = {
+        objectApiName: 'Contact',
+        field: 'SSN__c',
+        reason: 'may-hold-masks' as const,
+        affectedRecords: 2,
+      };
+      answers['frozen:load:preview'] = { data: { plan: { ...PLAN, removals: [masked] } } };
+      const report: FrozenLoadReportInfo = {
+        status: 'completed',
+        orgId: 'org-dev',
+        mode: { pilot: false, reload: false },
+        startedAt: '2026-10-09T10:00:00.000Z',
+        durationMs: 10,
+        alignment: {
+          excludedObjects: [],
+          removals: [masked],
+          adjustments: [],
+          recordTypeIssues: [],
+        },
+        placeholders: [],
+        requiredDefaults: [],
+        perObject: [],
+        pass2: { resolved: 0, unresolved: [] },
+        personContact: { restored: 0, unresolved: [] },
+        purge: { deleted: {}, deactivated: {}, failures: [] },
+        mappingPath: '',
+        contractPath: '',
+      };
+      useFrozenStore.setState({ loadReport: report });
+
+      render(tab());
+
+      for (const testId of ['frozen-preview-may-hold-masks', 'frozen-report-may-hold-masks']) {
+        expect(screen.getByTestId(testId).textContent).toContain(
+          'Left out, encrypted in this org: Contact.SSN__c (2).',
+        );
+      }
     });
   });
 

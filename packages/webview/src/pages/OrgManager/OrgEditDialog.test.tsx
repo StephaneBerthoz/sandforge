@@ -81,7 +81,53 @@ describe('OrgEditDialog', () => {
       alias: 'Dev Sandbox',
       color: '#10B981',
       tags: ['dev'],
+      staging: false,
     });
+  });
+
+  it('marks a sandbox Staging, saved with the rest, and shows the mark it has', () => {
+    const onSave = vi.fn();
+    const { rerender } = render(<OrgEditDialog {...defaultProps} onSave={onSave} />);
+
+    const mark = screen.getByRole('checkbox', { name: 'Staging' });
+    expect(mark).toHaveProperty('checked', false);
+    expect(mark.getAttribute('aria-describedby')).toBe('edit-staging-hint');
+    expect(document.getElementById('edit-staging-hint')?.textContent).toContain(
+      'Production Guard asks before every delete',
+    );
+    fireEvent.click(mark);
+    fireEvent.click(screen.getByText('Save'));
+    expect(onSave).toHaveBeenLastCalledWith('org-1', expect.objectContaining({ staging: true }));
+
+    rerender(
+      <OrgEditDialog {...defaultProps} org={{ ...mockOrg, staging: true }} onSave={onSave} />,
+    );
+    expect(screen.getByRole('checkbox', { name: 'Staging' })).toHaveProperty('checked', true);
+  });
+
+  it('offers no Staging mark to a scratch org, a Developer Edition org or a production org, and saves none', () => {
+    const others: SalesforceOrg[] = [
+      { ...mockOrg, orgType: 'Scratch' },
+      {
+        ...mockOrg,
+        orgType: 'Developer',
+        metadata: { ...mockOrg.metadata, edition: 'Developer Edition' },
+      },
+      {
+        ...mockOrg,
+        orgType: 'Production',
+        metadata: { ...mockOrg.metadata, edition: 'Enterprise Edition' },
+      },
+    ];
+    for (const org of others) {
+      const onSave = vi.fn();
+      const { unmount } = render(<OrgEditDialog {...defaultProps} org={org} onSave={onSave} />);
+
+      expect(screen.queryByTestId('edit-staging-input')).toBeNull();
+      fireEvent.click(screen.getByText('Save'));
+      expect(onSave.mock.calls[0]?.[1]).not.toHaveProperty('staging');
+      unmount();
+    }
   });
 
   it('should call onClose when Cancel is clicked', () => {

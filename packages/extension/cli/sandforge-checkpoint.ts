@@ -1580,6 +1580,12 @@ export function rewindLines(
       );
     }
   }
+  for (const gone of result.removedJournals ?? []) {
+    lines.push(
+      `  removed the journal of rewind ${gone.rewindId} of '${gone.name}': undo reaches the ` +
+        'last rewind of the org alone',
+    );
+  }
   lines.push(requestsUsedLine(result));
   return lines;
 }

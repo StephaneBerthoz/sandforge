@@ -620,7 +620,13 @@ export const OrgManagerPage: React.FC = () => {
   const updateMutate = updateMutation.mutate;
   const handleSave = useCallback(
     (orgId: string, payload: OrgEditPayload) => {
-      updateMutate({ orgId, alias: payload.alias, color: payload.color, tags: payload.tags });
+      updateMutate({
+        orgId,
+        alias: payload.alias,
+        color: payload.color,
+        tags: payload.tags,
+        ...(payload.staging !== undefined ? { staging: payload.staging } : {}),
+      });
       setEditingOrg(null);
     },
     [updateMutate],

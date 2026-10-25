@@ -103,6 +103,10 @@ Options:
   --reload               purge what earlier loads created, then load again
   --dry-run              with load: say what the load would do — per object, what it
                          would insert, link, drop, rewrite and purge — and write nothing
+  --write-encrypted      with load: write the fields the target encrypts as the dataset
+                         holds them, though its manifest does not say its extraction
+                         left out what it read masked — they may hold masks such as
+                         ****1234 (left out otherwise, each named)
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --sweep                with remove: before the load's records go, delete too what
@@ -168,6 +172,8 @@ interface CliArgs {
   reload: boolean;
   /** With load: what the load would do, and nothing written. */
   dryRun: boolean;
+  /** With load: write the fields the target encrypts though the dataset may hold their masks. */
+  writeEncrypted: boolean;
   includeChanged: boolean;
   /** With remove: sweep first what the target's automation created during the load. */
   sweep: boolean;
@@ -184,6 +190,7 @@ const FLAGS: CommandFlags = {
     '--pilot',
     '--reload',
     '--dry-run',
+    '--write-encrypted',
     '--include-changed',
     '--sweep',
     '--sweep-list',
@@ -237,6 +244,10 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--sweep and --sweep-list go with remove. Run with --help.\n');
     process.exit(2);
   }
+  if (args.includes('--write-encrypted') && step !== 'load') {
+    process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
+    process.exit(2);
+  }
 
   return {
     step,
@@ -249,6 +260,7 @@ export function parseArgs(argv: string[]): CliArgs {
     pilot: args.includes('--pilot'),
     reload: args.includes('--reload'),
     dryRun: args.includes('--dry-run'),
+    writeEncrypted: args.includes('--write-encrypted'),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
@@ -362,6 +374,38 @@ function keptByThePlatformLine(
   if (!kept || kept.length === 0) return [];
   const objects = kept.map(({ objectApiName, count }) => `${objectApiName} (${count})`).join(', ');
   return [`kept: the platform does not delete them — ${objects}`];
+}
+
+/** A field the schema alignment removed, as the load's report and its preview list it. */
+interface FieldRemovalLine {
+  objectApiName: string;
+  field: string;
+  reason: string;
+  affectedRecords: number;
+}
+
+/**
+ * What a load leaves out, or would, of the fields the target encrypts, the
+ * dataset's manifest not saying its extraction left out what it read masked:
+ * the masks a user without View Encrypted Data reads would go in as values.
+ */
+function maybeMasksLines(
+  removals: readonly FieldRemovalLine[] | undefined,
+  verb: 'left' | 'would leave',
+): string[] {
+  const masked = (removals ?? []).filter((removal) => removal.reason === 'may-hold-masks');
+  if (masked.length === 0) return [];
+  const fields = masked
+    .map(
+      ({ objectApiName, field, affectedRecords }) =>
+        `${objectApiName}.${field} (${affectedRecords})`,
+    )
+    .join(', ');
+  return [
+    `${verb} out, encrypted in the target: ${fields} — the dataset's manifest does not say its ` +
+      'extraction left out what it read masked, so they may hold masks such as ****1234; ' +
+      '--write-encrypted writes them as the dataset holds them',
+  ];
 }
 
 /** How each record a default fills gets a value of its own, in words. */
@@ -701,7 +745,7 @@ export function messageLines(message: Posted): string[] {
         durationMs: number;
         alignment: {
           excludedObjects: Array<{ objectApiName: string; reason: string }>;
-          removals: unknown[];
+          removals: FieldRemovalLine[];
           recordTypeIssues: unknown[];
         };
         placeholders: unknown[];
@@ -758,6 +802,7 @@ export function messageLines(message: Posted): string[] {
       for (const excluded of r.alignment.excludedObjects) {
         lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
       }
+      lines.push(...maybeMasksLines(r.alignment.removals, 'left'));
       for (const o of r.perObject) {
         lines.push(
           `  ${o.objectApiName}: ${o.inserted} inserted, ${o.reused} reused, ` +
@@ -894,6 +939,7 @@ export function messageLines(message: Posted): string[] {
           validationRulesOnChange?: string[];
         }>;
         excludedObjects: Array<{ objectApiName: string; reason: string }>;
+        removals: FieldRemovalLine[];
         placeholders: Array<{
           objectApiName: string;
           field: string;
@@ -944,6 +990,7 @@ export function messageLines(message: Posted): string[] {
       for (const excluded of plan.excludedObjects) {
         lines.push(`  ${excluded.objectApiName}: not loaded — ${excluded.reason}`);
       }
+      lines.push(...maybeMasksLines(plan.removals, 'would leave'));
       for (const held of plan.heldForExcludedParents ?? []) {
         lines.push(`  ${held.objectApiName}: ${held.note}`);
       }
@@ -1232,6 +1279,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             targetOrgId,
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
+            ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           });
           break;
         }
@@ -1249,6 +1297,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           targetOrgId,
           ...(args.pilot ? { pilot: true } : {}),
           ...(args.reload ? { reload: true } : {}),
+          ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
         });
         break;
       }

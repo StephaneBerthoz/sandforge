@@ -250,8 +250,10 @@ export interface FrozenManifestCoverage extends FrozenGraphCoverage {
   /**
    * The fields, as `Object.Field`, not kept: classic encrypted fields the user
    * the source was read as reads masked, lacking View Encrypted Data, which
-   * the dataset would have held as their masks. Absent when none is, and from
-   * manifests written before it was recorded.
+   * the dataset would have held as their masks. Empty when none is. Absent
+   * from manifests written before it was recorded, and from those of 1.66.0
+   * that named none: a load of such a dataset leaves out the fields the
+   * target encrypts unless told to write them.
    */
   encryptedNotKept?: string[];
 }
@@ -391,11 +393,17 @@ export interface FrozenManifestInfo {
   coverage?: FrozenManifestCoverage;
 }
 
-/** A field removed during schema alignment — always listed, never silent. */
+/**
+ * A field removed during schema alignment — always listed, never silent.
+ * `may-hold-masks`: a field the target encrypts, of a dataset whose manifest
+ * does not say its extraction left out the encrypted fields it read masked
+ * (`FrozenManifestCoverage.encryptedNotKept`) — its values may be masks, such
+ * as `****1234`; left out unless the load is told to write them.
+ */
 export interface FrozenFieldRemoval {
   objectApiName: string;
   field: string;
-  reason: 'not-in-target' | 'not-createable';
+  reason: 'not-in-target' | 'not-createable' | 'may-hold-masks';
   affectedRecords: number;
 }
 

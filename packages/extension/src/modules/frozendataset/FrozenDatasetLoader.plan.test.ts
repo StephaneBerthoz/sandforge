@@ -13,6 +13,7 @@ import {
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
 import { LoadGuardError } from './LoadGuards.js';
+import { buildFrozenManifest, type ManifestCoverage } from './manifest.js';
 import type { FrozenDataset } from './types.js';
 import type {
   FrozenDmlWriter,
@@ -606,5 +607,93 @@ describe('FrozenDatasetLoader — the validation rules a preview cannot evaluate
     }).load(options(s.dataset, sasDir));
 
     expect(readValidationRules).not.toHaveBeenCalled();
+  });
+});
+
+describe('FrozenDatasetLoader — a dataset that does not say it left out what it read masked', () => {
+  const COVERAGE: ManifestCoverage = {
+    objects: 4,
+    truncated: false,
+    maxNodes: 50,
+    unboundedObjects: [],
+    filesLeftOut: [],
+  };
+
+  /** A manifest of the source, its coverage as given. */
+  function manifestWith(coverage: ManifestCoverage) {
+    return buildFrozenManifest({
+      version: '1.0.0',
+      source: { orgId: '00D-source', decisionDate: '2026-01-15T00:00:00.000Z' },
+      saltFingerprint: 'abcdef012345',
+      rulesVersion: '1.0.0',
+      volumetry: { budgetMax: 2500, measured: {}, measuredAt: '2026-01-15T00:00:00.000Z' },
+      nonReidentification: {
+        passed: true,
+        checks: [],
+        author: 'tester',
+        checkedAt: '2026-01-15T00:00:00.000Z',
+      },
+      author: 'tester',
+      coverage,
+    });
+  }
+
+  /** The scenario, its contacts holding a field the target encrypts, as a user without View Encrypted Data read it. */
+  function withMasks(): ReturnType<typeof scenario> {
+    const s = scenario();
+    const contacts = s.dataset.objects.find((o) => o.objectApiName === 'Contact');
+    for (const record of contacts?.records ?? []) {
+      (record.fields as Record<string, unknown>).SSN__c = '***-**-1234';
+    }
+    s.describes.Contact.fields.push(field({ name: 'SSN__c', type: 'encryptedstring' }));
+    return s;
+  }
+
+  /** What the load sent of the contacts' encrypted field. */
+  async function sentSsn(overrides: Partial<FrozenLoadOptions>): Promise<unknown[]> {
+    const s = withMasks();
+    const sasDir = makeTmpDir();
+    const calls: DmlCall[] = [];
+    await new FrozenDatasetLoader(makeDeps(makeWriter(calls), sasDir, s)).load(
+      options(s.dataset, sasDir, overrides),
+    );
+    return calls
+      .filter((call) => call.op === 'insert' && call.objectApiName === 'Contact')
+      .flatMap((call) => (call.payload as Array<Record<string, unknown>>).map((r) => r.SSN__c));
+  }
+
+  it('leaves out the fields the target encrypts when its manifest names no encrypted field left out, saying so in its preview, and writes them once told to', async () => {
+    const s = withMasks();
+    const sasDir = makeTmpDir();
+    const before = manifestWith(COVERAGE);
+
+    const plan = await new FrozenDatasetLoader(makeDeps(refusingWriter(), sasDir, s)).planLoad(
+      options(s.dataset, sasDir, { manifest: before }),
+    );
+
+    expect(plan.removals).toContainEqual({
+      objectApiName: 'Contact',
+      field: 'SSN__c',
+      reason: 'may-hold-masks',
+      affectedRecords: 2,
+    });
+    expect(await sentSsn({ manifest: before })).toEqual([undefined, undefined]);
+    expect(await sentSsn({ manifest: before, writeEncrypted: true })).toEqual([
+      '***-**-1234',
+      '***-**-1234',
+    ]);
+  });
+
+  it('writes them as held from a dataset whose manifest says its extraction left out what it read masked, naming none or some', async () => {
+    for (const encryptedNotKept of [[], ['Contact.Other__c']]) {
+      const s = withMasks();
+      const manifest = manifestWith({ ...COVERAGE, encryptedNotKept });
+      const plan = await new FrozenDatasetLoader(
+        makeDeps(refusingWriter(), makeTmpDir(), s),
+      ).planLoad(options(s.dataset, makeTmpDir(), { manifest }));
+
+      expect(plan.removals.some((r) => r.reason === 'may-hold-masks')).toBe(false);
+      expect(await sentSsn({ manifest })).toEqual(['***-**-1234', '***-**-1234']);
+    }
   });
 });

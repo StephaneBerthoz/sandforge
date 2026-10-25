@@ -1215,6 +1215,13 @@ export class CheckpointHandler implements DomainHandler {
       }
       const { result, notes } = outcome;
       for (const note of notes) this.deps.log(`[WARN] checkpoint:${act} ${operationId}: ${note}`);
+      // Named as the sweep names the journals it deletes.
+      for (const gone of result.removedJournals ?? []) {
+        this.deps.log(
+          `[INFO] Removed the journal of rewind ${gone.rewindId} of checkpoint '${gone.name}': ` +
+            'Undo reaches the last rewind of the org alone',
+        );
+      }
       this.audit(msg, act, org, checkpoint, AUDIT_OUTCOMES[result.status], { result });
       this.respond(msg, `checkpoint:${act}:response`, { result, operationId });
       if (result.status === 'cancelled') {

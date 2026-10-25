@@ -1107,6 +1107,48 @@ test('anchor: Forge refuses, as a production org, an org of a kind the registry 
   }
 });
 
+test('the FAQ says a sandbox marked Staging is a staging org, which Production Guard asks about before every delete', () => {
+  // Anchor: the mark is read of a sandbox alone, the staging tier asks before
+  // a delete, a deployment and a write past 10,000 records, the dialog offers
+  // the mark, and Frozen's entry guard refuses any tier but a development one.
+  const kinds = read('packages', 'shared', 'src', 'utils', 'org-kind.ts');
+  assert.match(
+    kinds,
+    /return org\?\.staging === true && orgType === 'Sandbox'\s*\? 'staging'/,
+    'the Staging mark no longer makes a sandbox a staging org',
+  );
+  const guard = read(...EXT, 'src', 'core', 'precheck', 'ProductionGuard.ts');
+  assert.match(
+    guard,
+    /private checkStaging\(request: OperationRequest\): SafetyCheckResult \{[\s\S]*?const requiresConfirmation =\s*isDestructive \|\|\s*isDeploy \|\|\s*countForThreshold\(request\.recordCount\) > STAGING_CONFIRMATION_THRESHOLD;/,
+    'the staging tier no longer asks before a delete, a deployment and a large write',
+  );
+  assert.match(guard, /const STAGING_CONFIRMATION_THRESHOLD = 10_000;/);
+  assert.match(
+    read('packages', 'webview', 'src', 'pages', 'OrgManager', 'OrgEditDialog.tsx'),
+    /data-testid="edit-staging-input"/,
+    'the edit dialog no longer offers the Staging mark',
+  );
+  assert.match(
+    read(...EXT, 'src', 'modules', 'frozendataset', 'LoadGuards.ts'),
+    /if \(input\.orgTier !== 'development' && input\.orgTier !== 'scratch'\) \{/,
+    "Frozen's entry guard no longer refuses a staging org",
+  );
+
+  const faq = read('docs', 'faq.md');
+  assert.ok(
+    faq.includes(
+      'A sandbox you mark **Staging** in its **Edit** dialog on the Organizations page — a full ' +
+        'copy or a UAT sandbox holding real data, which nothing Salesforce says tells apart — is a ' +
+        'staging org: Production Guard asks before every delete there, every metadata deployment ' +
+        'and every write of more than 10,000 records, its badge says STAGING, and a Frozen Dataset ' +
+        'load refuses it, as it refuses any org but a development one.',
+    ),
+    'docs/faq.md: the Production Guard answer does not say what a sandbox marked Staging is',
+  );
+  assert.ok(!faq.includes('it knows two kinds of org'), 'docs/faq.md: it knows three kinds now');
+});
+
 /** The steps of "First steps, safely", in the order both READMEs give them. */
 const FIRST_STEPS = [
   /Developer sandbox or a scratch org/,

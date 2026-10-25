@@ -99,7 +99,8 @@
       "devPro": "DEV PRO",
       "partial": "PARTIAL",
       "full": "FULL",
-      "sandbox": "SANDBOX"
+      "sandbox": "SANDBOX",
+      "staging": "STAGING"
     },
     "relativeTime": {
       "justNow": "agora mesmo",
@@ -174,6 +175,8 @@
     "color_orange": "Laranja",
     "tags": "Tags",
     "tagsHint": "Separadas por vírgula",
+    "staging": "Staging",
+    "stagingHint": "Uma sandbox com dados reais, como uma cópia completa ou UAT: o Production Guard pergunta ali antes de cada exclusão, cada implantação e cada gravação de mais de 10.000 registros.",
     "tagsPlaceholder": "dev, equipe-a",
     "aliasPlaceholder": "minha-sandbox",
     "bannerConnected": "Orgs conectadas: {{count}} de {{total}}",
@@ -4224,6 +4227,9 @@
       "targetOrg": "Org de destino (sandbox)",
       "pilot": "Piloto (1 pasta)",
       "reload": "Recarga sem refresh",
+      "writeEncrypted": "Gravar os campos criptografados como o dataset os contém",
+      "writeEncryptedHint": "Este dataset não diz se a extração deixou de fora os campos criptografados que leu mascarados: eles podem conter máscaras como ****1234 e ficam de fora a menos que esta opção esteja marcada.",
+      "mayHoldMasks": "Deixados de fora, criptografados nesta org: {{fields}}. O dataset não diz se a extração deixou de fora o que leu mascarado, então eles podem conter máscaras como ****1234; marque “Gravar os campos criptografados como o dataset os contém” para gravá-los.",
       "run": "Executar carga",
       "runPilot": "Executar piloto",
       "progress": "Progresso",

@@ -116,6 +116,19 @@ describe('parseArgs', () => {
     ).toBe(true);
   });
 
+  it('reads a load told to write the fields the target encrypts as the dataset holds them, and refuses that with another step', () => {
+    expect(parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT')).writeEncrypted).toBe(
+      false,
+    );
+    expect(
+      parseArgs(argv('load', '--config', 'f.json', '--target', 'TGT', '--write-encrypted'))
+        .writeEncrypted,
+    ).toBe(true);
+    expect(
+      refuse('remove', '--config', 'f.json', '--target', 'TGT', '--write-encrypted'),
+    ).toMatchObject({ code: 2, message: expect.stringContaining('goes with load') });
+  });
+
   it('refuses a sweep and its listing together, and a sweep with another step', () => {
     expect(
       refuse('remove', '--config', 'f.json', '--target', 'TGT', '--sweep', '--sweep-list'),
@@ -412,6 +425,49 @@ describe('messageLines — where the graph of a step came from', () => {
 });
 
 describe('messageLines', () => {
+  it('names the fields the target encrypts that a load leaves out, or would, as maybe masks, and how to write them', () => {
+    const removals = [
+      { objectApiName: 'Contact', field: 'Legacy__c', reason: 'not-in-target', affectedRecords: 1 },
+      { objectApiName: 'Contact', field: 'SSN__c', reason: 'may-hold-masks', affectedRecords: 2 },
+    ];
+    const said =
+      "out, encrypted in the target: Contact.SSN__c (2) — the dataset's manifest does not say its " +
+      'extraction left out what it read masked, so they may hold masks such as ****1234; ' +
+      '--write-encrypted writes them as the dataset holds them';
+    const plan = messageLines({
+      type: 'frozen:load:preview:response',
+      payload: {
+        plan: {
+          mode: { pilot: false, reload: false },
+          perObject: [],
+          excludedObjects: [],
+          removals,
+          placeholders: [],
+          requiredDefaults: [],
+          personContacts: 0,
+          earlierLoads: 0,
+        },
+      },
+    });
+    const load = messageLines({
+      type: 'frozen:load:response',
+      payload: {
+        report: {
+          status: 'completed',
+          durationMs: 10,
+          alignment: { excludedObjects: [], removals, adjustments: [], recordTypeIssues: [] },
+          placeholders: [],
+          perObject: [],
+          pass2: { resolved: 0, unresolved: [] },
+          purge: { deleted: {}, failures: [] },
+        },
+      },
+    });
+
+    expect(plan).toContain(`would leave ${said}`);
+    expect(load).toContain(`left ${said}`);
+  });
+
   it('says what a dry run of a load found, per object, and that nothing was written', () => {
     const lines = messageLines({
       type: 'frozen:load:preview:response',

@@ -58,6 +58,13 @@ export interface SalesforceOrg {
   status: OrgStatus;
   lastConnected: ISODateString;
   tags: string[];
+  /**
+   * Marked Staging in Org Manager's edit dialog: a sandbox holding real data
+   * — a full copy, UAT — which Production Guard takes for a staging org,
+   * asking before every delete there. Read of a sandbox alone; absent, the
+   * sandbox is a development org.
+   */
+  staging?: boolean;
 }
 
 /** Connection configuration for authentication */

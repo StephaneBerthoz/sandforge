@@ -629,6 +629,13 @@ export interface RewindResult {
    * that wrote nothing.
    */
   undo?: { until: ISODateString; cannot: RewindUndoCannot[] };
+  /**
+   * A rewind's alone: the journals of the org's earlier rewinds it deleted
+   * once it ended, by the checkpoint each rewound to — Undo reaches the org's
+   * last rewind alone, and each held the values its rewind wrote over. Absent
+   * when it deleted none.
+   */
+  removedJournals?: Array<{ checkpointId: string; name: string; rewindId: string }>;
   /** API requests it used, counted by SandForge, and the requests the org has left today. */
   apiRequests: { used: number; leftToday: number };
   finishedAt: ISODateString;

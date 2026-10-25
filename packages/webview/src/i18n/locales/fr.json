@@ -99,7 +99,8 @@
       "devPro": "DEV PRO",
       "partial": "PARTIEL",
       "full": "COMPLET",
-      "sandbox": "SANDBOX"
+      "sandbox": "SANDBOX",
+      "staging": "PRÉPROD"
     },
     "relativeTime": {
       "justNow": "à l'instant",
@@ -174,6 +175,8 @@
     "color_orange": "Orange",
     "tags": "Tags",
     "tagsHint": "Séparés par des virgules",
+    "staging": "Préproduction",
+    "stagingHint": "Une sandbox qui contient des données réelles, comme une copie complète ou une recette : Production Guard y demande avant chaque suppression, chaque déploiement et chaque écriture de plus de 10 000 enregistrements.",
     "tagsPlaceholder": "dev, équipe-a",
     "aliasPlaceholder": "mon-sandbox",
     "bannerConnected": "Orgs connectées : {{count}} sur {{total}}",
@@ -4224,6 +4227,9 @@
       "targetOrg": "Org cible (sandbox)",
       "pilot": "Pilote (1 dossier)",
       "reload": "Rechargement sans refresh",
+      "writeEncrypted": "Écrire les champs chiffrés tels que le jeu de données les contient",
+      "writeEncryptedHint": "Ce jeu de données ne dit pas si son extraction a laissé de côté les champs chiffrés qu'elle lisait masqués : ils peuvent contenir des masques comme ****1234, et sont laissés de côté sauf si cette case est cochée.",
+      "mayHoldMasks": "Laissés de côté, chiffrés dans cette org : {{fields}}. Le jeu de données ne dit pas si son extraction a laissé de côté ce qu'elle lisait masqué : ils peuvent donc contenir des masques comme ****1234 ; cochez « Écrire les champs chiffrés tels que le jeu de données les contient » pour les écrire.",
       "run": "Lancer le chargement",
       "runPilot": "Lancer le pilote",
       "progress": "Progression",

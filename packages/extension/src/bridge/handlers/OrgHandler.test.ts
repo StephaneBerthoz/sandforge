@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage, SalesforceOrg, UUID } from '@sandforge/shared';
-import { DEVELOPMENT_ORG_COLOR, OrgSafetyTier, PRODUCTION_ORG_COLOR } from '@sandforge/shared';
+import {
+  DEVELOPMENT_ORG_COLOR,
+  OrgSafetyTier,
+  PRODUCTION_ORG_COLOR,
+  guardTierOf,
+} from '@sandforge/shared';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper';
 import { OrgManager } from '../../core/connection/OrgManager';
 import { OrgRegistry } from '../../core/connection/OrgRegistry';
@@ -467,6 +472,23 @@ describe('OrgHandler', () => {
       expect(org.appearance.color).toBe('#F59E0B');
       expect(org.tags).toEqual(['qa']);
       expect(org.instanceUrl).toBe('https://dev2.my.salesforce.com');
+    });
+
+    it('marks a sandbox Staging, which Production Guard reads, and keeps the mark when a payload leaves it out', async () => {
+      const { store } = registryHarness();
+      const edit = { orgId: 'org-1', alias: 'UAT', color: '#4a9eff', tags: [] };
+
+      await handler.handle(createMsg('org:update', { ...edit, staging: true }));
+      const marked = store.get('org.org-1') as SalesforceOrg;
+      expect(marked.staging).toBe(true);
+      expect(guardTierOf(marked)).toBe('staging');
+      expect(marked.safetyTier).toBe(OrgSafetyTier.MEDIUM);
+
+      await handler.handle(createMsg('org:update', edit));
+      expect((store.get('org.org-1') as SalesforceOrg).staging).toBe(true);
+
+      await handler.handle(createMsg('org:update', { ...edit, staging: false }));
+      expect(guardTierOf(store.get('org.org-1') as SalesforceOrg)).toBe('development');
     });
 
     it('does not change the safety tier even when the payload names one', async () => {
