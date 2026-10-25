@@ -2700,7 +2700,7 @@ describe('SeedCloneHandler', () => {
       expect(failures).toHaveLength(1);
       expect(failures[0].payload as unknown).toEqual({
         operationId: 'msg-seed:clone:execute',
-        error: 'Operation cancelled by user (production confirmation declined).',
+        error: 'Operation cancelled by user (confirmation declined).',
         retryable: false,
         code: 'PRODUCTION_CONFIRMATION_DECLINED',
       });

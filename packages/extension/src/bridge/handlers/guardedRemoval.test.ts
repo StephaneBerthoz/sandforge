@@ -137,7 +137,7 @@ describe('runGuardedRemoval', () => {
     expect(result).toMatchObject({
       ran: false,
       guard: 'declined',
-      message: 'Operation cancelled by user (production confirmation declined).',
+      message: 'Operation cancelled by user (confirmation declined).',
     });
     expect(run.run).not.toHaveBeenCalled();
   });

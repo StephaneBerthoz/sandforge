@@ -820,7 +820,7 @@ export class SyncRemovalHandler implements DomainHandler {
             return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
           }
           if (decision === 'declined') {
-            return 'Operation cancelled by user (production confirmation declined).';
+            return 'Operation cancelled by user (confirmation declined).';
           }
           return undefined;
         },
@@ -1014,7 +1014,7 @@ export class SyncRemovalHandler implements DomainHandler {
       } else {
         this.refuse(
           msg,
-          'Operation cancelled by user (production confirmation declined).',
+          'Operation cancelled by user (confirmation declined).',
           GUARD_REFUSAL.declined,
           true,
         );

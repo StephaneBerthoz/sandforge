@@ -23,6 +23,7 @@ SandForge for AI agents: an MCP server, run from a checkout, gives an agent Seed
 - **Checkpoints**: once a rewind has ended, the journals of the org's earlier rewinds are deleted. Undo no longer reached them, and they held, unencrypted, the values those rewinds wrote over. Each is named in the log and in `sandforge-checkpoint`'s output (`result.removedJournals` with `--json`); a rewind stopped part way keeps its journal for the next one to take up. Before, they stayed until the checkpoint was deleted, and a pipeline rewinding a checkpoint kept for good piled them up.
 - **Frozen Dataset**: a dataset whose manifest does not say whether its extraction left out the encrypted fields it read masked (extracted before 1.66.0, or by 1.66.0 when it left out none) no longer has its masks, such as `****1234`, written as values. The load and its preview leave out every field the target encrypts, each named, unless **Write encrypted fields as the dataset holds them** is ticked (`load --write-encrypted` on the command line). An extraction now records `encryptedNotKept: []` when it left out none.
 - **Home, Seed, Sync and DataOps org badges**: a sandbox marked Staging reads STG, as its card and the pickers say STAGING; it read SBX.
+- **Production Guard**: a question answered Cancel says "Operation cancelled by user (confirmation declined).", the same for a staging org as for production; it said "production confirmation declined" for both.
 
 ## [1.66.0] - 2026-10-24
 

@@ -465,7 +465,7 @@ describe('DataOpsHandler', () => {
       const errors = posted.filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
       // The code the page says it by, in the interface language.
       expect(errors[0].payload.code).toBe('GUARD_DECLINED');
@@ -545,7 +545,7 @@ describe('DataOpsHandler', () => {
       const errors = postedMessages().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
     });
 
@@ -1458,7 +1458,7 @@ describe('DataOpsHandler', () => {
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
       expect(errors[0].payload).toMatchObject({ code: 'GUARD_DECLINED' });
       expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
@@ -1490,7 +1490,7 @@ describe('DataOpsHandler', () => {
       const errors = posted().filter((m) => m.type === 'dataops:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
     });
 

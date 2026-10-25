@@ -2825,7 +2825,7 @@ export class FrozenDatasetHandler implements DomainHandler {
           'frozen:remove',
           'frozen:remove:error',
           msg,
-          new Error('Operation cancelled by user (production confirmation declined).'),
+          new Error('Operation cancelled by user (confirmation declined).'),
           { code: 'GUARD_DECLINED', retryable: true },
         );
       }
@@ -3109,7 +3109,7 @@ export class FrozenDatasetHandler implements DomainHandler {
             return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
           }
           if (decision === 'declined') {
-            return 'Operation cancelled by user (production confirmation declined).';
+            return 'Operation cancelled by user (confirmation declined).';
           }
           return undefined;
         },

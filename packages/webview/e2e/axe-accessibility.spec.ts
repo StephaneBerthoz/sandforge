@@ -2915,7 +2915,7 @@ for (const theme of SCANNED_THEMES) {
         id: 'err-forge-declined',
         correlationId: request,
         payload: {
-          message: 'Operation cancelled by user (production confirmation declined).',
+          message: 'Operation cancelled by user (confirmation declined).',
           code: 'GUARD_DECLINED',
           retryable: true,
         },

@@ -1345,12 +1345,12 @@ describe('useForgeStore', () => {
       // refused before it started from one that failed as it went.
       runOnScreen();
       post('forge:execute:error', 'wv-run-1', {
-        message: 'Operation cancelled by user (production confirmation declined).',
+        message: 'Operation cancelled by user (confirmation declined).',
         code: 'GUARD_DECLINED',
         retryable: true,
       });
       expect(getState().runError).toEqual({
-        message: 'Operation cancelled by user (production confirmation declined).',
+        message: 'Operation cancelled by user (confirmation declined).',
         code: 'GUARD_DECLINED',
         stoppedRun: null,
       });

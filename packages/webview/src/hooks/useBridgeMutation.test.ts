@@ -372,7 +372,7 @@ describe('useBridgeMutation', () => {
       });
       act(() => {
         replyToLastRequest('sync:error', {
-          message: 'Operation cancelled by user (production confirmation declined).',
+          message: 'Operation cancelled by user (confirmation declined).',
           code: 'GUARD_DECLINED',
           retryable: false,
         });

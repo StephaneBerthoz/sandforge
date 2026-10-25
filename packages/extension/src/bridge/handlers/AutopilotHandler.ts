@@ -708,7 +708,7 @@ export class AutopilotHandler implements DomainHandler {
     // Production Guard's question, which every write to a production org is
     // asked and no setting turns off: the user's explicit consent.
     if (decision === 'declined') {
-      const message = 'Operation cancelled by user (production confirmation declined).';
+      const message = 'Operation cancelled by user (confirmation declined).';
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, new Error(message), {
         code: GUARD_REFUSAL.declined,
       });

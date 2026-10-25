@@ -1439,7 +1439,7 @@ describe('SyncOpsHandler', () => {
         handler.executeScheduled(
           validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
         ),
-      ).rejects.toThrow('Scheduled sync cancelled (production confirmation declined).');
+      ).rejects.toThrow('Scheduled sync cancelled (confirmation declined).');
 
       expect(requestConfirmation).toHaveBeenCalledWith(
         'INSERT an unknown number of Account record(s) on production org tgt-org [module: sync]',
@@ -1499,7 +1499,7 @@ describe('SyncOpsHandler', () => {
       // The code every write path declines with, which the page translates.
       expect(syncErrors[0].payload.code).toBe('GUARD_DECLINED');
       expect(syncErrors[0].payload.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
       // Nothing was executed: no completion is announced.
@@ -1516,7 +1516,7 @@ describe('SyncOpsHandler', () => {
         handler.executeScheduled(
           validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
         ),
-      ).rejects.toThrow('Scheduled sync cancelled (production confirmation declined).');
+      ).rejects.toThrow('Scheduled sync cancelled (confirmation declined).');
 
       expect(confirmIfNeeded).toHaveBeenCalledOnce();
       expect(mockGetConn).not.toHaveBeenCalled();

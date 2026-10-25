@@ -2683,7 +2683,7 @@ describe('ForgeHandler', () => {
           payload: { message: string; code: string; retryable: boolean };
         }
       ).payload;
-      expect(errPayload.message).toContain('production confirmation declined');
+      expect(errPayload.message).toContain('confirmation declined');
       expect(errPayload.code).toBe('GUARD_DECLINED');
     });
 

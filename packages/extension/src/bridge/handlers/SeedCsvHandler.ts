@@ -304,7 +304,7 @@ export class SeedCsvHandler implements DomainHandler {
         throw guardBlockedError(check.blockedReason ?? check.impactSummary);
       }
       if (decision === 'declined') {
-        const declined = 'Operation cancelled by user (production confirmation declined).';
+        const declined = 'Operation cancelled by user (confirmation declined).';
         // On seed:csv:error too, which the page's request waits on, with the
         // code every write path declines with.
         sendHandlerError(

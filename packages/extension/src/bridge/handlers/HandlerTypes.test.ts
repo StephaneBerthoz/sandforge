@@ -627,7 +627,7 @@ describe('sendOperationFailed — fix suggestion', () => {
       orgNotFound,
       noCredentials,
       'Invalid username format: "not a username"',
-      'Operation cancelled by user (production confirmation declined).',
+      'Operation cancelled by user (confirmation declined).',
       'Duplicate operation: req-9',
       'A backup or rollback operation is already running for org 00D000000000001AAA. Please wait for it to complete.',
       noDescribe.reason,

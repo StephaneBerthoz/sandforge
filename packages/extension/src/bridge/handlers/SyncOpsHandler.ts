@@ -1813,7 +1813,7 @@ export class SyncOpsHandler implements DomainHandler {
     }
     if (decision === 'declined') {
       throw new Error(
-        `${origin === 'pipeline' ? 'Pipeline' : 'Scheduled'} sync cancelled (production confirmation declined).`,
+        `${origin === 'pipeline' ? 'Pipeline' : 'Scheduled'} sync cancelled (confirmation declined).`,
       );
     }
 
@@ -1916,7 +1916,7 @@ export class SyncOpsHandler implements DomainHandler {
       // Production Guard's question, which every write to a production org is
       // asked and no setting turns off: the user's explicit consent.
       if (decision === 'declined') {
-        const message = 'Operation cancelled by user (production confirmation declined).';
+        const message = 'Operation cancelled by user (confirmation declined).';
         // Settle the in-flight useBridgeMutation listener on sync:error
         // (same dual-channel contract as the catch paths below), with the
         // code every write path declines with: the page says it in the

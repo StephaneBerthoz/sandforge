@@ -542,7 +542,7 @@ describe('Autopilot bridge flow', () => {
     const executeRequest = lastRequestOfType('autopilot:execute');
     dispatchBridgeMessage(
       'autopilot:error',
-      { message: 'Operation cancelled by user (production confirmation declined).' },
+      { message: 'Operation cancelled by user (confirmation declined).' },
       executeRequest.id,
     );
 
@@ -551,7 +551,7 @@ describe('Autopilot bridge flow', () => {
     expect(state.executionStatus).toBe('failed');
     expect(screen.getByTestId('autopilot-execute-error')).toBeDefined();
     expect(screen.getByTestId('autopilot-execute-error').textContent).toContain(
-      'production confirmation declined',
+      'confirmation declined',
     );
   });
 
@@ -625,7 +625,7 @@ describe('Autopilot bridge flow', () => {
     ],
     [
       'the production confirmation is declined',
-      'Operation cancelled by user (production confirmation declined).',
+      'Operation cancelled by user (confirmation declined).',
     ],
   ])('takes the keyboard back to the review when %s', (_case, message) => {
     // The running view's heading held the keyboard and went with the view: the

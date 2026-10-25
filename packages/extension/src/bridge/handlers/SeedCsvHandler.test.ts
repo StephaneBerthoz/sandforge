@@ -1027,7 +1027,7 @@ describe('SeedCsvHandler', () => {
       expect(failures).toHaveLength(1);
       expect(failures[0].payload as unknown).toEqual({
         operationId: 'msg-seed:csv:execute',
-        error: 'Operation cancelled by user (production confirmation declined).',
+        error: 'Operation cancelled by user (confirmation declined).',
         retryable: false,
       });
       const errors = posted(deps, 'seed:csv:error');
@@ -1064,7 +1064,7 @@ describe('SeedCsvHandler', () => {
       expect(writer.upsert).not.toHaveBeenCalled();
       expect(posted(deps, 'operation:failed')[0].payload as unknown).toEqual({
         operationId: 'msg-seed:csv:execute',
-        error: 'Operation cancelled by user (production confirmation declined).',
+        error: 'Operation cancelled by user (confirmation declined).',
         retryable: false,
       });
     });

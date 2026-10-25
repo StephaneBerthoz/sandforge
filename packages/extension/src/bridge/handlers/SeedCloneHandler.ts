@@ -760,7 +760,7 @@ export class SeedCloneHandler implements DomainHandler {
         throw new Error(`${GUARD_BLOCKED_PREFIX}${check.blockedReason ?? check.impactSummary}`);
       }
       if (decision === 'declined') {
-        const declined = 'Operation cancelled by user (production confirmation declined).';
+        const declined = 'Operation cancelled by user (confirmation declined).';
         sendOperationFailed(this.deps, operationId, declined, false, {
           context: failure,
           extraPayload: { code: CLONE_FAILURE_CODES.confirmationDeclined },

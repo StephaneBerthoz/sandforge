@@ -150,7 +150,7 @@ export async function runGuardedRemoval(
       message:
         decision === 'refused'
           ? `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`
-          : 'Operation cancelled by user (production confirmation declined).',
+          : 'Operation cancelled by user (confirmation declined).',
     };
   }
 

@@ -1974,7 +1974,7 @@ export class ForgeHandler implements DomainHandler {
         'forge:execute',
         'forge:execute:error',
         msg,
-        new Error('Operation cancelled by user (production confirmation declined).'),
+        new Error('Operation cancelled by user (confirmation declined).'),
         { code: 'GUARD_DECLINED', retryable: true },
       );
       return;
@@ -4794,7 +4794,7 @@ export class ForgeHandler implements DomainHandler {
           'forge:undo',
           'forge:undo:error',
           msg,
-          new Error('Operation cancelled by user (production confirmation declined).'),
+          new Error('Operation cancelled by user (confirmation declined).'),
           { code: 'GUARD_DECLINED', retryable: true },
         );
       }
@@ -5384,7 +5384,7 @@ export class ForgeHandler implements DomainHandler {
               return `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
             }
             if (decision === 'declined') {
-              return 'Operation cancelled by user (production confirmation declined).';
+              return 'Operation cancelled by user (confirmation declined).';
             }
             return undefined;
           },

@@ -921,7 +921,7 @@ describe('useClone', () => {
 
     operationFailed(
       'wv-clone-run',
-      'Operation cancelled by user (production confirmation declined).',
+      'Operation cancelled by user (confirmation declined).',
       'PRODUCTION_CONFIRMATION_DECLINED',
     );
 
@@ -944,7 +944,7 @@ describe('useClone', () => {
 
     operationFailed(
       'wv-clone-run',
-      'Operation cancelled by user (production confirmation declined).',
+      'Operation cancelled by user (confirmation declined).',
       'PRODUCTION_CONFIRMATION_DECLINED',
     );
 

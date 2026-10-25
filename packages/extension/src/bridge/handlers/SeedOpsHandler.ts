@@ -932,7 +932,7 @@ export class SeedOpsHandler implements DomainHandler {
       // Production Guard's question, which every write to a production org is
       // asked and no setting turns off: the user's explicit consent.
       if (decision === 'declined') {
-        const message = 'Operation cancelled by user (production confirmation declined).';
+        const message = 'Operation cancelled by user (confirmation declined).';
         // Settle the in-flight useBridgeMutation listener on seed:error
         // (same dual-channel contract as sync — without it the mutation
         // spun until its 120 s timeout). Correlated to the request so the

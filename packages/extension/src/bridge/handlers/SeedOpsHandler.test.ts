@@ -1990,7 +1990,7 @@ describe('SeedOpsHandler', () => {
       const seedErrors = postedMessages().filter((m) => m.type === 'seed:error');
       expect(seedErrors).toHaveLength(1);
       expect(seedErrors[0].payload?.message).toBe(
-        'Operation cancelled by user (production confirmation declined).',
+        'Operation cancelled by user (confirmation declined).',
       );
       expect(seedErrors[0].payload?.retryable).toBe(false);
       expect(seedErrors[0].correlationId).toBe('seed-err-4');

@@ -1520,7 +1520,7 @@ describe('AutopilotHandler', () => {
       expect(errors).toHaveLength(1);
       expect(
         (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
-      ).toContain('production confirmation declined');
+      ).toContain('confirmation declined');
       expect((errors[0] as BaseMessage & { payload: { code: string } }).payload.code).toBe(
         'GUARD_DECLINED',
       );
@@ -1557,7 +1557,7 @@ describe('AutopilotHandler', () => {
       expect(errors).toHaveLength(1);
       expect(
         (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
-      ).toContain('production confirmation declined');
+      ).toContain('confirmation declined');
     });
 
     it('lets sandbox executions through once the guard has judged them', async () => {
