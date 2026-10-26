@@ -946,14 +946,14 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     ...checkpointWarningsOf(file, input.state),
     ...(loads.length > 0
       ? [
-          `the emails the org sends as ${loads.join(', ')} ${loads.length === 1 ? 'loads' : 'load'} ` +
-            'are not counted: a Frozen load’s dry run does not count them, and the day’s email ' +
-            'gate holds without them',
+          `the emails the org sends as the records of ${loads.join(', ')} are loaded are not ` +
+            'counted: a Frozen load’s dry run does not count them, and the day’s email gate holds ' +
+            'without them',
         ]
       : []),
     ...(masks.length > 0
       ? [
-          `the emails the org sends as ${masks.join(', ')} ${masks.length === 1 ? 'masks' : 'mask'} ` +
+          `the emails the org sends as the records of ${masks.join(', ')} are masked ` +
             'are not counted: a masking’s dry run does not count them, and the day’s email gate ' +
             'holds without them',
         ]

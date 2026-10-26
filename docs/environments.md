@@ -196,7 +196,7 @@ totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as claims loads are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 ```
 
 The dataset is read first, and held to its pin; the load's dry run counts what it would insert, as the **Load** tab's preview counts it. Applied:
@@ -219,7 +219,7 @@ totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the requests of the run of claims, which its script does not estimate, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
 warning: this machine keeps no state of claims-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as claims loads are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 claims: run 1 (create)
 followers: run 1 (create)
 
@@ -300,7 +300,7 @@ state: kept on this machine, serial 4
 totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 1, 14000 left; not counted: the removal of the runs of claims, the requests of the run of claims, which its script does not estimate, the removal of the runs of followers, what followers draws from the records claims writes first
 data storage: about 0.02 MB, 5 MB left
-warning: the emails the org sends as claims loads are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them
 followers: taking back run 1
 claims: run 2 (replace)
 followers: run 2 (replace)
@@ -395,7 +395,7 @@ state: none on this machine
 totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
-warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 an apply now would be refused: This machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice. On a sandbox that lives on, apply asks --accept-no-state to go ahead: restore the journal directory of the apply before it, or give the flag. Nothing was written.
 ```
 
@@ -415,7 +415,7 @@ totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
 warning: this machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
-warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 customers: run 1 (create)
 
   customers masking 1: exit 0, applied  Contact 3 masked
@@ -467,7 +467,7 @@ state: kept on this machine, serial 2
 totals: 0 to create, 1 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
 API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
 data storage: about 0 MB, 5 MB left
-warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+warning: the emails the org sends as the records of customers are masked are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
 customers: run 2 (replace)
 
   customers masking 2: exit 0, applied  Contact 4 masked

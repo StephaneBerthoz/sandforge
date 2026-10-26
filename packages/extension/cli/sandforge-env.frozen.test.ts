@@ -290,7 +290,7 @@ describe('plan and apply a frozen resource', () => {
       'it draws its parents from the records claims creates in this apply, which nobody knows before it runs: counted at most as the file gives it',
     );
     expect(planned.warnings).toContain(
-      'the emails the org sends as claims loads are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them',
+      'the emails the org sends as the records of claims are loaded are not counted: a Frozen load’s dry run does not count them, and the day’s email gate holds without them',
     );
     expect(world.records('Account')).toEqual([]);
     expect(linesOf('sandforge-frozen')).toEqual([

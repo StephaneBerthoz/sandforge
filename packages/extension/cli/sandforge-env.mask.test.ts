@@ -246,7 +246,7 @@ describe('a mask resource', () => {
     );
     expect(planned.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('the emails the org sends as customers masks'),
+        expect.stringContaining('the emails the org sends as the records of customers are masked'),
       ]),
     );
     expect(JSON.stringify(world.records('Contact'))).toBe(before);
