@@ -454,7 +454,16 @@
           "description": "%config.grappe.grappeSize.description%"
         }
       }
-    }
+    },
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          "**/sandforge.yaml",
+          "**/sandforge.yml"
+        ],
+        "url": "./resources/schemas/sandforge.schema.json"
+      }
+    ]
   },
   "scripts": {
     "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --alias:@sandforge/shared=../shared/src/index.ts --format=cjs --platform=node --sourcemap=external --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",

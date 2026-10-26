@@ -27,7 +27,18 @@
  * Run: node --test scripts/manifest-contracts.test.mjs
  */
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -272,4 +283,79 @@ test('the VSIX leaves out whatever a tsc emit of src/ would put in dist/', () =>
     [],
     'a tsc emit of src/ would ship: add it to packages/extension/.vscodeignore',
   );
+});
+
+/** The vsce the extension packages with, wherever the install put it. */
+function vsce() {
+  const manifestFile = createRequire(join(repoRoot, EXTENSION, 'package.json')).resolve(
+    '@vscode/vsce/package.json',
+  );
+  return join(dirname(manifestFile), 'vsce');
+}
+
+/**
+ * The files vsce would put in the VSIX, relative to the extension: the listing
+ * of the `vsce package --no-dependencies` the package script runs, which reads
+ * `.vscodeignore` as packaging does and builds nothing.
+ */
+function packaged(ignoreFile) {
+  const out = execFileSync(
+    process.execPath,
+    [vsce(), 'ls', '--no-dependencies', ...(ignoreFile ? ['--ignoreFile', ignoreFile] : [])],
+    { cwd: join(repoRoot, EXTENSION), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  return out
+    .split('\n')
+    .map((line) => line.trim().replace(/\\/g, '/'))
+    .filter((line) => line !== '');
+}
+
+/** The one schema the manifest contributes for `sandforge.yaml`, and its path in the VSIX. */
+function yamlSchema() {
+  const entries = contributes.yamlValidation ?? [];
+  assert.equal(entries.length, 1, 'the manifest contributes one YAML schema, for sandforge.yaml');
+  const [entry] = entries;
+  return { ...entry, path: entry.url.replace(/^\.\//, '') };
+}
+
+test('the YAML schema the manifest contributes is a file the VSIX carries', () => {
+  /*
+   * `yamlValidation` is no contribution point of VS Code's: Red Hat's YAML
+   * extension reads it from the manifest of every installed extension. It
+   * joins a `url` to the contributing extension's folder only when the url
+   * starts with `./`, and hands any other to the language server as it is;
+   * a `fileMatch` is one pattern or a list of them, each matched against the
+   * end of the file's path. A url the VSIX does not carry checks no file, and
+   * nothing else would notice: every other test reads the schema from the
+   * checkout.
+   */
+  const { fileMatch, url, path } = yamlSchema();
+  assert.deepEqual(fileMatch, ['**/sandforge.yaml', '**/sandforge.yml']);
+  assert.match(
+    url,
+    /^\.\/\w/,
+    'the YAML extension resolves a url against the extension only after ./',
+  );
+
+  const schema = JSON.parse(read(EXTENSION, ...path.split('/')));
+  assert.equal(schema.type, 'object', `${path} is not the schema of a file`);
+  const files = packaged();
+  assert.ok(files.includes('package.json'), `vsce listed no package.json: ${files.join(', ')}`);
+  assert.ok(files.includes(path), `the VSIX would not carry ${path}: see .vscodeignore`);
+});
+
+test('the listing misses the schema once .vscodeignore leaves its folder out', () => {
+  // The check above can fail: an ignore file that names the schema's folder
+  // takes it out of the listing.
+  const { path } = yamlSchema();
+  const dir = mkdtempSync(join(tmpdir(), 'sandforge-vscodeignore-'));
+  try {
+    const ignoreFile = join(dir, '.vscodeignore');
+    writeFileSync(ignoreFile, `${read(EXTENSION, '.vscodeignore')}\n${dirname(path)}/\n`, 'utf8');
+    const files = packaged(ignoreFile);
+    assert.ok(files.includes('package.json'), 'the listing came back empty');
+    assert.ok(!files.includes(path), `${path} listed although its folder is ignored`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
