@@ -5,6 +5,28 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.0] - 2026-10-26
+
+Environments as code, completed: a `sandforge.yaml` can now mask what an org already holds, a saved plan is applied as planned or refused, `output` hands a test suite the ids an environment created, an AI agent plans, applies and destroys environments through the MCP server, and the editor checks the file as you type it. And the Frozen panel's Reload no longer deletes, without a word, records changed since the load.
+
+### Added
+
+- **Mask resources** (`kind: mask`) mask records an org already holds — a sandbox copied from production — with DataOps rules, a `masking:` set of the file or a template that ships, through `sandforge-dataops`. Each run takes a snapshot first; the plan counts from the script's own dry run; a masking is kept while its condition selects the records it masked, and drifted once records are copied in since. `destroy` never unmasks: it deletes the resource's store and its snapshots. `checkpoint.before` beside a mask resource, and `destroy --rewind` of a state naming one, are refused.
+- **Saved plans**: `sandforge-env plan --out <file>` keeps the plan it made — actions and counts, the Organization Id, the state's serial and lineage, the file's digest, its switches and seeds — as JSON outside the project's repository; `apply --plan <file>` applies that plan and nothing else, re-reading the org and refusing without writing once the org, state, file or a count moved, or the plan is a day old. `plan` takes `--accept-automation` and `--accept-no-state`.
+- **`sandforge-env output [--json]`** names what an apply created, per resource, by the ids of its records, read on this machine for test suites; a resource taken back or a masking names none, one not applied whole exits 3.
+- **MCP: environments as code** — `env_plan`, `env_apply` and `env_destroy` plan, apply and destroy the environments of a `sandforge.yaml` through `sandforge-env --json`. The plan is read-only, and `failOnDrift` ends it exit 3 on drift as an answer, not an error; apply and destroy need `confirm`, the org's alias. No reset and no destroy by rewind in this version.
+- **The editor checks a `sandforge.yaml`** (or `.yml`) as you type it, with Red Hat's YAML extension installed: SandForge ships a JSON Schema of the file, generated from the schema `sandforge-env validate` reads. A key it does not know, a kind it does not have or a value of the wrong type is underlined, and the keys each object takes are offered; `validate` still checks the rest, offline.
+
+### Fixed
+
+- **Frozen Dataset**: the Load tab's **Reload** no longer deletes, without a word, the records someone changed since the load. It is a replace, as `load --reload` is: refused before anything is written while a removal of the loads before it would leave records, its Preview too; the Last load card says which and why, then offers to take the load back first (the records changed since included, once the org's name is typed) or to cancel.
+- **sandforge-env**: an apply and a destroy say why a script refused or failed a step — a forge run over `--max-total`, a seed refused for storage or missing parents, a Frozen load held to its count, a masking whose store would not open — in the script's own words, under `refusal` and on the terminal; one stopped by a removal its script refused with exit 2 ended 0 "success", and ends 1, or 3 once something was written.
+- **sandforge-dataops**: a masking's snapshot taken from the command line was never listed by `sandforge-backup --list` nor removed by the retention, because its id held a colon.
+
+### Docs
+
+- The CI guide, the README and the FAQ name every kind an environment applies — the clone, Frozen's load and DataOps' masking besides the seed —, say a destroy never unmasks and that a cache of the journal directory holds a masking's snapshots unencrypted.
+
 ## [1.68.0] - 2026-10-25
 
 Test data as code: a `sandforge.yaml` committed with your project describes the records an environment needs, and `sandforge-env` plans, applies and takes it back on any scratch org, Developer Edition or listed sandbox, from CI or a terminal. Seed resources, Forge clones and Frozen Dataset loads, references between them, and checkpoints around the applies, each run by the script that already does it, every guard of that script holding.

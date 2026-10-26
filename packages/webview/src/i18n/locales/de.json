@@ -2859,6 +2859,8 @@
       "staging1670Desc": "Eine Vollkopie oder eine UAT-Sandbox enthält echte Daten: Aktivieren Sie Staging in ihrem Bearbeitungsdialog, und Production Guard fragt dort vor jedem Löschen, jedem Deployment und jedem Schreiben von mehr als 10.000 Datensätzen. Ihr Badge zeigt STAGING.",
       "env1680": "Testdaten als Code",
       "env1680Desc": "Beschreiben Sie in einer mit Ihrem Projekt versionierten sandforge.yaml die Datensätze, die eine Umgebung braucht: sandforge-env plant, wendet sie an und nimmt sie wieder zurück, in einer Scratch-Org oder Developer Edition, aus der CI oder einem Terminal — Seeds, Forge-Klone und Frozen-Ladungen, mit Prüfpunkten davor und danach.",
+      "envMask1690": "Maskierung, gespeicherte Pläne und der Editor für Umgebungen",
+      "envMask1690Desc": "Eine sandforge.yaml maskiert jetzt, was eine aus der Produktion kopierte Sandbox enthält, mit DataOps-Regeln und einem destroy, das nie demaskiert; plan --out und apply --plan wenden einen Plan wie geplant an oder lehnen ihn ab; output nennt einer Testsuite die erstellten IDs; und der Editor prüft die Datei beim Tippen.",
       "checkpoints1660": "Prüfpunkte: eine Org auf einen früheren Stand zurücksetzen",
       "checkpoints1660Desc": "Bewahren Sie eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org auf, wie sie jetzt ist, sehen Sie, was sich seitdem geändert hat, und setzen Sie sie zurück: Hinzugefügtes wird gelöscht, Geändertes erhält seine Werte zurück und Gelöschtes wird zurückgeholt, egal wer es getan hat. Das Zurücksetzen lässt sich 15 Tage lang rückgängig machen. Nie eine Produktions-Org."
     },
