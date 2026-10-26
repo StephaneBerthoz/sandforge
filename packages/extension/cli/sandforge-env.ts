@@ -7,7 +7,7 @@
  * It writes nothing to an org itself. Each resource is planned, applied,
  * previewed and taken back by the script that already does it —
  * `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen
- * resource, and
+ * resource, `sandforge-dataops` for a mask resource, and
  * `sandforge-seed` for a seed resource — spawned with `--json` as the MCP
  * server spawns its tools, so every guard, gate and run file of the script
  * holds unchanged. What it adds is what no script has: the declared file, a
@@ -23,7 +23,8 @@
  * frozen resource, its dataset's digest, held to the file's pin; and the ids
  * of the records a resource created, read from its run's own files, that a
  * seed relation draws its parents from. Every record is written by a spawned
- * script.
+ * script. What it deletes in its own process is on this machine: a mask
+ * resource's DataOps store, its snapshots with it, which its destroy takes.
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
@@ -94,6 +95,7 @@ import { drawnOf, type EnvDrawn } from './env/envReferences.js';
 import { StepAnswerError } from './env/kinds/common.js';
 import { readForgeSource, type EnvSourceRead } from './env/kinds/forge.js';
 import { frozenSasOf, readFrozenDataset, type EnvDatasetRead } from './env/kinds/frozen.js';
+import { maskStoreOf } from './env/kinds/mask.js';
 import {
   envTargetOf,
   noStateGuard,
@@ -243,6 +245,15 @@ configuration committed beside the file, its dataset named by its path from the 
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
 the verification it chains; a replace is a reload, refused when it would leave records.
 
+A mask resource masks records the org already holds, a sandbox copied from production, with
+DataOps rules, through sandforge-dataops: a set of the file's masking, or a template that ships.
+Each run first takes a snapshot of the values it writes over, and writes nothing unless the
+snapshot holds every record; a masking applied is kept while its condition selects the records
+it masked. destroy never unmasks: it deletes the resource's store, its snapshots with it, the
+only copy of the values masked: putting them back from a snapshot, with sandforge-dataops, is
+your own act, before a destroy, and plan and destroy give the line. A file with a mask resource
+takes no checkpoint.before, and destroy --rewind is refused while the state names one.
+
 A seed relation may draw its parents from the records another resource created:
 parents: { from: <resource>.<Object> }. They are read from that resource's own run, handed to
 the seed by their ids, at most 2,000 or the relation's limit, and counted exactly once that
@@ -256,7 +267,9 @@ apart by the Dev Hub the sf CLI names for it; one it names none for is taken for
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
 beside the run files of the seeds and clones it ran; each frozen resource's loads are kept
-there, in a sas of its own. That folder must be outside the repository that holds the file.
+there, in a sas of its own, and each mask resource's snapshots, in a DataOps store of its own,
+which hold the values it wrote over in clear until destroy deletes them. That folder must be
+outside the repository that holds the file.
 Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch org's
 state is deleted 30 days after its last write. Two machines applying to one org at once are not
 kept apart: give the jobs one concurrency group.
@@ -912,9 +925,16 @@ async function dryRun(
 ): Promise<Record<string, EnvDryRun>> {
   const { resolved, target, state, store } = prepared;
   const dryRuns: Record<string, EnvDryRun> = {};
+  // A mask resource kept is dry-run too: its dry run is what reads the
+  // records its condition selects now, against those it masked.
   const runs = new Map(
     drafts
-      .filter((d) => d.action === 'create' || d.action === 'replace')
+      .filter(
+        (d) =>
+          d.action === 'create' ||
+          d.action === 'replace' ||
+          (d.kind === 'mask' && d.action === 'keep'),
+      )
       .map((d) => [d.resource, d.action] as const),
   );
   if (runs.size === 0) return dryRuns;
@@ -955,6 +975,9 @@ async function dryRun(
         runId: envRunIdOf(env, resource.name, nextRunNumber(state?.resources[resource.name])),
         replace: action === 'replace' && replacesInOneRun(resource.kind),
         ...(storeFile !== undefined ? { storeFile } : {}),
+        // A store of the plan's own: a dry run saves the rules as a template,
+        // and the resource's store keeps what its runs did alone.
+        ...(resource.kind === 'mask' ? { store: join(folder, `${resource.name}.dataops`) } : {}),
       });
       const ran = await prepared.runner(line.script, line.args, signal);
       try {
@@ -1005,6 +1028,27 @@ async function stoppable<T>(
   }
 }
 
+/**
+ * Each mask resource's DataOps store, from the root, of the file and of the
+ * state alike: where the plan says its snapshots are kept, and the line
+ * that puts their values back names.
+ */
+function maskStoresOf(prepared: Prepared): Record<string, string> {
+  const { resolved, state, store, target } = prepared;
+  const names = new Set([
+    ...resolved.resources.filter((resource) => resource.kind === 'mask').map((r) => r.name),
+    ...Object.entries(state?.resources ?? {})
+      .filter(([, resource]) => resource.kind === 'mask')
+      .map(([name]) => name),
+  ]);
+  return Object.fromEntries(
+    [...names].map((name) => [
+      name,
+      store.sasOf(target.organizationId, resolved.checked.file.name, maskStoreOf(name)),
+    ]),
+  );
+}
+
 /** The plan of an apply, read through the scripts: previews, dry runs and the day's budget. */
 async function planOf(
   prepared: Prepared,
@@ -1024,6 +1068,7 @@ async function planOf(
     replace: args.replace,
     replaceDrifted: args.replaceDrifted,
     warnings: prepared.warnings,
+    maskStores: maskStoresOf(prepared),
     ...(prepared.noState !== undefined ? { refusal: prepared.noState.message } : {}),
   };
   if (args.quick) return { plan: envPlan(common), dryRuns: {} };
@@ -1157,6 +1202,19 @@ function validatedLine(run: EnvKindRun): string {
     const { path, version, digest } = run.dataset;
     const where = typeof path === 'string' ? path : `$${path.env}`;
     return `the Frozen dataset ${version} at ${where} (${digest.slice(0, 19)}…), as ${run.configFile} configures its load`;
+  }
+  if (run.kind === 'mask') {
+    const rules =
+      'set' in run.source
+        ? `the rule set ${run.source.set}`
+        : `the template ${run.source.template}`;
+    const what =
+      run.object !== undefined
+        ? `${run.object}${run.where !== undefined ? ` WHERE ${run.where}` : ''}`
+        : `every object its rules mask (${objectsOfRun(run)
+            .map((o) => o.object)
+            .join(', ')})`;
+    return `masks ${what} with ${rules}, ${run.rules.rules.length} rule(s)`;
   }
   const where = (object: string, condition: string | undefined): string =>
     condition !== undefined ? `${object} WHERE ${condition}` : object;
@@ -1512,6 +1570,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           state: prepared.state,
           previews,
           warnings: prepared.warnings,
+          maskStores: maskStoresOf(prepared),
         });
         for (const line of planLines(plan)) say(line);
         if (

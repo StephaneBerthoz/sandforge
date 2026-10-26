@@ -23,6 +23,15 @@
  *   SandForge does not do refuses it — and the whole apply with it, before
  *   its first write.
  *
+ * A mask resource has no removal to preview: its own dry run, on every plan
+ * but a quick one, reads what the org holds of it. Applied from the same
+ * fingerprint, it is kept while its condition selects as many records as it
+ * masked, and drifted once it selects others — records copied in since,
+ * which hold their original values. Replaced, it masks again, nothing taken
+ * back first; deleted, its store goes, its snapshots with it, and its
+ * records stay masked. A masking creates no record: what depends on one is
+ * not replaced with it.
+ *
  * A seed resource whose relations draw their parents from the records
  * another resource created is counted exactly once that resource has run:
  * its dry run is handed their ids. While that resource runs in the same
@@ -80,6 +89,16 @@ import {
   type EnvPreviewAnswer,
 } from './envKinds.js';
 import type { EnvDryRunCount } from './kinds/common.js';
+import {
+  DATAOPS_SCRIPT,
+  MASK_STATUS_WHY,
+  maskDeleteWhy,
+  maskDriftWhy,
+  maskHeldOf,
+  maskKeptWhy,
+  maskReplaceWords,
+  type MaskPlace,
+} from './kinds/mask.js';
 
 /**
  * What a resource's own verification of its last run found, where its kind
@@ -116,6 +135,8 @@ export interface EnvPlanInput {
   dryRuns?: Readonly<Record<string, EnvDryRun>>;
   /** Absent with `--quick`. */
   budget?: EnvBudget;
+  /** Each mask resource's DataOps store, from the root: where its plan says its snapshots are. */
+  maskStores?: Readonly<Record<string, string>>;
   /** Resources the line asks to replace (`--replace`). */
   replace?: readonly string[];
   /** Replace every drifted resource (`--replace-drifted`). */
@@ -334,8 +355,16 @@ function sourceRefusal(resource: EnvFileResource): string | undefined {
 export function classifyResources(
   input: Pick<
     EnvPlanInput,
-    'resolved' | 'state' | 'previews' | 'replace' | 'replaceDrifted' | 'drift'
-  >,
+    | 'resolved'
+    | 'state'
+    | 'previews'
+    | 'replace'
+    | 'replaceDrifted'
+    | 'drift'
+    | 'dryRuns'
+    | 'maskStores'
+  > &
+    Partial<Pick<EnvPlanInput, 'org'>>,
 ): EnvActionDraft[] {
   const { resolved, state, previews } = input;
   const quick = previews === undefined;
@@ -376,11 +405,12 @@ export function classifyResources(
     if (kept.fingerprint !== resource.fingerprint && kept.fingerprint !== asIfDepsKept) {
       reasons.push('what it writes changed in the file since it was applied');
     }
-    const statusWhy = STATUS_WHY[kept.status];
+    const statusWhy = (kind === 'mask' ? MASK_STATUS_WHY : STATUS_WHY)[kept.status];
     if (statusWhy !== undefined) reasons.push(statusWhy);
+    // A masking run again writes over the same records, and makes no new one.
     const changedDeps = resource.dependsOn.filter((dep) => {
-      const action = actions.get(dep)?.action;
-      return action !== undefined && RUNS.has(action);
+      const action = actions.get(dep);
+      return action !== undefined && RUNS.has(action.action) && action.kind !== 'mask';
     });
     if (changedDeps.length > 0) {
       reasons.push(
@@ -388,6 +418,10 @@ export function classifyResources(
       );
     }
     if (asked.has(resource.name)) reasons.push('--replace asks it');
+    if (kind === 'mask') {
+      actions.set(resource.name, maskDraft(resource.name, kept, reasons, input, quick));
+      continue;
+    }
     const seen = quick ? undefined : driftOf(held);
     const given = seen !== undefined && heldAsApplied(held, input.drift);
     const drift = given ? undefined : seen;
@@ -462,6 +496,16 @@ export function classifyResources(
     state,
     [...live.keys()].filter((name) => !inFile.has(name)),
   ).map((name): EnvActionDraft => {
+    const kept = live.get(name);
+    if (kept?.kind === 'mask') {
+      return {
+        resource: name,
+        kind: 'mask',
+        action: 'delete',
+        why: maskDeleteWhy('apply', name, kept, maskPlaceOf(input, name)),
+        objects: maskKeptObjects(kept),
+      };
+    }
     const held = heldOf(previews?.[name] ?? []);
     const refusal =
       held.refusals.length > 0
@@ -482,19 +526,115 @@ export function classifyResources(
 }
 
 /**
+ * A mask resource's action, from what it runs again for: replaced for its
+ * reasons, masking again; or, for none, kept or drifted as its own dry run
+ * reads what the org holds of it — the records its condition selects now,
+ * against those it masked. Drafted before its dry run, it is kept, and
+ * drafted again once the dry run has read the org.
+ */
+function maskDraft(
+  name: string,
+  kept: EnvResourceState,
+  reasons: readonly string[],
+  input: Pick<EnvPlanInput, 'dryRuns' | 'replaceDrifted'>,
+  quick: boolean,
+): EnvActionDraft {
+  const draft = (
+    action: EnvActionDraft['action'],
+    why: string,
+    objects: EnvPlanObject[] = [],
+    refusal?: string,
+  ): EnvActionDraft => ({
+    resource: name,
+    kind: 'mask',
+    action,
+    why,
+    objects,
+    ...(refusal !== undefined ? { refusal } : {}),
+  });
+  if (reasons.length > 0) {
+    return draft('replace', `replaced: ${reasons.join('; ')}; ${maskReplaceWords(kept)}`);
+  }
+  if (quick) {
+    return draft(
+      'keep',
+      'applied from the same file; what the org holds of it was not read (--quick)',
+    );
+  }
+  if (input.dryRuns === undefined) return draft('keep', 'applied from the same file');
+  const dry = input.dryRuns[name];
+  if (dry === undefined) {
+    return draft('keep', 'applied from the same file', [], 'it was not dry-run: plan again');
+  }
+  if ('failed' in dry || dry.answer.tool !== DATAOPS_SCRIPT) {
+    const said = 'failed' in dry ? dry.failed : `${dry.answer.tool} answered its dry run`;
+    return draft(
+      'keep',
+      'applied from the same file',
+      [],
+      `what the org holds of it could not be read (its dry run: ${said}): plan again`,
+    );
+  }
+  const held = maskHeldOf(kept, dry.answer);
+  if (held.unread !== undefined) {
+    return draft(
+      'keep',
+      'applied from the same file',
+      held.objects,
+      `what the org holds of it could not be read: ${held.unread}`,
+    );
+  }
+  if (held.drift === undefined) return draft('keep', maskKeptWhy(held.masked), held.objects);
+  if (input.replaceDrifted === true) {
+    return draft(
+      'replace',
+      `replaced: its condition selects other records than it masked (${held.drift}), and ` +
+        `--replace-drifted asks it; ${maskReplaceWords(kept)}`,
+      held.objects,
+    );
+  }
+  return draft('drifted', maskDriftWhy(name, held.drift), held.objects);
+}
+
+/** Where a plan says a mask resource's store is, and the org a restore of it would name. */
+function maskPlaceOf(
+  input: Pick<EnvPlanInput, 'maskStores' | 'state'> & Partial<Pick<EnvPlanInput, 'org'>>,
+  name: string,
+): MaskPlace {
+  const store = input.maskStores?.[name];
+  const org = input.org ?? input.state?.org;
+  return {
+    alias: org?.alias ?? org?.organizationId ?? '<alias>',
+    ...(store !== undefined ? { store } : {}),
+  };
+}
+
+/** What a mask resource's last run masked, per object: what stays masked whatever a destroy does. */
+function maskKeptObjects(kept: Pick<EnvResourceState, 'runs'>): EnvPlanObject[] {
+  return (kept.runs.at(-1)?.objects ?? []).map((object) => ({
+    object: object.objectApiName,
+    present: object.masked ?? 0,
+  }));
+}
+
+/**
  * The resources each resource depends on that run in the same apply before
  * it: its dry run read the org before they wrote, so what it draws from
  * their records — the existing parents of a relation — it could not count.
+ * A masking writes over records the org holds, and creates none.
  */
 export function readBefore(
   resolved: EnvFileResolved,
-  drafts: ReadonlyArray<Pick<EnvActionDraft, 'resource' | 'action'>>,
+  drafts: ReadonlyArray<Pick<EnvActionDraft, 'resource' | 'action' | 'kind'>>,
 ): Map<string, string[]> {
   const running = new Set(drafts.filter((d) => RUNS.has(d.action)).map((d) => d.resource));
+  const writing = new Set(
+    drafts.filter((d) => RUNS.has(d.action) && d.kind !== 'mask').map((d) => d.resource),
+  );
   const out = new Map<string, string[]>();
   for (const resource of resolved.resources) {
     if (!running.has(resource.name)) continue;
-    const before = resource.dependsOn.filter((dep) => running.has(dep));
+    const before = resource.dependsOn.filter((dep) => writing.has(dep));
     if (before.length > 0) out.set(resource.name, before);
   }
   return out;
@@ -615,7 +755,9 @@ function sumGates(
   const emails = new Map<EnvEmailLimit, number>();
   const notCounted: string[] = [...checkpoints.notCounted];
   for (const draft of drafts) {
-    if (draft.action === 'delete' || draft.action === 'replace') {
+    // A masking is never taken back: its replace runs again, and its delete
+    // deletes its store, on this machine.
+    if ((draft.action === 'delete' || draft.action === 'replace') && draft.kind !== 'mask') {
       notCounted.push(`the removal of the runs of ${draft.resource}`);
     }
     if (!RUNS.has(draft.action)) continue;
@@ -625,7 +767,7 @@ function sumGates(
       continue;
     }
     const deps = before.get(draft.resource);
-    if (deps !== undefined) {
+    if (deps !== undefined && draft.kind !== 'mask') {
       notCounted.push(
         `what ${draft.resource} draws from the records ${deps.join(', ')} writes first`,
       );
@@ -714,19 +856,25 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
     // run first: nobody knows their records before they run.
     const unknown = deps !== undefined ? drawnFromAmong(input.resolved, draft.resource, deps) : [];
     const counted =
-      deps !== undefined && dry !== undefined && drawn
-        ? unknown.length > 0
-          ? `; it draws its parents from the records ${unknown.join(', ')} creates in this ` +
-            'apply, which nobody knows before it runs: counted at most as the file gives it'
-          : `; its dry run read the org before ${deps.join(', ')} writes: what it draws from ` +
-            'those records is counted at most as the file gives it'
-        : '';
+      deps !== undefined && dry !== undefined && draft.kind === 'mask'
+        ? `; its dry run read the org before ${deps.join(', ')} writes: what they write under ` +
+          'its condition it masks too, uncounted here'
+        : deps !== undefined && dry !== undefined && drawn
+          ? unknown.length > 0
+            ? `; it draws its parents from the records ${unknown.join(', ')} creates in this ` +
+              'apply, which nobody knows before it runs: counted at most as the file gives it'
+            : `; its dry run read the org before ${deps.join(', ')} writes: what it draws from ` +
+              'those records is counted at most as the file gives it'
+          : '';
     // What its own dry run says of the load (encrypted fields, rewritten
     // picklists) goes with why; what the file asks of its data (real data
-    // from production) on lines of its own.
+    // from production, a masking one-way) on lines of its own.
     const why = `${draft.why}${counted}${dryNotes.length > 0 ? `; ${dryNotes.join('; ')}` : ''}`;
     const resource = input.resolved.resources.find((each) => each.name === draft.resource);
-    const notes = resource !== undefined && RUNS.has(draft.action) ? notesOf(resource) : [];
+    const notes =
+      resource !== undefined && RUNS.has(draft.action)
+        ? notesOf(resource, maskPlaceOf(input, draft.resource))
+        : [];
     return {
       resource: draft.resource,
       kind: draft.kind,
@@ -748,8 +896,9 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
       drafts.some((draft) => WRITES.has(draft.action)),
     ),
     quick ? undefined : (input.checkpointEstimate ?? { unread: 'not estimated' }),
+    // What a masking writes over is in the org already, and in the take's estimate.
     actions
-      .filter((action) => RUNS.has(action.action))
+      .filter((action) => RUNS.has(action.action) && action.kind !== 'mask')
       .flatMap((action) => action.objects)
       .reduce((sum, object) => sum + (object.wouldCreate ?? 0), 0),
   );
@@ -788,6 +937,10 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
   const loads = actions
     .filter((action) => action.kind === 'frozen' && RUNS.has(action.action))
     .map((action) => action.resource);
+  // Nor does a masking's: an update of every contact can send as many.
+  const masks = actions
+    .filter((action) => action.kind === 'mask' && RUNS.has(action.action))
+    .map((action) => action.resource);
   const warnings = [
     ...(input.warnings ?? []),
     ...checkpointWarningsOf(file, input.state),
@@ -796,6 +949,13 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
           `the emails the org sends as ${loads.join(', ')} ${loads.length === 1 ? 'loads' : 'load'} ` +
             'are not counted: a Frozen load’s dry run does not count them, and the day’s email ' +
             'gate holds without them',
+        ]
+      : []),
+    ...(masks.length > 0
+      ? [
+          `the emails the org sends as ${masks.join(', ')} ${masks.length === 1 ? 'masks' : 'mask'} ` +
+            'are not counted: a masking’s dry run does not count them, and the day’s email gate ' +
+            'holds without them',
         ]
       : []),
   ];
@@ -834,13 +994,24 @@ export function envPlan(input: EnvPlanInput): EnvPlan {
  * would be gone and its own records would keep theirs.
  */
 export function destructionPlan(
-  input: Pick<EnvPlanInput, 'resolved' | 'org' | 'state' | 'previews' | 'warnings'>,
+  input: Pick<EnvPlanInput, 'resolved' | 'org' | 'state' | 'previews' | 'warnings' | 'maskStores'>,
 ): EnvPlan {
   const names = removalOrder(
     input.state,
     liveResources(input.state).map(([name]) => name),
   );
   const actions: EnvAction[] = names.map((name) => {
+    const kept = input.state?.resources[name];
+    // Never unmasked: its store goes, and its records stay as they are.
+    if (kept?.kind === 'mask') {
+      return {
+        resource: name,
+        kind: 'mask',
+        action: 'delete',
+        why: maskDeleteWhy('destroy', name, kept, maskPlaceOf(input, name)),
+        objects: maskKeptObjects(kept),
+      };
+    }
     const held = heldOf(input.previews?.[name] ?? []);
     const refusal =
       held.refusals.length > 0
@@ -850,7 +1021,7 @@ export function destructionPlan(
           : undefined;
     return {
       resource: name,
-      kind: input.state?.resources[name]?.kind ?? 'seed',
+      kind: kept?.kind ?? 'seed',
       action: refusal !== undefined ? 'blocked' : 'delete',
       why: 'taken back by destroy, into the recycle bin',
       objects: heldObjects(held),
@@ -858,7 +1029,9 @@ export function destructionPlan(
     };
   });
   const blocked = actions.filter((action) => action.action === 'blocked');
-  const removals = actions.map((action) => `the removal of the runs of ${action.resource}`);
+  const removals = actions
+    .filter((action) => action.kind !== 'mask')
+    .map((action) => `the removal of the runs of ${action.resource}`);
   const state = input.state;
   return {
     env: input.resolved.checked.file.name,
@@ -931,13 +1104,18 @@ export function planLines(plan: EnvPlan): string[] {
       : 'state: none on this machine',
   ];
   for (const action of plan.actions) {
+    // A masking writes over records the org holds: what it masks, and holds masked.
+    const masks = action.kind === 'mask';
     const counts = action.objects
       .map((object) => {
         const parts = [
           object.wouldCreate !== undefined
-            ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} to write`
+            ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} ` +
+              (masks ? 'to mask' : 'to write')
             : '',
-          object.present !== undefined && object.present > 0 ? `${object.present} in the org` : '',
+          object.present !== undefined && object.present > 0
+            ? `${object.present} ${masks ? 'masked' : 'in the org'}`
+            : '',
           (object.gone ?? 0) > 0 ? `${object.gone} gone` : '',
           (object.changed ?? 0) > 0 ? `${object.changed} changed` : '',
         ].filter(Boolean);

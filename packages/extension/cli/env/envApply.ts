@@ -126,6 +126,15 @@ import {
   reloadPurgedWhole,
   resourceOfSas,
 } from './kinds/frozen.js';
+import {
+  forgetMaskStore,
+  maskForgottenLine,
+  maskRunCount,
+  maskStoreOf,
+  readMaskRun,
+  type MaskRunCount,
+  type MaskStoreForgotten,
+} from './kinds/mask.js';
 import { readSeedRun, seedRunCount } from './kinds/seed.js';
 import { drawnOf } from './envReferences.js';
 
@@ -303,6 +312,7 @@ export async function removeResource(
   if (before === undefined) {
     throw new EnvStateError('invalid', `The state holds no resource ${ask.resource} to take back`);
   }
+  if (before.kind === 'mask') return forgetMask(deps, state, ask);
   let current = await deps.store.update(state, (s) => removalStarted(s, ask.resource));
   const steps: EnvStepResult[] = [];
   let left = false;
@@ -360,6 +370,90 @@ export async function removeResource(
     stepEnded(s, { resource: ask.resource, status: left ? ask.ends.left : ask.ends.whole }),
   );
   return { whole: !left, code: left ? PARTIAL_EXIT : DONE_EXIT, wrote, steps, state: current };
+}
+
+/**
+ * Take a mask resource back as a masking is: never unmasked. Its DataOps
+ * store is deleted whole — its snapshots, the only copy of the values it
+ * wrote over —, the resource `destroying` in the state before, `destroyed`
+ * once the store is gone, every run of it taken back. Its records stay as
+ * they are, masked. Putting their values back was the person's own act,
+ * `sandforge-dataops anonymize --restore`, before.
+ */
+async function forgetMask(
+  deps: EnvStepDeps,
+  state: EnvState,
+  ask: RemovalAsk,
+): Promise<RemovalEnd> {
+  const before = state.resources[ask.resource];
+  if (before === undefined) {
+    throw new EnvStateError('invalid', `The state holds no resource ${ask.resource} to take back`);
+  }
+  let current = await deps.store.update(state, (s) => removalStarted(s, ask.resource));
+  const store = deps.store.sasOf(state.org.organizationId, state.env, maskStoreOf(ask.resource));
+  const last = before.runs.at(-1);
+  const step = (status: EnvResourceStatus, exitCode: number, reason: string): EnvStepResult => ({
+    resource: ask.resource,
+    action: ask.action,
+    phase: 'remove',
+    run: last?.n ?? 1,
+    script: 'sandforge-dataops',
+    exitCode,
+    status,
+    objects: (last?.objects ?? []).map((object) => ({
+      object: object.objectApiName,
+      created: 0,
+      refused: 0,
+      deleted: 0,
+      kept: 0,
+      masked: object.masked ?? 0,
+      reason,
+    })),
+  });
+  deps.say(`${ask.resource}: deleting its store ${store}`);
+  let forgotten: MaskStoreForgotten;
+  try {
+    forgotten = await forgetMaskStore(store);
+  } catch (err: unknown) {
+    const why = err instanceof Error ? err.message : String(err);
+    deps.say(`${ask.resource}: ${why}`);
+    current = await deps.store.update(current, (s) =>
+      stepEnded(s, { resource: ask.resource, status: before.status }),
+    );
+    return {
+      whole: false,
+      code: FAILED_EXIT,
+      wrote: false,
+      steps: [step(before.status, FAILED_EXIT, why)],
+      state: current,
+    };
+  }
+  deps.say(maskForgottenLine(ask.resource, forgotten));
+  for (const run of before.runs) {
+    if (run.takenBack === true) continue;
+    current = await deps.store.update(current, (s) => runTakenBack(s, ask.resource, run.n));
+  }
+  current = await deps.store.update(current, (s) =>
+    stepEnded(s, { resource: ask.resource, status: ask.ends.whole }),
+  );
+  const deleted =
+    forgotten.snapshots.length > 0
+      ? `snapshot${forgotten.snapshots.length === 1 ? '' : 's'} ${forgotten.snapshots.join(', ')}`
+      : 'its store';
+  return {
+    whole: true,
+    code: DONE_EXIT,
+    // Nothing of the org is written: the store is on this machine.
+    wrote: false,
+    steps: [
+      step(
+        ask.ends.whole,
+        DONE_EXIT,
+        `left masked, as destroy leaves a masking; ${deleted} deleted`,
+      ),
+    ],
+    state: current,
+  };
 }
 
 /** What an apply is given beside its plan. */
@@ -496,6 +590,8 @@ interface RunStepOutcome {
   verified?: Verified;
   /** A reload whose purge took the loads before it whole: their runs are taken back. */
   tookBackEarlier?: true;
+  /** A masking's: what it went through per object, and the snapshot it took first. */
+  masking?: MaskRunCount;
 }
 
 /**
@@ -573,6 +669,9 @@ async function runResourceStep(
 
   if (resource.kind === 'frozen') {
     return runFrozenStep(deps, state, input, startedAt, planned);
+  }
+  if (resource.kind === 'mask') {
+    return runMaskStep(deps, state, input, startedAt);
   }
 
   // A forge run: its summary named in the state before the clone starts it.
@@ -720,6 +819,115 @@ async function runFrozenStep(
       ? { tookBackEarlier: true }
       : {}),
   };
+}
+
+/**
+ * Run a mask resource's masking: the run named in the state before the
+ * script starts, its DataOps store the resource's own folder of the state's,
+ * which keeps the snapshot the script takes before its first write. Its
+ * answer is kept beside the state, and the snapshot's id in the state: a
+ * masking stopped before it answered leaves its snapshot in the store all
+ * the same, which a destroy deletes with it.
+ */
+async function runMaskStep(
+  deps: EnvStepDeps,
+  state: EnvState,
+  input: RunStepInput,
+  startedAt: string,
+): Promise<RunStepOutcome> {
+  const { resource, n, where, target, templateFile, signal } = input;
+  const current = await deps.store.update(state, (s) =>
+    runStarted(s, {
+      resource: resource.name,
+      kind: 'mask',
+      fingerprint: resource.fingerprint,
+      dependsOn: resource.dependsOn,
+      run: { script: 'sandforge-dataops', startedAt },
+    }),
+  );
+  const store = await deps.store.prepareFolder(
+    where.organizationId,
+    where.env,
+    maskStoreOf(resource.name),
+  );
+  const line = applyLineOf(resource, {
+    target: target.alias,
+    templateFile,
+    runId: '',
+    summaryFile: '',
+    store,
+  });
+  const ran = await deps.runner(line.script, line.args, signal);
+  const answer = answerOf(readMaskRun, ran.stdout, deps.say);
+  const masking = answer !== undefined ? maskRunCount(answer) : undefined;
+  if (masking?.refusal !== undefined) deps.say(`${resource.name}: ${masking.refusal}`);
+  // Killed, it said nothing: what it masked the store's audit trail keeps.
+  const wrote =
+    masking !== undefined
+      ? masking.objects.some((object) => object.masked > 0)
+      : isStopCode(ran.code);
+  const summary =
+    answer !== undefined
+      ? await deps.store
+          .writeFile(
+            where.organizationId,
+            where.env,
+            runSummaryPathOf(resource.name, n),
+            ran.stdout,
+          )
+          .then(() => runSummaryPathOf(resource.name, n))
+      : undefined;
+  return {
+    state: current,
+    script: line.script,
+    code: ran.code,
+    ...(answer !== undefined ? { answer } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    wrote,
+    ...(masking !== undefined ? { masking } : {}),
+  };
+}
+
+/**
+ * How a masking ended: applied once it went through every record and left
+ * no value as it was; partial when it left some — refused by the org, or of
+ * a field the org does not show the user, which the script ends 0 with —;
+ * as every run ends otherwise.
+ */
+function maskEnd(code: number, masking: MaskRunCount | undefined): ReturnType<typeof runEnd> {
+  const ended = runEnd(code, undefined, undefined);
+  if (code !== DONE_EXIT) return ended;
+  const left = (masking?.objects ?? []).reduce((sum, object) => sum + object.notMasked, 0);
+  if (masking?.short !== undefined || left > 0) {
+    return {
+      status: 'partial',
+      counts: PARTIAL_EXIT,
+      stops: false,
+      short:
+        masking?.short ??
+        `${left} record(s) still hold their original values: the next apply masks them again`,
+    };
+  }
+  return { status: 'applied', counts: DONE_EXIT, stops: false };
+}
+
+/** A masking's step objects: per object what it masked, what the org refused, and the snapshot it took first. */
+function maskObjects(masking: MaskRunCount | undefined): EnvStepObject[] {
+  return (masking?.objects ?? []).map((object, i) => ({
+    object: object.object,
+    created: 0,
+    refused: object.refused,
+    deleted: 0,
+    kept: 0,
+    masked: object.masked,
+    ...(i === 0 && masking?.snapshotId !== undefined
+      ? {
+          reason:
+            `snapshot ${masking.snapshotId} of the values it wrote over, taken first, kept on ` +
+            'this machine until destroy deletes it',
+        }
+      : {}),
+  }));
 }
 
 /**
@@ -1000,11 +1208,14 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
         });
         current = outcome.state;
         wrote ||= outcome.wrote;
-        runThisApply.add(step.resource);
-        const ended = verifiedEnd(
-          runEnd(outcome.code, outcome.count, outcome.planned),
-          outcome.verified,
-        );
+        // A masking writes over records the org holds, and creates none for
+        // what depends on it to count.
+        if (resource.kind !== 'mask') runThisApply.add(step.resource);
+        const masking = outcome.masking;
+        const ended =
+          resource.kind === 'mask'
+            ? maskEnd(outcome.code, masking)
+            : verifiedEnd(runEnd(outcome.code, outcome.count, outcome.planned), outcome.verified);
         const endedAt = await deps.orgNow();
         current = await deps.store.update(current, (s) =>
           stepEnded(s, {
@@ -1013,12 +1224,21 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             run: {
               endedAt,
               exitCode: outcome.code,
-              objects: (outcome.count?.objects ?? []).map((object) => ({
-                objectApiName: object.object,
-                created: object.created,
-                refused: object.refused,
-              })),
+              objects:
+                masking !== undefined
+                  ? masking.objects.map((object) => ({
+                      objectApiName: object.object,
+                      created: 0,
+                      refused: object.refused,
+                      masked: object.masked,
+                    }))
+                  : (outcome.count?.objects ?? []).map((object) => ({
+                      objectApiName: object.object,
+                      created: object.created,
+                      refused: object.refused,
+                    })),
               ...(outcome.summary !== undefined ? { summary: outcome.summary } : {}),
+              ...(masking?.snapshotId !== undefined ? { snapshotId: masking.snapshotId } : {}),
             },
           }),
         );
@@ -1032,7 +1252,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
             );
           }
         }
-        const objects = runObjects(outcome.count);
+        const objects = resource.kind === 'mask' ? maskObjects(masking) : runObjects(outcome.count);
         results.push({
           resource: step.resource,
           action: step.action,
@@ -1052,14 +1272,17 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
         if (isStopCode(outcome.code)) {
           stoppedCode = outcome.code;
           deps.say(
-            `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
-              `${
-                resource.kind === 'forge'
-                  ? 'summary what it created'
-                  : resource.kind === 'frozen'
-                    ? 'sas what it loaded'
-                    : 'run file what it wrote'
-              }: apply again takes it back and runs it whole`,
+            resource.kind === 'mask'
+              ? `${step.resource}: its masking was stopped; the state keeps it applying, and its ` +
+                  'store the snapshot it took first: apply again masks what its condition selects'
+              : `${step.resource}: its run was stopped; the state keeps it applying, and its ` +
+                  `${
+                    resource.kind === 'forge'
+                      ? 'summary what it created'
+                      : resource.kind === 'frozen'
+                        ? 'sas what it loaded'
+                        : 'run file what it wrote'
+                  }: apply again takes it back and runs it whole`,
           );
           continue;
         }
@@ -1166,6 +1389,24 @@ function checkpointResultLines(checkpoints: readonly EnvCheckpointStepResult[]):
 export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'): string[] {
   const lines: string[] = [''];
   for (const step of result.steps) {
+    // A masking writes over records, and its destroy leaves them masked.
+    if (step.script === 'sandforge-dataops') {
+      const masked = step.objects
+        .map((object) =>
+          step.phase === 'run'
+            ? `${object.object} ${object.masked ?? 0} masked${object.refused > 0 ? `, ${object.refused} refused` : ''}`
+            : `${object.object} ${object.masked ?? 0} left masked`,
+        )
+        .join('; ');
+      lines.push(
+        `  ${step.resource} ${step.phase === 'run' ? `masking ${step.run}: exit ${step.exitCode}` : 'store deleted'}, ` +
+          `${step.status}${masked ? `  ${masked}` : ''}`,
+      );
+      for (const object of step.objects) {
+        if (object.reason !== undefined) lines.push(`      ${object.object}: ${object.reason}`);
+      }
+      continue;
+    }
     const counts = step.objects
       .map((object) =>
         step.phase === 'run'

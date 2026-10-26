@@ -97,7 +97,7 @@ describe('the file', () => {
 
   it('refuses a key no object of it names, and says which keys it takes', () => {
     expect(refusalsOf(exampleWith(['dry_run'], true))).toEqual([
-      ': "dry_run" is not a key of the file, which takes version, name, description, targets, orgs, checkpoint, resources',
+      ': "dry_run" is not a key of the file, which takes version, name, description, targets, orgs, checkpoint, masking, resources',
     ]);
     expect(refusalsOf(exampleWith(['resources', 'accounts', 'count'], 3))).toEqual([
       expect.stringContaining('"count" is not a key of a seed resource, which takes kind,'),
@@ -126,12 +126,9 @@ describe('the file', () => {
     ]);
   });
 
-  it('applies seed, forge and frozen resources, and says when a kind comes with a later SandForge', () => {
-    expect(refusalsOf(exampleWith(['resources', 'masked'], { kind: 'mask' }))).toEqual([
-      'resources.masked.kind: Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources',
-    ]);
+  it('applies seed, forge, frozen and mask resources, and names them when a kind is none of them', () => {
     expect(refusalsOf(exampleWith(['resources', 'x'], { kind: 'clone' }))).toEqual([
-      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed, forge and frozen resources',
+      'resources.x.kind: "clone" is not a kind of resource: this SandForge applies seed, forge, frozen and mask resources',
     ]);
     expect(
       refusalsOf(exampleWith(['resources', 'x'], { template: 'prebuilt-minimal-demo' })),
@@ -219,6 +216,98 @@ describe('the file', () => {
     expect(refusalsOf(exampleWith(['resources'], resources))).toEqual([
       `resources: A file holds ${ENV_MAX_RESOURCES} resources at most: split it into two environments`,
     ]);
+  });
+});
+
+describe('a mask resource, and the masking sets it names', () => {
+  /** The example with a masking set of contact points, and a mask resource beside its seeds. */
+  const withMask = (
+    resource: Record<string, unknown>,
+    masking: Record<string, unknown> = {
+      'contact-points': {
+        rules: [
+          { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+          { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+        ],
+      },
+    },
+  ): Record<string, unknown> => {
+    const document = exampleWith(['resources', 'customers'], { kind: 'mask', ...resource });
+    return { ...document, masking };
+  };
+
+  it('reads a mask resource naming a set of the file, or a template that ships, one object or every one', () => {
+    const bySet = envFileSchema.parse(
+      withMask({ rules: 'contact-points', object: 'Contact', where: 'Email != null' }),
+    );
+    const byTemplate = envFileSchema.parse(withMask({ rules: { template: 'tpl-gdpr-standard' } }));
+
+    expect(bySet.resources['customers']).toEqual({
+      kind: 'mask',
+      rules: 'contact-points',
+      object: 'Contact',
+      where: 'Email != null',
+    });
+    expect(bySet.masking['contact-points']?.rules).toHaveLength(2);
+    expect(byTemplate.resources['customers']).toEqual({
+      kind: 'mask',
+      rules: { template: 'tpl-gdpr-standard' },
+    });
+    // A file that names no set holds none.
+    expect(envFileSchema.parse(example()).masking).toEqual({});
+  });
+
+  it('refuses a condition with no object to hold it to, as the DataOps script refuses --where', () => {
+    expect(refusalsOf(withMask({ rules: 'contact-points', where: 'Email != null' }))).toEqual([
+      'resources.customers.where: where filters the records of one object: give it with object',
+    ]);
+  });
+
+  it('refuses a set the file does not declare, naming the sets it does', () => {
+    expect(refusalsOf(withMask({ rules: 'gdpr', object: 'Contact' }))).toEqual([
+      'resources.customers.rules: "gdpr" is no rule set of the file: declare it under masking, as masking: { gdpr: { rules: [ … ] } } (its sets are contact-points)',
+    ]);
+    expect(refusalsOf(withMask({ rules: { template: 'GDPR Standard' } }))).toEqual([
+      'resources.customers.rules.template: A template that ships is named by its id, as tpl-gdpr-standard',
+    ]);
+    expect(refusalsOf(withMask({ rules: 3 }))).toEqual([
+      'resources.customers.rules: rules names a set of the file’s masking, as rules: gdpr-contacts, or a template that ships, as rules: { template: tpl-gdpr-standard }',
+    ]);
+  });
+
+  it('holds a set’s rules to the keys and methods the DataOps panel saves', () => {
+    const rule = (extra: Record<string, unknown>) =>
+      withMask(
+        { rules: 'r', object: 'Contact' },
+        { r: { rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash', ...extra }] } },
+      );
+
+    expect(refusalsOf(rule({ salt: 'x' }))).toEqual([
+      expect.stringContaining('"salt" is not a key of a masking rule, which takes fieldPattern'),
+    ]);
+    expect(refusalsOf(rule({ ruleType: 'scramble' }))).toHaveLength(1);
+    expect(refusalsOf(rule({ fieldPattern: 'Email' }))).toEqual([
+      'masking.r.rules.0.fieldPattern: Expected Object.Field',
+    ]);
+    expect(refusalsOf(rule({ config: { keep: 2 } }))).toEqual([
+      expect.stringContaining('"keep" is not a key of a masking rule’s config'),
+    ]);
+    expect(refusalsOf(withMask({ rules: 'r', object: 'Contact' }, { r: { rules: [] } }))).toEqual([
+      'masking.r.rules: A rule set holds one rule at least',
+    ]);
+  });
+
+  it('refuses a checkpoint before the first write beside a mask resource: destroy --rewind would unmask', () => {
+    const before = {
+      ...withMask({ rules: 'contact-points', object: 'Contact' }),
+      checkpoint: { before: true },
+    };
+
+    expect(refusalsOf(before)).toEqual([
+      'checkpoint.before: A checkpoint before the first write holds, in clear, the values the mask resources (customers) write over, and destroy --rewind would put them back into the org: a file with a mask resource takes none. Take checkpoint.before out',
+    ]);
+    // Negative control: the same file without the mask resource takes it.
+    expect(refusalsOf({ ...example(), checkpoint: { before: true } })).toEqual([]);
   });
 });
 

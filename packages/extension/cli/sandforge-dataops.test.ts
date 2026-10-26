@@ -25,6 +25,7 @@ import {
   dryRunLines,
   main,
   maskingInterruptedLine,
+  missingFieldLine,
   parseArgs,
   restoreInterruptedLine,
   resultLines,
@@ -491,6 +492,107 @@ describe('sandforge-dataops', () => {
       // New values only: the records' own stay off the terminal.
       expect(stdout).toContain('the first records, masked as a run masks them');
       expect(stdout).not.toContain('person1@example.com');
+    });
+
+    it('answers a dry run with --json alone on stdout: the records it would mask, the fields, the new values only, nothing written', async () => {
+      // What an environment's plan reads of a mask resource: the counts, and
+      // the fields the org lacks, which it refuses the resource for.
+      orgIs('Developer Edition');
+      const rows = contactsOf(30, 20);
+      const before = rows.map((r) => ({ ...r }));
+      const { update } = orgOf(rows);
+      const file = join(store, 'rules.json');
+      writeFileSync(
+        file,
+        JSON.stringify({
+          name: 'contact-points',
+          rules: [
+            { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+            { fieldPattern: 'Contact.Nickname__c', ruleType: 'fake' },
+          ],
+        }),
+      );
+
+      const code = await run(
+        'anonymize',
+        '--org',
+        'ORG',
+        '--object',
+        'Contact',
+        '--where',
+        "LastName LIKE 'Scoped%'",
+        '--rules',
+        file,
+        '--dry-run',
+        '--json',
+      );
+
+      expect(code).toBeUndefined();
+      expect(update).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      const answer = JSON.parse(stdout) as {
+        tool: string;
+        command: string;
+        posted: Array<{ type: string; payload?: Record<string, unknown> }>;
+      };
+      expect(answer).toMatchObject({ tool: 'sandforge-dataops', command: 'dry-run' });
+      const payload = (type: string) => answer.posted.find((m) => m.type === type)?.payload;
+      expect(payload('dataops:anonymize:coverage:response')?.['objects']).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', count: 20 }),
+      ]);
+      const preview = payload('dataops:anonymize:preview:response');
+      expect(preview?.['fieldsNotFound']).toEqual([
+        { objectApiName: 'Contact', fieldApiName: 'Nickname__c' },
+      ]);
+      expect(preview?.['objects']).toEqual([
+        expect.objectContaining({ objectApiName: 'Contact', fields: ['Email'] }),
+      ]);
+      // The records' own values stay off stdout: the new ones alone.
+      expect(stdout).not.toContain('person1@example.com');
+      expect(stdout).toContain('"after"');
+      // The terminal's lines go to stderr, the field the org lacks in the words an environment quotes.
+      expect(stderr).toContain(`    ${missingFieldLine('Contact', 'Nickname__c')}`);
+    });
+
+    it('names a masking’s snapshot so that its store lists it and the retention removes it past its age', async () => {
+      // Named after a request id holding a colon, the snapshot read as one
+      // object's records: never listed, never removed past its age, the
+      // values it held in clear on this machine for good.
+      orgIs('Developer Edition');
+      orgOf(contactsOf(3, 3));
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(Date.parse('2026-10-01T09:00:00.000Z'));
+        await run(
+          'anonymize',
+          '--org',
+          'ORG',
+          '--object',
+          'Contact',
+          '--template',
+          'tpl-gdpr-standard',
+          '--yes',
+        );
+        const snapshotId = /snapshot (\S+): 3 record\(s\)/.exec(stdout)?.[1] ?? '';
+        expect(snapshotId).toMatch(/-snapshot$/);
+        expect(snapshotId).not.toContain(':');
+
+        stderr = '';
+        vi.setSystemTime(Date.parse('2026-11-15T09:00:00.000Z'));
+        await run(
+          'anonymize',
+          '--org',
+          'ORG',
+          '--object',
+          'Contact',
+          '--template',
+          'tpl-gdpr-standard',
+          '--dry-run',
+        );
+        expect(stderr).toContain(`removed snapshot ${snapshotId}`);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('masks the records its filter selects after a snapshot of them, and --restore puts their values back', async () => {

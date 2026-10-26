@@ -11,7 +11,10 @@
  * as `seed:execute` checks the panel's, and by the validator a seed run
  * starts with; a forge resource into an exported template, checked by
  * `forgeTemplateSchema` as the clone's `--template` reads it; a frozen
- * resource's committed configuration by Frozen's own schema, held strict.
+ * resource's committed configuration by Frozen's own schema, held strict; a
+ * masking set by the schema the DataOps panel's save goes through
+ * (`anonymizationTemplateSavePayloadSchema`), and a mask resource's object
+ * held to a rule of the set it names.
  * What the check accepted is what the run is given: a refusal the run would
  * meet after its first objects were written is met here, before any.
  *
@@ -38,10 +41,12 @@ import {
   type EnvFile,
   type EnvForgeRun,
   type EnvFrozenRun,
+  type EnvMaskRun,
   type EnvSeedRun,
 } from '@sandforge/shared';
 import { SasPathGuard, findRepoRoot } from '../../src/modules/frozendataset/SasPathGuard.js';
 import { convertResource, objectsOfRun, writtenOf, type EnvKindRun } from './envKinds.js';
+import { maskingSetsOf } from './kinds/mask.js';
 import { canonicalJson, pathText, refusalAt, sha256, type EnvFileRefusal } from './kinds/common.js';
 import type { EnvSourceRead } from './kinds/forge.js';
 import type { EnvDatasetRead } from './kinds/frozen.js';
@@ -210,8 +215,13 @@ export function checkEnvFile(
   const ordered = orderOf(file);
   if ('refusals' in ordered) return ordered;
 
+  // The masking sets, each held to the rules the DataOps panel saves, before
+  // a mask resource is converted with the one it names.
+  const masking = maskingSetsOf(file.masking);
+  if ('refusals' in masking) return masking;
+
   const refusals: EnvFileRefusal[] = [];
-  const warnings: EnvFileRefusal[] = [];
+  const warnings: EnvFileRefusal[] = [...unusedSetWarnings(file)];
   const runs: Record<string, EnvKindRun> = {};
   for (const [name, resource] of Object.entries(file.resources)) {
     const converted = convertResource(
@@ -220,6 +230,7 @@ export function checkEnvFile(
       resource,
       resolve(folder),
       options.now ?? new Date(),
+      masking.sets,
     );
     if ('refusals' in converted) {
       refusals.push(...converted.refusals);
@@ -249,6 +260,20 @@ export function checkEnvFile(
   return {
     checked: { file, folder: resolve(folder), order: ordered.order, runs, variables, warnings },
   };
+}
+
+/** A masking set no mask resource names: rules the file holds and nothing applies. */
+function unusedSetWarnings(file: EnvFile): EnvFileRefusal[] {
+  const named = new Set(
+    Object.values(file.resources).flatMap((resource) =>
+      resource.kind === 'mask' && typeof resource.rules === 'string' ? [resource.rules] : [],
+    ),
+  );
+  return Object.keys(file.masking)
+    .filter((set) => !named.has(set))
+    .map((set) =>
+      refusalAt(['masking', set], 'no mask resource names this rule set: nothing masks with it'),
+    );
 }
 
 /** The variables a checked file reads that `env` leaves unset, or sets to nothing. */
@@ -383,6 +408,17 @@ function drawnObjectRefusals(runs: Readonly<Record<string, EnvKindRun>>): EnvFil
     if (run.kind !== 'seed') continue;
     for (const draw of run.draws ?? []) {
       const source = runs[draw.from];
+      // A masking writes over records the org holds, and creates none.
+      if (source?.kind === 'mask') {
+        refusals.push(
+          refusalAt(
+            ['resources', name, 'relations', draw.at, 'parents', 'from'],
+            `${draw.from} is a mask resource, which creates no record: a relation draws its ` +
+              'parents from the records a seed, a forge or a frozen resource created',
+          ),
+        );
+        continue;
+      }
       if (source?.kind !== 'seed') continue;
       const written = objectsOfRun(source).map(({ object }) => object);
       if (written.includes(draw.relation.parentObject)) continue;
@@ -464,7 +500,8 @@ export interface EnvFrozenDatasetPlace {
 export type EnvFileResource =
   | (EnvFileResourceBase & { kind: 'seed'; run: EnvSeedRun })
   | (EnvFileResourceBase & { kind: 'forge'; run: EnvForgeRun; source: EnvForgeSource })
-  | (EnvFileResourceBase & { kind: 'frozen'; run: EnvFrozenRun; dataset: EnvFrozenDatasetPlace });
+  | (EnvFileResourceBase & { kind: 'frozen'; run: EnvFrozenRun; dataset: EnvFrozenDatasetPlace })
+  | (EnvFileResourceBase & { kind: 'mask'; run: EnvMaskRun });
 
 /** A file whose variables are read: what `plan`, `apply` and `destroy` work from. */
 export interface EnvFileResolved {
@@ -574,6 +611,9 @@ export function resolveEnvFile(
     const dependsOn = dependenciesOf(name, resource);
     let ready: EnvFileResource;
     if (kindRun.kind === 'seed') {
+      const { kind, ...run } = kindRun;
+      ready = { name, kind, dependsOn, fingerprint: '', run };
+    } else if (kindRun.kind === 'mask') {
       const { kind, ...run } = kindRun;
       ready = { name, kind, dependsOn, fingerprint: '', run };
     } else if (kindRun.kind === 'frozen') {

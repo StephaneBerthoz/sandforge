@@ -72,6 +72,8 @@ const STATE = source(`${CLI_DIR}/env/envState.ts`);
 const FILE = source(`${CLI_DIR}/env/envFile.ts`);
 const SEED_KIND = source(`${CLI_DIR}/env/kinds/seed.ts`);
 const FROZEN_KIND = source(`${CLI_DIR}/env/kinds/frozen.ts`);
+const MASK_KIND = source(`${CLI_DIR}/env/kinds/mask.ts`);
+const DATAOPS = source(`${CLI_DIR}/sandforge-dataops.ts`);
 const REFERENCES = source(`${CLI_DIR}/env/envReferences.ts`);
 const FROZEN = source(`${CLI_DIR}/sandforge-frozen.ts`);
 const LOCK = source(`${CLI_DIR}/env/envLock.ts`);
@@ -145,6 +147,13 @@ function frozenFlags(): Set<string> {
   return flagsIn(table);
 }
 
+/** The flags `sandforge-dataops` reads, from its own table: what the page names of its lines. */
+function dataopsFlags(): Set<string> {
+  const table = /const FLAGS: CommandFlags = \{([\s\S]*?)\n\};/.exec(DATAOPS)?.[1];
+  if (!table) throw new Error('the FLAGS of sandforge-dataops.ts are gone: re-point this test');
+  return flagsIn(table);
+}
+
 /** The flags each command reads, from the script's table of them. */
 function flagsOf(): Map<string, Set<string>> {
   const table = /const FLAGS: [^=]*= \{\n([\s\S]*?)\n\};\n/.exec(CLI)?.[1];
@@ -167,6 +176,7 @@ const T0 = Date.parse('2026-10-25T09:00:00.000Z');
 const WORLDS: Readonly<Record<string, EnvWorldOptions>> = {
   scratch: { sandbox: true, scratch: true },
   frozen: { sandbox: true, scratch: true },
+  masking: { sandbox: true },
   developer: { sandbox: false, edition: 'Developer Edition' },
   production: { sandbox: false, edition: 'Enterprise Edition' },
   sandbox: { sandbox: true },
@@ -198,6 +208,21 @@ function frozenExample(): string {
   if (!yaml) throw new Error('the frozen section gives no example file: re-point this test');
   return `${yaml}\n`;
 }
+
+/** The file a mask resource's sessions start from: the example of its section. */
+function maskExample(): string {
+  const yaml = fenced(section(DOC, '### A mask resource'), 'yaml')[0];
+  if (!yaml) throw new Error('the mask section gives no example file: re-point this test');
+  return `${yaml}\n`;
+}
+
+/** The contacts a sandbox copied from production holds, as a mask session starts on: the last with no email. */
+const COPIED_CONTACTS = [
+  { LastName: 'Copied 1', Email: 'one@example.com', Phone: '+33 1 00 00 00 01' },
+  { LastName: 'Copied 2', Email: 'two@example.com', Phone: '+33 1 00 00 00 02' },
+  { LastName: 'Copied 3', Email: 'three@example.com' },
+  { LastName: 'Copied 4' },
+];
 
 /** The dataset of a frozen session, as the page's digest pins it: two claims, a contact each. */
 const CLAIMS = { accounts: 2, perAccount: 1, mark: 'claim' } as const;
@@ -268,6 +293,15 @@ const EVENTS: Readonly<Record<string, (replay: Replay) => void | Promise<void>>>
     edit(replay, pinned, digest);
   },
   'followers ask for four': (replay) => edit(replay, '        count: 3\n', '        count: 4\n'),
+  'a contact copied in since': (replay) => {
+    replay.world.copyIn('Contact', [{ LastName: 'Copied 5', Email: 'five@example.com' }]);
+  },
+  'the set names a field the org lacks': (replay) =>
+    edit(
+      replay,
+      '{ maskKeepLast: 2 } }\n',
+      '{ maskKeepLast: 2 } }\n      - { fieldPattern: Contact.Nickname__c, ruleType: fake }\n',
+    ),
 };
 
 /** An account a test creates, as the colleague the sessions name. */
@@ -293,11 +327,17 @@ async function begin(kind: string): Promise<Replay> {
   // Where its links lead, as the repository rule follows the file's folder:
   // macOS's temporary folder is a link, and the refusal named both forms.
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sandforge-env-docs-')));
-  const project = join(dir, kind === 'frozen' ? 'claims-flow' : 'case-flow');
+  const project = join(
+    dir,
+    kind === 'frozen' ? 'claims-flow' : kind === 'masking' ? 'uat-masked' : 'case-flow',
+  );
   mkdirSync(join(project, '.git'), { recursive: true });
   mkdirSync(join(dir, 'sandforge'));
   const file = join(project, 'sandforge.yaml');
-  writeFileSync(file, kind === 'frozen' ? frozenExample() : example());
+  writeFileSync(
+    file,
+    kind === 'frozen' ? frozenExample() : kind === 'masking' ? maskExample() : example(),
+  );
   if (kind === 'frozen') {
     mkdirSync(join(project, 'frozen'));
     writeFileSync(
@@ -312,6 +352,7 @@ async function begin(kind: string): Promise<Replay> {
     tick: () => vi.setSystemTime(Date.now() + 30_000),
     ...options,
   });
+  if (kind === 'masking') world.copyIn('Contact', COPIED_CONTACTS);
   const runner = runnerWithCheckpoints(world, {
     locksDir: join(dir, 'locks'),
     users: { [COLLEAGUE]: 'Colleague' },
@@ -361,7 +402,9 @@ async function command(replay: Replay, args: string[]): Promise<{ said: string; 
       .replaceAll(replay.dir, HOME)
       .replace(paths, (path) => path.replaceAll('\\', '/'))
       // A checkpoint's id ends in four random characters: the page gives them as a1b2.
-      .replace(/\b(ck|rw|pv)-(\d{8}-\d{6})-[a-z0-9]{4}\b/g, '$1-$2-a1b2'),
+      .replace(/\b(ck|rw|pv)-(\d{8}-\d{6})-[a-z0-9]{4}\b/g, '$1-$2-a1b2')
+      // A masking's snapshot is named after its run's id, which ends in six: the page gives them as a1b2c3.
+      .replace(/\b(cli-dataops-anonymize-\d+)-[a-z0-9]{1,6}-snapshot\b/g, '$1-a1b2c3-snapshot'),
     code,
   };
 }
@@ -456,18 +499,28 @@ describe('docs/environments.md', () => {
     }
     // What the page names as not there yet is named so.
     const later = new Set(['--out', '--plan']);
-    // The frozen section names the lines of sandforge-frozen too: the flags
-    // that script reads, there alone.
+    // The frozen section names the lines of sandforge-frozen too, and the
+    // mask section those of sandforge-dataops: the flags each script reads,
+    // there alone.
     const frozen = section(DOC, '### A frozen resource');
-    const outside = flagsIn(base.replace(frozen, ''));
+    const mask = section(DOC, '### A mask resource');
+    const outside = flagsIn(base.replace(frozen, '').replace(mask, ''));
     expect([...outside].filter((flag) => !read.has(flag) && !later.has(flag))).toEqual([]);
     const frozenRead = frozenFlags();
     expect(frozenRead.has('--max-total')).toBe(true);
     expect([...flagsIn(frozen)].filter((flag) => !read.has(flag) && !frozenRead.has(flag))).toEqual(
       [],
     );
+    const dataopsRead = dataopsFlags();
+    expect(dataopsRead.has('--restore')).toBe(true);
+    expect([...flagsIn(mask)].filter((flag) => !read.has(flag) && !dataopsRead.has(flag))).toEqual(
+      [],
+    );
     expect(
-      [...named].filter((flag) => !read.has(flag) && !frozenRead.has(flag) && !later.has(flag)),
+      [...named].filter(
+        (flag) =>
+          !read.has(flag) && !frozenRead.has(flag) && !dataopsRead.has(flag) && !later.has(flag),
+      ),
     ).toEqual([]);
     for (const flag of later) expect(read.has(flag), flag).toBe(false);
   });
@@ -605,6 +658,38 @@ describe('docs/environments.md', () => {
       ],
       ['`resources.<name>.accept`, `kind: forge`', 'accept', forge({ accept: { misspelt: 1 } })],
     );
+    const mask = (
+      resource: Record<string, unknown>,
+      rule: Record<string, unknown> = { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+    ) => ({
+      version: 1,
+      name: 'e',
+      masking: { s: { rules: [rule] } },
+      resources: { r: { kind: 'mask', rules: 's', object: 'Contact', ...resource } },
+    });
+    places.push(
+      [
+        '`masking.<set>`',
+        'a rule set',
+        { ...mask({}), masking: { s: { rules: [], misspelt: 1 } } },
+      ],
+      [
+        '`masking.<set>.rules[]`',
+        'a masking rule',
+        mask({}, { fieldPattern: 'Contact.Email', ruleType: 'fake', misspelt: 1 }),
+      ],
+      [
+        '`….rules[].config`',
+        'a masking rule’s config',
+        mask({}, { fieldPattern: 'Contact.Email', ruleType: 'mask', config: { misspelt: 1 } }),
+      ],
+      ['`resources.<name>`, `kind: mask`', 'a mask resource', mask({ misspelt: 1 })],
+      [
+        '`resources.<name>.rules`',
+        'a template that ships',
+        mask({ rules: { template: 'tpl-gdpr-standard', misspelt: 1 } }),
+      ],
+    );
     const table = rows(section(DOC, '### Every key'));
     for (const [where, what, doc] of places) {
       const row = table.find(([cell]) => cell === where);
@@ -671,7 +756,7 @@ describe('docs/environments.md', () => {
     const all = sessions();
     // Positive control: the walk-through and the refusals, on every kind of org.
     expect(new Set(all.map((s) => s.start))).toEqual(
-      new Set(['frozen', 'scratch', 'then', 'production', 'sandbox', 'developer']),
+      new Set(['frozen', 'masking', 'scratch', 'then', 'production', 'sandbox', 'developer']),
     );
     expect(all.length).toBeGreaterThan(20);
 
@@ -750,7 +835,7 @@ describe('docs/environments.md', () => {
       "Its lines go on to this process's stderr as they\n * come",
     );
     expect(DOC).toContain(
-      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource --, run in a process of its own with `--json`',
+      'Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource, `sandforge-dataops` for a mask resource --, run in a process of its own with `--json`',
     );
     expect(DOC).toContain('Each script it runs says its own lines too, on stderr, as they come');
     // The file's two checks: its own schema, then Seed's, as the panel's.
@@ -1101,14 +1186,11 @@ describe('docs/environments.md', () => {
 
   it('says what this SandForge does not do yet, as the code refuses it', () => {
     const later = section(DOC, '## Not yet');
-    expect(SCHEMA).toContain("const LATER_KINDS: readonly string[] = ['mask'];");
-    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed, forge and frozen resources';");
-    expect(SCHEMA).toContain(
-      '`Resources of kind ${kind} come with a later SandForge: this one applies ${KINDS_APPLIED}`',
-    );
-    expect(later).toContain(
-      '`Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources`',
-    );
+    // Every kind of version 1 is applied: none waits for a later SandForge.
+    expect(SCHEMA).toContain('const LATER_KINDS: readonly string[] = [];');
+    expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed, forge, frozen and mask resources';");
+    expect(later).toContain('This version applies seed, forge, frozen and mask resources');
+    expect(later).not.toContain('Masking');
     // No saved plan, no output.
     expect(commandsRead()).not.toContain('output');
     expect(later).toContain('no `plan --out`, no `apply --plan`');
@@ -1139,6 +1221,7 @@ describe('docs/environments.md', () => {
     expect(later).not.toContain('Parents drawn by Id');
     // The MCP server's tools plan, apply and destroy an environment: docs/mcp.md says how.
     expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).toContain("script: 'sandforge-env'");
+    expect(later).not.toContain('MCP server');
   });
 });
 
@@ -1429,6 +1512,122 @@ describe('the frozen resource and the references between resources, on the page'
   });
 });
 
+describe('the mask resource, on the page', () => {
+  const REWIND_CODE = source(`${CLI_DIR}/env/envRewind.ts`);
+  /** Code with its string literals joined across the lines they are split on. */
+  const joined = (code: string): string => code.replace(/['`] \+\n\s+['`]/g, '');
+
+  it('says what a mask resource is checked by, takes first, keeps and leaves, in the words of the code that does it', () => {
+    const mask = section(DOC, '### A mask resource');
+    const pins: Array<[string, string, string]> = [
+      [
+        MASK_KIND,
+        'anonymizationTemplateSavePayloadSchema.safeParse({ name, rules: set.rules })',
+        "each rule as the DataOps panel saves a template's and held to that save",
+      ],
+      [
+        MASK_KIND,
+        'has no rule for ${object}: a run would mask nothing',
+        'A rule set with no rule for its object is refused before any org is reached, exit `2`',
+      ],
+      [
+        DATAOPS,
+        'and writes nothing unless the snapshot holds every one of\nthem',
+        'and writes nothing unless the snapshot holds every one of them',
+      ],
+      [MASK_KIND, 'return `dataops/${resource}`;', '`dataops/<resource>/` beside the state'],
+      [
+        MASK_KIND,
+        'missingFieldLine(missing.objectApiName, missing.fieldApiName)',
+        "blocks the resource, in the script's own words",
+      ],
+      [
+        MASK_KIND,
+        'its condition selects other records than it masked',
+        'once it selects others -- records copied in since, which hold their own values --, it is drifted',
+      ],
+      [
+        MASK_KIND,
+        'and takes nothing back first: the values they held before any masking stay only in',
+        "taking nothing back first: the values they held before any masking stay only in the first run's snapshot",
+      ],
+      [
+        MASK_KIND,
+        'await rm(dir, { recursive: true, force: true });',
+        'delete its store, its snapshots with it',
+      ],
+      [
+        SCHEMA,
+        'a file with a mask resource takes none',
+        'A file with a mask resource takes no `checkpoint.before`, exit `2`',
+      ],
+      [
+        REWIND_CODE,
+        "code: 'MASKED',",
+        '`destroy --rewind` is refused while the state names a mask resource',
+      ],
+      [
+        APPLY,
+        "if (before.kind === 'mask') return forgetMask(deps, state, ask);",
+        'and an apply of a file it left, delete its store',
+      ],
+    ];
+    for (const [code, said, page] of pins) {
+      expect(joined(code), said).toContain(said);
+      expect(mask, page).toContain(page);
+    }
+    // The refusals the page quotes, in the code's words.
+    const refused = section(DOC, '## What is refused');
+    const quoted: Array<[string, string]> = [
+      ['a run would mask nothing', MASK_KIND],
+      ['destroy never unmasks', REWIND_CODE],
+    ];
+    for (const [words, code] of quoted) {
+      expect(refused, words).toContain(`\`${words}\``);
+      expect(joined(code), words).toContain(words);
+    }
+    // The help says it, and the page of what destroy leaves.
+    expect(help()).toContain("destroy never unmasks: it deletes the resource's store");
+    expect(section(DOC, '## What destroy takes back, and what it leaves')).toContain(
+      'A mask resource is never unmasked: its store is deleted',
+    );
+  });
+
+  it('names a DataOps template that ships, as the check names them', () => {
+    const read = checkEnvFile(
+      {
+        version: 1,
+        name: 'e',
+        resources: { r: { kind: 'mask', rules: { template: 'tpl-none' } } },
+      },
+      HERE,
+    );
+    const refusal = 'refusals' in read ? (read.refusals[0]?.message ?? '') : '';
+    const ids = /there is no DataOps template "tpl-none" that ships: there is (.+)$/
+      .exec(refusal)?.[1]
+      ?.split(', ');
+    expect(ids?.length).toBeGreaterThan(2);
+    expect(ids).toContain('tpl-gdpr-standard');
+    expect(section(DOC, '### A mask resource')).toContain('`{ template: tpl-gdpr-standard }`');
+  });
+
+  it('gives an example file that passes the check validate runs: a sandbox listed, a set of rules, a mask resource', () => {
+    const read = documentOf(maskExample());
+    if (!('document' in read)) throw new Error(read.refusal);
+    const checked = checkEnvFile(read.document, HERE);
+    if ('refusals' in checked) {
+      throw new Error(checked.refusals.map((r) => `${r.path.join('.')}: ${r.message}`).join('\n'));
+    }
+    expect(checked.checked.runs['customers']).toMatchObject({
+      kind: 'mask',
+      source: { set: 'contact-points' },
+      object: 'Contact',
+    });
+    // Its condition asks whether a field is empty: the masking keeps it selected.
+    expect(checked.checked.warnings).toEqual([]);
+  });
+});
+
 describe('the pages that send a reader to docs/environments.md', () => {
   const GUIDE = source('ci-examples/README.md');
   const PIPELINE = source('ci-examples/github-actions.yml');
@@ -1550,7 +1749,8 @@ describe('the pages that send a reader to docs/environments.md', () => {
     expect(faq).toContain('](environments.md)');
     expect(faq).toContain('refuses a production org before anything is read');
     expect(faq).toContain("ids, counts and dates, never a record's values");
-    expect(faq).toContain('masking is not yet among them');
+    expect(faq).toContain('and a mask resource masks records the org already holds');
+    expect(faq).not.toContain('masking is not yet among them');
   });
 
   it('the FAQ names the states and the locks among what SandForge keeps on the machine', () => {

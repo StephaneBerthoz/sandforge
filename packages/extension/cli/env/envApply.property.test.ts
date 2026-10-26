@@ -5,16 +5,19 @@
  * their name or by the ids that resource created (`parents.from`); forge
  * resources cloning a group of accounts and their contacts from a memory
  * source org; frozen resources loading a dataset of a group's accounts and
- * contacts — and what a team does to them
- * over weeks — a count edited, a resource added to the file or taken out of
- * it, apply, apply with --replace or --replace-drifted, a colleague deleting
- * or changing records by id, a validation rule refusing a record, a CI job
- * stopped while the verb plans, or before, during or after one of the
- * scripts an apply or a destroy spawns, destroy.
+ * contacts; mask resources masking the contacts copied into the org, as a
+ * sandbox copied from production holds them, with one rule set or the other
+ * — and what a team does to them
+ * over weeks — a count edited, a rule set switched, a resource added to the
+ * file or taken out of it, apply, apply with --replace or --replace-drifted,
+ * a colleague deleting or changing records by id, a contact copied in since,
+ * a validation rule refusing a record, a CI job stopped while the verb
+ * plans, or before, during or after one of the scripts an apply or a destroy
+ * spawns, destroy.
  *
  * Each history runs the command line's own `main`, as a terminal or a CI
- * step runs it, its scripts `sandforge-seed`'s, `sandforge-clone`'s and
- * `sandforge-frozen`'s own `main` in this process.
+ * step runs it, its scripts `sandforge-seed`'s, `sandforge-clone`'s,
+ * `sandforge-frozen`'s and `sandforge-dataops`'s own `main` in this process.
  * The records are counted by the ids each run kept, through the run the state
  * names, and by what the org took as each script ran: never by what a script
  * said it wrote.
@@ -35,7 +38,12 @@
  *   org's own as it was, and keeps the state with every resource destroyed;
  *   or it exits 3, naming per object exactly what it left;
  * - a run a removal took back whole is never taken back, or read, again;
- * - what a plan says a resource would write is what the apply then writes.
+ * - what a plan says a resource would write is what the apply then writes;
+ * - masking is one-way: a contact a masking wrote over never holds its own
+ *   values again, nothing is ever restored, and a destroy that ended 0 left
+ *   no mask resource's store, its snapshots with it; a masking that ran
+ *   wrote over every contact its condition selects, and a plan says drift
+ *   exactly when that condition selects others since.
  *
  * A fixed seed keeps the histories the same from run to run; fast-check
  * prints it, with the history, when a property fails.
@@ -153,9 +161,12 @@ interface ResourceSpec {
   name: string;
   /**
    * A seed resource; a forge resource cloning a group of the source's
-   * accounts; or a frozen resource loading a group's dataset.
+   * accounts; a frozen resource loading a group's dataset; or a mask
+   * resource masking the contacts copied into the org.
    */
-  kind: 'seed' | 'forge' | 'frozen';
+  kind: 'seed' | 'forge' | 'frozen' | 'mask';
+  /** A mask resource's: which of the two rule sets it masks with. */
+  rules?: number;
   seed?: number;
   dependsOn: string[];
   /** A forge or a frozen resource's: its group's accounts and their contacts, as many of each. */
@@ -205,75 +216,107 @@ afterAll(() => rmSync(datasetsRoot, { recursive: true, force: true }));
 /** The configuration a frozen resource names, committed in the project. */
 const FROZEN_CONFIG = 'frozen.json';
 
+/** The name the contacts copied into the org bear: what a mask resource's condition selects. */
+const COPIED = 'Copied contact';
+
+/** The two rule sets a mask resource masks with: the email made up again; that and the phone masked. */
+const MASKING_SETS: ReadonlyArray<Record<string, unknown>> = [
+  { rules: [{ fieldPattern: 'Contact.Email', ruleType: 'fake' }] },
+  {
+    rules: [
+      { fieldPattern: 'Contact.Email', ruleType: 'fake' },
+      { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+    ],
+  },
+];
+
+const setOf = (resource: ResourceSpec): string => `contacts-${(resource.rules ?? 0) % 2}`;
+
 /** The file a history writes, as `sandforge.yaml`: JSON, which YAML 1.2 reads. */
 function documentOf(spec: readonly ResourceSpec[]): Record<string, unknown> {
+  const masks = spec.filter((resource) => resource.kind === 'mask');
   return {
     version: 1,
     name: ENV,
     orgs: { uat: { alias: SOURCE_ALIAS } },
+    ...(masks.length > 0
+      ? {
+          masking: Object.fromEntries(
+            masks.map((resource) => [setOf(resource), MASKING_SETS[(resource.rules ?? 0) % 2]]),
+          ),
+        }
+      : {}),
     resources: Object.fromEntries(
       spec.map((resource) => [
         resource.name,
-        resource.kind === 'frozen'
+        resource.kind === 'mask'
           ? {
-              kind: 'frozen',
+              kind: 'mask',
               ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-              config: FROZEN_CONFIG,
-              dataset: {
-                path: DATASETS.get(groupOf(resource))?.dir ?? '',
-                version: `1.${groupOf(resource)}.0`,
-                digest: DATASETS.get(groupOf(resource))?.digest ?? '',
-              },
+              rules: setOf(resource),
+              object: 'Contact',
+              where: `LastName = '${COPIED}'`,
             }
-          : resource.kind === 'forge'
+          : resource.kind === 'frozen'
             ? {
-                kind: 'forge',
-                source: 'uat',
+                kind: 'frozen',
                 ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-                tables: [
-                  { object: 'Account', where: `Name = '${groupMark(groupOf(resource))}'` },
-                  { object: 'Contact', where: `LastName = '${groupMark(groupOf(resource))}'` },
-                ],
+                config: FROZEN_CONFIG,
+                dataset: {
+                  path: DATASETS.get(groupOf(resource))?.dir ?? '',
+                  version: `1.${groupOf(resource)}.0`,
+                  digest: DATASETS.get(groupOf(resource))?.digest ?? '',
+                },
               }
-            : {
-                kind: 'seed',
-                ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
-                ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
-                objects: resource.objects.map((object) => ({
-                  object: object.object,
-                  count: object.count,
-                  fields: [
-                    {
-                      fieldApiName: NAME_FIELD[object.object],
-                      ruleType: 'static',
-                      config: { staticValue: markOf(resource.name) },
-                    },
+            : resource.kind === 'forge'
+              ? {
+                  kind: 'forge',
+                  source: 'uat',
+                  ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+                  tables: [
+                    { object: 'Account', where: `Name = '${groupMark(groupOf(resource))}'` },
+                    { object: 'Contact', where: `LastName = '${groupMark(groupOf(resource))}'` },
                   ],
-                  ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
-                })),
-                ...(resource.parents !== undefined
-                  ? {
-                      relations: [
-                        {
-                          lookup: 'Contact.AccountId',
-                          parents:
-                            resource.parents.from === resource.name
-                              ? { object: 'Account' }
-                              : resource.parents.byIds === true
-                                ? { from: `${resource.parents.from}.Account` }
-                                : {
-                                    object: 'Account',
-                                    existing: {
-                                      where: `Name = '${markOf(resource.parents.from)}'`,
-                                      limit: PARENTS_LIMIT,
+                }
+              : {
+                  kind: 'seed',
+                  ...(resource.seed !== undefined ? { seed: resource.seed } : {}),
+                  ...(resource.dependsOn.length > 0 ? { dependsOn: resource.dependsOn } : {}),
+                  objects: resource.objects.map((object) => ({
+                    object: object.object,
+                    count: object.count,
+                    fields: [
+                      {
+                        fieldApiName: NAME_FIELD[object.object],
+                        ruleType: 'static',
+                        config: { staticValue: markOf(resource.name) },
+                      },
+                    ],
+                    ...(object.batchSize !== undefined ? { batchSize: object.batchSize } : {}),
+                  })),
+                  ...(resource.parents !== undefined
+                    ? {
+                        relations: [
+                          {
+                            lookup: 'Contact.AccountId',
+                            parents:
+                              resource.parents.from === resource.name
+                                ? { object: 'Account' }
+                                : resource.parents.byIds === true
+                                  ? { from: `${resource.parents.from}.Account` }
+                                  : {
+                                      object: 'Account',
+                                      existing: {
+                                        where: `Name = '${markOf(resource.parents.from)}'`,
+                                        limit: PARENTS_LIMIT,
+                                      },
                                     },
-                                  },
-                          distribution: { mode: 'perParent', count: resource.parents.perParent },
-                        },
-                      ],
-                    }
-                  : {}),
-              },
+                            distribution: { mode: 'perParent', count: resource.parents.perParent },
+                          },
+                        ],
+                      }
+                    : {}),
+                },
       ]),
     ),
   };
@@ -309,7 +352,8 @@ function expectedCount(
 
 /** What a resource of a generated file is made of, before its name and place are known. */
 interface Draft {
-  shape: 'accounts' | 'assets' | 'family' | 'contacts' | 'under' | 'drawn' | 'forge' | 'frozen';
+  shape:
+    'accounts' | 'assets' | 'family' | 'contacts' | 'under' | 'drawn' | 'forge' | 'frozen' | 'mask';
   counts: [number, number];
   perParent: number;
   /** Which earlier resource writing accounts an `under` resource draws from. */
@@ -327,8 +371,11 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
   // Contacts drawn from another resource's accounts find them by their name,
   // which a forge or a frozen resource's, named as their source names them,
   // do not bear; drawn by their ids, any resource's accounts will do.
+  // A masking creates no record to draw from.
   const sources = earlier.filter((each) => each.kind === 'seed' && countOf(each, 'Account') > 0);
-  const creators = earlier.filter((each) => each.kind !== 'seed' || countOf(each, 'Account') > 0);
+  const creators = earlier.filter(
+    (each) => each.kind !== 'mask' && (each.kind !== 'seed' || countOf(each, 'Account') > 0),
+  );
   // Contacts drawn from accounts no resource before writes: the accounts, then.
   const shape =
     (draft.shape === 'under' && sources.length === 0) ||
@@ -342,6 +389,9 @@ function resourceOf(draft: Draft, name: string, earlier: readonly ResourceSpec[]
   if (draft.chain && previous !== undefined) dependsOn.add(previous.name);
   let objects: ObjectSpec[];
   let parents: ResourceSpec['parents'];
+  if (shape === 'mask') {
+    return { name, kind: 'mask', rules: first % 2, dependsOn: [...dependsOn], objects: [] };
+  }
   if (shape === 'forge' || shape === 'frozen') {
     const group = GROUPS[first % GROUPS.length] ?? 1;
     return {
@@ -424,6 +474,7 @@ const draftArb: fc.Arbitrary<Draft> = fc.record({
     { weight: 1, arbitrary: fc.constant('assets' as const) },
     { weight: 2, arbitrary: fc.constant('forge' as const) },
     { weight: 2, arbitrary: fc.constant('frozen' as const) },
+    { weight: 2, arbitrary: fc.constant('mask' as const) },
   ),
   counts: fc.tuple(fc.integer({ min: 1, max: 6 }), fc.integer({ min: 1, max: 6 })),
   perParent: fc.integer({ min: 1, max: 2 }),
@@ -475,6 +526,8 @@ type Op =
   | { op: 'drift'; how: 'delete' | 'change'; pick: number; two: boolean }
   /** The org refuses the n-th record of an object the next apply sends, as a validation rule would. */
   | { op: 'refuse'; object: ObjectName; nth: number }
+  /** A contact copied into the org since, under a mask resource's condition, holding its own values. */
+  | { op: 'copy' }
   | { op: 'destroy'; stop: StopPlan | undefined };
 
 const stopArb: fc.Arbitrary<StopPlan> = fc.record({
@@ -535,6 +588,7 @@ const opArb = (stop: fc.Arbitrary<StopPlan | undefined>): fc.Arbitrary<Op> =>
         nth: fc.nat({ max: 3 }),
       }),
     },
+    { weight: 3, arbitrary: fc.record({ op: fc.constant('copy' as const) }) },
   );
 
 const maybeStop = fc.oneof(
@@ -591,6 +645,13 @@ function resourceRunOf(args: readonly string[]): { resource: string; n: number; 
   if (args.includes('--template') && args.includes('--dry-run')) {
     const template = /[\\/]([a-z][a-z0-9]*)\.json$/.exec(valueAfter(args, '--template'));
     if (template !== null) return { resource: template[1] ?? '', n: 0 };
+  }
+  // A masking's line names its resource by its store, and its rank by the
+  // rules it was given: the run's beside the state, or the dry run's of the plan.
+  if (args[0] === 'anonymize') {
+    const store = /[\\/]([a-z][a-z0-9]*)(?:\.dataops)?$/.exec(valueAfter(args, '--store'));
+    const ofRun = /templates[\\/]([a-z][a-z0-9]*)\.(\d+)\.json$/.exec(valueAfter(args, '--rules'));
+    return { resource: store?.[1] ?? '', n: ofRun !== null ? Number(ofRun[2]) : 0 };
   }
   // A Frozen line names its resource and rank by the configuration it was
   // given: the run's beside the state, or the dry run's of the plan.
@@ -649,6 +710,19 @@ function ownRecords(world: EnvWorld): string[] {
   return ids;
 }
 
+/** A contact copied into the org, as a sandbox copied from production holds one: its id and its email. */
+function copyContact(world: EnvWorld, n: number): [string, string] {
+  const email = `copied${n}@example.com`;
+  const [id] = world.copyIn(
+    'Contact',
+    [{ LastName: COPIED, Email: email, Phone: `+33 1 00 00 00 ${String(n).padStart(2, '0')}` }],
+    OTHER_USER,
+  );
+  return [id ?? '', email];
+}
+
+/** The maskings the histories ran, which a property holds itself to having seen. */
+let masksRun = 0;
 /** The clones the histories ran, which a property holds itself to having seen. */
 let clonesRun = 0;
 /** The Frozen loads the histories ran, and the seeds drawing parents by their ids. */
@@ -697,6 +771,10 @@ class History {
   drifted = false;
   /** What the org refuses of the next apply, until it has run. */
   refusing: { object: ObjectName; nth: number } | undefined;
+  /** The contacts copied into the org, by id, with the email each held: what a masking writes over. */
+  readonly copied = new Map<string, string>();
+  /** The copied contacts a masking wrote over: none of them may ever hold its own email again. */
+  readonly maskedOnce = new Set<string>();
   /** What the history did so far, for a failure to say. */
   readonly said: string[] = [];
   private readonly project: string;
@@ -740,6 +818,10 @@ class History {
     this.sourceBefore = sourceSnapshotOf(this.world);
     this.own = ownRecords(this.world);
     this.ownBefore = this.ownSnapshot();
+    for (const n of [1, 2]) {
+      const [id, email] = copyContact(this.world, n);
+      this.copied.set(id, email);
+    }
     const opened = openEnvStore({ journalDir: this.journalDir, fileFolder: this.project });
     if (!('store' in opened)) throw new Error(opened.refusal);
     this.store = opened.store;
@@ -756,6 +838,29 @@ class History {
         this.world.org.all(object).filter((row) => this.own.includes(row.Id)),
       ),
     );
+  }
+
+  /** A copied contact's email, as the org holds it now. */
+  private emailOf(id: string): unknown {
+    return this.world.org.all('Contact').find((row) => row.Id === id)?.['Email'];
+  }
+
+  /**
+   * Masking is one-way: a copied contact a masking wrote over never holds its
+   * own email again, whatever runs after — a replace, a removal, a destroy.
+   */
+  neverUnmasked(): void {
+    for (const [id, email] of this.copied) {
+      if (this.emailOf(id) !== email) this.maskedOnce.add(id);
+    }
+    for (const id of this.maskedOnce) {
+      expect(this.emailOf(id), `${id} unmasked\n${this.message()}`).not.toBe(this.copied.get(id));
+    }
+  }
+
+  /** Whether every contact copied into the org holds a value a masking wrote. */
+  everyCopiedMasked(): boolean {
+    return [...this.copied].every(([id, email]) => this.emailOf(id) !== email);
   }
 
   isLive(id: string): boolean {
@@ -816,9 +921,13 @@ class History {
       const firing = (): void => {
         if (seen++ === stop.record) this.fire();
       };
-      if (kind === 'run') this.world.onCreate = firing;
+      // A masking writes over the records it masks, one by one.
+      if (kind === 'run' && script === 'sandforge-dataops') this.world.onUpdate = firing;
+      else if (kind === 'run') this.world.onCreate = firing;
       else this.world.org.beforeDelete = firing;
     }
+    // Masking is one-way: nothing an environment runs puts a snapshot back.
+    expect(args, `a script was asked to unmask\n${this.message()}`).not.toContain('--restore');
     // What the runner sends the script once the verb is stopped: SIGINT,
     // which the script, in this process, hears as its own.
     const interrupt = (): void => {
@@ -833,8 +942,10 @@ class History {
     } finally {
       signal.removeEventListener('abort', interrupt);
       this.world.onCreate = undefined;
+      this.world.onUpdate = undefined;
       this.world.org.beforeDelete = undefined;
     }
+    this.neverUnmasked();
     if (snapshot !== undefined) {
       expect(snapshotOf(this.world), `a ${kind} wrote to the org\n${this.message()}`).toBe(
         snapshot,
@@ -855,6 +966,7 @@ class History {
     this.calls.push({ kind, run, code: ran.code });
     if (script === 'sandforge-clone' && kind === 'run') clonesRun += 1;
     if (script === 'sandforge-frozen' && kind === 'run') loadsRun += 1;
+    if (script === 'sandforge-dataops' && kind === 'run') masksRun += 1;
     if (script === 'sandforge-seed' && kind === 'run' && ran.code === 0) {
       const template = valueAfter(args, '--template-file');
       if (existsSync(template) && readFileSync(template, 'utf8').includes('"records"')) {
@@ -922,6 +1034,8 @@ class History {
    */
   async idsOfRun(run: Pick<EnvRun, 'script' | 'runId' | 'summary' | 'sas'>): Promise<Set<string>> {
     const ids = new Set<string>();
+    // A masking writes over records the org holds, and creates none.
+    if (run.script === 'sandforge-dataops') return ids;
     if (run.script === 'sandforge-frozen') {
       if (run.sas === undefined) return ids;
       const sas = this.store.sasOf(ORG_ID, ENV, run.sas);
@@ -1016,6 +1130,11 @@ class History {
     switch (op.op) {
       case 'edit': {
         const resource = this.spec[op.at % this.spec.length];
+        if (resource?.kind === 'mask') {
+          // The other rule set: the phone masked too, or left as it is.
+          resource.rules = op.count % 2;
+          return;
+        }
         if (resource?.kind === 'forge' || resource?.kind === 'frozen') {
           // Another group of the source, or another dataset: as many
           // accounts, a contact under each.
@@ -1052,6 +1171,11 @@ class History {
       case 'refuse':
         this.refusing = { object: op.object, nth: op.nth };
         return;
+      case 'copy': {
+        const [id, email] = copyContact(this.world, this.copied.size + 1);
+        this.copied.set(id, email);
+        return;
+      }
       case 'drift':
         this.driftBy(op);
         return;
@@ -1113,6 +1237,11 @@ class History {
       if (ran.code === 0) {
         await this.holdsTheFile();
         await this.driftIsSaid();
+        // A masking that ran whole wrote over every record its condition selects.
+        const masked = result.steps.some(
+          (step) => step.script === 'sandforge-dataops' && step.phase === 'run',
+        );
+        if (masked) expect(this.everyCopiedMasked(), message).toBe(true);
       }
     }
     if (ran.code === 0 && this.checks.has('idempotent')) {
@@ -1261,11 +1390,20 @@ class History {
     const touched = [...this.wrote].filter(
       ([id, by]) => held.has(by.runId) && (this.deleted.has(id) || this.changed.has(id)),
     );
+    // A masking applied drifts once its condition selects other records than
+    // it went through: a contact copied in since holds its own values.
+    const maskDrift = Object.entries(state?.resources ?? {}).filter(
+      ([, resource]) =>
+        resource.kind === 'mask' &&
+        resource.status === 'applied' &&
+        (resource.runs.at(-1)?.objects[0]?.masked ?? 0) !== this.copied.size,
+    );
     this.said.push('plan --fail-on-drift');
     const planned = await this.env(['plan', '--fail-on-drift']);
-    expect(planned.code, `others touched ${JSON.stringify(touched)}\n${this.message()}`).toBe(
-      touched.length > 0 ? 3 : 0,
-    );
+    expect(
+      planned.code,
+      `others touched ${JSON.stringify(touched)}, masks drifted ${JSON.stringify(maskDrift)}\n${this.message()}`,
+    ).toBe(touched.length > 0 || maskDrift.length > 0 ? 3 : 0);
   }
 
   /** Every record a run wrote is named by what the state takes the run back from. */
@@ -1309,6 +1447,17 @@ class History {
       if (action.action !== 'create' && action.action !== 'replace') continue;
       const step = result.steps.find((s) => s.resource === action.resource && s.phase === 'run');
       if (step === undefined || step.exitCode !== 0) continue;
+      if (action.kind === 'mask') {
+        // A masking creates nothing: what it went through is what its plan counted.
+        for (const counted of action.objects) {
+          const did = step.objects.find((each) => each.object === counted.object);
+          expect(did?.created ?? 0, message).toBe(0);
+          expect(did?.masked ?? 0, `${action.resource} ${counted.object}\n${message}`).toBe(
+            counted.wouldCreate ?? 0,
+          );
+        }
+        continue;
+      }
       const ran = state?.resources[action.resource]?.runs.find((r) => r.n === step.run);
       const runId =
         ran !== undefined ? keyOfRun(state?.lineage ?? '', action.resource, ran) : undefined;
@@ -1344,6 +1493,8 @@ class History {
     expect(this.ownSnapshot(), `the org's own records\n${message}`).toBe(this.ownBefore);
     const left = this.liveRecords();
     if (![...this.changed].some((id) => this.isLive(id))) expect(ran.code, message).toBe(0);
+    // Never unmasked, whatever the destroy came to.
+    this.neverUnmasked();
     if (ran.code === 0) {
       expect(left, message).toEqual([]);
       // Kept, every resource destroyed: the next apply creates them again.
@@ -1353,6 +1504,14 @@ class History {
         message,
       ).toEqual(Object.keys(kept?.resources ?? {}).map(() => 'destroyed'));
       expect(kept !== undefined, `the state kept\n${message}`).toBe(held);
+      // A masking's store went with it: the snapshots, the only copy of the values it wrote over.
+      for (const [name, resource] of Object.entries(kept?.resources ?? {})) {
+        if (resource.kind !== 'mask') continue;
+        expect(
+          existsSync(this.store.sasOf(ORG_ID, ENV, `dataops/${name}`)),
+          `the store of ${name} kept\n${message}`,
+        ).toBe(false);
+      }
       return;
     }
     expect(ran.code, message).toBe(3);
@@ -1484,15 +1643,17 @@ describe('an environment on the memory org, over random files and histories', ()
   it(
     'writes what its plan counted: for each resource it runs, the records created are the plan’s, object by object',
     async () => {
-      const before = { clones: clonesRun, loads: loadsRun, draws: drawsRun };
+      const before = { clones: clonesRun, loads: loadsRun, draws: drawsRun, masks: masksRun };
       await overHistories(['counts']);
       // Positive control: the histories cloned from the source, loaded a
-      // dataset and drew parents by their ids, not only seeded. The four runs
-      // a Windows runner gives may draw none of them; the other runners hold it.
+      // dataset, drew parents by their ids and masked the contacts copied in,
+      // not only seeded. The four runs a Windows runner gives may draw none of
+      // them; the other runners hold it.
       if (RUNS >= 10) {
         expect(clonesRun).toBeGreaterThan(before.clones);
         expect(loadsRun).toBeGreaterThan(before.loads);
         expect(drawsRun).toBeGreaterThan(before.draws);
+        expect(masksRun).toBeGreaterThan(before.masks);
       }
     },
     paced(60_000),

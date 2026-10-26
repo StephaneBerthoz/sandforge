@@ -16,6 +16,7 @@ import {
   type EnvFileChecked,
   type EnvFileResolved,
 } from './envFile.js';
+import { objectsOfRun } from './envKinds.js';
 
 const FOLDER = '/work/project';
 const NOW = new Date('2026-10-25T12:00:00.000Z');
@@ -274,9 +275,9 @@ describe('checking the file', () => {
       },
     });
     for (const run of Object.values(runs)) {
-      expect(
-        run.kind !== 'frozen' && seedTemplatePayloadSchema.safeParse(run.template).success,
-      ).toBe(true);
+      expect(run.kind === 'seed' && seedTemplatePayloadSchema.safeParse(run.template).success).toBe(
+        true,
+      );
     }
   });
 
@@ -329,8 +330,8 @@ describe('checking the file', () => {
     expect(refusedWith(fileWith(['resources', 'accounts', 'dry_run'], true))).toEqual([
       expect.stringMatching(/^resources\.accounts: "dry_run" is not a key of a seed resource/),
     ]);
-    expect(refusedWith(fileWith(['resources', 'masked'], { kind: 'mask' }))).toEqual([
-      'resources.masked.kind: Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources',
+    expect(refusedWith(fileWith(['resources', 'masked'], { kind: 'scramble' }))).toEqual([
+      'resources.masked.kind: "scramble" is not a kind of resource: this SandForge applies seed, forge, frozen and mask resources',
     ]);
     expect(
       refusedWith(fileWith(['resources', 'api-token'], { kind: 'seed', template: 'x' })),
@@ -905,6 +906,128 @@ describe('a frozen resource in the file', () => {
         },
       ),
     ).not.toBe(here);
+  });
+});
+
+describe('a mask resource in the file', () => {
+  /** The file with a masking set of contact points, and a mask resource of the contacts copied in. */
+  const withMask = (
+    resource: Record<string, unknown> = {},
+    rules: unknown[] = [
+      { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+      { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+    ],
+  ): Record<string, unknown> => ({
+    ...file(),
+    masking: { 'contact-points': { rules } },
+    resources: {
+      ...(file()['resources'] as Record<string, unknown>),
+      customers: {
+        kind: 'mask',
+        rules: 'contact-points',
+        object: 'Contact',
+        where: "LastName = 'Copied'",
+        ...resource,
+      },
+    },
+  });
+
+  it('converts it into the rules sandforge-dataops --rules reads, named after its set', () => {
+    const run = checked(withMask()).runs['customers'];
+
+    expect(run).toEqual({
+      kind: 'mask',
+      source: { set: 'contact-points' },
+      rules: {
+        name: 'contact-points',
+        rules: [
+          { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+          { fieldPattern: 'Contact.Phone', ruleType: 'mask', config: { maskKeepLast: 2 } },
+        ],
+      },
+      object: 'Contact',
+      where: "LastName = 'Copied'",
+    });
+  });
+
+  it('takes a template that ships by its id, its rules as it ships them, and refuses one that does not', () => {
+    const run = checked(withMask({ rules: { template: 'tpl-gdpr-standard' } })).runs['customers'];
+
+    expect(run?.kind === 'mask' && run.rules.name).toBe('GDPR Standard');
+    expect(run?.kind === 'mask' && run.rules.rules).toEqual(
+      expect.arrayContaining([{ fieldPattern: 'Contact.Email', ruleType: 'fake' }]),
+    );
+    expect(refusedWith(withMask({ rules: { template: 'tpl-gdpr-plus' } }))).toEqual([
+      'resources.customers.rules.template: there is no DataOps template "tpl-gdpr-plus" that ships: there is tpl-gdpr-standard, tpl-ccpa-california, tpl-hipaa-health, tpl-sandbox-scrub',
+    ]);
+  });
+
+  it('holds a masking set to the rules the DataOps panel saves', () => {
+    // A field given two rules: which one masks it would be the second's, unseen.
+    expect(
+      refusedWith(
+        withMask({}, [
+          { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+          { fieldPattern: 'contact.email', ruleType: 'nullify' },
+        ]),
+      ),
+    ).toEqual([
+      'masking.contact-points.rules: refused by the rules the DataOps panel saves: A field has two rules',
+    ]);
+    expect(
+      refusedWith(withMask({}, [{ fieldPattern: 'Contact.Title', ruleType: 'constant' }])),
+    ).toEqual([
+      'masking.contact-points.rules[0].config: refused by the rules the DataOps panel saves: A Constant rule needs the value it writes, 1 to 255 characters',
+    ]);
+  });
+
+  it('refuses a rule set that masks nothing of its object, before any org is reached', () => {
+    expect(refusedWith(withMask({ object: 'Lead', where: undefined }))).toEqual([
+      'resources.customers.object: the rule set contact-points has no rule for Lead: a run would mask nothing. Name an object its rules mask, or give it a rule for this one',
+    ]);
+    // Negative control: Account takes the contact rules on its person accounts, as the script does.
+    expect(refusedWith(withMask({ object: 'Account', where: undefined }))).toEqual([]);
+  });
+
+  it('refuses a relation drawing its parents from a mask resource, which creates no record', () => {
+    const document = withMask();
+    edited(document, ['resources', 'contacts', 'relations', 0, 'parents'], {
+      from: 'customers.Contact',
+    });
+    edited(document, ['resources', 'contacts', 'dependsOn'], undefined);
+
+    expect(refusedWith(document)).toEqual([
+      'resources.contacts.relations[0].parents.from: customers is a mask resource, which creates no record: a relation draws its parents from the records a seed, a forge or a frozen resource created',
+    ]);
+  });
+
+  it('warns of a masking set no mask resource names, and of an acceptance a masking does not take', () => {
+    const document = withMask({ accept: { automation: true } });
+    (document['masking'] as Record<string, unknown>)['unused'] = {
+      rules: [{ fieldPattern: 'Lead.Email', ruleType: 'hash' }],
+    };
+
+    expect(checked(document).warnings.map(refusalLine)).toEqual([
+      'masking.unused: no mask resource names this rule set: nothing masks with it',
+      'resources.customers.accept.automation: a DataOps masking takes no acceptance of automation: what the org runs as the records are written over, it runs unasked',
+    ]);
+  });
+
+  it('lists what it masks, for validate: its object, or every one its rules name', () => {
+    const every = checked(
+      withMask({ object: undefined, where: undefined }, [
+        { fieldPattern: 'Contact.Email', ruleType: 'hash' },
+        { fieldPattern: 'Lead.Email', ruleType: 'hash' },
+        { fieldPattern: 'Contact.Phone', ruleType: 'nullify' },
+      ]),
+    ).runs['customers'];
+    const one = checked(withMask()).runs['customers'];
+
+    expect(every !== undefined && objectsOfRun(every)).toEqual([
+      { object: 'Contact' },
+      { object: 'Lead' },
+    ]);
+    expect(one !== undefined && objectsOfRun(one)).toEqual([{ object: 'Contact' }]);
   });
 });
 

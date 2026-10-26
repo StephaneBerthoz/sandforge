@@ -3,7 +3,8 @@
  * what a resource converts into, what of it a fingerprint is of, the lines
  * of its script and the readers of what that script answers.
  *
- * Each kind is one module of `kinds/` — `seed.ts`, `forge.ts`, `frozen.ts` —
+ * Each kind is one module of `kinds/` — `seed.ts`, `forge.ts`, `frozen.ts`,
+ * `mask.ts` —
  * and this one picks the kind's own for what the file, the plan, the apply
  * and the destroy ask. A kind added later is one module more and one case
  * more in each function here; nothing else of the environment reads a kind.
@@ -12,6 +13,7 @@
 import type {
   EnvForgeRun,
   EnvFrozenRun,
+  EnvMaskRun,
   EnvResource,
   EnvResourceKind,
   EnvSeedRun,
@@ -59,6 +61,21 @@ import {
   type FrozenRemovalAnswer,
 } from './kinds/frozen.js';
 import {
+  DATAOPS_SCRIPT,
+  maskApplyLine,
+  maskDryRunCount,
+  maskDryRunLine,
+  maskNotes,
+  maskObjectsOf,
+  maskRulesFileOf,
+  maskRunOfResource,
+  maskWritten,
+  readMaskDryRun,
+  type EnvMaskRules,
+  type MaskDryRunAnswer,
+  type MaskPlace,
+} from './kinds/mask.js';
+import {
   SEED_SCRIPT,
   readSeedDryRun,
   readSeedPreview,
@@ -79,19 +96,22 @@ import {
 } from './kinds/seed.js';
 
 /** The kinds of resource this SandForge applies. */
-export type EnvAppliedKind = 'seed' | 'forge' | 'frozen';
+export type EnvAppliedKind = 'seed' | 'forge' | 'frozen' | 'mask';
 
 /** The scripts those kinds run: each one a runner starts, and a state names. */
-export type EnvKindScript = typeof SEED_SCRIPT | typeof FORGE_SCRIPT | typeof FROZEN_SCRIPT;
+export type EnvKindScript =
+  typeof SEED_SCRIPT | typeof FORGE_SCRIPT | typeof FROZEN_SCRIPT | typeof DATAOPS_SCRIPT;
 
 /** What a resource of the file runs, converted and checked, with its kind. */
 export type EnvKindRun =
   | ({ kind: 'seed' } & EnvSeedRun)
   | ({ kind: 'forge' } & EnvForgeRun)
-  | ({ kind: 'frozen' } & EnvFrozenRun);
+  | ({ kind: 'frozen' } & EnvFrozenRun)
+  | ({ kind: 'mask' } & EnvMaskRun);
 
 /** A dry run's answer, as its kind's script printed it. */
-export type EnvDryRunAnswer = SeedDryRunAnswer | ForgeDryRunAnswer | FrozenDryRunAnswer;
+export type EnvDryRunAnswer =
+  SeedDryRunAnswer | ForgeDryRunAnswer | FrozenDryRunAnswer | MaskDryRunAnswer;
 
 /** A removal preview's answer, as its kind's script printed it. */
 export type EnvPreviewAnswer = SeedPreviewAnswer | ForgePreviewAnswer | FrozenPreviewAnswer;
@@ -104,11 +124,12 @@ const SCRIPTS: Readonly<Record<EnvAppliedKind, EnvKindScript>> = {
   seed: SEED_SCRIPT,
   forge: FORGE_SCRIPT,
   frozen: FROZEN_SCRIPT,
+  mask: DATAOPS_SCRIPT,
 };
 
 /** Whether this SandForge applies resources of `kind`. */
 export function isAppliedKind(kind: EnvResourceKind): kind is EnvAppliedKind {
-  return kind === 'seed' || kind === 'forge' || kind === 'frozen';
+  return kind === 'seed' || kind === 'forge' || kind === 'frozen' || kind === 'mask';
 }
 
 /**
@@ -120,7 +141,7 @@ export function scriptOfKind(kind: EnvResourceKind): EnvKindScript {
   if (!isAppliedKind(kind)) {
     throw new Error(
       `The state holds a resource of kind ${kind}, which a later SandForge applies: this one ` +
-        'applies seed, forge and frozen resources, and takes back nothing of another kind.',
+        'applies seed, forge, frozen and mask resources, and takes back nothing of another kind.',
     );
   }
   return SCRIPTS[kind];
@@ -133,6 +154,7 @@ export function scriptOfKind(kind: EnvResourceKind): EnvKindScript {
  * checked by that module's schema and rules; or why the file is refused.
  *
  * @param folder - The folder of the file, which the paths a resource names are of.
+ * @param masking - The file's masking sets, checked: what a mask resource names.
  */
 export function convertResource(
   env: string,
@@ -140,6 +162,7 @@ export function convertResource(
   resource: EnvResource,
   folder: string,
   now: Date,
+  masking: Readonly<Record<string, EnvMaskRules>> = {},
 ): { run: EnvKindRun; warnings: EnvFileRefusal[] } | { refusals: EnvFileRefusal[] } {
   switch (resource.kind) {
     case 'seed': {
@@ -157,6 +180,11 @@ export function convertResource(
       if ('refusals' in converted) return converted;
       return { run: { kind: 'frozen', ...converted.run }, warnings: converted.warnings };
     }
+    case 'mask': {
+      const converted = maskRunOfResource(name, resource, masking);
+      if ('refusals' in converted) return converted;
+      return { run: { kind: 'mask', ...converted.run }, warnings: converted.warnings };
+    }
   }
 }
 
@@ -169,13 +197,16 @@ export function writtenOf(resource: EnvFileResource): Record<string, unknown> {
       return forgeWritten(resource.run, resource.source.read);
     case 'frozen':
       return frozenWritten(resource.run);
+    case 'mask':
+      return maskWritten(resource.run);
   }
 }
 
 /**
  * The objects a resource writes, with the file's count of each where it gives
  * one: what `validate` lists. A frozen resource's are its dataset's, which
- * its dry run counts.
+ * its dry run counts; a mask resource's, those its rules mask, the records of
+ * which its dry run counts.
  */
 export function objectsOfRun(run: EnvKindRun): Array<{ object: string; count?: number }> {
   switch (run.kind) {
@@ -185,17 +216,21 @@ export function objectsOfRun(run: EnvKindRun): Array<{ object: string; count?: n
       return forgeObjectsOf(run);
     case 'frozen':
       return [];
+    case 'mask':
+      return maskObjectsOf(run);
   }
 }
 
 /**
- * Whether a kind's replace is one run of its script, which takes back what
- * the runs before it wrote as it goes: a frozen resource's, a reload, whose
- * purge is refused before anything is written when it would leave records.
- * Every other kind's runs are taken back first, then it runs again.
+ * Whether a kind's replace is one run of its script, nothing taken back
+ * first: a frozen resource's, a reload, whose purge takes back what the runs
+ * before it wrote as it goes, refused before anything is written when it
+ * would leave records; a mask resource's, a masking again, over what the
+ * runs before it masked, which nothing takes back. Every other kind's runs
+ * are taken back first, then it runs again.
  */
 export function replacesInOneRun(kind: EnvResourceKind): boolean {
-  return kind === 'frozen';
+  return kind === 'frozen' || kind === 'mask';
 }
 
 // ─── What a run is given ─────────────────────────────────────────────────────
@@ -217,7 +252,8 @@ export interface EnvPayloadContext {
 /**
  * The payload a resource's dry run or run is given, written to a file: a
  * seed's template with the parents its draws name, a forge resource's
- * exported template, a frozen resource's derived configuration.
+ * exported template, a frozen resource's derived configuration, a mask
+ * resource's rules, as `sandforge-dataops --rules` reads them.
  *
  * @throws For a seed whose draw names no ids and may not stand in, and for a
  *   frozen resource given no sas.
@@ -237,6 +273,8 @@ export function payloadOf(resource: EnvFileResource, context: EnvPayloadContext)
         datasetDir: resource.dataset.dir,
       });
     }
+    case 'mask':
+      return maskRulesFileOf(resource.run);
   }
 }
 
@@ -254,6 +292,8 @@ export interface EnvDryRunContext {
   replace?: boolean;
   /** The store a frozen dry run keeps the script's own state in, apart from the sas. */
   storeFile?: string;
+  /** The DataOps store a mask resource's script keeps its snapshots and its template in. */
+  store?: string;
 }
 
 /**
@@ -300,7 +340,25 @@ export function dryRunLineOf(
           ...(context.storeFile !== undefined ? { store: context.storeFile } : {}),
         }),
       };
+    case 'mask':
+      return {
+        script: DATAOPS_SCRIPT,
+        args: maskDryRunLine({
+          target: context.target,
+          run: resource.run,
+          rulesFile: context.templateFile,
+          store: storeOf(resource, context),
+        }),
+      };
   }
+}
+
+/** The DataOps store a mask resource's line names, or why it cannot run. */
+function storeOf(resource: EnvFileResource, context: { store?: string }): string {
+  if (context.store === undefined) {
+    throw new Error(`${resource.name} is given no store to keep its snapshots in: plan again.`);
+  }
+  return context.store;
 }
 
 /** What a forge resource's lines share: its source's alias, and the record or the tables it clones. */
@@ -334,6 +392,8 @@ export function readDryRunOf(kind: EnvAppliedKind, stdout: string): EnvDryRunAns
       return readForgeDryRun(stdout);
     case 'frozen':
       return readFrozenDryRun(stdout);
+    case 'mask':
+      return readMaskDryRun(stdout);
   }
 }
 
@@ -368,6 +428,8 @@ export function dryRunCountOf(
       return forgeDryRunCount(answer);
     case FROZEN_SCRIPT:
       return frozenDryRunCount(answer);
+    case DATAOPS_SCRIPT:
+      return maskDryRunCount(answer);
   }
 }
 
@@ -436,7 +498,27 @@ export function applyLineOf(
         }),
       };
     }
+    case 'mask':
+      return {
+        script: DATAOPS_SCRIPT,
+        args: maskApplyLine({
+          target: context.target,
+          run: resource.run,
+          rulesFile: context.templateFile,
+          store: storeOf(resource, context),
+        }),
+      };
   }
+}
+
+/**
+ * A kind whose runs no removal takes back: a masking is never undone, its
+ * store deleted instead (`kinds/mask.ts`).
+ */
+function noRemoval(script: EnvKindScript): never {
+  throw new Error(
+    `${script} takes no run back: a masking is never undone, and its destroy deletes its store`,
+  );
 }
 
 // ─── The removal and its preview ─────────────────────────────────────────────
@@ -479,18 +561,23 @@ export function previewLineOf(
           includeChanged: context.includeChanged,
         }),
       };
+    case DATAOPS_SCRIPT:
+      return noRemoval(script);
   }
 }
 
 /** A removal preview's answer, read by its kind's reader. */
 export function readPreviewOf(kind: EnvResourceKind, stdout: string): EnvPreviewAnswer {
-  switch (scriptOfKind(kind)) {
+  const script = scriptOfKind(kind);
+  switch (script) {
     case SEED_SCRIPT:
       return readSeedPreview(stdout);
     case FORGE_SCRIPT:
       return readForgePreview(stdout);
     case FROZEN_SCRIPT:
       return readFrozenPreview(stdout);
+    case DATAOPS_SCRIPT:
+      return noRemoval(script);
   }
 }
 
@@ -498,12 +585,15 @@ export function readPreviewOf(kind: EnvResourceKind, stdout: string): EnvPreview
  * Of a resource's runs, the last first, those a plan previews the removal
  * of: each, but for a frozen resource, whose removal takes the next load of
  * its sas whichever run asks — its last run not taken back alone, previewed
- * once, or the same load would be counted once per run.
+ * once, or the same load would be counted once per run —, and for a mask
+ * resource, none: a masking has no removal, and its dry run reads what the
+ * org holds of it.
  */
 export function previewedRunsOf<R extends { takenBack?: true }>(
   kind: EnvResourceKind,
   runs: readonly R[],
 ): R[] {
+  if (kind === 'mask') return [];
   const live = [...runs].reverse().filter((run) => run.takenBack !== true);
   return kind === 'frozen' ? live.slice(0, 1) : live;
 }
@@ -558,18 +648,23 @@ export function removeLineOf(
           sweep: context.sweep,
         }),
       };
+    case DATAOPS_SCRIPT:
+      return noRemoval(script);
   }
 }
 
 /** A removal's answer, read by its kind's reader. */
 export function readRemovalOf(kind: EnvResourceKind, stdout: string): EnvRemovalAnswer {
-  switch (scriptOfKind(kind)) {
+  const script = scriptOfKind(kind);
+  switch (script) {
     case SEED_SCRIPT:
       return readSeedRemoval(stdout);
     case FORGE_SCRIPT:
       return readForgeRemoval(stdout);
     case FROZEN_SCRIPT:
       return readFrozenRemoval(stdout);
+    case DATAOPS_SCRIPT:
+      return noRemoval(script);
   }
 }
 
@@ -579,10 +674,15 @@ export function removalObjectsOf(answer: EnvRemovalAnswer | undefined): EnvRemov
 }
 
 /**
- * What a plan says of a resource beside why it acts: a forge resource whose
+ * What a plan says of a resource it runs, beside why: a forge resource whose
  * source is a production org, what is done to its real data and to its
- * contact points. Nothing for a kind that clones no org.
+ * contact points; a mask resource, that masking is one-way, and who puts the
+ * values back, how. Nothing for a kind that does neither.
+ *
+ * @param place - The org the environment is applied to, by its alias, and,
+ *   for a mask resource, its store.
  */
-export function notesOf(resource: EnvFileResource): string[] {
+export function notesOf(resource: EnvFileResource, place: MaskPlace): string[] {
+  if (resource.kind === 'mask') return maskNotes(resource.name, place);
   return resource.kind === 'forge' ? realDataNotes(resource.run, resource.source) : [];
 }

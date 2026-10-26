@@ -203,6 +203,43 @@ describe('what a reset and a destroy by rewind refuse before the org is read', (
     expect(rewindRefusalOf(input('destroy', partial))).toBeUndefined();
   });
 
+  it('refuses a destroy by rewind of a state naming a mask resource, whatever its status: it would unmask', async () => {
+    const state = await written({ before: BEFORE, after: AFTER });
+    const masked: EnvState = {
+      ...state,
+      resources: {
+        ...state.resources,
+        customers: {
+          kind: 'mask',
+          fingerprint: 'c'.repeat(64),
+          dependsOn: [],
+          status: 'destroyed',
+          runs: [
+            {
+              n: 1,
+              script: 'sandforge-dataops',
+              snapshotId: 'cli-dataops-anonymize-1-a-snapshot',
+              startedAt: '2026-10-25T09:01:00.000Z',
+              objects: [{ objectApiName: 'Contact', created: 0, refused: 0, masked: 2 }],
+              takenBack: true,
+            },
+          ],
+        },
+      },
+    };
+
+    const refused = rewindRefusalOf(input('destroy', masked));
+
+    expect(refused).toMatchObject({ code: 'MASKED', exit: 1 });
+    expect(refused?.message).toContain(
+      'the checkpoint taken before the first apply holds the values they wrote over, and a rewind to it would put them back into the org. destroy never unmasks',
+    );
+    // A reset rewinds to the checkpoint taken once applied, after the masking: it masks again, never unmasks.
+    expect(rewindRefusalOf(input('reset', masked))).toBeUndefined();
+    // Negative control: the same state without the mask resource is rewound.
+    expect(rewindRefusalOf(input('destroy', state))).toBeUndefined();
+  });
+
   it('asks for the alias, naming what it takes back, who last changed it, and that a destroy is not undone', () => {
     const preview = {
       checkpoint: { id: BEFORE, name: 'pool before', takenAt: '2026-10-25T08:59:00.000Z' },

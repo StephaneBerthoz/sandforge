@@ -6,6 +6,10 @@ import {
   checkpointIgnoredFieldsSchema,
   checkpointOrganizationIdSchema,
 } from './checkpoint.schema.js';
+import {
+  TEMPLATE_MAX_RULES,
+  savedTemplateRuleSchema,
+} from '../constants/saved-anonymization-templates.js';
 import { forgeAnonymizationRulesSchema, forgeDepthSchema } from './forge.schema.js';
 import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js';
 
@@ -38,7 +42,8 @@ import { fieldRuleConfigSchema, fieldRuleSchema } from './seed-config.schema.js'
  * {@link secretKeysIn} and {@link envRefsIn} find each one, so a refusal can
  * say where the thing goes instead.
  *
- * Version 1 holds the `seed`, `forge` and `frozen` kinds of resource.
+ * Version 1 holds the `seed`, `forge`, `frozen` and `mask` kinds of
+ * resource, and the `masking:` sets of DataOps rules a mask resource names.
  * `targets` and `checkpoint` are read and checked; what they ask is applied
  * by the guards and the checkpoint steps.
  */
@@ -634,16 +639,78 @@ export const envFrozenResourceSchema = strictObject('a frozen resource', {
   }),
 });
 
+// ─── The file: masking sets and the mask kind ────────────────────────────────
+
+/**
+ * A rule of a masking set, as the DataOps panel saves a template's rule: the
+ * `Object.Field` it masks, the method a DataOps run masks it by, and the
+ * settings that method takes. Its keys are held strict here; the set is then
+ * held to the schema the panel's save goes through, which refuses a setting a
+ * method does not take and a field given two rules.
+ */
+const maskingRuleFileSchema = strictObject('a masking rule', {
+  fieldPattern: savedTemplateRuleSchema.shape.fieldPattern,
+  ruleType: savedTemplateRuleSchema.shape.ruleType,
+  config: strictObject(
+    'a masking rule’s config',
+    savedTemplateRuleSchema.shape.config.unwrap().shape,
+  ).optional(),
+});
+
+/** A named set of DataOps rules, as `sandforge-dataops --rules` takes them: what mask resources name. */
+const maskingSetFileSchema = strictObject('a rule set', {
+  rules: z
+    .array(maskingRuleFileSchema)
+    .min(1, { error: 'A rule set holds one rule at least' })
+    .max(TEMPLATE_MAX_RULES),
+});
+
+/** A DataOps template that ships, by its id. */
+const maskTemplateFileSchema = strictObject('a template that ships', {
+  template: z.string().regex(/^tpl-[a-z0-9-]{1,60}$/, {
+    error: 'A template that ships is named by its id, as tpl-gdpr-standard',
+  }),
+});
+
+/**
+ * Records the org already holds — a sandbox copied from production — masked
+ * by DataOps: the rules of a set of the file's `masking`, or of a template
+ * that ships; one object and the records its condition selects, or every
+ * object those rules mask.
+ */
+export const envMaskResourceSchema = strictObject('a mask resource', {
+  kind: z.literal('mask'),
+  ...commonResourceShape,
+  /** The DataOps rules it masks with: a set of the file's masking, by its name, or a template that ships. */
+  rules: z.union([envNameSchema, maskTemplateFileSchema], {
+    error:
+      'rules names a set of the file’s masking, as rules: gdpr-contacts, or a template that ' +
+      'ships, as rules: { template: tpl-gdpr-standard }',
+  }),
+  /** The object it masks; without it, every object its rules mask. */
+  object: apiNameSchema.optional(),
+  /** With `object`: the records it masks, a SOQL condition without WHERE. */
+  where: whereClauseSchema.optional(),
+}).superRefine((resource, ctx) => {
+  if (resource.where !== undefined && resource.object === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['where'],
+      message: 'where filters the records of one object: give it with object',
+    });
+  }
+});
+
 /** Kinds that come with a later version of the file. */
-const LATER_KINDS: readonly string[] = ['mask'];
+const LATER_KINDS: readonly string[] = [];
 
 /** The kinds this version applies, as a refusal names them. */
-const KINDS_APPLIED = 'seed, forge and frozen resources';
+const KINDS_APPLIED = 'seed, forge, frozen and mask resources';
 
 /** A resource of the file, told apart by its `kind`. */
 export const envResourceSchema = z.discriminatedUnion(
   'kind',
-  [envSeedResourceSchema, envForgeResourceSchema, envFrozenResourceSchema],
+  [envSeedResourceSchema, envForgeResourceSchema, envFrozenResourceSchema, envMaskResourceSchema],
   {
     error: (issue) => {
       const input = issue.input;
@@ -681,6 +748,8 @@ export const envFileSchema = strictObject('the file', {
   /** Roles the resources name, each an sf CLI alias; never the target. */
   orgs: z.record(envKeySchema, orgRoleSchema).default({}),
   checkpoint: checkpointSettingsSchema.optional(),
+  /** Named sets of DataOps rules, which mask resources name. */
+  masking: z.record(envKeySchema, maskingSetFileSchema).default({}),
   resources: z.record(envKeySchema, envResourceSchema, {
     error: (issue) =>
       issue.input === undefined ? 'The file names no resources: write resources:' : undefined,
@@ -713,6 +782,36 @@ export const envFileSchema = strictObject('the file', {
         `"${resource.source}" is no org role of the file: declare it under orgs, as ` +
         `orgs: { ${resource.source}: { alias: { env: … } } }` +
         (roles.length > 0 ? ` (its roles are ${roles.join(', ')})` : ''),
+    });
+  }
+  // A mask resource names its rules by a set the file declares, as a forge
+  // resource names its source by a role.
+  const sets = Object.keys(file.masking);
+  for (const [name, resource] of Object.entries(file.resources)) {
+    if (resource.kind !== 'mask' || typeof resource.rules !== 'string') continue;
+    if (sets.includes(resource.rules)) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['resources', name, 'rules'],
+      message:
+        `"${resource.rules}" is no rule set of the file: declare it under masking, as ` +
+        `masking: { ${resource.rules}: { rules: [ … ] } }` +
+        (sets.length > 0 ? ` (its sets are ${sets.join(', ')})` : ''),
+    });
+  }
+  // A checkpoint taken before the first write holds the values a masking then
+  // writes over, in clear, and destroy --rewind writes them back: it would
+  // unmask what destroy never unmasks.
+  const masks = Object.entries(file.resources).filter(([, resource]) => resource.kind === 'mask');
+  if (file.checkpoint?.before === true && masks.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['checkpoint', 'before'],
+      message:
+        'A checkpoint before the first write holds, in clear, the values the mask resources ' +
+        `(${masks.map(([name]) => name).join(', ')}) write over, and destroy --rewind would ` +
+        'put them back into the org: a file with a mask resource takes none. Take ' +
+        'checkpoint.before out',
     });
   }
 });
@@ -818,6 +917,8 @@ const envRunObjectSchema = z.strictObject({
   objectApiName: apiNameSchema,
   created: countSchema,
   refused: countSchema,
+  /** A masking's: the records it went through, masked or holding nothing to mask. */
+  masked: countSchema.optional(),
 });
 
 export const envRunSchema = z.strictObject({
@@ -1070,6 +1171,8 @@ const envStepObjectSchema = z.strictObject({
   refused: countSchema,
   deleted: countSchema,
   kept: countSchema,
+  /** A masking's: the records it masked, or left masked once destroyed. */
+  masked: countSchema.optional(),
   /** Why records were kept or refused, as the script said it. */
   reason: z.string().min(1).max(2_000).optional(),
 });

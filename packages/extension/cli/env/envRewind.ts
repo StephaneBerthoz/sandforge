@@ -116,6 +116,21 @@ export function rewindRefusalOf(
             'without --rewind takes back what the environment wrote.',
     );
   }
+  // The checkpoint before the first apply holds, in clear, the values a
+  // masking wrote over since: rewound to, the org would get them back.
+  const masks = Object.entries(state.resources).filter(([, resource]) => resource.kind === 'mask');
+  if (input.verb === 'destroy' && masks.length > 0) {
+    return {
+      code: 'MASKED',
+      message:
+        `The state of ${env} on ${alias} names mask resources (${masks.map(([name]) => name).join(', ')}): ` +
+        'the checkpoint taken before the first apply holds the values they wrote over, and a ' +
+        'rewind to it would put them back into the org. destroy never unmasks: destroy without ' +
+        '--rewind takes back what the environment wrote, and leaves its maskings as they are. ' +
+        'Nothing was written.',
+      exit: 1,
+    };
+  }
   if (input.verb === 'reset') {
     const unwhole = Object.entries(state.resources).filter(
       ([, resource]) => resource.status !== 'applied' && resource.status !== 'destroyed',

@@ -130,7 +130,7 @@ describe('the checkpoint script on the world’s org', () => {
     const { runner } = worldOf();
 
     await expect(
-      runner('sandforge-dataops', ['anonymize'], new AbortController().signal),
+      runner('sandforge-sync', ['--source', 'SRC'], new AbortController().signal),
     ).rejects.toThrow('The world runs sandforge-seed');
   });
 });

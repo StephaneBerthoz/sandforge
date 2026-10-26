@@ -2,9 +2,9 @@
 
 A `sandforge.yaml` committed with your project says what records an environment needs: so many accounts, so many contacts under each. `sandforge-env`, one of the [command-line scripts](../ci-examples/README.md), applies it to an org: `plan` says what it would create, keep, replace and take back, `apply` does it, `destroy` takes it back into the recycle bin, and between them a **state** on your machine says what was applied to which org. Applied again, it writes nothing; changed, it replaces what changed.
 
-It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource --, run in a process of its own with `--json`, and taken back by that script's own removal: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
+It writes nothing to an org itself. Each resource of the file is applied by its script -- `sandforge-seed` for a seed resource, `sandforge-clone` for a forge resource, `sandforge-frozen` for a frozen resource, `sandforge-dataops` for a mask resource --, run in a process of its own with `--json`, and taken back by that script's own removal, a masking excepted, which is never undone: every guard, gate and run file of the script holds unchanged, and what `sandforge-env` adds is what no run knows -- the file, the order, the state, and refusals of its own. The checkpoints a file asks are taken, compared with and rewound to by `sandforge-checkpoint`, the same way.
 
-This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- and **frozen resources**: a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)). A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
+This version applies **seed resources** -- records Seed generates, from a built-in template or from objects, counts, field rules and relations of the file's own --, **forge resources** -- records Forge clones from an org the file names by its role, one record and what hangs from it, or whole tables ([A forge resource](#a-forge-resource)) -- **frozen resources** -- a Frozen Dataset frozen beforehand, loaded as the **Load** tab loads it ([A frozen resource](#a-frozen-resource)) -- and **mask resources**: records the org already holds, a sandbox copied from production, masked with DataOps rules as the **DataOps** panel masks them, and never unmasked ([A mask resource](#a-mask-resource)). A seed relation may draw its parents from the records another resource created ([References between resources](#references-between-resources)). Around its applies, a file may ask **checkpoints** of the org ([Checkpoints](#checkpoints)): `reset` rewinds the org to the one taken once applied, between two test suites, and `destroy --rewind` to the one taken before the first apply. [Not yet](#not-yet) says what it does not do.
 
 ## Run it
 
@@ -22,7 +22,7 @@ The script runs from the checkout, so `--file` names your project's file; withou
 - **`version: 1`** at the top. A file written for a later SandForge is refused.
 - **No secret.** A key shaped like a secret -- `password`, `token`, `secret`, `authUrl`, `privateKey`, `apiKey`, `salt`, and their spellings -- is refused wherever it stands: org credentials stay with the `sf` CLI. A value comes from the process environment only where the file writes `{ env: NAME }`, and that is the alias of an org role and the path of a frozen resource's dataset alone.
 - **The org to fill is never in the file.** `--org` names it, on every command that reaches an org, so one file fills `pool-1`, `pool-2` and your own scratch org alike.
-- **Two checks.** The file is held to its own schema, then each resource is turned into its module's payload: a seed resource into a Seed template, held to Seed's own schema and rules, as the Seed panel's are; a forge resource into a Forge template, held to Forge's own template schema, as the clone reads a template file; a frozen resource's configuration is held to Frozen's own schema, strict. What `validate` accepts is what the script is given.
+- **Two checks.** The file is held to its own schema, then each resource is turned into its module's payload: a seed resource into a Seed template, held to Seed's own schema and rules, as the Seed panel's are; a forge resource into a Forge template, held to Forge's own template schema, as the clone reads a template file; a frozen resource's configuration is held to Frozen's own schema, strict; a masking set to the rules the DataOps panel saves. What `validate` accepts is what the script is given.
 
 ### An example
 
@@ -66,7 +66,7 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 
 | Where                                       | Keys                                                                                                                                                      | What they hold                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the file                                    | `version`, `name`, `description`, `targets`, `orgs`, `checkpoint`, `resources`                                                                            | `version: 1`; `name`, lower-case letters, digits and dashes, which names the state; `resources`, by name                                                                                                                                                                                                                                          |
+| the file                                    | `version`, `name`, `description`, `targets`, `orgs`, `checkpoint`, `masking`, `resources`                                                                 | `version: 1`; `name`, lower-case letters, digits and dashes, which names the state; `masking`, named sets of DataOps rules; `resources`, by name                                                                                                                                                                                                  |
 | `targets`                                   | `kinds`, `sandboxes`, `protect`                                                                                                                           | the kinds of org it may be applied to, `scratch` and `developer` unless it says otherwise; the Organization Ids of the sandboxes it may write to, with `sandbox` among the kinds; the Organization Ids it refuses whatever else says                                                                                                              |
 | `orgs.<role>`                               | `alias`                                                                                                                                                   | an sf CLI alias, or `{ env: NAME }`, the variable that holds one; `--alias <role>=<alias>` wins over it; an unset variable refuses every command but `validate`, exit `2`. A forge resource names one as its `source`                                                                                                                             |
 | `checkpoint`                                | `before`, `after`, `ignoreFields`                                                                                                                         | `before: true`, a checkpoint of the org before the first write of the first apply, which `destroy --rewind` returns to; `after`, the name of one taken once an apply ended `0`, which `reset` returns to; the fields neither compares nor writes back ([Checkpoints](#checkpoints))                                                               |
@@ -85,6 +85,11 @@ Two resources, applied in order: `accounts` writes three accounts, then `contact
 | `resources.<name>.accept`, `kind: forge`    | `automation`, `realData`                                                                                                                                  | `automation`, as for a seed resource; `realData: true`, to clone a production source without anonymizing it, reviewed in the file ([Real data](#real-data-from-a-production-org))                                                                                                                                                                 |
 | `resources.<name>`, `kind: frozen`          | `kind`, `dependsOn`, `accept`, `config`, `dataset`                                                                                                        | `kind: frozen`; `config`, the project's Frozen configuration, from the file's folder; `dataset`, the dataset it loads, pinned                                                                                                                                                                                                                     |
 | `resources.<name>.dataset`                  | `path`, `version`, `digest`                                                                                                                               | the dataset's folder, from the root, or `{ env: NAME }`; the version its manifest says; its digest, `sha256:` and 64 hexadecimal digits, as `sandforge-frozen --json` gives it                                                                                                                                                                    |
+| `masking.<set>`                             | `rules`                                                                                                                                                   | the DataOps rules a mask resource names the set by, one at least, as the DataOps panel saves a template's, and held to its save: no field given two rules ([A mask resource](#a-mask-resource))                                                                                                                                                   |
+| `masking.<set>.rules[]`                     | `fieldPattern`, `ruleType`, `config`                                                                                                                      | the field, with its object, as `Contact.Email`; its method, `fake`, `mask`, `hash`, `nullify`, `shuffle`, `preserve_format`, `constant` or `truncate`; the settings the method takes                                                                                                                                                              |
+| `….rules[].config`                          | `constantValue`, `maskKeepLast`, `truncateLength`, `truncateKeep`                                                                                         | the value a `constant` writes; the characters a `mask` keeps at the end; how many a `truncate` keeps, and from which end, `first` or `last`                                                                                                                                                                                                       |
+| `resources.<name>`, `kind: mask`            | `kind`, `dependsOn`, `accept`, `rules`, `object`, `where`                                                                                                 | `kind: mask`; `rules`, a set of the file's `masking` by its name, or a template that ships; `object`, the object it masks, every object its rules mask without it; `where`, with `object`, a SOQL condition, without `WHERE`                                                                                                                      |
+| `resources.<name>.rules`                    | `template`                                                                                                                                                | a DataOps template that ships, by its id                                                                                                                                                                                                                                                                                                          |
 
 A built-in template is one of `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` and `prebuilt-sales-cloud-starter`, the templates of Seed's gallery. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote.
 
@@ -342,6 +347,174 @@ data storage: about 0.01 MB, 5 MB left
 ```
 
 The accounts are known now: three, so three contacts, exactly, one under each. `claims` is kept.
+
+### A mask resource
+
+```yaml
+# sandforge.yaml: the uat sandbox, refreshed from production, masked before the testers come in
+version: 1
+name: uat-masked
+
+targets:
+  kinds: [sandbox]
+  sandboxes: [00Dxx0000001gPLEAY] # the sandbox, by its Organization Id: listed again after each refresh
+
+masking:
+  contact-points: # DataOps rules, as the DataOps panel saves a template's
+    rules:
+      - { fieldPattern: Contact.Email, ruleType: fake }
+      - { fieldPattern: Contact.Phone, ruleType: mask, config: { maskKeepLast: 2 } }
+
+resources:
+  customers:
+    kind: mask
+    rules: contact-points # a set of masking, or { template: tpl-gdpr-standard }, one that ships
+    object: Contact
+    where: 'Email != null' # without object, every object its rules mask
+```
+
+A mask resource masks records the org already holds -- a sandbox copied from production -- with [`sandforge-dataops`](modules/dataops.md), which drives the **DataOps** panel's own handler. It writes over records, and creates none.
+
+- **Its rules are DataOps rules.** `rules` names a set of the file's `masking`, each rule as the DataOps panel saves a template's and held to that save, or a template that ships, as `{ template: tpl-gdpr-standard }`. The script masks one object a run: a resource names its `object` and the records its `where` selects, or no object, and every object its rules mask, Account's person accounts among them where the org has them. A rule set with no rule for its object is refused before any org is reached, exit `2`: a run would mask nothing there.
+- **The snapshot comes first.** Each run takes a snapshot of the records it masks, their masked fields as they are, before its first write, and writes nothing unless the snapshot holds every one of them. The snapshot is kept on this machine in the resource's own store, `dataops/<resource>/` beside the state, and the state keeps its id.
+- **Planned by its own dry run.** The plan dry-runs the masking (`anonymize --dry-run`) and says, per object, the records it would mask. A field the rules name that the org does not show the user blocks the resource, in the script's own words: a run would leave its values in every record.
+- **Kept, drifted, replaced.** Applied with the same rules, it is kept while its condition selects as many records as it masked; once it selects others -- records copied in since, which hold their own values --, it is drifted, and `--replace` or `--replace-drifted` masks them all again. Changed rules replace it, and a replace masks again what its condition selects, the records it masked before a second time, taking nothing back first: the values they held before any masking stay only in the first run's snapshot.
+- **Never unmasked.** `destroy`, and an apply of a file it left, delete its store, its snapshots with it -- the only copy of the values it wrote over -- and leave its records masked. Putting values back is your own act, before the destroy: `sandforge-dataops anonymize --restore <snapshot>`, with the store the plan names. A file with a mask resource takes no `checkpoint.before`, exit `2`: that checkpoint would hold the values in clear, and `destroy --rewind` would write them back; for the same reason, `destroy --rewind` is refused while the state names a mask resource.
+- **Masking what a seed wrote.** A masking writes over the records it masks: those a seed or a forge resource of the same file wrote read as changed since, drifted, and their destroy keeps them unless `--include-changed`.
+
+<!-- replay: masking -->
+
+```console
+$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   customers  Contact 3 to mask
+           not applied to this org yet
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
+data storage: about 0 MB, 5 MB left
+warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+an apply now would be refused: This machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice. On a sandbox that lives on, apply asks --accept-no-state to go ahead: restore the journal directory of the apply before it, or give the flag. Nothing was written.
+```
+
+On a sandbox the machine keeps no state of, the apply asks `--accept-no-state`:
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env apply --file ../uat-masked/sandforge.yaml --org uat --yes --accept-no-state
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: none on this machine
+  create   customers  Contact 3 to mask
+           not applied to this org yet
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+totals: 1 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
+data storage: about 0 MB, 5 MB left
+warning: this machine keeps no state of uat-masked on uat: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
+warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+customers: run 1 (create)
+
+  customers masking 1: exit 0, applied  Contact 3 masked
+      Contact: snapshot cli-dataops-anonymize-1792918860000-a1b2c3-snapshot of the values it wrote over, taken first, kept on this machine until destroy deletes it
+apply: success; state serial 2
+```
+
+Planned again, with the same rules over the same records, the masking is kept: `--fail-on-change` exits `0`, and an apply would write nothing.
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-change
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  keep     customers  Contact 3 masked
+           applied, and its condition selects the 3 record(s) it masked, with the same rules: masked again they would only be masked twice
+totals: 0 to create, 0 to replace, 0 to delete, 1 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+$ echo $?
+0
+```
+
+A colleague copies in a contact from production:
+
+<!-- replay: then; a contact copied in since -->
+
+```console
+$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat --fail-on-drift
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  drifted  customers  Contact 3 masked
+           its condition selects other records than it masked: Contact 4 under its condition, 3 masked: 1 more, which hold their original values. Left as they are: --replace customers or --replace-drifted masks them all again
+totals: 0 to create, 0 to replace, 0 to delete, 0 kept, 1 drifted, 0 blocked
+API requests: about 0, 14000 left
+data storage: about 0 MB, 5 MB left
+$ echo $?
+3
+$ sandforge-env apply --file ../uat-masked/sandforge.yaml --org uat --yes --replace-drifted
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 2
+  replace  customers  Contact 4 to mask, 3 masked
+           replaced: its condition selects other records than it masked (Contact 4 under its condition, 3 masked: 1 more, which hold their original values), and --replace-drifted asks it; it masks again what its condition selects, the records it masked before a second time, and takes nothing back first: the values they held before any masking stay only in snapshot cli-dataops-anonymize-1792918860000-a1b2c3-snapshot, run 1's, which destroy deletes
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+totals: 0 to create, 1 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
+data storage: about 0 MB, 5 MB left
+warning: the emails the org sends as customers masks are not counted: a masking’s dry run does not count them, and the day’s email gate holds without them
+customers: run 2 (replace)
+
+  customers masking 2: exit 0, applied  Contact 4 masked
+      Contact: snapshot cli-dataops-anonymize-1792918980000-a1b2c3-snapshot of the values it wrote over, taken first, kept on this machine until destroy deletes it
+apply: success; state serial 4
+```
+
+Taken back:
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env destroy --file ../uat-masked/sandforge.yaml --org uat --yes
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 4
+  delete   customers  Contact 4 masked
+           taken back by destroy, which never unmasks: its records stay masked, and its store, /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, is deleted from this machine with its snapshots, the only copy of the values they held. To put back those they held before any masking, before this destroy, as your own act: sandforge-dataops anonymize --org uat --restore cli-dataops-anonymize-1792918860000-a1b2c3-snapshot --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+totals: 0 to create, 0 to replace, 1 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 0
+data storage: about 0 MB
+customers: deleting its store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+customers: its records stay masked — destroy never unmasks —, and its snapshots cli-dataops-anonymize-1792918860000-a1b2c3-snapshot, cli-dataops-anonymize-1792918980000-a1b2c3-snapshot, the only copy of the values they held, deleted from this machine with its store
+every record of uat-masked is taken back from uat, and what it masked left masked: the state keeps it as destroyed, and the next apply creates it again
+
+  customers store deleted, destroyed  Contact 4 left masked
+      Contact: left masked, as destroy leaves a masking; snapshots cli-dataops-anonymize-1792918860000-a1b2c3-snapshot, cli-dataops-anonymize-1792918980000-a1b2c3-snapshot deleted
+destroy: success; state serial 8
+```
+
+The records stay masked. A set naming a field the org lacks blocks the resource in the script's own words:
+
+<!-- replay: then; the set names a field the org lacks -->
+
+```console
+$ sandforge-env plan --file ../uat-masked/sandforge.yaml --org uat
+customers: dry run
+plan of uat-masked on uat (sandbox, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 8
+  blocked  customers  Contact 4 to mask
+           taken back by an earlier destroy: applied again
+           masking is one-way: each run first takes a snapshot of the values it writes over, kept on this machine in /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers, and destroy never puts them back: it deletes the snapshots. Putting them back is your own act, before a destroy: sandforge-dataops anonymize --org uat --restore <the snapshot its run names> --store /home/dev/.sandforge/env/00Dxx0000001gPLEAY/uat-masked/dataops/customers
+           refused: its own dry run says a real run would be refused: Contact.Nickname__c: the org has no such field, or field-level security hides it from this user — masks nothing (give the user read and edit access to it, or connect as an administrator)
+totals: 0 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 1 blocked
+API requests: about 0, 14000 left; not counted: the requests of the run of customers, which its script does not estimate
+data storage: about 0 MB, 5 MB left
+an apply now would be refused: A resource is blocked, and the apply refuses before its first write: customers (its own dry run says a real run would be refused: Contact.Nickname__c: the org has no such field, or field-level security hides it from this user — masks nothing (give the user read and edit access to it, or connect as an administrator))
+```
 
 ## A walk through
 
@@ -861,6 +1034,15 @@ configuration committed beside the file, its dataset named by its path from the 
 the file's is refused, both named. Each load is held to the count its dry run gave and judged by
 the verification it chains; a replace is a reload, refused when it would leave records.
 
+A mask resource masks records the org already holds, a sandbox copied from production, with
+DataOps rules, through sandforge-dataops: a set of the file's masking, or a template that ships.
+Each run first takes a snapshot of the values it writes over, and writes nothing unless the
+snapshot holds every record; a masking applied is kept while its condition selects the records
+it masked. destroy never unmasks: it deletes the resource's store, its snapshots with it, the
+only copy of the values masked: putting them back from a snapshot, with sandforge-dataops, is
+your own act, before a destroy, and plan and destroy give the line. A file with a mask resource
+takes no checkpoint.before, and destroy --rewind is refused while the state names one.
+
 A seed relation may draw its parents from the records another resource created:
 parents: { from: <resource>.<Object> }. They are read from that resource's own run, handed to
 the seed by their ids, at most 2,000 or the relation's limit, and counted exactly once that
@@ -874,7 +1056,9 @@ apart by the Dev Hub the sf CLI names for it; one it names none for is taken for
 What apply keeps of the org is the state: ids, counts and dates, never a record's values, in
 env/<Organization Id>/<name>/ of the folder SANDFORGE_JOURNAL_DIR names (default: ~/.sandforge),
 beside the run files of the seeds and clones it ran; each frozen resource's loads are kept
-there, in a sas of its own. That folder must be outside the repository that holds the file.
+there, in a sas of its own, and each mask resource's snapshots, in a DataOps store of its own,
+which hold the values it wrote over in clear until destroy deletes them. That folder must be
+outside the repository that holds the file.
 Keep it between the jobs that apply and destroy, in a cache keyed by the org. A scratch org's
 state is deleted 30 days after its last write. Two machines applying to one org at once are not
 kept apart: give the jobs one concurrency group.
@@ -979,13 +1163,15 @@ And:
 - **automation**: a removal the `apply` of a `replace` or a `delete` runs, or the `destroy`, deletes nothing while the org runs flows, Apex triggers, processes or workflow rules as records go, unless `--accept-automation`, or `accept: { automation: true }` on the resource.
 - **a forge resource cloning a production org** without `anonymize` or `accept: { realData: true }`: [Real data](#real-data-from-a-production-org);
 - **a checkpoint the file asks that the checkpoint script refuses**, by its own estimate, before the first write: `would be refused`, with the checkpoint guard's words -- a user without View All Data and Modify All Data, more records than a take holds, more API requests than the org has left;
-- **a `reset` or a `destroy --rewind` with no checkpoint to rewind to**: `names no checkpoint taken after an apply`, `names no checkpoint taken before its first apply`, and a `reset` once the last apply did not end whole. The rewind's own refusals are its: automation without `--accept-automation`, deletions undo could not bring back without `--accept-no-undo`, records the recycle bin no longer gives back, which an environment never makes again with new Ids (`never makes records again with new Ids`).
+- **a `reset` or a `destroy --rewind` with no checkpoint to rewind to**: `names no checkpoint taken after an apply`, `names no checkpoint taken before its first apply`, and a `reset` once the last apply did not end whole. The rewind's own refusals are its: automation without `--accept-automation`, deletions undo could not bring back without `--accept-no-undo`, records the recycle bin no longer gives back, which an environment never makes again with new Ids (`never makes records again with new Ids`);
+- **a mask resource's rules that mask nothing**: a set with no rule for its object, exit `2` before any org is reached (`a run would mask nothing`); a field the org does not show the user, blocked in the script's own words by its dry run ([A mask resource](#a-mask-resource));
+- **a masking that could be undone**: a file asking `checkpoint.before` beside a mask resource, exit `2`, and a `destroy --rewind` of a state naming one (`destroy never unmasks`).
 
 ## The state
 
 What `apply` keeps of the org: **ids, counts and dates, never a record's values**. Per resource, the fingerprint it was applied from, the order, and how each run ended; the records themselves are named by each seed run's own summary and run file, a clone's summary and a Frozen load's mapping, which the state points at.
 
-- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran; a frozen resource's loads are kept there too, in `frozen/<resource>/`, its sas: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox.
+- **Where.** `env/<Organization Id>/<name>/` of the journal directory, the folder `SANDFORGE_JOURNAL_DIR` names, `~/.sandforge` by default, beside the run files of the seeds it ran; a frozen resource's loads are kept there too, in `frozen/<resource>/`, its sas, and a mask resource's snapshots, in `dataops/<resource>/`, its DataOps store, which hold the values it wrote over in clear until a destroy deletes them: folders readable by your user alone (`0700`), files too (`0600`). Filed under the Organization Id read from the org, not the alias: an alias reused for a new scratch org gets a new state, and so does a refreshed sandbox.
 - **Outside the repository.** The journal directory must sit outside the repository that holds the file: committed, the state and the run summaries would publish the org's record ids with the project.
 - **Between jobs.** Keep the journal directory between the jobs that apply and destroy, in a cache keyed by the org: in GitHub Actions, `$RUNNER_TEMP/sandforge`, restored before and saved after. Lost, the next plan cannot tell the environment's records from the org's own -- the refusal above.
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
@@ -1005,6 +1191,8 @@ Each resource is taken back by its script's own removal, the last applied first,
 A removal refused before it deletes stops the destroy there, before the resources that one depended on: the org runs automation as records go and nothing accepted it, or the user may not delete the records of an object. Their records would be kept for it anyway.
 
 A destroy is not undone as a whole: children deleted before their parent cannot come back with it from the recycle bin. It is undone by applying again.
+
+A mask resource is never unmasked: its store is deleted, the snapshots of the values it wrote over with it, and its records stay masked ([A mask resource](#a-mask-resource)).
 
 Once every resource is taken back, the environment's checkpoints are deleted from this machine; a destroy that left records keeps them. What tests created on their own, not under the environment's records, is not the environment's, and a destroy by removal never sees it: `destroy --rewind` does ([Back to before the first apply](#back-to-before-the-first-apply-destroy---rewind)), and so does deleting the scratch org.
 
@@ -1027,11 +1215,10 @@ The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/
 
 ## Not yet
 
-This version applies seed, forge and frozen resources; the rest waits for a later one:
+This version applies seed, forge, frozen and mask resources; the rest waits for a later one:
 
-- **Masking** as a resource: `kind: mask` is refused, `Resources of kind mask come with a later SandForge: this one applies seed, forge and frozen resources`.
 - **Saved plans**: no `plan --out`, no `apply --plan`. `apply` plans again, against the org as it is then.
-- **Outputs**, and the MCP server's tools for environments.
+- **Outputs**.
 
 ## In CI
 

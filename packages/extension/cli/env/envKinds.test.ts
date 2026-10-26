@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type {
   EnvForgeResource,
   EnvFrozenResource,
+  EnvMaskResource,
   EnvSeedResource,
   SeedTemplate,
 } from '@sandforge/shared';
@@ -83,15 +84,34 @@ const drawing: EnvSeedResource = {
   ],
 };
 
+/** Contacts with an email, masked by a set of the file: the email hashed. */
+const mask: EnvMaskResource = {
+  kind: 'mask',
+  rules: 'contact-points',
+  object: 'Contact',
+  where: "LastName = 'Copied'",
+};
+const SETS = {
+  'contact-points': {
+    name: 'contact-points',
+    rules: [{ fieldPattern: 'Contact.Email', ruleType: 'hash' as const }],
+  },
+};
+
 /** A resource of the file, ready to plan, as `resolveEnvFile` makes one. */
 function ready(
-  resource: EnvSeedResource | EnvForgeResource | EnvFrozenResource,
+  resource: EnvSeedResource | EnvForgeResource | EnvFrozenResource | EnvMaskResource,
   read?: { organizationId: string; recordId?: string },
+  sets: Parameters<typeof convertResource>[5] = SETS,
 ): EnvFileResource {
-  const converted = convertResource('demo', 'r', resource, project, NOW);
+  const converted = convertResource('demo', 'r', resource, project, NOW, sets);
   if ('refusals' in converted) throw new Error(converted.refusals.map((r) => r.message).join('; '));
   const { run } = converted;
   if (run.kind === 'seed') {
+    const { kind, ...rest } = run;
+    return { name: 'r', kind, dependsOn: [], fingerprint: '', run: rest };
+  }
+  if (run.kind === 'mask') {
     const { kind, ...rest } = run;
     return { name: 'r', kind, dependsOn: [], fingerprint: '', run: rest };
   }
@@ -118,15 +138,88 @@ function ready(
 }
 
 describe('the kinds of resource', () => {
-  it('applies seed, forge and frozen resources, each by its script, and refuses a kind a later SandForge applies', () => {
+  it('applies seed, forge, frozen and mask resources, each by its script', () => {
     expect(isAppliedKind('seed')).toBe(true);
     expect(isAppliedKind('frozen')).toBe(true);
-    expect(isAppliedKind('mask')).toBe(false);
+    expect(isAppliedKind('mask')).toBe(true);
     expect(scriptOfKind('seed')).toBe('sandforge-seed');
     expect(scriptOfKind('forge')).toBe('sandforge-clone');
     expect(scriptOfKind('frozen')).toBe('sandforge-frozen');
-    expect(() => scriptOfKind('mask')).toThrow(
-      'The state holds a resource of kind mask, which a later SandForge applies',
+    expect(scriptOfKind('mask')).toBe('sandforge-dataops');
+  });
+
+  it('gives a mask resource’s lines to sandforge-dataops: its dry run and its run, in its own store, and never a removal', () => {
+    const context = {
+      target: 'TGT',
+      templateFile: '/tmp/r.1.json',
+      runId: '',
+      store: '/journal/env/o/e/dataops/r',
+    };
+
+    expect(dryRunLineOf(ready(mask), context).args).toEqual([
+      'anonymize',
+      '--org',
+      'TGT',
+      '--object',
+      'Contact',
+      '--where',
+      "LastName = 'Copied'",
+      '--rules',
+      '/tmp/r.1.json',
+      '--store',
+      '/journal/env/o/e/dataops/r',
+      '--dry-run',
+      '--json',
+    ]);
+    expect(applyLineOf(ready(mask), { ...context, summaryFile: '' }).args.slice(-3)).toEqual([
+      '/journal/env/o/e/dataops/r',
+      '--yes',
+      '--json',
+    ]);
+    // A template that ships is named by its id, and needs no rules file.
+    const shipped = ready({ kind: 'mask', rules: { template: 'tpl-gdpr-standard' } });
+    expect(dryRunLineOf(shipped, context).args).toEqual(
+      expect.arrayContaining(['--template', 'tpl-gdpr-standard']),
+    );
+    expect(dryRunLineOf(shipped, context).args).not.toContain('--rules');
+    // Its snapshots are kept in its store: no line without one.
+    expect(() => dryRunLineOf(ready(mask), { ...context, store: undefined })).toThrow(
+      'r is given no store to keep its snapshots in: plan again.',
+    );
+    // A masking is never taken back, nor previewed for a removal.
+    const removal = {
+      target: 'TGT',
+      subject: '/s',
+      includeChanged: false,
+      acceptAutomation: false,
+    };
+    expect(() => removeLineOf('mask', { ...removal, sweep: false })).toThrow(
+      'sandforge-dataops takes no run back: a masking is never undone',
+    );
+    expect(() => previewLineOf('mask', removal)).toThrow('takes no run back');
+    const runs: Array<{ n: number; takenBack?: true }> = [{ n: 1 }, { n: 2 }];
+    expect(previewedRunsOf('mask', runs)).toEqual([]);
+    expect(replacesInOneRun('mask')).toBe(true);
+    // Its payload is the rules file sandforge-dataops --rules reads.
+    expect(payloadOf(ready(mask), {})).toEqual(SETS['contact-points']);
+  });
+
+  it('fingerprints a mask resource by what its rules do, not by their name or their order', () => {
+    const twoRules = (order: 'email-first' | 'phone-first', name: string) => {
+      const rules = [
+        { fieldPattern: 'Contact.Email', ruleType: 'hash' as const },
+        { fieldPattern: 'Contact.Phone', ruleType: 'nullify' as const },
+      ];
+      return writtenOf(
+        ready({ kind: 'mask', rules: name, object: 'Contact' }, undefined, {
+          [name]: { name, rules: order === 'email-first' ? rules : [...rules].reverse() },
+        }),
+      );
+    };
+
+    expect(twoRules('email-first', 'a')).toEqual(twoRules('phone-first', 'b'));
+    expect(writtenOf(ready(mask))).not.toEqual(
+      writtenOf(ready({ ...mask, where: "LastName = 'Other'" })),
     );
   });
 

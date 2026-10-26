@@ -32,6 +32,11 @@
  * destroys after each run gave the flag every time, and the refusal kept
  * nothing apart.
  *
+ * A mask resource is never unmasked: its DataOps store is deleted, its
+ * snapshots with it — the only copy of the values its masking wrote over —,
+ * and its records stay as they are. Putting values back was the person's own
+ * act, before (`kinds/mask.ts`).
+ *
  * A destroy is not undone as a whole: children deleted before their parent
  * cannot come back with it from the recycle bin. It is undone by applying
  * again.
@@ -224,8 +229,11 @@ export async function destroyEnvironment(
     const whole = Object.values(current.resources).every((r) => r.status === 'destroyed');
     const checkpoints: EnvCheckpointStepResult[] = [];
     if (whole && stoppedAt === undefined) {
+      // A masking wrote over records the org held: those stay as they are, masked.
+      const masked = Object.values(current.resources).some((r) => r.kind === 'mask');
       deps.say(
-        `every record of ${env} is taken back from ${target.alias}: the state keeps it as ` +
+        `every record of ${env} is taken back from ${target.alias}` +
+          `${masked ? ', and what it masked left masked' : ''}: the state keeps it as ` +
           'destroyed, and the next apply creates it again',
       );
       // Kept by a rewind of the org under way, it stays named: the next destroy deletes it.

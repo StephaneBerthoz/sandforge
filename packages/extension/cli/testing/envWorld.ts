@@ -18,6 +18,13 @@
  * record by record, its mapping and its counting contract kept in the sas
  * the environment names.
  *
+ * It runs `sandforge-dataops`'s own `main` too, where a Frozen load runs: the
+ * panel's DataOps handler counts, reads, takes its snapshot of and writes
+ * over the memory org's records, its store a folder of the test's; the org
+ * is typed through the extension's own `AuthProvider`, which the world
+ * answers for as the memory org. Records a sandbox copied from production
+ * holds, which a masking writes over, a test puts there with `copyIn`.
+ *
  * A test file that uses it mocks, as the seed's own tests do, `../sfSession.js`
  * (`loadOrg`, `makeConn`), `../sandforge-clone.js` (`targetAutomationReader`)
  * and `../../src/modules/forge/ForgeRunRemoval.js` (`removalOrg`); the world
@@ -50,6 +57,7 @@ import {
 } from '../env/envKinds.js';
 import { liveResources, type EnvDryRun, type EnvRunPreview } from '../env/envPlan.js';
 import type { EnvStore } from '../env/envState.js';
+import { AuthProvider } from '../../src/core/connection/AuthProvider.js';
 import { getJsforceConnection } from '../../src/core/connection/ConnectionHelper.js';
 import { removalOrg } from '../../src/modules/forge/ForgeRunRemoval.js';
 import { verifiedOrg, type VerifiedOrg } from '../../src/modules/forge/RunVerifier.js';
@@ -62,6 +70,7 @@ import {
 } from '../../src/test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../src/test/memoryRestoreOrg.js';
 import { main as cloneMain, targetAutomationReader } from '../sandforge-clone.js';
+import { main as dataopsMain } from '../sandforge-dataops.js';
 import { main as frozenMain } from '../sandforge-frozen.js';
 import { main as seedMain } from '../sandforge-seed.js';
 import type { CommandRun, CommandRunner } from '../scriptRunner.js';
@@ -96,6 +105,9 @@ const OBJECTS: Readonly<Record<string, readonly WorldField[]>> = {
       referenceTo: ['Account'],
       relationshipName: 'Account',
     },
+    // What a masking writes over: a contact's points of contact.
+    { name: 'Email', type: 'email', createable: true, nillable: true, length: 80 },
+    { name: 'Phone', type: 'phone', createable: true, nillable: true, length: 40 },
   ],
   Asset: [
     { name: 'Id', type: 'id', createable: false, nillable: false, length: 18 },
@@ -193,6 +205,8 @@ export class EnvWorld {
   readonly calls: EnvWorldCall[] = [];
   /** Called before each record a script writes is taken: a test stops a run from it. */
   onCreate?: (objectApiName: string, written: number) => void;
+  /** Called before each record a script writes over is taken: a masking, a give-back. */
+  onUpdate?: (objectApiName: string) => void;
   /** Why the org refuses a record a script sends, as a validation rule would; taken when undefined. */
   refuseCreate?: (objectApiName: string, record: Record<string, unknown>) => string | undefined;
   /** What the org runs as records go in or out, as the scripts read it. */
@@ -233,6 +247,19 @@ export class EnvWorld {
     if (vi.isMockFunction(getJsforceConnection)) {
       vi.mocked(getJsforceConnection).mockImplementation(async () => conn as unknown as Connection);
     }
+    // A file that runs a masking types the org as the extension types one
+    // it connects, through its Organization record: the memory org's.
+    if (vi.isMockFunction(getJsforceConnection)) {
+      vi.spyOn(AuthProvider.prototype, 'validateConnection').mockImplementation(async () => ({
+        userId: MEMORY_ORG_USER,
+        username: 'test-user@example.com',
+        displayName: 'Test User',
+        orgId: this.organizationId,
+        orgName: 'Memory org',
+        orgType: options.edition ?? 'Developer Edition',
+        isSandbox: options.sandbox ?? true,
+      }));
+    }
     // A file that runs the clone reads its verification from the memory orgs.
     if (vi.isMockFunction(verifiedOrg)) {
       vi.mocked(verifiedOrg).mockImplementation(
@@ -247,6 +274,25 @@ export class EnvWorld {
   /** The records of an object the org holds, as the scripts wrote them. */
   records(objectApiName: string): Array<Record<string, unknown>> {
     return this.org.all(objectApiName);
+  }
+
+  /**
+   * Put records in the org to fill, a day before now, each its own Id, as a
+   * sandbox copied from production holds them: what a mask resource masks.
+   *
+   * @returns Their ids, in the order given.
+   */
+  copyIn(
+    objectApiName: string,
+    rows: ReadonlyArray<Omit<MemoryRow, 'Id'>>,
+    by = MEMORY_ORG_USER,
+  ): string[] {
+    const at = orgStamp(Date.now() - 86_400_000);
+    return rows.map((row) => {
+      const id = `${PREFIX[objectApiName] ?? '0xx'}${String(this.made++).padStart(12, '0')}CPY`;
+      this.org.add(objectApiName, { ...row, Id: id, CreatedById: by, LastModifiedById: by }, at);
+      return id;
+    });
   }
 
   /** Put records in the source org, a day before now, each its own Id. */
@@ -273,10 +319,13 @@ export class EnvWorld {
       run = await runInProcess(() =>
         withoutPauses(() => frozenMain(['node', 'sandforge-frozen.ts', ...args])),
       );
+    } else if (script === 'sandforge-dataops' && vi.isMockFunction(getJsforceConnection)) {
+      run = await runInProcess(() => dataopsMain(['node', 'sandforge-dataops.ts', ...args]));
     } else {
       throw new Error(
         `The world runs sandforge-seed${this.source !== undefined ? ', sandforge-clone' : ''}` +
-          `${vi.isMockFunction(getJsforceConnection) ? ', sandforge-frozen' : ''} alone, not ${script}`,
+          `${vi.isMockFunction(getJsforceConnection) ? ', sandforge-frozen, sandforge-dataops' : ''} ` +
+          `alone, not ${script}`,
       );
     }
     this.calls.push({ script, args: [...args], code: run.code });
@@ -291,6 +340,8 @@ export class EnvWorld {
       name: objectApiName,
       keyPrefix: PREFIX[objectApiName] ?? null,
       createable: true,
+      // What a masking asks before it writes over a record.
+      updateable: true,
       recordTypeInfos: RECORD_TYPES[objectApiName] ?? [],
       childRelationships: (CHILDREN[objectApiName] ?? []).map((child) => ({
         childSObject: child.childSObject,
@@ -345,6 +396,7 @@ export class EnvWorld {
           this.org.destroy(objectApiName, Array.isArray(ids) ? ids : [ids]),
         update: async (records: Array<Record<string, unknown>>) =>
           records.map((record) => {
+            this.onUpdate?.(objectApiName);
             const { Id: id, ...values } = record;
             this.org.edit(objectApiName, String(id), values);
             return { success: true, id: String(id), errors: [] };
@@ -500,6 +552,7 @@ export async function dryRunsIn(
       target: place.alias,
       templateFile,
       runId: `env-${resolved.checked.file.name}-${resource.name}-dry`,
+      store: join(place.dir, `${resource.name}.dataops`),
     });
     const ran = await world.runner(line.script, line.args, new AbortController().signal);
     try {

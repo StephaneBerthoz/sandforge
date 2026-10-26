@@ -426,6 +426,19 @@ export function resultLines(
 }
 
 /**
+ * What a dry run says of a field the template names and the org does not
+ * show the user: a run would mask nothing there. Exported for the
+ * environments, which refuse a mask resource in these words.
+ */
+export function missingFieldLine(objectApiName: string, fieldApiName: string): string {
+  return (
+    `${objectApiName}.${fieldApiName}: the org has no such field, or field-level security ` +
+    'hides it from this user — masks nothing (give the user read and edit access to it, or ' +
+    'connect as an administrator)'
+  );
+}
+
+/**
  * The lines a dry run comes to: per object, the records a run would mask
  * under its filter, each field with its method, the fields the org lacks, and
  * the first records masked as a run masks them — their new values only. A
@@ -475,11 +488,7 @@ export function dryRunLines(
       }`,
     );
     for (const m of missing.filter((m) => m.objectApiName === o.objectApiName)) {
-      lines.push(
-        `    ${m.objectApiName}.${m.fieldApiName}: the org has no such field, or field-level ` +
-          'security hides it from this user — masks nothing (give the user read and edit ' +
-          'access to it, or connect as an administrator)',
-      );
+      lines.push(`    ${missingFieldLine(m.objectApiName, m.fieldApiName)}`);
     }
     const sample = shownObject?.rows ?? [];
     if (sample.length > 0) {
@@ -674,7 +683,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
    * request's id.
    */
   const send = async (type: string, payload: Record<string, unknown>): Promise<Posted> => {
-    const id = `cli-${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // No colon in it: a masking's snapshot is named after its run's id, and a
+    // store reads `backup:<id>:<object>` as an object's records — with one,
+    // the snapshot was never listed, nor removed by the retention.
+    const id = `cli-${type.replaceAll(':', '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await handler.handle({ id, type, timestamp: Date.now(), payload } as never);
     const answer = posted.find(
       (m) =>

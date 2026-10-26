@@ -15,6 +15,9 @@
  *   frozen/<resource>/                    0700  a frozen resource's sas: the mapping
  *                                               of what each load created, its
  *                                               counting contract, the script's store
+ *   dataops/<resource>/                   0700  a mask resource's DataOps store: its
+ *                                               snapshots, which hold the values it
+ *                                               wrote over, until destroy deletes it
  * ```
  *
  * `<journal>` is the folder `SANDFORGE_JOURNAL_DIR` names, else `.sandforge`
@@ -71,8 +74,8 @@ const SUMMARY_FILE = /^runs\/[a-z][a-z0-9-]{0,62}\/[1-9][0-9]{0,5}\.summary\.jso
 /** The payload a run was given, from its state's folder. */
 const TEMPLATE_FILE = /^templates\/[a-z][a-z0-9-]{0,62}\.[1-9][0-9]{0,5}\.json$/;
 
-/** A frozen resource's sas, from its state's folder. */
-const SAS_FOLDER = /^frozen\/[a-z][a-z0-9-]{0,62}$/;
+/** A frozen resource's sas, or a mask resource's DataOps store, from its state's folder. */
+const SAS_FOLDER = /^(?:frozen|dataops)\/[a-z][a-z0-9-]{0,62}$/;
 
 /** Why the states refused, or failed, what they were asked. */
 export type EnvStateErrorCode =
@@ -306,7 +309,8 @@ export interface EnvStepEnd {
    * The current run's outcome, for a step that ran the resource's script: with
    * the summary it printed, once kept beside the state.
    */
-  run?: Pick<EnvRun, 'endedAt' | 'exitCode' | 'objects'> & Pick<Partial<EnvRun>, 'summary'>;
+  run?: Pick<EnvRun, 'endedAt' | 'exitCode' | 'objects'> &
+    Pick<Partial<EnvRun>, 'summary' | 'snapshotId'>;
 }
 
 /** The state once a step ended: its resource's status, and its current run's outcome. */
@@ -564,8 +568,9 @@ export class EnvStore {
 
   /**
    * Make a frozen resource's sas — `frozen/<resource>` of a state's folder —
-   * its owner's alone, and give its path: the folder its loads are kept in,
-   * which the script writes itself.
+   * or a mask resource's DataOps store — `dataops/<resource>` — its owner's
+   * alone, and give its path: the folder its loads, or its snapshots, are
+   * kept in, which the script writes itself.
    *
    * @throws {EnvStateError} `invalid`, when the states were opened to be
    *   listed or the path is not a sas of a state's folder; `folder`, when a
@@ -587,7 +592,7 @@ export class EnvStore {
     return sas;
   }
 
-  /** Where a frozen resource's sas is in a state's folder, whether it is there or not. */
+  /** Where a frozen resource's sas, or a mask resource's store, is in a state's folder, whether it is there or not. */
   sasOf(organizationId: string, env: string, relativePath: string): string {
     if (!SAS_FOLDER.test(relativePath)) {
       throw new EnvStateError('invalid', `Not a folder of a state's folder: "${relativePath}"`);

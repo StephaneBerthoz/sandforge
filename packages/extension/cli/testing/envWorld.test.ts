@@ -95,7 +95,7 @@ describe('the world of the environment’s tests', () => {
     expect(world.records('Asset')).toEqual([]);
     expect(world.calls.map((call) => call.code)).toEqual([0, 0]);
     await expect(world.runner('sandforge-clone', [], signal)).rejects.toThrow(
-      'The world runs sandforge-seed, sandforge-frozen alone, not sandforge-clone',
+      'The world runs sandforge-seed, sandforge-frozen, sandforge-dataops alone, not sandforge-clone',
     );
   });
 
@@ -209,6 +209,67 @@ describe('the world of the environment’s tests', () => {
     expect(removed.code, removed.stderr).toBe(0);
     expect(world.records('Account')).toEqual([]);
     expect(world.records('Contact')).toEqual([]);
+  });
+
+  it('runs a masking in this process, through the DataOps panel’s handler: a snapshot of the records copied in, then their values written over', async () => {
+    const world = new EnvWorld({ organizationId: '00D000000000009AAA' });
+    const copied = world.copyIn('Contact', [
+      { LastName: 'Copied', Email: 'one@example.com', Phone: '+33 1 00 00 00 01' },
+      { LastName: 'Copied', Email: 'two@example.com', Phone: '+33 1 00 00 00 02' },
+      { LastName: 'Own', Email: 'own@example.com' },
+    ]);
+    const rules = join(dir, 'rules.json');
+    writeFileSync(
+      rules,
+      JSON.stringify({
+        name: 'contact-points',
+        rules: [{ fieldPattern: 'Contact.Email', ruleType: 'fake' }],
+      }),
+    );
+    const store = join(dir, 'store');
+    const signal = new AbortController().signal;
+    const line = (...more: string[]) => [
+      'anonymize',
+      '--org',
+      'TGT',
+      '--object',
+      'Contact',
+      '--where',
+      "LastName = 'Copied'",
+      '--rules',
+      rules,
+      '--store',
+      store,
+      ...more,
+      '--json',
+    ];
+
+    const dry = await world.runner('sandforge-dataops', line('--dry-run'), signal);
+    expect(dry.code, dry.stderr).toBe(0);
+    expect(world.records('Contact').map((row) => row['Email'])).toEqual([
+      'one@example.com',
+      'two@example.com',
+      'own@example.com',
+    ]);
+    const ran = await world.runner('sandforge-dataops', line('--yes'), signal);
+    expect(ran.code, ran.stderr).toBe(0);
+
+    const email = (id: string | undefined) =>
+      world.records('Contact').find((row) => row.Id === id)?.['Email'];
+    expect(email(copied[0])).not.toBe('one@example.com');
+    expect(email(copied[1])).not.toBe('two@example.com');
+    expect(email(copied[0])).toMatch(/@/);
+    expect(email(copied[2])).toBe('own@example.com');
+    const answer = JSON.parse(ran.stdout) as {
+      posted: Array<{ type: string; payload?: { snapshot?: { operationId: string } } }>;
+    };
+    const snapshot = answer.posted.find((m) => m.type === 'dataops:anonymize:response')?.payload
+      ?.snapshot?.operationId;
+    expect(snapshot).toMatch(/-snapshot$/);
+    expect(world.calls.map((call) => [call.script, call.code])).toEqual([
+      ['sandforge-dataops', 0],
+      ['sandforge-dataops', 0],
+    ]);
   });
 
   it('gives back the exit code a script set or exited with, what it printed, and restores the process', async () => {

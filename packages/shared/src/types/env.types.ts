@@ -15,6 +15,10 @@
  * does not would make a state its own writer cannot read back.
  */
 
+import type {
+  SavedTemplateMethod,
+  SavedTemplateRuleConfig,
+} from '../constants/saved-anonymization-templates.js';
 import type { ForgeTemplateInput } from '../schemas/forge.schema.js';
 import type { ForgeDepth } from './forge.types.js';
 import type { FieldRule, SeedRelation, SeedTemplate } from './seed.types.js';
@@ -203,8 +207,37 @@ export interface EnvFrozenResource {
   dataset: EnvFrozenDataset;
 }
 
-/** A resource of the file. Version 1 holds the `seed`, `forge` and `frozen` kinds. */
-export type EnvResource = EnvSeedResource | EnvForgeResource | EnvFrozenResource;
+/** A rule of a masking set, as the DataOps panel saves a template's rule. */
+export interface EnvMaskingRule {
+  /** The field it masks, with its object: `Contact.Email`. */
+  fieldPattern: string;
+  ruleType: SavedTemplateMethod;
+  config?: SavedTemplateRuleConfig;
+}
+
+/** A named set of DataOps rules, as `sandforge-dataops --rules` takes them. */
+export interface EnvMaskingSet {
+  rules: EnvMaskingRule[];
+}
+
+/**
+ * Records the org already holds, masked by DataOps: with the rules of a set
+ * of the file's `masking`, or of a template that ships; one object and the
+ * records its condition selects, or every object those rules mask.
+ */
+export interface EnvMaskResource {
+  kind: 'mask';
+  dependsOn?: string[];
+  accept?: EnvAccept;
+  /** A set of the file's masking, by its name, or a template that ships, by its id. */
+  rules: string | { template: string };
+  object?: string;
+  /** With `object`: a SOQL condition, without the keyword. */
+  where?: string;
+}
+
+/** A resource of the file. Version 1 holds the `seed`, `forge`, `frozen` and `mask` kinds. */
+export type EnvResource = EnvSeedResource | EnvForgeResource | EnvFrozenResource | EnvMaskResource;
 
 /** `sandforge.yaml`, version 1, as read: defaults in place, variables as written. */
 export interface EnvFile {
@@ -214,7 +247,23 @@ export interface EnvFile {
   targets: EnvTargets;
   orgs: Record<string, EnvOrgRole>;
   checkpoint?: EnvCheckpointSettings;
+  /** Named sets of DataOps rules, which mask resources name. */
+  masking: Record<string, EnvMaskingSet>;
   resources: Record<string, EnvResource>;
+}
+
+/**
+ * What a mask resource runs: the rules `sandforge-dataops` is given, held to
+ * the schema the DataOps panel's save goes through — a set's as a rules file,
+ * or a template that ships by its id —, and what it masks.
+ */
+export interface EnvMaskRun {
+  /** Where its rules come from: a set of the file's masking, or a template that ships. */
+  source: { set: string } | { template: string };
+  /** The rules, named as the store saves them: the set's, or the template's as it ships. */
+  rules: { name: string; rules: EnvMaskingRule[] };
+  object?: string;
+  where?: string;
 }
 
 /**
@@ -303,6 +352,8 @@ export interface EnvRunObject {
   objectApiName: string;
   created: number;
   refused: number;
+  /** A masking's: the records it went through, masked or holding nothing to mask. */
+  masked?: number;
 }
 
 /** One run of a resource's script, pointing at what the run itself keeps. */
@@ -528,6 +579,8 @@ export interface EnvStepObject {
   refused: number;
   deleted: number;
   kept: number;
+  /** A masking's: the records it masked, or left masked once destroyed. */
+  masked?: number;
   reason?: string;
 }
 
