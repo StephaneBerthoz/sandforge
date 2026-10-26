@@ -429,7 +429,7 @@ describe('FrozenLoadRemoval', () => {
     });
   });
 
-  it('says why a load recorded before loads kept what they created cannot be removed', () => {
+  it('says why a load recorded before loads kept what they created can neither be removed nor reloaded', () => {
     render(
       <FrozenLoadRemoval
         records={{ ...LOADED, created: [], linked: 0, recorded: false }}
@@ -438,9 +438,73 @@ describe('FrozenLoadRemoval', () => {
     );
 
     expect(screen.queryByTestId('frozen-removal-remove')).toBeNull();
+    // A reload replaces the loads before it, and is refused for this one.
     expect(screen.getByTestId('frozen-removal-not-recorded').textContent).toContain(
-      'A reload purges them, except those the load may have linked to.',
+      'nor replaced by a reload, which would delete what someone changed since.',
     );
+  });
+
+  describe('a reload refused for the records it would leave', () => {
+    const refusal = (onDismiss = vi.fn()) => ({
+      message: 'A removal of the loads this reload replaces would leave 1 of their records.',
+      onDismiss,
+    });
+
+    it('says so above what the card offers, and opens the removal from it with the records changed since ticked', () => {
+      const onDismiss = vi.fn();
+      render(
+        <FrozenLoadRemoval
+          records={LOADED}
+          onAnswered={vi.fn()}
+          reloadRefusal={refusal(onDismiss)}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId('frozen-reload-take-back'));
+      const dialog = screen.getByRole('dialog');
+      expect(
+        (within(dialog).getByTestId('frozen-removal-include-changed') as HTMLInputElement).checked,
+      ).toBe(true);
+      expect(onDismiss).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sent('frozen:remove')?.payload).toEqual({
+        targetOrgId: 'org-dev',
+        loadedAt: LOADED.loadedAt,
+        includeChanged: true,
+      });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the records changed since out of a removal asked from its own button', () => {
+      render(<FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} reloadRefusal={refusal()} />);
+
+      fireEvent.click(screen.getByTestId('frozen-reload-take-back'));
+      fireEvent.click(screen.getByTestId('danger-dismiss-btn'));
+      fireEvent.click(screen.getByTestId('frozen-removal-remove'));
+
+      expect(
+        (screen.getByTestId('frozen-removal-include-changed') as HTMLInputElement).checked,
+      ).toBe(false);
+    });
+
+    it('offers no take-back while a load runs, or for a load it cannot remove', () => {
+      const { rerender } = render(
+        <FrozenLoadRemoval records={LOADED} onAnswered={vi.fn()} busy reloadRefusal={refusal()} />,
+      );
+      expect(screen.queryByTestId('frozen-reload-take-back')).toBeNull();
+
+      rerender(
+        <FrozenLoadRemoval
+          records={{ ...LOADED, created: [], recorded: false }}
+          onAnswered={vi.fn()}
+          reloadRefusal={refusal()}
+        />,
+      );
+      expect(screen.queryByTestId('frozen-reload-take-back')).toBeNull();
+      expect(screen.getByTestId('frozen-reload-cancel')).toBeTruthy();
+    });
   });
 
   it('names a load before the last one as such, and offers to remove what it created', () => {

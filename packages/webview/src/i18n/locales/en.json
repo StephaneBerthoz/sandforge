@@ -4354,10 +4354,16 @@
       "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
       "cancelRefused": "Could not stop the removal",
       "cancelRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
-      "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here. A reload purges them, except those the load may have linked to.",
+      "notRecorded": "Loaded before loads kept what they created: its records cannot be removed from here, nor replaced by a reload, which would delete what someone changed since.",
       "orgGone": "The org this load wrote to is no longer registered: its records cannot be removed from here.",
       "nothingCreated": "This load created no record: there is nothing to remove.",
       "keptByThePlatform": "Kept in {{org}} by any removal — the platform does not delete these records the load created: {{objects}}"
+    },
+    "reloadRefused": {
+      "title": "Reload refused: nothing was written to {{org}}",
+      "wayOut": "Take the load back first: its records go to the recycle bin of {{org}}, the ones changed since included — on a shared sandbox, someone else's work — once you have typed the org's name. Then load the dataset again. Or cancel, and nothing changes.",
+      "noWayOut": "This load cannot be taken back from here, as the card says below: the reload cannot replace it, and nothing was deleted.",
+      "takeBack": "Take the load back first…"
     },
     "coverage": {
       "truncated": "Discovery stopped at {{objects}} objects (cap {{maxNodes}}): objects further from the root were not read, so this dataset may miss some. Raise maxNodes in the advanced configuration, then run it again.",

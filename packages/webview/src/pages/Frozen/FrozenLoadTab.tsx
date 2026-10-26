@@ -33,6 +33,15 @@ import type { FrozenFailureReason } from './frozenFailureReasons';
 import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks';
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 
+/**
+ * The code the extension refuses a reload with, before anything is written,
+ * when a removal of the loads it replaces would leave records in the org.
+ */
+const RELOAD_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
+
+/** The requests a reload is refused on: the load, and its preview. */
+const RELOAD_REQUESTS: ReadonlySet<string> = new Set(['frozen:load', 'frozen:load:preview']);
+
 /** Props for the load tab. */
 export interface FrozenLoadTabProps {
   /** Refetch the module status after a mutation completed. */
@@ -145,6 +154,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   const verdict = useFrozenStore((s) => s.verdict);
   const setVerdict = useFrozenStore((s) => s.setVerdict);
   const lastError = useFrozenStore((s) => s.lastError);
+  const setLastError = useFrozenStore((s) => s.setLastError);
 
   const targetOrgId = useFrozenStore((s) => s.targetOrgId);
   const setTargetOrgId = useFrozenStore((s) => s.setTargetOrgId);
@@ -209,6 +219,21 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     status?.lastLoads.some((load) => load.orgId === effectiveTarget) === true;
   const noLoadIntoTarget = status !== null && effectiveTarget !== '' && !loadedIntoTarget;
   const targetName = orgs.find((o) => o.id === effectiveTarget)?.alias ?? effectiveTarget;
+  const targetRecords = status?.loadRecords?.find((load) => load.orgId === effectiveTarget);
+
+  // A reload refused for the records it would leave is said on the card of
+  // the load it would replace, with the way out: taking that load back.
+  const reloadRefused =
+    lastError !== null &&
+    RELOAD_REQUESTS.has(lastError.source) &&
+    lastError.code === RELOAD_LEAVES_RECORDS
+      ? lastError
+      : null;
+  const refusalOnCard = reloadRefused !== null && targetRecords !== undefined;
+  /** Leave the refused reload behind: asked again, or of another org, it is read again. */
+  const dismissRefusal = (): void => {
+    if (reloadRefused !== null) setLastError(null);
+  };
 
   const loadOptions = (): Record<string, unknown> => ({
     targetOrgId: effectiveTarget,
@@ -218,6 +243,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   });
 
   const handleLoad = (): void => {
+    dismissRefusal();
     clearProgress();
     setLoadReport(null);
     setVerdict(null);
@@ -373,7 +399,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
 
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
-      {lastError && (
+      {lastError && !refusalOnCard && (
         <ErrorBanner message={lastError.message} code={lastError.code} data-testid="frozen-error" />
       )}
 
@@ -408,7 +434,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               <span className="text-[10px] text-text-secondary">{t('frozen.load.targetOrg')}</span>
               <OrgDropdown
                 value={effectiveTarget}
-                onChange={setTargetOrgId}
+                onChange={(orgId) => {
+                  dismissRefusal();
+                  setTargetOrgId(orgId);
+                }}
                 orgs={connectedOrgs}
                 ariaLabel={t('frozen.load.targetOrg')}
                 testId="frozen-load-target"
@@ -470,7 +499,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               icon={<Eye className="w-3 h-3" />}
               loading={previewMutation.loading}
               disabled={!effectiveTarget || !status?.manifest || loadMutation.loading}
-              onClick={() => previewMutation.mutate(loadOptions())}
+              onClick={() => {
+                dismissRefusal();
+                previewMutation.mutate(loadOptions());
+              }}
               data-testid="frozen-load-preview"
             >
               {t('frozen.load.preview')}
@@ -756,9 +788,17 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
 
       {/* ── Last load into the selected target, and taking it back ────── */}
       <FrozenLoadRemoval
-        records={status?.loadRecords?.find((load) => load.orgId === effectiveTarget)}
+        records={targetRecords}
         onAnswered={onRefetchStatus}
         busy={loadMutation.loading}
+        {...(refusalOnCard
+          ? {
+              reloadRefusal: {
+                message: reloadRefused.message,
+                onDismiss: () => setLastError(null),
+              },
+            }
+          : {})}
       />
 
       {/* ── Progress ──────────────────────────────────────────────────── */}

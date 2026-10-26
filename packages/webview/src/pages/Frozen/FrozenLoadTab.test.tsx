@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import type { FrozenLoadPlanInfo, FrozenLoadReportInfo, FrozenStatusInfo } from '@sandforge/shared';
 import { FrozenLoadTab } from './FrozenLoadTab';
@@ -528,6 +528,144 @@ describe('FrozenLoadTab', () => {
 
       expect(previewRows()[0]).not.toContain('To purge');
       expect(screen.queryByTestId('frozen-preview-reload')).toBeNull();
+    });
+  });
+
+  describe('a reload refused for the records it would leave', () => {
+    /** What the extension refuses the reload with, in its words. */
+    const REFUSAL =
+      'A removal of the loads this reload replaces would leave 1 of their records in the org — ' +
+      'Account (1: 1 changed since the load): loaded again, the dataset would stand beside ' +
+      'them, and the reload would delete what was changed since. Nothing was written. Take the ' +
+      'load back first with a removal — records changed since go too when it is told to ' +
+      'include them — then load the dataset again.';
+
+    /** The extension's answer to the request `requestType` sent under `id`, on its error channel. */
+    function refuse(requestType: string, id: string, code = 'REPLACE_LEAVES_RECORDS'): void {
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: `err-${id}`,
+              type: `${requestType}:error`,
+              timestamp: Date.now(),
+              correlationId: id,
+              payload: { message: REFUSAL, code, retryable: false },
+            },
+          }),
+        );
+      });
+    }
+
+    it('says on the last load’s card what the reload would leave and why, in the extension’s words, and takes the load back first, the records changed since included, once the org’s name is typed', () => {
+      answers['frozen:load'] = { requestId: 'req-load-1' };
+      render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      expect(mutate).toHaveBeenCalledWith('frozen:load', { targetOrgId: 'org-dev', reload: true });
+      refuse('frozen:load', 'req-load-1');
+
+      const card = screen.getByTestId('frozen-removal');
+      const refused = within(card).getByTestId('frozen-reload-refused');
+      expect(within(refused).getByRole('heading').textContent).toBe(
+        'Reload refused: nothing was written to DEV-SANDBOX',
+      );
+      expect(within(refused).getByTestId('frozen-reload-refused-why').textContent).toBe(REFUSAL);
+      expect(within(refused).getByTestId('frozen-reload-refused-way-out').textContent).toContain(
+        'the ones changed since included',
+      );
+      // Said once, on the card: not in the banner above as well.
+      expect(screen.queryByTestId('frozen-error')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('frozen-reload-take-back'));
+      const dialog = screen.getByRole('dialog');
+      expect(
+        (within(dialog).getByTestId('frozen-removal-include-changed') as HTMLInputElement).checked,
+      ).toBe(true);
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(mutate).toHaveBeenCalledWith('frozen:remove', {
+        targetOrgId: 'org-dev',
+        loadedAt: '2026-09-24T10:05:00.000Z',
+        includeChanged: true,
+      });
+      expect(screen.queryByTestId('frozen-reload-refused')).toBeNull();
+      // Taken back, nothing is loaded again until asked.
+      expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toHaveLength(1);
+    });
+
+    it('is said the same way when a preview of the reload is refused, and cancelled leaves the org as it is', () => {
+      answers['frozen:load:preview'] = { requestId: 'req-preview-1' };
+      render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      refuse('frozen:load:preview', 'req-preview-1');
+      expect(screen.getByTestId('frozen-reload-refused-why').textContent).toBe(REFUSAL);
+
+      fireEvent.click(screen.getByTestId('frozen-reload-cancel'));
+
+      expect(screen.queryByTestId('frozen-reload-refused')).toBeNull();
+      expect(screen.queryByTestId('frozen-error')).toBeNull();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mutate.mock.calls.map(([type]) => type)).toEqual(['frozen:load:preview']);
+    });
+
+    it('offers only to cancel when the card cannot take the load back, and says why', () => {
+      useFrozenStore.setState({
+        status: {
+          ...STATUS,
+          loadRecords: [{ ...loadInto('org-dev', '2026-09-24T10:05:00.000Z', 1), recorded: false }],
+        },
+        lastError: {
+          source: 'frozen:load',
+          message: REFUSAL,
+          code: 'REPLACE_LEAVES_RECORDS',
+          retryable: false,
+        },
+      });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-reload-refused-way-out').textContent).toContain(
+        'cannot be taken back from here',
+      );
+      expect(screen.queryByTestId('frozen-reload-take-back')).toBeNull();
+      expect(screen.getByTestId('frozen-removal-not-recorded')).toBeTruthy();
+      expect(screen.getByTestId('frozen-reload-cancel')).toBeTruthy();
+    });
+
+    it('leaves the refusal behind once another org is picked, and says any other refusal of a load in the banner', () => {
+      useFrozenStore.setState({
+        lastError: {
+          source: 'frozen:load',
+          message: REFUSAL,
+          code: 'REPLACE_LEAVES_RECORDS',
+          retryable: false,
+        },
+      });
+      const { unmount } = render(tab());
+      expect(screen.getByTestId('frozen-reload-refused')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-qa'));
+
+      expect(screen.queryByTestId('frozen-reload-refused')).toBeNull();
+      expect(useFrozenStore.getState().lastError).toBeNull();
+      unmount();
+
+      useFrozenStore.setState({
+        lastError: {
+          source: 'frozen:load',
+          message: 'No frozen dataset found',
+          code: 'LOAD_ERROR',
+          retryable: true,
+        },
+      });
+      render(tab());
+      expect(screen.getByTestId('frozen-error').textContent).toContain('No frozen dataset found');
+      expect(screen.queryByTestId('frozen-reload-refused')).toBeNull();
     });
   });
 });

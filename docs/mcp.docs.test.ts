@@ -142,6 +142,35 @@ describe('docs/mcp.md', () => {
     expect(RUNNER).toContain('child.send(STOP_MESSAGE');
   });
 
+  it('says the environment tools offer no reset and no destroy by rewind, which the server runs no line of', () => {
+    const not = section('What the environment tools do not offer');
+    const envTools = declaredTools().filter((tool) => tool.name.startsWith('env_'));
+    // What each environment tool runs, read off its block of the server.
+    const lines = SERVER.split(/\n {2}tool\(\{\n/)
+      .slice(1)
+      .filter((block) => /^\s+name: 'env_/m.test(block))
+      .map((block) => /script: 'sandforge-env',\s+args: \[\s+'([a-z]+)'/.exec(block)?.[1]);
+
+    expect(envTools.map((tool) => tool.name)).toEqual(['env_plan', 'env_apply', 'env_destroy']);
+    expect(lines).toEqual(['plan', 'apply', 'destroy']);
+    expect(not).toContain(
+      'No tool resets an environment (`sandforge-env reset`) or destroys it by rewinding the org to a checkpoint (`destroy --rewind`) in this version',
+    );
+    expect(not).toContain('`env_destroy` takes back by removal alone.');
+    expect(SERVER).not.toContain("'--rewind'");
+    expect(SERVER).not.toContain("'reset'");
+  });
+
+  it('names the parameter each environment flag the server passes stands for', () => {
+    const rule = section('The confirm rule');
+
+    expect(rule).toContain("`acceptNoState` is `env_apply`'s `--accept-no-state`");
+    expect(rule).toContain("`includeChanged` is `env_destroy`'s `--include-changed`");
+    expect(SERVER).toContain("flags: { '--accept-no-state': 'acceptNoState' },");
+    expect(SERVER).toContain("flags: { '--include-changed': 'includeChanged' },");
+    expect(SERVER).toContain("...(args.failOnDrift === true ? ['--fail-on-drift'] : []),");
+  });
+
   it('says the extension itself gives the model no tool, and names the test that holds it', () => {
     const anchor = 'anchor: nothing shipped gives the model tools or acts on a tool call';
 
@@ -164,6 +193,10 @@ describe('the pages that send a reader to docs/mcp.md', () => {
       .find((line) => line.startsWith('Only to Anthropic'));
 
     expect(checkpoint).toContain('](docs/mcp.md)');
+    // The server's tools apply and destroy environments too: the paragraph names them.
+    expect(checkpoint).toContain(
+      'the plan, apply and destroy of the environments a `sandforge.yaml` declares',
+    );
     expect(source('docs/modules/checkpoint.md')).toContain('](../mcp.md)');
     expect(privacy).toContain('](mcp.md)');
   });

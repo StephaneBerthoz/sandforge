@@ -311,15 +311,17 @@ describe('frozen:remove:preview', () => {
   });
 });
 
-describe('a reload that replaces the loads before it', () => {
+describe('a reload, which replaces the loads before it', () => {
   const load = (payload: Record<string, unknown>) =>
     handler.handle(buildMsg('frozen:load', { targetOrgId: TARGET_ORG, ...payload }));
 
-  it('is refused before anything is written when the removal of the load before would keep a record changed since', async () => {
+  it("is refused, the panel's as it sends it, before anything is written while the removal of the load before would keep a record changed since", async () => {
     changedSinceTheLoad();
     const before = sasFiles();
 
-    await load({ reload: true, replace: true });
+    // What the Load tab sends with Reload ticked: its purge deleted the
+    // record changed since without a word.
+    await load({ reload: true });
 
     const [refusal] = errorsOn('frozen:load:error');
     expect(refusal.code).toBe('REPLACE_LEAVES_RECORDS');
@@ -344,7 +346,7 @@ describe('a reload that replaces the loads before it', () => {
     changedSinceTheLoad();
 
     await handler.handle(
-      buildMsg('frozen:load:preview', { targetOrgId: TARGET_ORG, reload: true, replace: true }),
+      buildMsg('frozen:load:preview', { targetOrgId: TARGET_ORG, reload: true }),
     );
 
     expect(errorsOn('frozen:load:preview:error').map((e) => e.code)).toEqual([
@@ -354,7 +356,7 @@ describe('a reload that replaces the loads before it', () => {
   });
 
   it('goes on to the load when the removal would take every record of the loads before', async () => {
-    await load({ reload: true, replace: true });
+    await load({ reload: true });
 
     // Past the gate, the load reads its dataset, which this sas has none of.
     const [error] = errorsOn('frozen:load:error');
@@ -362,11 +364,11 @@ describe('a reload that replaces the loads before it', () => {
     expect(error.message).toContain('No frozen dataset found');
   });
 
-  it('is not asked of a reload that does not replace, nor of a pilot, which purges nothing', async () => {
+  it('is not asked of a load that is no reload, nor of a pilot, which purges nothing', async () => {
     changedSinceTheLoad();
 
-    await load({ reload: true });
-    await load({ reload: true, replace: true, pilot: true });
+    await load({});
+    await load({ reload: true, pilot: true });
 
     expect(errorsOn('frozen:load:error').map((e) => e.message)).toEqual([
       expect.stringContaining('No frozen dataset found'),

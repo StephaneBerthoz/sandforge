@@ -107,6 +107,7 @@ describe('the scripts a runner starts', () => {
     'sandforge-checkpoint': true,
     'sandforge-frozen': true,
     'sandforge-dataops': true,
+    'sandforge-env': true,
   };
 
   it('starts each of them from its own file in this folder', () => {

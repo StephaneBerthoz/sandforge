@@ -68,8 +68,8 @@ export interface FrozenLoadRequest extends BaseMessage {
    * `writeEncrypted`: write the fields the target encrypts as the dataset
    * holds them, though its manifest does not say its extraction left out what
    * it read masked; they are left out otherwise (`FrozenFieldRemoval`,
-   * `may-hold-masks`). `replace`, with `reload`: the reload takes the loads
-   * before it back whole, and is refused before anything is written when a
+   * `may-hold-masks`). `reload`: the load replaces the loads before it,
+   * taken back whole, and is refused before anything is written when a
    * removal of them would leave records in the org. `maxRecords`: the most
    * records the load may insert, refused before anything is written past it.
    */
@@ -82,7 +82,6 @@ export interface FrozenLoadOptionsPayload {
   pilot?: boolean;
   reload?: boolean;
   writeEncrypted?: boolean;
-  replace?: boolean;
   maxRecords?: number;
 }
 

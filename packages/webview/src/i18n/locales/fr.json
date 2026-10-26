@@ -4354,10 +4354,16 @@
       "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a reçu sa réponse. Ce qu'elle a supprimé d'ici là est listé ; le reste demeure dans l'org, et une suppression le reprendra plus tard.",
       "cancelRefused": "Impossible d'arrêter la suppression",
       "cancelRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
-      "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici. Un rechargement les purge, sauf ceux auxquels le chargement a pu se lier.",
+      "notRecorded": "Chargé avant que les chargements gardent ce qu'ils créent : ses enregistrements ne peuvent pas être supprimés d'ici, ni remplacés par un rechargement, qui supprimerait ce que quelqu'un a modifié depuis.",
       "orgGone": "L'org où ce chargement a écrit n'est plus enregistrée : ses enregistrements ne peuvent pas être supprimés d'ici.",
       "nothingCreated": "Ce chargement n'a créé aucun enregistrement : il n'y a rien à supprimer.",
       "keptByThePlatform": "Conservés dans {{org}} par toute suppression — la plateforme ne supprime pas ces enregistrements créés par le chargement : {{objects}}"
+    },
+    "reloadRefused": {
+      "title": "Rechargement refusé : rien n'a été écrit dans {{org}}",
+      "wayOut": "Retirez d'abord le chargement : ses enregistrements vont dans la corbeille de {{org}}, y compris ceux modifiés depuis — sur une sandbox partagée, le travail de quelqu'un d'autre —, une fois le nom de l'org saisi. Chargez ensuite le dataset à nouveau. Ou annulez : rien ne change.",
+      "noWayOut": "Ce chargement ne peut pas être retiré d'ici, comme la carte l'indique plus bas : le rechargement ne peut pas le remplacer, et rien n'a été supprimé.",
+      "takeBack": "Retirer d'abord le chargement…"
     },
     "coverage": {
       "truncated": "La découverte s'est arrêtée à {{objects}} objets (plafond {{maxNodes}}) : les objets plus éloignés de la racine n'ont pas été lus, ce jeu de données peut donc en manquer. Augmentez maxNodes dans la configuration avancée, puis relancez.",

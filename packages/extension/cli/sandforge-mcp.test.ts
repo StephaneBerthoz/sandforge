@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,9 @@ import { PassThrough } from 'node:stream';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { PREBUILT_SEED_TEMPLATES } from '@sandforge/shared';
+
+import { main as envMain } from './sandforge-env.js';
+import { runInProcess } from './testing/envWorld.js';
 
 import {
   ERROR,
@@ -272,7 +275,7 @@ describe('sandforge-mcp: the protocol', () => {
 });
 
 describe('sandforge-mcp: the tools', () => {
-  it('lists the ten tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
+  it('lists the thirteen tools in one order every time, the reads read-only and what deletes or writes over destructive', async () => {
     const c = client();
     await c.initialized();
 
@@ -295,9 +298,12 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      'env_plan',
+      'env_apply',
+      'env_destroy',
     ]);
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
-    for (const name of ['seed_templates', 'checkpoint_list', 'checkpoint_preview']) {
+    for (const name of ['seed_templates', 'checkpoint_list', 'checkpoint_preview', 'env_plan']) {
       expect(hints[name], name).toMatchObject({ readOnlyHint: true });
       expect(hints[name]?.destructiveHint, name).toBeUndefined();
     }
@@ -306,6 +312,9 @@ describe('sandforge-mcp: the tools', () => {
       'checkpoint_rewind',
       'checkpoint_undo',
       'checkpoint_delete',
+      // An apply takes back the runs a replace or a resource the file dropped held.
+      'env_apply',
+      'env_destroy',
     ]) {
       expect(hints[name], name).toEqual(
         expect.objectContaining({ readOnlyHint: false, destructiveHint: true }),
@@ -329,6 +338,10 @@ describe('sandforge-mcp: the tools', () => {
     }
     const rewind = TOOLS.find((t) => t.definition.name === 'checkpoint_rewind');
     expect(rewind?.definition.inputSchema.required).toEqual(['org', 'checkpoint']);
+    for (const name of ['env_plan', 'env_apply', 'env_destroy']) {
+      const env = TOOLS.find((t) => t.definition.name === name);
+      expect(env?.definition.inputSchema.required, name).toEqual(['file', 'org']);
+    }
   });
 
   it('lists the built-in templates by their English names, running no script', async () => {
@@ -374,6 +387,12 @@ describe('sandforge-mcp: confirm', () => {
     { tool: 'checkpoint_rewind', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_undo', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
     { tool: 'checkpoint_delete', org: 'DEV', args: { org: 'DEV', checkpoint: 'baseline' } },
+    { tool: 'env_apply', org: 'SB', args: { file: 'sandforge.yaml', org: 'SB' } },
+    {
+      tool: 'env_destroy',
+      org: 'SB',
+      args: { file: 'sandforge.yaml', org: 'SB', includeChanged: true },
+    },
   ];
 
   it('refuses a write without confirm, or with another alias, before any script runs', async () => {
@@ -410,6 +429,8 @@ describe('sandforge-mcp: confirm', () => {
     await c.call('checkpoint_preview', { org: 'DEV' });
     await c.call('checkpoint_take', { org: 'DEV', estimate: true });
     await c.call('checkpoint_list', { org: 'DEV' });
+    await c.call('env_plan', { file: 'envs/sandforge.yaml', org: 'SB' });
+    await c.call('env_plan', { file: '/repo/sandforge.yaml', org: 'SB', failOnDrift: true });
 
     expect(ran).toEqual([
       {
@@ -435,6 +456,22 @@ describe('sandforge-mcp: confirm', () => {
       },
       { script: 'sandforge-checkpoint', args: ['take', '--org', 'DEV', '--estimate', '--json'] },
       { script: 'sandforge-checkpoint', args: ['list', '--org', 'DEV', '--json'] },
+      {
+        script: 'sandforge-env',
+        args: ['plan', '--file', 'envs/sandforge.yaml', '--org', 'SB', '--json'],
+      },
+      {
+        script: 'sandforge-env',
+        args: [
+          'plan',
+          '--file',
+          '/repo/sandforge.yaml',
+          '--org',
+          'SB',
+          '--fail-on-drift',
+          '--json',
+        ],
+      },
     ]);
     await c.close();
   });
@@ -496,6 +533,21 @@ describe('sandforge-mcp: confirm', () => {
       acceptAutomation: true,
     });
     await c.call('checkpoint_delete', { org: 'DEV', checkpoint: 'Before UAT', confirm: 'DEV' });
+    await c.call('env_apply', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
+    await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+      replace: ['accounts', 'case-contacts'],
+      acceptNoState: true,
+    });
+    await c.call('env_destroy', { file: 'sandforge.yaml', org: 'SB', confirm: 'SB' });
+    await c.call('env_destroy', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+      includeChanged: true,
+    });
 
     expect(ran).toEqual([
       {
@@ -599,6 +651,44 @@ describe('sandforge-mcp: confirm', () => {
         script: 'sandforge-checkpoint',
         args: ['delete', '--org', 'DEV', '--checkpoint', 'Before UAT', '--yes', '--json'],
       },
+      {
+        script: 'sandforge-env',
+        args: ['apply', '--file', 'sandforge.yaml', '--org', 'SB', '--yes', '--json'],
+      },
+      {
+        script: 'sandforge-env',
+        args: [
+          'apply',
+          '--file',
+          'sandforge.yaml',
+          '--org',
+          'SB',
+          '--replace',
+          'accounts',
+          '--replace',
+          'case-contacts',
+          '--accept-no-state',
+          '--yes',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-env',
+        args: ['destroy', '--file', 'sandforge.yaml', '--org', 'SB', '--yes', '--json'],
+      },
+      {
+        script: 'sandforge-env',
+        args: [
+          'destroy',
+          '--file',
+          'sandforge.yaml',
+          '--org',
+          'SB',
+          '--include-changed',
+          '--yes',
+          '--json',
+        ],
+      },
     ]);
     await c.close();
   });
@@ -623,6 +713,27 @@ describe('sandforge-mcp: confirm', () => {
       await c.call('checkpoint_list', { org: 'DEV', store: '/elsewhere' }),
       // Every org's checkpoints would put the other orgs' names and aliases in the agent's context.
       await c.call('checkpoint_list', {}),
+      await c.call('env_plan', { file: '--org=PROD', org: 'SB' }),
+      await c.call('env_plan', { org: 'SB' }),
+      await c.call('env_apply', {
+        file: 'sandforge.yaml',
+        org: 'SB',
+        confirm: 'SB',
+        replace: ['--replace-drifted'],
+      }),
+      // Not offered: a reset, a destroy by rewind, an apply's acceptance of automation.
+      await c.call('env_destroy', {
+        file: 'sandforge.yaml',
+        org: 'SB',
+        confirm: 'SB',
+        rewind: true,
+      }),
+      await c.call('env_apply', {
+        file: 'sandforge.yaml',
+        org: 'SB',
+        confirm: 'SB',
+        acceptAutomation: true,
+      }),
     ];
 
     for (const result of refusals) {
@@ -777,6 +888,127 @@ describe("sandforge-mcp: a script's answer", () => {
 
     expect(result).toMatchObject({ isError: true, structuredContent: { exitCode: 1 } });
     expect(textOf(result)).toContain('sandforge-checkpoint could not be started: spawn ENOENT');
+    await c.close();
+  });
+});
+
+describe('sandforge-mcp: the environment tools', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("answers env_plan with the env script's own refusal of a file that does not validate, exit 2, before any org is reached", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-mcp-env-'));
+    dirs.push(dir);
+    const project = join(dir, 'project');
+    mkdirSync(join(project, '.git'), { recursive: true });
+    const file = join(project, 'sandforge.yaml');
+    writeFileSync(file, 'version: 1\nname: Not A Name\nresources: {}\n');
+    const reached: string[] = [];
+    const ran: string[][] = [];
+    // The env script's own main, its output read as a process's would be.
+    const run: CommandRunner = async (script, args) => {
+      if (script !== 'sandforge-env') throw new Error(`no ${script} here`);
+      ran.push([...args]);
+      return runInProcess(() =>
+        envMain(['node', 'sandforge-env.ts', ...args], {
+          reach: (alias) => {
+            reached.push(alias);
+            return Promise.reject(new Error('no org here'));
+          },
+          runner: () => Promise.reject(new Error('no script here')),
+          journalDir: join(dir, 'journal'),
+          locksDir: join(dir, 'locks'),
+          onStop: () => () => undefined,
+          cwd: project,
+        }),
+      );
+    };
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('env_plan', { file, org: 'SB' });
+
+    expect(ran).toEqual([['plan', '--file', file, '--org', 'SB', '--json']]);
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: { exitCode: 2, answer: { refusal: { code: 'INVALID_FILE' } } },
+    });
+    expect(textOf(result)).toContain('does not validate');
+    expect(reached).toEqual([]);
+    await c.close();
+  });
+
+  it('says a plan that found drift is an answer, in its own words, not a partial run', async () => {
+    const { run } = scripts(() => ({ code: 3, stdout: '{"env":"case-flow","actions":[]}' }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('env_plan', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      failOnDrift: true,
+    });
+
+    expect(result).toMatchObject({ isError: false, structuredContent: { exitCode: 3 } });
+    expect(textOf(result)).toContain(
+      'exit 3: drift: the org no longer holds the environment as applied',
+    );
+    expect(textOf(result)).not.toContain('partial');
+    await c.close();
+  });
+
+  it('names acceptNoState and includeChanged where the env script names their flags, and how an apply is taken back', async () => {
+    const noState =
+      'This machine keeps no state of case-flow on SB: records an earlier apply left there ' +
+      'cannot be told from the org’s own. On a sandbox that lives on, apply asks ' +
+      '--accept-no-state to go ahead: restore the journal directory of the apply before it, or ' +
+      'give the flag. Nothing was written.\n';
+    const answers: Array<Partial<CommandRun>> = [
+      { code: 1, stdout: JSON.stringify({ refusal: { code: 'NO_STATE' } }), stderr: noState },
+      { code: 0, stdout: '{"status":"success"}' },
+      {
+        code: 3,
+        stdout: '{"status":"partial"}',
+        stderr: '1 kept, changed since the apply: --include-changed takes it\n',
+      },
+    ];
+    const { run } = scripts(() => answers.shift() ?? {});
+    const c = client(run);
+    await c.initialized();
+
+    const refused = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+    const applied = await c.call('env_apply', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+      acceptNoState: true,
+    });
+    const left = await c.call('env_destroy', {
+      file: 'sandforge.yaml',
+      org: 'SB',
+      confirm: 'SB',
+    });
+
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toContain(
+      "--accept-no-state, named above, is this tool's acceptNoState: true.",
+    );
+    // A refusal is no apply: there is nothing to take back.
+    expect(textOf(refused)).not.toContain('env_destroy');
+    expect(applied.isError).toBe(false);
+    expect(textOf(applied)).toContain(
+      'env_destroy with file "sandforge.yaml" and org "SB" takes this environment back.',
+    );
+    expect(left.isError).toBe(false);
+    expect(textOf(left)).toContain(
+      "--include-changed, named above, is this tool's includeChanged: true.",
+    );
     await c.close();
   });
 });
@@ -940,7 +1172,7 @@ describe('sandforge-mcp over the pipes of a process of its own', () => {
     expect(lines).toHaveLength(4);
     for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
     // Its own lines, and the script's, on stderr.
-    expect(stderr).toContain('sandforge-mcp: 10 tools on stdio');
+    expect(stderr).toContain('sandforge-mcp: 13 tools on stdio');
     expect(stderr).toContain('No checkpoint is kept in');
   }, 60_000);
 });

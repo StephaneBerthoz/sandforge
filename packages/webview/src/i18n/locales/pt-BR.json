@@ -4354,10 +4354,16 @@
       "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até lá aparece na lista; o resto fica na org, e uma remoção posterior o retoma.",
       "cancelRefused": "Não foi possível parar a remoção",
       "cancelRefusedDetail": "A remoção não está mais em andamento, ou não foi iniciada a partir desta janela.",
-      "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui. Uma recarga os expurga, exceto os que a carga pode ter vinculado.",
+      "notRecorded": "Carregado antes de as cargas guardarem o que criam: seus registros não podem ser removidos daqui, nem substituídos por uma recarga, que excluiria o que alguém alterou desde então.",
       "orgGone": "A org em que esta carga gravou não está mais registrada: seus registros não podem ser removidos daqui.",
       "nothingCreated": "Esta carga não criou nenhum registro: não há nada a remover.",
       "keptByThePlatform": "Mantidos em {{org}} por qualquer remoção — a plataforma não exclui estes registros criados pela carga: {{objects}}"
+    },
+    "reloadRefused": {
+      "title": "Recarga recusada: nada foi gravado em {{org}}",
+      "wayOut": "Remova primeiro a carga: seus registros vão para a lixeira de {{org}}, incluindo os alterados desde então — em uma sandbox compartilhada, o trabalho de outra pessoa —, depois que você digitar o nome da org. Em seguida, carregue o dataset de novo. Ou cancele: nada muda.",
+      "noWayOut": "Esta carga não pode ser removida daqui, como diz o cartão mais abaixo: a recarga não pode substituí-la, e nada foi excluído.",
+      "takeBack": "Remover primeiro a carga…"
     },
     "coverage": {
       "truncated": "A descoberta parou em {{objects}} objetos (limite {{maxNodes}}): objetos mais distantes da raiz não foram lidos, então este dataset pode não tê-los. Aumente maxNodes na configuração avançada e execute novamente.",

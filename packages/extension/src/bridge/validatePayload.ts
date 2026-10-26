@@ -1083,9 +1083,6 @@ export const frozenLoadPayloadSchema = z.object({
   pilot: z.boolean().optional(),
   reload: z.boolean().optional(),
   writeEncrypted: z.boolean().optional(),
-  // With reload: refused before anything is written when a removal of the
-  // loads before it would leave records in the org.
-  replace: z.boolean().optional(),
   // The most records the load may insert: the count its preview gave.
   maxRecords: z.number().int().positive().max(1_000_000).optional(),
 });

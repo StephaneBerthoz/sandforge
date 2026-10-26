@@ -4354,10 +4354,16 @@
       "stopping": "Wird angehalten: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, ist aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
       "cancelRefused": "Das Entfernen konnte nicht angehalten werden",
       "cancelRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
-      "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier nicht entfernen. Ein Neuladen bereinigt sie, außer denen, mit denen der Ladevorgang verknüpft haben kann.",
+      "notRecorded": "Geladen, bevor Ladevorgänge festhielten, was sie erstellen: Die Datensätze lassen sich hier weder entfernen noch durch ein Neuladen ersetzen, das löschen würde, was seitdem jemand geändert hat.",
       "orgGone": "Die Org, in die dieser Ladevorgang geschrieben hat, ist nicht mehr registriert: Die Datensätze lassen sich hier nicht entfernen.",
       "nothingCreated": "Dieser Ladevorgang hat keinen Datensatz erstellt: Es gibt nichts zu entfernen.",
       "keptByThePlatform": "In {{org}} von jeder Entfernung behalten — die Plattform löscht diese vom Ladevorgang erstellten Datensätze nicht: {{objects}}"
+    },
+    "reloadRefused": {
+      "title": "Neuladen abgelehnt: In {{org}} wurde nichts geschrieben",
+      "wayOut": "Nehmen Sie zuerst den Ladevorgang zurück: Seine Datensätze kommen in den Papierkorb von {{org}}, auch die seitdem geänderten – auf einer gemeinsam genutzten Sandbox die Arbeit anderer –, sobald Sie den Namen der Org eingegeben haben. Laden Sie dann das Dataset erneut. Oder brechen Sie ab: Nichts ändert sich.",
+      "noWayOut": "Dieser Ladevorgang lässt sich hier nicht zurücknehmen, wie die Karte weiter unten sagt: Das Neuladen kann ihn nicht ersetzen, und nichts wurde gelöscht.",
+      "takeBack": "Zuerst den Ladevorgang zurücknehmen…"
     },
     "coverage": {
       "truncated": "Die Erkennung endete bei {{objects}} Objekten (Grenze {{maxNodes}}): Objekte weiter von der Wurzel entfernt wurden nicht gelesen, dieses Dataset kann also unvollständig sein. Erhöhen Sie maxNodes in der erweiterten Konfiguration und starten Sie erneut.",

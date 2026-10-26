@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * sandforge-mcp — Seed, Forge's clone of a record, the removal of a run and
- * Checkpoints as tools an AI agent calls, over the Model Context Protocol on
- * stdio.
+ * sandforge-mcp — Seed, Forge's clone of a record, the removal of a run,
+ * Checkpoints and the environments of a `sandforge.yaml` as tools an AI agent
+ * calls, over the Model Context Protocol on stdio.
  *
  * Each tool runs the command-line script of this folder that does the same
  * thing, with `--json`, in a process of its own, and answers with what the
@@ -96,19 +96,24 @@ const SERVER_INFO = {
 
 /** What the model is told of the server as a whole, beside each tool's own description. */
 export const INSTRUCTIONS =
-  "SandForge's Seed, Forge's clone of a record, the removal of a run and Checkpoints, run from " +
-  'a checkout of its repository. Every org is named by its sf CLI alias, as `sf alias list` ' +
-  'shows them. A tool that writes to an org takes confirm, the alias of that org exactly: give ' +
-  'it only once the person using you has agreed to that write, after a dry run or a preview ' +
-  'has said what it would do. The acceptances (acceptAutomation and the others) are theirs to ' +
-  'give too. A production org is refused by every tool that writes to an org. Each answer ' +
-  "carries the script's own JSON, its exit code and its lines.";
+  "SandForge's Seed, Forge's clone of a record, the removal of a run, Checkpoints and the " +
+  'environments of a sandforge.yaml, run from a checkout of its repository. Every org is named ' +
+  'by its sf CLI alias, as `sf alias list` shows them. A tool that writes to an org takes ' +
+  'confirm, the alias of that org exactly: give it only once the person using you has agreed ' +
+  'to that write, after a dry run, a preview or a plan has said what it would do. The ' +
+  'acceptances (acceptAutomation and the others) are theirs to give too. A production org is ' +
+  "refused by every tool that writes to an org. Each answer carries the script's own JSON, its " +
+  'exit code and its lines.';
 
 // ─── The tools ───────────────────────────────────────────────────────────────
 
 /** The scripts of this folder a tool runs. */
 export type Script =
-  'sandforge-seed' | 'sandforge-clone' | 'sandforge-sync' | 'sandforge-checkpoint';
+  | 'sandforge-seed'
+  | 'sandforge-clone'
+  | 'sandforge-sync'
+  | 'sandforge-checkpoint'
+  | 'sandforge-env';
 
 export type { CommandRun };
 
@@ -155,6 +160,8 @@ interface ToolSpec<S extends z.ZodType<Record<string, unknown>>> {
   readFirst?: string;
   /** The flags its script's lines name that this tool takes as parameters. */
   flags?: Readonly<Record<string, string>>;
+  /** What an exit code of its script means for this tool, where it is not what it means for all. */
+  exits?: Readonly<Partial<Record<number, string>>>;
   /** Lines said after the script's own, from what it answered. */
   after?: (args: z.output<S>, answer: unknown) => string[];
   run: (args: z.output<S>) => Run;
@@ -174,6 +181,7 @@ interface ServedTool {
   writes?: string;
   readFirst?: string;
   flags: Readonly<Record<string, string>>;
+  exits: Readonly<Partial<Record<number, string>>>;
   read: (raw: Record<string, unknown>) => { call: Call } | { refusal: string };
 }
 
@@ -206,6 +214,7 @@ function tool<S extends z.ZodType<Record<string, unknown>>>(spec: ToolSpec<S>): 
     ...(spec.writes !== undefined ? { writes: spec.writes } : {}),
     ...(spec.readFirst !== undefined ? { readFirst: spec.readFirst } : {}),
     flags: spec.flags ?? {},
+    exits: spec.exits ?? {},
     read: (raw) => {
       const parsed = spec.args.safeParse(raw);
       if (!parsed.success) {
@@ -239,6 +248,8 @@ const API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
 const TEMPLATE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
 const ON_A_LINE = /^[^-\r\n][^\r\n]*$/;
+/** A resource of a `sandforge.yaml`, as the file names it (`envNameSchema`). */
+const RESOURCE_NAME = /^[a-z][a-z0-9-]{0,62}$/;
 
 const alias = (of: string) =>
   z
@@ -256,6 +267,16 @@ const confirmOf = (of: string) =>
 const checkpointRef = (of: string) =>
   z.string().min(1).max(200).regex(ON_A_LINE, 'one line, not starting with "-"').describe(of);
 const acceptance = (of: string) => z.boolean().optional().describe(of);
+const envFile = () =>
+  z
+    .string()
+    .min(1)
+    .max(4096)
+    .regex(ON_A_LINE, 'one line, not starting with "-"')
+    .describe(
+      'The sandforge.yaml, by its path; a relative path is read from where the server was ' +
+        'started.',
+    );
 
 /** The alias `confirm` must name for a call of `tool` to `org`, and why, as its refusal says it. */
 export function confirmRefusal(
@@ -684,6 +705,143 @@ export const TOOLS: readonly ServedTool[] = [
       args: ['delete', '--org', args.org, '--checkpoint', args.checkpoint, '--yes', '--json'],
     }),
   }),
+  tool({
+    name: 'env_plan',
+    title: 'Plan an environment',
+    description:
+      'What env_apply would do to org from a sandforge.yaml (file), as sandforge-env plan --json ' +
+      'says it: per resource, create, keep, replace, delete, or why it is blocked; what an ' +
+      'earlier apply left there and what changed since; per object the records it would write; ' +
+      'the API requests, storage and emails it takes. Each resource is dry-run by its own ' +
+      'script. Reads the org and the sources its resources clone from, writes nothing to an ' +
+      'org. failOnDrift: true ends it exit 3 when the org no longer holds the environment as ' +
+      'applied — records deleted or changed since.',
+    readOnly: true,
+    args: z.strictObject({
+      file: envFile(),
+      org: alias('The org to fill: its sf CLI alias.'),
+      failOnDrift: z
+        .boolean()
+        .optional()
+        .describe('true: exit 3 when records the environment holds were deleted or changed since.'),
+    }),
+    exits: {
+      [PARTIAL_EXIT]:
+        'drift: the org no longer holds the environment as applied, records deleted or changed ' +
+        'since, each said above',
+    },
+    run: (args) => ({
+      script: 'sandforge-env',
+      args: [
+        'plan',
+        '--file',
+        args.file,
+        '--org',
+        args.org,
+        ...(args.failOnDrift === true ? ['--fail-on-drift'] : []),
+        '--json',
+      ],
+    }),
+  }),
+  tool({
+    name: 'env_apply',
+    title: 'Apply an environment',
+    description:
+      'Do to org what env_plan says, as sandforge-env apply --yes --json does: plans again, then ' +
+      'creates what the file declares, replaces what it is told to (replace: the resources, by ' +
+      'name) and deletes the resources the file no longer holds, each by its own script, into ' +
+      'the state kept on this machine; applied again, it writes nothing. A production org is ' +
+      'refused, and a sandbox the file does not list. Needs confirm, the alias of org: env_plan ' +
+      'first. acceptNoState lets it apply to an org this machine has no state of, where records ' +
+      "an earlier apply left would be created twice. A resource's accept: { automation: true } " +
+      'in the file is what lets its runs be taken back although the org runs automation. The ' +
+      'answer ends with the env_destroy call that takes the environment back.',
+    readOnly: false,
+    destructive: true,
+    args: z.strictObject({
+      file: envFile(),
+      org: alias('The org to fill: its sf CLI alias.'),
+      confirm: confirmOf('org').optional(),
+      replace: z
+        .array(z.string().regex(RESOURCE_NAME, 'a resource of the file, by its name'))
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          'Resources to replace although kept or drifted, by their names in the file: their ' +
+            'earlier runs are taken back, then run again.',
+        ),
+      acceptNoState: acceptance(
+        'Apply to a Developer Edition or a sandbox this machine has no state of: records an ' +
+          'earlier apply left there would be created twice. Only once the person using you has ' +
+          'accepted it.',
+      ),
+    }),
+    writesTo: (args) => args.org,
+    writes:
+      'creates, replaces and deletes the resources of the file there as its plan says, taking ' +
+      'back the earlier runs a replace or a delete takes back',
+    readFirst: 'env_plan of the same file says what it would do, writing nothing',
+    flags: { '--accept-no-state': 'acceptNoState' },
+    after: (args) => [
+      `env_destroy with file "${args.file}" and org "${args.org}" takes this environment back.`,
+    ],
+    run: (args) => ({
+      script: 'sandforge-env',
+      args: [
+        'apply',
+        '--file',
+        args.file,
+        '--org',
+        args.org,
+        ...(args.replace ?? []).flatMap((name) => ['--replace', name]),
+        ...(args.acceptNoState === true ? ['--accept-no-state'] : []),
+        '--yes',
+        '--json',
+      ],
+    }),
+  }),
+  tool({
+    name: 'env_destroy',
+    title: 'Destroy an environment',
+    description:
+      'Take back from org what env_apply created there from file, the last resource first, ' +
+      'into its recycle bin, as sandforge-env destroy --yes --json does; what it cannot take ' +
+      'back is named, with why. Records changed since the apply are kept unless ' +
+      'includeChanged: on a shared sandbox, a colleague’s work. A production org is refused. ' +
+      'Needs confirm, the alias of org. It takes back by removal alone: no rewind to a ' +
+      'checkpoint.',
+    readOnly: false,
+    destructive: true,
+    args: z.strictObject({
+      file: envFile(),
+      org: alias('The org the environment was applied to: its sf CLI alias.'),
+      confirm: confirmOf('org').optional(),
+      includeChanged: acceptance(
+        'Take also the records changed since the apply, and what was created under them since: ' +
+          "on a shared sandbox, others' work. Only once the person using you has accepted it.",
+      ),
+    }),
+    writesTo: (args) => args.org,
+    writes:
+      'deletes the records its applies created, into the recycle bin, the last resource first',
+    readFirst:
+      'env_plan of the same file says what the org holds of the environment and what changed since',
+    flags: { '--include-changed': 'includeChanged' },
+    run: (args) => ({
+      script: 'sandforge-env',
+      args: [
+        'destroy',
+        '--file',
+        args.file,
+        '--org',
+        args.org,
+        ...(args.includeChanged === true ? ['--include-changed'] : []),
+        '--yes',
+        '--json',
+      ],
+    }),
+  }),
 ];
 
 const TOOLS_BY_NAME: ReadonlyMap<string, ServedTool> = new Map(
@@ -805,7 +963,7 @@ function answerOf(stdout: string): unknown {
  * parameters, how to take the run back.
  */
 export function resultOf(
-  served: Pick<ServedTool, 'flags'>,
+  served: Pick<ServedTool, 'flags'> & Partial<Pick<ServedTool, 'exits'>>,
   run: { script: Script; args: readonly string[] },
   ran: CommandRun,
   after: (answer: unknown) => string[] = () => [],
@@ -813,7 +971,7 @@ export function resultOf(
   const answer = answerOf(ran.stdout);
   const lines = [
     `ran: ${commandText(run.script, run.args)}`,
-    `exit ${ran.code}: ${exitWords(ran.code)}`,
+    `exit ${ran.code}: ${served.exits?.[ran.code] ?? exitWords(ran.code)}`,
   ];
   const said = ran.stderr.trimEnd();
   if (said !== '') lines.push('', said);
@@ -1192,8 +1350,8 @@ export function claimStdout(stdout: Writable, stderr: Writable): (line: string) 
   };
 }
 
-const HELP = `sandforge-mcp — Seed, Forge's clone of a record, the removal of a run and Checkpoints, as
-tools for an AI agent, over the Model Context Protocol on stdio.
+const HELP = `sandforge-mcp — Seed, Forge's clone of a record, the removal of a run, Checkpoints and the
+environments of a sandforge.yaml, as tools for an AI agent, over the Model Context Protocol on stdio.
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-mcp.ts

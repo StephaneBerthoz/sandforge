@@ -4354,10 +4354,16 @@
       "stopping": "Deteniendo: la eliminación termina en cuanto se responde la llamada en curso. Lo que eliminó hasta entonces aparece en la lista; el resto queda en la org, y una eliminación posterior lo retoma.",
       "cancelRefused": "No se pudo detener la eliminación",
       "cancelRefusedDetail": "La eliminación ya no está en curso, o no se inició desde esta ventana.",
-      "notRecorded": "Cargado antes de que las cargas guardaran lo que crean: sus registros no se pueden eliminar desde aquí. Una recarga los purga, salvo los que la carga pudo haber vinculado.",
+      "notRecorded": "Cargado antes de que las cargas guardaran lo que crean: sus registros no se pueden eliminar desde aquí, ni reemplazar con una recarga, que eliminaría lo que alguien modificó desde entonces.",
       "orgGone": "La org en la que escribió esta carga ya no está registrada: sus registros no se pueden eliminar desde aquí.",
       "nothingCreated": "Esta carga no creó ningún registro: no hay nada que eliminar.",
       "keptByThePlatform": "Conservados en {{org}} por cualquier eliminación — la plataforma no elimina estos registros que creó la carga: {{objects}}"
+    },
+    "reloadRefused": {
+      "title": "Recarga rechazada: no se escribió nada en {{org}}",
+      "wayOut": "Quite primero la carga: sus registros van a la papelera de {{org}}, incluidos los modificados desde entonces — en un sandbox compartido, el trabajo de otra persona —, una vez escrito el nombre de la org. Después cargue de nuevo el dataset. O cancele: nada cambia.",
+      "noWayOut": "Esta carga no se puede quitar desde aquí, como dice la tarjeta más abajo: la recarga no puede reemplazarla, y no se eliminó nada.",
+      "takeBack": "Quitar primero la carga…"
     },
     "coverage": {
       "truncated": "El descubrimiento se detuvo en {{objects}} objetos (límite {{maxNodes}}): los objetos más alejados de la raíz no se leyeron, así que a este dataset pueden faltarle algunos. Aumente maxNodes en la configuración avanzada y vuelva a ejecutarlo.",

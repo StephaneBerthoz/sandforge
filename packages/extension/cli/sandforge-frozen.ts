@@ -1629,9 +1629,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         });
         break;
       case 'load': {
-        // A reload on the command line replaces the loads before it: refused
-        // before anything is written when their removal would leave records.
-        const replace = args.reload && !args.pilot;
+        // A reload replaces the loads before it: refused before anything is
+        // written when their removal would leave records.
         if (args.dryRun) {
           // Nothing is written: nothing to confirm.
           log(`reading what a load into ${args.target}${args.pilot ? ' (pilot)' : ''} would do…`);
@@ -1639,7 +1638,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             targetOrgId,
             ...(args.pilot ? { pilot: true } : {}),
             ...(args.reload ? { reload: true } : {}),
-            ...(replace ? { replace: true } : {}),
             ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           });
           // The load's own count gate, said of the plan it would be held to.
@@ -1668,7 +1666,6 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           targetOrgId,
           ...(args.pilot ? { pilot: true } : {}),
           ...(args.reload ? { reload: true } : {}),
-          ...(replace ? { replace: true } : {}),
           ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           ...(args.maxTotal !== undefined ? { maxRecords: args.maxTotal } : {}),
         });

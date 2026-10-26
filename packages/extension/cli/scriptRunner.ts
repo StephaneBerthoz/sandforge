@@ -15,8 +15,8 @@ import { STOP_CHANNEL_VARIABLE, STOP_MESSAGE, STOP_SIGNALS, stopExitCode } from 
 
 /**
  * The scripts of this folder a runner starts: those the MCP server's tools
- * run (its own closed list, `Script`), and those an environment's steps run.
- * Nothing else: a runner is never handed a path.
+ * run (its own closed list, `Script`), `sandforge-env` among them, and those
+ * an environment's steps run. Nothing else: a runner is never handed a path.
  */
 export type RunnableScript =
   | 'sandforge-seed'
@@ -24,7 +24,8 @@ export type RunnableScript =
   | 'sandforge-sync'
   | 'sandforge-checkpoint'
   | 'sandforge-frozen'
-  | 'sandforge-dataops';
+  | 'sandforge-dataops'
+  | 'sandforge-env';
 
 /** What one run of a script came to. */
 export interface CommandRun {

@@ -218,7 +218,7 @@ const FROZEN_TYPES = new Set([
 ]);
 
 /**
- * The code a replace is refused with, before anything is written, when a
+ * The code a reload is refused with, before anything is written, when a
  * removal of the loads it replaces would leave records in the org.
  */
 const REPLACE_LEAVES_RECORDS = 'REPLACE_LEAVES_RECORDS';
@@ -521,7 +521,7 @@ function removalRefusalOf(
   if (!load.created) {
     return {
       message:
-        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here. A reload purges them, except those the load may have linked to.',
+        'This load was recorded before loads kept what they created: its records cannot be told from the ones it linked, and cannot be removed from here, nor replaced by a reload, which would delete what someone changed since.',
       code: 'NOT_RECORDED',
     };
   }
@@ -2119,7 +2119,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       );
       return;
     }
-    // A replace takes the loads before it back whole, or does not start:
+    // A reload takes the loads before it back whole, or does not start:
     // nothing purged, nothing inserted. Refused so, it is recorded as a load
     // a check of its own stopped before it started.
     const notReplaced = await this.replaceRefusal(parsed, config);
@@ -3033,16 +3033,17 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /**
-   * Why a reload asked to replace the loads before it (`replace`) may not
-   * start, or undefined when it may: a removal of them would leave records in
-   * the org — kept
-   * as changed since the load, of an object the user may not delete, out of
-   * the user's sight, unread — or when one of them was recorded before loads
+   * Why a reload, which replaces the loads before it, may not start, or
+   * undefined when it may: a removal of them would leave records in the org —
+   * kept as changed since the load, of an object the user may not delete, out
+   * of the user's sight, unread — or one of them was recorded before loads
    * kept what they created: loaded again beside what they leave, the dataset
    * would stand in the target twice, and the reload's purge would delete what
    * someone changed since, which the removal keeps. Read with the removal's
    * own preview of each load whose records are still to take, before
-   * anything is written. A load or a reload that does not replace, a pilot,
+   * anything is written. The panel's Reload is asked as the command line's
+   * is: it sent a reload alone, which purged without a word the records
+   * someone had changed since the load. A load that is no reload, a pilot,
    * which purges nothing, and a target refreshed since its loads, which took
    * their records, are not asked.
    *
@@ -3050,12 +3051,10 @@ export class FrozenDatasetHandler implements DomainHandler {
    *   of the reads that would tell, which refuses the request too.
    */
   private async replaceRefusal(
-    request: { targetOrgId: string; reload?: boolean; pilot?: boolean; replace?: boolean },
+    request: { targetOrgId: string; reload?: boolean; pilot?: boolean },
     config: FrozenProjectConfig,
   ): Promise<{ error: unknown; code: string; retryable: boolean } | undefined> {
-    if (request.replace !== true || request.reload !== true || request.pilot === true) {
-      return undefined;
-    }
+    if (request.reload !== true || request.pilot === true) return undefined;
     let refusal: string | undefined;
     try {
       const guard = new SasPathGuard();

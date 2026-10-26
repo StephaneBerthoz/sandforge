@@ -20,6 +20,7 @@ import {
 } from '../Forge/ForgeRunRemovalView';
 import { useOperationCancel } from '../../hooks/useOperationCancel';
 import { ForgeSweepListingView } from '../Forge/ForgeRemovalSweep';
+import { FrozenReloadRefused } from './FrozenReloadRefused';
 
 /**
  * How long a removal may keep the page waiting: Production Guard may wait on
@@ -122,6 +123,14 @@ export interface FrozenLoadRemovalProps {
   onAnswered: () => void;
   /** A load runs from this page: nothing is removed until it ends. */
   busy?: boolean;
+  /**
+   * A reload into this org the extension refused, in its words, before it
+   * wrote anything: a removal of the loads it replaces would leave records.
+   * The card says so and offers to take this load back first, the records
+   * changed since included, with the removal's own typed confirmation;
+   * `onDismiss` once that removal is confirmed, or cancelled from the card.
+   */
+  reloadRefusal?: { message: string; onDismiss: () => void };
 }
 
 /**
@@ -143,6 +152,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
   records,
   onAnswered,
   busy = false,
+  reloadRefusal,
 }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
@@ -200,6 +210,15 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
       ...(sweep ? { sweep: true } : {}),
     });
     setConfirming(false);
+    // The way out the refused reload offered is taken: the load is going.
+    reloadRefusal?.onDismiss();
+  };
+
+  /** Open the confirmation, with the records changed since included or not. */
+  const askRemoval = (changedToo: boolean): void => {
+    setIncludeChanged(changedToo);
+    setSweep(false);
+    setConfirming(true);
   };
 
   // When the last removal ended, said with its mark above the action and not
@@ -209,6 +228,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
     ? (formatStoredDate(records.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
     : undefined;
   let action: React.ReactNode = null;
+  const removable = records.recorded && created > 0 && org !== undefined;
   if (!records.recorded) {
     action = (
       <p data-testid="frozen-removal-not-recorded" className="text-[11px] text-text-secondary">
@@ -239,11 +259,7 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
         icon={<Trash2 size={11} />}
         loading={removal.loading}
         disabled={removal.loading || busy}
-        onClick={() => {
-          setIncludeChanged(false);
-          setSweep(false);
-          setConfirming(true);
-        }}
+        onClick={() => askRemoval(false)}
         data-testid="frozen-removal-remove"
         className="self-start text-[11px]"
       >
@@ -266,6 +282,16 @@ export const FrozenLoadRemoval: React.FC<FrozenLoadRemovalProps> = ({
             <p className="text-[11px] text-text-secondary" data-testid="frozen-removal-earlier">
               {t('frozen.removal.earlierNote', { org: org ?? records.orgId })}
             </p>
+          )}
+          {/* Above what the card offers: the removal it opens is that one. */}
+          {reloadRefusal && (
+            <FrozenReloadRefused
+              message={reloadRefusal.message}
+              org={org ?? records.orgId}
+              canTakeBack={removable && !removal.loading && !busy}
+              onTakeBack={() => askRemoval(true)}
+              onCancel={reloadRefusal.onDismiss}
+            />
           )}
           {records.removed && removedOn !== undefined && (
             <ForgeRunRemovalMark mark={records.removed} date={removedOn} />

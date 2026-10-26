@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPanelHost, orgFromIdentity } from './panelHost.js';
 import type { PanelHost, PanelHostOptions, PanelHostWiring } from './panelHost.js';
 import { main as checkpointMain } from './sandforge-checkpoint.js';
+import { main as envMain } from './sandforge-env.js';
 import { serve, type CommandRunner } from './sandforge-mcp.js';
+import { loadOrg } from './sfSession.js';
+import { EnvWorld, runInProcess } from './testing/envWorld.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { type MemoryOrgRequest } from '../src/test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../src/test/memoryRestoreOrg.js';
@@ -22,13 +25,31 @@ vi.mock('../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+// What the memory world of an environment points at itself (`testing/envWorld.ts`):
+// each keeps its own implementation until a world is made, as the checkpoint
+// script's rewind reaches the org through the real `removalOrg`.
+vi.mock('./sfSession.js', async (original) => {
+  const real = await original<typeof import('./sfSession.js')>();
+  return { ...real, loadOrg: vi.fn(real.loadOrg), makeConn: vi.fn(real.makeConn) };
+});
+vi.mock('./sandforge-clone.js', async (original) => {
+  const real = await original<typeof import('./sandforge-clone.js')>();
+  return { ...real, targetAutomationReader: vi.fn(real.targetAutomationReader) };
+});
+vi.mock('../src/modules/forge/ForgeRunRemoval.js', async (original) => {
+  const real = await original<typeof import('../src/modules/forge/ForgeRunRemoval.js')>();
+  return { ...real, removalOrg: vi.fn(real.removalOrg) };
+});
+
 /*
  * The MCP server, its checkpoint tools answered by the checkpoint script
  * itself — its `main`, run whole through the extension's own host
- * (`panelHost.ts`) on the memory org its own tests run on. Only what reaches
- * past this machine is stood in for: the `sf` CLI's session and the identity
- * query of a connection, and the org. What the server adds and what the
- * script decides are read off one answer.
+ * (`panelHost.ts`) on the memory org its own tests run on — and its
+ * environment tools by the env script's own `main`, which runs the seed's on
+ * the memory world of an environment. Only what reaches past this machine is
+ * stood in for: the `sf` CLI's session and the identity query of a
+ * connection, and the org. What the server adds and what the script decides
+ * are read off one answer.
  */
 
 const ORG_ID = '00D000000000001AAA';
@@ -336,7 +357,7 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
     const refused = await h.call('checkpoint_rewind', { org: 'DEV-SB', checkpoint: 'Before UAT' });
     const preview = await h.call('checkpoint_preview', { org: 'DEV-SB', checkpoint: 'Before UAT' });
 
-    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(10);
+    expect((listed.result as { tools: unknown[] }).tools).toHaveLength(13);
     expect(taken).toMatchObject({ isError: false, structuredContent: { exitCode: 0 } });
     expect(refused).toMatchObject({
       isError: true,
@@ -451,6 +472,213 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
         .map((row) => row.Name)
         .sort(),
     ).toEqual(['Renamed', 'Renamed too']);
+    await h.close();
+  });
+});
+
+describe('sandforge-mcp: the environment tools on the memory org', () => {
+  const ENV_ORG_ID = '00D000000000009EAA';
+  const ENV_T0 = Date.parse('2026-10-25T09:00:00.000Z');
+  let journalBefore: string | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(ENV_T0);
+    journalBefore = process.env['SANDFORGE_JOURNAL_DIR'];
+  });
+
+  afterEach(() => {
+    if (journalBefore === undefined) delete process.env['SANDFORGE_JOURNAL_DIR'];
+    else process.env['SANDFORGE_JOURNAL_DIR'] = journalBefore;
+    vi.useRealTimers();
+    // Back to their own implementations, which the checkpoint tools run on.
+    vi.mocked(loadOrg).mockReset();
+  });
+
+  /**
+   * A server whose env script is run in this process, its seeds on a
+   * Developer Edition in memory, and a client of it: what the env script ran
+   * with, and the org's records.
+   */
+  function envHarness() {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-mcp-env-'));
+    dirs.push(dir);
+    const project = join(dir, 'project');
+    mkdirSync(join(project, '.git'), { recursive: true });
+    const file = join(project, 'sandforge.yaml');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        name: 'case-flow',
+        resources: {
+          accounts: {
+            kind: 'seed',
+            seed: 1,
+            objects: [
+              {
+                object: 'Account',
+                count: 2,
+                fields: [
+                  {
+                    fieldApiName: 'Name',
+                    ruleType: 'static',
+                    config: { staticValue: 'SFENV account' },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const journalDir = join(dir, 'journal');
+    process.env['SANDFORGE_JOURNAL_DIR'] = journalDir;
+    const world = new EnvWorld({
+      organizationId: ENV_ORG_ID,
+      sandbox: false,
+      edition: 'Developer Edition',
+      tick: () => vi.setSystemTime(Date.now() + 30_000),
+    });
+    const lines: string[][] = [];
+
+    // The env script's own main, its output read as a process's would be.
+    const runCommand: CommandRunner = async (script, args) => {
+      if (script !== 'sandforge-env') throw new Error(`no ${script} here`);
+      lines.push([...args]);
+      return runInProcess(() =>
+        envMain(['node', 'sandforge-env.ts', ...args], {
+          runner: world.runner,
+          journalDir,
+          locksDir: join(dir, 'locks'),
+          onStop: () => () => undefined,
+          cwd: project,
+        }),
+      );
+    };
+
+    const input = new PassThrough();
+    const waiting = new Map<number, (message: Record<string, unknown>) => void>();
+    const serving = serve({
+      input,
+      send: (line) => {
+        const message = JSON.parse(line) as Record<string, unknown>;
+        if (typeof message.id === 'number') waiting.get(message.id)?.(message);
+      },
+      runCommand,
+      log: () => undefined,
+    });
+    let next = 1;
+    const request = (method: string, params: unknown): Promise<Record<string, unknown>> =>
+      new Promise((resolve) => {
+        const at = next++;
+        waiting.set(at, resolve);
+        input.write(`${JSON.stringify({ jsonrpc: '2.0', id: at, method, params })}\n`);
+      });
+    const call = async (name: string, args: Record<string, unknown>): Promise<CallResult> =>
+      (await request('tools/call', { name, arguments: args })).result as CallResult;
+
+    return {
+      file,
+      world,
+      lines,
+      request,
+      call,
+      close: async () => {
+        input.end();
+        await serving.done;
+      },
+    };
+  }
+
+  it('plans, refuses an apply without confirm before the org is reached, keeps the no-state guard, applies with confirm and destroys, through the env script and its seed', async () => {
+    const h = envHarness();
+    await h.request('initialize', {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '0' },
+    });
+
+    const planned = await h.call('env_plan', { file: h.file, org: 'DEV-ED' });
+    const plannedBy = h.world.calls.map((each) => each.args.includes('--dry-run'));
+    const reached = vi.mocked(loadOrg).mock.calls.length;
+    const unconfirmed = await h.call('env_apply', { file: h.file, org: 'DEV-ED' });
+    const reachedByTheRefusal = vi.mocked(loadOrg).mock.calls.length - reached;
+    const noState = await h.call('env_apply', { file: h.file, org: 'DEV-ED', confirm: 'DEV-ED' });
+    const applied = await h.call('env_apply', {
+      file: h.file,
+      org: 'DEV-ED',
+      confirm: 'DEV-ED',
+      acceptNoState: true,
+    });
+
+    expect(planned, textOf(planned)).toMatchObject({
+      isError: false,
+      structuredContent: {
+        exitCode: 0,
+        answer: {
+          env: 'case-flow',
+          org: { organizationId: ENV_ORG_ID, alias: 'DEV-ED' },
+          actions: [{ resource: 'accounts', action: 'create' }],
+        },
+      },
+    });
+    // The plan dry-ran the seed, which wrote nothing.
+    expect(plannedBy).toEqual([true]);
+    expect(unconfirmed).toMatchObject({
+      isError: true,
+      structuredContent: { refusal: { code: 'CONFIRM' } },
+    });
+    expect(textOf(unconfirmed)).toContain(
+      'Before it, env_plan of the same file says what it would',
+    );
+    // The refusal ran no script: the next line the env script ran is the confirmed apply's.
+    expect(h.lines.map((line) => line[0])).toEqual(['plan', 'apply', 'apply']);
+    expect(reached).toBeGreaterThan(0);
+    expect(reachedByTheRefusal).toBe(0);
+    expect(noState, textOf(noState)).toMatchObject({
+      isError: true,
+      structuredContent: { exitCode: 1 },
+    });
+    expect(textOf(noState)).toContain(
+      "--accept-no-state, named above, is this tool's acceptNoState: true.",
+    );
+    expect(h.lines[1]).toEqual(['apply', '--file', h.file, '--org', 'DEV-ED', '--yes', '--json']);
+    expect(applied, textOf(applied)).toMatchObject({
+      isError: false,
+      structuredContent: {
+        exitCode: 0,
+        answer: { status: 'success', steps: [{ resource: 'accounts', status: 'applied' }] },
+      },
+    });
+    expect(textOf(applied)).toContain(
+      `env_destroy with file "${h.file}" and org "DEV-ED" takes this environment back.`,
+    );
+    expect(h.world.records('Account').map((row) => row['Name'])).toEqual([
+      'SFENV account',
+      'SFENV account',
+    ]);
+
+    // One account gone since: the plan says the drift, an answer, not an error.
+    const [account] = h.world.records('Account');
+    h.world.org.trash('Account', String(account?.['Id']));
+    const drifted = await h.call('env_plan', { file: h.file, org: 'DEV-ED', failOnDrift: true });
+    const destroyed = await h.call('env_destroy', {
+      file: h.file,
+      org: 'DEV-ED',
+      confirm: 'DEV-ED',
+    });
+
+    expect(drifted, textOf(drifted)).toMatchObject({
+      isError: false,
+      structuredContent: { exitCode: 3 },
+    });
+    expect(textOf(drifted)).toContain('exit 3: drift: the org no longer holds the environment');
+    expect(destroyed, textOf(destroyed)).toMatchObject({
+      isError: false,
+      structuredContent: { exitCode: 0, answer: { status: 'success' } },
+    });
+    expect(h.world.records('Account')).toEqual([]);
     await h.close();
   });
 });

@@ -6470,6 +6470,48 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(await checkAccessibility(page));
     });
 
+    test('Frozen reload refused while records would be left, then the take-back confirmation it opens', async ({
+      page,
+    }) => {
+      await openFrozenLastLoad(bridge, page, theme, {
+        ...FROZEN_STATUS_WITH_DATASET,
+        lastLoads: FROZEN_STATUS_AFTER_LOAD.lastLoads,
+        loadRecords: [FROZEN_LAST_LOAD_RECORDS],
+      });
+      await page.getByTestId('frozen-load-reload').check();
+      await page.getByTestId('frozen-load-run').click();
+      const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      await sendExtensionMessage(page, {
+        type: 'frozen:load:error',
+        id: 'err-frozen-load',
+        correlationId: load.id,
+        payload: {
+          message:
+            'A removal of the loads this reload replaces would leave 3 of their records in the ' +
+            "org — Contact (2: 1 changed since the load, 1 out of the user's sight); Order (1: 1 " +
+            'changed since the load): loaded again, the dataset would stand beside them, and the ' +
+            'reload would delete what was changed since. Nothing was written.',
+          code: 'REPLACE_LEAVES_RECORDS',
+          retryable: false,
+        },
+      });
+      const refused = page.getByTestId('frozen-reload-refused');
+      await refused.waitFor({ timeout: 10_000 });
+      const said = await checkAccessibility(page);
+      expectNoViolations(said);
+      expect(
+        await contrastMeasuredIn(page, said, '[data-testid="frozen-reload-refused"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('frozen-reload-take-back').click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this load's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('frozen-removal-include-changed')).toBeChecked();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
     test('Frozen last load recorded before loads kept what they created', async ({ page }) => {
       await openFrozenLastLoad(bridge, page, theme, {
         ...FROZEN_STATUS_AFTER_LOAD,

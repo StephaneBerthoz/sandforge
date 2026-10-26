@@ -1137,9 +1137,8 @@ describe('docs/environments.md', () => {
       '"accounts" is no resource of this file',
     );
     expect(later).not.toContain('Parents drawn by Id');
-    // The MCP server runs no environment.
-    expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).not.toContain("'sandforge-env'");
-    expect(later).toContain("and the MCP server's tools for environments");
+    // The MCP server's tools plan, apply and destroy an environment: docs/mcp.md says how.
+    expect(source(`${CLI_DIR}/sandforge-mcp.ts`)).toContain("script: 'sandforge-env'");
   });
 });
 
