@@ -458,7 +458,7 @@ describe('docs/environments.md', () => {
 
   it('names each command the script reads, with the flags each reads, and no other', () => {
     const commands = commandsRead();
-    expect(commands).toEqual(['validate', 'plan', 'apply', 'destroy', 'reset', 'state']);
+    expect(commands).toEqual(['validate', 'plan', 'apply', 'destroy', 'reset', 'state', 'output']);
     const flags = flagsOf();
     // Positive control: the table read is the one each command checks its line against.
     expect(flags.get('destroy')).toEqual(
@@ -493,19 +493,24 @@ describe('docs/environments.md', () => {
       '',
     );
     const named = flagsIn(base);
-    // Positive control: the flags of a plan, an apply and a destroy are all there.
-    for (const flag of ['--fail-on-drift', '--accept-no-state', '--include-changed', '--sweep']) {
+    // Positive control: the flags of a plan, an apply, a saved plan and a destroy are all there.
+    for (const flag of [
+      '--fail-on-drift',
+      '--accept-no-state',
+      '--include-changed',
+      '--sweep',
+      '--out',
+      '--plan',
+    ]) {
       expect(named.has(flag)).toBe(true);
     }
-    // What the page names as not there yet is named so.
-    const later = new Set(['--out', '--plan']);
     // The frozen section names the lines of sandforge-frozen too, and the
     // mask section those of sandforge-dataops: the flags each script reads,
     // there alone.
     const frozen = section(DOC, '### A frozen resource');
     const mask = section(DOC, '### A mask resource');
     const outside = flagsIn(base.replace(frozen, '').replace(mask, ''));
-    expect([...outside].filter((flag) => !read.has(flag) && !later.has(flag))).toEqual([]);
+    expect([...outside].filter((flag) => !read.has(flag))).toEqual([]);
     const frozenRead = frozenFlags();
     expect(frozenRead.has('--max-total')).toBe(true);
     expect([...flagsIn(frozen)].filter((flag) => !read.has(flag) && !frozenRead.has(flag))).toEqual(
@@ -518,11 +523,9 @@ describe('docs/environments.md', () => {
     );
     expect(
       [...named].filter(
-        (flag) =>
-          !read.has(flag) && !frozenRead.has(flag) && !dataopsRead.has(flag) && !later.has(flag),
+        (flag) => !read.has(flag) && !frozenRead.has(flag) && !dataopsRead.has(flag),
       ),
     ).toEqual([]);
-    for (const flag of later) expect(read.has(flag), flag).toBe(false);
   });
 
   it('gives an example file that passes the check validate runs: two seed resources, the second hung from the first', () => {
@@ -1191,9 +1194,15 @@ describe('docs/environments.md', () => {
     expect(SCHEMA).toContain("const KINDS_APPLIED = 'seed, forge, frozen and mask resources';");
     expect(later).toContain('This version applies seed, forge, frozen and mask resources');
     expect(later).not.toContain('Masking');
-    // No saved plan, no output.
-    expect(commandsRead()).not.toContain('output');
-    expect(later).toContain('no `plan --out`, no `apply --plan`');
+    // A plan kept and applied, and what an apply created: no longer not yet.
+    expect(commandsRead()).toContain('output');
+    expect(flagsOf().get('plan')?.has('--out')).toBe(true);
+    expect(flagsOf().get('apply')?.has('--plan')).toBe(true);
+    expect(later).toContain('keeps a plan for `apply --plan`, and names what an apply created');
+    expect(later).not.toMatch(/Saved plans|Outputs/);
+    // A lost state is not rebuilt: no command recovers one.
+    expect(CLI).not.toMatch(/'recover'/);
+    expect(later).toContain('no `state recover`');
     // A relation's parents may be another resource's records: no longer not yet.
     const parents = checkEnvFile(
       {
@@ -1628,6 +1637,122 @@ describe('the mask resource, on the page', () => {
   });
 });
 
+describe('saved plans, outputs and the reason of a step, on the page', () => {
+  const SAVED = source(`${CLI_DIR}/env/envSavedPlan.ts`);
+  const OUTPUT = source(`${CLI_DIR}/env/envOutput.ts`);
+  /** Code with its string literals joined across the lines they are split on. */
+  const joined = (code: string): string => code.replace(/['`] \+\n\s+['`]/g, '');
+
+  it('says what a saved plan keeps, where, for how long, and what refuses it, in the words of the code that does it', () => {
+    const saved = section(DOC, '## Saved plans: `plan --out` and `apply --plan`');
+    const pins: Array<[string, string, string]> = [
+      [
+        SAVED,
+        "if ('answer' in dry && dry.answer.tool === SEED_SCRIPT) seeds[name] = dry.answer.seed;",
+        'and the seeds its dry runs drew, so that a seed resource that pins none draws the same records again',
+      ],
+      [CLI, 'planOf(prepared, applied, say, signal, saved?.seeds)', 'the same seeds'],
+      [
+        CLI,
+        'const differences = planDifferences(saved.plan, plan);',
+        'applies only when the plan it makes is the one kept, action by action and count by count',
+      ],
+      [
+        joined(CLI),
+        '--plan applies the plan with the switches plan --out was given',
+        '`apply --plan` takes the switches the plan was made with, and refuses them on its own line',
+      ],
+      [
+        SAVED,
+        "code: 'PLAN_IN_REPOSITORY',",
+        'A file inside the repository is refused, exit `2`, before any org is reached, unless `--out-in-repository`',
+      ],
+      [SAVED, 'export const SAVED_PLAN_KEEP_MS = 24 * 60 * 60_000;', '**For a day**'],
+      [
+        SAVED,
+        'if (saved.sandforgeVersion !== context.sandforgeVersion) {',
+        'by the SandForge that made it',
+      ],
+      [
+        joined(SAVED),
+        'names the org by its Organization Id, its state, and the users who changed its records since',
+        'a plan names the org by its Organization Id, its state, and the users who changed its records since',
+      ],
+      [
+        SAVED,
+        "code: 'PLAN_UNREAD',",
+        'A file that is no plan `plan --out` kept is refused, exit `2`',
+      ],
+    ];
+    for (const [code, said, page] of pins) {
+      expect(code, said).toContain(said);
+      expect(saved, page).toContain(page);
+    }
+    // The refusals the page quotes, in the code's words.
+    for (const words of [
+      'a plan is applied to the org it was made for',
+      'the file, or a variable or an alias it reads, changed since',
+      'an apply or a destroy ran since, or a cache put back another state',
+      'was refused when it was made',
+    ]) {
+      expect(saved, words).toContain(`\`${words}\``);
+      expect(joined(SAVED), words).toContain(words);
+    }
+    // What the schema holds: strict, no key it does not name.
+    expect(SCHEMA).toContain('export const envSavedPlanSchema = z.strictObject({');
+    expect(saved).toContain('read back by a strict schema');
+    expect(section(DOC, '## What is refused')).toContain(
+      '[Saved plans](#saved-plans-plan---out-and-apply---plan)',
+    );
+  });
+
+  it('says what output names, from where, for a resource taken back, a masking and one not applied whole, in the words it prints', () => {
+    const output = section(DOC, '### What it created: `output`');
+    const pins: Array<[string, string, string]> = [
+      [
+        OUTPUT,
+        'const created = await createdByRun(last, where, deps);',
+        'It reaches no org, and runs no script',
+      ],
+      [
+        REFERENCES,
+        'export async function createdByRun(',
+        "a seed's run file or its summary, a clone's summary, a Frozen load's mapping in its sas",
+      ],
+      [OUTPUT, "code: 'TWO_STATES',", 'two states under one alias'],
+      [
+        CLI,
+        'return { answer, code: whole ? DONE_EXIT : PARTIAL_EXIT };',
+        '`output` then exits `3`',
+      ],
+      [
+        OUTPUT,
+        'What it names is what the runs kept, not what the org holds now',
+        '**What the runs kept, not what the org holds**: a record deleted since is still named',
+      ],
+    ];
+    for (const [code, said, page] of pins) {
+      expect(code, said).toContain(said);
+      expect(output, page).toContain(page);
+    }
+    for (const words of [
+      "taken back by a destroy: none of the org's records is its",
+      'a masking creates no record: it writes over those the org holds that its condition selects',
+    ]) {
+      expect(output, words).toContain(`\`${words}\``);
+      expect(joined(OUTPUT), words).toContain(words);
+    }
+  });
+
+  it('says a step its script refused carries why, in the script’s words, as the apply reads it', () => {
+    expect(APPLY).toContain('A script refused before its first write prints nothing on stdout');
+    expect(APPLY).toContain('const said = answered ?? (ended ? undefined : reasonLineOf(stderr));');
+    expect(section(DOC, '### Apply it: `apply`')).toContain(
+      "for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr",
+    );
+  });
+});
+
 describe('the pages that send a reader to docs/environments.md', () => {
   const GUIDE = source('ci-examples/README.md');
   const PIPELINE = source('ci-examples/github-actions.yml');
@@ -1674,7 +1799,7 @@ describe('the pages that send a reader to docs/environments.md', () => {
 
   it('the CI guide names the environment among the scripts its bullets and exit codes cover', () => {
     expect(GUIDE).toContain(
-      "so does `sandforge-env`'s: `plan`, `apply` and `destroy` refuse a production org, and a sandbox its file does not list by its Organization Id, before they read anything, with exit code `1`, and `validate` and `state` never contact an org",
+      "so does `sandforge-env`'s: `plan`, `apply` and `destroy` refuse a production org, and a sandbox its file does not list by its Organization Id, before they read anything, with exit code `1`, and `validate`, `state` and `output` never contact an org",
     );
     expect(GUIDE).toContain(
       "An environment's `apply` and `destroy` ask for the alias typed too, and with no terminal and no `--yes` stop at the question, exit `2`, having written nothing",

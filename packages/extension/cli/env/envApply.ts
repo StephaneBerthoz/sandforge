@@ -109,7 +109,7 @@ import {
   stepEnded,
   type EnvStore,
 } from './envState.js';
-import { StepAnswerError, type EnvRunCount } from './kinds/common.js';
+import { StepAnswerError, reasonLineOf, type EnvRunCount } from './kinds/common.js';
 import {
   forgeRunCount,
   forgeVerifyLine,
@@ -174,6 +174,26 @@ export function isStopCode(code: number): boolean {
 interface Where {
   organizationId: string;
   env: string;
+}
+
+/**
+ * What refused or failed a step, in its script's own words: what its `--json`
+ * answer says, where it says it; else, for a step that ended neither done,
+ * partial, unstable nor stopped, the last line it said on stderr that says
+ * why. A script refused before its first write prints nothing on stdout:
+ * live, a forge run its gate refused — `The run would write 6 records, more
+ * than --max-total 5` — left the apply's `--json` with its exit code alone,
+ * and the reason on the clone's stderr.
+ */
+function stepRefusalOf(
+  code: number,
+  answered: string | undefined,
+  stderr: string,
+): string | undefined {
+  const ended =
+    code === DONE_EXIT || code === PARTIAL_EXIT || code === UNSTABLE_EXIT || isStopCode(code);
+  const said = answered ?? (ended ? undefined : reasonLineOf(stderr));
+  return said !== undefined && said !== '' ? said.slice(0, 4_000) : undefined;
 }
 
 /** A removal's answer, per object, as a step names it. */
@@ -271,7 +291,7 @@ export function removalSubjectOf(
 export interface RemovalEnd {
   /** Every run taken back whole: nothing of the resource is left in the org. */
   whole: boolean;
-  /** The exit code that ended it: 0, 3 (records left), or the one that stopped it. */
+  /** The exit code that ended it: 0, 3 (records left), 1 (refused or failed), or the one that stopped it. */
   code: number;
   /** Whether a removal may have deleted records. */
   wrote: boolean;
@@ -342,6 +362,8 @@ export async function removeResource(
           ? ask.ends.left
           : ask.ends.whole
         : before.status;
+    // A removal refused before its first delete prints nothing on stdout.
+    const refusal = stepRefusalOf(ran.code, undefined, ran.stderr);
     steps.push({
       resource: ask.resource,
       action: ask.action,
@@ -353,6 +375,7 @@ export async function removeResource(
       ...(run.summary !== undefined ? { summary: run.summary } : {}),
       objects: removalObjects(answer),
       ...(answer !== undefined ? { answer } : {}),
+      ...(refusal !== undefined ? { refusal } : {}),
     });
     if (ran.code === PARTIAL_EXIT) left = true;
     if (ran.code === DONE_EXIT) {
@@ -363,7 +386,9 @@ export async function removeResource(
         current = await deps.store.update(current, (s) =>
           stepEnded(s, { resource: ask.resource, status: before.status }),
         );
-      return { whole: false, code: ran.code, wrote, steps, state: current };
+      // A line the script refused ends 2, which no apply or destroy ranks:
+      // counted as it came, an apply stopped at a refused removal ended 0.
+      return { whole: false, code: stopped ? ran.code : FAILED_EXIT, wrote, steps, state: current };
     }
   }
   current = await deps.store.update(current, (s) =>
@@ -592,6 +617,10 @@ interface RunStepOutcome {
   tookBackEarlier?: true;
   /** A masking's: what it went through per object, and the snapshot it took first. */
   masking?: MaskRunCount;
+  /** What refused or failed the run, as the script's `--json` answer says it. */
+  answered?: string;
+  /** What the script said on stderr. */
+  stderr: string;
 }
 
 /**
@@ -664,6 +693,8 @@ async function runResourceStep(
       ...(summary !== undefined ? { summary } : {}),
       wrote,
       ...(planned !== undefined ? { planned } : {}),
+      ...(count?.refusal !== undefined ? { answered: count.refusal } : {}),
+      stderr: ran.stderr,
     };
   }
 
@@ -739,6 +770,10 @@ async function runResourceStep(
     wrote,
     ...(planned !== undefined ? { planned } : {}),
     ...(verified !== undefined ? { verified } : {}),
+    // A run that failed past its first objects keeps why in its summary; one
+    // its gate refused before its first write says it on stderr alone.
+    ...(answer?.error !== undefined ? { answered: answer.error } : {}),
+    stderr: ran.stderr,
   };
 }
 
@@ -818,6 +853,8 @@ async function runFrozenStep(
     ...(input.replace && answer !== undefined && reloadPurgedWhole(answer)
       ? { tookBackEarlier: true }
       : {}),
+    ...(count?.refusal !== undefined ? { answered: count.refusal } : {}),
+    stderr: ran.stderr,
   };
 }
 
@@ -885,6 +922,8 @@ async function runMaskStep(
     ...(summary !== undefined ? { summary } : {}),
     wrote,
     ...(masking !== undefined ? { masking } : {}),
+    ...(masking?.refusal !== undefined ? { answered: masking.refusal } : {}),
+    stderr: ran.stderr,
   };
 }
 
@@ -1253,6 +1292,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
           }
         }
         const objects = resource.kind === 'mask' ? maskObjects(masking) : runObjects(outcome.count);
+        const refusal = stepRefusalOf(outcome.code, outcome.answered, outcome.stderr);
         results.push({
           resource: step.resource,
           action: step.action,
@@ -1267,6 +1307,7 @@ export async function applyPlan(deps: EnvStepDeps, input: EnvApplyInput): Promis
               ? [{ ...objects[0], reason: ended.short }, ...objects.slice(1)]
               : objects,
           ...(outcome.answer !== undefined ? { answer: outcome.answer } : {}),
+          ...(refusal !== undefined ? { refusal } : {}),
         });
         if (ended.short !== undefined) deps.say(`${step.resource}: ${ended.short}`);
         if (isStopCode(outcome.code)) {
@@ -1402,6 +1443,7 @@ export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'):
         `  ${step.resource} ${step.phase === 'run' ? `masking ${step.run}: exit ${step.exitCode}` : 'store deleted'}, ` +
           `${step.status}${masked ? `  ${masked}` : ''}`,
       );
+      if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
       for (const object of step.objects) {
         if (object.reason !== undefined) lines.push(`      ${object.object}: ${object.reason}`);
       }
@@ -1418,6 +1460,8 @@ export function runResultLines(result: EnvRunResult, verb: 'apply' | 'destroy'):
       `  ${step.resource} ${step.phase === 'run' ? 'run' : 'removal of run'} ${step.run}: ` +
         `exit ${step.exitCode}, ${step.status}${counts ? `  ${counts}` : ''}`,
     );
+    // The script's own words, as it refused or failed the step.
+    if (step.refusal !== undefined) lines.push(`      ${step.refusal}`);
     for (const object of step.objects) {
       if (object.reason !== undefined) lines.push(`      ${object.object}: ${object.reason}`);
     }

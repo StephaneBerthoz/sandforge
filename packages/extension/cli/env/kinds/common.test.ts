@@ -6,6 +6,7 @@ import {
   canonicalJson,
   pathText,
   readAnswer,
+  reasonLineOf,
   refusalAt,
   sha256,
   valueOf,
@@ -70,5 +71,26 @@ describe('what every kind shares', () => {
     expect(() =>
       readAnswer('sandforge-clone', 'a summary', schema, '{"tool":"sandforge-seed"}'),
     ).toThrow(/sandforge-clone did not answer a summary \(tool: /);
+  });
+});
+
+describe('why a script stopped, as it said it on stderr', () => {
+  it('is the last line it said, trimmed, past the closing words that say nothing of why', () => {
+    expect(
+      reasonLineOf(
+        'reading the source…\r\n  12 rows\nThe run would write 6 records, more than --max-total 5. Nothing was written.\n',
+      ),
+    ).toBe('The run would write 6 records, more than --max-total 5. Nothing was written.');
+    expect(reasonLineOf('The store /x is not a folder.\nNothing written.\n\n')).toBe(
+      'The store /x is not a folder.',
+    );
+    expect(reasonLineOf('Refused: no parent left.\nNothing was deleted.')).toBe(
+      'Refused: no parent left.',
+    );
+  });
+
+  it('is nothing when it said nothing there', () => {
+    expect(reasonLineOf('')).toBeUndefined();
+    expect(reasonLineOf('\n  \nNothing was written.\n')).toBeUndefined();
   });
 });

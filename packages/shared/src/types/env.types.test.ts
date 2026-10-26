@@ -10,6 +10,7 @@ import type {
   EnvForgeResource,
   EnvFrozenResource,
   EnvMaskResource,
+  EnvOutput,
   EnvPlan,
   EnvResource,
   EnvResourceKind,
@@ -19,6 +20,7 @@ import type {
   EnvRewindResult,
   EnvRun,
   EnvRunResult,
+  EnvSavedPlan,
   EnvScript,
   EnvSeedResource,
   EnvState,
@@ -38,6 +40,7 @@ import {
   envForgeResourceSchema,
   envFrozenResourceSchema,
   envMaskResourceSchema,
+  envOutputSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
   envRewindResultSchema,
@@ -47,6 +50,7 @@ import {
   envResourceStatusSchema,
   envRunResultSchema,
   envRunSchema,
+  envSavedPlanSchema,
   envScriptSchema,
   envSeedResourceSchema,
   envStateListEntrySchema,
@@ -143,5 +147,11 @@ describe('what the other verbs answer, and their schemas', () => {
     expectTypeOf<z.infer<typeof envValidationSchema>>().toEqualTypeOf<EnvValidation>();
     expectTypeOf<z.infer<typeof envStateListEntrySchema>>().toEqualTypeOf<EnvStateListEntry>();
     expectTypeOf<z.infer<typeof envStateListSchema>>().toEqualTypeOf<EnvStateList>();
+  });
+
+  it('reads exactly the shapes a saved plan and output declare', () => {
+    expectTypeOf<z.infer<typeof envSavedPlanSchema>>().toEqualTypeOf<EnvSavedPlan>();
+    expectTypeOf<z.infer<typeof envOutputSchema>>().toEqualTypeOf<EnvOutput>();
+    expectTypeOf<EnvSavedPlan['savedPlan']>().toEqualTypeOf<1>();
   });
 });

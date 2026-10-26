@@ -17,6 +17,7 @@ vi.mock('../../src/modules/forge/ForgeRunRemoval.js', async (original) => ({
   removalOrg: vi.fn(),
 }));
 
+import type { CommandRunner } from '../scriptRunner.js';
 import { EnvWorld, dryRunsIn, previewsIn } from '../testing/envWorld.js';
 import { applyPlan, removeResource, type EnvStepDeps } from './envApply.js';
 import { destroyEnvironment, destroyOrder } from './envDestroy.js';
@@ -250,6 +251,36 @@ describe('destroy', () => {
     // Deleted, the state left the next apply to a Developer Edition or a
     // sandbox refused for want of one, as if a cache had been lost.
     expect(await statusesKept()).toEqual({ accounts: 'destroyed', contacts: 'destroyed' });
+  });
+
+  it('ends 1 when a removal’s line is refused before its first delete, in the script’s words, and takes nothing more back', async () => {
+    await applied();
+    // The summary a removal is given, gone between the preview and the removal.
+    const refusing: CommandRunner = async (script, args, signal) => {
+      if (!args.includes('--remove') || args.includes('--preview')) {
+        return world.runner(script, args, signal);
+      }
+      const missing = [...args];
+      missing[args.indexOf('--remove') + 1] = join(dir, 'gone.summary.json');
+      return world.runner(script, missing, signal);
+    };
+
+    const outcome = await destroy(resolvedOf(), {}, { runner: refusing });
+
+    // Counted as the 2 it came as, the destroy stopped there ended 0, success.
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.result.status).toBe('failure');
+    expect(outcome.result.steps).toEqual([
+      expect.objectContaining({
+        resource: 'contacts',
+        exitCode: 2,
+        status: 'applied',
+        refusal: expect.stringMatching(/^--remove .+gone\.summary\.json cannot be read: ENOENT/),
+      }),
+    ]);
+    expect(outcome.result.skipped?.map((skip) => skip.resource)).toEqual(['accounts']);
+    expect(world.records('Contact')).toHaveLength(2);
+    expect(await statusesKept()).toEqual({ accounts: 'applied', contacts: 'applied' });
   });
 
   it('runs backwards because the forward order keeps every parent: the accounts first keep theirs, exit 3', async () => {

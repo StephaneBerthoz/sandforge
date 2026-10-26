@@ -54,7 +54,14 @@ export type EnvRefusalCode =
   | 'LOCKED'
   | 'CHECKPOINT_ACT'
   | 'NO_CHECKPOINT'
-  | 'MASKED';
+  | 'MASKED'
+  | 'BAD_LINE'
+  | 'PLAN_UNREAD'
+  | 'PLAN_IN_REPOSITORY'
+  | 'PLAN_REFUSED'
+  | 'PLAN_OTHER_ORG'
+  | 'PLAN_STALE'
+  | 'TWO_STATES';
 
 /** A guard's refusal: what refused, in words, and the exit code it ends the verb with. */
 export interface EnvRefusal {

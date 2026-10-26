@@ -175,6 +175,26 @@ export interface EnvRunCount {
   refusal?: string;
 }
 
+/**
+ * A line a script ends on once it has said why, and that says nothing of why
+ * itself: the closing words of a question declined, of a step refused.
+ */
+const CLOSING_WORDS = /^Nothing(?: was)? (?:written|deleted)\.?$/i;
+
+/**
+ * The last line a script said on stderr that says why it stopped: what a
+ * script refused before its first write says there alone, printing nothing
+ * on stdout — the clone's gate, a seed's storage, a line it does not read.
+ * Undefined when it said nothing there.
+ */
+export function reasonLineOf(stderr: string): string | undefined {
+  return stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !CLOSING_WORDS.test(line))
+    .at(-1);
+}
+
 /** An answer a step's script printed that does not read as the one asked for. */
 export class StepAnswerError extends Error {
   constructor(

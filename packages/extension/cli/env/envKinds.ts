@@ -294,6 +294,11 @@ export interface EnvDryRunContext {
   storeFile?: string;
   /** The DataOps store a mask resource's script keeps its snapshots and its template in. */
   store?: string;
+  /**
+   * The draws a seed's dry run is seeded with when the file pins none: a
+   * saved plan's, so that its dry run draws again what the plan counted.
+   */
+  seed?: number;
 }
 
 /**
@@ -305,20 +310,22 @@ export function dryRunLineOf(
   context: EnvDryRunContext,
 ): { script: EnvKindScript; args: string[] } {
   switch (resource.kind) {
-    case 'seed':
+    case 'seed': {
+      const seed = resource.run.seed ?? context.seed;
       return {
         script: SEED_SCRIPT,
         args: seedDryRunLine({
           target: context.target,
           templateFile: context.templateFile,
           runId: context.runId,
-          ...(resource.run.seed !== undefined ? { seed: resource.run.seed } : {}),
+          ...(seed !== undefined ? { seed } : {}),
           ...(resource.run.locale !== undefined ? { locale: resource.run.locale } : {}),
           ...(resource.run.recordTypes !== undefined
             ? { recordTypes: resource.run.recordTypes }
             : {}),
         }),
       };
+    }
     case 'forge':
       return {
         script: FORGE_SCRIPT,

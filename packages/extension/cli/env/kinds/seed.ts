@@ -777,8 +777,27 @@ export function seedDryRunCount(
   };
 }
 
-/** What a seed's run wrote, per object. */
+/**
+ * What a seed's run wrote, per object. A run the seed refused before its
+ * first insert — parents named by id the org no longer holds, which it checks
+ * first — wrote nothing, and its refusal is the seed's own words, which its
+ * answer gives as the errors of a result of no object of the template
+ * ({@link REFUSED_BEFORE_WRITING}), as a dry run's.
+ */
 export function seedRunCount(answer: SeedRunAnswer): EnvRunCount {
+  const results = answer.result.objectResults;
+  if (
+    answer.result.status === 'failure' &&
+    results.length > 0 &&
+    results.every((result) => result.objectApiName === REFUSED_BEFORE_WRITING)
+  ) {
+    const said = results.flatMap((result) => result.errors);
+    return {
+      objects: [],
+      created: 0,
+      refusal: said.length > 0 ? said.join(' ') : 'the seed refused its run before it wrote',
+    };
+  }
   return {
     objects: answer.result.objectResults.map((object) => ({
       object: object.objectApiName,

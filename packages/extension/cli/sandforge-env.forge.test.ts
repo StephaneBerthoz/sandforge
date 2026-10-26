@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  envOutputSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
   envRunResultSchema,
@@ -292,6 +293,26 @@ describe('plan and apply a forge resource', () => {
     expect(JSON.parse(readFileSync(summary, 'utf8'))).toMatchObject({ tool: 'sandforge-clone' });
   });
 
+  it('output names the records the clone created in the target, by object, from its summary, reaching no org', async () => {
+    await run(['apply', '--org', 'TGT', '--yes', '--accept-no-state']);
+    vi.mocked(makeConn).mockClear();
+    const from = world.calls.length;
+
+    const ran = await run(['output', '--org', 'TGT', '--json']);
+
+    expect(ran.code, ran.said).toBe(0);
+    const records = envOutputSchema.parse(ran.answer).resources['cloned']?.records ?? {};
+    expect(new Set(records['Account'])).toEqual(new Set(marked('Account').map((row) => row['Id'])));
+    expect(new Set(records['Contact'])).toEqual(new Set(marked('Contact').map((row) => row['Id'])));
+    expect(records['Account']).toHaveLength(2);
+    // None of the source's ids: the clone's remap table gives the target's.
+    for (const source of world.source?.all('Account') ?? []) {
+      expect(records['Account']).not.toContain(source['Id']);
+    }
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(world.calls.slice(from)).toEqual([]);
+  });
+
   it('applied twice writes nothing the second time: a plan keeps it, the serial and the records unmoved', async () => {
     await run(['apply', '--org', 'TGT', '--yes', '--accept-no-state']);
     const serial = (await stateOf())?.serial;
@@ -325,8 +346,18 @@ describe('plan and apply a forge resource', () => {
 
     expect(applied.code).toBe(1);
     const result = envRunResultSchema.parse(applied.answer);
+    // The clone's own refusal, which it says on stderr alone: live, the
+    // apply's --json gave its exit code and no word of why.
     expect(result.steps).toEqual([
-      expect.objectContaining({ resource: 'cloned', phase: 'run', exitCode: 1, status: 'failed' }),
+      expect.objectContaining({
+        resource: 'cloned',
+        phase: 'run',
+        exitCode: 1,
+        status: 'failed',
+        refusal:
+          'The run would write 12 records, more than --max-total 4: narrow the clone (--max, ' +
+          '--exclude-object, --filter), or raise --max-total. Nothing was written.',
+      }),
     ]);
     const runLine = world.calls.find((call) => call.args.includes('--summary'));
     expect(runLine?.args[runLine.args.indexOf('--max-total') + 1]).toBe('4');

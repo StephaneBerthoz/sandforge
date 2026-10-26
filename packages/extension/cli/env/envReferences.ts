@@ -30,6 +30,7 @@ import {
   SEED_RELATION_LIMITS,
   forgeRunCreatedRecords,
   type EnvActionDraw,
+  type EnvRun,
   type EnvSeedDraw,
   type EnvState,
 } from '@sandforge/shared';
@@ -220,19 +221,30 @@ export async function createdByResource(
   if (run === undefined || run.takenBack === true) {
     return { refusal: `${name} holds no run whose records are in the org` };
   }
-  const read = await (async (): Promise<EnvCreated> => {
-    switch (run.script) {
-      case 'sandforge-seed':
-        return seedCreated(run, where, deps);
-      case 'sandforge-clone':
-        return forgeCreated(run, where, deps);
-      case 'sandforge-frozen':
-        return frozenCreated(run, where, deps);
-      default:
-        return { refusal: `its records are kept by ${run.script}, which this SandForge reads not` };
-    }
-  })();
+  const read = await createdByRun(run, where, deps);
   return 'refusal' in read ? { refusal: `${name}: ${read.refusal}` } : read;
+}
+
+/**
+ * The records one run created, per object in the order it wrote them, read
+ * back from what the run keeps, whichever kind's it is; or why they cannot be
+ * told. Nothing of the org is read.
+ */
+export async function createdByRun(
+  run: EnvRun,
+  where: EnvReferenceWhere,
+  deps: EnvReferenceDeps,
+): Promise<EnvCreated> {
+  switch (run.script) {
+    case 'sandforge-seed':
+      return seedCreated(run, where, deps);
+    case 'sandforge-clone':
+      return forgeCreated(run, where, deps);
+    case 'sandforge-frozen':
+      return frozenCreated(run, where, deps);
+    default:
+      return { refusal: `its records are kept by ${run.script}, which this SandForge reads not` };
+  }
 }
 
 /**

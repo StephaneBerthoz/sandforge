@@ -1094,6 +1094,29 @@ export function planDrifts(plan: Pick<EnvPlan, 'actions' | 'drift'>): boolean {
   );
 }
 
+/** An action's counts, per object, as the plan says them: `Account 3 to write, 1 changed`. */
+export function actionCountsOf(action: Pick<EnvAction, 'kind' | 'objects'>): string {
+  // A masking writes over records the org holds: what it masks, and holds masked.
+  const masks = action.kind === 'mask';
+  return action.objects
+    .map((object) => {
+      const parts = [
+        object.wouldCreate !== undefined
+          ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} ` +
+            (masks ? 'to mask' : 'to write')
+          : '',
+        object.present !== undefined && object.present > 0
+          ? `${object.present} ${masks ? 'masked' : 'in the org'}`
+          : '',
+        (object.gone ?? 0) > 0 ? `${object.gone} gone` : '',
+        (object.changed ?? 0) > 0 ? `${object.changed} changed` : '',
+      ].filter(Boolean);
+      return parts.length > 0 ? `${object.object} ${parts.join(', ')}` : '';
+    })
+    .filter(Boolean)
+    .join('; ');
+}
+
 /** The plan as a terminal shows it. */
 export function planLines(plan: EnvPlan): string[] {
   const lines = [
@@ -1104,25 +1127,7 @@ export function planLines(plan: EnvPlan): string[] {
       : 'state: none on this machine',
   ];
   for (const action of plan.actions) {
-    // A masking writes over records the org holds: what it masks, and holds masked.
-    const masks = action.kind === 'mask';
-    const counts = action.objects
-      .map((object) => {
-        const parts = [
-          object.wouldCreate !== undefined
-            ? `${object.atMost === true ? 'at most ' : ''}${object.wouldCreate} ` +
-              (masks ? 'to mask' : 'to write')
-            : '',
-          object.present !== undefined && object.present > 0
-            ? `${object.present} ${masks ? 'masked' : 'in the org'}`
-            : '',
-          (object.gone ?? 0) > 0 ? `${object.gone} gone` : '',
-          (object.changed ?? 0) > 0 ? `${object.changed} changed` : '',
-        ].filter(Boolean);
-        return parts.length > 0 ? `${object.object} ${parts.join(', ')}` : '';
-      })
-      .filter(Boolean)
-      .join('; ');
+    const counts = actionCountsOf(action);
     lines.push(`  ${action.action.padEnd(8)} ${action.resource}${counts ? `  ${counts}` : ''}`);
     lines.push(`           ${action.why}`);
     for (const draw of action.draws ?? []) {

@@ -1192,6 +1192,8 @@ export const envStepResultSchema = z.strictObject({
   objects: z.array(envStepObjectSchema).max(1_000),
   /** The script's own `--json` answer, as it gave it. */
   answer: z.unknown().optional(),
+  /** What refused or failed the step, in its script's own words. */
+  refusal: z.string().min(1).max(4_000).optional(),
 });
 
 /** A checkpoint taken or deleted by an apply or a destroy, and how the checkpoint script ended it. */
@@ -1355,4 +1357,76 @@ export const envStateListSchema = z.strictObject({
       }),
     )
     .max(10_000),
+});
+
+// ─── Saved plans ─────────────────────────────────────────────────────────────
+
+/** A seed's draws, as a run and its dry run name them. */
+const seedNumberSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(2 ** 32 - 1);
+
+/** The switches of the line a plan was made with: those `apply --plan` applies it with. */
+const envSavedPlanLineSchema = z.strictObject({
+  replace: z.array(envNameSchema).max(ENV_MAX_RESOURCES),
+  replaceDrifted: z.boolean(),
+  acceptAutomation: z.boolean(),
+  acceptNoState: z.boolean(),
+});
+
+/**
+ * A plan `plan --out` kept for `apply --plan`, version 1: the plan, and what
+ * it was made against. Strict, as every answer is: what it does not name is
+ * neither written nor read, so a record's value or a credential has no place
+ * in it.
+ */
+export const envSavedPlanSchema = z.strictObject({
+  savedPlan: z.literal(1),
+  sandforgeVersion: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, {
+    error: 'Expected a version, as 1.69.0',
+  }),
+  /** On this machine's clock: a plan a day old is refused. */
+  madeAt: instantSchema,
+  file: z.strictObject({ digest: sha256Schema }),
+  /** The state it was made against: none, or its serial and lineage. */
+  state: z.union([
+    z.strictObject({ found: z.literal(false) }),
+    z.strictObject({ found: z.literal(true), serial: countSchema, lineage: z.uuid() }),
+  ]),
+  line: envSavedPlanLineSchema,
+  /** The draws each seed resource's dry run was seeded with, by resource. */
+  seeds: z.record(envNameSchema, seedNumberSchema),
+  plan: envPlanSchema,
+});
+
+// ─── Outputs ─────────────────────────────────────────────────────────────────
+
+/** What `output` says of one resource of the state: the records its last run created, or why it names none. */
+const envOutputResourceSchema = z.strictObject({
+  kind: envResourceKindSchema,
+  status: envResourceStatusSchema,
+  /** The run its records are of. */
+  run: z.number().int().positive().max(999_999).optional(),
+  /** By object, the ids of the records it created, in the order they were written. */
+  records: z.record(apiNameSchema, z.array(recordIdSchema).max(1_000_000)),
+  /** A mask resource's: per object, the records its last run went through. */
+  masked: z.record(apiNameSchema, countSchema).optional(),
+  /** A mask resource's: the snapshot its last run took first. */
+  snapshotId: z.string().min(1).max(200).optional(),
+  /** Why it names no record. */
+  why: z.string().min(1).max(4_000).optional(),
+});
+
+/** What `output --json` answers: per resource the state holds, what it created, read on this machine. */
+export const envOutputSchema = z.strictObject({
+  env: envNameSchema,
+  org: z.strictObject({
+    organizationId: checkpointOrganizationIdSchema,
+    kind: envTargetKindSchema,
+    alias: z.string().min(1).max(255).optional(),
+  }),
+  state: z.strictObject({ serial: countSchema, updatedAt: instantSchema }),
+  resources: z.record(envNameSchema, envOutputResourceSchema),
 });

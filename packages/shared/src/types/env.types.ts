@@ -600,6 +600,12 @@ export interface EnvStepResult {
   objects: EnvStepObject[];
   /** The script's own `--json` answer, as it gave it. */
   answer?: unknown;
+  /**
+   * What refused or failed the step, in its script's own words: its `--json`
+   * answer's where it gives one, else the last line it said on stderr that
+   * says why.
+   */
+  refusal?: string;
 }
 
 /**
@@ -741,4 +747,71 @@ export interface EnvStateList {
   journalDir: string;
   states: EnvStateListEntry[];
   expired: Array<{ env: string; organizationId: string; alias?: string; expiresAt: string }>;
+}
+
+// ─── Saved plans ─────────────────────────────────────────────────────────────
+
+/** The switches of the line a plan was made with: those `apply --plan` applies it with. */
+export interface EnvSavedPlanLine {
+  replace: string[];
+  replaceDrifted: boolean;
+  acceptAutomation: boolean;
+  acceptNoState: boolean;
+}
+
+/**
+ * A plan `plan --out` kept for `apply --plan`: the plan as `plan --json`
+ * answers it, and what it was made against — the org its plan names, the
+ * state's serial and lineage, the file's digest, the switches of its line
+ * and the seeds its dry runs drew. Ids, counts and words: no record's value,
+ * no credential.
+ */
+export interface EnvSavedPlan {
+  savedPlan: 1;
+  /** The SandForge that made it: another one reads the file and the org its own way. */
+  sandforgeVersion: string;
+  /** On this machine's clock: a plan a day old is refused. */
+  madeAt: string;
+  /** The file it was made from, by its digest. */
+  file: { digest: string };
+  /** The state it was made against: none, or its serial and lineage. */
+  state: { found: false } | { found: true; serial: number; lineage: string };
+  line: EnvSavedPlanLine;
+  /** The draws each seed resource's dry run was seeded with, by resource: given again to the dry runs of `apply --plan`. */
+  seeds: Record<string, number>;
+  plan: EnvPlan;
+}
+
+// ─── Outputs ─────────────────────────────────────────────────────────────────
+
+/** What `output` says of one resource of the state: the records its last run created, or why it names none. */
+export interface EnvOutputResource {
+  kind: EnvResourceKind;
+  status: EnvResourceStatus;
+  /** The run its records are of. */
+  run?: number;
+  /**
+   * By object, the ids of the records it created, in the order they were
+   * written: none for a resource taken back, a mask resource, one not applied
+   * whole, or one whose run keeps no record of them.
+   */
+  records: Record<string, string[]>;
+  /** A mask resource's: per object, the records its last run went through. */
+  masked?: Record<string, number>;
+  /** A mask resource's: the snapshot its last run took first. */
+  snapshotId?: string;
+  /** Why it names no record. */
+  why?: string;
+}
+
+/**
+ * What `output --json` answers: per resource the state holds, in the order
+ * apply runs them, what it created. Read from the state and the runs' files
+ * on this machine: it reaches no org.
+ */
+export interface EnvOutput {
+  env: string;
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string };
+  state: { serial: number; updatedAt: string };
+  resources: Record<string, EnvOutputResource>;
 }

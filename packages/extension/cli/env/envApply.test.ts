@@ -446,6 +446,136 @@ describe('how a step ends, and what the apply then does', () => {
     expect(world.records('Asset')).toEqual([]);
   });
 
+  it('carries a seed’s refusal before its first write into the step, in its own words, said on stderr alone', async () => {
+    // The org's storage spent between the dry run and the run: the seed's
+    // gate refuses the run before it writes, and says so on stderr alone.
+    const limits = {
+      DataStorageMB: { Max: 5, Remaining: 5 },
+      DailyApiRequests: { Max: 15_000, Remaining: 14_000 },
+      SingleEmail: { Max: 15, Remaining: 15 },
+    };
+    world = new EnvWorld({
+      organizationId: ORG_ID,
+      sandbox: false,
+      edition: 'Developer Edition',
+      limits,
+      tick: () => vi.setSystemTime(Date.now() + 30_000),
+    });
+    let said = '';
+    const spent: CommandRunner = async (script, args, signal) => {
+      const real = !args.includes('--dry-run') && !args.includes('--remove');
+      if (real) limits.DataStorageMB = { Max: 5, Remaining: 0 };
+      const ran = await world.runner(script, args, signal);
+      if (real) said = ran.stderr;
+      return ran;
+    };
+
+    const outcome = await apply(resolvedOf(), {}, { runner: spent });
+
+    expect(outcome.exitCode).toBe(1);
+    const [step] = outcome.result.steps;
+    expect(step).toMatchObject({ resource: 'assets', exitCode: 1, status: 'failed', objects: [] });
+    expect(step?.answer).toBeUndefined();
+    const last = said.trim().split('\n').at(-1);
+    expect(last).toMatch(/storage/);
+    expect(step?.refusal).toBe(last);
+    expect(runResultLines(outcome.result, 'apply')).toContain(`      ${last ?? ''}`);
+    expect(world.records('Asset')).toEqual([]);
+  });
+
+  it('carries a seed’s refusal its answer gives into the step, in its words: parents deleted between its dry run and its run', async () => {
+    const drawing = {
+      version: 1,
+      name: 'case-flow',
+      resources: {
+        accounts: {
+          kind: 'seed',
+          seed: 1,
+          objects: [
+            {
+              object: 'Account',
+              count: 2,
+              fields: [
+                { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'SFENV a' } },
+              ],
+            },
+          ],
+        },
+        contacts: {
+          kind: 'seed',
+          seed: 2,
+          objects: [
+            {
+              object: 'Contact',
+              count: 2,
+              fields: [
+                {
+                  fieldApiName: 'LastName',
+                  ruleType: 'static',
+                  config: { staticValue: 'SFENV c' },
+                },
+              ],
+            },
+          ],
+          relations: [
+            {
+              lookup: 'Contact.AccountId',
+              parents: { from: 'accounts.Account' },
+              distribution: { mode: 'perParent', count: 1 },
+            },
+          ],
+        },
+      },
+    };
+    // An account the accounts' run created, deleted once its ids are handed to the contacts.
+    let deleted = '';
+    const deleting: CommandRunner = async (script, args, signal) => {
+      const line = args.join(' ').replace(/\\/g, '/');
+      if (!args.includes('--dry-run') && line.includes('templates/contacts')) {
+        deleted = String(world.records('Account')[0]?.['Id']);
+        world.org.trash('Account', deleted);
+      }
+      return world.runner(script, args, signal);
+    };
+
+    const outcome = await apply(resolvedOf(drawing), {}, { runner: deleting });
+
+    expect(outcome.exitCode).toBe(3);
+    const contacts = outcome.result.steps.find((step) => step.resource === 'contacts');
+    expect(contacts).toMatchObject({ exitCode: 1, status: 'failed', objects: [] });
+    // Its answer said it, as the seed's result of no object of the template.
+    expect(JSON.stringify(contacts?.answer)).toContain('"objectApiName":"validation"');
+    expect(contacts?.refusal).toBe(
+      `1 of the 2 Account record(s) the relation on Contact.AccountId names are no longer in ` +
+        `the org: ${deleted}. Nothing was written. Run again what created them, or give the ids ` +
+        'of Account records the org holds.',
+    );
+    expect(world.records('Contact')).toEqual([]);
+  });
+
+  it('carries a removal’s refusal before its first delete into the step, in the script’s words', async () => {
+    await apply();
+    const resolved = resolvedOf(document({ accounts: 3 }));
+    // The summary the removal is given, gone between the plan and the removal.
+    const unread: CommandRunner = async (script, args, signal) => {
+      if (args.includes('--remove') && !args.includes('--preview')) {
+        const at = args.indexOf('--remove') + 1;
+        const missing = [...args];
+        missing[at] = join(dir, 'gone.summary.json');
+        return world.runner(script, missing, signal);
+      }
+      return world.runner(script, args, signal);
+    };
+
+    const outcome = await apply(resolved, {}, { runner: unread });
+
+    const removal = outcome.result.steps.find((step) => step.phase === 'remove');
+    expect(removal).toMatchObject({ resource: 'contacts', exitCode: 2, status: 'applied' });
+    expect(removal?.answer).toBeUndefined();
+    expect(removal?.refusal).toMatch(/^--remove .+gone\.summary\.json cannot be read: ENOENT/);
+    expect(outcome.exitCode).toBe(1);
+  });
+
   it('blocks a resource whose dry run did not answer, and the apply with it, before any write', async () => {
     const resolved = resolvedOf(document({ assets: { recordTypes: ['Nope'] } }));
     const from = world.calls.length;

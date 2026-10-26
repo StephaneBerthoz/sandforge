@@ -4,11 +4,13 @@ import * as z from 'zod';
 import {
   ENV_MAX_RESOURCES,
   envFileSchema,
+  envOutputSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
   envRefsIn,
   envRewindResultSchema,
   envRunResultSchema,
+  envSavedPlanSchema,
   envStateListSchema,
   envStateSchema,
   envValidationSchema,
@@ -1154,6 +1156,109 @@ describe('the plan and the steps', () => {
     const unranked: Record<string, unknown> = { ...step };
     delete unranked['run'];
     expect(envRunResultSchema.safeParse({ ...result, steps: [unranked] }).success).toBe(false);
+  });
+
+  it('reads a step refused before it wrote, in its script’s words, and no empty refusal', () => {
+    const refused = {
+      resource: 'cloned',
+      action: 'create',
+      phase: 'run',
+      run: 1,
+      script: 'sandforge-clone',
+      exitCode: 1,
+      status: 'failed',
+      objects: [],
+      refusal: 'The run would write 6 records, more than --max-total 5. Nothing was written.',
+    };
+    const result = { plan, steps: [refused], status: 'failure', state: { serial: 2 } };
+
+    expect(envRunResultSchema.parse(result).steps[0]?.refusal).toBe(refused.refusal);
+    expect(
+      envRunResultSchema.safeParse({ ...result, steps: [{ ...refused, refusal: '' }] }).success,
+    ).toBe(false);
+  });
+});
+
+describe('a saved plan', () => {
+  const saved = {
+    savedPlan: 1,
+    sandforgeVersion: '1.69.0',
+    madeAt: '2026-10-25T09:00:00.000Z',
+    file: { digest: 'a'.repeat(64) },
+    state: { found: true, serial: 4, lineage: '0b6f4a35-6d2e-4f8e-9a3c-2b1d5e7f9a10' },
+    line: {
+      replace: ['accounts'],
+      replaceDrifted: false,
+      acceptAutomation: false,
+      acceptNoState: false,
+    },
+    seeds: { accounts: 4242 },
+    plan: {
+      env: 'case-flow',
+      org: { organizationId: '00Dxx0000001234AAA', kind: 'scratch', alias: 'pool-1' },
+      state: { found: true, serial: 4 },
+      actions: [],
+      totals: { create: 0, keep: 0, replace: 0, delete: 0, drifted: 0, blocked: 0 },
+      gates: { apiRequests: { estimate: 0, partial: false }, storage: { bytes: 0 }, emails: [] },
+    },
+  };
+
+  it('reads what plan --out writes: the plan, the state it was made against, its line and its seeds', () => {
+    expect(envSavedPlanSchema.parse(saved).state).toEqual(saved.state);
+    expect(envSavedPlanSchema.safeParse({ ...saved, state: { found: false } }).success).toBe(true);
+  });
+
+  it('refuses a key it does not name, a state found with no lineage, and a version it does not know', () => {
+    expect(envSavedPlanSchema.safeParse({ ...saved, accessToken: 'x' }).success).toBe(false);
+    expect(
+      envSavedPlanSchema.safeParse({ ...saved, state: { found: true, serial: 4 } }).success,
+    ).toBe(false);
+    expect(envSavedPlanSchema.safeParse({ ...saved, savedPlan: 2 }).success).toBe(false);
+    expect(
+      envSavedPlanSchema.safeParse({ ...saved, plan: { ...saved.plan, values: {} } }).success,
+    ).toBe(false);
+  });
+});
+
+describe('what output answers', () => {
+  const output = {
+    env: 'case-flow',
+    org: { organizationId: '00Dxx0000001234AAA', kind: 'scratch', alias: 'pool-1' },
+    state: { serial: 4, updatedAt: '2026-10-25T09:03:00.000Z' },
+    resources: {
+      accounts: {
+        kind: 'seed',
+        status: 'applied',
+        run: 1,
+        records: { Account: ['001000000000000AAA', '001000000000001AAA'] },
+      },
+      customers: {
+        kind: 'mask',
+        status: 'applied',
+        run: 1,
+        records: {},
+        masked: { Contact: 3 },
+        snapshotId: 'cli-dataops-anonymize-1-a1b2c3-snapshot',
+        why: 'a masking creates no record',
+      },
+      gone: { kind: 'seed', status: 'destroyed', records: {}, why: 'taken back by a destroy' },
+    },
+  };
+
+  it('reads each resource by its name, the ids of what it created by object', () => {
+    expect(envOutputSchema.parse(output).resources['accounts']?.records['Account']).toHaveLength(2);
+  });
+
+  it('refuses an id that is no record’s, and a value beside the ids', () => {
+    const withRecords = (records: unknown) => ({
+      ...output,
+      resources: { accounts: { kind: 'seed', status: 'applied', records } },
+    });
+    expect(envOutputSchema.safeParse(withRecords({ Account: ['CI account'] })).success).toBe(false);
+    expect(
+      envOutputSchema.safeParse(withRecords({ Account: [{ Id: '001000000000000AAA', Name: 'x' }] }))
+        .success,
+    ).toBe(false);
   });
 });
 

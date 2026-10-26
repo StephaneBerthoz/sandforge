@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  envOutputSchema,
   envPlanSchema,
   envRunResultSchema,
   envValidationSchema,
@@ -31,6 +32,7 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
 }));
 
 import { frozenDatasetDigest } from '../src/modules/frozendataset/datasetDigest.js';
+import type { CommandRunner } from './scriptRunner.js';
 import { openEnvStore } from './env/envState.js';
 import { main, type EnvCliDeps } from './sandforge-env.js';
 import { EnvWorld } from './testing/envWorld.js';
@@ -370,6 +372,56 @@ describe('plan and apply a frozen resource', () => {
     ) as { relations: Array<{ parents: { kind: string; ids: string[] } }> };
     expect(template.relations[0]?.parents.kind).toBe('records');
     expect(new Set(template.relations[0]?.parents.ids)).toEqual(loaded);
+  });
+
+  it('output names what the load created, from its mapping in the sas, and the contacts drawn from it', async () => {
+    expect((await apply()).code).toBe(0);
+    const from = world.calls.length;
+
+    const ran = await run(['output', '--org', 'TGT', '--json']);
+
+    expect(ran.code, ran.said).toBe(0);
+    const output = envOutputSchema.parse(ran.answer);
+    expect(Object.keys(output.resources)).toEqual(['claims', 'followers']);
+    const claims = output.resources['claims']?.records ?? {};
+    expect(new Set(claims['Account'])).toEqual(
+      new Set(named('Account', 'claim').map((r) => r['Id'])),
+    );
+    expect(new Set(claims['Contact'])).toEqual(
+      new Set(named('Contact', 'claim').map((r) => r['Id'])),
+    );
+    expect(new Set(output.resources['followers']?.records['Contact'])).toEqual(
+      new Set(named('Contact', 'follower').map((r) => r['Id'])),
+    );
+    expect(world.calls.slice(from)).toEqual([]);
+  });
+
+  it('carries a load its count gate refused into the step, in the words its answer gives, and writes nothing', async () => {
+    // As if the target changed since the dry run counted the load: held to
+    // fewer records than it reads now, the load refuses before its first write.
+    const lower: CommandRunner = async (script, args, signal) => {
+      if (script !== 'sandforge-frozen' || args.includes('--dry-run')) {
+        return world.runner(script, args, signal);
+      }
+      const held = [...args];
+      held[args.indexOf('--max-total') + 1] = '1';
+      return world.runner(script, held, signal);
+    };
+
+    const ran = await run(['apply', '--org', 'TGT', '--yes', '--json'], { runner: lower });
+
+    expect(ran.code).toBe(1);
+    const result = envRunResultSchema.parse(ran.answer);
+    const [claims] = result.steps;
+    expect(claims).toMatchObject({ resource: 'claims', exitCode: 1, status: 'failed' });
+    // Its answer says it, among what the handler posted.
+    expect(JSON.stringify(claims?.answer)).toContain(claims?.refusal);
+    expect(claims?.refusal).toBe(
+      'This load would insert 4 record(s), more than the 1 it may: nothing was written. The ' +
+        'dataset or the target changed since that count was taken: preview the load again, and ' +
+        'load with the count it gives.',
+    );
+    expect(named('Account', 'claim')).toEqual([]);
   });
 
   it('applied twice writes nothing the second time: the dataset verified, both kept, the drawing resource counted exactly', async () => {

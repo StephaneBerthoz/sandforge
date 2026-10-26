@@ -26,10 +26,17 @@
  * script. What it deletes in its own process is on this machine: a mask
  * resource's DataOps store, its snapshots with it, which its destroy takes.
  *
+ * A plan may be kept (`plan --out`) and applied as it was made, or refused
+ * (`apply --plan`, `env/envSavedPlan.ts`); and what an apply created is read
+ * back from this machine alone, by its ids (`output`, `env/envOutput.ts`).
+ *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts plan --file sandforge.yaml --org pool-1
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts apply --file sandforge.yaml --org pool-1 --yes
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts plan --file sandforge.yaml --org pool-1 --out /tmp/pool-1.plan.json
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts apply --file sandforge.yaml --org pool-1 --plan /tmp/pool-1.plan.json --yes
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts output --file sandforge.yaml --org pool-1 --json
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy --file sandforge.yaml --org pool-1 --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts reset --file sandforge.yaml --org pool-1 --yes
  *
@@ -43,9 +50,11 @@ import { dirname, join, resolve } from 'node:path';
 import type { Connection } from 'jsforce';
 import type {
   EnvIssue,
+  EnvOutput,
   EnvPlan,
   EnvPlanDrift,
   EnvRefusalAnswer,
+  EnvSavedPlan,
   EnvState,
   EnvStateList,
   EnvValidation,
@@ -135,6 +144,7 @@ import {
   type EnvDryRun,
   type EnvRunPreview,
 } from './env/envPlan.js';
+import { outputLines, outputOf, outputStateOf } from './env/envOutput.js';
 import {
   previewEnvRewind,
   rewindEnvironment,
@@ -144,6 +154,18 @@ import {
   type EnvRewindInput,
 } from './env/envRewind.js';
 import {
+  outRefusal,
+  planDifferences,
+  planDiffersRefusal,
+  readSavedPlan,
+  savedPlanHeldLine,
+  savedPlanLine,
+  savedPlanMoved,
+  savedPlanOf,
+  savedPlanRefusal,
+  writeSavedPlan,
+} from './env/envSavedPlan.js';
+import {
   EnvStateError,
   envJournalDirOf,
   envRunIdOf,
@@ -151,6 +173,7 @@ import {
   nextRunNumber,
   openEnvStore,
   stateExpiresAt,
+  type EnvStateExpired,
   type EnvStore,
 } from './env/envState.js';
 import { holdOutputWhole } from './wholeOutput.js';
@@ -176,6 +199,9 @@ Commands:
             between two test suites, after asking you to type the org's alias
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
+  output    print what an apply created in the org: per resource, the ids of its records by
+            object, as its runs' files on this machine name them; --org, the alias it was
+            applied by or the Organization Id; reaches no org
 
 Required:
   --org <alias>              sf CLI alias of the org to fill (validate and state: not needed)
@@ -190,9 +216,15 @@ plan:
                              records deleted or changed since
   --quick                    skip the dry runs and the removal previews: no counts, and no word
                              on what the org holds
-  --replace <resource>, --replace-drifted
-                             plan what apply would do with them
+  --replace <resource>, --replace-drifted, --accept-automation, --accept-no-state
+                             plan what apply would do with them; --out keeps them with the plan
+  --out <file>               keep the plan in <file>, for apply --plan: outside the repository
+                             that holds the file, unless --out-in-repository
+  --out-in-repository        keep it inside that repository all the same, in a folder of it
+                             that is never committed
 apply:
+  --plan <file>              apply the plan plan --out kept there, with the switches it was made
+                             with, or refuse it, writing nothing
   --replace <resource>       replace a resource kept or drifted; repeat for more
   --replace-drifted          replace every drifted resource
   --accept-automation        take back the runs a replace or a delete takes back although the org
@@ -259,6 +291,20 @@ parents: { from: <resource>.<Object> }. They are read from that resource's own r
 the seed by their ids, at most 2,000 or the relation's limit, and counted exactly once that
 resource has run; the resource drawn from runs first, and is taken back last.
 
+plan --out keeps the plan in a file, JSON: its actions and their counts, the org's Organization
+Id, the state's serial and lineage, the file's digest, the switches of its line and the seeds
+its dry runs drew; ids, counts and words, never a record's value or a credential. apply --plan
+applies that plan and nothing else: it reads the org again with the same previews and dry
+runs, the same seeds, and refuses, exit 1, writing nothing, when the org, the state, the file,
+an action or a count is not the plan's, or the plan is a day old: plan again. In a pipeline,
+plan in the pull request, apply on merge.
+
+output names, of each resource the state holds, the records its last run created, by object:
+those a test suite runs against. A resource a destroy took back names none, nor does a mask
+resource, which creates none and says what it masked; nor one not applied whole, and output
+then exits 3. It names what the runs kept: a record deleted since is still named, which plan
+reads.
+
 A production org is refused before anything is read, exit 1. No flag lifts it. A sandbox is
 written to only when the file lists its Organization Id under targets.sandboxes and allows the
 sandbox kind; scratch orgs and Developer Edition orgs need no listing. A scratch org is told
@@ -276,25 +322,28 @@ kept apart: give the jobs one concurrency group.
 
 Exit codes: 0 done (validate: the file is valid; plan: answered; apply: every resource applied
 whole, or nothing to do; destroy: every record taken back; reset and destroy --rewind: read again,
-the org matches the checkpoint); 1 refused before it read or wrote — a production org, a kind of
-org or a sandbox the file does not allow, a protected org, a state of another org, no state
-without --accept-no-state, another apply of the org under way, a removal refused for automation
-without --accept-automation, more API requests, storage or emails than the org has left, a
-checkpoint the file asks that its script refuses, a production source without anonymize or
-accept: { realData: true }, no checkpoint to reset or rewind to, a rewind refused for want of
---accept-automation or --accept-no-undo —, or nothing written; 2 a bad command line, a file that
-does not validate, a variable not set, the journal directory or a dataset inside the file's
-repository, a question with no terminal (give --yes); 3 partial (apply: a resource partial, or
-failed after others wrote; destroy: records left, each with why; reset and destroy --rewind:
-records still differ; plan with --fail-on-change or --fail-on-drift: changes or drift found); 4
-unstable (a forge run's or a frozen load's verification found records still changing; reset and
-destroy --rewind: someone changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP
-stopped it — run it again: it takes up from the state.
+the org matches the checkpoint; output: every resource's records named, or taken back); 1 refused
+before it read or wrote — a production org, a kind of org or a sandbox the file does not allow, a
+protected org, a state of another org, no state without --accept-no-state, another apply of the
+org under way, a removal refused for automation without --accept-automation, more API requests,
+storage or emails than the org has left, a checkpoint the file asks that its script refuses, a
+production source without anonymize or accept: { realData: true }, no checkpoint to reset or
+rewind to, a rewind refused for want of --accept-automation or --accept-no-undo, a plan --plan
+names that no longer holds, is a day old or was refused when it was made, no state for output to
+read —, or nothing written; 2 a bad command line, a file that does not validate, a variable not
+set, the journal directory or a dataset inside the file's repository, --out inside it, a file
+--plan names that is no plan, a question with no terminal (give --yes); 3 partial (apply: a
+resource partial, or failed after others wrote; destroy: records left, each with why; reset and
+destroy --rewind: records still differ; plan with --fail-on-change or --fail-on-drift: changes or
+drift found; output: a resource not applied whole, or whose records cannot be read); 4 unstable
+(a forge run's or a frozen load's verification found records still changing; reset and destroy
+--rewind: someone changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it
+— run it again: it takes up from the state.
 `;
 
 // ─── The command line ────────────────────────────────────────────────────────
 
-const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'reset', 'state'] as const;
+const COMMANDS = ['validate', 'plan', 'apply', 'destroy', 'reset', 'state', 'output'] as const;
 type Command = (typeof COMMANDS)[number];
 
 const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
@@ -304,13 +353,22 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   validate: { words: 1, switches: ['--json'], values: ['--file'] },
   plan: {
     words: 1,
-    switches: ['--json', '--fail-on-change', '--fail-on-drift', '--quick', '--replace-drifted'],
-    values: ['--file', '--org', '--alias', '--replace'],
+    switches: [
+      '--json',
+      '--fail-on-change',
+      '--fail-on-drift',
+      '--quick',
+      '--replace-drifted',
+      '--accept-automation',
+      '--accept-no-state',
+      '--out-in-repository',
+    ],
+    values: ['--file', '--org', '--alias', '--replace', '--out'],
   },
   apply: {
     words: 1,
     switches: ['--json', '--replace-drifted', '--accept-automation', '--accept-no-state', '--yes'],
-    values: ['--file', '--org', '--alias', '--replace'],
+    values: ['--file', '--org', '--alias', '--replace', '--plan'],
   },
   destroy: {
     words: 1,
@@ -331,6 +389,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
     values: ['--file', '--org', '--alias'],
   },
   state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
+  output: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
 };
 
 /** Everything the command line settled. */
@@ -356,6 +415,12 @@ export interface CliArgs {
   rewind: boolean;
   acceptNoUndo: boolean;
   yes: boolean;
+  /** plan: where to keep the plan for `apply --plan`, absolute. */
+  out?: string;
+  /** plan: keep it inside the file's repository all the same. */
+  outInRepository: boolean;
+  /** apply: the plan `plan --out` kept, absolute. */
+  plan?: string;
 }
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
@@ -373,12 +438,14 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   }
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
-    return refuseLine('Name the command first: validate, plan, apply, destroy, reset or state.');
+    return refuseLine(
+      'Name the command first: validate, plan, apply, destroy, reset, state or output.',
+    );
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy, reset ` +
-        'or state. Nothing was run.',
+      `"${command}" is not a command of sandforge-env: validate, plan, apply, destroy, reset, ` +
+        'state or output. Nothing was run.',
     );
   }
   // `--yes=true`, a misspelt `--dryrun`, would be dropped without a word.
@@ -410,10 +477,36 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   }
   const org = single('--org');
   if (
-    (command === 'plan' || command === 'apply' || command === 'destroy' || command === 'reset') &&
+    (command === 'plan' ||
+      command === 'apply' ||
+      command === 'destroy' ||
+      command === 'reset' ||
+      command === 'output') &&
     org === undefined
   ) {
     refuseLine(`${command} needs --org, the sf CLI alias of the org.`);
+  }
+  const out = single('--out');
+  if (out !== undefined && args.includes('--quick')) {
+    refuseLine(
+      '--out keeps a plan for apply --plan, which a quick plan cannot be: it counts nothing an ' +
+        'apply is held to.',
+    );
+  }
+  if (out === undefined && args.includes('--out-in-repository')) {
+    refuseLine('--out-in-repository goes with --out: it says where the plan may be kept.');
+  }
+  const plan = single('--plan');
+  if (plan !== undefined) {
+    // What the plan replaces and accepts is the line it was made with.
+    const own = ['--replace', '--replace-drifted', '--accept-automation', '--accept-no-state'];
+    const given = own.filter((flag) => args.includes(flag));
+    if (given.length > 0) {
+      refuseLine(
+        `${given.join(' and ')}: --plan applies the plan with the switches plan --out was given, ` +
+          'kept in it. Give them to plan --out, then apply that plan.',
+      );
+    }
   }
   // A destroy by rewind takes the whole org back: a removal's switches would be read as kept.
   const rewind = args.includes('--rewind');
@@ -449,6 +542,9 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     rewind,
     acceptNoUndo: args.includes('--accept-no-undo'),
     yes: args.includes('--yes'),
+    ...(out !== undefined ? { out: resolve(cwd, out) } : {}),
+    outInRepository: args.includes('--out-in-repository'),
+    ...(plan !== undefined ? { plan: resolve(cwd, plan) } : {}),
   };
 }
 
@@ -587,6 +683,14 @@ function lastLine(stderr: string): string {
   );
 }
 
+/** What a verb says of a state it deleted on its date. */
+function expiredLine(expired: EnvStateExpired): string {
+  return (
+    `the state of ${expired.env} on ${expired.alias ?? expired.organizationId} expired on ` +
+    `${expired.expiresAt}, a month after its last write, as a scratch org does: deleted`
+  );
+}
+
 /** What the plan, the apply and the destroy share once the org is typed and the state read. */
 interface Prepared {
   resolved: EnvFileResolved;
@@ -637,10 +741,7 @@ async function prepare(
   if ('refusal' in opened) throw stopWith(storeRefusal(opened.refusal, inside !== undefined));
   const store = opened.store;
   for (const expired of await store.sweep()) {
-    say(
-      `the state of ${expired.env} on ${expired.alias ?? expired.organizationId} expired on ` +
-        `${expired.expiresAt}, a month after its last write, as a scratch org does: deleted`,
-    );
+    say(expiredLine(expired));
   }
 
   const alias = args.org ?? '';
@@ -914,7 +1015,9 @@ async function drawsOf(
  * A seed is given the parents its draws are handed; a draw from a resource
  * that runs first in the same apply stands in with what the org holds. A
  * frozen resource is dry-run in its own sas when loads keep one, the
- * script's store apart: a dry run writes nothing there.
+ * script's store apart: a dry run writes nothing there. A seed that the file
+ * pins no draws of is given those of `seeds`, a saved plan's, when it names
+ * them: its dry run draws again what the plan counted.
  */
 async function dryRun(
   prepared: Prepared,
@@ -922,6 +1025,7 @@ async function dryRun(
   draws: Readonly<Record<string, EnvDrawn>>,
   say: (line: string) => void,
   signal: AbortSignal,
+  seeds: Readonly<Record<string, number>> = {},
 ): Promise<Record<string, EnvDryRun>> {
   const { resolved, target, state, store } = prepared;
   const dryRuns: Record<string, EnvDryRun> = {};
@@ -969,11 +1073,13 @@ async function dryRun(
       });
       writeFileSync(templateFile, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
       say(`${resource.name}: dry run`);
+      const seed = seeds[resource.name];
       const line = dryRunLineOf(resource, {
         target: target.alias,
         templateFile,
         runId: envRunIdOf(env, resource.name, nextRunNumber(state?.resources[resource.name])),
         replace: action === 'replace' && replacesInOneRun(resource.kind),
+        ...(seed !== undefined ? { seed } : {}),
         ...(storeFile !== undefined ? { storeFile } : {}),
         // A store of the plan's own: a dry run saves the rules as a template,
         // and the resource's store keeps what its runs did alone.
@@ -1049,12 +1155,17 @@ function maskStoresOf(prepared: Prepared): Record<string, string> {
   );
 }
 
-/** The plan of an apply, read through the scripts: previews, dry runs and the day's budget. */
+/**
+ * The plan of an apply, read through the scripts: previews, dry runs and the
+ * day's budget; each seed's dry run given the draws of `seeds`, a saved
+ * plan's, where the file pins none.
+ */
 async function planOf(
   prepared: Prepared,
   args: CliArgs,
   say: (line: string) => void,
   signal: AbortSignal,
+  seeds: Readonly<Record<string, number>> = {},
 ): Promise<{ plan: EnvPlan; dryRuns: Record<string, EnvDryRun> }> {
   const org = {
     organizationId: prepared.target.organizationId,
@@ -1084,7 +1195,7 @@ async function planOf(
     drafts.filter((d) => d.action === 'create' || d.action === 'replace').map((d) => d.resource),
   );
   const draws = await drawsOf(prepared, running);
-  const dryRuns = await dryRun(prepared, drafts, draws, say, signal);
+  const dryRuns = await dryRun(prepared, drafts, draws, say, signal, seeds);
   const budget = await readBudget(prepared.reached.conn);
   const checkpointEstimate = await estimateCheckpoints(prepared, drafts.some(writes), say, signal);
   return {
@@ -1380,6 +1491,33 @@ async function listStates(
   };
 }
 
+/**
+ * `output`: what an apply created in the org `--org` names, per resource,
+ * read from the state and its runs' files on this machine; reaches no org.
+ * Exits 3 when a resource is not applied whole, or its records cannot be
+ * read back.
+ */
+async function output(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  say: (line: string) => void,
+): Promise<{ answer: EnvOutput; code: number }> {
+  const read = checkEnvFile(readDocument(args.file), dirname(args.file));
+  if ('refusals' in read) throw fileStop(args.file, read.refusals);
+  const journalDir = deps.journalDir ?? envJournalDirOf();
+  const inside = journalInsideRepository(dirname(args.file), journalDir);
+  const opened = openEnvStore({ journalDir, fileFolder: dirname(args.file) });
+  if ('refusal' in opened) throw stopWith(storeRefusal(opened.refusal, inside !== undefined));
+  for (const expired of await opened.store.sweep()) say(expiredLine(expired));
+  const found = outputStateOf(await opened.store.list(), read.checked.file.name, args.org ?? '');
+  if ('refusal' in found) throw stopWith(found.refusal);
+  const { output: answer, whole } = await outputOf(found.state, {
+    store: opened.store,
+    journalDir,
+  });
+  return { answer, code: whole ? DONE_EXIT : PARTIAL_EXIT };
+}
+
 /** Ask for the org's alias to be typed, or go on when `--yes` said so. */
 async function confirmed(
   args: CliArgs,
@@ -1490,12 +1628,42 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
         answerJson(await listStates(args, deps, say));
         return;
       }
+      case 'output': {
+        const { answer, code } = await output(args, deps, say);
+        for (const line of outputLines(answer)) say(line);
+        answerJson(answer);
+        endWith(code);
+        return;
+      }
       case 'plan': {
+        // Where it is kept is settled before any org is reached.
+        if (args.out !== undefined) {
+          const refused = outRefusal(dirname(args.file), args.out, args.outInRepository);
+          if (refused !== undefined) throw stopWith(refused);
+        }
         const prepared = await prepare(args, deps, say);
-        const { plan } = await stoppable(deps, 'planning', (signal) =>
+        const { plan, dryRuns } = await stoppable(deps, 'planning', (signal) =>
           planOf(prepared, args, say, signal),
         );
         for (const line of planLines(plan)) say(line);
+        if (args.out !== undefined) {
+          const saved = savedPlanOf({
+            plan,
+            state: prepared.state,
+            digest: prepared.resolved.digest,
+            line: {
+              replace: args.replace,
+              replaceDrifted: args.replaceDrifted,
+              acceptAutomation: args.acceptAutomation,
+              acceptNoState: args.acceptNoState,
+            },
+            dryRuns,
+            sandforgeVersion: sandforgeVersion(),
+            madeAt: new Date().toISOString(),
+          });
+          await writeSavedPlan(args.out, saved);
+          say(savedPlanLine(args.out, saved));
+        }
         answerJson(plan);
         const changed = args.failOnChange && planChanges(plan);
         const drifted = args.failOnDrift && planDrifts(plan);
@@ -1504,11 +1672,41 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
       }
       case 'apply': {
         if (args.quick) refuseLine('apply makes a whole plan: --quick is for plan alone.');
-        const prepared = await prepare(args, deps, say);
+        // A plan kept by plan --out: read, and held to what it was made
+        // against, then made again with its own switches and seeds.
+        let saved: EnvSavedPlan | undefined;
+        let applied: CliArgs = args;
+        if (args.plan !== undefined) {
+          const read = readSavedPlan(args.plan);
+          if ('refusal' in read) throw stopWith(read.refusal);
+          saved = read.saved;
+          const refused = savedPlanRefusal(saved, args.plan, {
+            now: Date.now(),
+            sandforgeVersion: sandforgeVersion(),
+          });
+          if (refused !== undefined) throw stopWith(refused);
+          applied = { ...args, ...saved.line };
+        }
+        const prepared = await prepare(applied, deps, say);
+        if (saved !== undefined && args.plan !== undefined) {
+          const moved = savedPlanMoved(saved, args.plan, {
+            target: prepared.target,
+            digest: prepared.resolved.digest,
+            state: prepared.state,
+          });
+          if (moved !== undefined) throw stopWith(moved);
+        }
         const { plan, dryRuns } = await stoppable(deps, 'planning', (signal) =>
-          planOf(prepared, args, say, signal),
+          planOf(prepared, applied, say, signal, saved?.seeds),
         );
+        if (saved !== undefined && args.plan !== undefined) {
+          const differences = planDifferences(saved.plan, plan);
+          if (differences.length > 0) throw stopWith(planDiffersRefusal(args.plan, differences));
+        }
         for (const line of planLines(plan)) say(line);
+        if (saved !== undefined && args.plan !== undefined) {
+          say(savedPlanHeldLine(args.plan, saved));
+        }
         const writes = plan.refusal === undefined && planChanges(plan);
         if (
           writes &&
@@ -1530,7 +1728,7 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
           target: prepared.target,
           state: prepared.state,
           dryRuns,
-          acceptAutomation: args.acceptAutomation,
+          acceptAutomation: applied.acceptAutomation,
         });
         for (const line of runResultLines(outcome.result, 'apply')) say(line);
         answerJson(outcome.result);

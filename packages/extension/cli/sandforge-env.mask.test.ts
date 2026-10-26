@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  envOutputSchema,
   envPlanSchema,
   envRefusalAnswerSchema,
   envRunResultSchema,
@@ -30,7 +31,9 @@ vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
   getJsforceConnection: vi.fn(),
 }));
 
+import { OUTPUT_MASK_DESTROYED_WHY, OUTPUT_MASK_WHY } from './env/envOutput.js';
 import { openEnvStore } from './env/envState.js';
+import type { CommandRunner } from './scriptRunner.js';
 import { missingFieldLine } from './sandforge-dataops.js';
 import { main, type EnvCliDeps } from './sandforge-env.js';
 import { EnvWorld, type EnvWorldOptions } from './testing/envWorld.js';
@@ -297,6 +300,32 @@ describe('a mask resource', () => {
     ]);
   });
 
+  it('carries a masking the script refused before its first write into the step, in the words it said on stderr', async () => {
+    // A store that cannot be opened: the script refuses before it reads a record.
+    const blocked = join(dir, 'not-a-folder');
+    writeFileSync(blocked, '');
+    const storeless: CommandRunner = async (script, args, signal) => {
+      if (script !== 'sandforge-dataops' || args.includes('--dry-run')) {
+        return world.runner(script, args, signal);
+      }
+      const line = [...args];
+      line[args.indexOf('--store') + 1] = blocked;
+      return world.runner(script, line, signal);
+    };
+
+    const ran = await run(['apply', '--org', 'TGT', '--yes', '--json'], { runner: storeless });
+
+    expect(ran.code).toBe(1);
+    const [step] = envRunResultSchema.parse(ran.answer).steps;
+    expect(step).toMatchObject({ resource: 'customers', exitCode: 1, status: 'failed' });
+    expect(step?.answer).toBeUndefined();
+    // Refused by mkdir on every platform, or by the folder check where one would let it by.
+    expect(step?.refusal).toMatch(
+      /^The store .+not-a-folder (?:could not be made: |is not a folder\.)/,
+    );
+    expect(fieldOf(copied[0], 'Email')).toBe('ada@example.com');
+  });
+
   it('keeps a masking applied with the same rules over the same records: applied again, it masks nothing twice', async () => {
     await apply();
     const serial = (await stateOf()).state?.serial;
@@ -362,6 +391,36 @@ describe('a mask resource', () => {
     expect(planned.actions[0]?.why).toMatch(
       /^replaced: what it writes changed in the file since it was applied; it masks again what its condition selects, the records it masked before a second time, and takes nothing back first: the values they held before any masking stay only in snapshot \S+-snapshot, run 1's, which destroy deletes$/,
     );
+  });
+
+  it('output names no record of a masking, which creates none: what it masked and its snapshot, then that a destroy left them masked', async () => {
+    await apply();
+    const snapshot = (await stateOf()).state?.resources['customers']?.runs[0]?.snapshotId;
+
+    const applied = await run(['output', '--org', 'TGT', '--json']);
+
+    expect(applied.code).toBe(0);
+    expect(envOutputSchema.parse(applied.answer).resources['customers']).toEqual({
+      kind: 'mask',
+      status: 'applied',
+      run: 1,
+      records: {},
+      masked: { Contact: 2 },
+      snapshotId: snapshot,
+      why: OUTPUT_MASK_WHY,
+    });
+
+    await destroy();
+    const destroyed = await run(['output', '--org', 'TGT', '--json']);
+
+    expect(destroyed.code).toBe(0);
+    expect(envOutputSchema.parse(destroyed.answer).resources['customers']).toEqual({
+      kind: 'mask',
+      status: 'destroyed',
+      run: 1,
+      records: {},
+      why: OUTPUT_MASK_DESTROYED_WHY,
+    });
   });
 
   it('never unmasks: destroy deletes its store, the snapshot with it, and leaves every masked value masked', async () => {

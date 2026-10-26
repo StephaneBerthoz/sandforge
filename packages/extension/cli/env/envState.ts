@@ -127,6 +127,24 @@ export function journalInsideRepository(
   fileFolder: string,
   journalDir: string,
 ): string | undefined {
+  const repoRoot = repositoryHolding(fileFolder, journalDir);
+  if (repoRoot === undefined) return undefined;
+  return (
+    `The journal directory ${resolve(journalDir)} is inside the repository ${repoRoot} that ` +
+    'holds the file: the state, the run summaries and the templates of its runs would be ' +
+    'committed with it, and they name the org’s records by their ids. Point ' +
+    'SANDFORGE_JOURNAL_DIR at a folder outside the repository — in CI, $RUNNER_TEMP/sandforge — ' +
+    'and keep it between the jobs that apply and destroy, in a cache keyed by the org.'
+  );
+}
+
+/**
+ * The repository that holds the file in `fileFolder` — the nearest folder
+ * above it with a `.git` — when `path` is inside it, or undefined: a file in
+ * no repository has nothing to be committed into. Both are followed to where
+ * their links lead first: a folder linked into the repository is inside it.
+ */
+export function repositoryHolding(fileFolder: string, path: string): string | undefined {
   let repoRoot: string;
   try {
     // From where the folder's links lead: walked up from a link, the parents
@@ -135,14 +153,7 @@ export function journalInsideRepository(
   } catch {
     return undefined;
   }
-  if (!new SasPathGuard(repoRoot).isInsideRepo(followed(journalDir))) return undefined;
-  return (
-    `The journal directory ${resolve(journalDir)} is inside the repository ${repoRoot} that ` +
-    'holds the file: the state, the run summaries and the templates of its runs would be ' +
-    'committed with it, and they name the org’s records by their ids. Point ' +
-    'SANDFORGE_JOURNAL_DIR at a folder outside the repository — in CI, $RUNNER_TEMP/sandforge — ' +
-    'and keep it between the jobs that apply and destroy, in a cache keyed by the org.'
-  );
+  return new SasPathGuard(repoRoot).isInsideRepo(followed(path)) ? repoRoot : undefined;
 }
 
 /**

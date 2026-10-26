@@ -46,6 +46,8 @@ import {
   seedDryRunLine,
   seedPreviewLine,
   seedRemoveLine,
+  seedRunCount,
+  type SeedRunAnswer,
 } from './seed.js';
 
 /*
@@ -417,5 +419,67 @@ describe('what a seed’s dry run counts, as the plan reads it', () => {
       objects: [{ object: 'Contact', wouldCreate: 3, atMost: true }],
     });
     expect(seedDryRunCount(skipped).refusal).toBeUndefined();
+  });
+});
+
+describe('what a seed’s run wrote, as the apply reads it', () => {
+  /** A run's answer whose result is `result`. */
+  const answer = (result: SeedRunAnswer['result']): SeedRunAnswer => ({
+    tool: SEED_SCRIPT,
+    target: 'TGT',
+    seed: 1,
+    startedAt: '2026-10-25T09:00:00.000Z',
+    finishedAt: '2026-10-25T09:00:00.000Z',
+    emails: { checks: [] },
+    elapsedMs: 1,
+    dryRun: false,
+    result,
+  });
+  const said =
+    '1 of the 2 Account record(s) the relation on Contact.AccountId names are no longer in the org: 001000000000001AAA. Nothing was written.';
+
+  it('is the seed’s refusal, in its words, of a run it refused before its first insert: nothing written', () => {
+    const refused = answer({
+      operationId: 'x',
+      status: 'failure',
+      objectResults: [
+        {
+          objectApiName: 'validation',
+          recordsCreated: 0,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [said],
+        },
+      ],
+      totalRecordsCreated: 0,
+      totalRecordsFailed: 0,
+    });
+
+    expect(seedRunCount(refused)).toEqual({ objects: [], created: 0, refusal: said });
+  });
+
+  it('is no refusal of a run whose records the org refused one by one: what it wrote, per object', () => {
+    const failed = answer({
+      operationId: 'x',
+      status: 'failure',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 0,
+          recordsFailed: 2,
+          createdIds: [],
+          errors: ['A validation rule refused it'],
+        },
+      ],
+      totalRecordsCreated: 0,
+      totalRecordsFailed: 2,
+    });
+
+    expect(seedRunCount(failed)).toEqual({
+      objects: [
+        { object: 'Account', created: 0, refused: 2, errors: ['A validation rule refused it'] },
+      ],
+      created: 0,
+    });
   });
 });
