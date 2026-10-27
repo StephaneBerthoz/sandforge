@@ -51,6 +51,7 @@ export const seedObjectConfigSchema = z.object({
   excludedFields: z.array(z.string()),
   insertOrder: z.number().int().nonnegative(),
   batchSize: z.number().int().positive().max(10000).default(200),
+  optional: z.boolean().optional(),
 });
 
 /** A record id as an org writes one: 15 letters and digits, or 18 with the case-safe suffix. */

@@ -1015,7 +1015,8 @@
       "pending": "Wartend",
       "running": "Läuft",
       "done": "Fertig",
-      "error": "Fehlgeschlagen"
+      "error": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
     },
     "removal": {
       "created_one": "{{formatted}} Datensatz in {{org}} erstellt",

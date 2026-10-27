@@ -271,6 +271,22 @@ describe('the built-in templates on a new Developer Edition', () => {
     const { Knowledge__kav: none, ...rest } = written(SERVICE_CLOUD_STARTER, result);
     expect(none).toBe(0);
     expect(rest).toEqual({ Account: 200, Contact: 500, Case: 1000, CaseComment: 2000 });
+    // The articles are optional: a new Developer Edition has no Knowledge, and
+    // every run of the template on one ended partial on them.
+    expect(articles?.optional).toBe(true);
+    expect(result.status).toBe('success');
+  });
+
+  it('keeps a run partial when an object the org lacks is one its template does not mark optional', async () => {
+    const strict = {
+      ...SERVICE_CLOUD_STARTER,
+      objects: SERVICE_CLOUD_STARTER.objects.map((o) => ({ ...o, optional: false })),
+    };
+    const result = await orchestrator(newOrg()).execute(strict, 'org-1');
+    const articles = result.objectResults.find((r) => r.objectApiName === 'Knowledge__kav');
+    expect(articles?.errors[0]).toMatch(/^Skipped: this org has no Knowledge__kav object/);
+    expect(articles?.optional).toBeUndefined();
+    expect(result.status).toBe('partial');
   });
 
   it('skips the campaigns of a user who may not create one, and what hangs on them, saying why', async () => {

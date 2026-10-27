@@ -951,7 +951,8 @@
       "pending": "待機中",
       "running": "実行中",
       "done": "完了",
-      "error": "失敗"
+      "error": "失敗",
+      "skipped": "スキップ"
     },
     "removal": {
       "created_other": "{{org}} に作成したレコード: {{formatted}} 件",

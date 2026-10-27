@@ -1015,7 +1015,8 @@
       "pending": "En attente",
       "running": "En cours",
       "done": "Terminé",
-      "error": "Échoué"
+      "error": "Échoué",
+      "skipped": "Ignoré"
     },
     "removal": {
       "created_one": "{{formatted}} enregistrement créé dans {{org}}",

@@ -437,7 +437,7 @@ export class SeedOrchestrator {
       );
     }
     const closed = await this.closedObject(obj.objectApiName);
-    if (closed) return skipObject(run, obj.objectApiName, closed);
+    if (closed) return skipObject(run, obj.objectApiName, closed, obj.optional === true);
 
     this.reportProgress(obj.objectApiName, run.objectResults, plannedRecords);
 
@@ -1117,8 +1117,9 @@ function notesOf(sent: Pick<SentAgain, 'written' | 'unsent' | 'notes'>): string[
 }
 
 /** Skip an object before anything is written for it, saying why; null for the caller to return. */
-function skipObject(run: SeedRun, objectApiName: string, message: string): null {
-  run.objectResults.push(skippedResult(objectApiName, message));
+function skipObject(run: SeedRun, objectApiName: string, message: string, optional = false): null {
+  const skipped = skippedResult(objectApiName, message);
+  run.objectResults.push(optional ? { ...skipped, optional: true } : skipped);
   run.wroteNothing.add(objectApiName);
   return null;
 }
@@ -1240,9 +1241,11 @@ function buildSuccessResult(
   const totalFailed = objectResults.reduce((s, r) => s + r.recordsFailed, 0);
   // An object skipped before its insert neither wrote nor failed a record, so
   // counting failures alone called a run a success whose relation found no
-  // parent in the org and wrote no child.
+  // parent in the org and wrote no child. An optional one the org does not
+  // take leaves the status to the rest: every Service Cloud Starter on a new
+  // Developer Edition, which has no Knowledge, ended partial.
   const skipped = objectResults.some(
-    (r) => r.recordsCreated === 0 && r.recordsFailed === 0 && r.errors.length > 0,
+    (r) => !r.optional && r.recordsCreated === 0 && r.recordsFailed === 0 && r.errors.length > 0,
   );
   return {
     templateId,

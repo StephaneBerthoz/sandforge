@@ -111,6 +111,13 @@ export interface SeedObjectConfig {
   excludedFields: string[];
   insertOrder: number;
   batchSize: number;
+  /**
+   * Written when the org has the object and the user may create its records;
+   * skipped otherwise, saying why, without making the run partial: an object
+   * a feature brings, which a template meant for any org cannot count on
+   * (Knowledge articles, where Knowledge is off).
+   */
+  optional?: boolean;
 }
 
 /**
@@ -193,6 +200,12 @@ export interface SeedObjectResult {
    * an AI value for at least one record. Absent when every AI field got one.
    */
   aiFallback?: SeedAiFallback;
+  /**
+   * Set when the object was optional in the template and the org did not take
+   * it: skipped, its errors saying why, and the run's status left as the
+   * other objects make it.
+   */
+  optional?: boolean;
 }
 
 /**

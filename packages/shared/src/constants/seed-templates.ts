@@ -370,10 +370,10 @@ export const MINIMAL_DEMO: SeedTemplate = {
  * more than a Developer Edition holds.
  *
  * Insert order: Account -> Contact -> Case -> CaseComment -> Knowledge__kav.
- * An org without Salesforce Knowledge has no `Knowledge__kav`, and the run
- * skips the articles with that reason: it tried to insert them, and every one
- * was refused. An article is inserted as a draft: its publication status is
- * not set on create.
+ * An org without Salesforce Knowledge has no `Knowledge__kav`, a newly signed
+ * up Developer Edition among them: the articles are optional, and the run
+ * skips them with that reason and stays a success on the rest. An article is
+ * inserted as a draft: its publication status is not set on create.
  */
 export const SERVICE_CLOUD_STARTER: SeedTemplate = {
   id: 'prebuilt-service-cloud-starter',
@@ -392,11 +392,14 @@ export const SERVICE_CLOUD_STARTER: SeedTemplate = {
       fakerRule('CommentBody', 'caseComment'),
       staticRule('IsPublished', false),
     ]),
-    obj('Knowledge__kav', 4, 100, [
-      fakerRule('Title', 'caseSubject'),
-      fakerRule('UrlName', 'string.uuid'),
-      staticRule('Language', 'en_US'),
-    ]),
+    {
+      ...obj('Knowledge__kav', 4, 100, [
+        fakerRule('Title', 'caseSubject'),
+        fakerRule('UrlName', 'string.uuid'),
+        staticRule('Language', 'en_US'),
+      ]),
+      optional: true,
+    },
   ],
   relations: [
     underParent('Contact', 'AccountId', 'Account', { mode: 'ratio', ratio: 2.5 }),

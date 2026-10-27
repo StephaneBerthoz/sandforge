@@ -144,6 +144,19 @@ describe('seedObjectConfigSchema', () => {
     expect(result.batchSize).toBe(200);
   });
 
+  it('keeps an object a template marks optional', () => {
+    // Dropped by the parse, a template file's optional object made its run partial.
+    const result = seedObjectConfigSchema.parse({
+      objectApiName: 'Knowledge__kav',
+      recordCount: 10,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 0,
+      optional: true,
+    });
+    expect(result.optional).toBe(true);
+  });
+
   it('takes as many records of an object as the host does, and refuses one more', () => {
     // Past it, the run was refused only once sent, as a payload the host did
     // not take.

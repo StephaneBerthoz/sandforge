@@ -1015,7 +1015,8 @@
       "pending": "Waiting",
       "running": "Running",
       "done": "Done",
-      "error": "Failed"
+      "error": "Failed",
+      "skipped": "Skipped"
     },
     "removal": {
       "created_one": "{{formatted}} record created in {{org}}",

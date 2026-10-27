@@ -14,6 +14,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import { SeedObjectBadge } from './SeedObjectBadge';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import type { ObjectLabels } from '../../utils/objectLabels';
 
@@ -158,14 +159,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
           {/* Per-object results */}
           {executionResult.objectResults.map((obj) => (
             <Card key={obj.objectApiName}>
-              <CardHeader
-                title={obj.objectApiName}
-                action={
-                  <Badge variant={obj.recordsFailed > 0 ? 'warning' : 'success'}>
-                    {obj.recordsCreated}/{obj.recordsCreated + obj.recordsFailed}
-                  </Badge>
-                }
-              />
+              <CardHeader title={obj.objectApiName} action={<SeedObjectBadge result={obj} />} />
               {(obj.errors.length > 0 || obj.aiFallback) && (
                 <CardBody>
                   <div className="flex flex-col gap-1">

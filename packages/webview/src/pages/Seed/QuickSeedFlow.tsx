@@ -15,6 +15,7 @@ import { Step7Execute } from './Step7_Execute';
 import { SeedRunRemoval } from './SeedRunRemoval';
 import { RecordErrorGroups } from '../../components/ui/RecordErrorGroups';
 import { SeedOpenRecord } from './SeedOpenRecord';
+import { SeedObjectBadge } from './SeedObjectBadge';
 import { TakeCheckpointNow } from '../../components/ui/TakeCheckpointNow';
 import { SeedAutomationNotice } from './SeedAutomationNotice';
 import { SeedLocalePicker } from './SeedLocalePicker';
@@ -285,14 +286,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
 
               {quickSeed.executionResult.objectResults.map((obj) => (
                 <Card key={obj.objectApiName}>
-                  <CardHeader
-                    title={obj.objectApiName}
-                    action={
-                      <Badge variant={obj.recordsFailed > 0 ? 'warning' : 'success'}>
-                        {obj.recordsCreated}/{obj.recordsCreated + obj.recordsFailed}
-                      </Badge>
-                    }
-                  />
+                  <CardHeader title={obj.objectApiName} action={<SeedObjectBadge result={obj} />} />
                   {obj.errors.length > 0 && (
                     <CardBody>
                       <RecordErrorGroups
