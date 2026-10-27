@@ -5,6 +5,21 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.69.1] - 2026-10-27
+
+Every built-in Seed template now ends a success on a newly signed-up Developer Edition.
+
+### Fixed
+
+- **Service Cloud Starter on an org without Knowledge**: a new Developer
+  Edition has no Knowledge, and every run of the template on one ended
+  partial. The Knowledge articles are optional in the template: they are
+  skipped with the reason, and the run is a success on the rest. A template
+  marks such an object `optional`; an object the org lacks that is not
+  marked keeps the run partial, as before.
+- **Seed results**: the card of an object the run wrote nothing of says
+  Skipped, in place of a green 0/0.
+
 ## [1.69.0] - 2026-10-26
 
 Environments as code, completed: a `sandforge.yaml` can now mask what an org already holds, a saved plan is applied as planned or refused, `output` hands a test suite the ids an environment created, an AI agent plans, applies and destroys environments through the MCP server, and the editor checks the file as you type it. And the Frozen panel's Reload no longer deletes, without a word, records changed since the load.
