@@ -992,7 +992,6 @@ test.describe('Seed — test data for an Agentforce agent, from a scenario', () 
         tests: 14,
         openCasesWritten: 10,
         openCases: 10,
-        articlesPublished: false,
         companion: { kind: 'kept' },
       },
     });

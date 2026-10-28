@@ -83,14 +83,47 @@ const DESCRIBED: Record<string, { name: string; createable: boolean; fields: unk
 };
 
 /**
- * An org in memory that takes every record it is sent, with a new org's case
- * statuses but its closed one renamed, no Knowledge, and the agents `planners`
- * names in its Agentforce catalog.
+ * The article version of a Knowledge base turned on afresh, as its describe
+ * gives it: no field for a body but `Summary`, plain text of 1 000 characters.
  */
-function fakeOrg(planners: Array<Record<string, unknown>> = []) {
+const ARTICLE_VERSION_DESCRIBED = {
+  name: 'Knowledge__kav',
+  createable: true,
+  fields: [
+    field('Title'),
+    field('UrlName'),
+    field('Summary', { type: 'textarea', length: 1000, extraTypeInfo: 'plaintextarea' }),
+    field('Language', { type: 'picklist', length: 40 }),
+    ...['IsVisibleInPkb', 'IsVisibleInCsp', 'IsVisibleInPrm'].map((name) =>
+      field(name, { type: 'boolean' }),
+    ),
+  ],
+};
+
+/** A text's words, whatever their case and the spaces between them: how a body states a fact. */
+const words = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** The address a version is published at, under the API's version. */
+const PUBLICATION = /\/knowledgeManagement\/articleVersions\/masterVersions\/(\w+)$/;
+
+/**
+ * An org in memory that takes every record it is sent, with a new org's case
+ * statuses but its closed one renamed, the agents `planners` names in its
+ * Agentforce catalog, and no Knowledge — or, with `knowledge`, a Knowledge
+ * base turned on afresh, which publishes the versions it is asked to and
+ * links a case to an article by the article's id.
+ */
+function fakeOrg(planners: Array<Record<string, unknown>> = [], knowledge = false) {
   const written: Record<string, Array<Record<string, unknown>>> = {};
+  /** Each publication asked: the version, and the status asked for. */
+  const publications: Array<{ versionId: string; status: unknown }> = [];
+  /** The article of each version the org took, by the version's id. */
+  const articleOf = new Map<string, string>();
   let made = 0;
   const page = (records: unknown[]) => ({ totalSize: records.length, done: true, records });
+  const described: Record<string, (typeof DESCRIBED)[string]> = knowledge
+    ? { ...DESCRIBED, Knowledge__kav: ARTICLE_VERSION_DESCRIBED }
+    : DESCRIBED;
   const toolingTables: Record<string, Array<Record<string, unknown>>> = {
     GenAiPlannerDefinition: planners,
     GenAiPlannerFunctionDef: planners.map((p) => ({
@@ -104,15 +137,18 @@ function fakeOrg(planners: Array<Record<string, unknown>> = []) {
   };
   const conn = {
     sobject: (name: string) => ({
-      describe: async () => DESCRIBED[name] ?? { name, createable: false, fields: [] },
-      create: async (sent: Array<Record<string, unknown>>) => {
-        (written[name] ??= []).push(...sent);
-        return sent.map(() => ({ success: true, id: `a0X${String(made++).padStart(12, '0')}AAA` }));
-      },
+      describe: async () => described[name] ?? { name, createable: false, fields: [] },
+      create: async (sent: Array<Record<string, unknown>>) =>
+        sent.map((record) => {
+          const id = `a0X${String(made++).padStart(12, '0')}AAA`;
+          (written[name] ??= []).push({ ...record, Id: id });
+          if (name === 'Knowledge__kav') articleOf.set(id, `kA0${id.slice(3)}`);
+          return { success: true, id };
+        }),
     }),
-    describe: async (name: string) => DESCRIBED[name],
+    describe: async (name: string) => described[name],
     describeGlobal: async () => ({
-      sobjects: Object.values(DESCRIBED).map(({ name, createable }) => ({ name, createable })),
+      sobjects: Object.values(described).map(({ name, createable }) => ({ name, createable })),
     }),
     identity: async () => ({ user_id: '005000000000001AAA' }),
     query: async (soql: string) => {
@@ -125,6 +161,15 @@ function fakeOrg(planners: Array<Record<string, unknown>> = []) {
           { ApiName: 'Solved', IsClosed: true, IsDefault: false },
         ]);
       }
+      if (knowledge && soql.startsWith('SELECT Id, KnowledgeArticleId FROM Knowledge__kav')) {
+        const ids = [...soql.matchAll(/'(\w+)'/g)].map(([, id]) => id);
+        return page(
+          ids.flatMap((id) => {
+            const version = [...articleOf.keys()].find((v) => v.slice(0, 15) === id.slice(0, 15));
+            return version ? [{ Id: version, KnowledgeArticleId: articleOf.get(version) }] : [];
+          }),
+        );
+      }
       return page([]);
     },
     tooling: {
@@ -134,10 +179,18 @@ function fakeOrg(planners: Array<Record<string, unknown>> = []) {
       },
       queryMore: async () => page([]),
     },
-    request: async () => ({}),
+    request: async (request: string | { method: string; url: string; body?: string }) => {
+      if (typeof request === 'string' || request.method !== 'PATCH') return {};
+      const publication = PUBLICATION.exec(request.url);
+      if (!publication) return {};
+      if (!knowledge) throw new Error('NOT_FOUND: The requested resource does not exist');
+      const body = JSON.parse(request.body ?? '{}') as { publishStatus?: unknown };
+      publications.push({ versionId: publication[1], status: body.publishStatus });
+      return undefined;
+    },
   };
   vi.mocked(makeConn).mockReturnValue(conn as unknown as Connection);
-  return { written };
+  return { written, publications, articleOf };
 }
 
 describe('sandforge-seed --scenario', () => {
@@ -219,6 +272,105 @@ describe('sandforge-seed --scenario', () => {
     expect(kept.kind === 'read' && kept.sidecar.compile).toEqual({
       seed: 3,
       caseStatus: { open: 'New', closed: 'Solved' },
+    });
+    // Without Knowledge no article is written, and none is published: said, no call made.
+    expect(org.publications).toEqual([]);
+    expect(summary.result).toMatchObject({
+      knowledge: {
+        skipped: expect.stringContaining('Salesforce Knowledge is not turned on in it'),
+      },
+    });
+  });
+
+  describe('in an org with Knowledge', () => {
+    it('publishes every article it wrote, links each closed case to its article by the article, and writes each body in Summary with every fact', async () => {
+      const org = fakeOrg([], true);
+
+      await main(seedArgv('--json'));
+
+      const summary = JSON.parse(stdout.join('')) as {
+        runFile: string;
+        result: { status: string; knowledge: unknown };
+        scenario: { options: Record<string, unknown> };
+      };
+      expect(summary.result.status).toBe('success');
+      expect(summary.result.knowledge).toEqual({
+        publish: { asked: 6, done: 6, notDone: [] },
+        links: { asked: 20, done: 20, notDone: [] },
+      });
+      const versions = org.written.Knowledge__kav.map((row) => String(row.Id));
+      expect(org.publications).toEqual(
+        versions.map((versionId) => ({ versionId, status: 'Online' })),
+      );
+      // Each link names a closed case the run wrote and the article of a
+      // version it wrote, never the version itself.
+      const closed = new Set(
+        org.written.Case.filter((row) => row.Status === 'Solved').map((row) => row.Id),
+      );
+      const articles = new Set(versions.map((id) => org.articleOf.get(id)));
+      expect(org.written.CaseArticle).toHaveLength(20);
+      for (const link of org.written.CaseArticle) {
+        expect(closed.has(link.CaseId)).toBe(true);
+        expect(articles.has(String(link.KnowledgeArticleId))).toBe(true);
+      }
+      // Each publication and each call of links is kept in the run's file as
+      // a write of the run, after the insert: its removal does not read what
+      // they dated as a change since the run.
+      const lines = readFileSync(summary.runFile, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { object?: string; created?: string[] });
+      // A publication is kept alone, version by version; a link, by its
+      // case again once the articles were written.
+      for (const id of versions) {
+        expect(
+          lines.some((line) => line.object === 'Knowledge__kav' && line.created?.join() === id),
+        ).toBe(true);
+      }
+      const articlesAt = lines.findIndex((line) => line.object === 'Knowledge__kav');
+      for (const link of org.written.CaseArticle) {
+        const lastAt = lines.reduce(
+          (last, line, at) =>
+            line.object === 'Case' && line.created?.includes(String(link.CaseId)) ? at : last,
+          -1,
+        );
+        expect(lastAt).toBeGreaterThan(articlesAt);
+      }
+      // Compiled for the one field a fresh Knowledge base gives a body.
+      expect(summary.scenario.options).toMatchObject({
+        articleBodyField: 'Summary',
+        articleBodyLength: 1000,
+      });
+      RETAIL_ORDERS_PACK.topics.forEach((topic, at) => {
+        const body = String(org.written.Knowledge__kav[at].Summary);
+        expect(body.length).toBeLessThanOrEqual(1000);
+        expect(body).not.toBe(topic.article.summary);
+        for (const fact of topic.article.facts) expect(words(body)).toContain(words(fact));
+      });
+    });
+
+    it('says in its summary how many it published and linked', async () => {
+      fakeOrg([], true);
+
+      await main(seedArgv());
+
+      const out = stdout.join('');
+      expect(out).toContain(
+        '  articles: published once written, each closed case linked to the article of its ' +
+          'topic, their body in Summary (1000 characters, every fact kept)',
+      );
+      expect(out).toContain('articles published: 6 of 6\n');
+      expect(out).toContain('closed cases linked to their article: 20 of 20\n');
+    });
+
+    it('publishes nothing and links nothing on a dry run', async () => {
+      const org = fakeOrg([], true);
+
+      await main(seedArgv('--dry-run'));
+
+      expect(stdout.join('')).toContain('  articles: published once written');
+      expect(org.publications).toEqual([]);
+      expect(org.written).toEqual({});
     });
   });
 

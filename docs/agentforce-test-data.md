@@ -5,7 +5,7 @@ An Agentforce agent is tested on records: a customer who writes in, the case the
 ## What you need
 
 - A sandbox, a scratch org or a Developer Edition org. Production Guard asks before the panel writes to a production org, and the command line refuses one.
-- For the agent to answer from articles: Lightning Knowledge turned on in the org (Setup > Knowledge Settings), and an agent with a data library on Knowledge. Without Knowledge, the articles are skipped and the rest is written.
+- For the agent to answer from articles: Lightning Knowledge turned on in the org (Setup > Knowledge Settings), and an agent with a data library on Knowledge. Without Knowledge, the articles are skipped and the rest is written. The articles are published as the user the seed runs as: a user who may not publish articles leaves them drafts, which the results name.
 - For the test file: an Agentforce agent in the org. Without one, the data is written and the file is not: create the agent, then write the file from the run.
 - To create and run the tests: the Salesforce CLI's `sf agent test` commands, from a Salesforce DX project. SandForge never runs them.
 
@@ -41,8 +41,8 @@ With AI on and an Anthropic key stored, **Draft from your own text** writes a pa
 
 - **No promise of a pass.** SandForge writes the data and what the agent is expected to do. The verdict depends on the agent's configuration and on a model that varies: a test that fails can come from the agent, not from the data.
 - **Credits.** Running the tests spends the org's Agentforce or Einstein credits. SandForge never runs them.
-- **Articles.** One language, the pack's, which the org's Knowledge base must have. No data categories. The body goes to a long text or rich text field of `Knowledge__kav`, or the article carries its summary alone. SandForge writes the articles as drafts and does not publish them yet: publish them in Knowledge for the agent's data library to index them, which takes some time. Once published, every internal Knowledge reader of the org sees them; the public channels stay closed.
-- **Checkpoints.** A rewind does not take the articles back. Removing the seed does.
+- **Articles.** One language, the pack's, which the org's Knowledge base must have. No data categories. The body goes to a long text or rich text field of `Knowledge__kav`; a Knowledge base turned on afresh has none, and the body goes to `Summary` instead, within its 1,000 characters, every fact of the article kept word for word. Once every record is written, SandForge publishes the articles and links each closed case to the article that answers it; the results say how many, and name any the org refused, left a draft. The agent's data library takes some time to index them. Once published, every internal Knowledge reader of the org sees them; the public channels stay closed.
+- **Checkpoints.** A rewind does not take the articles back. Removing the seed does, published or not.
 - **The test file goes stale.** It names the cases the run wrote: once the seed is removed, it points at cases that are gone, and the run's card says so. A test you created in the org from it is yours to delete: `sf project delete source -m AiEvaluationDefinition:<name>`.
 - **Emails.** An agent that checks a customer by email sends one during the tests. The contacts' addresses reach nobody, but they count against a Developer Edition's 15 single emails a day.
 - **Not in this version.** Emails, messaging sessions, voice calls and chat transcripts: the last three need channels set up.

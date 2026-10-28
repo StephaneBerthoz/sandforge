@@ -285,6 +285,126 @@ describe('compileScenario', () => {
     expect(BROADBAND_SUPPORT_PACK.topics[0].article.body.startsWith(inSummary)).toBe(true);
   });
 
+  describe('the body, in the field the org has for it', () => {
+    /** The Knowledge rows of a pack compiled with these options. */
+    const articlesOf = (pack: ScenarioPack, options: Parameters<typeof compileScenario>[1]) =>
+      rowsOf(compileScenario(pack, options).template, 'Knowledge__kav');
+    /** Words that state none of a pack's facts, `length` characters of them. */
+    const filler = (length: number): string =>
+      'This paragraph tells the history of the service and states no rule. '
+        .repeat(Math.ceil(length / 69))
+        .slice(0, length)
+        .trim();
+
+    it('writes each built-in body whole to Summary, the one field a Knowledge base turned on afresh has', () => {
+      for (const pack of BUILT_IN_SCENARIO_PACKS) {
+        const rows = articlesOf(pack, { articleBodyField: 'Summary' });
+        pack.topics.forEach((topic, index) => {
+          expect(rows[index].values.Summary).toBe(topic.article.body);
+        });
+        expect(rows.at(-1)!.values.Summary).toBe(pack.decoy.body);
+      }
+    });
+
+    it('writes, of a body longer than its field, the paragraphs that state its facts, every fact word for word', () => {
+      const pack = copyOf(RETAIL_ORDERS_PACK);
+      const article = pack.topics[0].article;
+      // The rules after a long opening: cut at the field, the body would
+      // keep the opening and lose them.
+      article.body = `${filler(900)}\n\n${article.body}`;
+
+      const summary = String(articlesOf(pack, { articleBodyField: 'Summary' })[0].values.Summary);
+
+      expect(summary.length).toBeLessThanOrEqual(1_000);
+      for (const fact of article.facts) {
+        expect(summary.toLowerCase()).toContain(fact.toLowerCase());
+      }
+      expect(summary).not.toContain('history of the service');
+      // Paragraphs of the body as it wrote them, in its order.
+      expect(summary.split('\n\n')).toEqual(
+        RETAIL_ORDERS_PACK.topics[0].article.body
+          .split('\n\n')
+          .filter((paragraph) =>
+            article.facts.some((fact) => paragraph.toLowerCase().includes(fact.toLowerCase())),
+          ),
+      );
+    });
+
+    it('writes the facts alone when even the paragraphs stating them are longer than the field', () => {
+      const pack = copyOf(RETAIL_ORDERS_PACK);
+      const article = pack.topics[0].article;
+      article.body = article.facts
+        .map((fact) => `${filler(300)} ${fact}. ${filler(300)}`)
+        .join('\n\n');
+
+      const summary = articlesOf(pack, { articleBodyField: 'Summary' })[0].values.Summary;
+
+      expect(summary).toBe(article.facts.join('\n\n'));
+    });
+
+    it("refuses a pack whose facts do not fit in the body's field, naming the first fact past it", () => {
+      let error: unknown;
+      try {
+        compileScenario(RETAIL_ORDERS_PACK, { articleBodyField: 'Body__c', articleBodyLength: 80 });
+      } catch (thrown) {
+        error = thrown;
+      }
+
+      expect(error).toBeInstanceOf(ScenarioCompileError);
+      const issues = (error as ScenarioCompileError).issues;
+      // "within 7 days of delivery" (25) fits in 80; with the photos (+2+59) it does not.
+      expect(issues[0]).toMatch(
+        /^pack\.topics\[0\]\.article\.facts\[1\]: the fact "photos of the outer box, the packing and the damaged items" does not fit, with the facts before it, in the 80 characters of Body__c/,
+      );
+      expect(issues).toHaveLength(RETAIL_ORDERS_PACK.topics.length);
+    });
+
+    it('writes nothing cut to a field of no given length, the body as the pack wrote it', () => {
+      const pack = copyOf(RETAIL_ORDERS_PACK);
+      pack.topics[0].article.body = `${filler(5_000)}\n\n${pack.topics[0].article.body}`;
+
+      const rows = articlesOf(pack, { articleBodyField: 'Body__c' });
+
+      expect(rows[0].values.Body__c).toBe(pack.topics[0].article.body);
+      expect(rows[0].values.Summary).toBe(pack.topics[0].article.summary);
+    });
+
+    it('writes a rich text field a paragraph each, its text escaped, within the length the field holds', () => {
+      const pack = copyOf(RETAIL_ORDERS_PACK);
+      const article = pack.topics[0].article;
+      article.body = article.body.replace('the order page', 'the Orders & returns page');
+
+      const body = String(
+        articlesOf(pack, {
+          articleBodyField: 'Answer__c',
+          articleBodyHtml: true,
+          articleBodyLength: 32_768,
+        })[0].values.Answer__c,
+      );
+
+      expect(body.match(/<p>/g)).toHaveLength(article.body.split('\n\n').length);
+      expect(body).toContain('the Orders &amp; returns page');
+      expect(body.startsWith('<p>If a parcel arrives damaged')).toBe(true);
+      expect(body.endsWith('</p>')).toBe(true);
+    });
+
+    it('writes the decoy its summary when its body is longer than the field, cut only past that', () => {
+      const pack = copyOf(RETAIL_ORDERS_PACK);
+      pack.decoy.summary = `${pack.decoy.summary} ${filler(170)}`;
+      // The facts of every topic fit 260 characters; the decoy states none.
+      const decoyIn = (articleBodyLength: number): string =>
+        String(
+          articlesOf(pack, { articleBodyField: 'Body__c', articleBodyLength }).at(-1)!.values
+            .Body__c,
+        );
+
+      expect(decoyIn(300)).toBe(pack.decoy.summary);
+      const cutShort = decoyIn(260);
+      expect(cutShort.length).toBeLessThanOrEqual(260);
+      expect(pack.decoy.summary.startsWith(cutShort)).toBe(true);
+    });
+  });
+
   it('writes the statuses of the org it is given, open and closed', () => {
     const { template } = compileScenario(RETAIL_ORDERS_PACK, {
       caseStatus: { open: 'Working', closed: 'Resolved' },

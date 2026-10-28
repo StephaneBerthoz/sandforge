@@ -19,6 +19,7 @@ import { SeedOpenRecord } from '../SeedOpenRecord';
 import { SeedRunRemoval } from '../SeedRunRemoval';
 import { Step7Execute } from '../Step7_Execute';
 import { refusedForEmails, useSeedAutomation } from '../useSeedAutomation';
+import { ScenarioKnowledgeResult } from './ScenarioKnowledgeResult';
 import { ScenarioReview } from './ScenarioReview';
 import { ScenarioTestFile } from './ScenarioTestFile';
 import { useScenarioSeed } from './useScenarioSeed';
@@ -41,6 +42,13 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
 
 /** The object a scenario's articles are written to. */
 const ARTICLES = 'Knowledge__kav';
+
+/**
+ * The one field a Knowledge base turned on afresh gives an article's body, in
+ * place of its summary, and how much it holds when the org did not say.
+ */
+const SUMMARY = 'Summary';
+const SUMMARY_LENGTH = 1000;
 
 /** The largest seed a pack is compiled with. */
 const MAX_SEED = 2 ** 32 - 1;
@@ -77,8 +85,6 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
   useFocusOnChange(phaseTarget, phase, { scope: flowRef, onMount: true });
 
   const knowledge = preparation?.knowledge;
-  const articlesWritten =
-    result?.objectResults.find((object) => object.objectApiName === ARTICLES)?.recordsCreated ?? 0;
   const runInfo = result?.scenario;
 
   const outcomeSpoken = result
@@ -214,15 +220,22 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
                   </p>
                   {preparation.knowledge.available ? (
                     <>
-                      <p>
-                        {preparation.options.articleBodyField
-                          ? t('seed.scenario.knowledge.body', {
-                              field: preparation.options.articleBodyField,
+                      <p data-testid="scenario-knowledge-body">
+                        {preparation.options.articleBodyField === SUMMARY
+                          ? t('seed.scenario.knowledge.bodySummary', {
+                              length: preparation.options.articleBodyLength ?? SUMMARY_LENGTH,
                             })
-                          : t('seed.scenario.knowledge.summaryFallback')}
+                          : preparation.options.articleBodyField
+                            ? t('seed.scenario.knowledge.body', {
+                                field: preparation.options.articleBodyField,
+                              })
+                            : t('seed.scenario.knowledge.summaryFallback')}
                       </p>
-                      <p className="text-(--sf-text-secondary)">
-                        {t('seed.scenario.knowledge.drafts')}
+                      <p
+                        className="text-(--sf-text-secondary)"
+                        data-testid="scenario-knowledge-publication"
+                      >
+                        {t('seed.scenario.knowledge.published')}
                       </p>
                     </>
                   ) : (
@@ -361,11 +374,10 @@ export const ScenarioFlow: React.FC<ScenarioFlowProps> = ({ picked, orgs, onClos
             </Card>
           ))}
 
-          {articlesWritten > 0 && runInfo && !runInfo.articlesPublished && (
-            <p className="text-xs text-status-warning" data-testid="scenario-articles-drafts">
-              {t('seed.scenario.knowledge.drafts')}
-            </p>
-          )}
+          <ScenarioKnowledgeResult
+            knowledge={result.knowledge}
+            articles={result.objectResults.find((object) => object.objectApiName === ARTICLES)}
+          />
 
           {result.totalRecordsCreated > 0 && <SeedRunRemoval runId={result.operationId} />}
 

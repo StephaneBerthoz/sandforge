@@ -1209,14 +1209,22 @@
         "absent": "Esta org no tiene Knowledge: los artículos se omiten. Las pruebas que responden desde Knowledge se escriben, y el agente no tendrá ningún artículo que citar.",
         "bodyField": "Campo del cuerpo del artículo",
         "body": "El cuerpo de los artículos se escribe en {{field}}.",
+        "bodySummary": "El Knowledge de esta org no ofrece ningún otro campo para el cuerpo de un artículo: cada cuerpo va en Summary, dentro de sus {{length}} caracteres, con cada dato conservado.",
         "summaryFallback": "La org no ofrece ningún campo de texto largo para el cuerpo de un artículo: los artículos llevan solo su resumen.",
-        "drafts": "SandForge escribe los artículos como borradores y aún no los publica: publíquelos en Knowledge para que la biblioteca de datos del agente los indexe.",
+        "published": "Una vez escritos todos los registros, los artículos se publican y cada caso cerrado se vincula al artículo que lo responde: la biblioteca de datos de un agente solo indexa los artículos publicados.",
         "notRewound": "Un retroceso a un punto de control no recupera los artículos: eliminar este seed, sí."
       },
       "results": {
         "openCases": "Se escribieron {{written}} de los {{total}} casos abiertos sobre los que tratan las pruebas.",
         "noCase": "No se escribió ningún caso abierto: no se puede escribir ningún archivo de prueba desde esta ejecución.",
-        "companionFailed": "No se pudieron conservar los Id de los casos de la ejecución ({{message}}): no se puede escribir ningún archivo de prueba desde esta ejecución."
+        "companionFailed": "No se pudieron conservar los Id de los casos de la ejecución ({{message}}): no se puede escribir ningún archivo de prueba desde esta ejecución.",
+        "knowledge": {
+          "title": "Artículos de Knowledge",
+          "published": "Artículos publicados: {{done}} de {{total}}",
+          "linked": "Casos cerrados vinculados al artículo que los responde: {{done}} de {{total}}",
+          "skipped": "No se publicó ningún artículo, ni se vinculó ningún caso cerrado a un artículo.",
+          "draftsLeft": "La biblioteca de datos del agente no indexa un artículo que quedó como borrador: publíquelo en Knowledge, o elimine este seed y vuelva a ejecutarlo."
+        }
       },
       "tests": {
         "title": "Archivo de prueba de Agentforce",

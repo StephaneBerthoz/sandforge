@@ -153,6 +153,15 @@ function wordsOf(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Whether `text` states `fact` word for word, as an article's body has to
+ * state each of its facts: the same words in the same order, whatever their
+ * case and the spaces between them.
+ */
+export function statesScenarioFact(text: string, fact: string): boolean {
+  return wordsOf(text).includes(wordsOf(fact));
+}
+
 const { text: TEXT } = SCENARIO_PACK_LIMITS;
 
 /** A Knowledge article of a topic, and the facts its body states. */
@@ -167,9 +176,8 @@ export const scenarioArticleSchema = z
       .max(SCENARIO_PACK_LIMITS.facts.max),
   })
   .superRefine((article, ctx) => {
-    const body = wordsOf(article.body);
     for (const [index, fact] of article.facts.entries()) {
-      if (body.includes(wordsOf(fact))) continue;
+      if (statesScenarioFact(article.body, fact)) continue;
       ctx.addIssue({
         code: 'custom',
         path: ['facts', index],
@@ -370,4 +378,7 @@ export const scenarioCompileOptionsSchema = z.strictObject({
         'or to Summary',
     })
     .optional(),
+  /** The longest a long or rich text area of the org holds. */
+  articleBodyLength: z.number().int().min(1).max(131_072).optional(),
+  articleBodyHtml: z.boolean().optional(),
 });

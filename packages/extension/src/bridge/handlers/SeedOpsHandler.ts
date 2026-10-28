@@ -111,6 +111,7 @@ import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { isUncopyableObject } from '@sandforge/shared';
 import type { ToolingQueries } from '../../modules/seed/scenario/scenarioOrg.js';
+import type { KnowledgeOrg } from '../../modules/seed/seedKnowledge.js';
 
 /** The code a seed refused for the data storage it takes is answered with. */
 const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
@@ -690,17 +691,12 @@ export class SeedOpsHandler implements DomainHandler {
     const openCases = compiled.tests.filter((test) => test.openCase !== undefined);
     const openCaseKeys = new Set(openCases.map((test) => test.openCase?.caseKey));
     const openCasesWritten = Object.keys(caseIds).filter((key) => openCaseKeys.has(key)).length;
-    // The articles' publication and their links to the closed cases go here,
-    // once built: see `SCENARIO_ARTICLES_PUBLISHED`.
-    const { SCENARIO_ARTICLES_PUBLISHED } =
-      await import('../../modules/seed/scenario/scenarioOrg.js');
     const info = {
       packId: pack.id,
       packName: pack.name,
       tests: compiled.tests.length,
       openCasesWritten,
       openCases: openCaseKeys.size,
-      articlesPublished: SCENARIO_ARTICLES_PUBLISHED,
     };
     if (openCasesWritten === 0) return { ...info, companion: { kind: 'none' } };
     const store = this.runCreations;
@@ -1857,6 +1853,9 @@ export class SeedOpsHandler implements DomainHandler {
         await import('../../modules/seed/existingParents.js');
       const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
       const { describedFieldsOf } = await import('../../modules/seed/describedFields.js');
+      const seedKnowledge = scenario
+        ? (await import('../../modules/seed/seedKnowledge.js')).seedKnowledge
+        : undefined;
 
       const aiGenerator = new AIDataGenerator(this.buildSeedCallAI());
       const fakerFallback = new FakerFallback(payload.locale);
@@ -1925,12 +1924,25 @@ export class SeedOpsHandler implements DomainHandler {
         // Operations' both reach the run through it.
         signal: abortController.signal,
         // A scenario's tests know its cases by key: the id each became is
-        // kept beside the run for its test file.
-        ...(scenario
+        // kept beside the run for its test file. Once every object is
+        // written, its articles are published and each closed case linked to
+        // the article of its topic: an agent's data library indexes
+        // published articles alone, and reads a customer's history through
+        // the links. Each of those calls is kept with the run, so that its
+        // removal reads what they dated as the run's own. An org without
+        // Knowledge has no article written, and the step says so without a
+        // call.
+        ...(scenario && seedKnowledge
           ? {
               onRowIds: (objectApiName: string, ids: Readonly<Record<string, string>>) => {
                 if (objectApiName === 'Case') Object.assign(caseIds, ids);
               },
+              knowledge: seedKnowledge({
+                org: conn as unknown as KnowledgeOrg,
+                plan: { publish: true, links: scenario.compiled.closedCaseArticles },
+                ...(kept ? { journal: kept } : {}),
+                signal: abortController.signal,
+              }),
             }
           : {}),
       };

@@ -139,13 +139,34 @@ describe('scenarioKnowledge — what an org offers the articles of a scenario', 
     });
   });
 
-  it('offers the long text fields a body can be written to, a rich text area first, never the summary', async () => {
+  it('offers the fields a body can be written to, a rich text area first, then a long text one, then the summary', async () => {
     const knowledge = await scenarioKnowledge(
       async () => ({ access: 'createable' }),
       async () => ({ fields: ARTICLE_FIELDS }),
     );
 
-    expect(knowledge).toEqual({ available: true, bodyFields: ['Answer__c', 'Notes__c'] });
+    expect(knowledge).toEqual({
+      available: true,
+      bodyFields: [
+        { name: 'Answer__c', length: 32768, kind: 'richText' },
+        { name: 'Notes__c', length: 32768, kind: 'longText' },
+        { name: 'Summary', length: 1000, kind: 'summary' },
+      ],
+    });
+  });
+
+  it('offers Summary alone on a Knowledge base turned on afresh, which has no other field for a body', async () => {
+    const knowledge = await scenarioKnowledge(
+      async () => ({ access: 'createable' }),
+      async () => ({
+        fields: ARTICLE_FIELDS.filter((field) => ['Title', 'Summary'].includes(field.name)),
+      }),
+    );
+
+    expect(knowledge).toEqual({
+      available: true,
+      bodyFields: [{ name: 'Summary', length: 1000, kind: 'summary' }],
+    });
   });
 
   it('offers no field when the article cannot be described: the summary is all it says', async () => {
@@ -192,11 +213,14 @@ describe('scenarioCasePicklists — the only words of the org a draft is told', 
 
 describe('prepareScenario — a pack compiled for an org', () => {
   const orgStatus = { open: 'Received', closed: 'Resolved', from: 'org' as const };
+  const ANSWER = { name: 'Answer__c', length: 32768, kind: 'richText' as const };
+  const NOTES = { name: 'Notes__c', length: 32768, kind: 'longText' as const };
+  const SUMMARY = { name: 'Summary', length: 1000, kind: 'summary' as const };
 
   it("compiles with the org's statuses and the first body field it offers, and says what the run writes", () => {
     const prepared = prepareScenario(RETAIL_ORDERS_PACK, {
       caseStatus: orgStatus,
-      knowledge: { available: true, bodyFields: ['Answer__c', 'Notes__c'] },
+      knowledge: { available: true, bodyFields: [ANSWER, NOTES, SUMMARY] },
       seed: 7,
     });
 
@@ -206,6 +230,12 @@ describe('prepareScenario — a pack compiled for an org', () => {
       seed: 7,
       caseStatus: { open: 'Received', closed: 'Resolved' },
       articleBodyField: 'Answer__c',
+      articleBodyLength: 32768,
+      articleBodyHtml: true,
+    });
+    expect(preparation.knowledge).toEqual({
+      available: true,
+      bodyFields: ['Answer__c', 'Notes__c', 'Summary'],
     });
     const compiled = compileScenario(RETAIL_ORDERS_PACK, preparation.options);
     const comments = compiled.template.objects.find((o) => o.objectApiName === 'CaseComment');
@@ -241,10 +271,51 @@ describe('prepareScenario — a pack compiled for an org', () => {
     expect(prepared.preparation.caseStatusFrom).toEqual({ from: 'default', reason: 'refused' });
   });
 
+  it('compiles each body into the 1 000 characters of Summary on a base turned on afresh, every fact kept', () => {
+    const prepared = prepareScenario(RETAIL_ORDERS_PACK, {
+      caseStatus: orgStatus,
+      knowledge: { available: true, bodyFields: [SUMMARY] },
+    });
+
+    if (!('preparation' in prepared)) throw new Error(prepared.issues.join('; '));
+    expect(prepared.preparation.options).toMatchObject({
+      articleBodyField: 'Summary',
+      articleBodyLength: 1000,
+    });
+    expect(prepared.preparation.options).not.toHaveProperty('articleBodyHtml');
+    const articles = compileScenario(RETAIL_ORDERS_PACK, prepared.preparation.options)
+      .template.objects.find((o) => o.objectApiName === 'Knowledge__kav')!
+      .rows!.slice(0, RETAIL_ORDERS_PACK.topics.length);
+    RETAIL_ORDERS_PACK.topics.forEach((topic, at) => {
+      const body = String(articles[at].values.Summary);
+      expect(body.length).toBeLessThanOrEqual(1000);
+      for (const fact of topic.article.facts) {
+        expect(body.toLowerCase().replace(/\s+/g, ' ')).toContain(
+          fact.toLowerCase().replace(/\s+/g, ' '),
+        );
+      }
+    });
+  });
+
+  it('compiles for the field the user chose among those the org offers, with its own length', () => {
+    const prepared = prepareScenario(RETAIL_ORDERS_PACK, {
+      caseStatus: orgStatus,
+      knowledge: { available: true, bodyFields: [ANSWER, NOTES, SUMMARY] },
+      articleBodyField: 'Notes__c',
+    });
+
+    if (!('preparation' in prepared)) throw new Error(prepared.issues.join('; '));
+    expect(prepared.preparation.options).toMatchObject({
+      articleBodyField: 'Notes__c',
+      articleBodyLength: 32768,
+    });
+    expect(prepared.preparation.options).not.toHaveProperty('articleBodyHtml');
+  });
+
   it('refuses a body field the org does not offer, naming those it does', () => {
     const prepared = prepareScenario(RETAIL_ORDERS_PACK, {
       caseStatus: orgStatus,
-      knowledge: { available: true, bodyFields: ['Answer__c'] },
+      knowledge: { available: true, bodyFields: [ANSWER] },
       articleBodyField: 'Title',
     });
 

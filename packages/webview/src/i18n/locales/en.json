@@ -1209,14 +1209,22 @@
         "absent": "This org has no Knowledge: the articles are skipped. The tests that answer from Knowledge are written, and the agent will have no article to cite.",
         "bodyField": "Field for the article body",
         "body": "The article body is written to {{field}}.",
+        "bodySummary": "This org's Knowledge has no other field for an article body: each body goes to Summary, within its {{length}} characters, every fact kept.",
         "summaryFallback": "The org offers no long text field for an article body: the articles carry their summary alone.",
-        "drafts": "SandForge writes the articles as drafts and does not publish them yet: publish them in Knowledge so that the agent's data library indexes them.",
+        "published": "Once every record is written, the articles are published and each closed case is linked to the article that answers it: an agent's data library indexes published articles alone.",
         "notRewound": "A checkpoint rewind does not take the articles back: removing this seed does."
       },
       "results": {
         "openCases": "{{written}} of the {{total}} open cases the tests are about were written.",
         "noCase": "No open case was written: no test file can be written from this run.",
-        "companionFailed": "The ids of the run's cases could not be kept ({{message}}): no test file can be written from this run."
+        "companionFailed": "The ids of the run's cases could not be kept ({{message}}): no test file can be written from this run.",
+        "knowledge": {
+          "title": "Knowledge articles",
+          "published": "Articles published: {{done}} of {{total}}",
+          "linked": "Closed cases linked to the article that answers them: {{done}} of {{total}}",
+          "skipped": "No article was published, and no closed case was linked to one.",
+          "draftsLeft": "An article left a draft is not indexed by the agent's data library: publish it in Knowledge, or remove this seed and run it again."
+        }
       },
       "tests": {
         "title": "Agentforce test file",

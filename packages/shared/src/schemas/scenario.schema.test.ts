@@ -215,6 +215,16 @@ describe('scenarioCompileOptionsSchema', () => {
     }
   });
 
+  it('takes the length of a field the org can have for the body, and no other', () => {
+    for (const articleBodyLength of [1_000, 32_768, 131_072]) {
+      expect(scenarioCompileOptionsSchema.safeParse({ articleBodyLength }).success).toBe(true);
+    }
+    for (const articleBodyLength of [0, 131_073, 999.5]) {
+      expect(scenarioCompileOptionsSchema.safeParse({ articleBodyLength }).success).toBe(false);
+    }
+    expect(scenarioCompileOptionsSchema.safeParse({ articleBodyHtml: 'yes' }).success).toBe(false);
+  });
+
   it('takes every seed of 32 bits', () => {
     expect(scenarioCompileOptionsSchema.safeParse({ seed: 2 ** 32 - 1 }).success).toBe(true);
     expect(scenarioCompileOptionsSchema.safeParse({ seed: 2 ** 32 }).success).toBe(false);

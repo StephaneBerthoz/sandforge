@@ -31,8 +31,12 @@ import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperati
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
-import type { SeedOrchestratorDependencies } from '../../modules/seed/SeedOrchestrator.js';
+import {
+  SeedOrchestrator,
+  type SeedOrchestratorDependencies,
+} from '../../modules/seed/SeedOrchestrator.js';
 import { nodeSeedRunCreations } from '../../modules/seed/SeedRunCreations.js';
+import { compileScenario } from '../../modules/seed/scenario/compileScenario.js';
 import {
   nodeScenarioSidecarFiles,
   readScenarioRunSidecar,
@@ -319,7 +323,6 @@ describe('SeedOpsHandler — a scenario pack seeded, and its test file', () => {
       tests: expect.any(Number),
       openCasesWritten: 9,
       openCases: 10,
-      articlesPublished: false,
       companion: { kind: 'kept' },
     });
     const kept = await readScenarioRunSidecar(
@@ -438,4 +441,255 @@ describe('SeedOpsHandler — a scenario pack seeded, and its test file', () => {
     );
     expect(answer.payload.outcome).toMatchObject({ kind: 'unavailable', reason: 'run-unknown' });
   });
+
+  describe('in an org with Knowledge, through the run a seed writes with', () => {
+    let org: ReturnType<typeof knowledgeOrg>;
+
+    beforeEach(() => {
+      org = knowledgeOrg();
+      vi.mocked(getJsforceConnection).mockImplementation(async () => org.conn as never);
+      Object.assign(deps.services as object, {
+        seedOrchestrator: (seedDeps: SeedOrchestratorDependencies) =>
+          new SeedOrchestrator(seedDeps),
+      });
+    });
+
+    it('prepares the pack for the one field a Knowledge base turned on afresh gives a body: Summary, 1 000 characters', async () => {
+      await handler.handle(msg('seed:scenario:prepare', { orgId: ORG, pack: RETAIL_ORDERS_PACK }));
+
+      const [answer] = posted<{ preparation: SeedScenarioPreparation }>(
+        'seed:scenario:prepare:response',
+      );
+      expect(answer.payload.preparation.knowledge).toEqual({
+        available: true,
+        bodyFields: ['Summary'],
+      });
+      expect(answer.payload.preparation.options).toEqual({
+        seed: 1,
+        caseStatus: { open: 'Received', closed: 'Resolved' },
+        articleBodyField: 'Summary',
+        articleBodyLength: 1000,
+      });
+    });
+
+    it('publishes every article the scenario wrote and links each closed case to its article, each call kept with the run', async () => {
+      const result = await seedRetail();
+
+      expect(result.status).toBe('success');
+      expect(result.knowledge).toEqual({
+        publish: { asked: 6, done: 6, notDone: [] },
+        links: { asked: 20, done: 20, notDone: [] },
+      });
+      const versions = org.written.Knowledge__kav.map((row) => String(row.Id));
+      expect(org.publications).toEqual(
+        versions.map((versionId) => ({ versionId, status: 'Online' })),
+      );
+      const closed = new Set(
+        org.written.Case.filter((row) => row.Status === 'Resolved').map((row) => row.Id),
+      );
+      expect(org.written.CaseArticle).toHaveLength(20);
+      for (const link of org.written.CaseArticle) {
+        expect(closed.has(link.CaseId)).toBe(true);
+        expect(versions.map((id) => org.articleOf.get(id))).toContain(link.KnowledgeArticleId);
+      }
+      // Each body compiled into Summary, every fact kept, on the execute too.
+      RETAIL_ORDERS_PACK.topics.forEach((topic, at) => {
+        const body = String(org.written.Knowledge__kav[at].Summary);
+        expect(body.length).toBeLessThanOrEqual(1000);
+        for (const fact of topic.article.facts) expect(words(body)).toContain(words(fact));
+      });
+      // Each publication kept with the run, version by version, after its insert.
+      const lines = readFileSync(join(storage, 'seed-runs', `${result.operationId}.ndjson`), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { object?: string; created?: string[] });
+      for (const id of versions) {
+        expect(
+          lines.some((line) => line.object === 'Knowledge__kav' && line.created?.join() === id),
+        ).toBe(true);
+      }
+    });
+
+    it('names an article the org would not publish in its words, links the rest, and answers the run partial', async () => {
+      org.refusePublication = (versionId) =>
+        versionId === org.written.Knowledge__kav[0]?.Id
+          ? 'INSUFFICIENT_ACCESS: You do not have the permission to publish articles.'
+          : undefined;
+
+      const result = await seedRetail();
+
+      expect(result.status).toBe('partial');
+      expect(result.knowledge?.publish).toEqual({
+        asked: 6,
+        done: 5,
+        notDone: [
+          {
+            key: 'retail-orders-article-damaged-parcel',
+            reason:
+              'Left a draft: INSUFFICIENT_ACCESS: You do not have the permission to publish articles.',
+          },
+        ],
+      });
+      expect(result.knowledge?.links).toMatchObject({ asked: 20, done: 20 });
+    });
+
+    it('publishes nothing for a template seed that writes the same articles: the step is a scenario run alone', async () => {
+      const compiled = compileScenario(RETAIL_ORDERS_PACK, {
+        caseStatus: { open: 'Received', closed: 'Resolved' },
+        articleBodyField: 'Summary',
+        articleBodyLength: 1000,
+      });
+
+      await handler.handle(msg('seed:execute', { orgId: ORG, template: compiled.template }));
+      await vi.waitFor(() => expect(posted('seed:execute:response')).toHaveLength(1));
+
+      const [answer] = posted<SeedExecutionResult>('seed:execute:response');
+      expect(org.written.Knowledge__kav).toHaveLength(6);
+      expect(answer.payload.knowledge).toBeUndefined();
+      expect(org.publications).toEqual([]);
+      expect(org.written.CaseArticle).toBeUndefined();
+    });
+  });
 });
+
+/** A text's words, whatever their case and the spaces between them: how a body states a fact. */
+const words = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** A field as the fake org describes it. */
+const describedField = (name: string, extra: Record<string, unknown> = {}) => ({
+  name,
+  type: 'string',
+  createable: true,
+  nillable: true,
+  length: 255,
+  referenceTo: [],
+  defaultedOnCreate: false,
+  picklistValues: [],
+  ...extra,
+});
+
+/**
+ * The objects a scenario writes, as an org with a Knowledge base turned on
+ * afresh describes them: no field for an article's body but `Summary`.
+ */
+const KNOWLEDGE_ORG_OBJECTS: Record<string, unknown[]> = {
+  Account: ['Name', 'Industry', 'Type', 'Phone', 'Website'].map((name) => describedField(name)),
+  Contact: [
+    ...['FirstName', 'LastName', 'Email', 'Phone'].map((name) => describedField(name)),
+    describedField('AccountId', { type: 'reference', referenceTo: ['Account'] }),
+  ],
+  Case: [
+    ...['Subject', 'Status', 'Priority', 'Origin'].map((name) => describedField(name)),
+    describedField('Description', { type: 'textarea', length: 32000 }),
+    describedField('ContactId', { type: 'reference', referenceTo: ['Contact'] }),
+  ],
+  CaseComment: [
+    describedField('CommentBody', { type: 'textarea', length: 4000 }),
+    describedField('IsPublished', { type: 'boolean' }),
+    describedField('ParentId', { type: 'reference', referenceTo: ['Case'] }),
+  ],
+  Knowledge__kav: [
+    describedField('Title'),
+    describedField('UrlName'),
+    describedField('Summary', { type: 'textarea', length: 1000, extraTypeInfo: 'plaintextarea' }),
+    describedField('Language', { type: 'picklist', length: 40 }),
+    ...['IsVisibleInPkb', 'IsVisibleInCsp', 'IsVisibleInPrm'].map((name) =>
+      describedField(name, { type: 'boolean' }),
+    ),
+  ],
+  CaseArticle: [
+    describedField('CaseId', { type: 'reference', referenceTo: ['Case'] }),
+    describedField('KnowledgeArticleId', { type: 'reference', referenceTo: ['Knowledge__ka'] }),
+  ],
+};
+
+/** The address a version is published at, under the API's version. */
+const PUBLICATION = /\/knowledgeManagement\/articleVersions\/masterVersions\/(\w+)$/;
+
+/**
+ * An org in memory with Knowledge turned on, as the run of a seed reaches
+ * it: it takes every record it is sent, publishes the versions it is asked
+ * to unless told to refuse one, and links a case to an article by the
+ * article's id, as a Developer Edition answered the probes of wave 44.
+ */
+function knowledgeOrg() {
+  const written: Record<string, Array<Record<string, unknown>>> = {};
+  const publications: Array<{ versionId: string; status: unknown }> = [];
+  const articleOf = new Map<string, string>();
+  let made = 0;
+  const state = {
+    written,
+    publications,
+    articleOf,
+    /** The org's words for a publication it refuses, by version. */
+    refusePublication: (_versionId: string): string | undefined => undefined,
+    conn: {} as Record<string, unknown>,
+  };
+  state.conn = {
+    request: vi.fn(async (request: string | { method: string; url: string; body?: string }) => {
+      const publication =
+        typeof request === 'object' && request.method === 'PATCH'
+          ? PUBLICATION.exec(request.url)
+          : null;
+      if (typeof request === 'string' || !publication) {
+        return {
+          DataStorageMB: { Max: 5, Remaining: 5 },
+          DailyApiRequests: { Max: 15_000, Remaining: 15_000 },
+          SingleEmail: { Max: 15, Remaining: 15 },
+        };
+      }
+      const body = JSON.parse(request.body ?? '{}') as { publishStatus?: unknown };
+      publications.push({ versionId: publication[1], status: body.publishStatus });
+      const refusal = state.refusePublication(publication[1]);
+      if (refusal) throw new Error(refusal);
+      return undefined;
+    }),
+    query: vi.fn(async (soql: string) => {
+      if (soql.includes('FROM Organization')) {
+        return { records: [{ DefaultLocaleSidKey: 'en_US' }], done: true };
+      }
+      if (soql.includes('FROM CaseStatus')) {
+        return {
+          records: [
+            { ApiName: 'Received', IsClosed: false, IsDefault: true },
+            { ApiName: 'Resolved', IsClosed: true, IsDefault: false },
+          ],
+          done: true,
+        };
+      }
+      if (soql.startsWith('SELECT Id, KnowledgeArticleId FROM Knowledge__kav')) {
+        const ids = [...soql.matchAll(/'(\w+)'/g)].map(([, id]) => id.slice(0, 15));
+        return {
+          records: [...articleOf]
+            .filter(([version]) => ids.includes(version.slice(0, 15)))
+            .map(([Id, KnowledgeArticleId]) => ({ Id, KnowledgeArticleId })),
+          done: true,
+        };
+      }
+      return { records: [], done: true };
+    }),
+    describeGlobal: vi.fn(async () => ({
+      sobjects: Object.keys(KNOWLEDGE_ORG_OBJECTS).map((name) => ({ name, createable: true })),
+    })),
+    describe: vi.fn(async (name: string) => ({
+      name,
+      createable: true,
+      fields: KNOWLEDGE_ORG_OBJECTS[name] ?? [],
+    })),
+    sobject: (name: string) => ({
+      create: async (records: Array<Record<string, unknown>>) =>
+        records.map((record) => {
+          const id = fakeId(name === 'Knowledge__kav' ? 'ka0' : 'a0X', ++made);
+          (written[name] ??= []).push({ ...record, Id: id });
+          if (name === 'Knowledge__kav') articleOf.set(id, fakeId('kA0', made));
+          return { success: true, id, errors: [] };
+        }),
+    }),
+    identity: vi.fn(async () => ({ user_id: fakeId('005', 1) })),
+    tooling: {
+      query: async () => ({ records: [], done: true }),
+      queryMore: async () => ({ records: [], done: true }),
+    },
+  };
+  return state;
+}

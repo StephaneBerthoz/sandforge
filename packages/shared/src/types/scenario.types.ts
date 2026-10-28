@@ -132,8 +132,25 @@ export interface ScenarioCompileOptions {
   /**
    * The field of `Knowledge__kav` an article's body is written to, the org's
    * own; absent, no body is written, and the summary is all the article says.
+   * A Knowledge base turned on afresh has no field for a body: `Summary`, of
+   * plain text, is all it gives, and the body goes there in place of the
+   * summary.
    */
   articleBodyField?: string;
+  /**
+   * The most characters {@link articleBodyField} holds, as the org's describe
+   * gives it: a body longer than that is written as the paragraphs of it that
+   * state the article's facts, or as its facts alone, every fact word for
+   * word, and a pack whose facts do not fit is refused with the fact named.
+   * Absent, 1 000 for `Summary`, and no bound for another field.
+   */
+  articleBodyLength?: number;
+  /**
+   * Whether {@link articleBodyField} holds rich text: each paragraph of the
+   * body is then written as one, its text escaped, where a plain text's
+   * blank lines would run its paragraphs into one.
+   */
+  articleBodyHtml?: boolean;
 }
 
 /** A pack compiled: the seed template that writes it, and the tests its utterances make. */

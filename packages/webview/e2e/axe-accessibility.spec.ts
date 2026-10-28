@@ -1178,15 +1178,27 @@ async function openScenarioReview(bridge: MockBridge, page: Page): Promise<void>
   await page.waitForSelector('[data-testid="scenario-review"]', { timeout: 10_000 });
 }
 
-/** The retail pack's confirmation, read of an org without Knowledge. */
-async function openScenarioConfirm(bridge: MockBridge, page: Page): Promise<void> {
+/**
+ * The retail pack's confirmation, read of an org without Knowledge — or, with
+ * `knowledge`, of one whose Knowledge base was turned on afresh, which gives
+ * an article's body Summary alone.
+ */
+async function openScenarioConfirm(
+  bridge: MockBridge,
+  page: Page,
+  knowledge = false,
+): Promise<void> {
   await openScenarioReview(bridge, page);
   await page.getByTestId('btn-scenario-continue').click();
   await page.getByTestId('scenario-org-selector').selectOption(DEV_SANDBOX.id);
   await bridge.waitForMessage('seed:scenario:prepare', { timeout: 10_000 });
   await answerAll(page, 'seed:scenario:prepare', 'seed:scenario:prepare:response', {
     preparation: {
-      options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+      options: {
+        seed: 1,
+        caseStatus: { open: 'New', closed: 'Closed' },
+        ...(knowledge ? { articleBodyField: 'Summary', articleBodyLength: 1000 } : {}),
+      },
       objects: [
         { objectApiName: 'Account', recordCount: 10 },
         { objectApiName: 'Contact', recordCount: 10 },
@@ -1196,10 +1208,17 @@ async function openScenarioConfirm(bridge: MockBridge, page: Page): Promise<void
       ],
       tests: 14,
       caseStatusFrom: { from: 'org' },
-      knowledge: { available: false, reason: 'Salesforce Knowledge is not turned on in it' },
+      knowledge: knowledge
+        ? { available: true, bodyFields: ['Summary'] }
+        : { available: false, reason: 'Salesforce Knowledge is not turned on in it' },
     },
   });
-  await page.waitForSelector('[data-testid="scenario-knowledge-absent"]', { timeout: 10_000 });
+  await page.waitForSelector(
+    knowledge
+      ? '[data-testid="scenario-knowledge-publication"]'
+      : '[data-testid="scenario-knowledge-absent"]',
+    { timeout: 10_000 },
+  );
 }
 
 /** A scenario's run, its companion file kept, the articles skipped without Knowledge. */
@@ -1222,14 +1241,55 @@ const SCENARIO_RESULT = {
   totalRecordsFailed: 0,
   duration: 1200,
   timestamp: '2026-10-28T00:00:00.000Z',
+  knowledge: { skipped: 'Skipped: Knowledge__kav: Salesforce Knowledge is not turned on in it.' },
   scenario: {
     packId: 'retail-orders',
     packName: RETAIL_ORDERS_PACK.name,
     tests: 14,
     openCasesWritten: 10,
     openCases: 10,
-    articlesPublished: false,
     companion: { kind: 'kept' },
+  },
+};
+
+/**
+ * A scenario's run in an org with Knowledge: every article written, one the
+ * org would not publish, and a closed case not linked for want of its case.
+ */
+const SCENARIO_RESULT_WITH_KNOWLEDGE = {
+  ...SCENARIO_RESULT,
+  status: 'partial',
+  objectResults: [
+    SCENARIO_RESULT.objectResults[0],
+    {
+      objectApiName: 'Knowledge__kav',
+      recordsCreated: 6,
+      recordsFailed: 0,
+      createdIds: [],
+      errors: [],
+      optional: true,
+    },
+  ],
+  totalRecordsCreated: 16,
+  knowledge: {
+    publish: {
+      asked: 6,
+      done: 5,
+      notDone: [
+        {
+          key: 'retail-orders-article-refund',
+          reason:
+            'Left a draft: INSUFFICIENT_ACCESS: You do not have the permission to publish articles.',
+        },
+      ],
+    },
+    links: {
+      asked: 20,
+      done: 19,
+      notDone: [
+        { key: 'retail-orders-c03-closed-1', reason: 'Not linked: its case was not written.' },
+      ],
+    },
   },
 };
 
@@ -4413,6 +4473,41 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
       expect(
         await contrastMeasuredIn(page, results, '[data-testid="scenario-tests-outcome"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario confirmation in an org with Knowledge, its bodies in Summary and its articles to be published', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioConfirm(bridge, page, true);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-knowledge-publication"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario results with its articles published and linked, one left a draft and one case not linked', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioConfirm(bridge, page, true);
+      await page.getByTestId('btn-scenario-start').click();
+      await bridge.waitForMessage('seed:scenario:execute', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'seed:scenario:execute',
+        'seed:execute:response',
+        SCENARIO_RESULT_WITH_KNOWLEDGE,
+      );
+      await page.waitForSelector('[data-testid="scenario-knowledge-drafts-left"]', {
+        timeout: 10_000,
+      });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-results-knowledge"]'),
       ).toBeGreaterThan(0);
     });
 

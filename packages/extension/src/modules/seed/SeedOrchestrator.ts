@@ -13,6 +13,7 @@ import type {
   DescribedSeedField,
   FieldRule,
   SeedAiFallback,
+  SeedKnowledgeOutcome,
   SeedObjectConfig,
   SeedRow,
 } from '@sandforge/shared';
@@ -112,6 +113,16 @@ export interface InsertResult {
  */
 export type SeedObjectAccess =
   { access: 'createable' } | { access: 'readOnly' | 'absent'; reason?: string };
+
+/**
+ * What a run wrote, as the step after its writes reads it
+ * (`SeedOrchestratorDependencies.knowledge`): the id of each row the org took,
+ * by object and key, and each object's result as it stands.
+ */
+export interface SeedRowsWritten {
+  ids: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  results: readonly SeedObjectResult[];
+}
 
 /** Function signature for generating unique IDs */
 export type GenerateIdFn = () => UUID;
@@ -239,6 +250,15 @@ export interface SeedOrchestratorDependencies {
   describeKeyPrefix?: (objectApiName: string) => Promise<string | undefined>;
   /** Draws the children of a `range` relation; `Math.random` unless a caller fixes it. */
   random?: () => number;
+  /**
+   * Called once every object is written, before the run answers: what a
+   * scenario does with its records once they are all in the org — its
+   * Knowledge articles published, its closed cases linked to them
+   * (`seedKnowledge`). What it answers is the result's `knowledge`; a step it
+   * could not take leaves a run that wrote everything partial. A run a cancel
+   * stopped before its last object never calls it.
+   */
+  knowledge?: (written: SeedRowsWritten) => Promise<SeedKnowledgeOutcome>;
   /**
    * The run's cancel: the Seed page's Cancel, or Live Operations', through
    * the registry the run is listed in. Honoured before each object, before
@@ -431,13 +451,49 @@ export class SeedOrchestrator {
       if (stopped) return this.stoppedResult(template, operationId, run, startTime);
     }
 
-    return buildSuccessResult(
+    return this.ended(template, operationId, run, startTime);
+  }
+
+  /**
+   * The run's result once every object is written, with what the step after
+   * its writes did (`knowledge`). That step failing outright leaves what the
+   * run wrote in its result, said: thrown, the run would answer as a failure
+   * with every record it wrote still in the org.
+   */
+  private async ended(
+    template: SeedTemplate,
+    operationId: UUID,
+    run: SeedRun,
+    startTime: number,
+  ): Promise<SeedExecutionResult> {
+    let knowledge: SeedKnowledgeOutcome | undefined;
+    let failed = false;
+    try {
+      knowledge = await this.deps.knowledge?.({ ids: rowIdsOf(run), results: run.objectResults });
+    } catch (err: unknown) {
+      failed = true;
+      knowledge = {
+        skipped: `The articles were neither published nor linked: ${extractErrorMessage(err)}`,
+      };
+    }
+    const result = buildSuccessResult(
       template.id,
       operationId,
       run.objectResults,
       startTime,
       this.deps.now(),
     );
+    if (!knowledge) return result;
+    const short =
+      failed ||
+      [knowledge.publish, knowledge.links].some((step) => (step?.notDone.length ?? 0) > 0);
+    const stopped = this.deps.signal?.aborted === true;
+    return {
+      ...result,
+      knowledge,
+      ...((short || stopped) && result.status === 'success' ? { status: 'partial' as const } : {}),
+      ...(stopped ? { cancelled: true } : {}),
+    };
   }
 
   /**
@@ -1068,13 +1124,7 @@ export class SeedOrchestrator {
 
     endGrappe();
 
-    return buildSuccessResult(
-      template.id,
-      operationId,
-      run.objectResults,
-      startTime,
-      this.deps.now(),
-    );
+    return this.ended(template, operationId, run, startTime);
   }
 
   /**
@@ -1318,6 +1368,17 @@ function placeByKey(
     keys.set(row.key, { why: `was not written, as ${why}` });
   }
   return { parentIds, notes: [], rows: written, unwritten: { lines, keys } };
+}
+
+/** The id of each row the org took, by object and key: what the step after the writes reads. */
+function rowIdsOf(run: SeedRun): Map<string, Map<string, string>> {
+  const ids = new Map<string, Map<string, string>>();
+  for (const [objectApiName, rows] of run.keys) {
+    const taken = new Map<string, string>();
+    for (const [key, row] of rows) if ('id' in row) taken.set(key, row.id);
+    ids.set(objectApiName, taken);
+  }
+  return ids;
 }
 
 /** The table of what became of each row, for an object written from rows. */

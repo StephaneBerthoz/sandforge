@@ -37,6 +37,7 @@ import {
 } from '../dataops/RecordRemoval.js';
 import { BulkApiExecutor, type BulkApiConnection } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { withArticleRemoval } from '../seed/articleRemoval.js';
 
 /** Reasons kept per object: an org repeats the same few. */
 const REASON_LIMIT = 5;
@@ -1168,7 +1169,7 @@ export async function removeRunRecords(
   /** Whether the removal has asked the org to write: until then it stamped nothing. */
   let wrote = false;
   const bulkDestroy = org.bulkDestroy?.bind(org);
-  const session: RemovalOrg = {
+  const counted: RemovalOrg = {
     query: (soql) => org.query(soql),
     destroy: (objectApiName, ids) => {
       wrote = true;
@@ -1200,6 +1201,9 @@ export async function removeRunRecords(
       return described;
     },
   };
+  // A Knowledge article's version is deleted by deleting its article, which
+  // its describe and its own delete both refuse: see `articleRemoval`.
+  const session = withArticleRemoval(counted, { includeChanged: options.includeChanged });
   const order = await removalOrder(session, records.objects);
   // Whether the user may delete each object's records, from the describes the
   // order read, before anything is written: a profile without Delete on

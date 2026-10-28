@@ -149,9 +149,11 @@ import { holdOutputWhole } from './wholeOutput.js';
 import type { ScenarioPack } from '@sandforge/shared';
 import { readAgentCatalog, type AgentCatalogRead } from '../src/modules/agentforce/agentCatalog.js';
 import { toolingQueryAll, type ToolingQueries } from '../src/modules/seed/scenario/scenarioOrg.js';
+import { seedKnowledge, type KnowledgeOrg } from '../src/modules/seed/seedKnowledge.js';
 import {
   keepScenarioRun,
   scenarioForTarget,
+  scenarioKnowledgeLines,
   scenarioPackOf,
   scenarioPlanLines,
   testFileCommand,
@@ -182,7 +184,9 @@ One of:
                          Knowledge articles are written as the pack says, each
                          child under the parent row its key names, the cases
                          under the target's own open and closed statuses; the
-                         articles are skipped by an org without Knowledge. No
+                         articles are published once written, each closed
+                         case linked to its own, and skipped by an org
+                         without Knowledge. No
                          AI key. Goes alone, as --template-file goes. Its run
                          keeps beside its file the ids of the cases its tests
                          are about, for --test-file
@@ -1295,10 +1299,13 @@ export function seedOrchestrator(deps: {
   signal?: AbortSignal;
   /** Told the id each row of an object of rows became: a scenario's cases, for its tests. */
   onRowIds?: SeedOrchestratorDependencies['onRowIds'];
+  /** What a scenario does once every object is written: its articles published and linked. */
+  knowledge?: SeedOrchestratorDependencies['knowledge'];
 }): SeedOrchestrator {
   return new SeedOrchestrator({
     ...(deps.signal ? { signal: deps.signal } : {}),
     ...(deps.onRowIds ? { onRowIds: deps.onRowIds } : {}),
+    ...(deps.knowledge ? { knowledge: deps.knowledge } : {}),
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
     ...(deps.readPresentParentIds ? { readPresentParentIds: deps.readPresentParentIds } : {}),
@@ -1804,6 +1811,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           },
         }
       : {}),
+    // Its articles published once every object is written, and each closed
+    // case linked to the article of its topic, as the panel's run does, each
+    // call kept in the run's file. Never on a dry run: its ids are no org's,
+    // and a publication is a write.
+    ...(scenario && !args.dryRun
+      ? {
+          knowledge: seedKnowledge({
+            org: conn as unknown as KnowledgeOrg,
+            plan: { publish: true, links: scenario.compiled.closedCaseArticles },
+            ...(kept ? { journal: kept } : {}),
+            signal: stop.signal,
+          }),
+        }
+      : {}),
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
@@ -1939,6 +1960,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     log(`  ${entry.objectApiName}: ${entry.recordsCreated} created, ${entry.recordsFailed} failed`);
     for (const line of refusalLines(entry.errors ?? [])) log(`      ${line}`);
   }
+  for (const line of scenarioKnowledgeLines(result.knowledge)) log(line);
   log(`seed: ${seed}`);
   if (!args.dryRun && created > 0) {
     log(

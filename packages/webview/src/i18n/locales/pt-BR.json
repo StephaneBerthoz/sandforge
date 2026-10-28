@@ -1209,14 +1209,22 @@
         "absent": "Esta org não tem Knowledge: os artigos são ignorados. Os testes que respondem a partir do Knowledge são escritos, e o agente não terá artigo para citar.",
         "bodyField": "Campo do corpo do artigo",
         "body": "O corpo dos artigos é escrito em {{field}}.",
+        "bodySummary": "O Knowledge desta org não oferece outro campo para o corpo de um artigo: cada corpo vai para Summary, dentro dos seus {{length}} caracteres, com cada fato mantido.",
         "summaryFallback": "A org não oferece campo de texto longo para o corpo de um artigo: os artigos levam apenas o resumo.",
-        "drafts": "O SandForge escreve os artigos como rascunhos e ainda não os publica: publique-os no Knowledge para que a biblioteca de dados do agente os indexe.",
+        "published": "Depois que todos os registros são escritos, os artigos são publicados e cada caso fechado é vinculado ao artigo que o responde: a biblioteca de dados de um agente indexa apenas os artigos publicados.",
         "notRewound": "Um retrocesso a um ponto de verificação não recupera os artigos: remover este seed, sim."
       },
       "results": {
         "openCases": "Foram escritos {{written}} dos {{total}} casos abertos de que tratam os testes.",
         "noCase": "Nenhum caso aberto foi escrito: nenhum arquivo de teste pode ser escrito a partir desta execução.",
-        "companionFailed": "Não foi possível guardar os Ids dos casos da execução ({{message}}): nenhum arquivo de teste pode ser escrito a partir desta execução."
+        "companionFailed": "Não foi possível guardar os Ids dos casos da execução ({{message}}): nenhum arquivo de teste pode ser escrito a partir desta execução.",
+        "knowledge": {
+          "title": "Artigos do Knowledge",
+          "published": "Artigos publicados: {{done}} de {{total}}",
+          "linked": "Casos fechados vinculados ao artigo que os responde: {{done}} de {{total}}",
+          "skipped": "Nenhum artigo foi publicado, e nenhum caso fechado foi vinculado a um artigo.",
+          "draftsLeft": "Um artigo que ficou como rascunho não é indexado pela biblioteca de dados do agente: publique-o no Knowledge ou remova este seed e execute-o novamente."
+        }
       },
       "tests": {
         "title": "Arquivo de teste do Agentforce",

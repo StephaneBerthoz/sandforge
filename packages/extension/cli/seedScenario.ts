@@ -21,6 +21,8 @@ import type {
   CompiledScenario,
   ScenarioCompileOptions,
   ScenarioPack,
+  SeedKnowledgeOutcome,
+  SeedKnowledgeStep,
   SeedScenarioPreparation,
   SeedScenarioTestFileOutcome,
 } from '@sandforge/shared';
@@ -138,13 +140,39 @@ export function scenarioPlanLines(
     `  cases: open "${options.caseStatus.open}", closed "${options.caseStatus.closed}"` +
       (caseStatusFrom.from === 'org' ? " (the org's)" : ` (a new org's: ${caseStatusFrom.reason})`),
     knowledge.available
-      ? `  articles: written as drafts, ` +
+      ? `  articles: published once written, each closed case linked to the article of its ` +
+        'topic, ' +
         (options.articleBodyField
-          ? `their body in ${options.articleBodyField}`
-          : 'with their summary alone: the org offers no long text field for a body')
+          ? `their body in ${options.articleBodyField}` +
+            (options.articleBodyLength !== undefined
+              ? ` (${options.articleBodyLength} characters, every fact kept)`
+              : '')
+          : 'with their summary alone: the org offers no field for a body')
       : `  articles: skipped, ${knowledge.reason}: the tests that answer from Knowledge are ` +
         'written, and the agent will have no article to cite',
     `  tests: ${preparation.tests}, written to a file once the run has ended (--test-file)`,
+  ];
+}
+
+/**
+ * What a scenario's run did with its articles once every object was written,
+ * as the summary says it: how many it published and linked, and each it did
+ * not, with why — in the org's words when the org refused. Nothing for a run
+ * that was asked neither.
+ */
+export function scenarioKnowledgeLines(knowledge: SeedKnowledgeOutcome | undefined): string[] {
+  if (!knowledge) return [];
+  if (knowledge.skipped !== undefined) return [`articles: ${knowledge.skipped}`];
+  const step = (label: string, done: SeedKnowledgeStep | undefined): string[] =>
+    done
+      ? [
+          `${label}: ${done.done} of ${done.asked}`,
+          ...done.notDone.map(({ key, reason }) => `  ${key}: ${reason}`),
+        ]
+      : [];
+  return [
+    ...step('articles published', knowledge.publish),
+    ...step('closed cases linked to their article', knowledge.links),
   ];
 }
 

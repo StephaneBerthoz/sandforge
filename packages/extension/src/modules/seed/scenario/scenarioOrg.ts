@@ -22,6 +22,12 @@ import type {
 import { SCENARIO_COMPILE_DEFAULTS } from '@sandforge/shared';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage';
 import type { SeedObjectAccess } from '../SeedOrchestrator';
+import {
+  ARTICLE_VERSION_OBJECT,
+  articleBodyFields,
+  articleBodyOptions,
+  type ArticleBodyField,
+} from '../seedKnowledge';
 import type { CatalogQuery } from '../../agentforce/agentCatalog';
 import { compileScenario, ScenarioCompileError } from './compileScenario';
 
@@ -101,21 +107,7 @@ function text(value: unknown): string | undefined {
 }
 
 /** The object a scenario's articles are written to. */
-export const ARTICLE_OBJECT = 'Knowledge__kav';
-
-/**
- * Whether a scenario's articles are published once written, closed to every
- * channel, and each closed case linked to the article of its topic
- * (`CompiledScenario.closedCaseArticles`, through `CaseArticle`). Not yet:
- * how an org with Knowledge answers — whether an article the API creates is
- * a draft, which fields an activation gives it, whether a published one can
- * be deleted, whether a link outlives its case — waits on probes P1 to P3 of
- * an org with Knowledge on. Until then the articles stay as the API writes
- * them, and the page and the command line say so: an agent's data library
- * indexes published articles. The publication goes where this is read, after
- * the run has written its articles and before its companion file is kept.
- */
-export const SCENARIO_ARTICLES_PUBLISHED = false;
+export const ARTICLE_OBJECT = ARTICLE_VERSION_OBJECT;
 
 /** A field of an object as its describe gives it, of what is read here. */
 export interface ScenarioDescribedField {
@@ -125,6 +117,8 @@ export interface ScenarioDescribedField {
   createable?: boolean;
   /** `richtextarea`, `plaintextarea`: what a `textarea` is. */
   extraTypeInfo?: string | null;
+  /** True for a rich text area. */
+  htmlFormatted?: boolean;
   picklistValues?: ReadonlyArray<{ value: string; active?: boolean }> | null;
 }
 
@@ -134,33 +128,26 @@ export type ScenarioDescribe = (
 ) => Promise<{ fields: readonly ScenarioDescribedField[] }>;
 
 /**
- * Fields of an article a body is not written to: those the article is
- * written with already, and its summary, which the article's summary takes.
+ * What the org offers a scenario's articles, as read before the run: nothing,
+ * without Knowledge, with why; or the fields of an article a body can go to,
+ * the best first, each with how much it holds — what the pack is compiled for.
  */
-const NOT_A_BODY: ReadonlySet<string> = new Set([
-  'Title',
-  'UrlName',
-  'Summary',
-  'Language',
-  'IsVisibleInPkb',
-  'IsVisibleInCsp',
-  'IsVisibleInPrm',
-]);
-
-/** A text area shorter than this is no body: a body runs to thousands of characters. */
-const SHORTEST_BODY = 1_000;
+export type ScenarioKnowledgeRead =
+  { available: false; reason: string } | { available: true; bodyFields: ArticleBodyField[] };
 
 /**
  * What the org offers a scenario's articles: nothing, without Knowledge —
  * the run then skips them, with why, and stays a success — or the fields of
- * an article a body can be written to, a rich text area first, then the
- * longest. An org whose article describe cannot be read is offered none: the
- * articles are written with their summary alone.
+ * an article a body can be written to, as `articleBodyFields` ranks them: a
+ * rich text field the admin added, then a long text one, then `Summary`,
+ * which a Knowledge base turned on afresh gives alone. An org whose article
+ * describe cannot be read is offered none: the articles are written with
+ * their summary alone.
  */
 export async function scenarioKnowledge(
   access: (objectApiName: string) => Promise<SeedObjectAccess>,
   describe: ScenarioDescribe,
-): Promise<SeedScenarioKnowledge> {
+): Promise<ScenarioKnowledgeRead> {
   let answer: SeedObjectAccess;
   try {
     answer = await access(ARTICLE_OBJECT);
@@ -180,27 +167,11 @@ export async function scenarioKnowledge(
         answer.reason ?? `the user this seed runs as may read ${ARTICLE_OBJECT} and not create it`,
     };
   }
-  let fields: readonly ScenarioDescribedField[];
   try {
-    fields = (await describe(ARTICLE_OBJECT)).fields;
+    return { available: true, bodyFields: articleBodyFields(await describe(ARTICLE_OBJECT)) };
   } catch {
     return { available: true, bodyFields: [] };
   }
-  const bodies = fields
-    .filter(
-      (field) =>
-        field.createable === true &&
-        field.type === 'textarea' &&
-        !NOT_A_BODY.has(field.name) &&
-        (field.extraTypeInfo === 'richtextarea' || (field.length ?? 0) >= SHORTEST_BODY),
-    )
-    .sort(
-      (a, b) =>
-        Number(b.extraTypeInfo === 'richtextarea') - Number(a.extraTypeInfo === 'richtextarea') ||
-        (b.length ?? 0) - (a.length ?? 0) ||
-        a.name.localeCompare(b.name),
-    );
-  return { available: true, bodyFields: bodies.map((field) => field.name) };
 }
 
 /** The Case picklists a draft is told the values of. */
@@ -234,7 +205,7 @@ export async function scenarioCasePicklists(
 /** What a pack is compiled for an org with, read of the org. */
 export interface ScenarioPreparationInput {
   caseStatus: ScenarioCaseStatus;
-  knowledge: SeedScenarioKnowledge;
+  knowledge: ScenarioKnowledgeRead;
   /** The seed asked for; the default one when absent. */
   seed?: number;
   /** The article field asked for the body; the first the org offers when absent. */
@@ -243,29 +214,38 @@ export interface ScenarioPreparationInput {
 
 /**
  * The pack compiled for an org: the options the run is sent with, the org's
- * statuses and article field among them, and what it writes; or every issue
- * of the pack, and of a body field the org does not offer, before anything.
+ * statuses and article field among them — with how much the field holds and
+ * whether it is rich text, so that a body is fitted to it, every fact kept —
+ * and what it writes; or every issue of the pack, of a body field the org
+ * does not offer, and of a fact no body the field holds can state, before
+ * anything.
  */
 export function prepareScenario(
   pack: ScenarioPack,
   input: ScenarioPreparationInput,
 ): { preparation: SeedScenarioPreparation } | { issues: string[] } {
-  const { knowledge } = input;
-  const offered = knowledge.available ? knowledge.bodyFields : [];
-  if (input.articleBodyField !== undefined && !offered.includes(input.articleBodyField)) {
+  const offered = input.knowledge.available ? input.knowledge.bodyFields : [];
+  const names = offered.map((field) => field.name);
+  const chosen =
+    input.articleBodyField === undefined
+      ? offered[0]
+      : offered.find((field) => field.name === input.articleBodyField);
+  if (input.articleBodyField !== undefined && chosen === undefined) {
     return {
       issues: [
         `options.articleBodyField: ${input.articleBodyField} is not a field of ${ARTICLE_OBJECT} ` +
           `this org lets a body be written to` +
-          (offered.length > 0 ? ` (${offered.join(', ')})` : ''),
+          (names.length > 0 ? ` (${names.join(', ')})` : ''),
       ],
     };
   }
-  const articleBodyField = input.articleBodyField ?? offered[0];
+  const knowledge: SeedScenarioKnowledge = input.knowledge.available
+    ? { available: true, bodyFields: names }
+    : input.knowledge;
   const options: SeedScenarioPreparation['options'] = {
     seed: input.seed ?? SCENARIO_COMPILE_DEFAULTS.seed,
     caseStatus: { open: input.caseStatus.open, closed: input.caseStatus.closed },
-    ...(articleBodyField !== undefined ? { articleBodyField } : {}),
+    ...(chosen !== undefined ? articleBodyOptions(chosen) : {}),
   };
   let compiled: ReturnType<typeof compileScenario>;
   try {

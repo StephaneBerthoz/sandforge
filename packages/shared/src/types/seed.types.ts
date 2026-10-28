@@ -218,6 +218,14 @@ export interface SeedExecutionResult {
   cancelled?: boolean;
   /** Set for a seed of a scenario pack: what its agent's test file is written from. */
   scenario?: SeedScenarioRunInfo;
+  /**
+   * What the run did with the Knowledge articles it wrote once every object
+   * was in the org: each published, each closed case linked to the article of
+   * its topic. Absent from a run that was asked to do neither. A refusal of
+   * either leaves a run that wrote everything partial: an article left in
+   * draft is one an agent may never be given to read.
+   */
+  knowledge?: SeedKnowledgeOutcome;
 }
 
 /**
@@ -234,17 +242,40 @@ export interface SeedScenarioRunInfo {
   /** The open cases the pack compiled to. */
   openCases: number;
   /**
-   * Whether the articles the run wrote were published and linked to their
-   * cases: not yet, they stay drafts, which an agent's data library does not
-   * index (`SCENARIO_ARTICLES_PUBLISHED`).
-   */
-  articlesPublished: boolean;
-  /**
    * `kept`: the companion file was written. `none`: no open case was written,
    * so there is nothing for a test to be about. `failed`: it could not be
    * written, with why: the test file cannot be written from this run.
    */
   companion: { kind: 'kept' } | { kind: 'none' } | { kind: 'failed'; message: string };
+}
+
+/**
+ * What a seed did with the Knowledge articles it wrote, once every object was
+ * written (`seedKnowledge`): published them, and linked each closed case to
+ * the article that answers it (`CaseArticle`). Every call is one of the run's,
+ * kept with it, so that its removal reads what they changed as the run's own.
+ */
+export interface SeedKnowledgeOutcome {
+  /**
+   * Why none of it was done, when none was: the org has no Knowledge, or the
+   * run wrote no article.
+   */
+  skipped?: string;
+  /** The articles it was asked to publish, and what became of them. Absent when it was not asked to. */
+  publish?: SeedKnowledgeStep;
+  /** The closed cases it was asked to link to their articles, and what became of them. */
+  links?: SeedKnowledgeStep;
+}
+
+/** One step of {@link SeedKnowledgeOutcome}: how many were asked, done, and why the others were not. */
+export interface SeedKnowledgeStep {
+  asked: number;
+  done: number;
+  /**
+   * Each one not done, by the key of its row (the article's, the case's), and
+   * why: in the org's words when it refused, in the run's when it was not sent.
+   */
+  notDone: Array<{ key: string; reason: string }>;
 }
 
 /** Per-object seed result */

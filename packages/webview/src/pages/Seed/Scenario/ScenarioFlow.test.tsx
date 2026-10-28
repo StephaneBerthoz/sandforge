@@ -100,14 +100,58 @@ function result(
     totalRecordsFailed: 0,
     duration: 1,
     timestamp: '2026-10-28T00:00:00.000Z',
+    // As the host answers an org without Knowledge: no article, none published.
+    knowledge: {
+      skipped: 'Skipped: Knowledge__kav: Salesforce Knowledge is not turned on in it.',
+    },
     scenario: {
       packId: 'retail-orders',
       packName: RETAIL_ORDERS_PACK.name,
       tests: 14,
       openCasesWritten: 10,
       openCases: 10,
-      articlesPublished: false,
       companion,
+    },
+  };
+}
+
+/** The pack prepared for an org whose Knowledge base was turned on afresh: Summary alone. */
+const PREPARATION_WITH_KNOWLEDGE: SeedScenarioPreparation = {
+  ...PREPARATION,
+  options: { ...PREPARATION.options, articleBodyField: 'Summary', articleBodyLength: 1000 },
+  knowledge: { available: true, bodyFields: ['Summary'] },
+};
+
+/** A run in that org: every article written, one the org would not publish. */
+function resultWithKnowledge(): SeedExecutionResult {
+  const base = result({ kind: 'kept' });
+  return {
+    ...base,
+    status: 'partial',
+    objectResults: [
+      base.objectResults[0],
+      {
+        objectApiName: 'Knowledge__kav',
+        recordsCreated: 6,
+        recordsFailed: 0,
+        createdIds: [],
+        errors: [],
+        optional: true,
+      },
+    ],
+    knowledge: {
+      publish: {
+        asked: 6,
+        done: 5,
+        notDone: [
+          {
+            key: 'retail-orders-article-refund',
+            reason:
+              'Left a draft: INSUFFICIENT_ACCESS: You do not have the permission to publish articles.',
+          },
+        ],
+      },
+      links: { asked: 20, done: 20, notDone: [] },
     },
   };
 }
@@ -157,8 +201,50 @@ describe('ScenarioFlow — a scenario from its review to its test file', () => {
     expect(screen.getByTestId('scenario-results-tests').textContent).toContain(
       '10 of the 10 open cases the tests are about were written.',
     );
+    // The articles' card says why they were skipped: nothing more is said of them.
+    expect(screen.queryByTestId('scenario-results-knowledge')).toBeNull();
     // The org's agents are read for the test file, which the run did not write.
     expect(sent('seed:scenario:agents')[0]?.payload).toEqual({ orgId: 'org-dev' });
+  });
+
+  it('says before the run that the bodies go to Summary and the articles are published and linked, then what was, and the article left a draft in the org’s words', () => {
+    render(
+      <ScenarioFlow
+        picked={{ pack: RETAIL_ORDERS_PACK, source: { kind: 'built-in' } }}
+        orgs={[DEV]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-scenario-continue'));
+    answer('seed:scenario:prepare', 'seed:scenario:prepare:response', {
+      preparation: PREPARATION_WITH_KNOWLEDGE,
+    });
+
+    expect(screen.getByTestId('scenario-knowledge-body').textContent).toBe(
+      "This org's Knowledge has no other field for an article body: each body goes to Summary, " +
+        'within its 1000 characters, every fact kept.',
+    );
+    expect(screen.getByTestId('scenario-knowledge-publication').textContent).toBe(
+      'Once every record is written, the articles are published and each closed case is linked ' +
+        "to the article that answers it: an agent's data library indexes published articles alone.",
+    );
+    expect(screen.queryByText(/drafts/)).toBeNull();
+
+    fireEvent.click(screen.getByTestId('btn-scenario-start'));
+    expect(sent('seed:scenario:execute')[0]?.payload).toMatchObject({
+      options: { articleBodyField: 'Summary', articleBodyLength: 1000 },
+    });
+    answer('seed:scenario:execute', 'seed:execute:response', resultWithKnowledge());
+
+    expect(screen.getByTestId('scenario-knowledge-published').textContent).toBe(
+      'Articles published: 5 of 6' +
+        'retail-orders-article-refund: Left a draft: INSUFFICIENT_ACCESS: You do not have the ' +
+        'permission to publish articles.',
+    );
+    expect(screen.getByTestId('scenario-knowledge-linked').textContent).toBe(
+      'Closed cases linked to the article that answers them: 20 of 20',
+    );
+    expect(screen.getByTestId('scenario-knowledge-drafts-left')).toBeTruthy();
   });
 
   it('says no test file can be written from a run that wrote no open case', () => {

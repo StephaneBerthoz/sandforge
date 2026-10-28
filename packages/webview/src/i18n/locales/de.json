@@ -1209,14 +1209,22 @@
         "absent": "Diese Org hat kein Knowledge: Die Artikel werden übersprungen. Die Tests, die aus Knowledge antworten, werden geschrieben, und der Agent hat keinen Artikel zum Zitieren.",
         "bodyField": "Feld für den Artikeltext",
         "body": "Der Artikeltext wird in {{field}} geschrieben.",
+        "bodySummary": "Das Knowledge dieser Org bietet kein anderes Feld für einen Artikeltext: Jeder Text kommt in Summary, in dessen {{length}} Zeichen, jede Tatsache erhalten.",
         "summaryFallback": "Die Org bietet kein langes Textfeld für einen Artikeltext: Die Artikel enthalten nur ihre Zusammenfassung.",
-        "drafts": "SandForge schreibt die Artikel als Entwürfe und veröffentlicht sie noch nicht: Veröffentlichen Sie sie in Knowledge, damit die Datenbibliothek des Agenten sie indiziert.",
+        "published": "Sobald alle Datensätze geschrieben sind, werden die Artikel veröffentlicht und jeder geschlossene Kundenvorgang wird mit dem Artikel verknüpft, der ihn beantwortet: Die Datenbibliothek eines Agenten indiziert nur veröffentlichte Artikel.",
         "notRewound": "Das Zurücksetzen auf einen Prüfpunkt nimmt die Artikel nicht zurück: Das Entfernen dieses Seeds schon."
       },
       "results": {
         "openCases": "{{written}} der {{total}} offenen Kundenvorgänge, um die es in den Tests geht, wurden geschrieben.",
         "noCase": "Kein offener Kundenvorgang wurde geschrieben: Aus diesem Lauf kann keine Testdatei geschrieben werden.",
-        "companionFailed": "Die IDs der Kundenvorgänge des Laufs konnten nicht gespeichert werden ({{message}}): Aus diesem Lauf kann keine Testdatei geschrieben werden."
+        "companionFailed": "Die IDs der Kundenvorgänge des Laufs konnten nicht gespeichert werden ({{message}}): Aus diesem Lauf kann keine Testdatei geschrieben werden.",
+        "knowledge": {
+          "title": "Knowledge-Artikel",
+          "published": "Veröffentlichte Artikel: {{done}} von {{total}}",
+          "linked": "Geschlossene Kundenvorgänge, verknüpft mit dem Artikel, der sie beantwortet: {{done}} von {{total}}",
+          "skipped": "Kein Artikel wurde veröffentlicht, und kein geschlossener Kundenvorgang wurde mit einem Artikel verknüpft.",
+          "draftsLeft": "Ein als Entwurf verbliebener Artikel wird von der Datenbibliothek des Agenten nicht indiziert: Veröffentlichen Sie ihn in Knowledge, oder entfernen Sie diesen Seed und führen Sie ihn erneut aus."
+        }
       },
       "tests": {
         "title": "Agentforce-Testdatei",

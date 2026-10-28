@@ -7,6 +7,7 @@ import type { AgentDefinition, SeedScenarioPreparation } from '@sandforge/shared
 import {
   agentLines,
   parseTestFileArgs,
+  scenarioKnowledgeLines,
   scenarioPackOf,
   scenarioPlanLines,
   testFileCommand,
@@ -56,6 +57,8 @@ describe('scenarioPlanLines', () => {
       seed: 2,
       caseStatus: { open: 'New', closed: 'Closed' },
       articleBodyField: 'Answer__c',
+      articleBodyLength: 32768,
+      articleBodyHtml: true,
     },
     objects: [
       { objectApiName: 'Account', recordCount: 10 },
@@ -72,9 +75,45 @@ describe('scenarioPlanLines', () => {
       '  Account: 10 record(s)',
       '  Knowledge__kav: 6 record(s), skipped by an org without it',
       '  cases: open "New", closed "Closed" (a new org\'s: the org would not read its case statuses: X)',
-      '  articles: written as drafts, their body in Answer__c',
+      '  articles: published once written, each closed case linked to the article of its ' +
+        'topic, their body in Answer__c (32768 characters, every fact kept)',
       '  tests: 14, written to a file once the run has ended (--test-file)',
     ]);
+  });
+});
+
+describe('scenarioKnowledgeLines', () => {
+  it('says how many articles were published and closed cases linked, and each not, with why', () => {
+    expect(
+      scenarioKnowledgeLines({
+        publish: {
+          asked: 6,
+          done: 5,
+          notDone: [
+            {
+              key: 'retail-orders-article-refund',
+              reason:
+                'Left a draft: INSUFFICIENT_ACCESS: You do not have the permission to publish articles.',
+            },
+          ],
+        },
+        links: { asked: 20, done: 20, notDone: [] },
+      }),
+    ).toEqual([
+      'articles published: 5 of 6',
+      '  retail-orders-article-refund: Left a draft: INSUFFICIENT_ACCESS: You do not have the ' +
+        'permission to publish articles.',
+      'closed cases linked to their article: 20 of 20',
+    ]);
+  });
+
+  it('says why none of it was done, in the words of the step, and nothing for a run asked neither', () => {
+    expect(
+      scenarioKnowledgeLines({
+        skipped: 'The articles were neither published nor linked: socket hang up',
+      }),
+    ).toEqual(['articles: The articles were neither published nor linked: socket hang up']);
+    expect(scenarioKnowledgeLines(undefined)).toEqual([]);
   });
 });
 

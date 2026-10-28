@@ -1209,14 +1209,22 @@
         "absent": "Cette org n'a pas Knowledge : les articles sont ignorés. Les tests de réponse depuis Knowledge sont écrits, et l'agent n'aura pas d'article à citer.",
         "bodyField": "Champ du corps de l'article",
         "body": "Le corps des articles est écrit dans {{field}}.",
+        "bodySummary": "Le Knowledge de cette org n'offre aucun autre champ pour un corps d'article : chaque corps va dans Summary, dans ses {{length}} caractères, chaque fait conservé.",
         "summaryFallback": "L'org n'offre aucun champ texte long pour un corps d'article : les articles portent leur seul résumé.",
-        "drafts": "SandForge écrit les articles en brouillon et ne les publie pas encore : publiez-les dans Knowledge pour que la bibliothèque de données de l'agent les indexe.",
+        "published": "Une fois chaque enregistrement écrit, les articles sont publiés et chaque requête fermée est liée à l'article qui y répond : la bibliothèque de données d'un agent n'indexe que les articles publiés.",
         "notRewound": "Un retour arrière à un point de contrôle ne reprend pas les articles : le retrait de ce seed, si."
       },
       "results": {
         "openCases": "{{written}} des {{total}} requêtes ouvertes visées par les tests ont été écrites.",
         "noCase": "Aucune requête ouverte n'a été écrite : aucun fichier de test ne peut être écrit depuis cette exécution.",
-        "companionFailed": "Les Id des requêtes de l'exécution n'ont pas pu être conservés ({{message}}) : aucun fichier de test ne peut être écrit depuis cette exécution."
+        "companionFailed": "Les Id des requêtes de l'exécution n'ont pas pu être conservés ({{message}}) : aucun fichier de test ne peut être écrit depuis cette exécution.",
+        "knowledge": {
+          "title": "Articles Knowledge",
+          "published": "Articles publiés : {{done}} sur {{total}}",
+          "linked": "Requêtes fermées liées à l'article qui y répond : {{done}} sur {{total}}",
+          "skipped": "Aucun article n'a été publié, et aucune requête fermée n'a été liée à un article.",
+          "draftsLeft": "Un article resté en brouillon n'est pas indexé par la bibliothèque de données de l'agent : publiez-le dans Knowledge, ou retirez ce seed et relancez-le."
+        }
       },
       "tests": {
         "title": "Fichier de test Agentforce",

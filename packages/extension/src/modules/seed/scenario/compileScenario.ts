@@ -17,6 +17,7 @@ import {
   SCENARIO_COMPILE_DEFAULTS,
   scenarioCompileOptionsSchema,
   scenarioPackSchema,
+  statesScenarioFact,
 } from '@sandforge/shared';
 import type {
   CompiledScenario,
@@ -180,16 +181,47 @@ export function compileScenario(
     }
   }
 
+  const field = bodyFieldOf(options);
+  const unfit: string[] = [];
+  const topicBodies = topics.map((topic, topicIndex) => {
+    if (!field) return undefined;
+    const facts = topic.article.facts.map((fact) => finish.text(fact));
+    const fitted = bodyFor(finish.text(topic.article.body), facts, field);
+    if (typeof fitted === 'string') return fitted;
+    unfit.push(
+      `pack.topics[${topicIndex}].article.facts[${fitted.unfit}]: the fact ` +
+        `"${topic.article.facts[fitted.unfit]}" does not fit, with the facts before it, in the ` +
+        `${field.max} characters of ${field.name}, the field the article's body goes to in ` +
+        'this org: shorten the facts, or give Knowledge a longer field for the body',
+    );
+    return undefined;
+  });
+  if (unfit.length > 0) throw new ScenarioCompileError(unfit);
   const articles: SeedRow[] = [
     ...topics.map((topic, topicIndex) => ({
       key: articleKey(topicIndex),
-      values: articleValues(topic.article, `${id}-${topic.key}-${seed}`, pack, options, finish),
+      values: articleValues(
+        topic.article,
+        `${id}-${topic.key}-${seed}`,
+        pack,
+        finish,
+        field && { name: field.name, text: topicBodies[topicIndex] ?? '' },
+      ),
     })),
     {
       // The seed comes before the word: a topic's URL name ends with the
       // seed, so no topic key can make one equal to the decoy's.
       key: `${id}-decoy-article`,
-      values: articleValues(pack.decoy, `${id}-${seed}-decoy`, pack, options, finish),
+      values: articleValues(
+        pack.decoy,
+        `${id}-${seed}-decoy`,
+        pack,
+        finish,
+        field && {
+          name: field.name,
+          text: decoyBodyFor(finish.text(pack.decoy.body), finish.text(pack.decoy.summary), field),
+        },
+      ),
     },
   ];
 
@@ -314,15 +346,16 @@ function caseComments(
 /**
  * An article's fields. Its channels are closed, so that an article published
  * later shows to the org's own Knowledge readers and to nobody outside. Its
- * body goes to the field the run names, the org's own; without one, the
- * summary is all it says.
+ * body goes to the field the run names, the org's own — `Summary` in place of
+ * the summary on a Knowledge base that has no other; without one, the summary
+ * is all it says.
  */
 function articleValues(
-  article: { title: string; summary: string; body: string },
+  article: { title: string; summary: string },
   urlName: string,
   pack: ScenarioPack,
-  options: ScenarioCompileOptions,
   finish: ReturnType<typeof textFinisher>,
+  body: { name: string; text: string } | undefined,
 ): SeedRow['values'] {
   const values: SeedRow['values'] = {
     Title: finish.text(article.title, FIELD_LENGTH.articleTitle),
@@ -333,14 +366,92 @@ function articleValues(
     IsVisibleInCsp: false,
     IsVisibleInPrm: false,
   };
-  const bodyField = options.articleBodyField;
-  if (bodyField !== undefined) {
-    values[bodyField] = finish.text(
-      article.body,
-      bodyField === 'Summary' ? FIELD_LENGTH.articleSummary : undefined,
-    );
-  }
+  if (body) values[body.name] = body.text;
   return values;
+}
+
+/** The field an article's body goes to, as the run names it. */
+interface BodyField {
+  name: string;
+  /** The most characters it holds; absent, no bound. */
+  max?: number;
+  /** Whether it holds rich text, a paragraph a `<p>`. */
+  html: boolean;
+}
+
+/** The body's field the options name, with how long it is; none when they name none. */
+function bodyFieldOf(options: ScenarioCompileOptions): BodyField | undefined {
+  const name = options.articleBodyField;
+  if (name === undefined) return undefined;
+  const max =
+    options.articleBodyLength ?? (name === 'Summary' ? FIELD_LENGTH.articleSummary : undefined);
+  return { name, ...(max !== undefined ? { max } : {}), html: options.articleBodyHtml === true };
+}
+
+/** A text's paragraphs, as its blank lines part them. */
+function paragraphsOf(text: string): string[] {
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+/** Paragraphs as the field holds them: apart by a blank line, or each a rich text paragraph. */
+function rendered(paragraphs: readonly string[], field: BodyField): string {
+  if (!field.html) return paragraphs.join('\n\n');
+  return paragraphs.map((paragraph) => `<p>${escapedHtml(paragraph)}</p>`).join('');
+}
+
+/** A text as rich text shows it as written. */
+function escapedHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Whether a text fits its field. */
+function fits(text: string, field: BodyField): boolean {
+  return field.max === undefined || text.length <= field.max;
+}
+
+/**
+ * An article's body as its field holds it: whole when it fits; else the
+ * paragraphs of it that state a fact, in its order; else its facts alone, a
+ * paragraph each. Every fact stays in it word for word: cut at the field's
+ * length, a body of a thousand characters in `Summary` lost the facts its end
+ * stated, and an agent asked for one of them had no article that said it.
+ *
+ * @returns The text, or the place of the first fact that does not fit with
+ *   the facts before it, when even the facts alone are longer than the field.
+ */
+function bodyFor(
+  body: string,
+  facts: readonly string[],
+  field: BodyField,
+): string | { unfit: number } {
+  const paragraphs = paragraphsOf(body);
+  const whole = field.html ? rendered(paragraphs, field) : body;
+  if (fits(whole, field)) return whole;
+  const stating = paragraphs.filter((paragraph) =>
+    facts.some((fact) => statesScenarioFact(paragraph, fact)),
+  );
+  const statesAll = facts.every((fact) => statesScenarioFact(stating.join('\n\n'), fact));
+  if (statesAll && fits(rendered(stating, field), field)) return rendered(stating, field);
+  if (fits(rendered(facts, field), field)) return rendered(facts, field);
+  const unfit = facts.findIndex((_, at) => !fits(rendered(facts.slice(0, at + 1), field), field));
+  return { unfit: Math.max(0, unfit) };
+}
+
+/**
+ * The decoy's body as its field holds it: whole when it fits, else its
+ * summary, cut to the field when even that is longer. It states no fact: a
+ * test passes by the agent not citing it.
+ */
+function decoyBodyFor(body: string, summary: string, field: BodyField): string {
+  const whole = field.html ? rendered(paragraphsOf(body), field) : body;
+  if (fits(whole, field)) return whole;
+  const short = field.html ? rendered(paragraphsOf(summary), field) : summary;
+  if (fits(short, field)) return short;
+  const room = (field.max ?? summary.length) - (field.html ? '<p></p>'.length : 0);
+  return field.html ? `<p>${cut(escapedHtml(summary), room)}</p>` : cut(summary, room);
 }
 
 /** An object written from its rows: as many records as rows, no rule. */
