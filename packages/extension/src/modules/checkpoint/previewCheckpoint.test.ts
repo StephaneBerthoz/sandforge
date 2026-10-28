@@ -603,4 +603,25 @@ describe('objectsWrittenBy', () => {
       }),
     ).toEqual(['Account', 'Case', 'Task']);
   });
+
+  it('names an object whose records come back for a moment, to be deleted again, in none of the numbers: the rewind reads its automation, and refuses without the box what runs on them', () => {
+    const object = (objectApiName: string, toBringBack: Record<string, number>) => ({
+      objectApiName,
+      toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 0 },
+      toGiveBack: { records: 0, fields: 0, clearedLookups: 0 },
+      toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, ...toBringBack },
+      cannotUndo: [],
+      outside: [],
+      touched: 0,
+      unexplained: 0,
+      lastChangedBy: {},
+      notCompared: [],
+    });
+
+    expect(
+      objectsWrittenBy({
+        objects: [object('Account', { carriers: 1 }), object('Contact', { withParent: 1 })],
+      }),
+    ).toEqual(['Account', 'Contact']);
+  });
 });

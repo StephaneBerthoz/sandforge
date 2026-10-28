@@ -294,6 +294,29 @@ export function previewDiff(
   return { ...previewAnswer().diff, ...overrides };
 }
 
+/**
+ * A diff whose records of the checkpoint left with a record it does not hold:
+ * an account created since, two contacts of the checkpoint moved under it and
+ * a contact made under it, then the account deleted. The account comes back
+ * for a moment with the three, the two are given their values back, and the
+ * account goes again with the contact made since.
+ */
+export function carriedDiff(): CheckpointPreviewResponse['payload']['diff'] {
+  return previewDiff({
+    objects: [
+      diffObject('Contact', {
+        toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 1 },
+        toGiveBack: { records: 2, fields: 4, clearedLookups: 0 },
+        toBringBack: { inBin: 0, withParent: 2, deletedWhileTaken: 0 },
+        lastChangedBy: { [USERS.alice]: 3 },
+      }),
+      diffObject('Account', {
+        toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
+      }),
+    ],
+  });
+}
+
 /** What a rewind deleted of one object, nothing left unless `overrides` says so. */
 export function deletedObject(
   objectApiName: string,

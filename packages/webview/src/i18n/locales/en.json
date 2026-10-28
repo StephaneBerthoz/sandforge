@@ -5418,6 +5418,8 @@
         "deletedWhileTaken_other": "{{object}}: {{formatted}} records deleted while the checkpoint was taken come back with the values they had then.",
         "withParent_one": "{{object}}: {{formatted}} record comes back with its parent record.",
         "withParent_other": "{{object}}: {{formatted}} records come back with their parent record.",
+        "carriers_one": "{{object}}: {{formatted}} record the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with it only, so it comes back for a moment, then goes back to the recycle bin with what came back with it.",
+        "carriers_other": "{{object}}: {{formatted}} records the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with them only, so they come back for a moment, then go back to the recycle bin with what came back with them.",
         "fields_one": "{{object}}: {{formatted}} field value to give back.",
         "fields_other": "{{object}}: {{formatted}} field values to give back.",
         "clearedLookups_one": "{{object}}: {{formatted}} record gets back a lookup a deletion since cleared.",
@@ -5437,8 +5439,10 @@
         "title": "What a rewind cannot undo",
         "goneForGood_one": "{{formatted}} record deleted since cannot come back: the recycle bin no longer holds it, and the rewind cannot make it again — a file, whose body the checkpoint does not hold, or a record deleted while the checkpoint was taken ({{objects}}).",
         "goneForGood_other": "{{formatted}} records deleted since cannot come back: the recycle bin no longer holds them, and the rewind cannot make them again — files, whose bodies the checkpoint does not hold, or records deleted while the checkpoint was taken ({{objects}}).",
-        "deletedWithCreatedParent_one": "{{formatted}} record deleted with a parent created since cannot come back on its own ({{objects}}).",
-        "deletedWithCreatedParent_other": "{{formatted}} records deleted with a parent created since cannot come back on their own ({{objects}}).",
+        "deletedWithCreatedParent_one": "{{formatted}} record deleted with a parent created since cannot come back: Salesforce gives it back with that parent only, and does not undelete that parent on its own ({{objects}}).",
+        "deletedWithCreatedParent_other": "{{formatted}} records deleted with a parent created since cannot come back: Salesforce gives them back with that parent only, and does not undelete that parent on its own ({{objects}}).",
+        "deletedWithParentOutside_one": "{{formatted}} record deleted since with its parent, a record of an object the checkpoint does not hold, stays in the recycle bin: Salesforce gives it back with that parent only. A checkpoint that holds the parent's object brings it back ({{objects}}).",
+        "deletedWithParentOutside_other": "{{formatted}} records deleted since with their parent, a record of an object the checkpoint does not hold, stay in the recycle bin: Salesforce gives them back with that parent only. A checkpoint that holds the parent's object brings them back ({{objects}}).",
         "convertedLead_one": "{{formatted}} lead was converted since: Salesforce cannot unconvert a lead. What the conversion made is deleted, and the lead stays converted.",
         "convertedLead_other": "{{formatted}} leads were converted since: Salesforce cannot unconvert a lead. What the conversions made is deleted, and the leads stay converted.",
         "activatedContract_one": "{{formatted}} contract was activated since: Salesforce will not set it back to Draft, so it stays activated.",
@@ -5502,7 +5506,9 @@
         "bringBack_one": "brings back {{formatted}} record from the recycle bin",
         "bringBack_other": "brings back {{formatted}} records from the recycle bin",
         "recreate_one": "makes {{formatted}} record the recycle bin no longer holds again, with a new Id",
-        "recreate_other": "makes {{formatted}} records the recycle bin no longer holds again, with new Ids"
+        "recreate_other": "makes {{formatted}} records the recycle bin no longer holds again, with new Ids",
+        "carriers_one": "brings back for a moment {{formatted}} record that had taken records of the checkpoint along, then deletes it again",
+        "carriers_other": "brings back for a moment {{formatted}} records that had taken records of the checkpoint along, then deletes them again"
       },
       "toRecreate_one": "{{formatted}} to make again",
       "toRecreate_other": "{{formatted}} to make again",
@@ -5624,11 +5630,20 @@
         "restoredLine": "{{object}}: {{restored}} of {{planned}} given back their values from before the rewind",
         "keptChanged": "changed since the rewind, left as they are now: {{n}}",
         "remade_one": "Deleted again in {{org}}: {{formatted}} record the rewind made again, with what went with it",
-        "remade_other": "Deleted again in {{org}}: {{formatted}} records the rewind made again, with what went with them"
+        "remade_other": "Deleted again in {{org}}: {{formatted}} records the rewind made again, with what went with them",
+        "carriedAlone_one": "Back in the recycle bin of {{org}} on its own: {{formatted}} {{object}} record that had gone there with a record the rewind brought back for a moment, which stays there. It comes back alone, under the parent the checkpoint gave it.",
+        "carriedAlone_other": "Back in the recycle bin of {{org}} on their own: {{formatted}} {{object}} records that had gone there with a record the rewind brought back for a moment, which stays there. They come back alone, under the parent the checkpoint gave them."
       },
       "recreated": {
         "title": "Made again in {{org}}, with new Ids",
         "line": "{{object}}: {{created}} of {{planned}} made again"
+      },
+      "carriers": {
+        "title": "Brought back for a moment from the recycle bin of {{org}}, to bring back the records of the checkpoint they had taken along",
+        "line_one": "{{object}}: {{formatted}} record the checkpoint does not hold",
+        "line_other": "{{object}}: {{formatted}} records the checkpoint does not hold",
+        "deletedAgain": "Deleted again once those records were back, with what came back with them: in the recycle bin, as before the rewind.",
+        "stopped": "Stopped before the rewind was through: what of them it had not deleted again yet is still in {{org}}. Rewind again deletes it, with what came back with it."
       }
     },
     "undo": {

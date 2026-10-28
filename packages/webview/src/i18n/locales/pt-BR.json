@@ -5418,6 +5418,8 @@
         "deletedWhileTaken_other": "{{object}}: {{formatted}} registros excluídos enquanto o ponto de verificação era criado voltam com os valores que tinham então.",
         "withParent_one": "{{object}}: {{formatted}} registro volta com o registro pai.",
         "withParent_other": "{{object}}: {{formatted}} registros voltam com o registro pai.",
+        "carriers_one": "{{object}}: {{formatted}} registro que o ponto de verificação não contém, excluído desde então, levou registros do ponto de verificação junto: o Salesforce só os devolve com ele, então ele volta por um momento e depois retorna à lixeira com o que voltou com ele.",
+        "carriers_other": "{{object}}: {{formatted}} registros que o ponto de verificação não contém, excluídos desde então, levaram registros do ponto de verificação junto: o Salesforce só os devolve com eles, então eles voltam por um momento e depois retornam à lixeira com o que voltou com eles.",
         "fields_one": "{{object}}: {{formatted}} valor de campo a devolver.",
         "fields_other": "{{object}}: {{formatted}} valores de campo a devolver.",
         "clearedLookups_one": "{{object}}: {{formatted}} registro recebe de volta um campo de pesquisa que uma exclusão esvaziou desde então.",
@@ -5437,8 +5439,10 @@
         "title": "O que um retrocesso não pode desfazer",
         "goneForGood_one": "{{formatted}} registro excluído desde então não pode voltar: a lixeira não o contém mais, e o retrocesso não pode recriá-lo — um arquivo, cujo conteúdo o ponto de verificação não guarda, ou um registro excluído enquanto o ponto de verificação era criado ({{objects}}).",
         "goneForGood_other": "{{formatted}} registros excluídos desde então não podem voltar: a lixeira não os contém mais, e o retrocesso não pode recriá-los — arquivos, cujo conteúdo o ponto de verificação não guarda, ou registros excluídos enquanto o ponto de verificação era criado ({{objects}}).",
-        "deletedWithCreatedParent_one": "{{formatted}} registro excluído com um pai criado desde então não pode voltar sozinho ({{objects}}).",
-        "deletedWithCreatedParent_other": "{{formatted}} registros excluídos com um pai criado desde então não podem voltar sozinhos ({{objects}}).",
+        "deletedWithCreatedParent_one": "{{formatted}} registro excluído com um pai criado desde então não pode voltar: o Salesforce só o devolve com esse pai, e não recupera esse pai sozinho ({{objects}}).",
+        "deletedWithCreatedParent_other": "{{formatted}} registros excluídos com um pai criado desde então não podem voltar: o Salesforce só os devolve com esse pai, e não recupera esse pai sozinho ({{objects}}).",
+        "deletedWithParentOutside_one": "{{formatted}} registro excluído desde então com o registro pai, um registro de um objeto que o ponto de verificação não contém, fica na lixeira: o Salesforce só o devolve com esse pai. Um ponto de verificação que contenha o objeto do pai o recupera ({{objects}}).",
+        "deletedWithParentOutside_other": "{{formatted}} registros excluídos desde então com o registro pai, um registro de um objeto que o ponto de verificação não contém, ficam na lixeira: o Salesforce só os devolve com esse pai. Um ponto de verificação que contenha o objeto do pai os recupera ({{objects}}).",
         "convertedLead_one": "{{formatted}} lead foi convertido desde então: o Salesforce não pode desfazer a conversão de um lead. O que a conversão criou é excluído, e o lead continua convertido.",
         "convertedLead_other": "{{formatted}} leads foram convertidos desde então: o Salesforce não pode desfazer a conversão de um lead. O que as conversões criaram é excluído, e os leads continuam convertidos.",
         "activatedContract_one": "{{formatted}} contrato foi ativado desde então: o Salesforce não o volta para Rascunho, então ele continua ativado.",
@@ -5502,7 +5506,9 @@
         "bringBack_one": "recupera {{formatted}} registro da lixeira",
         "bringBack_other": "recupera {{formatted}} registros da lixeira",
         "recreate_one": "recria {{formatted}} registro que a lixeira não contém mais, com um Id novo",
-        "recreate_other": "recria {{formatted}} registros que a lixeira não contém mais, com Ids novos"
+        "recreate_other": "recria {{formatted}} registros que a lixeira não contém mais, com Ids novos",
+        "carriers_one": "recupera por um momento {{formatted}} registro que tinha levado registros do ponto de verificação junto e depois o exclui de novo",
+        "carriers_other": "recupera por um momento {{formatted}} registros que tinham levado registros do ponto de verificação junto e depois os exclui de novo"
       },
       "toRecreate_one": "{{formatted}} a recriar",
       "toRecreate_other": "{{formatted}} a recriar",
@@ -5624,11 +5630,20 @@
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaram os seus valores de antes do retrocesso",
         "keptChanged": "alterados desde o retrocesso, deixados como estão agora: {{n}}",
         "remade_one": "Excluído de novo em {{org}}: {{formatted}} registro que o retrocesso recriou, com o que foi junto com ele",
-        "remade_other": "Excluídos de novo em {{org}}: {{formatted}} registros que o retrocesso recriou, com o que foi junto com eles"
+        "remade_other": "Excluídos de novo em {{org}}: {{formatted}} registros que o retrocesso recriou, com o que foi junto com eles",
+        "carriedAlone_one": "Devolvido sozinho à lixeira de {{org}}: {{formatted}} registro de {{object}} que tinha ido para lá com um registro que o retrocesso recuperou por um momento, e que fica lá. Ele volta sozinho, sob o pai que o ponto de verificação lhe dava.",
+        "carriedAlone_other": "Devolvidos sozinhos à lixeira de {{org}}: {{formatted}} registros de {{object}} que tinham ido para lá com um registro que o retrocesso recuperou por um momento, e que fica lá. Eles voltam sozinhos, sob o pai que o ponto de verificação lhes dava."
       },
       "recreated": {
         "title": "Recriados em {{org}}, com Ids novos",
         "line": "{{object}}: {{created}} de {{planned}} recriados"
+      },
+      "carriers": {
+        "title": "Recuperados por um momento da lixeira de {{org}}, para recuperar os registros do ponto de verificação que tinham levado junto",
+        "line_one": "{{object}}: {{formatted}} registro que o ponto de verificação não contém",
+        "line_other": "{{object}}: {{formatted}} registros que o ponto de verificação não contém",
+        "deletedAgain": "Excluídos de novo assim que esses registros voltaram, com o que voltou com eles: na lixeira, como antes do retrocesso.",
+        "stopped": "Interrompido antes do fim do retrocesso: o que deles ainda não tinha sido excluído de novo continua em {{org}}. Um novo retrocesso o exclui, com o que voltou junto."
       }
     },
     "undo": {

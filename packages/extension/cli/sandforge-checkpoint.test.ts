@@ -347,7 +347,7 @@ describe('parseArgs', () => {
       '{refusal: {code, message}}',
       '  rewind --dry-run   as preview',
       '  rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,',
-      '  undo               as rewind, without recreated, cannotUndo and undo',
+      '  undo               as rewind, without recreated, cannotUndo, carriers and undo, with',
       'Exit codes: 0 done',
       'rewind or undo with --yes and no checkpoint named, or a question with no terminal',
       '--fail-on-change, the org differs',
@@ -802,6 +802,56 @@ describe('previewLines', () => {
     expect(giving).not.toContain(offer);
   });
 
+  it('says the records it brings back for a moment, in none of the three numbers, and what the org runs on them runs twice; counts them in --json', () => {
+    const answer = {
+      diff: diffOf([
+        object({
+          toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 2 },
+        }),
+        object({
+          objectApiName: 'Contact',
+          toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 1 },
+          toGiveBack: { records: 2, fields: 2, clearedLookups: 0 },
+          toBringBack: { inBin: 0, withParent: 2, deletedWhileTaken: 0 },
+        }),
+      ]),
+      estimate,
+    };
+
+    const lines = previewLines('DEV-SB', checkpoint, answer);
+
+    expect(lines[1]).toBe('  1 to delete · 2 to give back · 2 to bring back');
+    expect(lines).toContain(
+      '  brought back for a moment: Account 2 — records the checkpoint does not hold that took records of it along when deleted since: Salesforce gives those back with them only, so they come back, then go back to the recycle bin with what came back with them; what the org runs on them runs twice',
+    );
+    const json = previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, answer);
+    expect(json).toMatchObject({ toDelete: 1, toGiveBack: 2, toBringBack: 2, carriers: 2 });
+    expect(
+      previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, { diff: diffOf([]), estimate })
+        .carriers,
+    ).toBe(0);
+  });
+
+  it('says why records deleted with a parent the rewind does not bring back stay in the recycle bin, each reason in its own words', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([
+        object({
+          objectApiName: 'Contact',
+          cannotUndo: [{ reason: 'deletedWithParentOutside', count: 3 }],
+        }),
+        object({
+          objectApiName: 'Note__c',
+          cannotUndo: [{ reason: 'deletedWithCreatedParent', count: 1 }],
+        }),
+      ]),
+      estimate,
+    });
+    expect(lines.filter((line) => line.startsWith("  can't be taken back:"))).toEqual([
+      "  can't be taken back: Contact 3 — deleted with their parent, a record of an object the checkpoint does not hold: they come back with that parent only, which a checkpoint that holds its object brings back",
+      "  can't be taken back: Note__c 1 — deleted with a parent created since that Salesforce does not undelete on its own: they come back with that parent only",
+    ]);
+  });
+
   it('says there is nothing to rewind when the org is as it was', () => {
     const lines = previewLines('DEV-SB', checkpoint, { diff: diffOf([]), estimate });
     expect(lines).toContain(
@@ -970,6 +1020,49 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
       undefined,
     );
     expect(acceptanceRefusal('DEV-SB', { diff }, NOTHING_ACCEPTED)).toBeUndefined();
+  });
+
+  it('names the object of what it brings back for a moment among those it brings back and deletes, and refuses without --accept-automation what runs on them', () => {
+    const carried = diffOf([
+      object({ toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 1 } }),
+      object({
+        objectApiName: 'Contact',
+        toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      }),
+    ]);
+    expect(rewindStepsOf(carried)).toEqual({
+      bringBack: ['Account', 'Contact'],
+      recreate: [],
+      giveBack: ['Contact'],
+      setToDraft: [],
+      delete: ['Account'],
+    });
+    const restore = automation({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [],
+          triggers: [{ name: 'AccountRestore', events: ['afterUndelete'] }],
+        },
+      ],
+    });
+    expect(
+      acceptanceRefusal('DEV-SB', { diff: carried, automation: restore }, NOTHING_ACCEPTED)?.code,
+    ).toBe('AUTOMATION');
+    expect(
+      rewindQuestion(
+        'DEV-SB',
+        { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' },
+        carried,
+      ),
+    ).toBe(
+      "Rewind DEV-SB to 'Before UAT': it deletes the 0 record(s) created since 2026-10-20 14:05 " +
+        'UTC, gives 1 record(s) their values from then back, and brings back 1 record(s) from ' +
+        'the recycle bin, with 1 record(s) brought back for a moment that had taken records of ' +
+        'the checkpoint along, then deleted again — whoever made these changes. What it changes is ' +
+        'kept, so it can be undone. Type DEV-SB to rewind it:',
+    );
   });
 
   it('asks the question the page asks, with what the rewind does and the alias to type', () => {
@@ -1300,6 +1393,80 @@ describe('rewindLines, undoLines and resultJson', () => {
     expect(undone).not.toHaveProperty('cannotUndo');
     expect(undone).not.toHaveProperty('undo');
     expect(undone).not.toHaveProperty('recreated');
+  });
+
+  it('says, of what a rewind brought back and deleted, what came back for a moment, and lists it in its JSON (P-B1)', () => {
+    const carried = {
+      deleted: [
+        {
+          ...DID.deleted![0],
+          objectApiName: 'Account',
+          planned: 1,
+          deleted: 1,
+          refused: 0,
+          reasons: [],
+        },
+      ],
+      restored: [
+        { ...DID.restored![0], objectApiName: 'Contact', planned: 1, restored: 1, keptChanged: 0 },
+      ],
+      undeleted: [{ ...DID.undeleted![0], planned: 1, undeleted: 1, alreadyBack: 0 }],
+      carriers: [{ objectApiName: 'Account', count: 1 }],
+      passes: 2,
+    };
+    const result = resultOf(carried);
+
+    expect(rewindLines('DEV-SB', checkpoint, result)).toEqual([
+      "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
+      '  deleted 1 record(s) created since the checkpoint (in the recycle bin for up to 15 days)',
+      '  gave 1 record(s) back their checkpoint values',
+      '  brought back 1 record(s) deleted since the checkpoint, with their original Ids',
+      '  of them, brought back for a moment and deleted again: Account 1 — records the checkpoint does not hold that had taken records of it along, back in the recycle bin with what came back with them',
+      '  sent 40 API requests to the org; 14,860 left today',
+    ]);
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, result).carriers).toEqual([
+      { object: 'Account', count: 1 },
+    ]);
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('carriers');
+
+    const stopped = rewindLines(
+      'DEV-SB',
+      checkpoint,
+      resultOf({ ...carried, status: 'cancelled', deleted: [] }),
+    );
+    expect(stopped).toContain(
+      '  of them, brought back for a moment: Account 1 — records the checkpoint does not hold that had taken records of it along; stopped before it was through, those it had not deleted again yet are still in the org: rewind again deletes them, with what came back with them',
+    );
+    expect(
+      rewindLines('DEV-SB', checkpoint, resultOf({ ...carried, status: 'failure' })).join('\n'),
+    ).not.toContain('brought back for a moment');
+  });
+
+  it('says what an undo sent back to the recycle bin on its own that had gone there with a record the rewind brought back for a moment, and lists it in its JSON (P-B1)', () => {
+    const result = resultOf({
+      deleted: [
+        {
+          ...DID.deleted![0],
+          objectApiName: 'Contact',
+          planned: 1,
+          deleted: 1,
+          refused: 0,
+          reasons: [],
+        },
+      ],
+      carriedAlone: [{ objectApiName: 'Contact', count: 1 }],
+    });
+
+    expect(undoLines('DEV-SB', checkpoint, result)).toEqual([
+      "DEV-SB is back as it was before its rewind to 'Before UAT'.",
+      '  sent back to the recycle bin 1 record(s) the rewind brought back',
+      '  of them, back in the recycle bin on their own: Contact 1 — they had gone there with a record the rewind brought back for a moment, which stays there; they come back alone, under the parent the checkpoint gave them',
+      '  sent 40 API requests to the org; 14,860 left today',
+    ]);
+    expect(resultJson('undo', 'DEV-SB', checkpoint, result).carriedAlone).toEqual([
+      { object: 'Contact', count: 1 },
+    ]);
+    expect(resultJson('undo', 'DEV-SB', checkpoint, result)).not.toHaveProperty('carriers');
   });
 
   it('says what a rewind made again with new Ids, counts it in its JSON, and names an insert the org refused', () => {

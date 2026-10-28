@@ -153,6 +153,58 @@ const RecreatedResult: React.FC<{
   );
 };
 
+/**
+ * What a rewind brought back for a moment, object by object: records the
+ * checkpoint does not hold, deleted since with records it holds, which
+ * Salesforce gives back with them only. Deleted again once those came back,
+ * with what came back with them; a stopped rewind may have left some in the
+ * org, which Rewind again deletes.
+ */
+const CarriersResult: React.FC<{
+  carriers: NonNullable<RewindOutcome['carriers']>;
+  orgName: string;
+  stopped: boolean;
+}> = ({ carriers, orgName, stopped }) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-result-carriers"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.result.carriers.title', { org: orgName })}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {carriers.map((object) => (
+          <li
+            key={object.objectApiName}
+            data-testid={`checkpoint-result-carriers-${object.objectApiName}`}
+          >
+            {t('checkpoint.result.carriers.line', {
+              count: object.count,
+              formatted: formatNumber(object.count),
+              object: object.objectApiName,
+            })}
+          </li>
+        ))}
+      </ul>
+      <p
+        data-testid={
+          stopped
+            ? 'checkpoint-result-carriers-stopped'
+            : 'checkpoint-result-carriers-deleted-again'
+        }
+      >
+        {stopped
+          ? t('checkpoint.result.carriers.stopped', { org: orgName })
+          : t('checkpoint.result.carriers.deletedAgain')}
+      </p>
+    </section>
+  );
+};
+
 /** Props for {@link RewindResult}. */
 export interface RewindResultProps {
   kind: RunKind;
@@ -181,8 +233,11 @@ export interface RewindResultProps {
  * comparing, what someone else changed during the rewind, left as they made
  * it, what changed since the preview, what the org refused and what the
  * recycle bin no longer holds — then object by object what it brought back,
- * made again with new Ids, gave back and deleted, what it cost, and until
- * when it can be undone.
+ * and of it what came back for a moment to bring records of the checkpoint
+ * back, what it made again with new Ids, gave back and deleted, what it
+ * cost, and until when it can be undone. An undo says what it sent back to
+ * the recycle bin on its own that had gone there with a record the rewind
+ * brought back for a moment, which stays there.
  */
 export const RewindResult: React.FC<RewindResultProps> = ({
   kind,
@@ -206,6 +261,9 @@ export const RewindResult: React.FC<RewindResultProps> = ({
   const rewinding = kind === 'rewind';
   // What an undo deleted of what the rewind made again, never sent back.
   const deletedAgain = rewinding ? 0 : remadeDeleted(result);
+  // A rewind that wrote nothing brought nothing back for a moment.
+  const carriers = rewinding && result.status !== 'failure' ? (result.carriers ?? []) : [];
+  const carriedAlone = rewinding ? [] : (result.carriedAlone ?? []);
   const automation = automationObjects(result);
   const undoUntil = rewinding && result.undo ? result.undo : undefined;
   const until = undoUntil
@@ -254,6 +312,13 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           testId="checkpoint-result-undeleted"
         />
       )}
+      {carriers.length > 0 && (
+        <CarriersResult
+          carriers={carriers}
+          orgName={orgName}
+          stopped={result.status === 'cancelled'}
+        />
+      )}
       {rewinding && (result.recreated?.length ?? 0) > 0 && (
         <RecreatedResult recreated={result.recreated ?? []} orgName={orgName} />
       )}
@@ -274,6 +339,19 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           })}
         </p>
       )}
+      {carriedAlone.map((object) => (
+        <p
+          key={object.objectApiName}
+          data-testid={`checkpoint-result-carried-alone-${object.objectApiName}`}
+        >
+          {t('checkpoint.result.undo.carriedAlone', {
+            count: object.count,
+            formatted: formatNumber(object.count),
+            object: object.objectApiName,
+            org: orgName,
+          })}
+        </p>
+      ))}
       {result.deleted.length > 0 && (
         <ForgeRunRemovalResult
           result={{ status: deletedStatus(result.deleted, result.status), objects: result.deleted }}

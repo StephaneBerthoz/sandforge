@@ -296,6 +296,10 @@ type Step =
   // Emptied from the bin, still read deleted: see `MemoryOrgFacts.emptiedStillListed`.
   | { kind: 'empty'; object: number; pick: number }
   | { kind: 'hardDelete'; object: number; pick: number }
+  // An account made, a contact of the org — or a deal, with its products —
+  // moved under it, a contact made under it, then the account deleted: what
+  // it took along comes back with it only.
+  | { kind: 'carry'; pick: number; deal: boolean }
   // Only in an org with cases, never drawn at random.
   | { kind: 'case'; parent: number };
 
@@ -311,6 +315,7 @@ function stepArb(goneForGood: boolean): fc.Arbitrary<Step> {
     fc.record({ kind: fc.constant('trash' as const), object: objectIndex, pick }),
     fc.record({ kind: fc.constant('untrash' as const), object: objectIndex, pick }),
     fc.record({ kind: fc.constant('priceBook' as const), pick }),
+    fc.record({ kind: fc.constant('carry' as const), pick, deal: fc.boolean() }),
   ];
   if (goneForGood) {
     steps.push(
@@ -511,6 +516,23 @@ function apply(org: RewindTestOrg, history: readonly Step[], made: { next: numbe
       case 'hardDelete': {
         const row = nth(workable(org, objectApiName), step.pick);
         if (row) org.hardDelete(objectApiName, row.Id, COLLEAGUE);
+        return;
+      }
+      case 'carry': {
+        const n = ++made.next;
+        const carrier = account(n);
+        org.add('Account', { Id: carrier, Name: `Carrier ${n}`, LastModifiedById: COLLEAGUE });
+        const moved = step.deal ? 'Opportunity' : 'Contact';
+        const row = nth(workable(org, moved), step.pick);
+        if (row) org.edit(moved, row.Id, { AccountId: carrier }, COLLEAGUE);
+        const m = ++made.next;
+        org.add('Contact', {
+          Id: contact(m),
+          LastName: `Made ${m}`,
+          AccountId: carrier,
+          LastModifiedById: COLLEAGUE,
+        });
+        org.trash('Account', carrier, COLLEAGUE);
         return;
       }
     }
@@ -736,6 +758,62 @@ describe('a rewind on the memory org, over random histories since the checkpoint
       }
     },
     paced(120_000),
+  );
+
+  it(
+    'after records of the checkpoint were carried off — a contact, a deal and its products moved under an account made since, deleted with it — brings them back as the checkpoint holds them, or names each record that still differs; rewound again it stays; undone, returns the org to how it was before the rewind, or says each record it kept and why',
+    async () => {
+      // The first contact, then the second deal and its product, carried off
+      // each by an account made since, with a contact made under it.
+      const carried: Step[] = [
+        { kind: 'carry', pick: 0, deal: false },
+        { kind: 'carry', pick: 1, deal: true },
+      ];
+      const held = [contact(1), opportunity(2), line(1)];
+      for (const facts of factCombinations([
+        'undeleterIsLastModifier',
+        'undeleteRestoresLookups',
+        'childDeletedAloneThenParentLimbo',
+      ])) {
+        /** Rewinds that brought carriers back for a moment, under these facts. */
+        let carrying = 0;
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (random) => {
+            const history = [...carried, ...random];
+            const t = await since(facts, history);
+            const result = resultOf(await rewindNow(t));
+            const message = said(facts, history, { status: result.status });
+            if ((result.carriers ?? []).length > 0) carrying++;
+            expect(result.status, message).not.toBe('unstable');
+            expectNamed(t, result.residual, message);
+            const once = keptOf(t.org, t.checkpoint);
+            const named = new Set(result.residual.flatMap(({ ids }) => ids));
+            for (const record of held) {
+              if (named.has(record)) continue;
+              expect({ message, record, state: recordIn(once, record) }).toEqual({
+                message,
+                record,
+                state: recordIn(t.kept, record),
+              });
+            }
+            resultOf(await rewindNow(t));
+            expect(keptOf(t.org, t.checkpoint), message).toEqual(once);
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+        expect({ facts: said(facts, carried), carrying }).toEqual({
+          facts: said(facts, carried),
+          carrying: RUNS,
+        });
+        await fc.assert(
+          fc.asyncProperty(historyArb(), async (random) => {
+            await undoneAfter(facts, [...carried, ...random], 'orSaysWhy');
+          }),
+          { numRuns: RUNS, seed: SEED, endOnFailure: true },
+        );
+      }
+    },
+    paced(180_000),
   );
 
   it(
@@ -1069,6 +1147,23 @@ describe('what a rewind sends, at scale, against what its preview estimated', ()
       (org) => {
         org.add('Contact', { Id: contact(600), LastName: 'Made since', AccountId: account(2) });
         org.trash('Account', account(2), COLLEAGUE);
+      },
+    );
+    expect(passes).toBe(2);
+    expect(used).toBeLessThanOrEqual(estimate);
+  });
+
+  it('sends no more than it estimated when accounts made since carried contacts of the checkpoint off: brought back for a moment, then deleted again by a second pass', async () => {
+    const { used, estimate, passes } = await sent(
+      () => undefined,
+      (org) => {
+        for (const [n, moved] of [contact(1), contact(3)].entries()) {
+          const carrier = account(700 + n);
+          org.add('Account', { Id: carrier, Name: `Carrier ${n}` });
+          org.edit('Contact', moved, { AccountId: carrier }, COLLEAGUE);
+          org.add('Contact', { Id: contact(700 + n), LastName: 'Made since', AccountId: carrier });
+          org.trash('Account', carrier, COLLEAGUE);
+        }
       },
     );
     expect(passes).toBe(2);

@@ -470,6 +470,18 @@ describe('diffEstimate', () => {
     expect(cost.apiRequests).toBe(1 + 1 + 1 + 1 + 1 + (1 + 1) + 1);
   });
 
+  it('sends again the requests the last read sent to tell what went with a parent outside the checkpoint: each read of the org since the checkpoint tells it anew', () => {
+    const read = { objects: CHECKPOINT, diff: { objects: FOUND, unread: [] } };
+    const told = { ...read, diff: { ...read.diff, parentsOutsideRequests: 3 } };
+
+    expect(diffEstimate(told).apiRequests - diffEstimate(read).apiRequests).toBe(3);
+    // The fresh diff, and the read after pass 1, which is the verify here.
+    expect(
+      rewindEstimate({ ...told, automationRequests: 0 }).apiRequests -
+        rewindEstimate({ ...read, automationRequests: 0 }).apiRequests,
+    ).toBe(3 + 3);
+  });
+
   it('names the users who last changed what it found, two hundred a read, five reads a call', () => {
     const changedBy = (users: number): Record<string, number> =>
       Object.fromEntries(Array.from({ length: users }, (_, n) => [fakeId('005', n), 1]));
@@ -726,6 +738,49 @@ describe('rewindEstimate', () => {
     // The guard and the limits, the fresh diff, the automation, the user,
     // nothing in pass 1; pass 2's removal of the 3.
     expect(later.apiRequests).toBe(4 + diff + 7 + 1 + afterOne + (3 + 1 + 1 + 0 + 1) + verify);
+  });
+
+  it('sends a carrier to the undelete and deletes it again in pass 2, counting it in none of the act’s records: the read after pass 1 finds it to delete, and names who changed it; pass 2 removes it and the verify reads the org once more', () => {
+    const carrying = {
+      ...input,
+      diff: {
+        objects: [
+          found('Account', {
+            toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
+          }),
+          found('Contact', { toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 } }),
+        ],
+        unread: [],
+      },
+    };
+    const carried = rewindEstimate(carrying);
+    const alone = rewindEstimate({
+      ...carrying,
+      diff: { ...carrying.diff, objects: [carrying.diff.objects[1]] },
+    });
+
+    expect(carried.records).toBe(alone.records);
+    const fresh =
+      diffEstimate(carrying).apiRequests -
+      diffEstimate({
+        ...carrying,
+        diff: { ...carrying.diff, objects: [carrying.diff.objects[1]] },
+      }).apiRequests;
+    // Read by the fresh diff in the composites that read the contact already.
+    expect(fresh).toBe(0);
+    // Pass 1: the org's objects described, as an account with children comes
+    // back; its undelete's three, the children the bin holds of it, and the
+    // stamps read back. The read after it: the account described as one to
+    // delete, and who last changed it. Pass 2: its removal — the global
+    // describe, the clock and the user, the account described and read by
+    // id, its two relationships read, its delete — then the verify, a read of
+    // the org as the one after pass 1: its clock, the describes, the
+    // pre-checks, the change reads, the counts and the contact read by id.
+    const passOne = 1 + (3 + 1 + 1);
+    const afterOne = 1 + 1;
+    const passTwo = 3 + 1 + 1 + 2 + 1;
+    const verify = 1 + 1 + 1 + 1 + 1 + 1;
+    expect(carried.apiRequests - alone.apiRequests).toBe(passOne + afterOne + passTwo + verify);
   });
 
   it('gives an order its status back alone, in calls of its own, before its other fields', () => {

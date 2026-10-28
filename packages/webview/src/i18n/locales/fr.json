@@ -5418,6 +5418,8 @@
         "deletedWhileTaken_other": "{{object}} : {{formatted}} enregistrements supprimés pendant la création du point de contrôle reviennent avec les valeurs qu'ils avaient alors.",
         "withParent_one": "{{object}} : {{formatted}} enregistrement revient avec son enregistrement parent.",
         "withParent_other": "{{object}} : {{formatted}} enregistrements reviennent avec leur enregistrement parent.",
+        "carriers_one": "{{object}} : {{formatted}} enregistrement que le point de contrôle ne contient pas, supprimé depuis, a emporté des enregistrements du point de contrôle : Salesforce ne les rétablit qu'avec lui, il revient donc un instant, puis retourne à la corbeille avec ce qui est revenu avec lui.",
+        "carriers_other": "{{object}} : {{formatted}} enregistrements que le point de contrôle ne contient pas, supprimés depuis, ont emporté des enregistrements du point de contrôle : Salesforce ne les rétablit qu'avec eux, ils reviennent donc un instant, puis retournent à la corbeille avec ce qui est revenu avec eux.",
         "fields_one": "{{object}} : {{formatted}} valeur de champ à rendre.",
         "fields_other": "{{object}} : {{formatted}} valeurs de champ à rendre.",
         "clearedLookups_one": "{{object}} : {{formatted}} enregistrement retrouve un champ de référence qu'une suppression a vidé depuis.",
@@ -5437,8 +5439,10 @@
         "title": "Ce qu'un retour arrière ne peut pas défaire",
         "goneForGood_one": "{{formatted}} enregistrement supprimé depuis ne peut pas revenir : la corbeille ne le contient plus, et le retour arrière ne peut pas le recréer — un fichier, dont le point de contrôle ne contient pas le contenu, ou un enregistrement supprimé pendant la prise du point de contrôle ({{objects}}).",
         "goneForGood_other": "{{formatted}} enregistrements supprimés depuis ne peuvent pas revenir : la corbeille ne les contient plus, et le retour arrière ne peut pas les recréer — des fichiers, dont le point de contrôle ne contient pas le contenu, ou des enregistrements supprimés pendant la prise du point de contrôle ({{objects}}).",
-        "deletedWithCreatedParent_one": "{{formatted}} enregistrement supprimé avec un parent créé depuis ne peut pas revenir seul ({{objects}}).",
-        "deletedWithCreatedParent_other": "{{formatted}} enregistrements supprimés avec un parent créé depuis ne peuvent pas revenir seuls ({{objects}}).",
+        "deletedWithCreatedParent_one": "{{formatted}} enregistrement supprimé avec un parent créé depuis ne peut pas revenir : Salesforce ne le rétablit qu'avec ce parent, et ne rétablit pas ce parent seul ({{objects}}).",
+        "deletedWithCreatedParent_other": "{{formatted}} enregistrements supprimés avec un parent créé depuis ne peuvent pas revenir : Salesforce ne les rétablit qu'avec ce parent, et ne rétablit pas ce parent seul ({{objects}}).",
+        "deletedWithParentOutside_one": "{{formatted}} enregistrement supprimé depuis avec son parent, un enregistrement d'un objet que le point de contrôle ne contient pas, reste dans la corbeille : Salesforce ne le rétablit qu'avec ce parent. Un point de contrôle qui contient l'objet du parent le rétablit ({{objects}}).",
+        "deletedWithParentOutside_other": "{{formatted}} enregistrements supprimés depuis avec leur parent, un enregistrement d'un objet que le point de contrôle ne contient pas, restent dans la corbeille : Salesforce ne les rétablit qu'avec ce parent. Un point de contrôle qui contient l'objet du parent les rétablit ({{objects}}).",
         "convertedLead_one": "{{formatted}} piste a été convertie depuis : Salesforce ne peut pas annuler la conversion d'une piste. Ce que la conversion a créé est supprimé, et la piste reste convertie.",
         "convertedLead_other": "{{formatted}} pistes ont été converties depuis : Salesforce ne peut pas annuler la conversion d'une piste. Ce que les conversions ont créé est supprimé, et les pistes restent converties.",
         "activatedContract_one": "{{formatted}} contrat a été activé depuis : Salesforce ne le remettra pas en Brouillon, il reste donc activé.",
@@ -5502,7 +5506,9 @@
         "bringBack_one": "rétablit {{formatted}} enregistrement depuis la corbeille",
         "bringBack_other": "rétablit {{formatted}} enregistrements depuis la corbeille",
         "recreate_one": "recrée {{formatted}} enregistrement que la corbeille ne contient plus, avec un nouvel Id",
-        "recreate_other": "recrée {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id"
+        "recreate_other": "recrée {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id",
+        "carriers_one": "rétablit un instant {{formatted}} enregistrement qui avait emporté des enregistrements du point de contrôle, puis le supprime de nouveau",
+        "carriers_other": "rétablit un instant {{formatted}} enregistrements qui avaient emporté des enregistrements du point de contrôle, puis les supprime de nouveau"
       },
       "toRecreate_one": "{{formatted}} à recréer",
       "toRecreate_other": "{{formatted}} à recréer",
@@ -5624,11 +5630,20 @@
         "restoredLine": "{{object}} : {{restored}} sur {{planned}} ont retrouvé leurs valeurs d'avant le retour arrière",
         "keptChanged": "modifiés depuis le retour arrière, laissés tels qu'ils sont maintenant : {{n}}",
         "remade_one": "Supprimé de nouveau dans {{org}} : {{formatted}} enregistrement recréé par le retour arrière, avec ce qui est parti avec lui",
-        "remade_other": "Supprimés de nouveau dans {{org}} : {{formatted}} enregistrements recréés par le retour arrière, avec ce qui est parti avec eux"
+        "remade_other": "Supprimés de nouveau dans {{org}} : {{formatted}} enregistrements recréés par le retour arrière, avec ce qui est parti avec eux",
+        "carriedAlone_one": "Renvoyé seul à la corbeille de {{org}} : {{formatted}} enregistrement {{object}} qui y était parti avec un enregistrement que le retour arrière a rétabli un instant, et qui y reste. Il revient seul, sous le parent que lui donnait le point de contrôle.",
+        "carriedAlone_other": "Renvoyés seuls à la corbeille de {{org}} : {{formatted}} enregistrements {{object}} qui y étaient partis avec un enregistrement que le retour arrière a rétabli un instant, et qui y reste. Ils reviennent seuls, sous le parent que leur donnait le point de contrôle."
       },
       "recreated": {
         "title": "Recréés dans {{org}}, avec de nouveaux Id",
         "line": "{{object}} : {{created}} sur {{planned}} recréés"
+      },
+      "carriers": {
+        "title": "Rétablis un instant depuis la corbeille de {{org}}, pour rétablir les enregistrements du point de contrôle qu'ils avaient emportés",
+        "line_one": "{{object}} : {{formatted}} enregistrement que le point de contrôle ne contient pas",
+        "line_other": "{{object}} : {{formatted}} enregistrements que le point de contrôle ne contient pas",
+        "deletedAgain": "Supprimés de nouveau une fois ces enregistrements revenus, avec ce qui est revenu avec eux : dans la corbeille, comme avant le retour arrière.",
+        "stopped": "Arrêté avant la fin du retour arrière : ce qu'il n'en avait pas encore supprimé de nouveau est toujours dans {{org}}. Un nouveau retour arrière le supprime, avec ce qui est revenu avec lui."
       }
     },
     "undo": {

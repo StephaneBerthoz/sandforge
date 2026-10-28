@@ -214,7 +214,9 @@ const CLASSES: RewindClass[] = [
   'goneForGood',
   'convertedLead',
   'activatedContract',
+  'carrier',
   'deletedWithCreatedParent',
+  'deletedWithParentOutside',
   'undoCannot',
 ];
 
@@ -1660,8 +1662,8 @@ describe('rewindDiff: a contract activated since, and a record gone with one cre
     expect(diff.objects[0]?.cannotUndo).toEqual([]);
   });
 
-  it('names a contact deleted with an account created since as one it cannot bring back: Salesforce brings it back with that account only, which nothing brings back; one deleted with an account the rewind brings back comes back with it (P7)', async () => {
-    const [moved, withHeld] = [1, 2].map(contactId);
+  it('brings back for a moment an account created since that took a contact of the checkpoint along, the contact with it and the contact made since under it, to delete again: Salesforce brings them back with that account only (P7, P-B1); one deleted with an account the rewind brings back comes back with it', async () => {
+    const [moved, withHeld, madeUnder] = [1, 2, 3].map(contactId);
     const made = accountId(20);
     const taken = await take({
       objects: [CASCADE_CONTACT, ACCOUNT],
@@ -1674,6 +1676,7 @@ describe('rewindDiff: a contract activated since, and a record gone with one cre
       since: (org) => {
         org.add('Account', { Id: made, Name: 'Made since' });
         org.edit('Contact', moved, { AccountId: made });
+        org.add('Contact', { Id: madeUnder, LastName: 'Made since', AccountId: made });
       },
       later: (org) => {
         org.trash('Account', made);
@@ -1683,15 +1686,112 @@ describe('rewindDiff: a contract activated since, and a record gone with one cre
 
     const diff = await diffOf(taken);
 
+    const contacts = await classesOf(taken.folder, 'Contact');
+    expect(Object.keys(contacts).sort()).toEqual(['comesBackWithParent', 'withParent']);
+    expect((contacts.withParent ?? []).map(({ Id }) => Id).sort()).toEqual(
+      [moved, withHeld].sort(),
+    );
+    expect(contacts.comesBackWithParent).toEqual(lines(madeUnder));
+    expect(await classesOf(taken.folder, 'Account')).toEqual({
+      inBin: lines(SUBJECT),
+      carrier: lines(made),
+    });
+    expect(diff.objects.find((o) => o.objectApiName === 'Account')?.toBringBack).toEqual({
+      inBin: 1,
+      withParent: 0,
+      deletedWhileTaken: 0,
+      carriers: 1,
+    });
+    expect(diff.objects.find((o) => o.objectApiName === 'Contact')?.cannotUndo).toEqual([]);
+  });
+
+  /** A contact's notes go with it, and its account's delete takes the contact along. */
+  const FAMILY = {
+    Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }],
+    Contact: [{ childSObject: 'Note__c', field: 'Contact__c', cascadeDelete: true }],
+  };
+
+  it('brings back only the top of what went in one second — an account made since, over a contact made since, over a note of the checkpoint moved under that contact — and the note comes back with it, the contact made since too, to go again', async () => {
+    const note = noteId(1);
+    const [own, madeContact] = [1, 2].map(contactId);
+    const made = accountId(20);
+    const taken = await take({
+      objects: [NOTE, CASCADE_CONTACT, ACCOUNT],
+      children: FAMILY,
+      before: (org) => {
+        org.add('Contact', { Id: own, LastName: 'Own', AccountId: KEPT });
+        org.add('Note__c', { Id: note, Body__c: 'Kept', Contact__c: own });
+      },
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.add('Contact', { Id: madeContact, LastName: 'Made since', AccountId: made });
+        org.edit('Note__c', note, { Contact__c: madeContact });
+      },
+      later: (org) => org.trash('Account', made),
+    });
+
+    await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ carrier: lines(made) });
     expect(await classesOf(taken.folder, 'Contact')).toEqual({
-      withParent: lines(withHeld),
+      comesBackWithParent: lines(madeContact),
+    });
+    expect(await classesOf(taken.folder, 'Note__c')).toEqual({ withParent: lines(note) });
+  });
+
+  it('makes again a contact deleted on its own before the account made since it was moved under was deleted: Salesforce keeps it in the bin for good, before that account comes back and after (F41, P-B2)', async () => {
+    const lost = contactId(1);
+    const made = accountId(20);
+    const taken = await take({
+      objects: [CASCADE_CONTACT, ACCOUNT],
+      children: { Account: [{ childSObject: 'Contact', field: 'AccountId', cascadeDelete: true }] },
+      before: (org) => org.add('Contact', { Id: lost, LastName: 'Lost', AccountId: KEPT }),
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.edit('Contact', lost, { AccountId: made });
+        org.trash('Contact', lost);
+      },
+      later: (org) => org.trash('Account', made),
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Contact')).toEqual({ toRecreate: lines(lost) });
+    expect(diff.objects.find((o) => o.objectApiName === 'Contact')?.toRecreate).toBe(1);
+    // Nothing of the checkpoint went with it in its second: it carries nothing.
+    expect(await classesOf(taken.folder, 'Account')).toEqual({});
+  });
+
+  it('names a contact, and a note of the checkpoint under it, deleted with an account made since that Salesforce does not undelete on its own: they come back with it only, and the note is never promised back (F10)', async () => {
+    const note = noteId(1);
+    const moved = contactId(1);
+    const made = accountId(20);
+    const taken = await take({
+      objects: [NOTE, CASCADE_CONTACT, { ...ACCOUNT, undeletable: false }],
+      children: FAMILY,
+      before: (org) => {
+        org.add('Contact', { Id: moved, LastName: 'Moved', AccountId: KEPT });
+        org.add('Note__c', { Id: note, Body__c: 'Kept', Contact__c: moved });
+      },
+      since: (org) => {
+        org.add('Account', { Id: made, Name: 'Made since' });
+        org.edit('Contact', moved, { AccountId: made });
+      },
+      later: (org) => org.trash('Account', made),
+    });
+
+    const diff = await diffOf(taken);
+
+    expect(await classesOf(taken.folder, 'Contact')).toEqual({
       deletedWithCreatedParent: lines(moved),
     });
-    expect(diff.objects.find((o) => o.objectApiName === 'Contact')?.cannotUndo).toEqual([
+    expect(await classesOf(taken.folder, 'Note__c')).toEqual({
+      deletedWithCreatedParent: lines(note),
+    });
+    expect(await classesOf(taken.folder, 'Account')).toEqual({});
+    expect(diff.objects.find((o) => o.objectApiName === 'Note__c')?.cannotUndo).toEqual([
       { reason: 'deletedWithCreatedParent', count: 1 },
     ]);
-    // The account created since and deleted since leaves nothing to rewind.
-    expect(await classesOf(taken.folder, 'Account')).toEqual({ inBin: lines(SUBJECT) });
   });
 });
 

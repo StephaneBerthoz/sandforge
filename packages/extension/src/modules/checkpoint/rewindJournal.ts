@@ -158,12 +158,21 @@ const resumedLineSchema = z.object({
  * record the rewind brings back that `ids[i]` hangs from, as deep as it
  * hangs: their undo sends them back to the bin with that record, never on
  * their own. A journal written before it named them has none.
+ *
+ * `carriers` marks the records a rewind brings back for a moment, then
+ * deletes again — records the checkpoint does not hold, deleted since with
+ * records it holds — and what comes back with them: of those, `parents[i]`
+ * names the record `ids[i]` hangs from itself, a carrier or one that came
+ * back with it. What the rewind gives back of them it moved off that record;
+ * what it does not goes back to the bin with the carrier. A journal written
+ * before carriers has none.
  */
 const idsLineSchema = z.object({
   kind: z.enum(['bringingBack', 'withParent', 'givingBack']),
   objectApiName: objectSchema,
   ids: idsSchema,
   parents: idsSchema.optional(),
+  carriers: z.literal(true).optional(),
   at: instantSchema,
 });
 
@@ -350,6 +359,18 @@ export interface RewindJournalDid {
    * the Ids the org gave them. Absent when there is none.
    */
   recreated?: ObjectIds[];
+  /**
+   * Of what it brought back, the carriers: records it brought back for a
+   * moment, with records of the checkpoint they took along, to delete them
+   * again. Absent when there is none.
+   */
+  carriers?: ObjectIds[];
+  /**
+   * Of what it brought back, what came back with a carrier, each beside the
+   * record it hangs from itself, a carrier or one that came back with it.
+   * Absent when there is none.
+   */
+  carried?: ParentedIds[];
 }
 
 /** Records of one object, each beside the record they came back with. */
@@ -405,9 +426,13 @@ export interface RewindJournal {
   /**
    * `undelete`, each batch's ids named first: of the object `plan` holds them
    * under. A batch that could not be named is not sent; one of no object of
-   * the plan is refused.
+   * the plan is refused. With `carriers`, each batch is named as carriers.
    */
-  bringingBack(plan: readonly ObjectIds[], undelete: UndeleteCall): UndeleteCall;
+  bringingBack(
+    plan: readonly ObjectIds[],
+    undelete: UndeleteCall,
+    options?: { carriers?: boolean },
+  ): UndeleteCall;
   /**
    * Records that come back, or came back, with a parent the rewind brings
    * back, `parents[i]` the record of the plan `ids[i]` hangs from: its undo
@@ -415,12 +440,15 @@ export interface RewindJournal {
    * undelete that brings them — as the children of each parent the bin holds
    * — they are named even when the rewind stops between that undelete and a
    * read after it. Unnamed, they would hold their parent in the org: a
-   * removal keeps a record that records older than it depend on.
+   * removal keeps a record that records older than it depend on. With
+   * `carriers`, they come back with a carrier, and `parents[i]` is the record
+   * `ids[i]` hangs from itself.
    */
   withParent(
     objectApiName: string,
     ids: readonly string[],
     parents?: readonly string[],
+    options?: { carriers?: boolean },
   ): Promise<void>;
   /**
    * Records the rewind gives back once the records of `by` hanging from them
@@ -684,11 +712,18 @@ class JournalFile implements RewindJournal {
     kind: 'bringingBack' | 'withParent',
     objectApiName: string,
     ids: readonly string[],
+    carriers = false,
   ): Promise<void> {
-    for (const chunk of chunksOf(ids)) await this.append({ kind, objectApiName, ids: chunk });
+    for (const chunk of chunksOf(ids)) {
+      await this.append({ kind, objectApiName, ids: chunk, ...(carriers ? { carriers } : {}) });
+    }
   }
 
-  bringingBack(plan: readonly ObjectIds[], undelete: UndeleteCall): UndeleteCall {
+  bringingBack(
+    plan: readonly ObjectIds[],
+    undelete: UndeleteCall,
+    options: { carriers?: boolean } = {},
+  ): UndeleteCall {
     // A batch is of one object, in the order the plan gives: its object is
     // told by its ids' prefix, which is one object's.
     const objectOf = new Map<string, string>();
@@ -702,7 +737,7 @@ class JournalFile implements RewindJournal {
       if (objects.size !== 1 || objectApiName === undefined) {
         throw new Error('These records are not of the plan the journal names: none was sent.');
       }
-      await this.appendIds('bringingBack', objectApiName, ids);
+      await this.appendIds('bringingBack', objectApiName, ids, options.carriers === true);
       return undelete(ids);
     };
   }
@@ -711,9 +746,11 @@ class JournalFile implements RewindJournal {
     objectApiName: string,
     ids: readonly string[],
     parents?: readonly string[],
+    options: { carriers?: boolean } = {},
   ): Promise<void> {
+    const carriers = options.carriers === true;
     if (parents === undefined) {
-      await this.appendIds('withParent', objectApiName, ids);
+      await this.appendIds('withParent', objectApiName, ids, carriers);
       return;
     }
     if (parents.length !== ids.length) {
@@ -725,6 +762,7 @@ class JournalFile implements RewindJournal {
         objectApiName,
         ids: ids.slice(at, at + IDS_PER_LINE),
         parents: parents.slice(at, at + IDS_PER_LINE),
+        ...(carriers ? { carriers } : {}),
       });
     }
   }
@@ -1084,6 +1122,12 @@ class FactsFold {
 class DidFold {
   private readonly broughtBack = new IdsByObject();
   private readonly recreated = new IdsByObject();
+  private readonly carriers = new IdsByObject();
+  /** What came back with a carrier, beside the record it hangs from, each once by its key. */
+  private readonly carried = new Map<
+    string,
+    { objectApiName: string; id: string; parent: string }
+  >();
   private readonly givenBack = new IdsByObject();
   private readonly held = new IdsByObject();
   /** Per object held in place, the objects whose records held it, in the order named. */
@@ -1115,10 +1159,14 @@ class DidFold {
       case 'bringingBack':
       case 'withParent':
         this.broughtBack.add(line.objectApiName, line.ids);
+        if (line.carriers === true && line.kind === 'bringingBack') {
+          this.carriers.add(line.objectApiName, line.ids);
+        }
         line.parents?.forEach((parent, at) => {
           const id = line.ids[at];
-          if (!this.withParents.has(recordKey(id))) {
-            this.withParents.set(recordKey(id), { objectApiName: line.objectApiName, id, parent });
+          const into = line.carriers === true ? this.carried : this.withParents;
+          if (!into.has(recordKey(id))) {
+            into.set(recordKey(id), { objectApiName: line.objectApiName, id, parent });
           }
         });
         break;
@@ -1187,13 +1235,21 @@ class DidFold {
       }
     }
     const deletedBeforeParent = before.list();
-    const parented = new Map<string, ParentedIds>();
-    for (const { objectApiName, id, parent } of this.withParents.values()) {
-      const object = parented.get(objectApiName) ?? { objectApiName, ids: [], parents: [] };
-      object.ids.push(id);
-      object.parents.push(parent);
-      parented.set(objectApiName, object);
-    }
+    const parentedOf = (
+      pairs: Iterable<{ objectApiName: string; id: string; parent: string }>,
+    ): ParentedIds[] => {
+      const parented = new Map<string, ParentedIds>();
+      for (const { objectApiName, id, parent } of pairs) {
+        const object = parented.get(objectApiName) ?? { objectApiName, ids: [], parents: [] };
+        object.ids.push(id);
+        object.parents.push(parent);
+        parented.set(objectApiName, object);
+      }
+      return [...parented.values()];
+    };
+    const withParents = parentedOf(this.withParents.values());
+    const carried = parentedOf(this.carried.values());
+    const carriers = this.carriers.list();
     const recreated = this.recreated.list();
     return {
       broughtBack: this.broughtBack.list(),
@@ -1201,8 +1257,10 @@ class DidFold {
       givenBack: this.givenBack.list(),
       ...(heldInPlace.length > 0 ? { heldInPlace } : {}),
       ...(deletedBeforeParent.length > 0 ? { deletedBeforeParent } : {}),
-      ...(parented.size > 0 ? { withParents: [...parented.values()] } : {}),
+      ...(withParents.length > 0 ? { withParents } : {}),
       ...(recreated.length > 0 ? { recreated } : {}),
+      ...(carriers.length > 0 ? { carriers } : {}),
+      ...(carried.length > 0 ? { carried } : {}),
     };
   }
 }
@@ -1627,6 +1685,22 @@ export interface SpooledUndoPlans {
    * key, and per object how many: deleted again, never brought back.
    */
   remade: { keys: RecordKeySet; objects: Array<{ objectApiName: string; count: number }> };
+  /**
+   * The records the rewind brought back and deleted again, by key — a
+   * carrier, what came back with a parent and went again — and what went
+   * back to the bin with a carrier: in the recycle bin as they were before
+   * the rewind, in none of the plans. A value from before that names one is
+   * not given back: the org refuses a lookup to a record in the bin
+   * (`ENTITY_IS_DELETED`, live).
+   */
+  compensated: Pick<RecordKeySet, 'has'>;
+  /**
+   * Of {@link remove}, the records that came back with a carrier and that
+   * the rewind gave their checkpoint values back, which moved them off it, by
+   * key, and per object how many: sent back to the bin on their own, as the
+   * carrier stays there.
+   */
+  carriedAlone: { keys: RecordKeySet; objects: Array<{ objectApiName: string; count: number }> };
   /** Remove the plans' files. Once is enough. */
   dispose(): Promise<void>;
 }
@@ -1671,6 +1745,13 @@ function readingOrder(
  *   left out of `remove`: deleted on its own first, Salesforce would keep it
  *   in the bin for good once that record went after it.
  *
+ * What came back with a carrier — a record the rewind brought back for a
+ * moment and deleted again — is named beside the record it hangs from
+ * itself. What of it the rewind did not give back went back to the bin with
+ * the carrier, and is in none of the plans. What it gave back it moved off
+ * the carrier: sent back to the bin on its own (`carriedAlone`), unless it
+ * hangs from another such record, which it goes with.
+ *
  * A record it brought back and deleted again — one that came back with its
  * parent and that a second pass deleted — is in the recycle bin as it was
  * before the rewind, and in neither of the first two: undeleted by the undo,
@@ -1712,12 +1793,30 @@ export async function spoolUndoPlans(
     const leftByStep = new Map<number, RecordKeySet>();
     const heldKeys = new RecordKeySet();
     const heldBy = new Map<string, Set<string>>();
+    const givenKeys = new RecordKeySet();
+    /** What came back with a carrier, by key, beside the record it hangs from. */
+    const carried = new Map<string, { objectApiName: string; id: string; parent: string }>();
     await eachLine(journalFile, (line) => {
       switch (line.kind) {
         case 'bringingBack':
         case 'withParent':
         case 'recreated':
           for (const id of line.ids) brought.add(id);
+          if (line.kind === 'withParent' && line.carriers === true && line.parents) {
+            line.ids.forEach((id, at) => {
+              const parent = line.parents?.[at];
+              if (parent !== undefined && !carried.has(recordKey(id))) {
+                carried.set(recordKey(id), {
+                  objectApiName: line.objectApiName,
+                  id,
+                  parent: recordKey(parent),
+                });
+              }
+            });
+          }
+          break;
+        case 'givingBack':
+          for (const id of line.ids) givenKeys.add(id);
           break;
         case 'deleteLeft': {
           const left = leftByStep.get(line.step) ?? new RecordKeySet();
@@ -1756,7 +1855,21 @@ export async function spoolUndoPlans(
         else if (undeleteLeft(key)) await back.add(line.objectApiName, id);
       }
     });
-    const removing = (key: string): boolean => !deleted.has(key) && removeLeft(key);
+    // What came back with a carrier deleted again, and that the rewind did
+    // not move off it, went back to the bin with it: as far down as it hangs.
+    const compensated = new RecordKeySet();
+    for (let grew = carried.size > 0; grew;) {
+      grew = false;
+      for (const { id, parent } of carried.values()) {
+        if (compensated.has(id) || givenKeys.has(id)) continue;
+        if (deleted.has(parent) || compensated.has(parent)) {
+          compensated.add(id);
+          grew = true;
+        }
+      }
+    }
+    const gone = (key: string): boolean => deleted.has(key) || compensated.has(key);
+    const removing = (key: string): boolean => !gone(key) && removeLeft(key);
 
     // What came back with a record the undo sends back to the bin goes with
     // it; what came back with one it does not — deleted again since, or left
@@ -1772,6 +1885,16 @@ export async function spoolUndoPlans(
         if (removing(recordKey(id)) && brought.has(parent) && removing(parent)) along.add(id);
       });
     });
+    // Of what came back with a carrier, what the rewind moved off it goes on
+    // its own, unless it still hangs from a record of the plan.
+    const carriedAlone = new RecordKeySet();
+    const carriedCounts = new Map<string, number>();
+    for (const { objectApiName, id, parent } of carried.values()) {
+      if (!removing(recordKey(id)) || along.has(id) || !givenKeys.has(id)) continue;
+      if (removing(parent) && carried.has(parent)) continue;
+      carriedAlone.add(id);
+      carriedCounts.set(objectApiName, (carriedCounts.get(objectApiName) ?? 0) + 1);
+    }
 
     const remove = new IdSpoolWriter(join(dir, 'remove'));
     const given = new IdSpoolWriter(join(dir, 'giveBack'));
@@ -1837,6 +1960,11 @@ export async function spoolUndoPlans(
       remade: {
         keys: remade,
         objects: [...remadeCounts].map(([objectApiName, count]) => ({ objectApiName, count })),
+      },
+      compensated: { has: (id) => gone(recordKey(String(id))) },
+      carriedAlone: {
+        keys: carriedAlone,
+        objects: [...carriedCounts].map(([objectApiName, count]) => ({ objectApiName, count })),
       },
       dispose,
     };

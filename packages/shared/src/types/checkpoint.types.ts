@@ -390,11 +390,18 @@ export interface CheckpointRefusal {
  * deleted since that the recycle bin no longer holds and that a rewind cannot
  * make again either — a file, whose body the checkpoint does not hold, or a
  * record the checkpoint holds no values of — leads converted since,
- * contracts activated since, and records deleted since with a parent created
- * since, which cannot come back on their own.
+ * contracts activated since, records deleted since with a parent created
+ * since that Salesforce does not undelete on its own, and records deleted
+ * since with their parent, a record of an object the checkpoint does not
+ * hold (`deletedWithParentOutside`): they come back with that parent only,
+ * which a checkpoint holding its object would bring back.
  */
 export type RewindCannotUndoReason =
-  'goneForGood' | 'convertedLead' | 'activatedContract' | 'deletedWithCreatedParent';
+  | 'goneForGood'
+  | 'convertedLead'
+  | 'activatedContract'
+  | 'deletedWithCreatedParent'
+  | 'deletedWithParentOutside';
 
 /** Fields of an object whose description changed since the take, by API name. */
 export interface RewindSchemaDrift {
@@ -453,8 +460,17 @@ export interface RewindDiffObject {
    * brought back (an object Salesforce undeletes only with its parent), and
    * those deleted while the checkpoint was taken, which come back with the
    * values they had when deleted.
+   *
+   * `carriers`: records the checkpoint does not hold — created since, or in
+   * the recycle bin at the checkpoint and brought back since — deleted since
+   * with records it holds, which their delete took along. Salesforce brings
+   * those back with that record only: a rewind brings it back for a moment,
+   * gives what it took along its checkpoint values, then deletes it again
+   * with what came back with it. In none of the three numbers: before the
+   * rewind and after it, such a record is in the recycle bin. Absent when
+   * there is none, and from a diff read before carriers were told.
    */
-  toBringBack: { inBin: number; withParent: number; deletedWhileTaken: number };
+  toBringBack: { inBin: number; withParent: number; deletedWhileTaken: number; carriers?: number };
   /**
    * Records deleted since that the recycle bin no longer gives back — gone
    * from it, or kept there for good — whose values the checkpoint holds: a
@@ -515,6 +531,14 @@ export interface RewindDiff {
    * a diff read before they were counted.
    */
   withParentDeleted?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * The requests it sent to tell, of the records it holds deleted since,
+   * those deleted with a parent of an object outside the checkpoint: that
+   * parent's object described, what the records point at read from the
+   * recycle bin, and those parents read by id. Each read of the org since the
+   * checkpoint sends them again. Absent when it sent none.
+   */
+  parentsOutsideRequests?: number;
   /**
    * Objects whose read failed, with the reason: never read as unchanged, so
    * the rewind leaves them as they are.
@@ -613,6 +637,21 @@ export interface RewindResult {
    * is none.
    */
   remade?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * A rewind's alone: per object, the records it brought back for a moment
+   * to bring back records of the checkpoint they had taken along, then
+   * deleted again (`RewindDiffObject.toBringBack.carriers`). Absent when
+   * there is none.
+   */
+  carriers?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * An undo's alone: per object, the records it sent back to the recycle bin
+   * on their own that had gone there with a record the rewind brought back
+   * for a moment, which stays there. Back in the bin, such a record no
+   * longer hangs from that record, and comes back alone. Absent when there
+   * is none.
+   */
+  carriedAlone?: Array<{ objectApiName: string; count: number }>;
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
   /**

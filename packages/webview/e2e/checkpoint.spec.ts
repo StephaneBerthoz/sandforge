@@ -596,10 +596,14 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-preview-details')).toContainText(
         'Contact: 1 record deleted while the checkpoint was taken comes back with the values it had then.',
       );
+      await expect(page.getByTestId('checkpoint-preview-details')).toContainText(
+        'Account: 1 record the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with it only, so it comes back for a moment, then goes back to the recycle bin with what came back with it.',
+      );
       await expect(page.getByTestId('checkpoint-preview-unread')).toContainText('Asset');
       for (const line of [
         'goneForGood',
         'deletedWithCreatedParent',
+        'deletedWithParentOutside',
         'convertedLead',
         'activatedContract',
         'removed-Case.Region__c',
@@ -648,7 +652,7 @@ for (const theme of THEMES) {
       await rewind.click();
       await expect(page.getByTestId('danger-title')).toHaveText(`Rewind ${ORG} to “Before UAT”?`);
       await expect(page.getByRole('dialog')).toContainText(
-        'it deletes the 14 records added since, gives 18 records their values from then back, brings back 4 records from the recycle bin and makes 2 records the recycle bin no longer holds again, with new Ids, whoever made these changes.',
+        'it deletes the 14 records added since, gives 18 records their values from then back, brings back 4 records from the recycle bin, makes 2 records the recycle bin no longer holds again, with new Ids and brings back for a moment 1 record that had taken records of the checkpoint along, then deletes it again, whoever made these changes.',
       );
       await expect(page.getByTestId('danger-confirm-btn')).toBeDisabled();
       await page.getByTestId('danger-input').fill(ORG.slice(0, -1));
@@ -699,11 +703,17 @@ for (const theme of THEMES) {
       await expectReadable(page, theme);
 
       await host.answer('checkpoint:rewind', {
-        result: rewindResult('ck-picked', { status: 'cancelled' }),
+        result: rewindResult('ck-picked', {
+          status: 'cancelled',
+          carriers: [{ objectApiName: 'Account', count: 1 }],
+        }),
         operationId: started.id,
       });
       await expect(page.getByTestId('checkpoint-result-headline')).toHaveText(
         `Stopped part way: ${ORG} is between “Before UAT” and now. Rewind again to finish: it takes up from what still differs. Undo still returns ${ORG} to how it was before the rewind.`,
+      );
+      await expect(page.getByTestId('checkpoint-result-carriers-stopped')).toHaveText(
+        `Stopped before the rewind was through: what of them it had not deleted again yet is still in ${ORG}. Rewind again deletes it, with what came back with it.`,
       );
       await expect(page.getByTestId('checkpoint-result-rewind-again')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
@@ -892,11 +902,17 @@ for (const theme of THEMES) {
             until: daysFromNow(15),
             cannot: [{ objectApiName: 'OpportunityLineItem', count: 3 }],
           },
+          carriers: [{ objectApiName: 'Account', count: 1 }],
         }),
         operationId: started.id,
       });
       await expect(page.getByTestId('checkpoint-result-headline')).toHaveText(
         `${ORG} is back at “Before UAT”. Read again: nothing differs among the objects and fields it holds.`,
+      );
+      await expect(page.getByTestId('checkpoint-result-carriers')).toHaveText(
+        `Brought back for a moment from the recycle bin of ${ORG}, to bring back the records of the checkpoint they had taken along` +
+          'Account: 1 record the checkpoint does not hold' +
+          'Deleted again once those records were back, with what came back with them: in the recycle bin, as before the rewind.',
       );
       await expect(page.getByTestId('checkpoint-result-undo')).toContainText(
         'This rewind can be undone until',
@@ -998,7 +1014,10 @@ for (const theme of THEMES) {
       });
       // The rewind had made one account again, the bin no longer giving it back.
       await host.answer('checkpoint:undo', {
-        result: undoResult(id, { remade: [{ objectApiName: 'Account', count: 1 }] }),
+        result: undoResult(id, {
+          remade: [{ objectApiName: 'Account', count: 1 }],
+          carriedAlone: [{ objectApiName: 'Contact', count: 2 }],
+        }),
         operationId: undo.id,
       });
       await expect(page.getByTestId('checkpoint-result-headline')).toHaveText(
@@ -1006,6 +1025,9 @@ for (const theme of THEMES) {
       );
       await expect(page.getByTestId('checkpoint-result-remade')).toHaveText(
         `Deleted again in ${ORG}: 1 record the rewind made again, with what went with it`,
+      );
+      await expect(page.getByTestId('checkpoint-result-carried-alone-Contact')).toHaveText(
+        `Back in the recycle bin of ${ORG} on their own: 2 Contact records that had gone there with a record the rewind brought back for a moment, which stays there. They come back alone, under the parent the checkpoint gave them.`,
       );
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
 

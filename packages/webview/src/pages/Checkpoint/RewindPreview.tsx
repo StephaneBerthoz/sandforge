@@ -38,6 +38,8 @@ import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
 import {
   REWIND_UNDO_DAYS,
   cannotUndoLines,
+  carriersOf,
+  carriersTotal,
   heldAsItWas,
   lastChangers,
   outsideLines,
@@ -104,6 +106,9 @@ const DETAIL_LINES: ReadonlyArray<{ key: string; count: (object: RewindDiffObjec
     count: (o) => o.toBringBack.deletedWhileTaken,
   },
   { key: 'checkpoint.preview.detail.withParent', count: (o) => o.toBringBack.withParent },
+  // What brings them back: a record the checkpoint does not hold, back for a
+  // moment and deleted again, in none of the numbers.
+  { key: 'checkpoint.preview.detail.carriers', count: carriersOf },
   { key: 'checkpoint.preview.detail.fields', count: (o) => o.toGiveBack.fields },
   { key: 'checkpoint.preview.detail.clearedLookups', count: (o) => o.toGiveBack.clearedLookups },
   { key: 'checkpoint.preview.detail.broughtBackSince', count: (o) => o.toDelete.broughtBackSince },
@@ -119,6 +124,7 @@ const DETAIL_LINES: ReadonlyArray<{ key: string; count: (object: RewindDiffObjec
 const CANNOT_UNDO_KEYS: Readonly<Record<CannotUndoLine['reason'], string>> = {
   goneForGood: 'checkpoint.preview.cannot.goneForGood',
   deletedWithCreatedParent: 'checkpoint.preview.cannot.deletedWithCreatedParent',
+  deletedWithParentOutside: 'checkpoint.preview.cannot.deletedWithParentOutside',
   convertedLead: 'checkpoint.preview.cannot.convertedLead',
   activatedContract: 'checkpoint.preview.cannot.activatedContract',
 };
@@ -635,7 +641,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 /**
  * What the typed confirmation of a rewind says it does: to what moment it
  * returns the org, and only the parts of it that apply — the records it
- * deletes, gives back, brings back and makes again — whoever made the changes.
+ * deletes, gives back, brings back and makes again, and those it brings back
+ * for a moment to delete again — whoever made the changes.
  */
 function confirmDescription(
   t: TFunction,
@@ -649,6 +656,7 @@ function confirmDescription(
     [totals.toGiveBack, 'checkpoint.preview.confirm.giveBack'],
     [totals.toBringBack, 'checkpoint.preview.confirm.bringBack'],
     [totals.toRecreate, 'checkpoint.preview.confirm.recreate'],
+    [carriersTotal(diff), 'checkpoint.preview.confirm.carriers'],
   ];
   const changes = parts
     .filter(([count]) => count > 0)

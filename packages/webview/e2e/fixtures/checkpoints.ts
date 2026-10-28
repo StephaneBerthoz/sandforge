@@ -245,9 +245,10 @@ export function diffObject(
  * rewind says every part of the preview once: each class of every number,
  * who changed what and who worked in the last hour (the checkpoint's own user
  * among them), what a rewind cannot undo, what Undo could not bring back,
- * records outside the checkpoint its deletes take along, an object it could
- * not read, the fields the schema lost, gained and changed, and the
- * automation the org runs as it writes, whose refusal the box lifts.
+ * an account it brings back for a moment, records outside the checkpoint its
+ * deletes take along, an object it could not read, the fields the schema
+ * lost, gained and changed, and the automation the org runs as it writes,
+ * whose refusal the box lifts.
  */
 export function previewOfEverything(checkpointId: string): CheckpointPreviewResponse['payload'] {
   return {
@@ -259,6 +260,7 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
         diffObject('OpportunityLineItem', {
           toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
           toBringBack: { inBin: 0, withParent: 2, deletedWhileTaken: 0 },
+          cannotUndo: [{ reason: 'deletedWithParentOutside', count: 1 }],
           lastChangedBy: { [USERS.alice]: 3 },
         }),
         diffObject('Contact', {
@@ -284,7 +286,7 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
         diffObject('Account', {
           toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
           toGiveBack: { records: 4, fields: 9, clearedLookups: 0 },
-          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
           cannotUndo: [{ reason: 'goneForGood', count: 2 }],
           outside: [{ objectApiName: 'Opportunity', count: 50, parents: 3 }],
           lastChangedBy: { [USERS.alice]: 3, [USERS.integration]: 4 },

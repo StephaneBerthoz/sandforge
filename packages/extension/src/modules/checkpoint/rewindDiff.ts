@@ -48,10 +48,31 @@
  *   such a record whose parent is not coming back cannot come back with its
  *   id at all, and is named so. Nor one whose parent that way, or a record it
  *   points at through a lookup that restricts that record's delete, was
- *   deleted after it: Salesforce keeps such a record in the bin for good.
- *   Nor one deleted in the second a record created since was deleted in,
- *   through a field whose parent's delete takes it along: it comes back with
- *   that record only, which the rewind does not bring back;
+ *   deleted after it — a parent the rewind brings back, created since, or in
+ *   the bin at the checkpoint and brought back since: Salesforce keeps such a
+ *   record in the bin for good (F41, and live for a contact deleted on its
+ *   own before the account created since it was moved under);
+ * - in `D` and `S`, deleted in the second a record the checkpoint does not
+ *   hold was deleted in — created since, or in the bin at the checkpoint and
+ *   brought back since — through a field whose parent's delete takes it
+ *   along: Salesforce brings it back with that record only, and answers its
+ *   own undelete "Entity is not in the recycle bin", the words it answers for
+ *   a record emptied from the bin (seen live for a contact under an account
+ *   created since). So that record, the top of what went in that second, is
+ *   a carrier: brought back for a moment, its object one Salesforce undeletes
+ *   on its own, then deleted again by the second pass with what came back
+ *   with it. What it took along of the checkpoint comes back with it and is
+ *   given its values back, its parent among them, and what it took along
+ *   created since comes back and goes again. A carrier Salesforce does not
+ *   undelete on its own, or stuck in the bin, leaves what it took along named;
+ * - in `D` and `S`, deleted in the second its parent of an object the
+ *   checkpoint does not hold was deleted in, through a field whose parent's
+ *   delete takes it along: it comes back with that parent only, which the
+ *   rewind does not read, and is named, never made again — the original
+ *   would come back beside it the day someone brings that parent back. Such
+ *   parents are read by id from the bin, the fields that name them told from
+ *   their objects' describes: a checkpoint knows only the fields to parents
+ *   it holds;
  * - in `L` and `S`, a lead converted since: Salesforce cannot unconvert it and
  *   refuses any update of it, so it is named, never given back. So is a
  *   contract activated since: Salesforce will not set an activated contract
@@ -214,10 +235,16 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.
  *   unconvert and refuses any update of: named, never given back;
  * - `activatedContract`: a contract activated since, which Salesforce will
  *   not set back to Draft: named, never given back;
+ * - `carrier`: a record the checkpoint does not hold, deleted since with
+ *   records it holds: brought back for a moment, with them, and deleted
+ *   again by the second pass;
  * - `deletedWithCreatedParent`: deleted since with a record created since,
- *   which its parent's delete took it along with: Salesforce brings it back
- *   with that record only, and the rewind does not bring that one back, so it
- *   is named, never brought back;
+ *   which its parent's delete took it along with, that Salesforce does not
+ *   undelete on its own: it brings it back with that record only, so it is
+ *   named, never brought back;
+ * - `deletedWithParentOutside`: deleted since with its parent, a record of an
+ *   object the checkpoint does not hold: named, never brought back, never
+ *   made again;
  * - `undoCannot`: of the records to delete, those Undo couldn't bring back,
  *   a line naming why when it is not `onlyWithParent`. Not a class of its
  *   own: each of its records is in a class to delete too;
@@ -240,7 +267,9 @@ export type RewindClass =
   | 'goneForGood'
   | 'convertedLead'
   | 'activatedContract'
+  | 'carrier'
   | 'deletedWithCreatedParent'
+  | 'deletedWithParentOutside'
   | 'undoCannot'
   | 'outsideParents';
 
@@ -259,10 +288,15 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'goneForGood',
   'convertedLead',
   'activatedContract',
+  'carrier',
   'deletedWithCreatedParent',
+  'deletedWithParentOutside',
   'undoCannot',
   'outsideParents',
 ];
+
+/** Why a record deleted since stays in the bin with a parent the rewind does not bring back. */
+type StrandedClass = 'deletedWithCreatedParent' | 'deletedWithParentOutside';
 
 /** The object of a lead, and its flag a conversion sets for good. */
 const LEAD = 'Lead';
@@ -496,6 +530,8 @@ interface FieldsNow {
  */
 interface ToBringBack {
   objectApiName: string;
+  /** Its id, as the read gave it. */
+  id: string;
   stamp: number;
   parents: string[];
   restricts: string[];
@@ -512,12 +548,16 @@ interface DiffContext {
   /** By key, every record deleted since that the rewind brings back. */
   back: ReadonlyMap<string, ToBringBack>;
   /**
-   * By key, the records created since and deleted since, which the
-   * checkpoint does not hold, with the stamp their delete left: one held that
-   * went with one of them comes back with it only, and the rewind brings
-   * none of them back.
+   * By key, the records the rewind brings back for a moment, then deletes
+   * again (`carriersOf`): the top of what went with records it holds. They
+   * are in {@link back} too, with what went with them in their second.
    */
-  createdGone: ReadonlyMap<string, ToBringBack>;
+  carriers: ReadonlySet<string>;
+  /**
+   * By key, the records deleted since that stay in the bin with a parent the
+   * rewind does not bring back, and why (`strandedOf`).
+   */
+  stranded: ReadonlyMap<string, StrandedClass>;
   /**
    * By key, the records deleted since that the bin holds and Salesforce will
    * not let out of it (`stuckOf`): gone for good, never to bring back.
@@ -694,9 +734,9 @@ function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): 
  * An object whose index or bin is not on this machine brings nothing back:
  * its own diff names why.
  *
- * Read beside them, from the same reads: the records created since and
- * deleted since (`DiffContext.createdGone`), which a record held may have
- * gone with.
+ * Read beside them, from the same reads, the records the checkpoint does not
+ * hold deleted since (`gone`), which a record held may have gone with:
+ * created since, or in the bin at the checkpoint and brought back since.
  *
  * @throws {OrgReadStopped} When the run was stopped.
  */
@@ -704,10 +744,10 @@ async function toBringBackOf(
   context: Pick<DiffContext, 'input' | 't0s'>,
   objects: readonly CheckpointObject[],
   changes: ReadonlyMap<string, ObjectChanges>,
-): Promise<{ back: Map<string, ToBringBack>; createdGone: Map<string, ToBringBack> }> {
+): Promise<{ back: Map<string, ToBringBack>; gone: Map<string, ToBringBack> }> {
   const { folder, checkpoint } = context.input;
   const back = new Map<string, ToBringBack>();
-  const createdGone = new Map<string, ToBringBack>();
+  const gone = new Map<string, ToBringBack>();
   for (const { objectApiName, cascadeParents, restrictParents = [] } of objects) {
     const changed = changes.get(objectApiName);
     if (!changed || 'unread' in changed || !changed.deleted || changed.deleted.rows === 0) continue;
@@ -725,6 +765,7 @@ async function toBringBackOf(
             .filter((parent): parent is string => parent !== undefined && parent !== key);
         const record = (): ToBringBack => ({
           objectApiName,
+          id: String(row.Id),
           stamp: dateMs(row.SystemModstamp),
           parents: keysOf(cascadeParents),
           restricts: keysOf(restrictParents),
@@ -733,7 +774,12 @@ async function toBringBackOf(
         // brought back over the record that stands for it.
         if (index.retired(row.Id)) continue;
         if (!index.has(row.Id)) {
-          if (await inBinAtCheckpoint(key)) continue;
+          // In the bin at the checkpoint, brought back since and deleted
+          // again: a record held may have gone with it.
+          if (await inBinAtCheckpoint(key)) {
+            created.set(key, record());
+            continue;
+          }
           if (dateMs(row.CreatedDate) >= context.t0s) created.set(key, record());
           if (!(dateMs(row.CreatedDate) < context.t0s)) continue;
         }
@@ -744,9 +790,9 @@ async function toBringBackOf(
       continue;
     }
     for (const [key, record] of found) back.set(key, record);
-    for (const [key, record] of created) createdGone.set(key, record);
+    for (const [key, record] of created) gone.set(key, record);
   }
-  return { back, createdGone };
+  return { back, gone };
 }
 
 /**
@@ -762,34 +808,345 @@ async function toBringBackOf(
  * account, after it or before it. A rewind would be refused it; it can no
  * longer come back with its id.
  *
- * Told only of a parent the rewind brings back, the one whose stamp the read
- * holds: one outside the checkpoint, or brought back and deleted again since,
- * leaves its child to bring back, and the org's refusal named.
+ * Told of the parents whose stamp the reads hold: one the rewind brings back,
+ * and one the checkpoint does not hold, deleted since (`gone`) — seen live
+ * too for a contact deleted on its own, then the account created since it
+ * had been moved under: the contact stayed deleted, its undelete refused,
+ * before that account came back and after. Of `gone`, those stuck are said
+ * too: what went with them is stuck with them. A parent outside the
+ * checkpoint is told by its own read (`parentsOutsideOf`).
  */
-function stuckOf(back: Map<string, ToBringBack>): Set<string> {
+function stuckOf(
+  back: Map<string, ToBringBack>,
+  gone: ReadonlyMap<string, ToBringBack>,
+): Set<string> {
+  const stampOf = (key: string): number | undefined => back.get(key)?.stamp ?? gone.get(key)?.stamp;
   const stuck = new Set<string>();
-  for (const [key, record] of back) {
-    const after = [...record.parents, ...record.restricts].some(
-      (parent) => (back.get(parent)?.stamp ?? 0) > record.stamp,
-    );
-    if (after) stuck.add(key);
+  for (const records of [back, gone]) {
+    for (const [key, record] of records) {
+      const after = [...record.parents, ...record.restricts].some(
+        (parent) => (stampOf(parent) ?? 0) > record.stamp,
+      );
+      if (after) stuck.add(key);
+    }
   }
-  // What went with a record stuck in the bin, in its second, stays with it.
+  stuckWith(stuck, back, gone);
+  return stuck;
+}
+
+/**
+ * Add to `stuck` what went with a record of it in its second, as far down as
+ * that goes — it stays with it in the bin — and take them all out of `back`.
+ */
+function stuckWith(
+  stuck: Set<string>,
+  back: Map<string, ToBringBack>,
+  gone: ReadonlyMap<string, ToBringBack>,
+): void {
+  const stampOf = (key: string): number | undefined => back.get(key)?.stamp ?? gone.get(key)?.stamp;
   for (let grew = stuck.size > 0; grew;) {
     grew = false;
-    for (const [key, record] of back) {
-      if (stuck.has(key)) continue;
-      const withStuck = record.parents.some(
-        (parent) => stuck.has(parent) && back.get(parent)?.stamp === record.stamp,
-      );
-      if (withStuck) {
-        stuck.add(key);
-        grew = true;
+    for (const records of [back, gone]) {
+      for (const [key, record] of records) {
+        if (stuck.has(key)) continue;
+        const withStuck = record.parents.some(
+          (parent) => stuck.has(parent) && stampOf(parent) === record.stamp,
+        );
+        if (withStuck) {
+          stuck.add(key);
+          grew = true;
+        }
       }
     }
   }
   for (const key of stuck) back.delete(key);
-  return stuck;
+}
+
+/**
+ * The records the checkpoint does not hold that a rewind brings back for a
+ * moment, by key, then deletes again: of what a record of `back` went with —
+ * a parent of `gone`, deleted in its second through a field whose parent's
+ * delete takes it along — the top, the first going up whose own such parent
+ * did not go in that second. Salesforce brings a record deleted so back with
+ * that parent only (P7, and live for a contact under an account created
+ * since): the only way to bring it back with its id.
+ *
+ * A top of an object Salesforce undeletes only with its parent carries
+ * nothing: what went with it stays, named (`strandedOf`). So does one stuck
+ * in the bin, which `stuckOf` took out with what went with it. Nor is a
+ * record a carrier whose second reaches a parent the rewind brings back:
+ * that parent brings it back already.
+ *
+ * Each carrier, and what went with it between it and the records held — an
+ * opportunity created since under an account created since, a task held
+ * under that opportunity — is added to `back`: what went with them comes
+ * back with them, as it does with any record brought back.
+ */
+function carriersOf(
+  objects: readonly CheckpointObject[],
+  back: Map<string, ToBringBack>,
+  gone: ReadonlyMap<string, ToBringBack>,
+): Set<string> {
+  const undeletable = new Map(objects.map((object) => [object.objectApiName, object.undeletable]));
+  const carriers = new Set<string>();
+  const along = new Set<string>();
+  /** The parent of `gone` a record went with in its second, if any. */
+  const goneWith = (record: ToBringBack, seen: ReadonlySet<string>): string | undefined =>
+    record.parents.find((parent) => !seen.has(parent) && gone.get(parent)?.stamp === record.stamp);
+  const reachesBack = (record: ToBringBack): boolean =>
+    record.parents.some((parent) => back.get(parent)?.stamp === record.stamp);
+  for (const record of [...back.values()]) {
+    if (reachesBack(record)) continue;
+    const seen = new Set<string>();
+    const chain: string[] = [];
+    let at = goneWith(record, seen);
+    let toBack = false;
+    while (at !== undefined) {
+      seen.add(at);
+      chain.push(at);
+      const above = gone.get(at);
+      if (!above) break;
+      if (reachesBack(above)) {
+        toBack = true;
+        break;
+      }
+      at = goneWith(above, seen);
+    }
+    const top = chain[chain.length - 1];
+    if (top === undefined || toBack) continue;
+    const held = gone.get(top);
+    if (!held || undeletable.get(held.objectApiName) !== true) continue;
+    carriers.add(top);
+    for (const key of chain.slice(0, -1)) along.add(key);
+  }
+  for (const key of [...carriers, ...along]) {
+    const record = gone.get(key);
+    if (record) back.set(key, record);
+  }
+  return carriers;
+}
+
+/**
+ * The records of `back` that stay in the bin with a parent the rewind does
+ * not bring back, by key, and why, taken out of `back`: those that went with
+ * a record of `gone` it brings back nothing with (`carriersOf`), those that
+ * went with a parent outside the checkpoint (`outside`), and what went with
+ * either of them in its second, as far down as that goes. Promised back, such
+ * a record would stay in the bin: so would a record held under a contact
+ * that went with an account created since.
+ */
+function strandedOf(
+  back: Map<string, ToBringBack>,
+  gone: ReadonlyMap<string, ToBringBack>,
+  outside: ReadonlySet<string>,
+): Map<string, StrandedClass> {
+  const stranded = new Map<string, StrandedClass>();
+  for (const [key, record] of back) {
+    if (outside.has(key)) {
+      stranded.set(key, 'deletedWithParentOutside');
+      continue;
+    }
+    if (gone.has(key)) continue;
+    const withGone = record.parents.some(
+      (parent) => !back.has(parent) && gone.get(parent)?.stamp === record.stamp,
+    );
+    if (withGone) stranded.set(key, 'deletedWithCreatedParent');
+  }
+  for (let grew = stranded.size > 0; grew;) {
+    grew = false;
+    for (const [key, record] of back) {
+      if (stranded.has(key)) continue;
+      const parent = record.parents.find(
+        (each) => stranded.has(each) && back.get(each)?.stamp === record.stamp,
+      );
+      const why = parent === undefined ? undefined : stranded.get(parent);
+      if (why === undefined) continue;
+      stranded.set(key, why);
+      grew = true;
+    }
+  }
+  for (const key of stranded.keys()) back.delete(key);
+  return stranded;
+}
+
+/**
+ * Of the records of `back` that went with no parent the reads hold — to
+ * bring back on their own — those that went with a parent of an object the
+ * checkpoint does not hold (`outside`), and those deleted on their own
+ * before such a parent was (`stuck`), by key; and the requests it sent to
+ * tell them.
+ *
+ * A checkpoint knows the fields of its objects whose parent's delete takes a
+ * record along only for the parents it holds: of each object of such
+ * records, its describe names the lookups to objects outside it, whose own
+ * describes say which of them their delete takes the record along through.
+ * The records' values of those lookups are read from the bin by id, then
+ * the parents they name, by id too, with their stamps: a parent in the bin
+ * stamped in the record's second took it along; stamped later, it left the
+ * record in the bin for good (F41). A lookup to several objects outside the
+ * checkpoint is told by each one's key prefix; one whose prefix none gives is
+ * not read, and its record is brought back on its own, as one whose parent
+ * lives — the undelete's answer then says. A read that fails leaves its
+ * records so too.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function parentsOutsideOf(
+  input: RewindDiffInput,
+  objects: readonly CheckpointObject[],
+  back: ReadonlyMap<string, ToBringBack>,
+  gone: ReadonlyMap<string, ToBringBack>,
+  carriers: ReadonlySet<string>,
+  relationsOf: (objectApiName: string) => Promise<CheckpointDescribe>,
+): Promise<{ outside: Set<string>; stuck: Set<string>; requests: number }> {
+  const outside = new Set<string>();
+  const stuck = new Set<string>();
+  const held = new Set(objects.map(({ objectApiName }) => objectApiName.toLowerCase()));
+  const byName = new Map(objects.map((object) => [object.objectApiName, object]));
+  // Records that went with no parent the reads hold: those whose second
+  // reaches a parent of `back` or `gone` are told by it.
+  const alone = new Map<string, ToBringBack[]>();
+  for (const [key, record] of back) {
+    if (gone.has(key) || carriers.has(key)) continue;
+    const withKnown = record.parents.some(
+      (parent) => (back.get(parent) ?? gone.get(parent))?.stamp === record.stamp,
+    );
+    if (withKnown) continue;
+    alone.set(record.objectApiName, [...(alone.get(record.objectApiName) ?? []), record]);
+  }
+  if (alone.size === 0) return { outside, stuck, requests: 0 };
+  const before = input.reader.calls();
+  const described = async (name: string): Promise<CheckpointDescribe | undefined> => {
+    try {
+      return await relationsOf(name);
+    } catch (err: unknown) {
+      if (err instanceof OrgReadStopped) throw err;
+      return undefined;
+    }
+  };
+
+  for (const [objectApiName, records] of alone) {
+    const object = byName.get(objectApiName);
+    const own = await described(objectApiName);
+    if (!object || !own) continue;
+    const known = new Set(
+      [...object.cascadeParents, ...(object.restrictParents ?? [])].map((field) =>
+        field.toLowerCase(),
+      ),
+    );
+    const lookups = own.fields.filter(
+      (field) =>
+        field.type === 'reference' &&
+        !known.has(field.name.toLowerCase()) &&
+        (field.referenceTo ?? []).some((target) => !held.has(target.toLowerCase())),
+    );
+    if (lookups.length === 0) continue;
+    // Of those lookups, the ones whose parent's delete takes the record along,
+    // each with the objects outside the checkpoint it does so from.
+    const targets = [
+      ...new Set(
+        lookups.flatMap((field) =>
+          (field.referenceTo ?? []).filter((target) => !held.has(target.toLowerCase())),
+        ),
+      ),
+    ];
+    const parents = await Promise.all(targets.map(described));
+    const fromOf = new Map<string, Array<{ object: string; prefix?: string }>>();
+    parents.forEach((parent, at) => {
+      if (!parent) return;
+      const prefix = (parent as { keyPrefix?: unknown }).keyPrefix;
+      for (const relationship of parent.childRelationships ?? []) {
+        if (relationship.cascadeDelete !== true) continue;
+        if (relationship.childSObject.toLowerCase() !== objectApiName.toLowerCase()) continue;
+        const field = lookups.find(
+          (each) => each.name.toLowerCase() === relationship.field.toLowerCase(),
+        );
+        if (!field) continue;
+        fromOf.set(field.name, [
+          ...(fromOf.get(field.name) ?? []),
+          { object: targets[at], ...(typeof prefix === 'string' ? { prefix } : {}) },
+        ]);
+      }
+    });
+    if (fromOf.size === 0) continue;
+    const fields = [...fromOf.keys()].map(assertSoqlIdentifier);
+    const name = sanitizeSoqlObjectName(objectApiName);
+    const ids = records.map((record) => record.id);
+    /** By the record's key, the parents its lookups name, each with its object. */
+    const named = new Map<string, Array<{ object: string; id: string }>>();
+    const readIds = idLists(ids).map((list): ObjectRead => ({
+      objectApiName: name,
+      soql: `SELECT Id, ${fields.join(', ')} FROM ${name} WHERE Id IN (${list}) AND IsDeleted = true`,
+      scanAll: true,
+    }));
+    const valuesRead = await readStreams(
+      input.reader,
+      readIds,
+      (_, rows) => {
+        for (const row of rows) {
+          const key = keyOf(row.Id);
+          if (key === undefined) continue;
+          for (const [field, from] of fromOf) {
+            const value = row[field];
+            if (typeof value !== 'string' || keyOf(value) === undefined) continue;
+            const one =
+              from.length === 1
+                ? from[0]
+                : from.find((each) => each.prefix !== undefined && value.startsWith(each.prefix));
+            if (one) named.set(key, [...(named.get(key) ?? []), { object: one.object, id: value }]);
+          }
+        }
+      },
+      input.signal,
+    );
+    if (valuesRead.some((outcome) => !outcome.read)) continue;
+    const byObject = new Map<string, string[]>();
+    for (const list of named.values()) {
+      for (const { object: parentObject, id } of list) {
+        byObject.set(parentObject, [...(byObject.get(parentObject) ?? []), id]);
+      }
+    }
+    const reads: Array<{ object: string; read: ObjectRead }> = [];
+    for (const [parentObject, parentIds] of byObject) {
+      const parentName = sanitizeSoqlObjectName(parentObject);
+      for (const list of idLists([...new Set(parentIds)])) {
+        reads.push({
+          object: parentObject,
+          read: {
+            objectApiName: parentName,
+            soql: `SELECT Id, IsDeleted, SystemModstamp FROM ${parentName} WHERE Id IN (${list})`,
+            scanAll: true,
+          },
+        });
+      }
+    }
+    /** By key, each parent's stamp in the bin; a live one is left out. */
+    const deletedAt = new Map<string, number>();
+    await readStreams(
+      input.reader,
+      reads.map(({ read }) => read),
+      (_, rows) => {
+        for (const row of rows) {
+          const key = keyOf(row.Id);
+          if (key !== undefined && row.IsDeleted === true) {
+            deletedAt.set(key, dateMs(row.SystemModstamp));
+          }
+        }
+      },
+      input.signal,
+    );
+    for (const record of records) {
+      const key = keyOf(record.id);
+      if (key === undefined) continue;
+      for (const { id } of named.get(key) ?? []) {
+        const at = deletedAt.get(keyOf(id) ?? '');
+        if (at === undefined) continue;
+        if (at === record.stamp) outside.add(key);
+        else if (at > record.stamp) stuck.add(key);
+      }
+    }
+  }
+  return { outside, stuck, requests: input.reader.calls() - before };
 }
 
 /**
@@ -888,7 +1245,7 @@ async function diffObject(
   fieldsNow: FieldsNow,
 ): Promise<ObjectOutcome> {
   if ('unread' in changes) return { unread: changes.unread };
-  const { input, previewDir, t0s, back, createdGone, stuck, personAccounts } = context;
+  const { input, previewDir, t0s, back, carriers, stranded, stuck, personAccounts } = context;
   const { folder, reader, checkpoint, signal } = input;
   const objectApiName = object.objectApiName;
   const spools = new Map<RewindClass, ClassSpool>();
@@ -964,27 +1321,11 @@ async function diffObject(
         .filter((parent): parent is string => parent !== undefined && parent !== key);
     const parentsOf = (row: OrgRow, key: string): string[] => keysOf(cascade, row, key);
     // Deleted in the second a parent the rewind brings back was, through a
-    // field whose parent's delete takes it along: it went with that parent.
+    // field whose parent's delete takes it along: it went with that parent —
+    // one held, or a carrier, which the rewind brings back for a moment.
     const wentWithParent = (row: OrgRow, key: string): boolean => {
       const stamp = dateMs(row.SystemModstamp);
       return parentsOf(row, key).some((parent) => back.get(parent)?.stamp === stamp);
-    };
-    // Deleted in the second a record created since was, through a field
-    // whose parent's delete takes it along: it went with that record, which
-    // nothing brings back — unless that record went itself with one the
-    // rewind brings back, and comes back with it. The org refuses its
-    // undelete while that record is in the bin, as it refused, live, a case
-    // comment whose case was still in the bin.
-    const wentWithCreatedParent = (row: OrgRow, key: string): boolean => {
-      const stamp = dateMs(row.SystemModstamp);
-      return parentsOf(row, key).some((parent) => {
-        const created = createdGone.get(parent);
-        return (
-          created !== undefined &&
-          created.stamp === stamp &&
-          !created.parents.some((above) => back.get(above)?.stamp === created.stamp)
-        );
-      });
     };
     const t1 = Date.parse(checkpoint.takenAt);
     const unchangedUntil = Date.parse(input.readAt) - ORG_DATE_GRAIN_MS;
@@ -1160,14 +1501,21 @@ async function diffObject(
           tally.deletedHeld++;
           if (person) continue;
           // Salesforce keeps it in the bin for good.
+          const strandedAs = stranded.get(key);
           if (stuck.has(key)) await spool(lostAs).add({ Id: id });
+          // It comes back with a parent the rewind does not bring back only.
+          else if (strandedAs !== undefined) await spool(strandedAs).add({ Id: id });
           else if (wentWithParent(row, key)) await spool('withParent').add({ Id: id });
-          else if (wentWithCreatedParent(row, key)) {
-            await spool('deletedWithCreatedParent').add({ Id: id });
-          } else if (object.undeletable) await spool('inBin').add({ Id: id });
+          else if (object.undeletable) await spool('inBin').add({ Id: id });
           // Salesforce brings it back with its parent only, and its parent
           // is not coming back.
           else await spool(lostAs).add({ Id: id });
+          continue;
+        }
+        // Brought back for a moment, with what it took along of the
+        // checkpoint, then deleted again.
+        if (carriers.has(key) && !person) {
+          await spool('carrier').add({ Id: id });
           continue;
         }
         if (person || (await inBinAtCheckpoint(key))) continue;
@@ -1175,7 +1523,10 @@ async function diffObject(
         // and deleted since leaves nothing to rewind, unless it went with a
         // parent the rewind brings back: it comes back with it.
         if (dateMs(row.CreatedDate) < t0s) {
-          await spool(stuck.has(key) ? 'goneForGood' : 'deletedWhileTaken').add({ Id: id });
+          const strandedAs = stranded.get(key);
+          await spool(stuck.has(key) ? 'goneForGood' : (strandedAs ?? 'deletedWhileTaken')).add({
+            Id: id,
+          });
         } else if (wentWithParent(row, key)) {
           await spool('comesBackWithParent').add({ Id: id });
           toDelete(row, id, key, false);
@@ -1236,6 +1587,8 @@ async function diffObject(
     const convertedSince = countOf('convertedLead');
     const activatedSince = countOf('activatedContract');
     const withCreatedParent = countOf('deletedWithCreatedParent');
+    const withParentOutside = countOf('deletedWithParentOutside');
+    const carried = countOf('carrier');
     const diff: RewindDiffObject = {
       objectApiName,
       toDelete: {
@@ -1252,6 +1605,7 @@ async function diffObject(
         inBin: countOf('inBin'),
         withParent: countOf('withParent'),
         deletedWhileTaken: countOf('deletedWhileTaken'),
+        ...(carried > 0 ? { carriers: carried } : {}),
       },
       ...(toRecreate > 0 ? { toRecreate } : {}),
       cannotUndo: [
@@ -1264,6 +1618,9 @@ async function diffObject(
           : []),
         ...(withCreatedParent > 0
           ? [{ reason: 'deletedWithCreatedParent' as const, count: withCreatedParent }]
+          : []),
+        ...(withParentOutside > 0
+          ? [{ reason: 'deletedWithParentOutside' as const, count: withParentOutside }]
           : []),
       ],
       outside: [],
@@ -1535,6 +1892,7 @@ function differs(diff: RewindDiffObject): boolean {
       toBringBack.inBin +
       toBringBack.withParent +
       toBringBack.deletedWhileTaken +
+      (toBringBack.carriers ?? 0) +
       (diff.toRecreate ?? 0) +
       diff.touched +
       diff.unexplained +
@@ -1610,8 +1968,9 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     return describing;
   };
 
-  const { back, createdGone } = await toBringBackOf({ input, t0s }, ordered, changes);
-  const stuck = stuckOf(back);
+  const { back, gone } = await toBringBackOf({ input, t0s }, ordered, changes);
+  const stuck = stuckOf(back, gone);
+  const carriers = carriersOf(ordered, back, gone);
   const compared = new Map(
     readable.map(({ object, fields }) => [
       object.objectApiName,
@@ -1620,14 +1979,30 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
       ),
     ]),
   );
+  // The objects of what it brings back described, then what went with a
+  // parent outside the checkpoint told: a snapshot row is compared for a
+  // lookup naming only what still comes back once that is told.
   const lookups = await lookupsOf(back, compared, relationsOf, unread);
+  const outsideOfCheckpoint = await parentsOutsideOf(
+    input,
+    readable.map(({ object }) => object),
+    back,
+    gone,
+    carriers,
+    relationsOf,
+  );
+  for (const key of outsideOfCheckpoint.stuck) stuck.add(key);
+  stuckWith(stuck, back, gone);
+  for (const key of [...carriers]) if (!back.has(key)) carriers.delete(key);
+  const stranded = strandedOf(back, gone, outsideOfCheckpoint.outside);
   const context: DiffContext = {
     input,
     previewDir,
     t0s,
     activeFrom: tr - ACTIVE_WINDOW_MS,
     back,
-    createdGone,
+    carriers,
+    stranded,
     stuck,
     lookups,
     personAccounts: await personAccountsOf(ordered, changes),
@@ -1686,6 +2061,9 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     objects: told.map(({ diff }) => diff).filter(differs),
     undoCannot,
     ...(withParentDeleted.length > 0 ? { withParentDeleted } : {}),
+    ...(outsideOfCheckpoint.requests > 0
+      ? { parentsOutsideRequests: outsideOfCheckpoint.requests }
+      : {}),
     unread: ordered.flatMap(({ objectApiName }) => {
       const outcome = outcomes.get(objectApiName);
       const reason =

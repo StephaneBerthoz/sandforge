@@ -7,6 +7,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { dateTimeFormat } from '../../utils/formatters';
 import {
   USERS,
+  carriedDiff,
   developerOrg,
   diffObject,
   fakeHost,
@@ -223,6 +224,65 @@ describe('RewindPreview', () => {
     ]);
   });
 
+  it('says a record the checkpoint does not hold that took records of it along comes back for a moment, then goes back to the recycle bin, in none of the numbers', () => {
+    renderPreview();
+    answerPreview({ diff: carriedDiff() });
+    expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('1 to delete');
+    expect(screen.getByTestId('checkpoint-preview-number-bring-back').textContent).toBe(
+      '2 to bring back',
+    );
+    expect(rowCells('Account')).toEqual(['Account', '0', '0', '0', '0']);
+    expect(
+      within(screen.getByTestId('checkpoint-preview-details'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Contact: 2 records come back with their parent record.',
+      'Contact: 4 field values to give back.',
+      'Contact: 1 record created since and deleted with a parent the rewind brings back comes back with it, then is deleted.',
+      'Account: 1 record the checkpoint does not hold, deleted since, took records of the checkpoint along: Salesforce gives those back with it only, so it comes back for a moment, then goes back to the recycle bin with what came back with it.',
+    ]);
+  });
+
+  it('lists what the org runs on a record brought back for a moment, as it comes back and as it goes again, and holds Rewind until it is accepted', () => {
+    renderPreview();
+    answerPreview({
+      diff: carriedDiff(),
+      automation: {
+        ...AUTOMATION,
+        objects: [
+          {
+            objectApiName: 'Account',
+            flows: [],
+            triggers: [
+              { name: 'AccountRestore', events: ['afterUndelete'] },
+              { name: 'AccountGone', events: ['beforeDelete'] },
+            ],
+          },
+        ],
+      },
+    });
+    expect(screen.getByTestId('checkpoint-preview-automation-bringBack-Account').textContent).toBe(
+      'Account: Apex trigger: AccountRestore · after undelete, as the rewind brings it back from the recycle bin',
+    );
+    expect(screen.getByTestId('checkpoint-preview-automation-delete-Account').textContent).toBe(
+      'Account: Apex trigger: AccountGone · before delete',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    expect(screen.getByTestId('checkpoint-preview-accept-automation')).toBeInTheDocument();
+  });
+
+  it('says in its confirmation the records it brings back for a moment and deletes again', () => {
+    renderPreview();
+    answerPreview({ diff: carriedDiff() });
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(
+      screen.getByText(
+        /: it deletes the 1 record added since, gives 2 records their values from then back, brings back 2 records from the recycle bin and brings back for a moment 1 record that had taken records of the checkpoint along, then deletes it again, whoever made these changes\.$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('says what a rewind cannot undo: what applies, then what any rewind leaves', () => {
     renderPreview();
     answerPreview({
@@ -234,6 +294,8 @@ describe('RewindPreview', () => {
             schemaDrift: { removed: ['Region__c'], added: ['Score__c'], changed: [] },
           }),
           diffObject('Lead', { cannotUndo: [{ reason: 'convertedLead', count: 1 }] }),
+          diffObject('Contact', { cannotUndo: [{ reason: 'deletedWithParentOutside', count: 3 }] }),
+          diffObject('Note__c', { cannotUndo: [{ reason: 'deletedWithCreatedParent', count: 1 }] }),
         ],
       }),
     });
@@ -242,6 +304,8 @@ describe('RewindPreview', () => {
       .map((item) => item.textContent);
     expect(lines).toEqual([
       '2 records deleted since cannot come back: the recycle bin no longer holds them, and the rewind cannot make them again — files, whose bodies the checkpoint does not hold, or records deleted while the checkpoint was taken (Case).',
+      '1 record deleted with a parent created since cannot come back: Salesforce gives it back with that parent only, and does not undelete that parent on its own (Note__c).',
+      "3 records deleted since with their parent, a record of an object the checkpoint does not hold, stay in the recycle bin: Salesforce gives them back with that parent only. A checkpoint that holds the parent's object brings them back (Contact).",
       '1 lead was converted since: Salesforce cannot unconvert a lead. What the conversion made is deleted, and the lead stays converted.',
       'Case.Region__c was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.',
       'Case.Score__c was added since: its values stay.',

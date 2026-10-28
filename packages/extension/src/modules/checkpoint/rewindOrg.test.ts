@@ -1371,7 +1371,16 @@ describe('rewindOrg: records emptied from the recycle bin that Salesforce still 
     const result = resultOf(await rewound(t, diff.previewId));
 
     expect(result.status).toBe('partial');
+    // The contact who reported to the boss gets its lookup back only once the
+    // boss is: the org refuses a lookup to a record in the bin (P-B1, P-D4).
     expect(sortedIds(result.residual)).toEqual([
+      {
+        objectApiName: 'Contact',
+        reason: 'refused',
+        count: 1,
+        ids: [REPORT],
+        message: 'ENTITY_IS_DELETED: entity is deleted',
+      },
       { objectApiName: 'Contact', reason: 'notInBin', count: 3, ids: [P1, P2, BOSS] },
       { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [P, C] },
     ]);

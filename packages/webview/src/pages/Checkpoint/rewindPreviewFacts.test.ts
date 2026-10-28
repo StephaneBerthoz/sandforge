@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   automationObjects,
   cannotUndoLines,
+  carriersOf,
+  carriersTotal,
   changedDuringRewind,
   comparableFields,
   deletedStatus,
@@ -134,6 +136,66 @@ describe('rewindPreviewFacts', () => {
       { reason: 'goneForGood', count: 5, objects: ['Contact', 'Account'] },
       { reason: 'convertedLead', count: 1, objects: ['Lead'] },
     ]);
+  });
+
+  it('says the records deleted with their parent, of an object the checkpoint does not hold, beside those deleted with a parent created since', () => {
+    const diff = previewDiff({
+      objects: [
+        diffObject('Contact', {
+          cannotUndo: [
+            { reason: 'deletedWithParentOutside', count: 2 },
+            { reason: 'deletedWithCreatedParent', count: 1 },
+          ],
+        }),
+        diffObject('Case', { cannotUndo: [{ reason: 'deletedWithParentOutside', count: 1 }] }),
+      ],
+    });
+    expect(cannotUndoLines(diff)).toEqual([
+      { reason: 'deletedWithCreatedParent', count: 1, objects: ['Contact'] },
+      { reason: 'deletedWithParentOutside', count: 3, objects: ['Contact', 'Case'] },
+    ]);
+  });
+
+  it('counts the records brought back for a moment, in none of the three numbers, and a rewind of them writes: brought back, then deleted again', () => {
+    const diff = previewDiff({
+      objects: [
+        diffObject('Account', {
+          toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 2 },
+        }),
+        diffObject('Contact', {
+          toBringBack: { inBin: 0, withParent: 2, deletedWhileTaken: 0 },
+          toGiveBack: { records: 2, fields: 2, clearedLookups: 0 },
+        }),
+      ],
+    });
+    expect(carriersOf(diff.objects[0])).toBe(2);
+    expect(carriersOf(diffObject('Account', {}))).toBe(0);
+    expect(carriersTotal(diff)).toBe(2);
+    expect(rewindTotals(diff)).toEqual({
+      toDelete: 0,
+      toGiveBack: 2,
+      toBringBack: 2,
+      toRecreate: 0,
+    });
+    expect(
+      rewindWrites(
+        previewDiff({
+          objects: [
+            diffObject('Account', {
+              toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
+            }),
+          ],
+        }),
+      ),
+    ).toBe(true);
+    // What the org runs on them is read and listed: the rewind brings them
+    // back and deletes them, and is refused for it without the box.
+    expect(rewindSteps(diff)).toEqual({
+      bringBack: ['Account', 'Contact'],
+      recreate: [],
+      giveBack: ['Contact'],
+      delete: ['Account'],
+    });
   });
 
   it('lists what the deletions take along outside the checkpoint, under the object they hang from', () => {

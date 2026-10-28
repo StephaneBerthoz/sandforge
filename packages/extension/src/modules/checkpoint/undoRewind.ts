@@ -23,6 +23,14 @@
  * does not compare, which an undelete puts back — is read before each
  * give-back, and taken for the undo's doing.
  *
+ * What the rewind brought back for a moment and deleted again — a carrier,
+ * a record the checkpoint does not hold that had taken records of it along —
+ * stays in the bin, and so does what went back there with it. What the
+ * rewind gave back of what it took along it moved off it: that goes back to
+ * the bin on its own (`carriedAlone`), its lookup to the carrier not given
+ * back — the org refuses a lookup to a record in the bin. A value from before
+ * that names any record the undo leaves in the bin is left as it is.
+ *
  * Once through, it reads again by their ids the records it gave back, and
  * compares the values the org holds with those from before the rewind: a
  * field the org's automation set again on save, or one someone changed
@@ -140,6 +148,12 @@ export interface UndoRewindOutcome {
    * it, or gone with a record it deleted. Absent when there is none.
    */
   remade?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Of what it sent back to the recycle bin, per object, the records that had
+   * gone there with a carrier the rewind brought back for a moment, which
+   * stays there: back in the bin on their own. Absent when there is none.
+   */
+  carriedAlone?: Array<{ objectApiName: string; count: number }>;
   /** What it gave back its values from before the rewind, per object. */
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
@@ -181,6 +195,46 @@ const WIDE_COLUMNS = 100;
 /** A record by its first fifteen characters. */
 function recordKey(id: string): string {
   return id.slice(0, 15);
+}
+
+/** A Salesforce id, of either length. */
+const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
+
+/**
+ * `values` without the fields whose value from before names a record of
+ * `compensated`: in the recycle bin before the rewind and after it, which
+ * the undo leaves there. The org refuses a lookup to a record in the bin
+ * (`ENTITY_IS_DELETED`, live): a contact a rewind brought back with an
+ * account created since, then gave its own account back, held that account
+ * from before, which its undo could not write.
+ */
+function withoutCompensated(
+  values: BackupReader,
+  compensated: Pick<RecordKeySet, 'has'>,
+): BackupReader {
+  return {
+    batches: async (operationId, objectApiName, size) => {
+      const batches = await values.batches(operationId, objectApiName, size);
+      if (!batches) return null;
+      return {
+        async *[Symbol.asyncIterator]() {
+          for await (const batch of batches) {
+            yield batch.map((record) =>
+              Object.fromEntries(
+                Object.entries(record).filter(
+                  ([field, value]) =>
+                    field === 'Id' ||
+                    typeof value !== 'string' ||
+                    !RECORD_ID.test(value) ||
+                    !compensated.has(value),
+                ),
+              ),
+            );
+          }
+        },
+      };
+    },
+  };
 }
 
 /** A removal that had nothing to delete: what goes back to the bin was nothing. */
@@ -584,6 +638,8 @@ async function undoFrom(
 ): Promise<UndoRewindOutcome> {
   const { org, signal } = input;
   const along = plans.goesWithParent;
+  /** The values from before, but those that name a record the undo leaves in the bin. */
+  const valuesBefore = withoutCompensated(journal.values, plans.compensated);
   const planned = {
     remove: plans.remove.spool.count + along.count,
     bringBack: plans.bringBack.count,
@@ -707,7 +763,7 @@ async function undoFrom(
         const call = await restoreOverwrites({
           org,
           plan: [{ objectApiName, backup: plans.backup, ids: chunk }],
-          backups: journal.values,
+          backups: valuesBefore,
           ...(read.lastWriteAt !== undefined ? { lastWriteAt: read.lastWriteAt } : {}),
           includeChanged: false,
           ...(Object.keys(held).length > 0 ? { stamps: held } : {}),
@@ -828,6 +884,8 @@ async function undoFrom(
   const left = new RecordKeySet();
   /** Per object, the records made again the removal left. */
   const remadeLeft = new Map<string, number>();
+  /** Per object, the records carried by a carrier the removal left. */
+  const carriedLeft = new Map<string, number>();
   for await (const { objectApiName, ids } of outcome.left()) {
     for (const id of ids) {
       left.add(id);
@@ -835,12 +893,21 @@ async function undoFrom(
       if (plans.remade.keys.has(id)) {
         remadeLeft.set(objectApiName, (remadeLeft.get(objectApiName) ?? 0) + 1);
       }
+      if (plans.carriedAlone.keys.has(id)) {
+        carriedLeft.set(objectApiName, (carriedLeft.get(objectApiName) ?? 0) + 1);
+      }
     }
   }
   const remade = plans.remade.objects
     .map(({ objectApiName, count }) => ({
       objectApiName,
       count: count - (remadeLeft.get(objectApiName) ?? 0),
+    }))
+    .filter(({ count }) => count > 0);
+  const carriedAlone = plans.carriedAlone.objects
+    .map(({ objectApiName, count }) => ({
+      objectApiName,
+      count: count - (carriedLeft.get(objectApiName) ?? 0),
     }))
     .filter(({ count }) => count > 0);
   const wentAlong: ForgeUndoObjectResult[] = [];
@@ -877,7 +944,7 @@ async function undoFrom(
   if (restored && status !== 'cancelled') {
     const notGiven = new RecordKeySet();
     for (const id of restored.left) notGiven.add(id);
-    residual = await stillDiffering(org, plans, journal.values, notGiven, notes);
+    residual = await stillDiffering(org, plans, valuesBefore, notGiven, notes);
   }
   if (residual.length > 0 && status === 'success') status = 'partial';
 
@@ -912,6 +979,7 @@ async function undoFrom(
     status,
     deleted: removed,
     ...(remade.length > 0 ? { remade } : {}),
+    ...(carriedAlone.length > 0 ? { carriedAlone } : {}),
     restored: restored?.objects ?? [],
     undeleted: undeleted?.objects ?? [],
     residual,

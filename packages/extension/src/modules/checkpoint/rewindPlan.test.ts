@@ -1196,6 +1196,87 @@ describe('a rewind’s plan: the second pass (M3)', () => {
     expect(world.row('Account', theirs)).toMatchObject({ Industry: 'Mining' });
     expect(world.live('Account', colleagues)).toBe(true);
   });
+
+  it('brings back in the first pass a carrier — an account made since that took a contact of the checkpoint along — and deletes it in the second with the contact made since under it, which the undelete dated and which goes with it, never sent on its own', async () => {
+    const [own, carrier] = [1, 2].map(accountId);
+    const [held, madeUnder] = [1, 2].map(contactId);
+    const world = await take({
+      objects: [CONTACT, ACCOUNT],
+      children: { Account: [ACCOUNT_CONTACTS] },
+      before: (org) => {
+        org.add('Account', { Id: own, Name: 'Own', Industry: 'Energy' });
+        org.add('Contact', { Id: held, LastName: 'Held', AccountId: own });
+      },
+    });
+    world.at(SINCE, (org) => {
+      org.add('Account', { Id: carrier, Name: 'Made since', LastModifiedById: COLLEAGUE });
+      org.edit('Contact', held, { AccountId: carrier }, COLLEAGUE);
+      org.add('Contact', {
+        Id: madeUnder,
+        LastName: 'Made since',
+        AccountId: carrier,
+        LastModifiedById: COLLEAGUE,
+      });
+    });
+    world.at(SINCE + 30_000, (org) => org.trash('Account', carrier, COLLEAGUE));
+    const fresh = await world.diff(PV1, TR);
+
+    const first = await world.plan({ freshDir: fresh.dir });
+
+    expect(await idsOf(first.bringBack)).toEqual({ Account: [carrier] });
+    expect(first.carriers.has(carrier)).toBe(true);
+    expect(await idsOf(first.deletes)).toEqual({});
+    expect(first.objects).toEqual([
+      counts('Contact', { nextPassDeleted: 1, backWithParent: 1, givenBackFirst: 1 }),
+      counts('Account', { nextPassDeleted: 1, carriers: 1 }),
+    ]);
+
+    // The first pass: the carrier back, the contact given its account back,
+    // and what the undelete left on what came back kept, as the journal does.
+    world.clock = WRITES;
+    await world.org.undelete([carrier]);
+    const stamps = Object.fromEntries(
+      [world.row('Account', carrier), world.row('Contact', madeUnder)].map((row) => [
+        String(row?.Id),
+        String(row?.LastModifiedDate),
+      ]),
+    );
+    await world.giveBack(first.giveBack.beforeDeletes, first);
+    expect(world.row('Contact', held)).toMatchObject({ AccountId: own });
+    const again = await world.diff(PV3, PASS_TWO);
+
+    const second = await world.plan({
+      pass: 2,
+      confirmedDir: first.dir,
+      freshDir: again.dir,
+      removalStamps: stamps,
+    });
+
+    expect(await idsOf(second.deletes)).toEqual({ Account: [carrier] });
+    expect(second.left).toEqual([]);
+    expect(second.goesAlong.has(madeUnder)).toBe(true);
+    // The held contact, given back by the first pass, no longer differs.
+    expect(second.objects).toEqual([
+      counts('Contact', { withParentDeleted: 1, skipped: 1 }),
+      counts('Account', { deleted: 1 }),
+    ]);
+
+    // Told what goes with its parent, as the rewind tells it, the removal agrees.
+    const outcome = await removeRunRecords(world.org, second.deletes, {
+      ...second.removal,
+      goesWithParent: (row) =>
+        typeof row.Id === 'string' &&
+        second.goesAlong.has(row.Id) &&
+        Date.parse(String(row.LastModifiedDate)) <= Date.parse(stamps[madeUnder] ?? ''),
+    });
+
+    expect(outcome.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', deleted: 1, keptDependents: 0 }),
+    ]);
+    expect(world.live('Account', carrier)).toBe(false);
+    expect(world.live('Contact', madeUnder)).toBe(false);
+    expect(world.row('Contact', held)).toMatchObject({ AccountId: own });
+  });
 });
 
 describe('a rewind’s plan: chunks and pages (M2)', () => {

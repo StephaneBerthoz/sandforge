@@ -65,7 +65,8 @@ const ACT_WORDS: Readonly<Record<'rewind' | 'undo', { what: string; then: string
  * What a rewind would write, per object and write, as its preview counts it:
  * what it brings back, what it makes again with new Ids, what it gives back —
  * what it brings back among it, the values it had when deleted given back
- * once it is back — and what it deletes.
+ * once it is back — and what it deletes. A carrier is brought back and
+ * deleted again: the automation of either write fires on it.
  */
 export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
@@ -73,13 +74,15 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
       undelete:
         object.toBringBack.inBin +
         object.toBringBack.withParent +
-        object.toBringBack.deletedWhileTaken,
+        object.toBringBack.deletedWhileTaken +
+        (object.toBringBack.carriers ?? 0),
       insert: object.toRecreate ?? 0,
       update: object.toGiveBack.records + object.toBringBack.inBin + object.toBringBack.withParent,
       delete:
         object.toDelete.createdSince +
         object.toDelete.broughtBackSince +
-        object.toDelete.comesBackWithParent,
+        object.toDelete.comesBackWithParent +
+        (object.toBringBack.carriers ?? 0),
     }),
   );
 }
@@ -92,7 +95,7 @@ export function writtenByDiff(objects: readonly RewindDiffObject[]): WrittenReco
 export function writtenByPlan(objects: readonly RewindPlanObject[]): WrittenRecords[] {
   return objects.flatMap((object) =>
     written(object.objectApiName, {
-      undelete: object.broughtBack + object.backWithParent,
+      undelete: object.broughtBack + object.backWithParent + (object.carriers ?? 0),
       insert: object.recreated,
       update: object.givenBackFirst + object.givenBackAfter + object.givenBackNextPass,
       delete: object.deleted + object.withParentDeleted + object.nextPassDeleted,

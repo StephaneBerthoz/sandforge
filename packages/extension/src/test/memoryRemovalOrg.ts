@@ -37,6 +37,10 @@
  * - Deleting a record clears a lookup to it that does not cascade (a
  *   contact's `ReportsToId`) and restamps the child; undeleting the record
  *   puts the lookup back and restamps the child again.
+ * - An update that points a lookup at a record in the recycle bin is refused,
+ *   `ENTITY_IS_DELETED` "entity is deleted", the record left as it was: a
+ *   contact's account, a contact's `ReportsToId` and an account's parent,
+ *   live (P-B1, P-D4).
  * - A delete of several objects in one call deletes the parents first: a
  *   child listed before its parent answers `ENTITY_IS_DELETED`, gone with it.
  * - A plain query leaves out deleted records and archived activities; one
@@ -411,6 +415,15 @@ export class MemoryRemovalOrg implements RemovalOrg {
   /** A live row of an object, by either length of its id. */
   protected liveRow(objectApiName: string, id: string): MemoryRow | undefined {
     return this.rows.get(objectApiName)?.get(keyOf(id));
+  }
+
+  /** Whether `value` names a record the recycle bin holds, by either length of its id. */
+  protected namesBinned(value: unknown): boolean {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/.test(value)) {
+      return false;
+    }
+    const held = this.binned.get(keyOf(value));
+    return held !== undefined && held.hard !== true;
   }
 
   /** Stamp a row as written now by `by`, to the second. */

@@ -59,6 +59,14 @@
  *   left on its records is read, whoever the org names their last modifier:
  *   the dates an undelete moves are the rewind's own doing, and the records
  *   that came back with a record were dated in the same second.
+ * - Carried: a carrier — a record the checkpoint does not hold, deleted since
+ *   with records it holds — is brought back in batches of its own, named as
+ *   such, and what comes back with it named beside the record it hangs from
+ *   itself. What it took along of the checkpoint is given its values back,
+ *   which moves it off the carrier; the second pass deletes the carrier, and
+ *   what came back with it that no one changed since its undelete goes back
+ *   to the bin with it — what of the checkpoint the org refused to give back
+ *   too, named in its words, rather than the carrier be kept for it alive.
  * - No longer in the bin, though a read found it there: Salesforce still
  *   lists a record emptied from the recycle bin as deleted, `queryAll`
  *   reading it `IsDeleted = true` until the org deletes it for good — half
@@ -99,9 +107,10 @@
  * changed after Tr by the rewind's own users —; kept as the rewind had to,
  * among them a record to delete that records it does not delete hang from,
  * a lead converted since, which Salesforce cannot unconvert, a contract
- * activated since, which it will not set back to Draft, and a record deleted
- * with one created since, which comes back with that one only; refused, in
- * the org's words. A record deleted while the checkpoint was taken and
+ * activated since, which it will not set back to Draft, a record deleted
+ * with one created since that Salesforce does not undelete on its own, and
+ * one deleted with its parent of an object the checkpoint does not hold,
+ * which each come back with that one only; refused, in the org's words. A record deleted while the checkpoint was taken and
  * brought back by the rewind reads, live and not in the snapshot, as
  * unexplained: it is the rewind's own, and never named.
  *
@@ -208,6 +217,7 @@ import {
   removeEarlierJournals,
   type EarlierJournalRemoved,
   type RewindJournal,
+  type RewindJournalRead,
 } from './rewindJournal.js';
 import {
   heldInPlaceReason,
@@ -251,15 +261,22 @@ const ACTED: readonly RewindClass[] = [
   'withParent',
   'deletedWhileTaken',
   'toRecreate',
+  'carrier',
 ];
 
-/** What the verify names: the classes a pass acts on, and what cannot come back or be given back. */
+/**
+ * What the verify names: the classes a pass acts on, and what cannot come
+ * back or be given back. Not a carrier: in the recycle bin, a record the
+ * checkpoint does not hold is as it was; what still differs of what it took
+ * along is named on its own.
+ */
 const STILL_DIFFERING: readonly RewindClass[] = [
-  ...ACTED,
+  ...ACTED.filter((cls) => cls !== 'carrier'),
   'goneForGood',
   'convertedLead',
   'activatedContract',
   'deletedWithCreatedParent',
+  'deletedWithParentOutside',
 ];
 
 /**
@@ -272,8 +289,12 @@ const LEFT_AS_IT_IS: Readonly<Partial<Record<RewindClass, string>>> = {
   activatedContract:
     "Left activated: Salesforce won't set an activated contract back to Draft, so it is not given back.",
   deletedWithCreatedParent:
-    'Left in the recycle bin: deleted with a record created since, which the rewind does not ' +
-    'bring back, it comes back with that record only.',
+    'Left in the recycle bin: deleted with a record created since that Salesforce does not ' +
+    'undelete on its own, it comes back with that record only.',
+  deletedWithParentOutside:
+    'Left in the recycle bin: deleted with its parent, a record of an object the checkpoint ' +
+    'does not hold, it comes back with that record only. A checkpoint that holds that object ' +
+    'brings it back.',
 };
 
 /** Which brick acts on the records of each class, whose refusal the verify quotes. */
@@ -286,6 +307,7 @@ const BRICK_OF: Readonly<Partial<Record<RewindClass, Brick>>> = {
   withParent: 'undelete',
   deletedWhileTaken: 'undelete',
   toRecreate: 'recreate',
+  carrier: 'undelete',
 };
 
 /** The bricks a pass writes through. */
@@ -1080,7 +1102,7 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
     .map((object) => object.objectApiName);
   return {
     bringBack: objects
-      .filter((object) => object.broughtBack + object.backWithParent > 0)
+      .filter((object) => object.broughtBack + object.backWithParent + (object.carriers ?? 0) > 0)
       .map((object) => object.objectApiName),
     recreate: objects
       .filter((object) => object.recreated > 0)
@@ -1238,6 +1260,12 @@ class Rewind {
   private userId = '';
   /** The users whose writes are the rewind's own, by their keys. */
   private owners = new Set<string>();
+  /**
+   * What came back with a carrier, by key, every pass of the journal: it goes
+   * back to the bin with that carrier when the second pass deletes it, unless
+   * someone changed it since it came back (`RunRemovalOptions.goesWithParent`).
+   */
+  private readonly carried = new RecordKeySet();
   /** Tr, in milliseconds, less the second the org dates to: what it dates no later was made before Tr. */
   private before = Number.NaN;
 
@@ -1485,6 +1513,9 @@ class Rewind {
     const prior = await journal.read();
     this.addStamps(prior.rewind.removalStamps ?? {});
     this.spans.push(...(prior.rewind.removalSpans ?? []));
+    // A rewind taken up after a stop between its passes deletes the carriers
+    // its first pass brought back: what came back with them goes with them.
+    for (const { ids } of prior.did.carried ?? []) for (const id of ids) this.carried.add(id);
     const undoUntil = new Date(Date.parse(prior.head.startedAt) + UNDO_WINDOW_MS).toISOString();
     await this.deps.store.update(checkpoint.checkpointId, (held) => ({
       ...held,
@@ -1576,7 +1607,30 @@ class Rewind {
         );
       }
     }
-    const undoCannot = await this.undoCannotOf(journal);
+    const read = await journal.read();
+    const undoCannot = this.undoCannotOf(read);
+    const carriers = (read.did.carriers ?? []).map(({ objectApiName, ids }) => ({
+      objectApiName,
+      count: ids.length,
+    }));
+    // Stopped before its second pass deleted them again, the carriers it
+    // brought back are in the org until it is rewound again.
+    if (cancelled) {
+      const deleted = new Set(read.did.deleted.flatMap(({ ids }) => ids.map(keyOf)));
+      const alive = (read.did.carriers ?? [])
+        .map(({ objectApiName, ids }) => ({
+          objectApiName,
+          count: ids.filter((id) => !deleted.has(keyOf(id))).length,
+        }))
+        .filter(({ count }) => count > 0);
+      if (alive.length > 0) {
+        this.notes.push(
+          `Stopped with ${alive.map(({ objectApiName, count }) => `${count} ${objectApiName}`).join(', ')} ` +
+            'record(s) brought back for a moment still in the org: they had taken records of the ' +
+            'checkpoint along. Rewind again to delete them, with what came back with them.',
+        );
+      }
+    }
     return {
       rewound: true,
       result: this.resultOf({
@@ -1589,6 +1643,7 @@ class Rewind {
         leftToday: remaining,
         undo: { until: undoUntil, cannot: undoCannot },
         removedJournals,
+        carriers,
       }),
       notes: this.notes,
     };
@@ -1611,13 +1666,12 @@ class Rewind {
    * stop said Undo could bring back the products the stopped pass had
    * deleted.
    */
-  private async undoCannotOf(journal: RewindJournal): Promise<RewindUndoCannot[]> {
+  private undoCannotOf(read: RewindJournalRead): RewindUndoCannot[] {
     const alone = new Set(
       this.request.checkpoint.objects
         .filter((object) => !object.undeletable)
         .map((object) => object.objectApiName),
     );
-    const read = await journal.read();
     const back = new Set(read.did.broughtBack.flatMap(({ ids }) => ids.map(keyOf)));
     const before = new Set(
       (read.did.deletedBeforeParent ?? []).flatMap(({ ids }) => ids.map(keyOf)),
@@ -1647,6 +1701,8 @@ class Rewind {
     undo?: RewindResult['undo'];
     /** The journals of the org's earlier rewinds it deleted once it ended. */
     removedJournals?: EarlierJournalRemoved[];
+    /** Per object, the carriers it brought back for a moment. */
+    carriers?: RewindResult['carriers'];
   }): RewindResult {
     const used = this.count.used();
     return {
@@ -1659,6 +1715,7 @@ class Rewind {
       // again instead, brought nothing back: its records are counted made again.
       undeleted: parts.tally.undeleted.filter((object) => object.planned > 0),
       ...(parts.tally.recreated.length > 0 ? { recreated: parts.tally.recreated } : {}),
+      ...((parts.carriers ?? []).length > 0 ? { carriers: parts.carriers } : {}),
       residual: parts.residual,
       ...(parts.unread.length > 0 ? { unread: [...parts.unread] } : {}),
       passes: parts.passes,
@@ -1723,7 +1780,7 @@ class Rewind {
           pass === 1 ? 25 : 80,
           'Bringing back what was deleted since',
         );
-        await this.bringBack(journal, plan.bringBack, tally, stamp, remake);
+        await this.bringBack(journal, plan.bringBack, plan.carriers, tally, stamp, remake);
       }
       const recreate =
         remake && remake.objects.length > 0
@@ -1791,12 +1848,27 @@ class Rewind {
         (span, at, all) =>
           all.findIndex((other) => JSON.stringify(other) === JSON.stringify(span)) === at,
       );
+      // What came back with a carrier, and what goes with a parent this pass
+      // deletes, goes with it, unless someone changed it since a write of the
+      // rewind dated it: older than T1, what a carrier took along of the
+      // checkpoint would otherwise keep it — its give-back refused, it still
+      // hangs from it — and the rewind would leave in the org a record the
+      // user had deleted.
+      const goesWithParent = (row: Readonly<Record<string, unknown>>, runEnd: number): boolean => {
+        if (typeof row.Id !== 'string') return false;
+        if (!this.carried.has(row.Id) && !plan.goesAlong.has(row.Id)) return false;
+        const modified = dateMs(row.LastModifiedDate ?? row.SystemModstamp);
+        return modified <= runEnd || modified <= (this.stampOf.get(keyOf(row.Id)) ?? Number.NaN);
+      };
       outcome = await removeRunRecords(this.org, plan.deletes, {
         runStartedAt: plan.removal.runStartedAt,
         runEndedAt: plan.removal.runEndedAt,
         includeChanged: plan.removal.includeChanged,
         ...(Object.keys(removalStamps).length > 0 ? { removalStamps } : {}),
         ...(spans.length > 0 ? { removalSpans: spans } : {}),
+        ...(this.carried.size + plan.carriers.size + plan.goesAlong.size > 0
+          ? { goesWithParent }
+          : {}),
         ...(plan.bringBack.count + plan.recreate.count + plan.giveBack.beforeDeletes.count > 0
           ? { sweep }
           : {}),
@@ -2236,11 +2308,15 @@ class Rewind {
    * a time: before each batch, the children the bin holds of its records are
    * named in the journal; after it, what the undelete left on them is read.
    * What the org answers is no longer in the bin goes to `remake`, given, or
-   * is left (`settleGone`).
+   * is left (`settleGone`). The carriers of a page go in batches of their
+   * own, named as carriers, and what comes back with them named beside the
+   * record it hangs from itself: the second pass deletes them again, and
+   * their undo leaves in the bin what went back there with them.
    */
   private async bringBack(
     journal: RewindJournal,
     spool: IdSpool,
+    carriers: RecordKeySet,
     tally: PassTally,
     stamp: (stamps: Readonly<Record<string, string>>) => void,
     remake: IdSpoolWriter | undefined,
@@ -2265,7 +2341,15 @@ class Rewind {
             'the recycle bin.',
         );
       }
-      for await (const ids of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
+      const pages = async function* (): AsyncGenerator<{ ids: string[]; asCarriers: boolean }> {
+        for await (const page of spool.pages(objectApiName, SNAPSHOT_CHUNK_IDS)) {
+          const carried = page.filter((id) => carriers.has(id));
+          if (carried.length > 0) yield { ids: carried, asCarriers: true };
+          const rest = carried.length > 0 ? page.filter((id) => !carriers.has(id)) : page;
+          if (rest.length > 0) yield { ids: rest, asCarriers: false };
+        }
+      };
+      for await (const { ids, asCarriers } of pages()) {
         if (tally.cancelled || this.stopped()) {
           tally.undelete({
             ...emptyUndelete(objectApiName),
@@ -2275,7 +2359,9 @@ class Rewind {
           tally.cancelled = true;
           continue;
         }
-        const named = journal.bringingBack([{ objectApiName, ids }], this.count.undelete);
+        const named = journal.bringingBack([{ objectApiName, ids }], this.count.undelete, {
+          carriers: asCarriers,
+        });
         /** By key, the records the org answered are not in the bin, each with what was named under it. */
         const answeredGone = new Map<string, ChildRecord[]>();
         const call: UndeleteCall = async (batch) => {
@@ -2285,6 +2371,7 @@ class Rewind {
             cascades,
             objectApiName,
             batch,
+            asCarriers,
           );
           const answer = await named(batch);
           stamp(await this.undeleteStamps(objectApiName, batch, byParent));
@@ -2442,6 +2529,7 @@ class Rewind {
     cascades: readonly Cascade[],
     objectApiName: string,
     parents: readonly string[],
+    asCarriers = false,
   ): Promise<{ byParent: Map<string, string[]>; under: Map<string, ChildRecord[]> }> {
     const byParent = new Map<string, string[]>();
     const under = new Map<string, ChildRecord[]>();
@@ -2449,7 +2537,10 @@ class Rewind {
     /** Per record named, the record of `parents` it hangs from. */
     const rootOf = new Map(parents.map((id) => [keyOf(id), keyOf(id)]));
     const found = new Map<string, string[]>();
-    /** Per object found, beside each of its records, the record of `parents` it hangs from. */
+    /**
+     * Per object found, beside each of its records, the record of `parents`
+     * it hangs from — of a carrier's, the record it hangs from itself.
+     */
     const roots = new Map<string, string[]>();
     let level: Array<{ objectApiName: string; cascades: readonly Cascade[]; ids: string[] }> = [
       { objectApiName, cascades, ids: [...parents] },
@@ -2482,7 +2573,7 @@ class Rewind {
               if (persons && row[PERSON_ACCOUNT_FLAG] === true) continue;
               under.set(root, [...(under.get(root) ?? []), { objectApiName: child, id: row.Id }]);
               found.set(child, [...(found.get(child) ?? []), row.Id]);
-              roots.set(child, [...(roots.get(child) ?? []), root]);
+              roots.set(child, [...(roots.get(child) ?? []), asCarriers ? keyOf(parent) : root]);
               next.set(child, [...(next.get(child) ?? []), row.Id]);
             }
           });
@@ -2510,7 +2601,10 @@ class Rewind {
         level.push({ objectApiName: child, cascades: await this.cascadesUnder(child), ids });
       }
     }
-    for (const [child, ids] of found) await journal.withParent(child, ids, roots.get(child));
+    for (const [child, ids] of found) {
+      await journal.withParent(child, ids, roots.get(child), { carriers: asCarriers });
+    }
+    if (asCarriers) for (const ids of byParent.values()) for (const id of ids) this.carried.add(id);
     return { byParent, under };
   }
 
@@ -2708,12 +2802,17 @@ class Rewind {
     const last = made[made.length - 1];
     const tallies = second ? [second, first] : [first];
     const objects = [...this.request.checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
+    const throughCarriers = await this.throughCarriers(verify.dir);
     for (const object of objects) {
       const name = object.objectApiName;
       const found: Array<{ cls: RewindClass; id: string }> = [];
       for (const cls of STILL_DIFFERING) {
         for await (const row of rowsOf(classFileOf(verify.dir, name, cls))) {
-          if (typeof row.Id === 'string') found.push({ cls, id: row.Id });
+          if (typeof row.Id !== 'string') continue;
+          // In the bin with a carrier, as before the rewind: nothing of the
+          // checkpoint differs in it, whatever went with that carrier.
+          if (cls === 'comesBackWithParent' && throughCarriers.has(row.Id)) continue;
+          found.push({ cls, id: row.Id });
         }
       }
       if (found.length === 0) continue;
@@ -2755,6 +2854,16 @@ class Rewind {
           add(name, 'kept', id, { message: keptFor });
           continue;
         }
+        // Brought back with a carrier, its give-back refused: it went back to
+        // the bin with that carrier, dated by the rewind's delete, and is
+        // named in the words the org refused its values in.
+        if (
+          cls === 'withParent' &&
+          tallies.some((tally) => tally.left.restore.get(name)?.has(id) === true)
+        ) {
+          add(name, 'refused', id, { message: this.refusalOf(tallies, 'restore', name, id) });
+          continue;
+        }
         if (own) {
           add(name, 'automation', id);
           continue;
@@ -2789,6 +2898,43 @@ class Rewind {
       }
     }
     return [...groups.values()];
+  }
+
+  /**
+   * The carriers a read in `dir` found, and what it found coming back with a
+   * parent through them only, as far down as that goes, by key: records the
+   * checkpoint does not hold, in the recycle bin as they were before the
+   * rewind. A carrier found again by the verify carries what of the checkpoint
+   * the org refused to give back, which is named on its own.
+   */
+  private async throughCarriers(dir: string): Promise<RecordKeySet> {
+    const through = new RecordKeySet();
+    const objects = this.request.checkpoint.objects;
+    for (const { objectApiName } of objects) {
+      for await (const row of rowsOf(classFileOf(dir, objectApiName, 'carrier'))) {
+        if (typeof row.Id === 'string') through.add(row.Id);
+      }
+    }
+    for (let grew = through.size > 0; grew;) {
+      grew = false;
+      for (const object of objects) {
+        const coming = new RecordKeySet();
+        for await (const row of rowsOf(
+          classFileOf(dir, object.objectApiName, 'comesBackWithParent'),
+        )) {
+          if (typeof row.Id === 'string') coming.add(row.Id);
+        }
+        if (coming.size === 0) continue;
+        for await (const row of rowsOf(deletedSpoolOf(dir, object.objectApiName))) {
+          if (typeof row.Id !== 'string' || !coming.has(row.Id) || through.has(row.Id)) continue;
+          if (object.cascadeParents.some((field) => through.has(row[field]))) {
+            through.add(row.Id);
+            grew = true;
+          }
+        }
+      }
+    }
+    return through;
   }
 
   /** Who last changed the records `found` names, and when, as the verify read them. */

@@ -280,6 +280,73 @@ describe('RewindResult', () => {
     );
   });
 
+  it('says what it brought back for a moment, object by object, deleted again with what came back with it, beside what it brought back and deleted (P-B1: an account made since that took a contact of the checkpoint along)', () => {
+    renderResult(
+      rewindResult({
+        deleted: [deletedObject('Account', { planned: 1, deleted: 1 })],
+        restored: [restoredObject('Contact', { planned: 1, restored: 1 })],
+        undeleted: [undeletedObject('Account', { planned: 1, undeleted: 1 })],
+        carriers: [{ objectApiName: 'Account', count: 1 }],
+        passes: 2,
+      }),
+    );
+    const carriers = screen.getByTestId('checkpoint-result-carriers');
+    expect(within(carriers).getByRole('heading').textContent).toBe(
+      'Brought back for a moment from the recycle bin of DEV-SB, to bring back the records of the checkpoint they had taken along',
+    );
+    expect(screen.getByTestId('checkpoint-result-carriers-Account').textContent).toBe(
+      'Account: 1 record the checkpoint does not hold',
+    );
+    expect(screen.getByTestId('checkpoint-result-carriers-deleted-again').textContent).toBe(
+      'Deleted again once those records were back, with what came back with them: in the recycle bin, as before the rewind.',
+    );
+    expect(screen.queryByTestId('checkpoint-result-carriers-stopped')).toBeNull();
+  });
+
+  it('says a rewind stopped before it was through may have left in the org what it brought back for a moment, which Rewind again deletes', () => {
+    renderResult(
+      rewindResult({
+        status: 'cancelled',
+        deleted: [],
+        undeleted: [undeletedObject('Account', { planned: 2, undeleted: 2 })],
+        carriers: [{ objectApiName: 'Account', count: 2 }],
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-result-carriers-Account').textContent).toBe(
+      'Account: 2 records the checkpoint does not hold',
+    );
+    expect(screen.getByTestId('checkpoint-result-carriers-stopped').textContent).toBe(
+      'Stopped before the rewind was through: what of them it had not deleted again yet is still in DEV-SB. Rewind again deletes it, with what came back with it.',
+    );
+    expect(screen.queryByTestId('checkpoint-result-carriers-deleted-again')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Rewind again' })).toBeInTheDocument();
+  });
+
+  it('says nothing was brought back for a moment by a rewind that wrote nothing', () => {
+    renderResult(
+      rewindResult({ status: 'failure', carriers: [{ objectApiName: 'Account', count: 1 }] }),
+    );
+    expect(screen.queryByTestId('checkpoint-result-carriers')).toBeNull();
+  });
+
+  it('says an undo sent back to the recycle bin on its own what had gone there with a record the rewind brought back for a moment, which stays there (P-B1: the org refuses a lookup to a record in the bin)', () => {
+    renderResult(
+      withoutUndo(
+        rewindResult({
+          deleted: [deletedObject('Contact', { planned: 1, deleted: 1 })],
+          carriedAlone: [{ objectApiName: 'Contact', count: 1 }],
+          restored: [],
+          undeleted: [],
+        }),
+      ),
+      'undo',
+    );
+    expect(screen.getByTestId('checkpoint-result-carried-alone-Contact').textContent).toBe(
+      'Back in the recycle bin of DEV-SB on its own: 1 Contact record that had gone there with a record the rewind brought back for a moment, which stays there. It comes back alone, under the parent the checkpoint gave it.',
+    );
+    expect(screen.queryByTestId('checkpoint-result-carriers')).toBeNull();
+  });
+
   it('says a partial rewind whose records still differ only as its parts list them', () => {
     renderResult(rewindResult({ status: 'partial' }));
     expect(headline()).toBe('DEV-SB is back at “Before UAT”, except what is listed below.');

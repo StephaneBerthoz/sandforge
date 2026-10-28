@@ -404,6 +404,30 @@ describe('the journal, read back', () => {
     ]);
   });
 
+  it('holds the carriers it brought back, and what came back with them beside the record each hangs from itself, apart from what came back with a parent to keep', async () => {
+    const journal = await journalOpened();
+    await journal.withParent('Contact', [contact(1)], [account(1)], { carriers: true });
+    await journal.withParent('Note', [id('002', 1)], [contact(1)], { carriers: true });
+    await journal.bringingBack([{ objectApiName: 'Account', ids: [account(1)] }], async () => [], {
+      carriers: true,
+    })([account(1)]);
+    await journal.withParent('Contact', [contact(2)], [account(2)]);
+    await journal.bringingBack([{ objectApiName: 'Account', ids: [account(2)] }], async () => [])([
+      account(2),
+    ]);
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.carriers).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
+    expect(read.did.carried).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1)], parents: [account(1)] },
+      { objectApiName: 'Note', ids: [id('002', 1)], parents: [contact(1)] },
+    ]);
+    expect(read.did.withParents).toEqual([
+      { objectApiName: 'Contact', ids: [contact(2)], parents: [account(2)] },
+    ]);
+  });
+
   it('holds what came back with a parent beside that parent, as named, and refuses as damaged a line that names fewer parents than records', async () => {
     const journal = await journalOpened();
     await journal.withParent('Contact', [contact(1), contact(2)], [account(1), account(1)]);
@@ -743,10 +767,10 @@ describe('the undo’s plans, kept on disk', () => {
   /** What a journal names, line by line, as a test gives it. */
   interface Did {
     deleted?: ObjectIds[];
-    broughtBack?: ObjectIds[];
+    broughtBack?: Array<ObjectIds & { carriers?: true }>;
     givenBack?: ObjectIds[];
     heldInPlace?: Array<ObjectIds & { by: string[] }>;
-    withParents?: Array<ObjectIds & { parents: string[] }>;
+    withParents?: Array<ObjectIds & { parents: string[]; carriers?: true }>;
     recreated?: Array<ObjectIds & { from: string[] }>;
   }
 
@@ -808,6 +832,8 @@ describe('the undo’s plans, kept on disk', () => {
         backup: journal.backup,
         rewound: rewoundObjects(plans),
         remade: plans.remade.objects,
+        carriedAlone: plans.carriedAlone.objects,
+        compensated: plans.compensated,
         plans: {
           remove: await idsOf(plans.remove.spool),
           bringBack: await idsOf(plans.bringBack),
@@ -934,6 +960,48 @@ describe('the undo’s plans, kept on disk', () => {
     expect(rewound).toEqual([
       { objectApiName: 'Contact', deleted: 0, broughtBack: 2, givenBack: 0 },
       { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
+    ]);
+  });
+
+  it('leaves in the bin what went back there with a carrier the rewind brought back for a moment and deleted again, as far down as it hangs; sends on its own what the rewind moved off it, with what hangs from that record', async () => {
+    const carrier = account(1).slice(0, 15);
+    const moved = contact(1);
+    const note = id('002', 1);
+    const { plans, carriedAlone, compensated, rewound } = await plansOf({
+      // Named as they came back: the carrier's children before it, each
+      // beside the record it hangs from itself.
+      withParents: [
+        {
+          objectApiName: 'Contact',
+          ids: [moved, contact(2)],
+          parents: [carrier, carrier],
+          carriers: true,
+        },
+        { objectApiName: 'Contact', ids: [contact(3)], parents: [contact(2)], carriers: true },
+        { objectApiName: 'Note', ids: [note], parents: [moved.slice(0, 15)], carriers: true },
+      ],
+      broughtBack: [{ objectApiName: 'Account', ids: [account(1)], carriers: true }],
+      // The second pass deleted the carrier; the made since went with it.
+      deleted: [{ objectApiName: 'Account', ids: [account(1)] }],
+      // The contact of the checkpoint, and the note under it, given back.
+      givenBack: [
+        { objectApiName: 'Contact', ids: [moved] },
+        { objectApiName: 'Note', ids: [note] },
+      ],
+    });
+
+    expect(plans.remove).toEqual([{ objectApiName: 'Contact', ids: [moved] }]);
+    expect(plans.goesWithParent).toEqual([
+      { objectApiName: 'Note', ids: [note], parents: [moved.slice(0, 15)] },
+    ]);
+    expect(plans.bringBack).toEqual([]);
+    expect(carriedAlone).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(
+      [account(1), contact(2), contact(3), moved, note].map((each) => compensated.has(each)),
+    ).toEqual([true, true, true, false, false]);
+    expect(rewound).toEqual([
+      { objectApiName: 'Contact', deleted: 0, broughtBack: 1, givenBack: 1 },
+      { objectApiName: 'Note', deleted: 0, broughtBack: 0, givenBack: 1 },
     ]);
   });
 

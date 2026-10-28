@@ -5418,6 +5418,8 @@
         "deletedWhileTaken_other": "{{object}}: {{formatted}} Datensätze, die beim Erstellen des Prüfpunkts gelöscht wurden, kommen mit den Werten zurück, die sie damals hatten.",
         "withParent_one": "{{object}}: {{formatted}} Datensatz kommt mit seinem übergeordneten Datensatz zurück.",
         "withParent_other": "{{object}}: {{formatted}} Datensätze kommen mit ihrem übergeordneten Datensatz zurück.",
+        "carriers_one": "{{object}}: {{formatted}} Datensatz, den der Prüfpunkt nicht enthält und der seitdem gelöscht wurde, hat Datensätze des Prüfpunkts mitgenommen: Salesforce gibt diese nur mit ihm zurück, also kommt er kurz zurück und geht dann mit dem, was mit ihm zurückkam, wieder in den Papierkorb.",
+        "carriers_other": "{{object}}: {{formatted}} Datensätze, die der Prüfpunkt nicht enthält und die seitdem gelöscht wurden, haben Datensätze des Prüfpunkts mitgenommen: Salesforce gibt diese nur mit ihnen zurück, also kommen sie kurz zurück und gehen dann mit dem, was mit ihnen zurückkam, wieder in den Papierkorb.",
         "fields_one": "{{object}}: {{formatted}} Feldwert wird zurückgegeben.",
         "fields_other": "{{object}}: {{formatted}} Feldwerte werden zurückgegeben.",
         "clearedLookups_one": "{{object}}: {{formatted}} Datensatz erhält ein Lookup-Feld zurück, das eine Löschung seitdem geleert hat.",
@@ -5437,8 +5439,10 @@
         "title": "Was das Zurücksetzen nicht umkehren kann",
         "goneForGood_one": "{{formatted}} seitdem gelöschter Datensatz kann nicht zurückkommen: Der Papierkorb enthält ihn nicht mehr, und das Zurücksetzen kann ihn nicht neu anlegen — eine Datei, deren Inhalt der Prüfpunkt nicht enthält, oder ein Datensatz, der gelöscht wurde, während der Prüfpunkt erstellt wurde ({{objects}}).",
         "goneForGood_other": "{{formatted}} seitdem gelöschte Datensätze können nicht zurückkommen: Der Papierkorb enthält sie nicht mehr, und das Zurücksetzen kann sie nicht neu anlegen — Dateien, deren Inhalt der Prüfpunkt nicht enthält, oder Datensätze, die gelöscht wurden, während der Prüfpunkt erstellt wurde ({{objects}}).",
-        "deletedWithCreatedParent_one": "{{formatted}} Datensatz, der mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurde, kann nicht allein zurückkommen ({{objects}}).",
-        "deletedWithCreatedParent_other": "{{formatted}} Datensätze, die mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurden, können nicht allein zurückkommen ({{objects}}).",
+        "deletedWithCreatedParent_one": "{{formatted}} Datensatz, der mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurde, kann nicht zurückkommen: Salesforce gibt ihn nur mit diesem übergeordneten Datensatz zurück und stellt diesen nicht allein wieder her ({{objects}}).",
+        "deletedWithCreatedParent_other": "{{formatted}} Datensätze, die mit einem seitdem erstellten übergeordneten Datensatz gelöscht wurden, können nicht zurückkommen: Salesforce gibt sie nur mit diesem übergeordneten Datensatz zurück und stellt diesen nicht allein wieder her ({{objects}}).",
+        "deletedWithParentOutside_one": "{{formatted}} Datensatz, der seitdem mit seinem übergeordneten Datensatz gelöscht wurde, einem Datensatz eines Objekts, das der Prüfpunkt nicht enthält, bleibt im Papierkorb: Salesforce gibt ihn nur mit diesem übergeordneten Datensatz zurück. Ein Prüfpunkt, der dessen Objekt enthält, holt ihn zurück ({{objects}}).",
+        "deletedWithParentOutside_other": "{{formatted}} Datensätze, die seitdem mit ihrem übergeordneten Datensatz gelöscht wurden, einem Datensatz eines Objekts, das der Prüfpunkt nicht enthält, bleiben im Papierkorb: Salesforce gibt sie nur mit diesem übergeordneten Datensatz zurück. Ein Prüfpunkt, der dessen Objekt enthält, holt sie zurück ({{objects}}).",
         "convertedLead_one": "{{formatted}} Lead wurde seitdem konvertiert: Salesforce kann die Konvertierung eines Leads nicht aufheben. Was die Konvertierung erstellt hat, wird gelöscht, und der Lead bleibt konvertiert.",
         "convertedLead_other": "{{formatted}} Leads wurden seitdem konvertiert: Salesforce kann die Konvertierung eines Leads nicht aufheben. Was die Konvertierungen erstellt haben, wird gelöscht, und die Leads bleiben konvertiert.",
         "activatedContract_one": "{{formatted}} Vertrag wurde seitdem aktiviert: Salesforce setzt ihn nicht auf Entwurf zurück, er bleibt also aktiviert.",
@@ -5502,7 +5506,9 @@
         "bringBack_one": "holt {{formatted}} Datensatz aus dem Papierkorb zurück",
         "bringBack_other": "holt {{formatted}} Datensätze aus dem Papierkorb zurück",
         "recreate_one": "legt {{formatted}} Datensatz, den der Papierkorb nicht mehr enthält, mit einer neuen Id neu an",
-        "recreate_other": "legt {{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu an"
+        "recreate_other": "legt {{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu an",
+        "carriers_one": "holt {{formatted}} Datensatz, der Datensätze des Prüfpunkts mitgenommen hatte, kurz zurück und löscht ihn wieder",
+        "carriers_other": "holt {{formatted}} Datensätze, die Datensätze des Prüfpunkts mitgenommen hatten, kurz zurück und löscht sie wieder"
       },
       "toRecreate_one": "{{formatted}} neu anzulegen",
       "toRecreate_other": "{{formatted}} neu anzulegen",
@@ -5624,11 +5630,20 @@
         "restoredLine": "{{object}}: {{restored}} von {{planned}} haben ihre Werte von vor dem Zurücksetzen zurück",
         "keptChanged": "seit dem Zurücksetzen geändert, belassen, wie sie jetzt sind: {{n}}",
         "remade_one": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegter Datensatz, mit dem, was mit ihm ging",
-        "remade_other": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegte Datensätze, mit dem, was mit ihnen ging"
+        "remade_other": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegte Datensätze, mit dem, was mit ihnen ging",
+        "carriedAlone_one": "Allein in den Papierkorb von {{org}} zurückgeschickt: {{formatted}} {{object}}-Datensatz, der mit einem Datensatz dorthin gegangen war, den das Zurücksetzen kurz zurückgeholt hatte und der dort bleibt. Er kommt allein zurück, unter dem übergeordneten Datensatz, den der Prüfpunkt ihm gab.",
+        "carriedAlone_other": "Allein in den Papierkorb von {{org}} zurückgeschickt: {{formatted}} {{object}}-Datensätze, die mit einem Datensatz dorthin gegangen waren, den das Zurücksetzen kurz zurückgeholt hatte und der dort bleibt. Sie kommen allein zurück, unter dem übergeordneten Datensatz, den der Prüfpunkt ihnen gab."
       },
       "recreated": {
         "title": "In {{org}} neu angelegt, mit neuen Ids",
         "line": "{{object}}: {{created}} von {{planned}} neu angelegt"
+      },
+      "carriers": {
+        "title": "Kurz aus dem Papierkorb von {{org}} zurückgeholt, um die Datensätze des Prüfpunkts zurückzuholen, die sie mitgenommen hatten",
+        "line_one": "{{object}}: {{formatted}} Datensatz, den der Prüfpunkt nicht enthält",
+        "line_other": "{{object}}: {{formatted}} Datensätze, die der Prüfpunkt nicht enthält",
+        "deletedAgain": "Wieder gelöscht, sobald diese Datensätze zurück waren, mit dem, was mit ihnen zurückkam: im Papierkorb, wie vor dem Zurücksetzen.",
+        "stopped": "Gestoppt, bevor das Zurücksetzen fertig war: Was davon noch nicht wieder gelöscht war, ist noch in {{org}}. Erneutes Zurücksetzen löscht es, mit dem, was mit ihm zurückkam."
       }
     },
     "undo": {

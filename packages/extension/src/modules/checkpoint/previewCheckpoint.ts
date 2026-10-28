@@ -134,7 +134,12 @@ function guardConnectionOf(org: TakeOrg): Pick<Connection, 'query'> {
   return { query: (soql: string) => org.query(soql) } as unknown as Pick<Connection, 'query'>;
 }
 
-/** The objects a rewind would write to: records to delete, to give values back, to bring back, or to make again. */
+/**
+ * The objects a rewind would write to: records to delete, to give values
+ * back, to bring back, or to make again, and records it brings back for a
+ * moment to delete again — counted in none of those, but written twice: the
+ * rewind reads what runs on their object, and refuses it unaccepted.
+ */
 export function objectsWrittenBy(diff: Pick<RewindDiff, 'objects'>): string[] {
   const writes = (object: RewindDiffObject): boolean =>
     object.toDelete.createdSince +
@@ -144,6 +149,7 @@ export function objectsWrittenBy(diff: Pick<RewindDiff, 'objects'>): string[] {
       object.toBringBack.inBin +
       object.toBringBack.withParent +
       object.toBringBack.deletedWhileTaken +
+      (object.toBringBack.carriers ?? 0) +
       (object.toRecreate ?? 0) >
     0;
   return diff.objects.filter(writes).map((object) => object.objectApiName);

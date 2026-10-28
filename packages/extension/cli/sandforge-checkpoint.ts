@@ -177,13 +177,16 @@ named it name the new Id, and undo deletes it again. Salesforce still lists a re
 the bin as deleted, for minutes to hours, and says the bin no longer holds it only as the rewind
 asks it back: such a record, with what was to come back with it, is made again then, or left
 and named without --accept-recreate.
+A record the checkpoint does not hold that took records of it along when it was deleted since is
+brought back for a moment with them, then deleted again with what came back with it.
 What a rewind cannot undo: a file deleted since and no longer in the recycle bin, whose body the
 checkpoint does not hold, a lead converted since, a contract activated since, a record deleted
-with one created since (preview counts them); a field added or removed since (preview names it);
-the values the org computes or keeps itself (formulas, roll-ups, auto-numbers, created and
-modified dates); what left the org (emails, callouts, outbound messages, platform events);
-metadata; files. A record the org refuses to put back, or to make again, is named by rewind, with
-its words.
+with a parent created since that Salesforce does not undelete on its own, or with its parent of
+an object the checkpoint does not hold (preview counts them); a field added or removed since
+(preview names it); the values the org computes or keeps itself (formulas, roll-ups,
+auto-numbers, created and modified dates); what left the org (emails, callouts, outbound
+messages, platform events); metadata; files. A record the org refuses to put back, or to make
+again, is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -198,23 +201,29 @@ JSON (--json), one value on stdout:
                      start, counts, bin, snapshot, stability; {mode, refusal} for a take refused
                      before its scope is read (a production org, a user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
-                      toRecreate, differs, diff, estimate, automation?, emails?, refusal?}: diff, estimate,
-                     automation and refusal as the extension answers them; refusal is the one a
-                     rewind would meet now; emails, one per daily limit its writes send against:
-                     {limit, emails, verdict, remaining?, max?, alertsCounted?, objects:
-                     [{objectApiName, write, records, perRecord, sentBy}]}
+                      toRecreate, carriers, differs, diff, estimate, automation?, emails?,
+                      refusal?}: carriers, the records brought back for a moment and deleted
+                     again, in none of the other numbers; diff, estimate, automation and refusal
+                     as the extension answers them; refusal is the one a rewind would meet now;
+                     emails, one per daily limit its writes send against: {limit, emails,
+                     verdict, remaining?, max?, alertsCounted?, objects: [{objectApiName, write,
+                     records, perRecord, sentBy}]}
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
-                      broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object, reason,
-                      count}], undo?: {until, cannot: [{object, count, reason?}]}, verify:
-                      {differences, stable, passes, notCompared}, residual: [{object, reason,
-                      by?, count, message?}], unread: [{object, reason}], objects: [{object,
-                      deleted, givenBack, broughtBack, refused}], apiRequests: {used,
-                      leftToday}, result}:
+                      broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
+                      reason, count}], carriers?: [{object, count}], undo?: {until, cannot:
+                      [{object, count, reason?}]}, verify: {differences, stable, passes,
+                      notCompared}, residual: [{object, reason, by?, count, message?}], unread:
+                      [{object, reason}], objects: [{object, deleted, givenBack, broughtBack,
+                      refused}], apiRequests: {used, leftToday}, result}:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
-                     before a record they point at, which the rewind deleted next
-  undo               as rewind, without recreated, cannotUndo and undo
+                     before a record they point at, which the rewind deleted next; carriers, of
+                     what it brought back and deleted, the records brought back for a moment
+  undo               as rewind, without recreated, cannotUndo, carriers and undo, with
+                     carriedAlone?: [{object, count}], the records sent back to the recycle bin
+                     on their own that had gone there with a record the rewind brought back for
+                     a moment
   delete             {deleted: [id], kept: [id]}
   refused or failed  {refusal: {code, message}}
   A bad command line (exit 2) prints nothing on stdout.
@@ -940,6 +949,12 @@ const toBringBackOf = (o: RewindDiffObject): number =>
 const cannotUndoOf = (o: RewindDiffObject): number =>
   o.cannotUndo.reduce((total, line) => total + line.count, 0);
 const toRecreateOf = (o: RewindDiffObject): number => o.toRecreate ?? 0;
+/**
+ * Records the checkpoint does not hold brought back for a moment, with the
+ * records of it their delete took along, then deleted again: in none of the
+ * three numbers, but written twice.
+ */
+const carriersOf = (o: RewindDiffObject): number => o.toBringBack.carriers ?? 0;
 
 /**
  * The three numbers: records to delete (created since, brought back from the
@@ -984,7 +999,11 @@ const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
   convertedLead: 'leads converted since: Salesforce can’t unconvert a lead',
   activatedContract: 'contracts activated since: Salesforce won’t set them back to Draft',
   deletedWithCreatedParent:
-    'deleted with a parent created since: they can’t come back on their own',
+    'deleted with a parent created since that Salesforce does not undelete on its own: they ' +
+    'come back with that parent only',
+  deletedWithParentOutside:
+    'deleted with their parent, a record of an object the checkpoint does not hold: they come ' +
+    'back with that parent only, which a checkpoint that holds its object brings back',
 };
 
 /**
@@ -1173,6 +1192,16 @@ export function previewLines(
       )}`,
     );
   }
+  const carried = diff.objects.filter((o) => carriersOf(o) > 0);
+  if (carried.length > 0) {
+    lines.push(
+      `  brought back for a moment: ${someOf(
+        carried.map((o) => `${o.objectApiName} ${count(carriersOf(o))}`),
+      )} — records the checkpoint does not hold that took records of it along when deleted ` +
+        'since: Salesforce gives those back with them only, so they come back, then go back to ' +
+        'the recycle bin with what came back with them; what the org runs on them runs twice',
+    );
+  }
   const cannot = new Map<string, string[]>();
   for (const object of diff.objects) {
     for (const line of object.cannotUndo) {
@@ -1278,6 +1307,7 @@ export function previewJson(
       org: orgName,
     },
     ...previewTotals(answer.diff),
+    carriers: answer.diff.objects.reduce((total, o) => total + carriersOf(o), 0),
     differs: orgDiffers(answer.diff),
     diff: answer.diff,
     estimate: answer.estimate,
@@ -1304,12 +1334,19 @@ export function previewExitCode(
 /**
  * The objects whose records each step of a rewind writes, as its preview
  * counts them: brought back, given back, deleted — an order activated since
- * set back to Draft first, which the platform deletes no other way.
+ * set back to Draft first, which the platform deletes no other way — and the
+ * records it brings back for a moment, then deletes again.
  */
 export function rewindStepsOf(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
-  const deleted = diff.objects.filter((o) => toDeleteOf(o) > 0).map((o) => o.objectApiName);
+  // What comes back for a moment is brought back and deleted, as the rewind
+  // itself lists it: its automation runs on both.
+  const deleted = diff.objects
+    .filter((o) => toDeleteOf(o) + carriersOf(o) > 0)
+    .map((o) => o.objectApiName);
   return {
-    bringBack: diff.objects.filter((o) => toBringBackOf(o) > 0).map((o) => o.objectApiName),
+    bringBack: diff.objects
+      .filter((o) => toBringBackOf(o) + carriersOf(o) > 0)
+      .map((o) => o.objectApiName),
     recreate: diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
     giveBack: diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
     setToDraft: deleted.filter((name) => name === 'Order'),
@@ -1400,11 +1437,17 @@ export function rewindQuestion(
       ? `, and makes ${count(totals.toRecreate)} record(s) the recycle bin no longer holds again, ` +
         'with new Ids'
       : '';
+  const carriers = diff.objects.reduce((total, o) => total + carriersOf(o), 0);
+  const carried =
+    carriers > 0
+      ? `, with ${count(carriers)} record(s) brought back for a moment that had taken records ` +
+        'of the checkpoint along, then deleted again'
+      : '';
   return (
     `Rewind ${orgName} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
     `record(s) created since ${when(checkpoint.takenAt)}, gives ${count(totals.toGiveBack)} ` +
     `record(s) their values from then back, and brings back ${count(totals.toBringBack)} ` +
-    `record(s) from the recycle bin${remade} — whoever made these changes. What it changes is ` +
+    `record(s) from the recycle bin${carried}${remade} — whoever made these changes. What it changes is ` +
     `kept, so it can be undone. Type ${orgName} to rewind it:`
   );
 }
@@ -1561,6 +1604,21 @@ export function rewindLines(
         (cameBack > 0 ? `, and ${count(cameBack)} that came back with them` : ''),
     );
   }
+  // A rewind that wrote nothing brought nothing back for a moment.
+  const carriers = result.status === 'failure' ? [] : (result.carriers ?? []);
+  if (carriers.length > 0) {
+    const which = someOf(carriers.map((o) => `${o.objectApiName} ${count(o.count)}`));
+    lines.push(
+      result.status === 'cancelled'
+        ? `  of them, brought back for a moment: ${which} — records the checkpoint does not hold ` +
+            'that had taken records of it along; stopped before it was through, those it had not ' +
+            'deleted again yet are still in the org: rewind again deletes them, with what came ' +
+            'back with them'
+        : `  of them, brought back for a moment and deleted again: ${which} — records the ` +
+            'checkpoint does not hold that had taken records of it along, back in the recycle ' +
+            'bin with what came back with them',
+    );
+  }
   const remade = recreatedTally(result);
   if (remade.done > 0) {
     lines.push(
@@ -1632,6 +1690,15 @@ export function undoLines(
   if (remade > 0) {
     lines.push(
       `  deleted again ${count(remade)} record(s) the rewind made again, with what went with them`,
+    );
+  }
+  const alone = result.carriedAlone ?? [];
+  if (alone.length > 0) {
+    lines.push(
+      `  of them, back in the recycle bin on their own: ${someOf(
+        alone.map((o) => `${o.objectApiName} ${count(o.count)}`),
+      )} — they had gone there with a record the rewind brought back for a moment, which stays ` +
+        'there; they come back alone, under the parent the checkpoint gave them',
     );
   }
   if (tallies.broughtBack.done > 0) {
@@ -1740,6 +1807,22 @@ export function resultJson(
               .filter((line) => line.count > 0)
               .map((line) => ({ object: o.objectApiName, reason: line.reason, count: line.count })),
           ),
+        }
+      : {}),
+    ...(act === 'rewind' && (result.carriers ?? []).length > 0
+      ? {
+          carriers: (result.carriers ?? []).map((o) => ({
+            object: o.objectApiName,
+            count: o.count,
+          })),
+        }
+      : {}),
+    ...(act === 'undo' && (result.carriedAlone ?? []).length > 0
+      ? {
+          carriedAlone: (result.carriedAlone ?? []).map((o) => ({
+            object: o.objectApiName,
+            count: o.count,
+          })),
         }
       : {}),
     ...(result.undo

@@ -1090,12 +1090,254 @@ describe('a contract activated since, and a contact gone with an account created
       },
     ]);
   });
+});
 
-  it('leaves in the recycle bin a contact deleted with an account created since, never sent, and names why', async () => {
-    const t = await taken((org) => {
-      baseRecords(org);
-      org.add('Contact', { Id: contact(30), LastName: 'Moved', AccountId: account(1) });
+describe('records of the checkpoint that left with a parent the rewind must not keep', () => {
+  /**
+   * Contact 30 under account 1 at the checkpoint. Since: account 30 made,
+   * contact 30 moved under it and renamed, contact 31 made under it, then
+   * account 30 deleted, taking both contacts along in its second.
+   */
+  async function carriedSince(org = new RewindTestOrg()): Promise<Taken> {
+    const t = await taken((held) => {
+      baseRecords(held);
+      held.add('Contact', { Id: contact(30), LastName: 'Moved', AccountId: account(1) });
+    }, org);
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(30), Name: 'Made since', LastModifiedById: COLLEAGUE });
+    t.org.edit(
+      'Contact',
+      contact(30),
+      { AccountId: account(30), LastName: 'Moved since' },
+      COLLEAGUE,
+    );
+    t.org.add('Contact', {
+      Id: contact(31),
+      LastName: 'Made since',
+      AccountId: account(30),
+      LastModifiedById: COLLEAGUE,
     });
+    clock.now = SINCE + 30_000;
+    t.org.trash('Account', account(30), COLLEAGUE);
+    return t;
+  }
+
+  const binIds = (t: Taken, objectApiName: string): string[] =>
+    t.org
+      .inBin(objectApiName)
+      .map((row) => row.Id)
+      .sort();
+
+  const binIdsOf = (state: ReturnType<typeof stateOf>, objectApiName: string): string[] =>
+    (state.bin[objectApiName] as Array<{ Id: string }>).map((row) => row.Id).sort();
+
+  it('brings back for a moment the account made since that took a contact of the checkpoint along, gives the contact its own account and values back, then deletes the account again with the contact made since under it: the org is the checkpoint again, and the verify names nothing', async () => {
+    const t = await carriedSince();
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Account')).toMatchObject({
+      toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
+      toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 0 },
+    });
+    expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
+      toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+      toDelete: { createdSince: 0, broughtBackSince: 0, comesBackWithParent: 1 },
+      cannotUndo: [],
+    });
+    const undelete = vi.spyOn(t.org, 'undelete');
+
+    // Deleting records Undo couldn't bring back accepted: none is.
+    const result = resultOf(await rewound(t, diff.previewId, { request: { acceptNoUndo: true } }));
+
+    expect(result.status).toBe('success');
+    expect(result.residual).toEqual([]);
+    expect(result.passes).toBe(2);
+    expect(result.carriers).toEqual([{ objectApiName: 'Account', count: 1 }]);
+    // One undelete, of the account alone: the contacts come back with it.
+    expect(undelete.mock.calls.map(([ids]) => ids)).toEqual([[account(30)]]);
+    // One delete, of the account again: the contact made since goes with it,
+    // never sent on its own before it, which would keep it in the bin for good.
+    expect(t.org.deletes.map(({ ids }) => ids)).toEqual([[account(30)]]);
+    expect(result.undo?.cannot).toEqual([]);
+    expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
+    expect(binIds(t, 'Account')).toEqual([account(30)]);
+    expect(binIds(t, 'Contact')).toEqual([contact(31)]);
+  });
+
+  it('sends back to the recycle bin with the account, never kept alive for it, a contact whose give-back the org refuses, named in the org’s words', async () => {
+    const t = await carriedSince();
+    t.org.refuseUpdate.set(contact(30), {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Phone must be written +33…',
+    });
+    const diff = await previewed(t);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(liveIds(t.org, 'Account')).not.toContain(account(30));
+    expect(binIds(t, 'Contact')).toEqual([contact(30), contact(31)]);
+    const stampOf = (objectApiName: string, record: string): unknown =>
+      t.org.inBin(objectApiName).find((row) => row.Id === record)?.SystemModstamp;
+    expect(stampOf('Contact', contact(30))).toBe(stampOf('Account', account(30)));
+    expect(result.residual).toEqual([
+      {
+        objectApiName: 'Contact',
+        reason: 'refused',
+        count: 1,
+        ids: [contact(30)],
+        message: expect.stringMatching(/Phone must be written/) as unknown,
+      },
+    ]);
+    expect(result.status).toBe('partial');
+  });
+
+  it('undone, sends the contact back to the recycle bin on its own, never writing it a lookup to the account it went with, which stays in the bin with the contact made since; it says so', async () => {
+    const t = await carriedSince();
+    const before = stateOf(t.org);
+    const diff = await previewed(t);
+    const result = resultOf(await rewound(t, diff.previewId));
+    const sent = t.org.updates.length;
+
+    const undo = await undone(t, result.rewindId);
+
+    expect(undo.status).toBe('success');
+    expect(undo.residual).toEqual([]);
+    expect(undo.carriedAlone).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(
+      t.org.updates
+        .slice(sent)
+        .flatMap(({ records }) => records)
+        .filter((record) => record.AccountId === account(30)),
+    ).toEqual([]);
+    expect(stateOf(t.org).live).toEqual(before.live);
+    for (const objectApiName of ['Account', 'Contact']) {
+      expect(binIds(t, objectApiName)).toEqual(binIdsOf(before, objectApiName));
+    }
+    // Back in the bin on its own, the contact holds its own account: it comes back alone.
+    expect(t.org.inBin('Contact').find((row) => row.Id === contact(30))?.AccountId).toBe(
+      account(1),
+    );
+  });
+
+  it('stopped between its passes, leaves the account alive until it is rewound again, which deletes it with what came back with it on the same journal; its undo returns the org to how it was before the first pass', async () => {
+    const t = await carriedSince();
+    const before = stateOf(t.org);
+    const diff = await previewed(t);
+    const controller = new AbortController();
+
+    const outcome = await rewound(t, diff.previewId, {
+      deps: {
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (progress.pass === 2) controller.abort();
+        },
+      },
+    });
+    const stopped = resultOf(outcome);
+
+    expect(stopped.status).toBe('cancelled');
+    expect(outcome.rewound && outcome.notes).toEqual([
+      expect.stringMatching(/^Stopped with 1 Account record\(s\) brought back for a moment/),
+    ]);
+    expect(liveIds(t.org, 'Account')).toContain(account(30));
+    const again = await previewed(t);
+    const result = resultOf(await rewound(t, again.previewId));
+    expect(result.status).toBe('success');
+    expect(result.rewindId).toBe(stopped.rewindId);
+    expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
+    expect(liveIds(t.org, 'Account')).not.toContain(account(30));
+
+    await undone(t, result.rewindId);
+
+    expect(stateOf(t.org).live).toEqual(before.live);
+    for (const objectApiName of ['Account', 'Contact']) {
+      expect(binIds(t, objectApiName)).toEqual(binIdsOf(before, objectApiName));
+    }
+  });
+
+  it('brings back for a moment an account in the recycle bin at the checkpoint, brought back since and deleted again with a contact of the checkpoint moved under it, then deletes it again', async () => {
+    const t = await taken((held) => {
+      baseRecords(held);
+      held.add('Account', { Id: account(40), Name: 'In the bin' });
+      held.add('Contact', { Id: contact(40), LastName: 'Moved', AccountId: account(1) });
+      held.trash('Account', account(40));
+    });
+    clock.now = SINCE;
+    t.org.untrash(account(40), COLLEAGUE);
+    t.org.edit('Contact', contact(40), { AccountId: account(40) }, COLLEAGUE);
+    clock.now = SINCE + 30_000;
+    t.org.trash('Account', account(40), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Account')?.toBringBack).toEqual({
+      inBin: 0,
+      withParent: 0,
+      deletedWhileTaken: 0,
+      carriers: 1,
+    });
+    expect(
+      diff.objects.find((object) => object.objectApiName === 'Contact')?.toBringBack,
+    ).toMatchObject({ inBin: 0, withParent: 1 });
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.status).toBe('success');
+    expect(stateOf(t.org).live).toEqual(t.atCheckpoint.live);
+    expect(binIds(t, 'Account')).toContain(account(40));
+  });
+
+  it('brings back with the contact a note of the checkpoint hanging from it, which went along in the same second', async () => {
+    const fields = {
+      ...FIELDS,
+      Note__c: [
+        ...STAMP_FIELDS,
+        writable('Body__c'),
+        writable('Contact__c', 'reference', { referenceTo: ['Contact'] }),
+      ],
+    };
+    const children = {
+      ...CHILDREN,
+      Contact: [{ childSObject: 'Note__c', field: 'Contact__c', cascadeDelete: true }],
+    };
+    const note = id('a0n', 30);
+    const held = [...PICKED, 'Note__c'];
+    const compared = [...COMPARED, 'Body__c', 'Contact__c'];
+    const t = await taken(
+      (org) => {
+        baseRecords(org);
+        org.add('Contact', { Id: contact(30), LastName: 'Moved', AccountId: account(1) });
+        org.add('Note__c', { Id: note, Body__c: 'Kept', Contact__c: contact(30) });
+      },
+      new RewindTestOrg({ fields, children }),
+      held,
+      { objects: held, fields: compared },
+    );
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(30), Name: 'Made since' });
+    t.org.edit('Contact', contact(30), { AccountId: account(30) }, COLLEAGUE);
+    clock.now = SINCE + 30_000;
+    t.org.trash('Account', account(30), COLLEAGUE);
+    const diff = await previewed(t);
+    expect(diff.objects.find((object) => object.objectApiName === 'Note__c')?.toBringBack).toEqual({
+      inBin: 0,
+      withParent: 1,
+      deletedWhileTaken: 0,
+    });
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.residual).toEqual([]);
+    expect(liveIds(t.org, 'Note__c')).toEqual([note]);
+    expect(stateOf(t.org, held, compared).live).toEqual(t.atCheckpoint.live);
+  });
+
+  it('names, never brings back and never makes again, a contact deleted with its account made since in a checkpoint that does not hold accounts: the original would come back beside one made again the day someone brought the account back', async () => {
+    const t = await taken(
+      (held) => {
+        baseRecords(held);
+        held.add('Contact', { Id: contact(30), LastName: 'Moved', AccountId: account(1) });
+      },
+      new RewindTestOrg(),
+      ['Contact'],
+    );
     clock.now = SINCE;
     t.org.add('Account', { Id: account(30), Name: 'Made since' });
     t.org.edit('Contact', contact(30), { AccountId: account(30) }, COLLEAGUE);
@@ -1104,23 +1346,27 @@ describe('a contract activated since, and a contact gone with an account created
     const diff = await previewed(t);
     expect(diff.objects.find((object) => object.objectApiName === 'Contact')).toMatchObject({
       toBringBack: { inBin: 0, withParent: 0, deletedWhileTaken: 0 },
-      cannotUndo: [{ reason: 'deletedWithCreatedParent', count: 1 }],
+      cannotUndo: [{ reason: 'deletedWithParentOutside', count: 1 }],
     });
+    expect(diff.parentsOutsideRequests).toBeGreaterThan(0);
     const undelete = vi.spyOn(t.org, 'undelete');
 
-    const result = resultOf(await rewound(t, diff.previewId));
+    const result = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptRecreate: true } }),
+    );
 
     expect(undelete.mock.calls.flatMap(([ids]) => ids)).not.toContain(contact(30));
+    expect(t.org.creates).toEqual([]);
     expect(result.residual).toEqual([
       {
         objectApiName: 'Contact',
         reason: 'kept',
         count: 1,
         ids: [contact(30)],
-        message: expect.stringMatching(/deleted with a record created since/),
+        message: expect.stringMatching(/an object the checkpoint does not hold/) as unknown,
       },
     ]);
-    expect(t.org.inBin('Contact').map((row) => row.Id)).toEqual([contact(30)]);
+    expect(binIds(t, 'Contact')).toEqual([contact(30)]);
   });
 });
 

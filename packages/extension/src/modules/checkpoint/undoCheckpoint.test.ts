@@ -225,11 +225,13 @@ const named = {
 /**
  * A checkpoint of Account and Contact taken at T0; then a colleague renames
  * an account, creates one with a contact under it, and deletes another —
- * then empties it from the recycle bin when `emptied`; then the preview and
- * the rewind that take it all back, making the emptied account and its
- * contact again.
+ * then empties it from the recycle bin when `emptied`; when `carried`, moves
+ * a contact of the checkpoint under an account made since, then deletes that
+ * account, the contact with it; then the preview and the rewind that take it
+ * all back, making the emptied account and its contact again, and bringing
+ * the account made since back for a moment to bring the contact back.
  */
-async function rewound(emptied = false): Promise<Rewound> {
+async function rewound(emptied = false, carried = false): Promise<Rewound> {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-undo-'));
   dirs.push(dir);
   const opened = openCheckpointStore({ root: join(dir, 'store'), locksDir: join(dir, 'locks') });
@@ -240,6 +242,7 @@ async function rewound(emptied = false): Promise<Rewound> {
   org.add('Account', { Id: account(1), Name: 'Account one' });
   org.add('Account', { Id: account(2), Name: 'Account two' });
   org.add('Contact', { Id: contact(1), LastName: 'One', AccountId: account(2) });
+  if (carried) org.add('Contact', { Id: contact(2), LastName: 'Two', AccountId: account(1) });
   clock = T0;
   vi.mocked(getJsforceConnection).mockResolvedValue({
     query: (soql: string, options?: { scanAll?: boolean }) => org.query(soql, options),
@@ -281,6 +284,12 @@ async function rewound(emptied = false): Promise<Rewound> {
   });
   org.trash('Account', account(2), COLLEAGUE);
   if (emptied) org.empty(account(2));
+  if (carried) {
+    org.add('Account', { Id: account(4), Name: 'Carrier', LastModifiedById: COLLEAGUE });
+    org.edit('Contact', contact(2), { AccountId: account(4) }, COLLEAGUE);
+    clock = SINCE + 30_000;
+    org.trash('Account', account(4), COLLEAGUE);
+  }
   const beforeRewind = stateOf(org);
 
   clock = PREVIEWED;
@@ -434,6 +443,19 @@ describe('undoCheckpoint, on the memory org', () => {
         /^Sending back to the recycle bin what the rewind brought back, and deleting again what it made again: /,
       );
     }
+  });
+
+  it('says what it sent back to the recycle bin on its own that had gone there with an account the rewind brought back for a moment, which stays there', async () => {
+    const r = await rewound(false, true);
+    expect(r.rewind.carriers).toEqual([{ objectApiName: 'Account', count: 1 }]);
+
+    const result = resultOf(await undone(r));
+
+    expect(result.status).toBe('success');
+    expect(result.carriedAlone).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(stateOf(r.org).live).toEqual((r.beforeRewind as { live: unknown }).live);
+    // Back in the bin on its own, under the account the checkpoint gave it.
+    expect(r.org.inBin('Contact').find((row) => row.Id === contact(2))?.AccountId).toBe(account(1));
   });
 
   it('names a record a colleague changed again during the undo, by that colleague, and is unstable', async () => {

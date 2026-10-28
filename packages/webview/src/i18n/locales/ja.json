@@ -5113,6 +5113,7 @@
       "detail": {
         "deletedWhileTaken_other": "{{object}}: チェックポイントの作成中に削除された {{formatted}} 件のレコードは、当時の値で戻ります。",
         "withParent_other": "{{object}}: {{formatted}} 件のレコードは親レコードと一緒に戻ります。",
+        "carriers_other": "{{object}}: チェックポイントにない {{formatted}} 件のレコードは、その後に削除されたときにチェックポイントのレコードを一緒に持っていきました。Salesforce はそれらをこのレコードと一緒にしか戻さないため、いったん復元し、一緒に戻ったものとともにごみ箱に戻します。",
         "fields_other": "{{object}}: 戻す項目値は {{formatted}} 件です。",
         "clearedLookups_other": "{{object}}: その後の削除で空になった参照項目を {{formatted}} 件のレコードで戻します。",
         "broughtBackSince_other": "{{object}}: チェックポイント時点でごみ箱にあり、その後に復元された {{formatted}} 件のレコードは、ごみ箱に戻ります。",
@@ -5124,7 +5125,8 @@
       "cannot": {
         "title": "巻き戻しで取り戻せないもの",
         "goneForGood_other": "その後に削除された {{formatted}} 件のレコードは戻せません。ごみ箱にもうなく、巻き戻しでも再作成できないためです (チェックポイントに中身がないファイル、またはチェックポイントの作成中に削除されたレコード) ({{objects}})。",
-        "deletedWithCreatedParent_other": "その後に作成された親と一緒に削除された {{formatted}} 件のレコードは、単独では戻せません ({{objects}})。",
+        "deletedWithCreatedParent_other": "その後に作成された親と一緒に削除された {{formatted}} 件のレコードは戻せません。Salesforce はその親と一緒にしか戻さず、その親を単独では復元しません ({{objects}})。",
+        "deletedWithParentOutside_other": "その後、チェックポイントにないオブジェクトのレコードである親と一緒に削除された {{formatted}} 件のレコードは、ごみ箱に残ります。Salesforce はその親と一緒にしか戻しません。親のオブジェクトを含むチェックポイントなら復元できます ({{objects}})。",
         "convertedLead_other": "その後に {{formatted}} 件のリードが取引開始されました。Salesforce はリードの取引開始を取り消せません。取引開始で作成されたものは削除し、リードは取引開始済みのまま残ります。",
         "activatedContract_other": "その後に {{formatted}} 件の契約が有効化されました。Salesforce はドラフトに戻さないため、有効なまま残ります。",
         "fieldRemoved": "{{field}} はチェックポイントの後に削除されました。削除済み項目から (15 日以内に) 復元してから、もう一度巻き戻してください。",
@@ -5176,7 +5178,8 @@
         "delete_other": "その後に追加されたレコード {{formatted}} 件を削除",
         "giveBack_other": "レコード {{formatted}} 件の値を当時に戻す",
         "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元",
-        "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成"
+        "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成",
+        "carriers_other": "チェックポイントのレコードを一緒に持っていったレコード {{formatted}} 件をいったん復元して再び削除"
       },
       "toRecreate_other": "再作成 {{formatted}} 件",
       "toRecreateHint": "ごみ箱にもうないもの: 新しい Id",
@@ -5279,11 +5282,18 @@
         "restoredTitle": "巻き戻しで上書きしたもの ({{org}} で以前の値に戻したもの)",
         "restoredLine": "{{object}}: {{planned}} 件中 {{restored}} 件を巻き戻し前の値に戻しました",
         "keptChanged": "巻き戻し後に変更されたため、現在のまま残したもの: {{n}} 件",
-        "remade_other": "{{org}} で再び削除: 巻き戻しで再作成したレコード {{formatted}} 件と、それらとともに削除されたもの"
+        "remade_other": "{{org}} で再び削除: 巻き戻しで再作成したレコード {{formatted}} 件と、それらとともに削除されたもの",
+        "carriedAlone_other": "{{org}} のごみ箱に単独で戻しました: 巻き戻しでいったん復元した (そのままごみ箱に残る) レコードと一緒にごみ箱に入っていた {{object}} のレコード {{formatted}} 件。チェックポイント時点の親の下で、単独で戻ります。"
       },
       "recreated": {
         "title": "{{org}} に新しい Id で再作成したもの",
         "line": "{{object}}: {{planned}} 件中 {{created}} 件を再作成"
+      },
+      "carriers": {
+        "title": "持っていったチェックポイントのレコードを戻すため、{{org}} のごみ箱からいったん復元したもの",
+        "line_other": "{{object}}: チェックポイントにないレコード {{formatted}} 件",
+        "deletedAgain": "それらのレコードが戻った後、一緒に戻ったものとともに再び削除しました。巻き戻し前と同じくごみ箱にあります。",
+        "stopped": "巻き戻しが終わる前に停止しました。まだ再び削除していないものは {{org}} に残っています。もう一度巻き戻すと、一緒に戻ったものとともに削除します。"
       }
     },
     "undo": {

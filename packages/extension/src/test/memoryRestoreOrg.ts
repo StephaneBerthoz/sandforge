@@ -5,7 +5,9 @@
  * update kept in order — what giving back the values a run wrote over sends.
  * A record a test names in `refuseUpdate` is refused with the answer given,
  * and a field a test names in `heldByChildren` is refused while live records
- * of another object name its record.
+ * of another object name its record. An update that points a lookup at a
+ * record in the recycle bin is refused, `ENTITY_IS_DELETED`, as the org
+ * refused one live.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
@@ -165,6 +167,20 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
       }
       const held = this.heldOf(objectApiName, record);
       if (held.length > 0) return { id, success: false, errors: held };
+      // A lookup to a record in the recycle bin, refused as the org refused
+      // one live, the record left as it was.
+      const binned = Object.entries(record).find(
+        ([field, value]) => field !== 'Id' && this.namesBinned(value),
+      );
+      if (binned) {
+        return {
+          id,
+          success: false,
+          errors: [
+            { statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [binned[0]] },
+          ],
+        };
+      }
       const row = this.liveRow(objectApiName, id);
       if (!row) {
         return {

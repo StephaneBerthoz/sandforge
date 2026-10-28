@@ -888,7 +888,7 @@ export interface DiffEstimateInput {
    * counted sent.
    */
   diff: Pick<RewindDiff, 'objects' | 'unread'> &
-    Partial<Pick<RewindDiff, 'undoCannot' | 'withParentDeleted'>>;
+    Partial<Pick<RewindDiff, 'undoCannot' | 'withParentDeleted' | 'parentsOutsideRequests'>>;
   /**
    * Per object, its relationships as its describe lists them
    * ({@link relationshipsOf}). One not given, of an object the rewind
@@ -905,14 +905,42 @@ function deletedFirst(object: RewindDiffObject): number {
   return object.toDelete.createdSince + object.toDelete.broughtBackSince;
 }
 
-/** Records a rewind sends to the undelete: those that come back with a parent are not sent. */
+/**
+ * Records a rewind sends to the undelete: those that come back with a parent
+ * are not sent; carriers are, to be deleted again by the second pass.
+ */
 function sentBack(object: RewindDiffObject): number {
-  return object.toBringBack.inBin + object.toBringBack.deletedWhileTaken;
+  return object.toBringBack.inBin + object.toBringBack.deletedWhileTaken + carriers(object);
 }
 
-/** Records a rewind brings back, those that come with a parent included. */
+/** Records a rewind brings back for a moment, with what they took along, and deletes again. */
+function carriers(object: RewindDiffObject): number {
+  return object.toBringBack.carriers ?? 0;
+}
+
+/** Records the second pass deletes: what came back with a parent, and the carriers. */
+function deletedNext(object: RewindDiffObject): number {
+  return object.toDelete.comesBackWithParent + carriers(object);
+}
+
+/**
+ * Records deleted since with a parent the rewind does not bring back: read in
+ * the bin as those it brings back are, and their object described to tell
+ * them.
+ */
+function stranded(object: RewindDiffObject): number {
+  return object.cannotUndo
+    .filter(
+      (cannot) =>
+        cannot.reason === 'deletedWithCreatedParent' ||
+        cannot.reason === 'deletedWithParentOutside',
+    )
+    .reduce((total, cannot) => total + cannot.count, 0);
+}
+
+/** Records a rewind brings back, those that come with a parent included: not the carriers. */
 function broughtBack(object: RewindDiffObject): number {
-  return sentBack(object) + object.toBringBack.withParent;
+  return sentBack(object) - carriers(object) + object.toBringBack.withParent;
 }
 
 /**
@@ -997,9 +1025,11 @@ function readOf(
   return {
     objectApiName: object.objectApiName,
     live: object.toGiveBack.records + object.touched + deletedFirst(object) + object.unexplained,
-    deleted: broughtBack(object) + object.toDelete.comesBackWithParent,
+    deleted: broughtBack(object) + deletedNext(object) + stranded(object),
     valued: object.toGiveBack.records + object.touched + object.toBringBack.withParent,
-    backTo: broughtBack(object) > 0 || (held.undeletable === false && gone > 0),
+    backTo:
+      broughtBack(object) + carriers(object) + stranded(object) > 0 ||
+      (held.undeletable === false && gone > 0),
     deletes: deletedFirst(object),
     scans: gone > 0 && held.undeletable !== false,
     whole: object.schemaDrift !== undefined,
@@ -1030,7 +1060,7 @@ function readAfterPass(
 ): ObjectRead {
   const first = readOf(object, held, relationships);
   const back = object.toBringBack;
-  const waiting = secondPassThrough ? 0 : object.toDelete.comesBackWithParent;
+  const waiting = secondPassThrough ? 0 : deletedNext(object);
   return {
     ...first,
     live:
@@ -1040,14 +1070,14 @@ function readAfterPass(
       broughtBack(object) +
       toRecreate(object) +
       waiting,
-    deleted: deletedFirst(object) + object.toDelete.comesBackWithParent - waiting,
+    deleted: deletedFirst(object) + deletedNext(object) - waiting + stranded(object),
     valued:
       object.toGiveBack.records +
       object.touched +
       back.inBin +
       back.withParent +
       toRecreate(object),
-    backTo: held.undeletable === false && goneForGood(object) > 0,
+    backTo: stranded(object) > 0 || (held.undeletable === false && goneForGood(object) > 0),
     scans: goneForGood(object) > 0 && held.undeletable !== false,
     deletes: waiting,
   };
@@ -1085,6 +1115,7 @@ function readCost(
   reads: ReadonlyMap<string, ObjectRead>,
   unread: ReadonlySet<string>,
   users: number,
+  parentsOutside = 0,
 ): Cost {
   const moved: MovedObject[] = [];
   const scans: Cost[] = [];
@@ -1121,6 +1152,7 @@ function readCost(
     calls(describedAfter, SECONDS_PER_SMALL_CALL),
     calls(describesGlobal ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
     calls(outside, SECONDS_PER_SMALL_CALL),
+    calls(parentsOutside, SECONDS_PER_SMALL_CALL),
     ...scans,
     calls(callsFor(callsFor(users, USERS_PER_READ), QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
   );
@@ -1152,6 +1184,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
     readsOf(input, (object, held) => readOf(object, held, input.relationships)),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     users.size,
+    input.diff.parentsOutsideRequests ?? 0,
   );
 }
 
@@ -1164,8 +1197,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
  */
 function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean): Cost {
   const waiting =
-    !secondPassThrough &&
-    input.diff.objects.some((object) => object.toDelete.comesBackWithParent > 0);
+    !secondPassThrough && input.diff.objects.some((object) => deletedNext(object) > 0);
   return readCost(
     input.objects,
     readsOf(input, (object, held) =>
@@ -1173,6 +1205,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
     ),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     waiting ? 1 : 0,
+    input.diff.parentsOutsideRequests ?? 0,
   );
 }
 
@@ -1362,7 +1395,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
     return Math.max(0, Math.min(deletedFirst(object), own));
   };
   const deleting = objects.filter((object) => sentFirst(object) > 0);
-  const comingBack = objects.filter((object) => object.toDelete.comesBackWithParent > 0);
+  const comingBack = objects.filter((object) => deletedNext(object) > 0);
   /** Whether records of one of `children` may hang from records of `parent`. */
   const holds = (parent: EstimatedObject, children: readonly RewindDiffObject[]): boolean =>
     children.some(
@@ -1441,7 +1474,7 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
           removalCost(
             comingBack.map((object) => ({
               objectApiName: object.objectApiName,
-              records: object.toDelete.comesBackWithParent,
+              records: deletedNext(object),
               dependents: relationships(object.objectApiName).dependents,
             })),
             RUN_RECORDS_PAGE,

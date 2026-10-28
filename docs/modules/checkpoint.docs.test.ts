@@ -524,6 +524,7 @@ describe('docs/modules/checkpoint.md', () => {
       'activatedContract',
       'convertedLead',
       'deletedWithCreatedParent',
+      'deletedWithParentOutside',
       'goneForGood',
     ]);
     expect(DIFF).toContain(
@@ -534,11 +535,15 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DIFF).toContain(
       "? [{ reason: 'deletedWithCreatedParent' as const, count: withCreatedParent }]",
     );
+    expect(DIFF).toContain(
+      "? [{ reason: 'deletedWithParentOutside' as const, count: withParentOutside }]",
+    );
     const kept = /const LEFT_AS_IT_IS[^=]*= \{([\s\S]*?)\n\};/.exec(REWIND)?.[1] ?? '';
     expect([...kept.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1])).toEqual([
       'convertedLead',
       'activatedContract',
       'deletedWithCreatedParent',
+      'deletedWithParentOutside',
     ]);
 
     const preview = section(DOC, '## The preview');
@@ -546,7 +551,23 @@ describe('docs/modules/checkpoint.md', () => {
       'the contracts activated since, which Salesforce will not set back to Draft, left activated and never given back',
     );
     expect(preview).toContain(
-      'the records deleted since with a record created since, which their delete took along',
+      'the records deleted since with a record created since that Salesforce does not undelete ' +
+        'on its own, which their delete took along',
+    );
+    expect(preview).toContain(
+      'the records deleted since with their parent, a record of an object the checkpoint does ' +
+        'not hold: Salesforce brings them back with that parent only, and a checkpoint that ' +
+        'holds its object brings them back',
+    );
+    // A record of the checkpoint that left with one created since comes back
+    // through it now: the doc no longer says the rewind leaves it.
+    expect(DOC).not.toContain(
+      'Salesforce brings them back with that record only, which the rewind does not bring back',
+    );
+    expect(section(DOC, '## The preview')).toContain(
+      'the records the checkpoint does not hold that took records of it along when they were ' +
+        'deleted since, which come back for a moment to bring those back, then go back to the ' +
+        'recycle bin with what came back with them',
     );
     expect(DOC).toContain(
       'A lead converted since stays converted, and a contract activated since stays activated',
@@ -643,6 +664,37 @@ describe('docs/modules/checkpoint.md', () => {
     expect(section(DOC, '## Undo')).toContain(
       'what came back with a record, a contact with its account or a product with its ' +
         'opportunity, goes with that record, never on its own',
+    );
+  });
+
+  it('says a record of the checkpoint that left with a record it does not hold comes back through that record, brought back for a moment, and its undo sends it back to the bin alone', () => {
+    // Anchor: the diff tells the carriers apart, the rewind brings them back
+    // in batches of their own and its second pass deletes them with what came
+    // back with them, its stop names those still alive, and the undo says
+    // what it sent back to the bin on its own.
+    expect(DIFF).toContain("await spool('carrier').add({ Id: id });");
+    expect(REWIND).toContain('carriers: asCarriers,');
+    expect(REWIND).toContain("'record(s) brought back for a moment still in the org");
+    expect(UNDO).toContain('carriedAlone: outcome.carriedAlone');
+    expect(PREVIEW).toContain('(object.toBringBack.carriers ?? 0) +');
+
+    const rewinding = section(DOC, '## Rewinding');
+    expect(rewinding).toContain(
+      'A record of the checkpoint that left with a record the checkpoint does not hold -- a ' +
+        'contact moved since under an account created since, which was then deleted -- comes ' +
+        'back with that record only, so that record comes back for a moment',
+    );
+    expect(rewinding).toContain(
+      'Stopped between the two passes, that record stays in the org until **Rewind again** ' +
+        'deletes it.',
+    );
+    expect(rewinding).toContain(
+      'One the recycle bin no longer holds brings nothing back: what it had taken along is ' +
+        'named among what still differs.',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'a record of the checkpoint it had taken along goes back to the bin on its own, under ' +
+        'the parent the checkpoint gave it, and comes back alone',
     );
   });
 

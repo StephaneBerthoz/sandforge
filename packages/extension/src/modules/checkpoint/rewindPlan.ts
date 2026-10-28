@@ -12,9 +12,11 @@
  * is left, named, for another rewind to take — a busy org never keeps a
  * rewind going, and a rewind never does more than its user confirmed. A
  * record confirmed as one that comes back with its parent, to be deleted
- * again, is deleted once the fresh diff finds it back; one confirmed to be
- * brought back, and given its values once back, is given them when someone
- * brought it back since.
+ * again, is deleted once the fresh diff finds it back, and so is a carrier —
+ * a record the checkpoint does not hold, brought back for a moment with the
+ * records of it that its delete took along; one confirmed to be brought back,
+ * and given its values once back, is given them when someone brought it back
+ * since.
  *
  * **The second pass** acts on what is left of the first one's plan, and on
  * what the rewind's own users — the one it writes as, the org's Automated
@@ -123,7 +125,8 @@ type ActedClass =
   | 'inBin'
   | 'withParent'
   | 'deletedWhileTaken'
-  | 'toRecreate';
+  | 'toRecreate'
+  | 'carrier';
 
 const ACTED: readonly ActedClass[] = [
   'createdSince',
@@ -134,6 +137,7 @@ const ACTED: readonly ActedClass[] = [
   'withParent',
   'deletedWhileTaken',
   'toRecreate',
+  'carrier',
 ];
 
 /** A class as a flag of the records confirmed in it. */
@@ -146,6 +150,7 @@ const CLASS_FLAG: Readonly<Record<ActedClass, number>> = {
   withParent: 32,
   deletedWhileTaken: 64,
   toRecreate: 128,
+  carrier: 256,
 };
 
 /** Set on a record confirmed once the fresh diff found it where it was confirmed. */
@@ -154,20 +159,24 @@ const STILL_TO_DO = 1 << 15;
 /**
  * For each class of the fresh diff, the classes a record was confirmed in
  * that it is acted on from. One confirmed to come back with its parent and go
- * again, found back, is a record created since: it goes. One confirmed to be
- * brought back, which comes back with the values it had when deleted and is
- * given its checkpoint values then, found back already — someone undeleted
- * it since the preview — is given them all the same.
+ * again, found back, is a record created since: it goes. So is a carrier
+ * found back, brought back for a moment by the first pass, or by a rewind
+ * stopped before its second: created since, or in the recycle bin at the
+ * checkpoint and brought back since. One confirmed to be brought back, which
+ * comes back with the values it had when deleted and is given its checkpoint
+ * values then, found back already — someone undeleted it since the preview —
+ * is given them all the same.
  */
 const CONFIRMED_AS: Readonly<Record<ActedClass, number>> = {
-  createdSince: CLASS_FLAG.createdSince | CLASS_FLAG.comesBackWithParent,
-  broughtBackSince: CLASS_FLAG.broughtBackSince,
+  createdSince: CLASS_FLAG.createdSince | CLASS_FLAG.comesBackWithParent | CLASS_FLAG.carrier,
+  broughtBackSince: CLASS_FLAG.broughtBackSince | CLASS_FLAG.carrier,
   comesBackWithParent: CLASS_FLAG.comesBackWithParent,
   giveBack: CLASS_FLAG.giveBack | CLASS_FLAG.inBin | CLASS_FLAG.withParent,
   inBin: CLASS_FLAG.inBin,
   withParent: CLASS_FLAG.withParent,
   deletedWhileTaken: CLASS_FLAG.deletedWhileTaken,
   toRecreate: CLASS_FLAG.toRecreate,
+  carrier: CLASS_FLAG.carrier,
 };
 
 /** The classes a pass deletes. */
@@ -234,8 +243,17 @@ export interface RewindPlanObject {
   withParentDeleted: number;
   /** Of {@link deleted}, those Undo couldn't bring back: deleted on their own, as accepted. */
   undoCannot: number;
-  /** Records the second pass deletes, once they have come back with their parent. */
+  /**
+   * Records the second pass deletes, once they have come back with their
+   * parent, or brought back for a moment as carriers.
+   */
   nextPassDeleted: number;
+  /**
+   * Records the checkpoint does not hold brought back for a moment, with the
+   * records of it they took along, and deleted again by the second pass:
+   * among {@link nextPassDeleted}. Absent when there is none.
+   */
+  carriers?: number;
   /** Records brought back on their own. */
   broughtBack: number;
   /** Records expected back with their parent, sent nothing of their own. */
@@ -301,6 +319,18 @@ export interface RewindPlan {
     Pick<RunRemovalOptions, 'removalStamps' | 'removalSpans'>;
   /** What is brought back from the recycle bin, parents first. */
   bringBack: IdSpool;
+  /**
+   * Of {@link bringBack}, the carriers: brought back for a moment with what
+   * they took along, then deleted again by the second pass.
+   */
+  carriers: RecordKeySet;
+  /**
+   * The records the removal is not handed as they go with a parent it
+   * deletes: told so as it reads what hangs from that parent
+   * (`RunRemovalOptions.goesWithParent`), whose dates may be those an
+   * earlier write of the rewind left.
+   */
+  goesAlong: RecordKeySet;
   /** What is made again with new Ids, parents first, by the Ids the records had. */
   recreate: IdSpool;
   /** What is given its checkpoint values back, a chunk at a time. */
@@ -527,6 +557,10 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const kept = new RecordKeySet();
   /** Records to come back with their parent, and be deleted by the second pass. */
   const comesBack = new RecordKeySet();
+  /** Records brought back for a moment as carriers, deleted again by the second pass. */
+  const carriers = new RecordKeySet();
+  /** Records to delete that were confirmed as carriers: brought back for a moment, by this rewind. */
+  const carried = new RecordKeySet();
   const users: string[] = [];
 
   // ─── Confirmed ∩ fresh, class by class, an object at a time ───
@@ -557,6 +591,9 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         const id = idOf(row, file);
         const isConfirmed = (confirmed.flagsOf(id) & CONFIRMED_AS[cls]) !== 0;
         if (isConfirmed) confirmed.add(id, STILL_TO_DO);
+        if (isConfirmed && DELETED.has(cls) && (confirmed.flagsOf(id) & CLASS_FLAG.carrier) !== 0) {
+          carried.add(id);
+        }
         const other = after?.other.flagsOf(id) ?? 0;
         if (other > 0 || !(isConfirmed || after?.own.has(id) === true)) {
           const reason = other > 0 ? 'changedDuringRewind' : 'changedSincePreview';
@@ -574,6 +611,11 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         else if (cls === 'comesBackWithParent') {
           comesBack.add(id);
           tally.nextPassDeleted++;
+        } else if (cls === 'carrier') {
+          comesBack.add(id);
+          carriers.add(id);
+          tally.carriers = (tally.carriers ?? 0) + 1;
+          tally.nextPassDeleted++;
         } else if (cls === 'inBin' || cls === 'deletedWhileTaken') tally.broughtBack++;
         else if (cls === 'withParent') tally.backWithParent++;
         else if (cls === 'toRecreate') tally.recreated++;
@@ -587,12 +629,15 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   }
 
   // ─── What is kept out of the deletion ───
+  // A carrier brought back for a moment came back with what hangs from it
+  // outside the checkpoint, in the recycle bin before the rewind: it goes
+  // back there with it.
   if (checkpoint.scope.mode === 'picked' && !input.acceptOutside) {
     for (const object of objects) {
       const file = classFileOf(freshDir, object.objectApiName, 'outsideParents');
       for await (const row of rowsOf(file)) {
         const id = idOf(row, file);
-        if (!toDelete.has(id) || kept.has(id)) continue;
+        if (!toDelete.has(id) || kept.has(id) || carried.has(id)) continue;
         kept.add(id, LEFT_FLAG.outsideNotAccepted);
         left.add(object.objectApiName, 'outsideNotAccepted', id);
       }
@@ -640,11 +685,16 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       const id = typeof row.Id === 'string' ? row.Id : '';
       if (!deleted(id)) continue;
       // As the removal tells a record that goes with its parent from one
-      // that keeps it: created since T1, unchanged since Tr.
+      // that keeps it: created since T1, unchanged since Tr — or last changed
+      // by a write of the rewind, which left the date it holds: a record
+      // that came back with a carrier the first pass brought back is dated by
+      // that undelete, and goes back to the bin with it. Sent on its own
+      // before it, Salesforce would keep it in the bin for good.
+      const modified = dateMs(row.LastModifiedDate);
       const along =
         cascadeOf(object, row).some(deleted) &&
         dateMs(row.CreatedDate) >= t1 &&
-        dateMs(row.LastModifiedDate) <= before;
+        (modified <= before || modified <= (stampOf.get(id.slice(0, 15)) ?? Number.NaN));
       if (along) {
         goesAlong.add(id);
         countsOf(name).withParentDeleted++;
@@ -775,7 +825,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const back = new IdSpoolWriter(`${dir}/bringBack`);
   const made = new IdSpoolWriter(`${dir}/recreate`);
   for (const object of parentsFirst) {
-    for (const cls of ['inBin', 'deletedWhileTaken'] as const) {
+    for (const cls of ['carrier', 'inBin', 'deletedWhileTaken'] as const) {
       const file = classFileOf(dir, object.objectApiName, cls);
       for await (const row of rowsOf(file)) await back.add(object.objectApiName, idOf(row, file));
     }
@@ -800,6 +850,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
         : {}),
     },
     bringBack: await back.finish(),
+    carriers,
+    goesAlong,
     recreate: await made.finish(),
     giveBack: { beforeDeletes: await first.finish(), afterDeletes: await last.finish(), heldBy },
     restore: {

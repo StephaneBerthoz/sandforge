@@ -111,6 +111,43 @@ describe('what a rewind and an undo write, per object and write', () => {
     });
   });
 
+  it('counts a carrier as brought back and deleted again, of a preview and of a plan: the automation of either write fires on it', () => {
+    const preview = diffObject('Account', {});
+    expect(
+      writtenByDiff([
+        {
+          ...preview,
+          toBringBack: { ...preview.toBringBack, carriers: 2 },
+        },
+      ]),
+    ).toEqual([
+      { objectApiName: 'Account', write: 'undelete', records: 2 },
+      { objectApiName: 'Account', write: 'delete', records: 2 },
+    ]);
+    expect(
+      writtenByPlan([
+        {
+          objectApiName: 'Account',
+          deleted: 0,
+          withParentDeleted: 0,
+          undoCannot: 0,
+          nextPassDeleted: 2,
+          carriers: 2,
+          broughtBack: 0,
+          backWithParent: 0,
+          recreated: 0,
+          givenBackFirst: 0,
+          givenBackAfter: 0,
+          givenBackNextPass: 0,
+          skipped: 0,
+        },
+      ]),
+    ).toEqual([
+      { objectApiName: 'Account', write: 'undelete', records: 2 },
+      { objectApiName: 'Account', write: 'delete', records: 2 },
+    ]);
+  });
+
   it('counts of a plan what it sends and what goes or comes back with a parent', () => {
     expect(
       writtenByPlan([

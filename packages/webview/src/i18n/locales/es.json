@@ -5418,6 +5418,8 @@
         "deletedWhileTaken_other": "{{object}}: {{formatted}} registros eliminados mientras se creaba el punto de control vuelven con los valores que tenían entonces.",
         "withParent_one": "{{object}}: {{formatted}} registro vuelve con su registro padre.",
         "withParent_other": "{{object}}: {{formatted}} registros vuelven con su registro padre.",
+        "carriers_one": "{{object}}: {{formatted}} registro que el punto de control no contiene, eliminado desde entonces, se llevó registros del punto de control: Salesforce solo los devuelve con él, así que vuelve un momento y luego regresa a la papelera con lo que volvió con él.",
+        "carriers_other": "{{object}}: {{formatted}} registros que el punto de control no contiene, eliminados desde entonces, se llevaron registros del punto de control: Salesforce solo los devuelve con ellos, así que vuelven un momento y luego regresan a la papelera con lo que volvió con ellos.",
         "fields_one": "{{object}}: {{formatted}} valor de campo por devolver.",
         "fields_other": "{{object}}: {{formatted}} valores de campo por devolver.",
         "clearedLookups_one": "{{object}}: {{formatted}} registro recupera un campo de búsqueda que una eliminación vació desde entonces.",
@@ -5437,8 +5439,10 @@
         "title": "Lo que un retroceso no puede deshacer",
         "goneForGood_one": "{{formatted}} registro eliminado desde entonces no puede volver: la papelera ya no lo contiene, y el retroceso no puede crearlo de nuevo — un archivo, cuyo contenido el punto de control no guarda, o un registro eliminado mientras se tomaba el punto de control ({{objects}}).",
         "goneForGood_other": "{{formatted}} registros eliminados desde entonces no pueden volver: la papelera ya no los contiene, y el retroceso no puede crearlos de nuevo — archivos, cuyo contenido el punto de control no guarda, o registros eliminados mientras se tomaba el punto de control ({{objects}}).",
-        "deletedWithCreatedParent_one": "{{formatted}} registro eliminado con un padre creado desde entonces no puede volver por sí solo ({{objects}}).",
-        "deletedWithCreatedParent_other": "{{formatted}} registros eliminados con un padre creado desde entonces no pueden volver por sí solos ({{objects}}).",
+        "deletedWithCreatedParent_one": "{{formatted}} registro eliminado con un padre creado desde entonces no puede volver: Salesforce solo lo devuelve con ese padre, y no recupera ese padre por sí solo ({{objects}}).",
+        "deletedWithCreatedParent_other": "{{formatted}} registros eliminados con un padre creado desde entonces no pueden volver: Salesforce solo los devuelve con ese padre, y no recupera ese padre por sí solo ({{objects}}).",
+        "deletedWithParentOutside_one": "{{formatted}} registro eliminado desde entonces con su padre, un registro de un objeto que el punto de control no contiene, se queda en la papelera: Salesforce solo lo devuelve con ese padre. Un punto de control que contenga el objeto del padre lo recupera ({{objects}}).",
+        "deletedWithParentOutside_other": "{{formatted}} registros eliminados desde entonces con su padre, un registro de un objeto que el punto de control no contiene, se quedan en la papelera: Salesforce solo los devuelve con ese padre. Un punto de control que contenga el objeto del padre los recupera ({{objects}}).",
         "convertedLead_one": "{{formatted}} candidato se convirtió desde entonces: Salesforce no puede deshacer la conversión de un candidato. Lo que creó la conversión se elimina, y el candidato sigue convertido.",
         "convertedLead_other": "{{formatted}} candidatos se convirtieron desde entonces: Salesforce no puede deshacer la conversión de un candidato. Lo que crearon las conversiones se elimina, y los candidatos siguen convertidos.",
         "activatedContract_one": "{{formatted}} contrato se activó desde entonces: Salesforce no lo devolverá a Borrador, así que sigue activado.",
@@ -5502,7 +5506,9 @@
         "bringBack_one": "recupera {{formatted}} registro de la papelera",
         "bringBack_other": "recupera {{formatted}} registros de la papelera",
         "recreate_one": "crea de nuevo {{formatted}} registro que la papelera ya no contiene, con un Id nuevo",
-        "recreate_other": "crea de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos"
+        "recreate_other": "crea de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos",
+        "carriers_one": "recupera un momento {{formatted}} registro que se había llevado registros del punto de control y luego lo elimina de nuevo",
+        "carriers_other": "recupera un momento {{formatted}} registros que se habían llevado registros del punto de control y luego los elimina de nuevo"
       },
       "toRecreate_one": "{{formatted}} por volver a crear",
       "toRecreate_other": "{{formatted}} por volver a crear",
@@ -5624,11 +5630,20 @@
         "restoredLine": "{{object}}: {{restored}} de {{planned}} recuperaron sus valores de antes del retroceso",
         "keptChanged": "modificados desde el retroceso, dejados como están ahora: {{n}}",
         "remade_one": "Eliminado de nuevo en {{org}}: {{formatted}} registro que el retroceso creó de nuevo, con lo que se fue con él",
-        "remade_other": "Eliminados de nuevo en {{org}}: {{formatted}} registros que el retroceso creó de nuevo, con lo que se fue con ellos"
+        "remade_other": "Eliminados de nuevo en {{org}}: {{formatted}} registros que el retroceso creó de nuevo, con lo que se fue con ellos",
+        "carriedAlone_one": "Devuelto solo a la papelera de {{org}}: {{formatted}} registro de {{object}} que había ido allí con un registro que el retroceso recuperó un momento, y que se queda allí. Vuelve solo, bajo el padre que le daba el punto de control.",
+        "carriedAlone_other": "Devueltos solos a la papelera de {{org}}: {{formatted}} registros de {{object}} que habían ido allí con un registro que el retroceso recuperó un momento, y que se queda allí. Vuelven solos, bajo el padre que les daba el punto de control."
       },
       "recreated": {
         "title": "Creados de nuevo en {{org}}, con Id nuevos",
         "line": "{{object}}: {{created}} de {{planned}} creados de nuevo"
+      },
+      "carriers": {
+        "title": "Recuperados un momento de la papelera de {{org}}, para recuperar los registros del punto de control que se habían llevado",
+        "line_one": "{{object}}: {{formatted}} registro que el punto de control no contiene",
+        "line_other": "{{object}}: {{formatted}} registros que el punto de control no contiene",
+        "deletedAgain": "Eliminados de nuevo una vez que esos registros volvieron, con lo que volvió con ellos: en la papelera, como antes del retroceso.",
+        "stopped": "Detenido antes de que el retroceso terminara: lo que aún no había eliminado de nuevo sigue en {{org}}. Un nuevo retroceso lo elimina, junto con lo que volvió con ello."
       }
     },
     "undo": {

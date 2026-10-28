@@ -72,10 +72,32 @@ export function rewindTotals(
   );
 }
 
-/** Whether a rewind would write anything: delete, give back, bring back or make again one record at least. */
+/**
+ * Records of an object the checkpoint does not hold that a rewind brings back
+ * for a moment, then deletes again: deleted since with records it holds,
+ * which their delete took along, and which Salesforce gives back with them
+ * only. In none of the preview's numbers — before the rewind and after it,
+ * they are in the recycle bin — but written twice, so their automation runs.
+ */
+export function carriersOf(object: Pick<RewindDiffObject, 'toBringBack'>): number {
+  return object.toBringBack.carriers ?? 0;
+}
+
+/** The records a rewind brings back for a moment, then deletes again, every object together. */
+export function carriersTotal(diff: Pick<RewindDiff, 'objects'>): number {
+  return diff.objects.reduce((sum, object) => sum + carriersOf(object), 0);
+}
+
+/**
+ * Whether a rewind would write anything: delete, give back, bring back or
+ * make again one record at least, or bring one back for a moment.
+ */
 export function rewindWrites(diff: Pick<RewindDiff, 'objects'>): boolean {
   const totals = rewindTotals(diff);
-  return totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0;
+  return (
+    totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0 ||
+    carriersTotal(diff) > 0
+  );
 }
 
 /** The records a rewind makes again with new Ids, object by object: those the recycle bin no longer gives back. */
@@ -146,6 +168,7 @@ export interface CannotUndoLine {
 const CANNOT_UNDO_ORDER: readonly RewindCannotUndoReason[] = [
   'goneForGood',
   'deletedWithCreatedParent',
+  'deletedWithParentOutside',
   'convertedLead',
   'activatedContract',
 ];
@@ -198,15 +221,19 @@ export function outsideLines(diff: Pick<RewindDiff, 'objects'>): OutsideLine[] {
  * The objects each step of a rewind writes, in the order it writes them: it
  * brings back from the recycle bin, makes again what the bin no longer gives
  * back, gives back values, then deletes. What the org runs as it writes is
- * read for these.
+ * read for these. An object whose records come back for a moment, to be
+ * deleted again (`carriersOf`), is brought back and deleted, as the rewind
+ * itself lists it: its automation runs on both.
  */
 export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
-  const rows = diff.objects.map(rowOf);
+  const rows = diff.objects.map((object) => ({ ...rowOf(object), carriers: carriersOf(object) }));
   return {
-    bringBack: rows.filter((row) => row.toBringBack > 0).map((row) => row.objectApiName),
+    bringBack: rows
+      .filter((row) => row.toBringBack + row.carriers > 0)
+      .map((row) => row.objectApiName),
     recreate: rows.filter((row) => row.toRecreate > 0).map((row) => row.objectApiName),
     giveBack: rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
-    delete: rows.filter((row) => row.toDelete > 0).map((row) => row.objectApiName),
+    delete: rows.filter((row) => row.toDelete + row.carriers > 0).map((row) => row.objectApiName),
   };
 }
 
