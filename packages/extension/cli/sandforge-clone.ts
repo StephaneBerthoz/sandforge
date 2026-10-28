@@ -133,7 +133,11 @@ import type {
   FieldInfo,
   TargetObjectInfo,
 } from '../src/modules/forge/ForgeExecutor.js';
-import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
+import {
+  RecordTypeMapper,
+  namespaceMismatchWarning,
+  namespaceMismatches,
+} from '../src/modules/sync/RecordTypeMapper.js';
 import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
 import {
   PIIDetector,
@@ -1886,15 +1890,31 @@ export function adaptDescribe(raw: DescribeSObjectResult): ObjectDescribe {
   };
 }
 
-/** Match the active record types of both orgs; exported so the match can be tested. */
+/**
+ * Match the active record types of both orgs; exported so the match can be
+ * tested.
+ *
+ * @param warn - Told each source record type left unmatched because the
+ *   target holds its DeveloperName under another namespace only.
+ */
 export async function loadRecordTypes(
   sourceConn: Connection,
   targetConn: Connection,
+  warn?: (line: string) => void,
 ): Promise<RecordTypeMapping[]> {
   // SobjectType is read so the match stays within one object: Account and
-  // Opportunity can each have a "Business" record type.
-  const soql = 'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
-  type RecordTypeRow = { Id: string; Name: string; DeveloperName: string; SobjectType: string };
+  // Opportunity can each have a "Business" record type. NamespacePrefix so
+  // that a package's record type matches the same package's only: one can
+  // carry the DeveloperName of the org's own.
+  const soql =
+    'SELECT Id, Name, DeveloperName, NamespacePrefix, SobjectType FROM RecordType WHERE IsActive = true';
+  type RecordTypeRow = {
+    Id: string;
+    Name: string;
+    DeveloperName: string;
+    NamespacePrefix?: string | null;
+    SobjectType: string;
+  };
   // Every page, as the extension reads them: a query answers with 2 000
   // records at most and a cursor to the rest, and a record type past the
   // first page went unmatched. Each page is a request of the connection,
@@ -1914,9 +1934,14 @@ export async function loadRecordTypes(
     id: r.Id,
     name: r.Name,
     developerName: r.DeveloperName,
+    namespacePrefix: r.NamespacePrefix ? r.NamespacePrefix : null,
     sobjectType: r.SobjectType,
   });
-  return new RecordTypeMapper().buildMapping(s.map(toInfo), tgt.map(toInfo));
+  const [sourceTypes, targetTypes] = [s.map(toInfo), tgt.map(toInfo)];
+  for (const mismatch of namespaceMismatches(sourceTypes, targetTypes)) {
+    warn?.(namespaceMismatchWarning(mismatch));
+  }
+  return new RecordTypeMapper().buildMapping(sourceTypes, targetTypes);
 }
 
 /**
@@ -5529,12 +5554,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
 
   say('record-type mapping…');
   const requestsBeforeRecordTypes = requestsSent();
+  const namespaceWarnings: string[] = [];
   const recordTypeMappings = await loadRecordTypes(
     conns.get(args.source)!,
     conns.get(args.target)!,
+    (line) => namespaceWarnings.push(line),
   );
   const recordTypeCalls = requestsSent() - requestsBeforeRecordTypes;
   say(`record-types: ${recordTypeMappings.length} mappings`);
+  for (const line of namespaceWarnings) say(`  warning: ${line}`);
   await stopIfInterrupted();
 
   /** The statements read through the org's cursor, and the pages the org answered them in. */

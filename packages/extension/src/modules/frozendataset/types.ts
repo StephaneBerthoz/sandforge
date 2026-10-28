@@ -18,6 +18,7 @@
  */
 
 import type { ForgeWrittenBetween, FrozenExclusionCost } from '@sandforge/shared';
+import type { RecordTypeNameParts } from '../../core/metadata/recordTypeNames.js';
 import type { RowsLeftOut } from '../../core/common/platformRecords.js';
 
 /** A raw record as extracted from the source org, keyed by referenceId. */
@@ -47,6 +48,11 @@ export interface RecordTypeMapEntry {
   id: string;
   sobjectType: string;
   developerName: string;
+  /**
+   * The namespace of the package that installed it, `null` for the org's own.
+   * Absent from an rt-map written before the namespace was read.
+   */
+  namespacePrefix?: string | null;
   /** UI label — what anonymized RecordTypeId fields carry. */
   name: string;
 }
@@ -123,7 +129,16 @@ export interface FrozenObjectData {
  */
 export interface FrozenRecordTypeRef {
   name: string;
+  /** The DeveloperName, without the namespace. */
   developerName: string;
+  /**
+   * The namespace of the package that installed it, `null` for the org's
+   * own: a package's record type loads as the same package's in the target,
+   * never as the org's own of that DeveloperName. Absent from a dataset
+   * extracted before the namespace was read, whose names are then resolved by
+   * DeveloperName alone, and refused where the target holds two.
+   */
+  namespacePrefix?: string | null;
 }
 
 /**
@@ -166,20 +181,38 @@ export interface FrozenDataset {
 /**
  * Load-phase contract, implemented by {@link TargetRecordTypeIdResolver}.
  * Resolves a RecordType reference to a target-org RecordType ID by
- * (SobjectType, DeveloperName); labels are never used because they differ
- * between orgs (mojibake included).
+ * (SobjectType, NamespacePrefix, DeveloperName); labels are never used
+ * because they differ between orgs (mojibake included).
  */
 export interface RecordTypeIdResolver {
   /**
    * The target id for a DeveloperName: one the running user can create
-   * records with, `null` when the target has no such record type, or the
-   * record type marked unavailable when it exists but is not the user's.
+   * records with, `null` when the target has no such record type, the record
+   * type marked unavailable when it exists but is not the user's, or the
+   * record types it could be when the name does not say which.
+   *
+   * @param developerName - `ns__Retail` names package `ns`'s; a bare name,
+   *   unless `namespacePrefix` says, the one record type that carries it.
+   * @param namespacePrefix - The namespace the record type is known to have,
+   *   `null` for the org's own; `undefined` when the name is all there is.
    */
   resolveByDeveloperName(
     orgId: string,
     sobjectType: string,
     developerName: string,
-  ): Promise<string | null | UnavailableRecordType>;
+    namespacePrefix?: string | null,
+  ): Promise<string | null | UnavailableRecordType | AmbiguousRecordType>;
+}
+
+/**
+ * A bare DeveloperName two record types of the object carry in the target —
+ * a package's and the org's own — named by what tells them apart: the
+ * name alone does not say which one a record had.
+ */
+export interface AmbiguousRecordType {
+  ambiguous: true;
+  /** The namespace and DeveloperName of each. */
+  carriers: RecordTypeNameParts[];
 }
 
 /**

@@ -5,7 +5,7 @@ The [quickstart](forge-quickstart.md) takes you through a first clone in a few s
 ## What Forge handles for you
 
 - **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, instead of every row of every related table)
-- **RecordType cross-org**: re-mapped automatically by `DeveloperName`
+- **RecordType cross-org**: re-mapped automatically by object, namespace and `DeveloperName`, among the active record types of both orgs. A record type a managed package installed matches the same package's in the target, and one the org made itself matches the target's own, never one the other, though both carry one `DeveloperName` on the object: a source record type the target holds only under another namespace is left unmapped, the log and the command line's `record-types` line say so, and a simulation offers its gap. SandForge names a package's record type `ns__DeveloperName` wherever it shows or takes one
 - **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
 - **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record; in a target without person accounts, the account goes in as a business one by its name, and its contact as a contact of that account
 - **Picklist drift**: a value the target would refuse — in a restricted picklist, not one of the field's values there, or not one the record type the row goes in with allows — is replaced by that record type's default or left out, and the results say which, per object and field; an unrestricted picklist or a combobox takes any value, and keeps the one read, save a standard status, stage, priority or role, checked as a restricted one; a value the target refuses all the same — a record type never given values of a field takes none of them, though the target's UI API lists them all for it, so no check before the write can tell — has its record written again without that field, and the results say so
@@ -130,7 +130,7 @@ Each gap offers the decisions that fit it, taken in one click or one pick:
 - **Leave empty**: a picklist value is mapped to nothing (`picklistValueMappings` with `to: null`), and any other field is left out of the object's rows (`fieldExclusions`);
 - **Give a default value** to a field the target requires: `defaultValues`;
 - **Cut to the field's length**: `truncateFields`;
-- **Write as record type**, one of the target's or the object's default: `recordTypeMappings`;
+- **Write as record type**, one of the target's or the object's default: `recordTypeMappings`, each record type by its name, `ns__Retail` for package `ns`'s. A bare name, as decisions and templates were written before the namespace was read, still names the one record type of the object that carries it; where a package's and the org's own both do, it names the org's own, as Salesforce reads a bare name, and the package's is written with its namespace;
 - **Leave the object out**: `excludedObjects`, and its box on the graph unticked, as unticking the box adds it;
 - **Hold back these rows**: `skippedRows`, by the gap's id — the rows that hold the gap's picklist value or currency in its field, for its record type when it has one, are not written, and what names one of them goes as what names a row the target refused;
 - **Leave as it is**: `ignoredGaps`.

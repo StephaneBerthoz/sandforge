@@ -2231,6 +2231,80 @@ describe('AutopilotExecutor — record types matched by name', () => {
     expect(unmapped[0][0]).toMatch(/^\[autopilot\] Product2:/);
     warn.mockRestore();
   });
+
+  describe('a package’s record type of the DeveloperName of the org’s own', () => {
+    /** An org whose record type query answers the type under that namespace, or as the org's own. */
+    function namespaced(id: string, NamespacePrefix: string | null) {
+      return vi.fn<SoqlQuery>(async (soql) =>
+        soql.startsWith(RECORD_TYPES_SOQL)
+          ? [
+              {
+                Id: id,
+                Name: 'Sales',
+                DeveloperName: 'SalesProduct',
+                NamespacePrefix,
+                SobjectType: 'Product2',
+              },
+            ]
+          : [],
+      );
+    }
+
+    it('keeps it from the org’s own in the target, and says why', async () => {
+      const warn = vi.spyOn(logger, 'warn');
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        querySource: namespaced(SOURCE_SALES, 'ns'),
+        queryTarget: namespaced(TARGET_SALES, null),
+        insert: insertAs({ Product2: '01tT' }),
+        batchSize: 200,
+      });
+
+      await new AutopilotExecutor(deps).execute(wavesOf('Product2'), [], [], countsOf(rows));
+
+      expect(vi.mocked(deps.insert).mock.calls[0][1][0]['RecordTypeId']).toBe(SOURCE_SALES);
+      expect(warn.mock.calls.map(([line]) => line)).toContain(
+        '[autopilot] Product2: record type ns__SalesProduct, of package ns, is not mapped to ' +
+          'SalesProduct in the target org: a record type is matched to one of the same ' +
+          'namespace only. Its records keep the source Id unless the target gets ' +
+          'ns__SalesProduct, or a decision maps it.',
+      );
+      warn.mockRestore();
+    });
+
+    it('names it with its namespace when it is closed to the running user', async () => {
+      const deps = makeDeps({
+        query: sourceOf(rows),
+        querySource: namespaced(SOURCE_SALES, 'ns'),
+        queryTarget: namespaced(TARGET_SALES, 'ns'),
+        describeCreateableFields: async () => new Set(['Name', 'RecordTypeId']),
+        // The describe names it by its DeveloperName alone.
+        describeRecordTypes: async () => [
+          {
+            recordTypeId: TARGET_SALES,
+            developerName: 'SalesProduct',
+            name: 'Sales',
+            available: false,
+            active: true,
+            master: false,
+            defaultRecordTypeMapping: false,
+          },
+        ],
+        countRecordTypes: async () => new Map([[SOURCE_SALES, 1]]),
+        batchSize: 200,
+      });
+
+      const result = await new AutopilotExecutor(deps).execute(
+        wavesOf('Product2'),
+        [],
+        [],
+        countsOf(rows),
+      );
+
+      expect(deps.insert).not.toHaveBeenCalled();
+      expect(result.nodeErrors?.['Product2']).toContain('record type ns__SalesProduct (Sales)');
+    });
+  });
 });
 
 describe('AutopilotExecutor — lookups at objects the run does not copy', () => {

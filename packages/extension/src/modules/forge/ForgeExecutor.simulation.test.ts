@@ -18,6 +18,8 @@ import type {
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
 import { CURRENCY_TYPES_SOQL } from '../../core/common/recordCurrencies.js';
+import { RECORD_TYPE_NAMES_SOQL } from '../../core/metadata/recordTypeNames.js';
+import { RecordTypeMapper } from '../sync/RecordTypeMapper.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -761,5 +763,137 @@ describe('ForgeExecutor, rows a call may have written', () => {
     const { summary } = await run(deps, OPTIONS);
 
     expect(summary.mayHaveBeenWritten).toBeUndefined();
+  });
+});
+
+describe('ForgeExecutor, a package’s record type beside the org’s own of the same DeveloperName', () => {
+  // The source's Trade orders go in, here, with a record type package `ns`
+  // installed, which carries the DeveloperName of the org's own Retail. The
+  // describe calls both "Retail": only the RecordType rows, by id, say which
+  // is the package's.
+  const PACKAGED = SOURCE_TRADE;
+  const TARGET_PACKAGED = TARGET_TRADE;
+  const row = (Id: string, DeveloperName: string, NamespacePrefix: string | null) => ({
+    Id,
+    SobjectType: 'Order__c',
+    DeveloperName,
+    NamespacePrefix,
+  });
+  const SOURCE_ROWS = [row(SOURCE_RETAIL, 'Retail', null), row(PACKAGED, 'Retail', 'ns')];
+
+  /**
+   * The orgs of {@link fakeOrgs}, the source with both record types, the
+   * target with the org's own Retail and Wholesale — and the package's when
+   * `packageInTarget` — and the mapping built from both orgs' rows as a run
+   * is handed it.
+   */
+  function namespacedOrgs({ packageInTarget }: { packageInTarget: boolean }) {
+    const orgs = fakeOrgs();
+    const targetRows = [
+      row(TARGET_RETAIL, 'Retail', null),
+      row(TARGET_WHOLESALE, 'Wholesale', null),
+      ...(packageInTarget ? [row(TARGET_PACKAGED, 'Retail', 'ns')] : []),
+    ];
+    const answer = orgs.deps.queryRecords.getMockImplementation()!;
+    orgs.deps.queryRecords.mockImplementation(async (org: string, soql: string) => {
+      if (soql === RECORD_TYPE_NAMES_SOQL) return org === 'tgt' ? targetRows : SOURCE_ROWS;
+      return answer(org, soql);
+    });
+    orgs.deps.describeObject.mockImplementation(async (org: string, object: string) => {
+      if (object !== 'Order__c') return { keyPrefix: '001', recordTypes: [] };
+      return org === 'tgt'
+        ? {
+            keyPrefix: 'a01',
+            recordTypes: [
+              recordType(TARGET_RETAIL, 'Retail'),
+              recordType(TARGET_WHOLESALE, 'Wholesale'),
+              ...(packageInTarget ? [recordType(TARGET_PACKAGED, 'Retail')] : []),
+            ],
+          }
+        : {
+            keyPrefix: 'a01',
+            recordTypes: [recordType(SOURCE_RETAIL, 'Retail'), recordType(PACKAGED, 'Retail')],
+          };
+    });
+    const info = (r: ReturnType<typeof row>) => ({
+      id: r.Id,
+      name: r.DeveloperName,
+      developerName: r.DeveloperName,
+      namespacePrefix: r.NamespacePrefix,
+      sobjectType: r.SobjectType,
+    });
+    const recordTypeMappings = new RecordTypeMapper().buildMapping(
+      SOURCE_ROWS.map(info),
+      targetRows.map(info),
+    );
+    return { ...orgs, options: { ...OPTIONS, recordTypeMappings } };
+  }
+
+  const sentTypes = (sent: Array<{ object: string; row: Record<string, unknown> }>) =>
+    sent.filter((s) => s.object === 'Order__c').map((s) => s.row['RecordTypeId']);
+
+  it('writes each with its own counterpart when both orgs have both', async () => {
+    const { deps, sent, options } = namespacedOrgs({ packageInTarget: true });
+
+    await run(deps, options);
+
+    expect(sentTypes(sent)).toEqual([TARGET_RETAIL, TARGET_RETAIL, TARGET_PACKAGED]);
+  });
+
+  it('never writes the package’s with the org’s own, and offers its gap under its namespaced name', async () => {
+    const { deps, sent, options } = namespacedOrgs({ packageInTarget: false });
+
+    const { summary } = await run(deps, { ...options, dryRun: true });
+    await run(deps, options);
+
+    expect(
+      gapOf(
+        summary,
+        forgeGapId('record_type_unmapped', 'Order__c', 'RecordTypeId', undefined, 'ns__Retail'),
+      ),
+    ).toMatchObject({
+      severity: 'blocking',
+      rows: 1,
+      detail: { mapTo: ['Retail', 'Wholesale'] },
+      decisions: ['map_record_type', 'exclude_object', 'ignore'],
+    });
+    // Unmapped, the package's order keeps the source's id; the org's own go
+    // with the target's Retail.
+    expect(sentTypes(sent)).toEqual([TARGET_RETAIL, TARGET_RETAIL, PACKAGED]);
+  });
+
+  it('writes the package’s record type where a decision naming it `ns__Retail` says', async () => {
+    const { deps, sent, options } = namespacedOrgs({ packageInTarget: false });
+
+    const { summary } = await run(deps, {
+      ...options,
+      decisions: {
+        recordTypeMappings: [{ object: 'Order__c', from: 'ns__Retail', to: 'Wholesale' }],
+      },
+    });
+
+    expect(sentTypes(sent)).toEqual([TARGET_RETAIL, TARGET_RETAIL, TARGET_WHOLESALE]);
+    expect(summary.decisionsApplied).toEqual([
+      {
+        kind: 'map_record_type',
+        objectApiName: 'Order__c',
+        from: 'ns__Retail',
+        to: 'Wholesale',
+        rows: 1,
+      },
+    ]);
+  });
+
+  it('applies a decision naming a bare Retail both record types carry to the org’s own', async () => {
+    const { deps, sent, options } = namespacedOrgs({ packageInTarget: true });
+
+    const { summary } = await run(deps, {
+      ...options,
+      decisions: { recordTypeMappings: [{ object: 'Order__c', from: 'Retail', to: 'Wholesale' }] },
+    });
+
+    // The org's own Retail goes where the decision says; the package's keeps its own.
+    expect(sentTypes(sent)).toEqual([TARGET_WHOLESALE, TARGET_WHOLESALE, TARGET_PACKAGED]);
+    expect(JSON.stringify(summary.errors)).not.toContain('was not applied');
   });
 });

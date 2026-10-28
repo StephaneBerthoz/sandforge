@@ -164,6 +164,26 @@ describe('FrozenDatasetAnonymizer', () => {
     ]);
   });
 
+  it('keeps in the refs the namespace rt-map gives each record type, the org’s own as null', () => {
+    const extracted = makeExtracted();
+    extracted.recordTypeMap = extracted.recordTypeMap.map((entry) => ({
+      ...entry,
+      namespacePrefix: entry.developerName === 'Business' ? 'ns' : null,
+    }));
+
+    const frozen = anonymizer.anonymize({
+      extracted,
+      rules,
+      pseudonymizer,
+      datasetVersion: '1.0.0',
+    });
+
+    expect(frozen.recordTypes.Account).toEqual([
+      { name: 'Professionnel', developerName: 'Business', namespacePrefix: 'ns' },
+      { name: 'Particulier', developerName: 'Individual', namespacePrefix: null },
+    ]);
+  });
+
   it('dead-ID sweep empties out-of-scope lookups (18-char checksum discriminant)', () => {
     const frozen = anonymizer.anonymize({
       extracted: makeExtracted(),

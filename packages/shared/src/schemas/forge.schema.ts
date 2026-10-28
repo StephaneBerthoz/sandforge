@@ -62,8 +62,14 @@ const SF_RECORD_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
  */
 const SF_OBJECT_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
-/** A field's API name (and a record type's DeveloperName), as Salesforce allows them. */
+/** A field's API name, as Salesforce allows them. */
 const SF_FIELD_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * A record type's name: its DeveloperName (80 characters at most), after its
+ * package's namespace (15) and `__` for a package's — `ns__Retail`.
+ */
+const SF_RECORD_TYPE_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,96}$/;
 
 /**
  * Base ForgeConfig schema (no cross-field refine). Kept as a plain ZodObject
@@ -179,7 +185,7 @@ export const forgeConfigSchema = z.object({
       z.object({
         object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
         field: z.string().regex(SF_FIELD_NAME_REGEX, 'Invalid field name'),
-        recordType: z.string().regex(SF_FIELD_NAME_REGEX).optional(),
+        recordType: z.string().regex(SF_RECORD_TYPE_NAME_REGEX).optional(),
         from: z.string().min(1).max(255),
         to: z.string().min(1).max(255).nullable(),
       }),
@@ -190,8 +196,8 @@ export const forgeConfigSchema = z.object({
     .array(
       z.object({
         object: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
-        from: z.string().regex(SF_FIELD_NAME_REGEX),
-        to: z.string().regex(SF_FIELD_NAME_REGEX).nullable(),
+        from: z.string().regex(SF_RECORD_TYPE_NAME_REGEX),
+        to: z.string().regex(SF_RECORD_TYPE_NAME_REGEX).nullable(),
       }),
     )
     .max(200)

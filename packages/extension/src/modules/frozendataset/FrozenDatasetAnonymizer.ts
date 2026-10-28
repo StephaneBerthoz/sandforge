@@ -91,7 +91,11 @@ export class FrozenDatasetAnonymizer {
     for (const objectData of extracted.objects) {
       recordTypes[objectData.objectApiName] = extracted.recordTypeMap
         .filter((e) => e.sobjectType === objectData.objectApiName)
-        .map((e) => ({ name: e.name, developerName: e.developerName }));
+        .map((e) => ({
+          name: e.name,
+          developerName: e.developerName,
+          ...(e.namespacePrefix !== undefined ? { namespacePrefix: e.namespacePrefix } : {}),
+        }));
     }
 
     const objects: FrozenObjectData[] = [];

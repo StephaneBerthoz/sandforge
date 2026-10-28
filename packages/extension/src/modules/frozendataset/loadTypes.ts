@@ -152,7 +152,10 @@ export type PicklistRule = { action: 'clear' } | { action: 'replace'; value: str
 export interface RequiredLookupPlaceholder {
   /** Technical record name — explicit and greppable in the org. */
   name: string;
-  /** RecordType DeveloperName of the placeholder record (never a label). */
+  /**
+   * RecordType DeveloperName of the placeholder record (never a label):
+   * `ns__DeveloperName` for a package's record type.
+   */
   recordTypeDeveloperName?: string;
   /** Placeholder object override (defaults to the lookup's first referenceTo). */
   targetObjectApiName?: string;

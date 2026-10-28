@@ -8,6 +8,8 @@ import { logger } from '../../logger.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
+  namespaceMismatchWarning,
+  namespaceMismatches,
   parseRecordTypeRows,
   warnUnmappedRecordType,
 } from './RecordTypeMapper';
@@ -110,6 +112,98 @@ describe('RecordTypeMapper', () => {
         { sourceId: 'src-acc', targetId: 'tgt-acc', developerName: 'Business' },
         { sourceId: 'src-opp', targetId: 'tgt-opp', developerName: 'Business' },
       ]);
+    });
+
+    it('maps a package’s record type and the org’s own of the same DeveloperName each to its own counterpart', () => {
+      // A package can install on Account a record type carrying the
+      // DeveloperName of one the org made itself. Keyed without the
+      // namespace, the target's two shared a key, and both source types went
+      // to whichever of them was read last.
+      const type = (id: string, namespacePrefix: string | null) =>
+        createTypeInfo({ id, developerName: 'Retail', namespacePrefix, sobjectType: 'Account' });
+      const source = [type('src-own', null), type('src-pkg', 'ns')];
+      const target = [type('tgt-own', null), type('tgt-pkg', 'ns')];
+
+      const mappings = mapper.buildMapping(source, target);
+
+      expect(mappings).toEqual([
+        { sourceId: 'src-own', targetId: 'tgt-own', developerName: 'Retail' },
+        { sourceId: 'src-pkg', targetId: 'tgt-pkg', developerName: 'ns__Retail' },
+      ]);
+    });
+
+    it('leaves a package’s record type unmapped when the target has only the org’s own of that DeveloperName', () => {
+      const source = [
+        createTypeInfo({
+          id: 'src-pkg',
+          developerName: 'Retail',
+          namespacePrefix: 'ns',
+          sobjectType: 'Account',
+        }),
+      ];
+      const target = [
+        createTypeInfo({
+          id: 'tgt-own',
+          developerName: 'Retail',
+          namespacePrefix: null,
+          sobjectType: 'Account',
+        }),
+      ];
+
+      expect(mapper.buildMapping(source, target)).toEqual([]);
+      expect(mapper.buildMapping(target, source)).toEqual([]);
+    });
+
+    it('matches a row read without its namespace as the org’s own', () => {
+      const source = [createTypeInfo({ id: 'src-1', developerName: 'Retail' })];
+      const target = [
+        createTypeInfo({ id: 'tgt-pkg', developerName: 'Retail', namespacePrefix: 'ns' }),
+        createTypeInfo({ id: 'tgt-own', developerName: 'Retail', namespacePrefix: null }),
+      ];
+
+      expect(mapper.buildMapping(source, target)).toEqual([
+        { sourceId: 'src-1', targetId: 'tgt-own', developerName: 'Retail' },
+      ]);
+    });
+  });
+
+  describe('namespaceMismatches', () => {
+    const type = (id: string, namespacePrefix: string | null, sobjectType = 'Account') =>
+      createTypeInfo({ id, developerName: 'Retail', namespacePrefix, sobjectType });
+
+    it('says of a package’s record type the target holds only as the org’s own that it is not mapped, and why', () => {
+      const mismatches = namespaceMismatches([type('src-pkg', 'ns')], [type('tgt-own', null)]);
+
+      expect(mismatches).toEqual([
+        { objectApiName: 'Account', source: 'ns__Retail', target: ['Retail'] },
+      ]);
+      expect(namespaceMismatchWarning(mismatches[0])).toBe(
+        'Account: record type ns__Retail, of package ns, is not mapped to Retail in the target ' +
+          'org: a record type is matched to one of the same namespace only. Its records keep ' +
+          'the source Id unless the target gets ns__Retail, or a decision maps it.',
+      );
+    });
+
+    it('says the same of the org’s own record type the target holds only as a package’s', () => {
+      const [mismatch] = namespaceMismatches([type('src-own', null)], [type('tgt-pkg', 'ns')]);
+
+      expect(mismatch).toEqual({
+        objectApiName: 'Account',
+        source: 'Retail',
+        target: ['ns__Retail'],
+      });
+      expect(namespaceMismatchWarning(mismatch)).toContain(
+        "record type Retail, the source org's own, is not mapped to ns__Retail",
+      );
+    });
+
+    it('says nothing of a record type matched, or one whose DeveloperName the target lacks, or holds on another object', () => {
+      expect(
+        namespaceMismatches(
+          [type('src-own', null), type('src-pkg', 'ns'), type('src-opp', 'ns', 'Opportunity')],
+          [type('tgt-own', null), type('tgt-pkg', 'ns'), type('tgt-case', null, 'Case')],
+        ),
+      ).toEqual([]);
     });
   });
 
@@ -250,6 +344,7 @@ describe('RecordTypeMapper', () => {
   describe('parseRecordTypeRows', () => {
     it('reads the rows of the record type query into what buildMapping matches', () => {
       expect(RECORD_TYPES_SOQL).toContain('SobjectType');
+      expect(RECORD_TYPES_SOQL).toContain('NamespacePrefix');
 
       const types = parseRecordTypeRows([
         {
@@ -257,7 +352,16 @@ describe('RecordTypeMapper', () => {
           Id: '012SRC000000001AAA',
           Name: 'Produit de vente',
           DeveloperName: 'SalesProduct',
+          NamespacePrefix: null,
           SobjectType: 'Product2',
+        },
+        {
+          attributes: { type: 'RecordType' },
+          Id: '012SRC000000002AAA',
+          Name: 'Retail',
+          DeveloperName: 'Retail',
+          NamespacePrefix: 'ns',
+          SobjectType: 'Account',
         },
       ]);
 
@@ -266,7 +370,15 @@ describe('RecordTypeMapper', () => {
           id: '012SRC000000001AAA',
           name: 'Produit de vente',
           developerName: 'SalesProduct',
+          namespacePrefix: null,
           sobjectType: 'Product2',
+        },
+        {
+          id: '012SRC000000002AAA',
+          name: 'Retail',
+          developerName: 'Retail',
+          namespacePrefix: 'ns',
+          sobjectType: 'Account',
         },
       ]);
     });

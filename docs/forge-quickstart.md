@@ -11,7 +11,7 @@ Hand-crafting test data for a dev sandbox takes time. Pick a real record on a pa
 What it handles for you ([in full](forge-reference.md#what-forge-handles-for-you)):
 
 - **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, instead of every row of every related table)
-- **RecordType cross-org**: re-mapped automatically by `DeveloperName`
+- **RecordType cross-org**: re-mapped automatically by object, namespace and `DeveloperName`: a managed package's record type maps to the same package's, never to the org's own of that name
 - **Reference data**: `BusinessHours` and `OperatingHours` mapped by `Name` instead of cloned
 - **Person accounts**: written as person accounts where the target has them, and as business accounts by their name where it does not ([how](forge-record-scoped.md#person-accounts))
 - **Picklist drift**: a value the target would refuse is replaced by its record type's default or left out, and the results say which

@@ -95,6 +95,8 @@ import { partialSummaryOf } from '../../modules/forge/interruptedRun.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
+  namespaceMismatchWarning,
+  namespaceMismatches,
   parseRecordTypeRows,
   type RecordTypeMapping,
 } from '../../modules/sync/RecordTypeMapper.js';
@@ -3393,7 +3395,7 @@ export class ForgeHandler implements DomainHandler {
   /**
    * Build the source -> target RecordType table the executor translates
    * `RecordTypeId` with, the way the command-line clone does: active record
-   * types of both orgs, matched by object and DeveloperName.
+   * types of both orgs, matched by object, namespace and DeveloperName.
    *
    * A failure here does not stop the run. It is logged, and the clone proceeds
    * as it did before the table existed — records keep the source Id — rather
@@ -3455,6 +3457,11 @@ export class ForgeHandler implements DomainHandler {
         return parseRecordTypeRows(records);
       }),
     );
+    // A package's record type the target holds only under another namespace
+    // is left unmapped, as any other the target lacks, and says why.
+    for (const mismatch of namespaceMismatches(sourceTypes, targetTypes)) {
+      logger.warn(`[forge] ${namespaceMismatchWarning(mismatch)}`);
+    }
     return new RecordTypeMapper().buildMapping(sourceTypes, targetTypes);
   }
 

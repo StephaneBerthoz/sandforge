@@ -5,9 +5,11 @@ import {
   findUnavailableRecordTypes,
   parseRecordTypeInfos,
   parseRecordTypeCounts,
+  partsOfRecordType,
   recordTypeBlockedMessage,
   recordTypeCountSoql,
   unavailableRecordTypeUses,
+  withRecordTypeNames,
 } from './recordTypeAvailability.js';
 
 /** Fake record type ids, checksums included. */
@@ -221,5 +223,75 @@ describe('unavailableRecordTypeUses', () => {
         recordCount: 40,
       },
     ]);
+  });
+});
+
+describe('withRecordTypeNames', () => {
+  // Partner_Account installed by package `ns`; the describe may or may not
+  // say so in its developerName, and either way the row's name is taken.
+  const ROWS = [
+    { id: CUSTOMER.slice(0, 15), developerName: 'Customer_Account', namespacePrefix: null },
+    { id: PARTNER, developerName: 'Partner_Account', namespacePrefix: 'ns' },
+  ];
+
+  it('names each record type by the RecordType row of its id, a package’s with its namespace', () => {
+    const named = withRecordTypeNames(parseRecordTypeInfos(ACCOUNT_RECORD_TYPE_INFOS), ROWS);
+
+    expect(named.map((i) => [i.developerName, i.namespacePrefix])).toEqual([
+      ['Customer_Account', null],
+      ['ns__Partner_Account', 'ns'],
+      // No row: its name is the describe's, its namespace unsaid.
+      ['Legacy_Account', undefined],
+      ['Master', undefined],
+    ]);
+  });
+
+  it('never names a record type by another’s row of the same DeveloperName', () => {
+    // The describe calls both "Partner_Account": joined by name, the
+    // package's would have taken the org's own row, or the reverse.
+    const infos = parseRecordTypeInfos([
+      { ...ACCOUNT_RECORD_TYPE_INFOS[0], developerName: 'Partner_Account' },
+      ACCOUNT_RECORD_TYPE_INFOS[1],
+    ]);
+    const rows = [
+      { id: CUSTOMER, developerName: 'Partner_Account', namespacePrefix: null },
+      { id: PARTNER, developerName: 'Partner_Account', namespacePrefix: 'ns' },
+    ];
+
+    expect(withRecordTypeNames(infos, rows).map((i) => [i.recordTypeId, i.developerName])).toEqual([
+      [CUSTOMER, 'Partner_Account'],
+      [PARTNER, 'ns__Partner_Account'],
+    ]);
+  });
+
+  it('does not name a namespace twice when the describe already carries it', () => {
+    const infos = parseRecordTypeInfos([
+      { ...ACCOUNT_RECORD_TYPE_INFOS[1], developerName: 'ns__Partner_Account' },
+    ]);
+
+    const [named] = withRecordTypeNames(infos, ROWS);
+    expect(named.developerName).toBe('ns__Partner_Account');
+    expect(partsOfRecordType(named)).toEqual({
+      namespacePrefix: 'ns',
+      developerName: 'Partner_Account',
+    });
+  });
+
+  it('says the use of a package’s record type closed to the user by its namespaced name', () => {
+    const named = withRecordTypeNames(parseRecordTypeInfos(ACCOUNT_RECORD_TYPE_INFOS), ROWS);
+
+    const [use] = unavailableRecordTypeUses('Account', new Map([[PARTNER, 3]]), named);
+    expect(use.developerName).toBe('ns__Partner_Account');
+    expect(recordTypeBlockedMessage(use)).toContain(
+      'record type ns__Partner_Account (Partner Account)',
+    );
+  });
+
+  it('reads the parts of a record type no row named from its name', () => {
+    const [legacy] = parseRecordTypeInfos([ACCOUNT_RECORD_TYPE_INFOS[2]]);
+    expect(partsOfRecordType(legacy)).toEqual({
+      namespacePrefix: undefined,
+      developerName: 'Legacy_Account',
+    });
   });
 });

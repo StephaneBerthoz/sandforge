@@ -262,8 +262,9 @@ describe('sandforge-clone record type mapping', () => {
     DeveloperName: 'Business',
     SobjectType,
   });
-  const orgReturning = (records: ReturnType<typeof recordType>[]): Connection =>
-    ({ query: vi.fn().mockResolvedValue({ records }) }) as unknown as Connection;
+  const orgReturning = (
+    records: Array<ReturnType<typeof recordType> & { NamespacePrefix?: string | null }>,
+  ): Connection => ({ query: vi.fn().mockResolvedValue({ records }) }) as unknown as Connection;
 
   it('maps a record type to the one of the same object when two objects share a DeveloperName', async () => {
     const source = orgReturning([
@@ -318,6 +319,44 @@ describe('sandforge-clone record type mapping', () => {
     );
     expect(source.queryMore).toHaveBeenCalledWith(NEXT);
     expect(target.queryMore).toHaveBeenCalledWith(NEXT);
+  });
+
+  it('maps a package’s record type to the same package’s, and warns of one the target holds only as the org’s own', async () => {
+    const namespaced = (Id: string, NamespacePrefix: string | null) => ({
+      ...recordType(Id, 'Account'),
+      NamespacePrefix,
+    });
+    const asked = vi.fn().mockResolvedValue({
+      records: [namespaced('012000000000SRCOWN', null), namespaced('012000000000SRCPKG', 'ns')],
+    });
+    const source = { query: asked } as unknown as Connection;
+    const both = orgReturning([
+      namespaced('012000000000TGTPKG', 'ns'),
+      namespaced('012000000000TGTOWN', null),
+    ]);
+    const ownOnly = orgReturning([namespaced('012000000000TGTOWN', null)]);
+    const warnings: string[] = [];
+
+    const mapped = await loadRecordTypes(source, both, (line) => warnings.push(line));
+    const unmatched = await loadRecordTypes(source, ownOnly, (line) => warnings.push(line));
+
+    expect(asked).toHaveBeenCalledWith(expect.stringContaining('NamespacePrefix'));
+    expect(mapped).toEqual([
+      { sourceId: '012000000000SRCOWN', targetId: '012000000000TGTOWN', developerName: 'Business' },
+      {
+        sourceId: '012000000000SRCPKG',
+        targetId: '012000000000TGTPKG',
+        developerName: 'ns__Business',
+      },
+    ]);
+    expect(unmatched).toEqual([
+      { sourceId: '012000000000SRCOWN', targetId: '012000000000TGTOWN', developerName: 'Business' },
+    ]);
+    expect(warnings).toEqual([
+      'Account: record type ns__Business, of package ns, is not mapped to Business in the ' +
+        'target org: a record type is matched to one of the same namespace only. Its records ' +
+        'keep the source Id unless the target gets ns__Business, or a decision maps it.',
+    ]);
   });
 });
 

@@ -1,13 +1,18 @@
 import * as z from 'zod';
 import { logger } from '../../logger.js';
+import {
+  partsOfRecordTypeName,
+  recordTypeMatchKey,
+  recordTypeNameOf,
+} from '../../core/metadata/recordTypeNames.js';
 
 /**
- * Active record types of an org, with the object each belongs to: what
- * {@link RecordTypeMapper.buildMapping} matches, read the same way by every
- * module that translates `RecordTypeId` between two orgs.
+ * Active record types of an org, with the object and the namespace each
+ * belongs to: what {@link RecordTypeMapper.buildMapping} matches, read the
+ * same way by every module that translates `RecordTypeId` between two orgs.
  */
 export const RECORD_TYPES_SOQL =
-  'SELECT Id, Name, DeveloperName, SobjectType FROM RecordType WHERE IsActive = true';
+  'SELECT Id, Name, DeveloperName, NamespacePrefix, SobjectType FROM RecordType WHERE IsActive = true';
 
 /** Shape of the rows {@link RECORD_TYPES_SOQL} returns, checked before mapping. */
 const recordTypeRowsSchema = z.array(
@@ -15,6 +20,7 @@ const recordTypeRowsSchema = z.array(
     Id: z.string().min(1),
     Name: z.string(),
     DeveloperName: z.string().min(1),
+    NamespacePrefix: z.string().nullable().optional(),
     SobjectType: z.string().min(1),
   }),
 );
@@ -29,6 +35,7 @@ export function parseRecordTypeRows(rows: unknown): RecordTypeInfo[] {
     id: r.Id,
     name: r.Name,
     developerName: r.DeveloperName,
+    namespacePrefix: r.NamespacePrefix ? r.NamespacePrefix : null,
     sobjectType: r.SobjectType,
   }));
 }
@@ -61,7 +68,13 @@ export function warnUnmappedRecordType(
 export interface RecordTypeInfo {
   id: string;
   name: string;
+  /** The DeveloperName, without the namespace. */
   developerName: string;
+  /**
+   * The namespace of the package that installed it; `null` for the org's
+   * own. A row read without it is matched as the org's own.
+   */
+  namespacePrefix?: string | null;
   /**
    * Object the record type belongs to (`RecordType.SobjectType`). A
    * DeveloperName is unique per object, not per org, so when both sides carry
@@ -74,39 +87,100 @@ export interface RecordTypeInfo {
 export interface RecordTypeMapping {
   sourceId: string;
   targetId: string;
+  /**
+   * The name both sides share, as SandForge shows and takes it: `ns__Retail`
+   * for package `ns`'s record type, `Retail` for the org's own.
+   */
   developerName: string;
+}
+
+/**
+ * A source record type left unmatched although the target has one of the
+ * same object and DeveloperName — under another namespace, which no match
+ * crosses: a package's and the org's own, or two packages'.
+ */
+export interface NamespaceMismatch {
+  objectApiName: string;
+  /** The source's, by its name (`ns__Retail`, `Retail`). */
+  source: string;
+  /** The target's that carry its DeveloperName, by their names. */
+  target: string[];
+}
+
+/**
+ * The source record types {@link RecordTypeMapper.buildMapping} leaves
+ * unmatched for want of the same namespace in the target, where the target
+ * has the DeveloperName under another. Matched by DeveloperName alone, such a
+ * record type was written as the other one: a package's records went in with
+ * the org's own record type, or the reverse, and nothing said so.
+ */
+export function namespaceMismatches(
+  sourceTypes: readonly RecordTypeInfo[],
+  targetTypes: readonly RecordTypeInfo[],
+): NamespaceMismatch[] {
+  const targetKeys = new Set(targetTypes.map(recordTypeMatchKey));
+  const mismatches: NamespaceMismatch[] = [];
+  for (const source of sourceTypes) {
+    if (targetKeys.has(recordTypeMatchKey(source))) continue;
+    const namesakes = targetTypes.filter(
+      (t) =>
+        t.developerName === source.developerName &&
+        (t.sobjectType ?? '') === (source.sobjectType ?? ''),
+    );
+    if (namesakes.length === 0) continue;
+    mismatches.push({
+      objectApiName: source.sobjectType ?? '',
+      source: recordTypeNameOf(source),
+      target: namesakes.map(recordTypeNameOf),
+    });
+  }
+  return mismatches;
+}
+
+/** What to say of a {@link NamespaceMismatch}: one line, with the change to make. */
+export function namespaceMismatchWarning(mismatch: NamespaceMismatch): string {
+  const namespacePrefix = partsOfRecordTypeName(mismatch.source).namespacePrefix;
+  const whose = namespacePrefix ? `of package ${namespacePrefix}` : "the source org's own";
+  return (
+    `${mismatch.objectApiName}: record type ${mismatch.source}, ${whose}, is not mapped to ` +
+    `${mismatch.target.join(' or ')} in the target org: a record type is matched to one of ` +
+    `the same namespace only. Its records keep the source Id unless the target gets ` +
+    `${mismatch.source}, or a decision maps it.`
+  );
 }
 
 /**
  * Maps record types between source and target Salesforce orgs.
  * Record type IDs differ between orgs, so this service builds a mapping
- * based on developerName (which is consistent) and applies it to records.
+ * based on object, namespace and DeveloperName (which are consistent) and
+ * applies it to records.
  */
 export class RecordTypeMapper {
   /**
-   * Build a mapping between source and target record types.
-   * Matches by developerName, which is consistent across orgs.
-   * Only includes types that exist in both source and target.
+   * Build a mapping between source and target record types, matched by
+   * object, namespace and DeveloperName. Only includes types that exist in
+   * both source and target.
    */
   buildMapping(sourceTypes: RecordTypeInfo[], targetTypes: RecordTypeInfo[]): RecordTypeMapping[] {
     // Keyed by object as well when it is known: Account.Business and
     // Opportunity.Business share a DeveloperName, and keying on the name alone
-    // handed Account records the Opportunity record type.
-    const matchKey = (t: RecordTypeInfo): string => `${t.sobjectType ?? ''}::${t.developerName}`;
-    const targetByDevName = new Map<string, RecordTypeInfo>();
+    // handed Account records the Opportunity record type. And by namespace: a
+    // package's Account record type can carry the DeveloperName of the org's
+    // own, and keyed without it the one read last took the other's place.
+    const targetByKey = new Map<string, RecordTypeInfo>();
     for (const t of targetTypes) {
-      targetByDevName.set(matchKey(t), t);
+      targetByKey.set(recordTypeMatchKey(t), t);
     }
 
     const mappings: RecordTypeMapping[] = [];
 
     for (const source of sourceTypes) {
-      const target = targetByDevName.get(matchKey(source));
+      const target = targetByKey.get(recordTypeMatchKey(source));
       if (target) {
         mappings.push({
           sourceId: source.id,
           targetId: target.id,
-          developerName: source.developerName,
+          developerName: recordTypeNameOf(source),
         });
       }
     }

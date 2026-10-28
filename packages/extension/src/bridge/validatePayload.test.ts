@@ -22,6 +22,7 @@ import {
   whereClauseSchema,
   syncExecutePayloadSchema,
   seedExecutePayloadSchema,
+  frozenConfigSavePayloadSchema,
   dataOpsBackupPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
@@ -253,6 +254,30 @@ describe('syncExecutePayloadSchema', () => {
 
   it('rejects missing config', () => {
     expect(syncExecutePayloadSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('frozenConfigSavePayloadSchema', () => {
+  const withPlaceholderType = (recordTypeDeveloperName: string) => ({
+    config: {
+      rootObject: 'Case',
+      axes: [],
+      edgeCases: [],
+      requiredLookupPlaceholders: {
+        'Case.AccountId': { name: 'SF_PLACEHOLDER', recordTypeDeveloperName },
+      },
+    },
+  });
+
+  it('takes a placeholder’s record type by its namespaced name, a namespace and a DeveloperName long', () => {
+    const longest = `${'n'.repeat(15)}__${'R'.repeat(80)}`;
+
+    expect(frozenConfigSavePayloadSchema.safeParse(withPlaceholderType(longest)).success).toBe(
+      true,
+    );
+    expect(
+      frozenConfigSavePayloadSchema.safeParse(withPlaceholderType(`${longest}X`)).success,
+    ).toBe(false);
   });
 });
 

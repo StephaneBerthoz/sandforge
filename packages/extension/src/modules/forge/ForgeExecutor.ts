@@ -211,9 +211,15 @@ import {
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
+  withRecordTypeNames,
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
+import {
+  RECORD_TYPE_NAMES_SOQL,
+  parseNamespacedRecordTypes,
+  type NamespacedRecordType,
+} from '../../core/metadata/recordTypeNames.js';
 
 /**
  * Raised when the user aborts a forge run.
@@ -261,6 +267,12 @@ export interface InsertResult {
    */
   duplicateMatchIds?: string[];
 }
+
+/**
+ * Each org's record types with their namespace, by org id, read once a run:
+ * see `ForgeExecutor.namedRecordTypes`.
+ */
+type RecordTypeRowsOfARun = Map<string, Promise<NamespacedRecordType[]>>;
 
 /** What the target org's describe of an object says about writing to it. */
 export interface TargetObjectInfo {
@@ -1830,6 +1842,11 @@ interface ExecutionState {
    */
   readonly sourceRecordTypes: Map<string, Promise<RecordTypeAvailability[]>>;
   /**
+   * Each org's record types with their namespace, read once a run when a
+   * describe's are first named: see `namedRecordTypes`.
+   */
+  readonly recordTypeRows: RecordTypeRowsOfARun;
+  /**
    * Both orgs' currencies, read once a run when a row carries one the target
    * writes; unset until then, and nothing when either org holds one.
    */
@@ -3217,10 +3234,12 @@ export class ForgeExecutor {
     }
     // The record types the user decided to write as others, in ids, over the
     // run's own mapping: every stage that reads the mapping reads them.
+    const recordTypeRows: RecordTypeRowsOfARun = new Map();
     const decided = await this.recordTypeDecisionsOf(
       options?.decisions?.recordTypeMappings ?? [],
       sourceOrgId,
       targetOrgId,
+      recordTypeRows,
     );
     const config: ForgeStageConfig =
       decided.bySource.size === 0
@@ -3377,6 +3396,7 @@ export class ForgeExecutor {
       decisionsApplied: new DecisionTally(),
       mayHaveBeenWritten: new Map<string, string[]>(),
       sourceRecordTypes: new Map<string, Promise<RecordTypeAvailability[]>>(),
+      recordTypeRows,
       successCount: 0,
       updatedCount: 0,
       linkedCount: 0,
@@ -3448,16 +3468,19 @@ export class ForgeExecutor {
     decisions: readonly ForgeRecordTypeMapping[],
     sourceOrgId: string,
     targetOrgId: string,
+    rows: RecordTypeRowsOfARun,
   ): Promise<ReturnType<typeof recordTypeDecisionMappings>> {
     if (decisions.length === 0) return recordTypeDecisionMappings([], []);
     const describe = this.deps.describeObject;
+    // Named by their rows: a decision names a package's record type with its
+    // namespace, which the describe is not relied on to give.
     const typesOf = async (
       orgId: string,
       objectApiName: string,
     ): Promise<RecordTypeAvailability[]> =>
       describe
         ? describe(orgId, objectApiName).then(
-            (info) => info.recordTypes,
+            (info) => this.namedRecordTypes(rows, orgId, info.recordTypes),
             () => [],
           )
         : [];
@@ -3470,6 +3493,56 @@ export class ForgeExecutor {
       })),
     );
     return recordTypeDecisionMappings(decisions, recordTypes);
+  }
+
+  /**
+   * An object's record types as its describe gives them, each named by the
+   * `RecordType` row of its id — `ns__Retail` for a package's — from the
+   * org's record types, read once a run per org, and only for a describe
+   * that holds a record type of its own. Unread, or when that read fails,
+   * they keep the describe's names, as before the namespace was read.
+   */
+  private async namedRecordTypes(
+    rows: RecordTypeRowsOfARun,
+    orgId: string,
+    infos: RecordTypeAvailability[],
+  ): Promise<RecordTypeAvailability[]> {
+    if (!infos.some((info) => !info.master)) return infos;
+    let pending = rows.get(orgId);
+    if (!pending) {
+      pending = this.deps.queryRecords(orgId, RECORD_TYPE_NAMES_SOQL).then(
+        (read) => parseNamespacedRecordTypes(read),
+        () => [],
+      );
+      rows.set(orgId, pending);
+    }
+    return withRecordTypeNames(infos, await pending);
+  }
+
+  /**
+   * The target's key prefix and record types of an object, the record types
+   * named by their rows wherever a name will be said: in a simulation, whose
+   * gaps name them, and for an object one of whose record types the running
+   * user may not use. A real run whose record types are all open sends no
+   * read for it.
+   */
+  private async targetObjectInfoOf(
+    state: ExecutionState,
+    objectApiName: string,
+  ): Promise<TargetObjectInfo | null> {
+    const info = await this.objectInfoOf(state.targetOrgId, objectApiName);
+    if (!info) return info;
+    const said =
+      state.gaps !== null || info.recordTypes.some((type) => !type.available && !type.master);
+    if (!said) return info;
+    return {
+      ...info,
+      recordTypes: await this.namedRecordTypes(
+        state.recordTypeRows,
+        state.targetOrgId,
+        info.recordTypes,
+      ),
+    };
   }
 
   /**
@@ -4573,7 +4646,7 @@ export class ForgeExecutor {
   ): Promise<TableRecordTypes | undefined> {
     const { config, sourceOrgId, targetOrgId } = state;
     const object = node.objectApiName;
-    const target = await this.objectInfoOf(targetOrgId, object);
+    const target = await this.targetObjectInfoOf(state, object);
     const none: TableRecordTypes = { closed: [], rows: 0, target };
     if (!target || !target.recordTypes.some((type) => !type.available && !type.master)) {
       return none;
@@ -10404,7 +10477,8 @@ export class ForgeExecutor {
       const describe = this.deps.describeObject;
       pending = describe
         ? describe(state.sourceOrgId, objectApiName).then(
-            (info) => info.recordTypes,
+            (info) =>
+              this.namedRecordTypes(state.recordTypeRows, state.sourceOrgId, info.recordTypes),
             () => [],
           )
         : Promise.resolve([]);
@@ -10792,7 +10866,7 @@ export class ForgeExecutor {
       }
 
       // Read from the describe the field sets came from: no second request.
-      const targetObject = await this.objectInfoOf(targetOrgId, node.objectApiName);
+      const targetObject = await this.targetObjectInfoOf(state, node.objectApiName);
 
       // A record type can be active in the target and still be closed to the
       // user the run writes as. Found out at the insert, every record of it

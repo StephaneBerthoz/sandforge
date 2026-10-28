@@ -872,6 +872,34 @@ describe('the decisions taken on the Gaps tab', () => {
     expect(parsed.excludedObjects).toEqual(['Task']);
   });
 
+  it('takes a package’s record type by its namespaced name, as long as a DeveloperName and a namespace make it', () => {
+    // 15 characters of namespace, `__`, and 80 of DeveloperName.
+    const longest = `${'n'.repeat(15)}__${'R'.repeat(80)}`;
+    const parsed = forgeConfigSchema.parse({
+      ...createValidForgeConfig(),
+      picklistValueMappings: [
+        { object: 'Account', field: 'Tier__c', recordType: longest, from: 'A', to: 'B' },
+      ],
+      recordTypeMappings: [{ object: 'Account', from: 'ns__Retail', to: longest }],
+    });
+
+    expect(parsed.recordTypeMappings).toEqual([
+      { object: 'Account', from: 'ns__Retail', to: longest },
+    ]);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...createValidForgeConfig(),
+        recordTypeMappings: [{ object: 'Account', from: `${longest}X`, to: null }],
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...createValidForgeConfig(),
+        recordTypeMappings: [{ object: 'Account', from: "ns__Retail' OR", to: null }],
+      }).success,
+    ).toBe(false);
+  });
+
   it('refuses a name a query or a row could not hold, and lists past their bound', () => {
     expect(() =>
       forgeConfigSchema.parse({ ...createValidForgeConfig(), excludedObjects: ['Task; DELETE'] }),

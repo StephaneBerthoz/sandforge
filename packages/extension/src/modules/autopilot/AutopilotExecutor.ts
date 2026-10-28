@@ -44,8 +44,11 @@ import type { DescribedLookup } from '../../core/metadata/describedLookups.js';
 import {
   RECORD_TYPES_SOQL,
   RecordTypeMapper,
+  namespaceMismatchWarning,
+  namespaceMismatches,
   parseRecordTypeRows,
   warnUnmappedRecordType,
+  type RecordTypeInfo,
   type RecordTypeMapping,
 } from '../sync/RecordTypeMapper.js';
 import {
@@ -90,6 +93,7 @@ import {
   recordTypeBlockedMessage,
   recordTypeBlockedReason,
   unavailableRecordTypeUses,
+  withRecordTypeNames,
   type RecordTypeAvailability,
   type UnavailableRecordTypeUse,
 } from '../../core/metadata/recordTypeAvailability.js';
@@ -684,6 +688,11 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
   private readonly lookupsByObject = new Map<string, Promise<readonly DescribedLookup[] | null>>();
   /** Source record type → target record type, when both orgs said. */
   private recordTypeMappings: RecordTypeMapping[] | undefined;
+  /**
+   * The target's record types of the plan's objects, with their namespace:
+   * what names, by its id, one the describe says the running user may not use.
+   */
+  private targetRecordTypes: RecordTypeInfo[] = [];
   /** The objects of the plan: the only ones whose records the run writes. */
   private planned: ReadonlySet<string> = new Set();
   /**
@@ -806,7 +815,12 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       const infos = await describeRecordTypes(objectApiName);
       if (!infos.some((info) => !info.available && !info.master)) return [];
       const counts = this.inTargetRecordTypes(await countRecordTypes(objectApiName));
-      return unavailableRecordTypeUses(objectApiName, counts, infos);
+      // Named by the target's rows, by id: `ns__Retail` for a package's.
+      return unavailableRecordTypeUses(
+        objectApiName,
+        counts,
+        withRecordTypeNames(infos, this.targetRecordTypes),
+      );
     } catch {
       return [];
     }
@@ -825,7 +839,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
   /**
    * Match the record types of the plan's objects between the two orgs, by
-   * object and API name.
+   * object, namespace and API name.
    *
    * Two sandboxes of one production org can hold the same record type — the
    * same object, the same API name — under two different ids, one deployed to
@@ -847,10 +861,15 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       `(${objects.map((name) => `'${sanitizeSoqlValue(name)}'`).join(', ')})`;
     try {
       const [source, target] = await Promise.all([querySource(soql), queryTarget(soql)]);
+      const sourceTypes = parseRecordTypeRows(source);
+      this.targetRecordTypes = parseRecordTypeRows(target);
       this.recordTypeMappings = new RecordTypeMapper().buildMapping(
-        parseRecordTypeRows(source),
-        parseRecordTypeRows(target),
+        sourceTypes,
+        this.targetRecordTypes,
       );
+      for (const mismatch of namespaceMismatches(sourceTypes, this.targetRecordTypes)) {
+        logger.warn(`[autopilot] ${namespaceMismatchWarning(mismatch)}`);
+      }
     } catch (err) {
       logger.warn('Autopilot could not match the record types of the two orgs', {
         error: extractErrorMessage(err),

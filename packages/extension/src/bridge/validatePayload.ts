@@ -1044,7 +1044,9 @@ export const frozenProjectConfigPayloadSchema = z.object({
       objectFieldKeySchema,
       z.object({
         name: z.string().min(1).max(200),
-        recordTypeDeveloperName: z.string().min(1).max(80).optional(),
+        // A package's record type is named `ns__DeveloperName`: 15 characters
+        // of namespace, `__`, and 80 of DeveloperName.
+        recordTypeDeveloperName: z.string().min(1).max(97).optional(),
         targetObjectApiName: sfApiNameSchema.optional(),
       }),
     )

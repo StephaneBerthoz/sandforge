@@ -34,7 +34,16 @@ import type {
 import { forgeGapParts } from '@sandforge/shared';
 import { MASTER_RECORD_TYPE_NAME } from './RecordTypePicklists.js';
 import type { RecordTypeMapping } from '../../sync/RecordTypeMapper.js';
-import type { RecordTypeAvailability } from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  partsOfRecordType,
+  type RecordTypeAvailability,
+} from '../../../core/metadata/recordTypeAvailability.js';
+import {
+  ambiguousRecordTypeReason,
+  findRecordTypeByName,
+  partsOfRecordTypeName,
+  qualifiedRecordTypeName,
+} from '../../../core/metadata/recordTypeNames.js';
 
 /** The decisions of a run's config, as the executor is handed them. */
 export type ForgeRunDecisions = Pick<
@@ -137,9 +146,23 @@ export function whySkippedRowsIgnored(entry: ForgeSkippedRows): string | undefin
  * Matched by the row's name alone, "Hold back these rows" on a gap of an
  * object without record types held back none of them, and wrote them with
  * the value left out.
+ *
+ * A row's record type is named with its namespace (`ns__Retail`). A decision
+ * taken before it was named so a package's record type by its DeveloperName
+ * alone (`Retail`), and a bare name holds for a namespaced row of that
+ * DeveloperName still — as it did then, when both carried that one name.
  */
 function holdsForRecordType(scoped: string | undefined, recordType: string | undefined): boolean {
-  return scoped === undefined || scoped === (recordType ?? MASTER_RECORD_TYPE_NAME);
+  if (scoped === undefined) return true;
+  const row = recordType ?? MASTER_RECORD_TYPE_NAME;
+  if (scoped === row) return true;
+  const named = partsOfRecordTypeName(scoped);
+  const rowParts = partsOfRecordTypeName(row);
+  return (
+    named.namespacePrefix === undefined &&
+    rowParts.namespacePrefix !== undefined &&
+    rowParts.developerName === scoped
+  );
 }
 
 /** Whether a row leaves a field empty: absent, null, or an empty text. */
@@ -379,34 +402,62 @@ export function recordTypeDecisionMappings(
   const unresolved: Array<{ decision: ForgeRecordTypeMapping; reason: string }> = [];
   for (const decision of decisions) {
     const types = byObject.get(decision.object);
-    const source = types?.source.find((t) => t.developerName === decision.from && !t.master);
-    if (!source) {
-      unresolved.push({
-        decision,
-        reason: `the source has no ${decision.object} record type named ${decision.from}`,
-      });
+    const source = named(decision.object, decision.from, types?.source ?? [], 'the source');
+    if ('reason' in source) {
+      unresolved.push({ decision, reason: source.reason });
       continue;
     }
     if (decision.to === null) {
-      bySource.set(source.recordTypeId, decision);
+      bySource.set(source.type.recordTypeId, decision);
       continue;
     }
-    const target = types?.target.find((t) => t.developerName === decision.to && !t.master);
-    if (!target) {
-      unresolved.push({
-        decision,
-        reason: `the target has no ${decision.object} record type named ${decision.to}`,
-      });
+    const target = named(decision.object, decision.to, types?.target ?? [], 'the target');
+    if ('reason' in target) {
+      unresolved.push({ decision, reason: target.reason });
       continue;
     }
-    bySource.set(source.recordTypeId, decision);
+    bySource.set(source.type.recordTypeId, decision);
     mappings.push({
-      sourceId: source.recordTypeId,
-      targetId: target.recordTypeId,
-      developerName: target.developerName,
+      sourceId: source.type.recordTypeId,
+      targetId: target.type.recordTypeId,
+      developerName: target.type.developerName,
     });
   }
   return { mappings, bySource, unresolved };
+}
+
+/**
+ * The record type of an object a decision names in one org, or why it names
+ * none: `ns__Retail` names package `ns`'s and no other; a bare name, written
+ * before record types were named with their namespace, the one record type
+ * that carries it — and none when a package's and the org's own both do,
+ * since nothing written says which was meant.
+ */
+function named(
+  objectApiName: string,
+  name: string,
+  types: readonly RecordTypeAvailability[],
+  where: string,
+): { type: RecordTypeAvailability } | { reason: string } {
+  const found = findRecordTypeByName(
+    name,
+    types.filter((t) => !t.master),
+    partsOfRecordType,
+  );
+  if ('found' in found) return { type: found.found };
+  if ('ambiguous' in found) {
+    const carriers = found.ambiguous.map(partsOfRecordType);
+    const packaged = carriers.find((parts) => parts.namespacePrefix);
+    return {
+      reason:
+        ambiguousRecordTypeReason(objectApiName, name, where, carriers) +
+        (packaged
+          ? `; a package's is named with its namespace: ` +
+            qualifiedRecordTypeName(packaged.namespacePrefix, packaged.developerName)
+          : ''),
+    };
+  }
+  return { reason: `${where} has no ${objectApiName} record type named ${name}` };
 }
 
 /**

@@ -74,6 +74,10 @@ import { consultProductionGuard } from '../../core/precheck/consultProductionGua
 import { assertSoqlIdentifier, sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
+  ambiguousRecordTypeReason,
+  qualifiedRecordTypeName,
+} from '../../core/metadata/recordTypeNames.js';
+import {
   addWrittenWithoutFields,
   refusedFields,
   writtenWithoutFieldsNote,
@@ -3992,10 +3996,9 @@ export class FrozenDatasetLoader {
       delete fields.RecordTypeId;
       return { referenceId: record.referenceId, fields };
     }
-    const developerName = (dataset.recordTypes[objectApiName] ?? []).find(
-      (rt) => rt.name === rtName,
-    )?.developerName;
-    if (!developerName) {
+    const refs = (dataset.recordTypes[objectApiName] ?? []).filter((rt) => rt.name === rtName);
+    const ref = refs[0];
+    if (!ref) {
       delete fields.RecordTypeId;
       issues.push({
         objectApiName,
@@ -4005,11 +4008,35 @@ export class FrozenDatasetLoader {
       });
       return { referenceId: record.referenceId, fields };
     }
+    // A record carries its record type's label: two of the object under one
+    // label — a package's and the org's own — leave nothing to tell which.
+    if (refs.length > 1) {
+      throw new LoadConfigError(
+        `The dataset's ${objectApiName} records name record type "${rtName}" by its label, ` +
+          `which ${refs.map((rt) => qualifiedRecordTypeName(rt.namespacePrefix, rt.developerName)).join(' and ')} ` +
+          `share in the source: which one each record had cannot be told. Give one of them ` +
+          `another label in the source org and extract the dataset again.`,
+      );
+    }
+    // `ns__Retail` for a package's record type, by its namespace when the
+    // dataset kept it; a dataset extracted before it was read names each by
+    // its DeveloperName alone, resolved as before when the target holds one.
+    const developerName = qualifiedRecordTypeName(ref.namespacePrefix, ref.developerName);
     const targetId = await this.deps.recordTypeResolver.resolveByDeveloperName(
       options.orgId,
       objectApiName,
-      developerName,
+      ref.developerName,
+      ...(ref.namespacePrefix !== undefined ? [ref.namespacePrefix] : []),
     );
+    if (targetId !== null && typeof targetId === 'object' && 'ambiguous' in targetId) {
+      throw new LoadConfigError(
+        `The dataset names ${objectApiName} record type ${ref.developerName} without its ` +
+          `namespace — it was extracted before SandForge read one — and ` +
+          `${ambiguousRecordTypeReason(objectApiName, ref.developerName, 'the target org', targetId.carriers)}. ` +
+          `Extract the dataset again: a dataset extracted now names each record type with ` +
+          `its namespace. Nothing was written.`,
+      );
+    }
     if (targetId !== null && typeof targetId === 'object') {
       // Kept, every record naming it is refused; dropped, the record goes in
       // with the running user's default record type — and says so here.
@@ -4093,6 +4120,25 @@ export class FrozenDatasetLoader {
             targetObject,
             spec.recordTypeDeveloperName,
           );
+          // `ns__Retail` names a package's; a bare name two record types of
+          // the object carry, a package's and the org's own, names neither.
+          if (resolved !== null && typeof resolved === 'object' && 'ambiguous' in resolved) {
+            const packaged = resolved.carriers.find((parts) => parts.namespacePrefix);
+            gaps.push(
+              `requiredLookupPlaceholders["${key}"]: ` +
+                ambiguousRecordTypeReason(
+                  targetObject,
+                  spec.recordTypeDeveloperName,
+                  'the target org',
+                  resolved.carriers,
+                ) +
+                (packaged
+                  ? ` — a package's is named with its namespace: ` +
+                    qualifiedRecordTypeName(packaged.namespacePrefix, packaged.developerName)
+                  : ''),
+            );
+            continue;
+          }
           if (resolved !== null && typeof resolved === 'object') {
             gaps.push(
               `requiredLookupPlaceholders["${key}"]: record type ${spec.recordTypeDeveloperName} ` +

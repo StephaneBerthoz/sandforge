@@ -37,8 +37,10 @@ import {
 import {
   defaultRecordTypeOf,
   recordTypeBlockedMessage,
+  withRecordTypeNames,
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
+import { recordTypeNameOf } from '../../core/metadata/recordTypeNames.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
@@ -370,7 +372,7 @@ function recordTypeOf(
   recordTypes: SyncRecordTypes | undefined,
 ):
   | { sent: string; info?: RecordTypeAvailability }
-  | { unmapped: string }
+  | { unmapped: string; namesakes: string[] }
   | { unavailable: RecordTypeAvailability } {
   const known = (id: string): RecordTypeAvailability | undefined =>
     infos.find((info) => idKey(info.recordTypeId) === idKey(id));
@@ -379,11 +381,25 @@ function recordTypeOf(
     const mapped = recordTypes.mappings.find((m) => idKey(m.sourceId) === idKey(value));
     if (!mapped) {
       const named = recordTypes.source.find((t) => idKey(t.id) === idKey(value));
-      return { unmapped: named?.developerName ?? '' };
+      // Unmapped, a namesake the target holds is of another namespace.
+      const namesakes = named
+        ? (recordTypes.target ?? []).filter(
+            (t) => t.sobjectType === named.sobjectType && t.developerName === named.developerName,
+          )
+        : [];
+      return {
+        unmapped: named ? recordTypeNameOf(named) : '',
+        namesakes: namesakes.map(recordTypeNameOf),
+      };
     }
     sent = mapped.targetId;
   }
-  const info = known(sent);
+  // Named by its row, by id: `ns__Retail` for a package's, whatever the
+  // describe calls it.
+  const info = withRecordTypeNames(
+    infos.filter((entry) => idKey(entry.recordTypeId) === idKey(sent)),
+    recordTypes?.target ?? [],
+  )[0];
   if (info && !info.available && !info.master) return { unavailable: info };
   return info ? { sent, info } : { sent };
 }
@@ -549,6 +565,14 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       const type = recordTypeOf(value, infos, run?.recordTypes);
       if ('unmapped' in type) {
         const name = type.unmapped;
+        // A namesake under another namespace is not its counterpart: a
+        // package's record type is mapped to the same package's only.
+        const namesakes =
+          type.namesakes.length > 0
+            ? ` The target org's ${type.namesakes.join(' and ')} carries its DeveloperName ` +
+              `under another namespace, and a record type is mapped to one of the same ` +
+              `namespace only.`
+            : '';
         hold(
           index,
           `unmapped:${name}`,
@@ -557,8 +581,8 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
             `RECORD_TYPE_UNMAPPED: ${recordsOf(count, objectApiName)} held back, not sent: ` +
             (name
               ? `their record type ${name} has no active ${objectApiName} record type of that ` +
-                `API name in the target org. Create or activate record type ${name} on ` +
-                `${objectApiName} in the target org.`
+                `API name in the target org.${namesakes} Create or activate record type ` +
+                `${name} on ${objectApiName} in the target org.`
               : `their record type is inactive in the source org, and has no counterpart in ` +
                 `the target org.`),
         );

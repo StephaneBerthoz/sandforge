@@ -69,9 +69,14 @@ import { SasPathGuard } from './SasPathGuard.js';
 import { renderQueryTemplate } from './queryTemplates.js';
 import type { ExtractedDataset, ExtractedRecord, RecordTypeMapEntry } from './types.js';
 
-/** Default RecordType pull — no date bound (RecordTypes are metadata-like). */
+/**
+ * Default RecordType pull — no date bound (RecordTypes are metadata-like).
+ * With the namespace: a package's record type can carry the DeveloperName of
+ * the org's own on the same object, and the load tells them apart by it.
+ */
 export const DEFAULT_RECORD_TYPES_SOQL =
-  'SELECT Id, SobjectType, DeveloperName, Name FROM RecordType ORDER BY SobjectType, DeveloperName';
+  'SELECT Id, SobjectType, DeveloperName, NamespacePrefix, Name FROM RecordType ' +
+  'ORDER BY SobjectType, DeveloperName';
 
 /** rt-map file name inside the sas. */
 export const RT_MAP_FILE_NAME = 'rt-map.json';
@@ -1377,6 +1382,16 @@ export class FrozenDatasetExtractor {
           id: row.Id,
           sobjectType: row.SobjectType,
           developerName: row.DeveloperName,
+          // A template of the sas that reads no NamespacePrefix leaves the
+          // namespace unsaid, as an rt-map written before it was read.
+          ...('NamespacePrefix' in row
+            ? {
+                namespacePrefix:
+                  typeof row.NamespacePrefix === 'string' && row.NamespacePrefix !== ''
+                    ? row.NamespacePrefix
+                    : null,
+              }
+            : {}),
           name: row.Name,
         });
       }

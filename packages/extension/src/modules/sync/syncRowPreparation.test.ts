@@ -250,6 +250,70 @@ describe('prepareSyncRows — record types', () => {
     ]);
   });
 
+  it('holds back a package’s record type the target holds only as the org’s own, and says why', () => {
+    // Retired, here, was installed by package `ns`; the target has an
+    // Account record type of that DeveloperName, made in the org itself.
+    const rows = [{ ...BUSINESS_ROW, RecordTypeId: SOURCE_RETIRED }];
+    const recordTypes: SyncRecordTypes = {
+      ...RECORD_TYPES,
+      source: RECORD_TYPES.source.map((t) =>
+        t.id === SOURCE_RETIRED ? { ...t, namespacePrefix: 'ns' } : t,
+      ),
+      target: [
+        {
+          id: TARGET_BUSINESS,
+          name: 'Retired',
+          developerName: 'Retired',
+          namespacePrefix: null,
+          sobjectType: 'Account',
+        },
+      ],
+    };
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes },
+    });
+
+    expect(prepared.payloads).toEqual([]);
+    expect(prepared.notes).toEqual([
+      'RECORD_TYPE_UNMAPPED: 1 Account record held back, not sent: their record type ' +
+        'ns__Retired has no active Account record type of that API name in the target org. ' +
+        "The target org's Retired carries its DeveloperName under another namespace, and a " +
+        'record type is mapped to one of the same namespace only. Create or activate record ' +
+        'type ns__Retired on Account in the target org.',
+    ]);
+  });
+
+  it('names a package’s record type closed to the running user by its row, whatever the describe calls it', () => {
+    const rows = [PERSON_ROW];
+    const recordTypes: SyncRecordTypes = {
+      ...RECORD_TYPES,
+      target: [
+        {
+          id: TARGET_PERSON,
+          name: 'Person Account',
+          developerName: 'PersonAccount',
+          namespacePrefix: 'ns',
+          sobjectType: 'Account',
+        },
+      ],
+    };
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(false),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes },
+    });
+
+    expect(prepared.notes[0]).toContain(
+      'uses record type ns__PersonAccount (PersonAccount), which the running user cannot use',
+    );
+  });
+
   it('sends a record type the target already holds as it is, when the orgs share their ids', () => {
     const rows = [{ ...BUSINESS_ROW, RecordTypeId: TARGET_BUSINESS }];
 

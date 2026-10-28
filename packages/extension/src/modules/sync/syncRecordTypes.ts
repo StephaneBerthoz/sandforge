@@ -6,8 +6,9 @@
  * it, and run into a client sandbox that shared none of the source's ids, the
  * target refused every row carrying one — "INVALID_CROSS_REFERENCE_KEY: Record
  * Type ID: this ID value isn't valid for the user". Forge has always looked the
- * type up in the target by its object and API name (`RecordTypeMapper`); a
- * Sync now reads the same two lists, the same way, and maps by the same rule.
+ * type up in the target by its object, namespace and API name
+ * (`RecordTypeMapper`); a Sync now reads the same two lists, the same way, and
+ * maps by the same rule.
  *
  * Read beside them, the target's person account record types: what tells, as
  * Forge tells it, a person account the target takes as a business one because
@@ -26,10 +27,20 @@ import {
 
 /** The record types a Sync run maps `RecordTypeId` with. */
 export interface SyncRecordTypes {
-  /** Each active record type of the source with the target's of the same object and API name. */
+  /**
+   * Each active record type of the source with the target's of the same
+   * object, namespace and API name.
+   */
   mappings: readonly RecordTypeMapping[];
   /** The source's active record types: what names one the target has no counterpart of. */
   source: readonly RecordTypeInfo[];
+  /**
+   * The target's active record types: what names, by its id, one the running
+   * user may not use there — `ns__Retail` for a package's, whatever the
+   * describe calls it — and tells that the target holds a namesake of an
+   * unmapped one under another namespace.
+   */
+  target?: readonly RecordTypeInfo[];
   /**
    * The ids of the target's person account record types, by their first
    * fifteen characters. Absent when the target has no person accounts, or
@@ -70,6 +81,7 @@ export async function readSyncRecordTypes(
   return {
     mappings: new RecordTypeMapper().buildMapping(sourceTypes, targetTypes),
     source: sourceTypes,
+    target: targetTypes,
     ...(personTypes ? { personTypes } : {}),
   };
 }

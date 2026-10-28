@@ -179,7 +179,11 @@ function fakeOrg({
             : [],
         );
       }
-      if (soql.startsWith('SELECT Id, Name, DeveloperName, SobjectType FROM RecordType ')) {
+      if (
+        soql.startsWith(
+          'SELECT Id, Name, DeveloperName, NamespacePrefix, SobjectType FROM RecordType ',
+        )
+      ) {
         return page(
           partnerRecordType
             ? [
@@ -187,6 +191,7 @@ function fakeOrg({
                   Id: partnerRecordType,
                   Name: 'Partner',
                   DeveloperName: 'Partner',
+                  NamespacePrefix: null,
                   SobjectType: 'Contact',
                 },
               ]

@@ -66,6 +66,36 @@ describe('RunDecisions.applyToRow', () => {
     expect(tally.list()[0]?.rows).toBe(1);
   });
 
+  it('holds a mapping scoped to a package’s record type for its rows alone', () => {
+    const decisions = new RunDecisions({
+      picklistValueMappings: [
+        { object: 'Case', field: 'Origin', recordType: 'ns__Support', from: 'Fax', to: 'Phone' },
+      ],
+    });
+    const packaged: Record<string, unknown> = { Origin: 'Fax' };
+    const orgOwn: Record<string, unknown> = { Origin: 'Fax' };
+
+    decisions.applyToRow('Case', packaged, 'ns__Support', new DecisionTally());
+    decisions.applyToRow('Case', orgOwn, 'Support', new DecisionTally());
+
+    expect([packaged, orgOwn]).toEqual([{ Origin: 'Phone' }, { Origin: 'Fax' }]);
+  });
+
+  it('holds a mapping taken before record types were named with their namespace for the package’s rows still', () => {
+    // Then a package's record type was named by its DeveloperName alone, and
+    // a template kept the decision so.
+    const decisions = new RunDecisions({
+      picklistValueMappings: [
+        { object: 'Case', field: 'Origin', recordType: 'Support', from: 'Fax', to: 'Phone' },
+      ],
+    });
+    const row: Record<string, unknown> = { Origin: 'Fax' };
+
+    decisions.applyToRow('Case', row, 'ns__Support', new DecisionTally());
+
+    expect(row).toEqual({ Origin: 'Phone' });
+  });
+
   it('maps a value for the rows of an object without record types when the mapping names its master', () => {
     // A gap found on such rows names their record type Master: a mapping
     // taken on it matched no row, which the run knows no record type of.
@@ -355,6 +385,100 @@ describe('recordTypeDecisionMappings', () => {
       'the source has no Case record type named Missing',
       'the target has no Case record type named Missing',
     ]);
+  });
+
+  describe('a package’s record type beside the org’s own of the same DeveloperName', () => {
+    /** Named by their rows, as the run names them: a package's with its namespace. */
+    const named = (
+      recordTypeId: string,
+      namespacePrefix: string | null,
+    ): RecordTypeAvailability => ({
+      ...recordType(recordTypeId, namespacePrefix ? `${namespacePrefix}__Retail` : 'Retail'),
+      namespacePrefix,
+    });
+    const both = [
+      {
+        objectApiName: 'Account',
+        source: [named('012S00000000011AAA', null), named('012S00000000012AAA', 'ns')],
+        target: [
+          named('012T00000000011AAA', null),
+          named('012T00000000012AAA', 'ns'),
+          recordType('012T00000000013AAA', 'Wholesale'),
+        ],
+      },
+    ];
+
+    it('applies a decision naming the package’s record type with its namespace to it alone', () => {
+      const decided = recordTypeDecisionMappings(
+        [{ object: 'Account', from: 'ns__Retail', to: 'Wholesale' }],
+        both,
+      );
+
+      expect(decided.unresolved).toEqual([]);
+      expect(decided.mappings).toEqual([
+        {
+          sourceId: '012S00000000012AAA',
+          targetId: '012T00000000013AAA',
+          developerName: 'Wholesale',
+        },
+      ]);
+    });
+
+    it('writes to the package’s record type a decision naming it as its target', () => {
+      const decided = recordTypeDecisionMappings(
+        [{ object: 'Account', from: 'ns__Retail', to: 'ns__Retail' }],
+        both,
+      );
+
+      expect(decided.mappings[0]).toMatchObject({
+        sourceId: '012S00000000012AAA',
+        targetId: '012T00000000012AAA',
+        developerName: 'ns__Retail',
+      });
+    });
+
+    it('takes a bare name both carry for the org’s own, the package’s being named with its namespace', () => {
+      // Refused, the org's own Retail had no name a decision could give it.
+      const decided = recordTypeDecisionMappings(
+        [
+          { object: 'Account', from: 'Retail', to: 'Wholesale' },
+          { object: 'Account', from: 'ns__Retail', to: 'Retail' },
+        ],
+        both,
+      );
+
+      expect(decided.unresolved).toEqual([]);
+      expect(decided.mappings).toEqual([
+        {
+          sourceId: '012S00000000011AAA',
+          targetId: '012T00000000013AAA',
+          developerName: 'Wholesale',
+        },
+        { sourceId: '012S00000000012AAA', targetId: '012T00000000011AAA', developerName: 'Retail' },
+      ]);
+    });
+
+    it('keeps a decision written before the namespace was read where its bare name is the package’s alone', () => {
+      const decided = recordTypeDecisionMappings(
+        [{ object: 'Account', from: 'Retail', to: 'Wholesale' }],
+        [{ ...both[0], source: [named('012S00000000012AAA', 'ns')] }],
+      );
+
+      expect(decided.unresolved).toEqual([]);
+      expect(decided.mappings[0]?.sourceId).toBe('012S00000000012AAA');
+    });
+
+    it('never takes the namespaced name for the org’s own record type of that DeveloperName', () => {
+      const decided = recordTypeDecisionMappings(
+        [{ object: 'Account', from: 'ns__Retail', to: 'Wholesale' }],
+        [{ ...both[0], source: [named('012S00000000011AAA', null)] }],
+      );
+
+      expect(decided.mappings).toEqual([]);
+      expect(decided.unresolved.map((u) => u.reason)).toEqual([
+        'the source has no Account record type named ns__Retail',
+      ]);
+    });
   });
 });
 

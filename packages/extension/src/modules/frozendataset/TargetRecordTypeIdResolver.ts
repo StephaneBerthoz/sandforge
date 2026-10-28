@@ -2,15 +2,25 @@
  * Target-org RecordType ID resolver — implements the engine extension
  * point {@link RecordTypeIdResolver} (types.ts).
  *
- * Resolution is by (SobjectType, DeveloperName) ONLY — labels differ
- * between orgs, mojibake included. Results are cached
- * per (org, object, developerName): RecordType metadata is stable within
- * a load run.
+ * Resolution is by (SobjectType, NamespacePrefix, DeveloperName) ONLY —
+ * labels differ between orgs, mojibake included, and a package's record type
+ * can carry the DeveloperName of the org's own on the same object. Results
+ * are cached per (org, object, namespace, developerName): RecordType metadata
+ * is stable within a load run.
  */
 
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
-import type { RecordTypeIdResolver, UnavailableRecordType } from './types.js';
+import {
+  findRecordTypeByParts,
+  parseNamespacedRecordTypes,
+  partsOfRecordTypeName,
+  partsOfRow,
+  type RecordTypeNameParts,
+} from '../../core/metadata/recordTypeNames.js';
+import type { AmbiguousRecordType, RecordTypeIdResolver, UnavailableRecordType } from './types.js';
 import type { TargetObjectDescribe, TargetOrgAccess } from './loadTypes.js';
+
+type Resolved = string | null | UnavailableRecordType | AmbiguousRecordType;
 
 /**
  * Resolves target RecordType IDs through SOQL on `RecordType`.
@@ -18,7 +28,7 @@ import type { TargetObjectDescribe, TargetOrgAccess } from './loadTypes.js';
  * then drops the RecordTypeId and lists it, never guessing by label.
  */
 export class TargetRecordTypeIdResolver implements RecordTypeIdResolver {
-  private readonly cache = new Map<string, string | null | UnavailableRecordType>();
+  private readonly cache = new Map<string, Resolved>();
   private readonly describes = new Map<string, Promise<TargetObjectDescribe>>();
 
   /**
@@ -36,22 +46,36 @@ export class TargetRecordTypeIdResolver implements RecordTypeIdResolver {
     orgId: string,
     sobjectType: string,
     developerName: string,
-  ): Promise<string | null | UnavailableRecordType> {
-    const key = `${orgId}|${sobjectType}|${developerName}`;
+    namespacePrefix?: string | null,
+  ): Promise<Resolved> {
+    const wanted: RecordTypeNameParts =
+      namespacePrefix === undefined
+        ? partsOfRecordTypeName(developerName)
+        : { namespacePrefix, developerName };
+    const key = `${orgId}|${sobjectType}|${String(wanted.namespacePrefix)}|${wanted.developerName}`;
     const cached = this.cache.get(key);
     if (cached !== undefined) {
       return cached;
     }
+    // Every record type of the object that carries the DeveloperName, in any
+    // namespace: which of them the name means is told here, not by the org.
     const soql =
-      'SELECT Id FROM RecordType WHERE ' +
+      'SELECT Id, DeveloperName, NamespacePrefix FROM RecordType WHERE ' +
       `SobjectType = '${sanitizeSoqlValue(sobjectType)}' AND ` +
-      `DeveloperName = '${sanitizeSoqlValue(developerName)}' LIMIT 1`;
-    const rows = await this.orgAccess.query(orgId, soql);
-    const id = typeof rows[0]?.Id === 'string' ? (rows[0].Id as string) : null;
-    const resolved =
-      id && (await this.isUnavailable(orgId, sobjectType, id))
+      `DeveloperName = '${sanitizeSoqlValue(wanted.developerName)}'`;
+    const rows = parseNamespacedRecordTypes(await this.orgAccess.query(orgId, soql));
+    const match = findRecordTypeByParts(wanted, rows, partsOfRow);
+    let resolved: Resolved;
+    if ('ambiguous' in match) {
+      resolved = { ambiguous: true, carriers: match.ambiguous.map(partsOfRow) };
+    } else if ('found' in match) {
+      const id = match.found.id;
+      resolved = (await this.isUnavailable(orgId, sobjectType, id))
         ? { unavailable: true as const, id }
         : id;
+    } else {
+      resolved = null;
+    }
     this.cache.set(key, resolved);
     return resolved;
   }

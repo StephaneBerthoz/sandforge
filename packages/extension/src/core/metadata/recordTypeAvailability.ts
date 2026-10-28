@@ -15,13 +15,28 @@
  */
 
 import * as z from 'zod';
+import {
+  partsOfRecordTypeName,
+  recordTypeNameOf,
+  type NamespacedRecordType,
+  type RecordTypeNameParts,
+} from './recordTypeNames.js';
 
 /** A record type as the describe reports it for the running user. */
 export interface RecordTypeAvailability {
   /** The record type's id, as the describe gives it (18 characters). */
   recordTypeId: string;
-  /** API name; the label stands in on an API version that leaves it out. */
+  /**
+   * API name: `ns__Retail` for a package's record type once named by its
+   * `RecordType` row ({@link withRecordTypeNames}), the describe's own
+   * otherwise; the label stands in on an API version that leaves it out.
+   */
   developerName: string;
+  /**
+   * The package's namespace, `null` for the org's own, as the `RecordType`
+   * row of the same id says it; absent when no row named it.
+   */
+  namespacePrefix?: string | null;
   /** Label. */
   name: string;
   /** Whether the running user may create records of this type. */
@@ -107,6 +122,49 @@ export function parseRecordTypeInfos(raw: unknown): RecordTypeAvailability[] {
  */
 function idKey(id: string): string {
   return id.slice(0, 15);
+}
+
+/**
+ * The describe's record types, each named by the `RecordType` row of the same
+ * id: `ns__Retail` for a package's, with its namespace.
+ *
+ * Joined by id, never by name. Whether the describe's `developerName` carries
+ * a package's namespace is not relied on: it may be the bare DeveloperName or
+ * the qualified one, and either way the row's name replaces it. An entry no
+ * row has — the master record type, which the table never holds, or rows
+ * that could not be read — keeps the describe's name, its namespace unsaid.
+ */
+export function withRecordTypeNames(
+  infos: readonly RecordTypeAvailability[],
+  rows: readonly NamespacedRecordType[],
+): RecordTypeAvailability[] {
+  if (rows.length === 0) return [...infos];
+  const byId = new Map(rows.map((row) => [idKey(row.id), row]));
+  return infos.map((info) => {
+    const row = byId.get(idKey(info.recordTypeId));
+    if (!row) return info;
+    return {
+      ...info,
+      developerName: recordTypeNameOf(row),
+      namespacePrefix: row.namespacePrefix ?? null,
+    };
+  });
+}
+
+/**
+ * The namespace and DeveloperName of a describe's record type: from its row
+ * when {@link withRecordTypeNames} named it, from its name otherwise.
+ */
+export function partsOfRecordType(info: RecordTypeAvailability): RecordTypeNameParts {
+  const namespacePrefix = info.namespacePrefix;
+  if (namespacePrefix === undefined) return partsOfRecordTypeName(info.developerName);
+  const prefix = namespacePrefix ? `${namespacePrefix}__` : '';
+  return {
+    namespacePrefix,
+    developerName: info.developerName.startsWith(prefix)
+      ? info.developerName.slice(prefix.length)
+      : info.developerName,
+  };
 }
 
 /**

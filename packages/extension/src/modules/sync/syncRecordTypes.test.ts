@@ -44,7 +44,36 @@ describe('readSyncRecordTypes', () => {
       { sourceId: '0120000000000B1AAA', targetId: '0120000000000B2AAA', developerName: 'Main' },
     ]);
     expect(types.source.map((t) => t.developerName)).toEqual(['Main', 'Main', 'Old']);
+    expect(types.target?.map((t) => t.id)).toEqual(['0120000000000B2AAA', '0120000000000A2AAA']);
     expect([...(types.personTypes ?? [])]).toEqual(['0120000000000P2']);
+  });
+
+  it('maps a package’s record type to the same package’s, not to the org’s own of that DeveloperName', async () => {
+    const row = (Id: string, NamespacePrefix: string | null) => ({
+      Id,
+      Name: 'Retail',
+      DeveloperName: 'Retail',
+      NamespacePrefix,
+      SobjectType: 'Account',
+    });
+    const source = org({
+      [RECORD_TYPES_SOQL]: [row('0120000000000S1AAA', null), row('0120000000000S2AAA', 'ns')],
+    });
+    const target = org({
+      [RECORD_TYPES_SOQL]: [row('0120000000000T2AAA', 'ns'), row('0120000000000T1AAA', null)],
+      [PERSON_TYPES]: [],
+    });
+
+    const types = await readSyncRecordTypes(source, target);
+
+    expect(types.mappings).toEqual([
+      { sourceId: '0120000000000S1AAA', targetId: '0120000000000T1AAA', developerName: 'Retail' },
+      {
+        sourceId: '0120000000000S2AAA',
+        targetId: '0120000000000T2AAA',
+        developerName: 'ns__Retail',
+      },
+    ]);
   });
 
   it('leaves the person account types out where the target has none to read', async () => {

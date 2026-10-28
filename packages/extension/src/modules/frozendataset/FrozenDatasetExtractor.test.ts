@@ -123,6 +123,7 @@ function buildDeps(captured: string[]) {
             Id: RT_INDIVIDUAL,
             SobjectType: 'Account',
             DeveloperName: 'Individual',
+            NamespacePrefix: null,
             Name: 'Particulier',
           },
         ];
@@ -265,11 +266,46 @@ describe('FrozenDatasetExtractor', () => {
         id: RT_INDIVIDUAL,
         sobjectType: 'Account',
         developerName: 'Individual',
+        namespacePrefix: null,
         name: 'Particulier',
       },
     ]);
     expect(result.recordTypeMap).toEqual(written);
     expect(result.asOf).toBe(AS_OF);
+  });
+
+  it('keeps in rt-map the namespace of a package’s record type, and none where a template reads none', async () => {
+    // A package can install on Account a record type carrying the
+    // DeveloperName of the org's own: the namespace is what tells them apart
+    // at the load.
+    const base = buildDeps([]);
+    const pulled = { NamespacePrefix: 'ns' } as Record<string, unknown>;
+    const deps = {
+      ...base,
+      query: async (soql: string): Promise<Record<string, unknown>[]> =>
+        soql.includes('FROM RecordType')
+          ? [
+              {
+                Id: RT_INDIVIDUAL,
+                SobjectType: 'Account',
+                DeveloperName: 'Retail',
+                Name: 'Retail',
+                ...pulled,
+              },
+            ]
+          : base.query(soql),
+    };
+
+    const packaged = await new FrozenDatasetExtractor(deps).extract(makeOptions(makeTmpDir(), []));
+    delete pulled.NamespacePrefix;
+    const unsaid = await new FrozenDatasetExtractor(deps).extract(makeOptions(makeTmpDir(), []));
+
+    expect(DEFAULT_RECORD_TYPES_SOQL).toContain('NamespacePrefix');
+    expect(packaged.recordTypeMap[0]).toMatchObject({
+      developerName: 'Retail',
+      namespacePrefix: 'ns',
+    });
+    expect(unsaid.recordTypeMap[0]).not.toHaveProperty('namespacePrefix');
   });
 
   it('renders {{TOKEN}} placeholders of the RecordType template from sas tokens', async () => {

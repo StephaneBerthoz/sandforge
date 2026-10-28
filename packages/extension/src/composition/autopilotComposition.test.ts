@@ -810,8 +810,18 @@ describe('autopilotComposition — a plan that keeps its links', () => {
     const recordTypes =
       (id: string) =>
       (query: string): Record<string, unknown>[] | undefined =>
-        query.startsWith('SELECT Id, Name, DeveloperName, SobjectType FROM RecordType')
-          ? [{ Id: id, Name: 'Sales', DeveloperName: 'SalesProduct', SobjectType: 'Product2' }]
+        query.startsWith(
+          'SELECT Id, Name, DeveloperName, NamespacePrefix, SobjectType FROM RecordType',
+        )
+          ? [
+              {
+                Id: id,
+                Name: 'Sales',
+                DeveloperName: 'SalesProduct',
+                NamespacePrefix: null,
+                SobjectType: 'Product2',
+              },
+            ]
           : undefined;
     const source = fakeDataOrg(objects, { soql: recordTypes('012SRC00000SaLeSAAA') });
     const target = fakeDataOrg(objects, { soql: recordTypes('012TGT00000SaLeSAAA') });

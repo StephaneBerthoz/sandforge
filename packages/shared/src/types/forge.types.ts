@@ -144,11 +144,15 @@ export interface ForgeConfig {
   /**
    * A picklist value the target refuses, written as another: `to: null`
    * leaves the field out of the rows that hold it. Scoped to one record type
-   * of the target (its DeveloperName) when set, to every row of the object
-   * otherwise. Decided on Review's Gaps tab, kept in templates.
+   * of the target (its name, `ns__DeveloperName` for a package's) when set,
+   * to every row of the object otherwise. Decided on Review's Gaps tab, kept
+   * in templates.
    */
   picklistValueMappings?: ForgePicklistValueMapping[];
-  /** A source record type written as a target one (DeveloperName), or as the object's default (`to: null`). */
+  /**
+   * A source record type written as a target one, or as the object's default
+   * (`to: null`), each by its name: `ns__DeveloperName` for a package's.
+   */
   recordTypeMappings?: ForgeRecordTypeMapping[];
   /** A value given to a field the target requires and the rows leave empty. */
   defaultValues?: ForgeDefaultValue[];
@@ -182,7 +186,10 @@ export interface ForgeFieldRef {
 
 /** See `ForgeConfig.picklistValueMappings`. */
 export interface ForgePicklistValueMapping extends ForgeFieldRef {
-  /** The target record type's DeveloperName the mapping holds for; every one when absent. */
+  /**
+   * The target record type the mapping holds for, by its name
+   * (`ns__DeveloperName` for a package's); every one when absent.
+   */
   recordType?: string;
   from: string;
   /** The value written instead; `null` leaves the field out of those rows. */
@@ -192,9 +199,13 @@ export interface ForgePicklistValueMapping extends ForgeFieldRef {
 /** See `ForgeConfig.recordTypeMappings`. */
 export interface ForgeRecordTypeMapping {
   object: string;
-  /** The source record type's DeveloperName. */
+  /**
+   * The source record type: `ns__Retail` names package `ns`'s; a bare name,
+   * the one record type of the object that carries it — none, and the
+   * decision is not applied, when a package's and the org's own both do.
+   */
   from: string;
-  /** The target record type's DeveloperName; `null` for the object's default. */
+  /** The target record type, named the same way; `null` for the object's default. */
   to: string | null;
 }
 
@@ -267,7 +278,10 @@ export interface ForgeGap {
   source: ForgeGapSource;
   objectApiName: string;
   field?: string;
-  /** The target record type's DeveloperName, when the gap holds for one. */
+  /**
+   * The target record type's name (`ns__DeveloperName` for a package's), when
+   * the gap holds for one.
+   */
   recordType?: string;
   /** A picklist value, or a status code for a rehearsal refusal; never a text value. */
   value?: string;

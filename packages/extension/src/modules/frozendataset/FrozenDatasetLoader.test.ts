@@ -20,6 +20,7 @@ import {
   type FrozenLoadOptions,
 } from './FrozenDatasetLoader.js';
 import { LoadGuardError } from './LoadGuards.js';
+import { TargetRecordTypeIdResolver } from './TargetRecordTypeIdResolver.js';
 import { loadCreatedRecords, loadRecordsInfo, loadToRemove } from './loadRecords.js';
 import { standardPriceIds } from '../../core/common/platformRecords.js';
 import { removeRunRecords, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
@@ -680,6 +681,127 @@ describe('FrozenDatasetLoader — fresh load', () => {
       Record<string, unknown>
     >;
     expect(accountPayload[0]).not.toHaveProperty('RecordTypeId');
+  });
+
+  describe('a package’s record type beside the org’s own of the same DeveloperName', () => {
+    const ORG_OWN = '012RT0000000001AAA';
+    const PACKAGED = '012RT0000000002AAA';
+    /** A target whose RecordType table answers as an org does, with these Account record types. */
+    const targetWith = (
+      deps: ReturnType<typeof makeDeps>,
+      rows: Array<{ Id: string; NamespacePrefix: string | null }>,
+    ) => {
+      deps.orgAccess.query = vi.fn(async (_org: string, soql: string) =>
+        soql.includes('FROM RecordType') && soql.includes("DeveloperName = 'Retail'")
+          ? rows.map((row) => ({ ...row, DeveloperName: 'Retail' }))
+          : [],
+      );
+      deps.recordTypeResolver = new TargetRecordTypeIdResolver(deps.orgAccess);
+    };
+    const accountTypeSent = (calls: DmlCall[]) =>
+      (
+        calls.find((c) => c.objectApiName === 'Account')?.payload as Array<Record<string, unknown>>
+      )[0].RecordTypeId;
+
+    it('loads a dataset extracted with namespaces as the same package’s record type', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail (org)', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail (package)', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail (package)';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [
+        { Id: ORG_OWN, NamespacePrefix: null },
+        { Id: PACKAGED, NamespacePrefix: 'ns' },
+      ]);
+
+      await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(accountTypeSent(calls)).toBe(PACKAGED);
+    });
+
+    it('never loads a package’s record type as the org’s own of its DeveloperName', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [{ name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' }],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [{ Id: ORG_OWN, NamespacePrefix: null }]);
+
+      const report = await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(accountTypeSent(calls)).toBeUndefined();
+      expect(report.alignment.recordTypeIssues).toEqual([
+        expect.objectContaining({
+          recordTypeName: 'Retail',
+          detail: 'RecordType ns__Retail not found in target org — RecordTypeId dropped',
+        }),
+      ]);
+    });
+
+    it('loads as before a dataset extracted without namespaces whose name the target holds once', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = { Account: [{ name: 'Retail', developerName: 'Retail' }] };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [{ Id: PACKAGED, NamespacePrefix: 'ns' }]);
+
+      await new FrozenDatasetLoader(deps).load(makeOptions(deps, dataset));
+
+      expect(accountTypeSent(calls)).toBe(PACKAGED);
+    });
+
+    it('refuses a dataset extracted without namespaces whose name the target holds twice, writing nothing', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = { Account: [{ name: 'Retail', developerName: 'Retail' }] };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+      targetWith(deps, [
+        { Id: ORG_OWN, NamespacePrefix: null },
+        { Id: PACKAGED, NamespacePrefix: 'ns' },
+      ]);
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset))
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(LoadConfigError);
+      expect((error as Error).message).toBe(
+        'The dataset names Account record type Retail without its namespace — it was extracted ' +
+          "before SandForge read one — and Retail names 2 Account record types in the target org: Retail, the org's own " +
+          'and ns__Retail, of package ns. Extract the dataset again: a dataset extracted now ' +
+          'names each record type with its namespace. Nothing was written.',
+      );
+      expect(calls).toEqual([]);
+    });
+
+    it('refuses a dataset whose records name by one label two record types of an object', async () => {
+      const dataset = makeAccountContactDataset();
+      dataset.recordTypes = {
+        Account: [
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: null },
+          { name: 'Retail', developerName: 'Retail', namespacePrefix: 'ns' },
+        ],
+      };
+      dataset.objects[0].records[0].fields.RecordTypeId = 'Retail';
+      const calls: DmlCall[] = [];
+      const deps = makeDeps({ dataset, writer: makeWriter(calls) });
+
+      const error: unknown = await new FrozenDatasetLoader(deps)
+        .load(makeOptions(deps, dataset))
+        .catch((e: unknown) => e);
+
+      expect((error as Error).message).toContain('which Retail and ns__Retail share in the source');
+      expect(calls).toEqual([]);
+    });
   });
 
   it('ends the line of the alignment failed when a record type cannot be read, saying why', async () => {
