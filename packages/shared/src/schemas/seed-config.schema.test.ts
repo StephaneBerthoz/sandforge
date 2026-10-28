@@ -1,14 +1,19 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import type { z } from 'zod';
 
-import type { SeedRelation } from '../types/seed.types.js';
+import type { SeedRelation, SeedRow } from '../types/seed.types.js';
 import {
+  checkSeedKeyedRows,
   seedConfigSchema,
+  seedKeyedRowsIssues,
   seedObjectConfigSchema,
+  seedRowSchema,
+  seedRowsSchema,
   fieldRuleSchema,
   seedRelationSchema,
 } from './seed-config.schema.js';
 import { SEED_MAX_RECORDS_PER_OBJECT } from '../constants/defaults.js';
+import { SEED_ROW_LIMITS } from '../utils/seed-relations.js';
 
 describe('seedConfigSchema', () => {
   function createValidSeedConfig(): Record<string, unknown> {
@@ -367,6 +372,7 @@ describe('seedRelationSchema', () => {
       { mode: 'perParent', count: 3 },
       { mode: 'range', min: 0, max: 4 },
       { mode: 'ratio', ratio: 0.5 },
+      { mode: 'byKey' },
     ]) {
       expect(seedRelationSchema.parse(relation({ distribution })).distribution).toEqual(
         distribution,
@@ -456,5 +462,147 @@ describe('seedRelationSchema', () => {
     };
     expect(seedConfigSchema.parse({ ...base, relations: [relation()] }).relations).toHaveLength(1);
     expect(seedConfigSchema.parse(base).relations).toBeUndefined();
+  });
+});
+
+describe('rows and relations by key', () => {
+  /** The template schema as the bridge applies it: its shape, then its rows across objects. */
+  const keyedSchema = seedConfigSchema.superRefine(checkSeedKeyedRows);
+
+  function rowsObject(objectApiName: string, rows: unknown[], insertOrder = 0) {
+    return {
+      objectApiName,
+      recordCount: rows.length,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder,
+      rows,
+    };
+  }
+
+  /** Two accounts, and a contact under each by key, with the contacts' rows given replaced. */
+  function keyed(contacts?: unknown[]): Record<string, unknown> {
+    return {
+      name: 'Keyed',
+      strategy: 'template',
+      objects: [
+        rowsObject('Account', [
+          { key: 'a1', values: { Name: 'Acme' } },
+          { key: 'a2', values: { Name: 'Globex', NumberOfEmployees: 40, IsPartner: false } },
+        ]),
+        rowsObject(
+          'Contact',
+          contacts ?? [
+            { key: 'c1', parentKey: 'a1', values: { LastName: 'One', Phone: null } },
+            { key: 'c2', parentKey: 'a2', values: { LastName: 'Two' } },
+          ],
+          1,
+        ),
+      ],
+      relations: [
+        {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          parents: { kind: 'generated' },
+          distribution: { mode: 'byKey' },
+        },
+      ],
+    };
+  }
+
+  const messages = (input: unknown) => {
+    const parsed = keyedSchema.safeParse(input);
+    return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+  };
+
+  it('reads what the declared SeedRow type describes', () => {
+    expectTypeOf<z.infer<typeof seedRowSchema>>().toEqualTypeOf<SeedRow>();
+  });
+
+  it('accepts rows placed under the rows of their parent by key, their values as given', () => {
+    const parsed = keyedSchema.parse(keyed());
+    expect(parsed.objects[1].rows?.[0]).toEqual({
+      key: 'c1',
+      parentKey: 'a1',
+      values: { LastName: 'One', Phone: null },
+    });
+  });
+
+  it('refuses a key given to two rows of one object', () => {
+    const parsed = seedRowsSchema.safeParse([
+      { key: 'c1', values: {} },
+      { key: 'c1', values: {} },
+    ]);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]).toMatchObject({
+      path: [1, 'key'],
+      message: 'The key "c1" names more than one row: each row is named once',
+    });
+  });
+
+  it('refuses a value no field takes, and a key longer than a result can name', () => {
+    expect(seedRowSchema.safeParse({ key: 'k', values: { Tags: ['a'] } }).success).toBe(false);
+    expect(
+      seedRowSchema.safeParse({ key: 'k'.repeat(SEED_ROW_LIMITS.maxKeyLength + 1), values: {} })
+        .success,
+    ).toBe(false);
+    expect(
+      seedRowSchema.safeParse({
+        key: 'k',
+        values: { Body__c: 'x'.repeat(SEED_ROW_LIMITS.maxTextLength + 1) },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('refuses a row placed under a parent row no row is, and says where it is', () => {
+    const parsed = keyedSchema.safeParse(
+      keyed([{ key: 'c1', parentKey: 'a9', values: { LastName: 'One' } }]),
+    );
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ['objects', 1, 'rows', 0, 'parentKey'],
+        message: 'Contact row "c1" is placed under Account "a9", which no Account row is',
+      }),
+    ]);
+  });
+
+  it('refuses an object whose count is not its rows’', () => {
+    const input = keyed();
+    (input.objects as Array<{ recordCount: number }>)[0].recordCount = 5;
+    expect(messages(input)).toEqual([
+      'Account gives 2 row(s) and asks for 5 record(s): an object with rows writes one record per row',
+    ]);
+  });
+
+  it('refuses a parent key no relation places by, and a relation by key over the org’s own parents', () => {
+    expect(messages({ ...keyed(), relations: [] })).toEqual([
+      'Contact row "c1" names a parent row, and no relation places Contact by key',
+      'Contact row "c2" names a parent row, and no relation places Contact by key',
+    ]);
+    const input = keyed();
+    (input.relations as Array<{ parents: unknown }>)[0].parents = { kind: 'existing', limit: 5 };
+    expect(messages(input)).toContain(
+      'The relation on Contact places by key, which only the Account rows this run writes have',
+    );
+  });
+
+  it('leaves a template without rows as it was', () => {
+    const input = {
+      name: 'Plain',
+      strategy: 'faker',
+      objects: [
+        {
+          objectApiName: 'Account',
+          recordCount: 10,
+          fieldRules: [{ fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'x' } }],
+          excludedFields: [],
+          insertOrder: 0,
+        },
+      ],
+    };
+    expect(messages(input)).toEqual([]);
+    expect(seedKeyedRowsIssues(seedConfigSchema.parse(input))).toEqual([]);
   });
 });

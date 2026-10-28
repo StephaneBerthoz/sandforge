@@ -457,6 +457,111 @@ describe('FieldMapper', () => {
     });
   });
 
+  describe('rows', () => {
+    const rowsConfig = (
+      rows: NonNullable<SeedObjectConfig['rows']>,
+      fieldRules: FieldRule[] = [],
+    ): SeedObjectConfig => ({
+      ...createObjectConfig(fieldRules, rows.length),
+      objectApiName: 'Case',
+      rows,
+    });
+
+    it('gives each record its row’s values as they are, numbers, booleans and nulls included', async () => {
+      const records = await mapper.mapFields(
+        rowsConfig([
+          { key: 'k1', values: { Subject: 'Parcel damaged', Priority__c: 2, IsEscalated: true } },
+          { key: 'k2', values: { Subject: 'Refund', Description: null } },
+        ]),
+        new Map(),
+      );
+      expect(records).toEqual([
+        { Subject: 'Parcel damaged', Priority__c: 2, IsEscalated: true },
+        { Subject: 'Refund', Description: null },
+      ]);
+    });
+
+    it('lets a row’s value win over its rule’s, and the rule fill what the row leaves out', async () => {
+      const records = await mapper.mapFields(
+        rowsConfig(
+          [
+            { key: 'k1', values: { Status: 'Closed' } },
+            { key: 'k2', values: {} },
+          ],
+          [{ fieldApiName: 'Status', ruleType: 'static', config: { staticValue: 'New' } }],
+        ),
+        new Map(),
+      );
+      expect(records.map((r) => r['Status'])).toEqual(['Closed', 'New']);
+    });
+
+    it('starts at the row of the first record of a slice', async () => {
+      const config = rowsConfig([
+        { key: 'k1', values: { Subject: 'one' } },
+        { key: 'k2', values: { Subject: 'two' } },
+        { key: 'k3', values: { Subject: 'three' } },
+      ]);
+      const records = await mapper.mapFields(
+        { ...config, recordCount: 2 },
+        new Map(),
+        undefined,
+        1,
+      );
+      expect(records.map((r) => r['Subject'])).toEqual(['two', 'three']);
+    });
+
+    it('moves an address and a phone number a row gives to ones that reach nobody', async () => {
+      const [record] = await mapper.mapFields(
+        rowsConfig([
+          {
+            key: 'k1',
+            values: {
+              SuppliedEmail: 'jane@gmail.com',
+              SuppliedPhone: '+33 6 12 34 56 78',
+              Description: 'Write to jane@gmail.com or call +33 6 12 34 56 78.',
+            },
+          },
+        ]),
+        new Map(),
+      );
+      expect(record['SuppliedEmail']).toBe('jane@gmail.example');
+      expect(isReservedPhone(String(record['SuppliedPhone']))).toBe(true);
+      expect(record['Description']).not.toContain('gmail.com');
+      expect(record['Description']).not.toContain('12 34 56 78');
+    });
+
+    it('cuts a row’s text to the length the org gives its field, else to its rule’s', async () => {
+      const [record] = await mapper.mapFields(
+        rowsConfig(
+          [
+            {
+              key: 'k1',
+              values: {
+                Subject: 'My parcel arrived broken today',
+                Reason__c: 'Damaged in transit',
+              },
+            },
+          ],
+          [{ fieldApiName: 'Reason__c', ruleType: 'static', config: { maxLength: 7 } }],
+        ),
+        new Map(),
+        undefined,
+        0,
+        new Map([['Subject', 20]]),
+      );
+      expect(record['Subject']).toBe('My parcel arrived');
+      expect(record['Reason__c']).toBe('Damaged');
+    });
+
+    it('writes the rows of an object that has no rule', async () => {
+      const records = await mapper.mapFields(
+        rowsConfig([{ key: 'k1', values: { Subject: 'only rows' } }]),
+        new Map(),
+      );
+      expect(records).toEqual([{ Subject: 'only rows' }]);
+    });
+  });
+
   describe('draws', () => {
     it('draws numbers, picks and parents from the draw it is given', async () => {
       const config = createObjectConfig(

@@ -122,6 +122,24 @@ describe('describedFieldsOf', () => {
     expect(describe).toHaveBeenCalledTimes(2);
   });
 
+  it('reads the length of each field that holds text, and none for a number, a date or a field without one', async () => {
+    const fields = describedFieldsOf(async () => ({
+      fields: [
+        { name: 'Subject', type: 'string', length: 255 },
+        { name: 'Description', type: 'textarea', length: 32000 },
+        { name: 'Amount', type: 'currency', length: 0, precision: 18, scale: 2 },
+        { name: 'CloseDate', type: 'date', length: 0 },
+        { name: 'Status', type: 'picklist', length: 255 },
+        { name: 'Legacy__c', type: 'string' },
+      ],
+    }));
+    expect(Object.fromEntries(await fields.lengths('Case'))).toEqual({
+      Subject: 255,
+      Description: 32000,
+      Status: 255,
+    });
+  });
+
   it('fails each read of an object its describe fails for', async () => {
     const fields = describedFieldsOf(async () => Promise.reject(new Error('NOT_FOUND')));
     await expect(fields.createable('Knowledge__kav')).rejects.toThrow('NOT_FOUND');

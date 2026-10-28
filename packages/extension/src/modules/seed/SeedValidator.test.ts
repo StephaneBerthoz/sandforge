@@ -721,3 +721,141 @@ describe('SeedValidator — relations', () => {
     expect(result.errors.some((e) => e.message === 'Circular dependency detected')).toBe(true);
   });
 });
+
+describe('SeedValidator — rows and relations by key', () => {
+  type Rows = NonNullable<SeedTemplate['objects'][number]['rows']>;
+
+  const rowsObject = (objectApiName: string, rows: Rows, insertOrder = 0) => ({
+    objectApiName,
+    recordCount: rows.length,
+    fieldRules: [],
+    excludedFields: [],
+    insertOrder,
+    batchSize: 200,
+    rows,
+  });
+
+  const keyed: SeedRelation = {
+    childObject: 'Contact',
+    lookupField: 'AccountId',
+    parentObject: 'Account',
+    parents: { kind: 'generated' },
+    distribution: { mode: 'byKey' },
+  };
+
+  /** Two accounts, and a contact under each, placed by key. */
+  function keyedTemplate(contacts?: Rows): SeedTemplate {
+    return createValidTemplate({
+      objects: [
+        rowsObject('Account', [
+          { key: 'a1', values: { Name: 'Acme' } },
+          { key: 'a2', values: { Name: 'Globex' } },
+        ]),
+        rowsObject(
+          'Contact',
+          contacts ?? [
+            { key: 'c1', parentKey: 'a1', values: { LastName: 'One' } },
+            { key: 'c2', parentKey: 'a2', values: { LastName: 'Two' } },
+          ],
+          1,
+        ),
+      ],
+      relations: [keyed],
+    });
+  }
+
+  const messages = (template: SeedTemplate) =>
+    new SeedValidator().validate(template).errors.map((e) => e.message);
+
+  it('accepts rows placed under the rows of their parent by key, with no field rule', () => {
+    expect(new SeedValidator().validate(keyedTemplate()).errors).toEqual([]);
+  });
+
+  it('refuses an object whose count is not its rows’', () => {
+    const template = keyedTemplate();
+    template.objects[0].recordCount = 3;
+    expect(messages(template)).toContain(
+      'Account gives 2 row(s) and asks for 3 record(s): an object with rows writes one record per row',
+    );
+  });
+
+  it('refuses a key given to two rows of one object', () => {
+    const template = keyedTemplate([
+      { key: 'c1', parentKey: 'a1', values: { LastName: 'One' } },
+      { key: 'c1', parentKey: 'a2', values: { LastName: 'Two' } },
+    ]);
+    const result = new SeedValidator().validate(template);
+    expect(result.errors).toContainEqual({
+      field: 'objects[Contact].rows[1].key',
+      message: 'The key "c1" names more than one row: each row is named once',
+    });
+  });
+
+  it('refuses a row placed under a parent row no row is, and names it', () => {
+    const template = keyedTemplate([{ key: 'c1', parentKey: 'a9', values: { LastName: 'One' } }]);
+    const result = new SeedValidator().validate(template);
+    expect(result.errors).toContainEqual({
+      field: 'objects[Contact].rows[0].parentKey',
+      message: 'Contact row "c1" is placed under Account "a9", which no Account row is',
+    });
+  });
+
+  it('refuses a row of a relation by key that names no parent row', () => {
+    const template = keyedTemplate([{ key: 'c1', values: { LastName: 'One' } }]);
+    expect(messages(template)).toContain(
+      'Contact row "c1" names no Account row: a relation by key places every row under the one it names',
+    );
+  });
+
+  it('refuses a parent key no relation places by', () => {
+    const template = keyedTemplate();
+    template.relations = [];
+    expect(messages(template)).toContain(
+      'Contact row "c1" names a parent row, and no relation places Contact by key',
+    );
+  });
+
+  it('refuses a relation by key over parents the org already holds, which have no keys', () => {
+    const template = keyedTemplate();
+    template.relations = [{ ...keyed, parents: { kind: 'existing', limit: 10 } }];
+    expect(messages(template)).toContain(
+      'The relation on Contact places by key, which only the Account rows this run writes have',
+    );
+  });
+
+  it('refuses a relation by key whose parent or child has no rows', () => {
+    const template = keyedTemplate();
+    template.objects[0] = {
+      ...template.objects[0],
+      rows: undefined,
+      fieldRules: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Acme' } }],
+    };
+    expect(messages(template)).toContain(
+      'The relation on Contact places by key, and Account has no rows to name',
+    );
+  });
+
+  it('refuses a value no field takes, before anything is written', () => {
+    const template = keyedTemplate([
+      {
+        key: 'c1',
+        parentKey: 'a1',
+        values: { LastName: 'One', Tags: ['a', 'b'] } as unknown as Rows[number]['values'],
+      },
+    ]);
+    expect(new SeedValidator().validate(template).errors).toContainEqual({
+      field: 'objects[Contact].rows[0].values[Tags]',
+      message:
+        'Tags is given a value no field takes: a text of at most 131072 characters, a number, true or false, or null',
+    });
+  });
+
+  it('refuses rows that give no field a value, as it refuses an object with no rule', () => {
+    const template = createValidTemplate({
+      objects: [rowsObject('Account', [{ key: 'a1', values: {} }])],
+    });
+    expect(messages(template)).toContain(
+      'Account asks for 1 record(s) and names no field to fill: add at least one field rule',
+    );
+  });
+});

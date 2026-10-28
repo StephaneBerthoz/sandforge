@@ -111,8 +111,11 @@ function assertRelationCounts(template: SeedTemplate): void {
   for (const relation of template.relations ?? []) {
     const parent = template.objects.find((o) => o.objectApiName === relation.parentObject);
     const child = template.objects.find((o) => o.objectApiName === relation.childObject);
+    // Placed by key, a child counts its rows.
     expect(child?.recordCount, `${relation.childObject} count`).toBe(
-      plannedChildCount(relation.distribution, parent?.recordCount ?? 0),
+      relation.distribution.mode === 'byKey'
+        ? child?.rows?.length
+        : plannedChildCount(relation.distribution, parent?.recordCount ?? 0),
     );
   }
 }

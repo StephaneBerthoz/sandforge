@@ -353,6 +353,7 @@ describe('describeDistribution', () => {
     expect(describeDistribution({ mode: 'perParent', count: 3 })).toBe('3 per parent');
     expect(describeDistribution({ mode: 'range', min: 1, max: 4 })).toBe('1 to 4 per parent');
     expect(describeDistribution({ mode: 'ratio', ratio: 0.5 })).toBe('0.5 per parent on average');
+    expect(describeDistribution({ mode: 'byKey' })).toBe('each under the parent row its key names');
   });
 });
 

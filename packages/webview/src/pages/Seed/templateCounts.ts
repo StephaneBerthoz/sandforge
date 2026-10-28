@@ -30,6 +30,8 @@ export function withCount(
     const parent = changed.shift() as string;
     for (const relation of template.relations ?? []) {
       if (relation.parents.kind !== 'generated' || relation.parentObject !== parent) continue;
+      // Placed by key, the children are the child's rows, however many parents there are.
+      if (relation.distribution.mode === 'byKey') continue;
       const planned = plannedChildCount(relation.distribution, next[parent] ?? 0);
       if (next[relation.childObject] === planned) continue;
       next[relation.childObject] = planned;

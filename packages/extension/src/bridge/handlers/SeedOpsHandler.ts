@@ -1496,6 +1496,7 @@ export class SeedOpsHandler implements DomainHandler {
         describeCreateableFields: describedFields.createable,
         describeVisibleFields: describedFields.visible,
         describePicklistValues: describedFields.picklistValues,
+        describeFieldLengths: describedFields.lengths,
         // What the org requires and the template names no rule for, less what
         // the kind of account written does not take.
         describeRequiredFields: async (objectApiName: string) =>

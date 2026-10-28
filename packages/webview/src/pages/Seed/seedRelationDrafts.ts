@@ -1,4 +1,4 @@
-import type { SeedRelation } from '@sandforge/shared';
+import type { SeedRelation, SeedRelationCountedDistribution } from '@sandforge/shared';
 import { SEED_RELATION_LIMITS, plannedChildCount } from '@sandforge/shared';
 import type { SeedRelationDraft, SeedRelationDraftPatch } from '../../stores/useSeedWizardStore';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
@@ -138,7 +138,7 @@ function isWholeIn(value: number, min: number, max: number): boolean {
 }
 
 /** The spread a row describes, or null while one of its numbers is out of bounds. */
-function distributionOf(draft: SeedRelationDraft): SeedRelation['distribution'] | null {
+function distributionOf(draft: SeedRelationDraft): SeedRelationCountedDistribution | null {
   const most = SEED_RELATION_LIMITS.maxPerParent;
   switch (draft.mode) {
     case 'perParent':

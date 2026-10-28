@@ -135,6 +135,64 @@ describe('DataPlanBuilder', () => {
       expect(plan.objects[0].sampleRecords[0]).toEqual({ Code: 'ACC-100' });
       expect(plan.objects[0].sampleRecords[1]).toEqual({ Code: 'ACC-110' });
     });
+
+    describe('rows placed by key', () => {
+      /** Contacts listed before their accounts, each under the account its row names. */
+      function keyedTemplate(): SeedTemplate {
+        return {
+          ...createTemplate([
+            {
+              ...createObject('Contact', 2),
+              rows: [
+                { key: 'c1', parentKey: 'a2', values: { LastName: 'One' } },
+                { key: 'c2', parentKey: 'a1', values: { LastName: 'Two' } },
+              ],
+            },
+            {
+              ...createObject('Account', 2, [
+                { fieldApiName: 'Industry', ruleType: 'static', config: { staticValue: 'Retail' } },
+              ]),
+              rows: [
+                { key: 'a1', values: { Name: 'Acme' } },
+                { key: 'a2', values: { Name: 'Globex', Industry: 'Media' } },
+              ],
+            },
+          ]),
+          relations: [
+            {
+              childObject: 'Contact',
+              lookupField: 'AccountId',
+              parentObject: 'Account',
+              parents: { kind: 'generated' },
+              distribution: { mode: 'byKey' },
+            },
+          ],
+        };
+      }
+
+      it('shows the first rows as they are given, over what the rules would fill', () => {
+        const account = builder.build(keyedTemplate()).objects[0];
+        expect(account.objectApiName).toBe('Account');
+        expect(account.sampleRecords).toEqual([
+          { Industry: 'Retail', Name: 'Acme' },
+          { Industry: 'Media', Name: 'Globex' },
+        ]);
+      });
+
+      it('shows the lookup of a row placed by key as the parent row it names', () => {
+        const contact = builder.build(keyedTemplate()).objects[1];
+        expect(contact.sampleRecords).toEqual([
+          { LastName: 'One', AccountId: '[key:a2]' },
+          { LastName: 'Two', AccountId: '[key:a1]' },
+        ]);
+      });
+
+      it('writes the rows a child is placed under first, and says the child depends on them', () => {
+        const plan = builder.build(keyedTemplate());
+        expect(plan.objects.map((o) => o.objectApiName)).toEqual(['Account', 'Contact']);
+        expect(plan.objects[1].dependsOn).toEqual(['Account']);
+      });
+    });
   });
 
   describe('resolveInsertOrder', () => {

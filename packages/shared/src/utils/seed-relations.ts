@@ -1,7 +1,7 @@
 import type {
   SeedObjectConfig,
   SeedRelation,
-  SeedRelationDistribution,
+  SeedRelationCountedDistribution,
 } from '../types/seed.types.js';
 
 /**
@@ -15,6 +15,17 @@ export const SEED_RELATION_LIMITS = {
   maxExistingParents: 2_000,
   /** Smallest average: one child for every hundred parents. */
   minRatio: 0.01,
+} as const;
+
+/**
+ * Bounds of an object's rows (`SeedObjectConfig.rows`), shared by the schema
+ * that admits them and the run that writes them.
+ */
+export const SEED_ROW_LIMITS = {
+  /** Longest key a row is named by, which a result names a row by too. */
+  maxKeyLength: 255,
+  /** Longest text a row gives a field: the most a long or rich text area holds. */
+  maxTextLength: 131_072,
 } as const;
 
 /**
@@ -36,7 +47,7 @@ function ratioInHundredths(ratio: number): number {
  * @param random - draws the range; `Math.random` unless a caller fixes it.
  */
 export function childrenPerParent(
-  distribution: SeedRelationDistribution,
+  distribution: SeedRelationCountedDistribution,
   parentCount: number,
   random: () => number = Math.random,
 ): number[] {
@@ -64,10 +75,12 @@ export function childrenPerParent(
 /**
  * The most children `distribution` gives `parentCount` parents: exact for a
  * fixed count and for a ratio, the ceiling of a range. It is the child
- * object's record count, the figure a run is planned and confirmed on.
+ * object's record count, the figure a run is planned and confirmed on. A
+ * relation placed by key has none to give: its children are the child's
+ * rows, however many parents there are.
  */
 export function plannedChildCount(
-  distribution: SeedRelationDistribution,
+  distribution: SeedRelationCountedDistribution,
   parentCount: number,
 ): number {
   const parents = Math.max(0, Math.floor(parentCount));

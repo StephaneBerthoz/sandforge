@@ -35,7 +35,12 @@ const MAX_PASSES = 2;
 
 /** What sending the refused rows again came to. */
 export interface SentAgain {
-  /** The insert's answer for every record, the rows sent again counted as they last came back. */
+  /**
+   * The insert's answer for every record, the rows sent again counted as they
+   * last came back. Its `rows` keep the order of the records first sent, a
+   * row sent again at its first place: what a relation by key reads a row's
+   * id from, its key that of the record at that place.
+   */
   result: InsertResult;
   /**
    * The rows written once sent again, and the fields they went without: what
@@ -139,7 +144,9 @@ export async function sendRefusedRowsAgain(
  * The insert's answer per row sent, in order. One that gives none, or not one
  * per row, is read off its lists: the ids first, then the errors — what was
  * written is counted and can be taken back, though which row each id was is
- * not known. A row a cancel kept from being sent is answered as not written.
+ * not known, and each is marked `unmatched` so that no row's key is given an
+ * id that may be another's. One row sent again alone is its own answer. A row
+ * a cancel kept from being sent is answered as not written.
  */
 function answeredRows(result: InsertResult, sent: number): InsertedRow[] {
   if (result.rows && (result.rows.length === sent || result.stopped)) {
@@ -149,5 +156,7 @@ function answeredRows(result: InsertResult, sent: number): InsertedRow[] {
     ...result.successIds.map((id) => ({ id })),
     ...result.errors.map((error) => ({ error })),
   ];
-  return fromLists.slice(0, sent);
+  const told =
+    sent === 1 ? fromLists : fromLists.map((row) => ({ ...row, unmatched: true as const }));
+  return told.slice(0, sent);
 }

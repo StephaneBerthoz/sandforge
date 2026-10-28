@@ -97,10 +97,39 @@ export type SeedRelationParents =
  * drawn between `min` and `max`; or `ratio` on average, spread evenly — 0.5
  * gives a child to every other parent, 1.5 alternates one and two.
  */
-export type SeedRelationDistribution =
+export type SeedRelationCountedDistribution =
   | { mode: 'perParent'; count: number }
   | { mode: 'range'; min: number; max: number }
   | { mode: 'ratio'; ratio: number };
+
+/**
+ * How a relation places its children: by count over the parents in the order
+ * they were written ({@link SeedRelationCountedDistribution}), or `byKey`,
+ * each row of the child under the row of the parent its `parentKey` names.
+ *
+ * Placed by rank, a parent the org refused moved every child after it one
+ * parent on: the child meant for the fourth contact landed under the fifth.
+ * By key, the children of a refused row are not written, and named.
+ */
+export type SeedRelationDistribution = SeedRelationCountedDistribution | { mode: 'byKey' };
+
+/**
+ * One record of an object written with these values as they are, rather
+ * than generated from rules: what a scenario compiles to, where a case, its
+ * comments and its contact have to agree with one another.
+ */
+export interface SeedRow {
+  /** Names the row among its object's, each once: what a child row's `parentKey` gives. */
+  key: string;
+  /**
+   * The record's fields. Each still goes through what every generated value
+   * goes through: an address or a phone number made to reach nobody, a text
+   * cut to the field's length.
+   */
+  values: Record<string, string | number | boolean | null>;
+  /** The row of the parent object this row is placed under, by a `byKey` relation. */
+  parentKey?: string;
+}
 
 /** Per-object seed configuration */
 export interface SeedObjectConfig {
@@ -118,6 +147,12 @@ export interface SeedObjectConfig {
    * (Knowledge articles, where Knowledge is off).
    */
   optional?: boolean;
+  /**
+   * The records written, one per row, in order: `recordCount` is their
+   * number. A rule still fills a field no row gives a value; a row's value
+   * wins over the rule's.
+   */
+  rows?: SeedRow[];
 }
 
 /**

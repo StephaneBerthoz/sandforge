@@ -568,6 +568,8 @@ function countChildren(
       }
       parents = (parent as { recordCount: number }).recordCount;
     }
+    // The line spreads by count; a placement by key comes with a template's rows, counted by them.
+    if (relation.distribution.mode === 'byKey') continue;
     const planned = plannedChildCount(relation.distribution, parents);
     if (planned < 1) refuse(`--relation ${name} gives no parent a child: raise --ratio.`);
     (child as { recordCount: number }).recordCount = planned;
@@ -1155,6 +1157,8 @@ export function describeDistribution(distribution: SeedRelation['distribution'])
       return `${distribution.min} to ${distribution.max} per parent`;
     case 'ratio':
       return `${distribution.ratio} per parent on average`;
+    case 'byKey':
+      return 'each under the parent row its key names';
   }
 }
 
@@ -1174,6 +1178,7 @@ export function seedOrchestrator(deps: {
   readPresentParentIds?: SeedOrchestratorDependencies['readPresentParentIds'];
   describeKeyPrefix?: SeedOrchestratorDependencies['describeKeyPrefix'];
   describePicklistValues?: SeedOrchestratorDependencies['describePicklistValues'];
+  describeFieldLengths?: SeedOrchestratorDependencies['describeFieldLengths'];
   describeRequiredFields?: SeedOrchestratorDependencies['describeRequiredFields'];
   objectAccess?: SeedOrchestratorDependencies['objectAccess'];
   seed: number;
@@ -1190,6 +1195,7 @@ export function seedOrchestrator(deps: {
     describeCreateableFields: deps.describeCreateableFields,
     ...(deps.describeVisibleFields ? { describeVisibleFields: deps.describeVisibleFields } : {}),
     ...(deps.describePicklistValues ? { describePicklistValues: deps.describePicklistValues } : {}),
+    ...(deps.describeFieldLengths ? { describeFieldLengths: deps.describeFieldLengths } : {}),
     ...(deps.describeRequiredFields ? { describeRequiredFields: deps.describeRequiredFields } : {}),
     ...(deps.objectAccess ? { objectAccess: deps.objectAccess } : {}),
     planBuilder: new DataPlanBuilder(),
@@ -1598,7 +1604,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       log(
         `  [dry-run] ${objectApiName}: ${records.length} record(s) ${seedWritePathOf(records.length, robustness.bulk.threshold)}`,
       );
-      return { successIds: records.map((_, i) => `dry-${i}`), errors: [] };
+      // Answered record by record, as the REST path answers: rows placed by
+      // key under these are then planned as the run places them.
+      const ids = records.map((_, i) => `dry-${i}`);
+      return { successIds: ids, errors: [], rows: ids.map((id) => ({ id })) };
     }
     const answer = await write(orgId, objectApiName, records, batchSize);
     kept?.note(objectApiName, answer.successIds);
@@ -1622,6 +1631,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     describeCreateableFields: described.createable,
     describeVisibleFields: described.visible,
     describePicklistValues: described.picklistValues,
+    describeFieldLengths: described.lengths,
     describeRequiredFields: async (objectApiName) =>
       (await described.required(objectApiName)).filter(
         (field) =>

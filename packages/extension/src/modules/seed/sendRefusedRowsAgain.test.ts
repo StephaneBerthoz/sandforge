@@ -212,4 +212,54 @@ describe('sendRefusedRowsAgain', () => {
     expect(result.successIds).toEqual(['003000000000000099']);
     expect(result.errors).toHaveLength(1);
   });
+
+  it('answers each row at the place it was first sent, a row written the second time included', async () => {
+    // What a relation by key reads a row's id from: the record at that place.
+    const send = ruledTarget();
+    const records = [
+      { LastName: 'A', Phone: '+33 1 23 45 67 89' },
+      { LastName: 'B', Phone: '+1 555 0100' },
+      { LastName: 'C', Phone: '+33 1 23 45 67 90' },
+    ];
+    const first = await send(records);
+
+    const { result } = await sendRefusedRowsAgain(send, records, first, new Set());
+
+    const [secondTry] = (await send.mock.results[1].value).rows ?? [];
+    expect(result.rows?.map((row) => row.id)).toEqual([
+      first.rows?.[0].id,
+      secondTry.id,
+      first.rows?.[2].id,
+    ]);
+    expect(result.rows?.some((row) => row.unmatched)).toBe(false);
+  });
+
+  it('marks the rows of a second answer read off its lists, which do not say whose each id is', async () => {
+    const send = ruledTarget();
+    const records = [
+      { LastName: 'A', Phone: '+1 555 0100' },
+      { LastName: 'B', Phone: '+1 555 0101' },
+    ];
+    const first = await send(records);
+    send.mockResolvedValueOnce({
+      successIds: ['003000000000000098', '003000000000000099'],
+      errors: [],
+    });
+
+    const { result } = await sendRefusedRowsAgain(send, records, first, new Set());
+
+    expect(result.successIds).toHaveLength(2);
+    expect(result.rows?.map((row) => row.unmatched)).toEqual([true, true]);
+  });
+
+  it('takes the answer to one row sent again alone as that row’s, read off its lists or not', async () => {
+    const send = ruledTarget();
+    const records = [{ LastName: 'A', Phone: '+1 555 0100' }, { LastName: 'B' }];
+    const first = await send(records);
+    send.mockResolvedValueOnce({ successIds: ['003000000000000099'], errors: [] });
+
+    const { result } = await sendRefusedRowsAgain(send, records, first, new Set());
+
+    expect(result.rows?.[0]).toEqual({ id: '003000000000000099' });
+  });
 });

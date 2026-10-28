@@ -9,7 +9,13 @@ import type {
   GrappeResult,
   UUID,
 } from '@sandforge/shared';
-import type { DescribedSeedField, FieldRule, SeedAiFallback } from '@sandforge/shared';
+import type {
+  DescribedSeedField,
+  FieldRule,
+  SeedAiFallback,
+  SeedObjectConfig,
+  SeedRow,
+} from '@sandforge/shared';
 import {
   PRICEBOOK_OBJECT,
   childrenPerParent,
@@ -70,6 +76,12 @@ export interface InsertedRow {
   error?: string;
   /** Every error it refused it with, each with its code and the fields it named. */
   errorDetails?: SaveErrorDetail[];
+  /**
+   * Set when the answer was read off the insert's lists rather than given for
+   * this record: the id or the error is counted, but which of the records
+   * sent it is was not said, so no row's key is given it.
+   */
+  unmatched?: true;
 }
 
 /** Result of a batch insert operation */
@@ -185,6 +197,13 @@ export interface SeedOrchestratorDependencies {
   describePicklistValues?: (
     objectApiName: string,
   ) => Promise<ReadonlyMap<string, readonly string[]>>;
+  /**
+   * The most characters each field of an object takes, by field, as the
+   * org's describe gives them: what the text of an object's rows is cut to,
+   * as a rule's text is cut to its `maxLength`. Optional: without it, or when
+   * it cannot be read, a row's text goes as it is.
+   */
+  describeFieldLengths?: (objectApiName: string) => Promise<ReadonlyMap<string, number>>;
   /**
    * The fields the org refuses a record of `objectApiName` without and fills
    * none of itself, lookups apart. One no rule names is given the rule the
@@ -360,7 +379,9 @@ export class SeedOrchestrator {
       const fallback: Pick<SeedObjectResult, 'aiFallback'> = {};
       const written: InsertResult = { successIds: [], errors: [] };
       const sentAgain: SentAgain = { result: written, unsent: [] };
+      const keys = keyTableOf(ready);
       let slicesSent = 0;
+      let recordsSent = 0;
       let stopped = false;
       const slice = seedSliceOf(ready.config);
       for await (const records of this.slicesOf(ready, run, slice, fallback)) {
@@ -379,6 +400,8 @@ export class SeedOrchestrator {
         }
         const sent = await this.insert(orgId, obj, records, ready);
         slicesSent++;
+        keepKeys(keys, ready.config.rows, recordsSent, records.length, sent.result);
+        recordsSent += records.length;
         keepWhatASliceWrote(sentAgain, sent);
         if (sent.result.stopped) {
           stopped = true;
@@ -388,7 +411,14 @@ export class SeedOrchestrator {
       // What the slices sent before a cancel is kept, for the objects after
       // it and in its result.
       if (slicesSent > 0) {
-        recordWrite(run, obj, written, [...ready.notes, ...notesOf(sentAgain)], fallback);
+        recordWrite(
+          run,
+          obj,
+          withUnwritten(written, ready),
+          [...ready.notes, ...notesOf(sentAgain)],
+          fallback,
+          keys,
+        );
       }
       if (stopped) return this.stoppedResult(template, operationId, run, startTime);
     }
@@ -444,7 +474,9 @@ export class SeedOrchestrator {
     const own = withoutRelationLookup(obj, relation);
     const { config: fitted, dropped } = await this.dropRulesTheOrgCannotTake(own);
     const why = await this.whyDropped(obj.objectApiName, dropped);
-    if (fitted.fieldRules.length === 0 && own.fieldRules.length > 0) {
+    const namesNone = (config: SeedObjectConfig): boolean =>
+      config.fieldRules.length === 0 && fieldsOfRows(config.rows).length === 0;
+    if (namesNone(fitted) && !namesNone(own)) {
       return skipObject(
         run,
         obj.objectApiName,
@@ -460,15 +492,28 @@ export class SeedOrchestrator {
 
     let placed: PlacedChildren | undefined;
     if (relation) {
-      const placement = await this.placeChildren(obj, relation, run.existingIds);
+      const placement = await this.placeChildren(usable, relation, run);
       if ('skipped' in placement) return skipObject(run, obj.objectApiName, placement.skipped);
+      if (placement.parentIds.length === 0 && placement.unwritten) {
+        // Every row's parent went unwritten: none of them is sent, each named.
+        const { lines, keys } = placement.unwritten;
+        recordWrite(run, obj, { successIds: [], errors: lines }, [], {}, keys);
+        return null;
+      }
       placed = placement;
     }
 
     return {
       relation,
-      config: placed ? { ...usable, recordCount: placed.parentIds.length } : usable,
+      config: placed
+        ? {
+            ...usable,
+            recordCount: placed.parentIds.length,
+            ...(placed.rows ? { rows: placed.rows } : {}),
+          }
+        : usable,
       placed,
+      ...(usable.rows ? { lengths: await this.fieldLengths(obj.objectApiName) } : {}),
       notes: [
         ...why.map((reason) => `Written without ${reason}.`),
         ...(filled.length > 0
@@ -486,12 +531,13 @@ export class SeedOrchestrator {
    * none can be written. Parents come from the ids this run's insert of the
    * parent object returned, or from the org; each receives what the
    * distribution gives it, and the whole stops at the child's record count —
-   * the most the run was planned and confirmed on.
+   * the most the run was planned and confirmed on. Placed by key, each row
+   * goes under the parent row it names (`placeByKey`).
    */
   private async placeChildren(
     obj: SeedTemplate['objects'][number],
     relation: SeedRelation,
-    existingIds: ReadonlyMap<string, string[]>,
+    run: SeedRun,
   ): Promise<PlacedChildren | { skipped: string }> {
     const { childObject: child, lookupField: lookup, parentObject: parent } = relation;
     if (!(await this.orgTakesField(child, lookup))) {
@@ -499,6 +545,10 @@ export class SeedOrchestrator {
         skipped: `Skipped: this org does not let a seed write ${child}.${lookup}, the lookup the relation fills.`,
       };
     }
+    if (relation.distribution.mode === 'byKey') {
+      return placeByKey(obj.rows ?? [], relation, run.keys.get(parent));
+    }
+    const existingIds = run.existingIds;
 
     let parents: string[];
     if (relation.parents.kind === 'generated') {
@@ -601,6 +651,7 @@ export class SeedOrchestrator {
               fallback.aiFallback = withAiFallback(fallback.aiFallback, aiFallback);
             },
             from,
+            ready.lengths,
           );
       fillLookup(records, ready.relation, ready.placed, from);
       yield records;
@@ -698,8 +749,11 @@ export class SeedOrchestrator {
     } catch {
       return { config: obj, filled: [] };
     }
+    // A field every row gives is named; one some rows leave out gets the
+    // rule, and the rows that give it keep their value.
     const named = new Set([
       ...obj.fieldRules.map((rule) => rule.fieldApiName),
+      ...fieldsEveryRowGives(obj.rows),
       ...(relation ? [relation.lookupField] : []),
     ]);
     const added: FieldRule[] = [];
@@ -792,7 +846,9 @@ export class SeedOrchestrator {
 
   /**
    * The object's rules, less the ones naming a field this org does not have,
-   * or the user may not set.
+   * or the user may not set; and its rows, less those fields' values. A row
+   * is the rule's equal here: one value of a field the org does not have
+   * refused the whole record, and every record of the object.
    *
    * A reference rule fills a lookup and is left alone: the field it writes is
    * named by the rule, and a describe that cannot see it is a reason to let
@@ -811,11 +867,28 @@ export class SeedOrchestrator {
     const kept = obj.fieldRules.filter(
       (rule) => rule.ruleType === 'reference' || creatable.has(rule.fieldApiName),
     );
-    if (kept.length === obj.fieldRules.length) return { config: obj, dropped: [] };
-    const dropped = obj.fieldRules
-      .filter((rule) => !kept.includes(rule))
-      .map((rule) => rule.fieldApiName);
-    return { config: { ...obj, fieldRules: kept }, dropped };
+    const rowFieldsDropped = fieldsOfRows(obj.rows).filter((field) => !creatable.has(field));
+    if (kept.length === obj.fieldRules.length && rowFieldsDropped.length === 0) {
+      return { config: obj, dropped: [] };
+    }
+    const dropped = [
+      ...new Set([
+        ...obj.fieldRules.filter((rule) => !kept.includes(rule)).map((rule) => rule.fieldApiName),
+        ...rowFieldsDropped,
+      ]),
+    ];
+    const rows = obj.rows && rowsWithout(obj.rows, new Set(rowFieldsDropped));
+    return { config: { ...obj, fieldRules: kept, ...(rows ? { rows } : {}) }, dropped };
+  }
+
+  /** The most characters each field of an object takes, or none known when the describe cannot say. */
+  private async fieldLengths(objectApiName: string): Promise<ReadonlyMap<string, number>> {
+    if (!this.deps.describeFieldLengths) return new Map();
+    try {
+      return await this.deps.describeFieldLengths(objectApiName);
+    } catch {
+      return new Map();
+    }
   }
 
   /** Grappe (partitioned) execution — splits work into partitions with progress tracking. */
@@ -887,6 +960,8 @@ export class SeedOrchestrator {
       const objSentAgain: SentAgain = { result: { successIds: [], errors: [] }, unsent: [] };
       /** Partitions of the object inserted before a cancel stopped it, if one did. */
       let stoppedAfter: number | undefined;
+      const keys = keyTableOf(ready);
+      let recordsSent = 0;
 
       let chunkIndex = -1;
       for await (const chunk of this.slicesOf(ready, run, grappeSize, fallback)) {
@@ -907,6 +982,8 @@ export class SeedOrchestrator {
         const partitionId = partitions[processedPartitions]?.id ?? this.deps.generateId();
         const sent = await this.insert(orgId, obj, chunk, ready);
         const insertResult = sent.result;
+        keepKeys(keys, ready.config.rows, recordsSent, chunk.length, insertResult);
+        recordsSent += chunk.length;
         if (sent.written) {
           objSentAgain.written = addWrittenWithoutFields(objSentAgain.written, sent.written);
         }
@@ -956,9 +1033,10 @@ export class SeedOrchestrator {
           recordWrite(
             run,
             obj,
-            { successIds: objCreatedIds, errors: objErrors },
+            withUnwritten({ successIds: objCreatedIds, errors: objErrors }, ready),
             [...ready.notes, ...notesOf(objSentAgain)],
             fallback,
+            keys,
           );
         }
         return stopHere();
@@ -973,9 +1051,10 @@ export class SeedOrchestrator {
       recordWrite(
         run,
         obj,
-        { successIds: objCreatedIds, errors: objErrors },
+        withUnwritten({ successIds: objCreatedIds, errors: objErrors }, ready),
         [...ready.notes, ...notesOf(objSentAgain)],
         fallback,
+        keys,
       );
     }
 
@@ -1067,8 +1146,19 @@ interface SeedRun {
    * them cannot be attached to anything.
    */
   wroteNothing: Set<string>;
+  /**
+   * What became of each row of the objects written from rows, by object and
+   * key: what a relation by key places the next object's rows by.
+   */
+  keys: Map<string, ReadonlyMap<string, KeyedRow>>;
   objectResults: SeedObjectResult[];
 }
+
+/**
+ * What became of one row: the id the org gave its record, or why it has
+ * none that can be told, worded to follow "its Contact c3 …".
+ */
+type KeyedRow = { id: string } | { why: string };
 
 /** A run of `template` before its first object. */
 function newRun(template: SeedTemplate): SeedRun {
@@ -1077,6 +1167,7 @@ function newRun(template: SeedTemplate): SeedRun {
     written: new Set(template.objects.map((o) => o.objectApiName)),
     existingIds: new Map(),
     wroteNothing: new Set(),
+    keys: new Map(),
     objectResults: [],
   };
 }
@@ -1087,6 +1178,8 @@ interface ReadyObject {
   /** The object's config, less the rules the org cannot take and the lookup a relation fills. */
   config: SeedTemplate['objects'][number];
   placed: PlacedChildren | undefined;
+  /** The most characters each field takes, for an object of rows: what their text is cut to. */
+  lengths?: ReadonlyMap<string, number>;
   /** What its result says besides the insert's own errors. */
   notes: string[];
 }
@@ -1124,14 +1217,19 @@ function skipObject(run: SeedRun, objectApiName: string, message: string, option
   return null;
 }
 
-/** Keep what the org answered for an object: for the objects after it, and in its result. */
+/**
+ * Keep what the org answered for an object: for the objects after it, and in
+ * its result; and, for an object of rows, what became of each row.
+ */
 function recordWrite(
   run: SeedRun,
   obj: SeedTemplate['objects'][number],
   written: InsertResult,
   notes: string[],
   fallback: Pick<SeedObjectResult, 'aiFallback'>,
+  keys?: ReadonlyMap<string, KeyedRow>,
 ): void {
+  if (keys) run.keys.set(obj.objectApiName, keys);
   run.existingIds.set(obj.objectApiName, written.successIds);
   if (obj.recordCount > 0 && written.successIds.length === 0) {
     run.wroteNothing.add(obj.objectApiName);
@@ -1151,6 +1249,126 @@ interface PlacedChildren {
   parentIds: string[];
   /** What the result says about the placement, e.g. that the record count stopped it. */
   notes: string[];
+  /** Placed by key: the rows written, in order, each under the parent id at its place. */
+  rows?: SeedRow[];
+  /**
+   * Placed by key: the rows not written because their parent row was not,
+   * each named with why (`lines`, counted as failed), and what became of them
+   * by key, for the rows placed under them in turn.
+   */
+  unwritten?: { lines: string[]; keys: Map<string, KeyedRow> };
+}
+
+/**
+ * Each row under the id of the parent row its `parentKey` names, read from
+ * what the parent's insert answered for that row, the rows it sent again
+ * included. A row whose parent was refused, or whose parent's id cannot be
+ * told, is not written and is named with why: placed by rank, a refused
+ * parent moved every child after it one parent on.
+ */
+function placeByKey(
+  rows: readonly SeedRow[],
+  relation: SeedRelation,
+  parentKeys: ReadonlyMap<string, KeyedRow> | undefined,
+): PlacedChildren | { skipped: string } {
+  const { childObject: child, parentObject: parent } = relation;
+  if (!parentKeys) {
+    return {
+      skipped: `Skipped: ${child} is placed by key, and ${parent} wrote no rows to place it under.`,
+    };
+  }
+  const parentIds: string[] = [];
+  const written: SeedRow[] = [];
+  const lines: string[] = [];
+  const keys = new Map<string, KeyedRow>();
+  for (const row of rows) {
+    const parentKey = row.parentKey;
+    const parentRow = parentKey === undefined ? undefined : parentKeys.get(parentKey);
+    if (parentRow && 'id' in parentRow) {
+      parentIds.push(parentRow.id);
+      written.push(row);
+      continue;
+    }
+    const why =
+      parentKey === undefined
+        ? `it names no ${parent} row`
+        : `its ${parent} ${parentKey} ${parentRow ? parentRow.why : `is no ${parent} row this run wrote`}`;
+    lines.push(`${child} ${row.key} not written: ${why}.`);
+    keys.set(row.key, { why: `was not written, as ${why}` });
+  }
+  return { parentIds, notes: [], rows: written, unwritten: { lines, keys } };
+}
+
+/** The table of what became of each row, for an object written from rows. */
+function keyTableOf(ready: ReadyObject): Map<string, KeyedRow> | undefined {
+  if (!ready.config.rows) return undefined;
+  return new Map(ready.placed?.unwritten?.keys ?? []);
+}
+
+/**
+ * Keep what the insert of `count` records answered for each of the rows they
+ * were made from, `from` on. A row is given the id the org gave it at its
+ * place among the records sent — after any sent again, which keep their
+ * place — never one read off the insert's lists, which do not say whose it
+ * is; an insert that did not answer record by record (a Bulk API job whose
+ * answer cannot be laid on the records) gives none of its rows an id.
+ */
+function keepKeys(
+  table: Map<string, KeyedRow> | undefined,
+  rows: readonly SeedRow[] | undefined,
+  from: number,
+  count: number,
+  result: InsertResult,
+): void {
+  if (!table || !rows) return;
+  const answered =
+    result.rows && (result.rows.length === count || result.stopped) ? result.rows : undefined;
+  for (let i = 0; i < count; i++) {
+    const row = rows[from + i];
+    if (!row) continue;
+    const answer = answered?.[i];
+    if (!answered) {
+      table.set(row.key, {
+        why: 'has no id this run can tell: the insert did not answer record by record',
+      });
+    } else if (!answer) {
+      table.set(row.key, { why: 'was not sent: the run was stopped before it' });
+    } else if (answer.id && answer.unmatched) {
+      table.set(row.key, {
+        why: 'has no id this run can tell: the org did not say which of the ids it answered is its',
+      });
+    } else if (answer.id) {
+      table.set(row.key, { id: answer.id });
+    } else {
+      table.set(row.key, { why: `was refused (${answer.error ?? 'Unknown insert error'})` });
+    }
+  }
+}
+
+/** What the org answered for an object, with the rows not sent for their parent counted as failed. */
+function withUnwritten(written: InsertResult, ready: ReadyObject): InsertResult {
+  const lines = ready.placed?.unwritten?.lines ?? [];
+  return lines.length === 0 ? written : { ...written, errors: [...written.errors, ...lines] };
+}
+
+/** The fields any row gives a value, once each, in the order met. */
+function fieldsOfRows(rows: readonly SeedRow[] | undefined): string[] {
+  return [...new Set((rows ?? []).flatMap((row) => Object.keys(row.values)))];
+}
+
+/** The fields every row gives a value; none for an object without rows. */
+function fieldsEveryRowGives(rows: readonly SeedRow[] | undefined): string[] {
+  if (!rows || rows.length === 0) return [];
+  return fieldsOfRows(rows).filter((field) => rows.every((row) => field in row.values));
+}
+
+/** The rows, less their values of `fields`. */
+function rowsWithout(rows: readonly SeedRow[], fields: ReadonlySet<string>): SeedRow[] {
+  if (fields.size === 0) return [...rows];
+  return rows.map((row) => ({
+    ...row,
+    values: Object.fromEntries(Object.entries(row.values).filter(([field]) => !fields.has(field))),
+  }));
 }
 
 /** The object's rules, less the one on the lookup its relation fills. */
@@ -1173,7 +1391,7 @@ function startsEmpty(
   config: SeedTemplate['objects'][number],
   relation: SeedRelation | undefined,
 ): boolean {
-  return relation !== undefined && config.fieldRules.length === 0;
+  return relation !== undefined && config.fieldRules.length === 0 && !config.rows;
 }
 
 /** `count` records with no field set yet. */

@@ -1,8 +1,11 @@
 import { create } from 'zustand';
-import type { PersonaMsg, SeedRelation } from '@sandforge/shared';
+import type { PersonaMsg, SeedRelation, SeedRelationCountedDistribution } from '@sandforge/shared';
 
-/** How a relation row spreads children over parents. */
-export type SeedRelationMode = SeedRelation['distribution']['mode'];
+/**
+ * How a relation row spreads children over parents. A row places them by
+ * count: a placement by key comes with the rows of a template, not from here.
+ */
+export type SeedRelationMode = SeedRelationCountedDistribution['mode'];
 
 /**
  * One relation row of the Seed wizard, as the editor holds it while it is

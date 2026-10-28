@@ -1,9 +1,11 @@
 import {
   SEED_RELATION_LIMITS,
+  SEED_ROW_LIMITS,
   acceptsGeneratedSentence,
   relationFor,
   resolveFakerMethod,
   seedDependencies,
+  seedKeyedRowsIssues,
   seedsStandardPricebook,
 } from '@sandforge/shared';
 import type {
@@ -61,6 +63,7 @@ export class SeedValidator {
     validateTemplateName(template, errors);
     validateObjects(template, errors, warnings);
     validateRelations(template, errors);
+    if (template.objects?.length) validateKeyedRows(template, errors);
     validateReferenceTargets(template, errors);
     validateCircularDependencies(template, errors);
 
@@ -120,8 +123,13 @@ function validateObjectConfig(
   // reports "success, 0 created" — a silent no-op, which is the worst of the
   // answers available. Run against a real org, asking for five accounts this
   // way wrote nothing and said it had succeeded. A relation fills a lookup of
-  // the object, which is a field to fill.
-  if (obj.recordCount > 0 && obj.fieldRules.length === 0 && !relation) {
+  // the object, which is a field to fill; so does a row that gives a value.
+  if (
+    obj.recordCount > 0 &&
+    obj.fieldRules.length === 0 &&
+    !relation &&
+    !rowsGiveAValue(obj.rows)
+  ) {
     errors.push({
       field: `${prefix}.fieldRules`,
       message: `${obj.objectApiName} asks for ${obj.recordCount} record(s) and names no field to fill: add at least one field rule`,
@@ -144,6 +152,115 @@ function validateObjectConfig(
 
   for (const rule of obj.fieldRules) {
     validateFieldRule(rule, prefix, errors);
+  }
+
+  if (obj.rows !== undefined) validateRows(obj.rows, prefix, errors);
+}
+
+/** Whether any row gives a field a value. */
+function rowsGiveAValue(rows: SeedObjectConfig['rows']): boolean {
+  return (
+    Array.isArray(rows) &&
+    rows.some((row) => isPlainObject(row?.values) && Object.keys(row.values).length > 0)
+  );
+}
+
+/** Whether `value` is an object of fields, not an array nor null. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Check an object's rows as the schema does, for a template built in code,
+ * which no schema reads: each named once by a key, each value one a field
+ * takes. A key given twice would leave a child two rows to be placed under.
+ */
+function validateRows(rows: unknown, prefix: string, errors: ValidationError[]): void {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    errors.push({ field: `${prefix}.rows`, message: 'Rows, when given, are at least one' });
+    return;
+  }
+  const seen = new Set<string>();
+  const most = SEED_ROW_LIMITS.maxKeyLength;
+  for (const [index, row] of (rows as unknown[]).entries()) {
+    const at = `${prefix}.rows[${index}]`;
+    const shaped = isPlainObject(row) ? row : {};
+    const { key, parentKey, values } = shaped;
+    if (typeof key !== 'string' || key.length === 0 || key.length > most) {
+      errors.push({
+        field: `${at}.key`,
+        message: `A row is named by a key of 1 to ${most} characters`,
+      });
+    } else if (seen.has(key)) {
+      errors.push({
+        field: `${at}.key`,
+        message: `The key "${key}" names more than one row: each row is named once`,
+      });
+    } else {
+      seen.add(key);
+    }
+    if (
+      parentKey !== undefined &&
+      (typeof parentKey !== 'string' || parentKey.length === 0 || parentKey.length > most)
+    ) {
+      errors.push({
+        field: `${at}.parentKey`,
+        message: `A row names its parent by a key of 1 to ${most} characters`,
+      });
+    }
+    if (!isPlainObject(values)) {
+      errors.push({
+        field: `${at}.values`,
+        message: 'A row gives its values as fields and values',
+      });
+      continue;
+    }
+    for (const [field, value] of Object.entries(values)) {
+      if (!isRowValue(value)) {
+        errors.push({
+          field: `${at}.values[${field}]`,
+          message:
+            `${field} is given a value no field takes: a text of at most ` +
+            `${SEED_ROW_LIMITS.maxTextLength} characters, a number, true or false, or null`,
+        });
+      }
+    }
+  }
+}
+
+/** Whether a row's value is one the schema admits. */
+function isRowValue(value: unknown): boolean {
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return typeof value === 'string' && value.length <= SEED_ROW_LIMITS.maxTextLength;
+}
+
+/**
+ * Check what a template's rows break across its objects and relations, as
+ * the schema does (`seedKeyedRowsIssues`), each issue said where it is.
+ */
+function validateKeyedRows(template: SeedTemplate, errors: ValidationError[]): void {
+  const where = (path: Array<string | number>): string => {
+    const [part, index, ...rest] = path;
+    const object = part === 'objects' ? template.objects[Number(index)] : undefined;
+    const relation = part === 'relations' ? template.relations?.[Number(index)] : undefined;
+    const head = object
+      ? `objects[${object.objectApiName}]`
+      : relation
+        ? `relations[${relation.childObject}.${relation.lookupField}]`
+        : `${String(part)}[${String(index)}]`;
+    return rest.reduce<string>(
+      (field, step) => (typeof step === 'number' ? `${field}[${step}]` : `${field}.${step}`),
+      head,
+    );
+  };
+  // Rows not shaped as rows were said above; across objects they say nothing more.
+  const shaped = template.objects.every(
+    (o) => o.rows === undefined || (Array.isArray(o.rows) && o.rows.every(isPlainObject)),
+  );
+  if (!shaped) return;
+  for (const issue of seedKeyedRowsIssues(template)) {
+    errors.push({ field: where(issue.path), message: issue.message });
   }
 }
 
@@ -351,6 +468,9 @@ function isUsableDistribution(distribution: SeedRelation['distribution']): boole
         distribution.ratio >= SEED_RELATION_LIMITS.minRatio &&
         distribution.ratio <= most
       );
+    case 'byKey':
+      // Its children are its child's rows; what they name is checked with the rows.
+      return true;
     default:
       return false;
   }

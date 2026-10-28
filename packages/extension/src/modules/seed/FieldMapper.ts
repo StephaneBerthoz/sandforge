@@ -1,4 +1,4 @@
-import type { SeedObjectConfig, FieldRule, SeedAiFallback } from '@sandforge/shared';
+import type { SeedObjectConfig, FieldRule, SeedAiFallback, SeedRow } from '@sandforge/shared';
 import { phoneReplacement, reachNobody, type AIDataGenerator } from './AIDataGenerator';
 import type { FakerFallback } from './FakerFallback';
 import { fillDigitMask } from './LocaleData';
@@ -31,19 +31,26 @@ export class FieldMapper {
    * Generate an array of records for the given object configuration.
    * Uses existingIds to resolve reference fields to previously created records.
    *
+   * An object with rows gives each record its row's values, over what its
+   * rules generate: record `i` is row `from + i`.
+   *
    * @param from - The place of the first record among the object's: a seed
    *   generates an object a slice at a time (`SeedOrchestrator`), and a
    *   sequence, a mask or a phone number goes on from the slice before.
+   * @param rowLengths - The most characters each field of the object takes,
+   *   by the org's describe: what a row's text is cut to. A field it does not
+   *   name is cut to its rule's `maxLength`, if one gives it.
    */
   async mapFields(
     objectConfig: SeedObjectConfig,
     existingIds: Map<string, string[]>,
     onAiFallback?: (fallback: SeedAiFallback) => void,
     from = 0,
+    rowLengths?: ReadonlyMap<string, number>,
   ): Promise<Record<string, unknown>[]> {
-    const { recordCount, fieldRules } = objectConfig;
+    const { recordCount, fieldRules, rows } = objectConfig;
 
-    if (recordCount <= 0 || fieldRules.length === 0) {
+    if (recordCount <= 0 || (fieldRules.length === 0 && !rows)) {
       return [];
     }
 
@@ -78,6 +85,7 @@ export class FieldMapper {
     const textRules = [...aiRules, ...fakerRules];
     const random = this.deps.random ?? Math.random;
     const datesTheStage = closeDateFollowsStage(objectConfig);
+    const fitRow = rows ? rowFitter(fieldRules, replacement, rowLengths) : undefined;
 
     const records: Record<string, unknown>[] = [];
 
@@ -112,11 +120,49 @@ export class FieldMapper {
         );
       }
 
+      // Last, so that nothing drawn above takes the place of a value the row gives.
+      const row = rows?.[from + i];
+      if (row && fitRow) Object.assign(record, fitRow(row));
+
       records.push(record);
     }
 
     return records;
   }
+}
+
+/**
+ * What gives a row's values to its record, through what every generated
+ * value goes through: an email address or a phone number made to reach
+ * nobody (see {@link reachNobody}) — a scenario a model drafted holds its
+ * addresses and numbers as much as an answer does — and a text cut to its
+ * field's length. Numbers, booleans and nulls go as they are. A phone field
+ * is known by its rule's type, as a pick's is, or by its name.
+ */
+function rowFitter(
+  fieldRules: readonly FieldRule[],
+  replacement: (written: string) => string,
+  lengths: ReadonlyMap<string, number> | undefined,
+): (row: SeedRow) => Record<string, unknown> {
+  const phoneFields = new Set(
+    fieldRules
+      .filter((rule) => rule.fieldType?.toLowerCase() === 'phone')
+      .map((rule) => rule.fieldApiName),
+  );
+  const ruleLengths = new Map(
+    fieldRules.flatMap((rule) =>
+      rule.config.maxLength !== undefined
+        ? [[rule.fieldApiName, rule.config.maxLength] as const]
+        : [],
+    ),
+  );
+  return (row) => {
+    const safe = reachNobody(row.values, phoneFields, replacement);
+    for (const [field, value] of Object.entries(safe)) {
+      safe[field] = fitToLength(value, lengths?.get(field) ?? ruleLengths.get(field));
+    }
+    return safe;
+  };
 }
 
 const OPPORTUNITY_STAGE = 'StageName';

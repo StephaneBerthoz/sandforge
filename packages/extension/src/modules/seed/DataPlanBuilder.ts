@@ -3,8 +3,10 @@ import type {
   SeedDataPlan,
   SeedDataPlanObject,
   SeedObjectConfig,
+  SeedRelation,
   FieldRule,
 } from '@sandforge/shared';
+import { relationFor, seedDependencies } from '@sandforge/shared';
 
 /** Threshold above which grappe mode is recommended */
 const GRAPPE_THRESHOLD = 10000;
@@ -27,7 +29,8 @@ export class DataPlanBuilder {
    * generates sample records, and estimates execution parameters.
    */
   build(template: SeedTemplate): SeedDataPlan {
-    const sortedObjects = resolveInsertOrder(template.objects);
+    const relations = template.relations ?? [];
+    const sortedObjects = resolveInsertOrder(template.objects, relations);
     const totalRecords = calculateTotalRecords(sortedObjects);
     const estimatedApiCalls = calculateApiCalls(sortedObjects);
     const estimatedDuration = estimatedApiCalls * MS_PER_API_CALL;
@@ -36,8 +39,8 @@ export class DataPlanBuilder {
     const objects: SeedDataPlanObject[] = sortedObjects.map((obj) => ({
       objectApiName: obj.objectApiName,
       recordCount: obj.recordCount,
-      sampleRecords: generateSampleRecords(obj, 3),
-      dependsOn: extractDependencies(obj),
+      sampleRecords: generateSampleRecords(obj, 3, relationFor(obj.objectApiName, relations)),
+      dependsOn: seedDependencies(obj, relations),
     }));
 
     return {
@@ -63,24 +66,16 @@ function calculateApiCalls(objects: SeedObjectConfig[]): number {
   }, 0);
 }
 
-/** Extract object names this object depends on via reference field rules */
-function extractDependencies(obj: SeedObjectConfig): string[] {
-  const deps = new Set<string>();
-  for (const rule of obj.fieldRules) {
-    if (rule.ruleType === 'reference' && rule.config.referenceObject) {
-      deps.add(rule.config.referenceObject);
-    }
-  }
-  return Array.from(deps);
-}
-
 /**
  * Generate sample records for preview.
- * Creates simplified values based on field rule types.
+ * Creates simplified values based on field rule types. An object of rows
+ * shows its first rows' values as they are given, over what its rules would
+ * fill, and the lookup a relation by key fills as the parent row it names.
  */
 function generateSampleRecords(
   obj: SeedObjectConfig,
   sampleCount: number,
+  relation?: SeedRelation,
 ): Record<string, unknown>[] {
   const count = Math.min(sampleCount, obj.recordCount);
   const records: Record<string, unknown>[] = [];
@@ -89,6 +84,13 @@ function generateSampleRecords(
     const record: Record<string, unknown> = {};
     for (const rule of obj.fieldRules) {
       record[rule.fieldApiName] = generateSampleValue(rule, i);
+    }
+    const row = obj.rows?.[i];
+    if (row) {
+      Object.assign(record, row.values);
+      if (relation?.distribution.mode === 'byKey' && row.parentKey !== undefined) {
+        record[relation.lookupField] = `[key:${row.parentKey}]`;
+      }
     }
     records.push(record);
   }
@@ -132,10 +134,15 @@ function generateSampleValue(rule: FieldRule, index: number): unknown {
 }
 
 /**
- * Resolve the correct insert order using topological sort
- * based on reference dependencies between objects.
+ * Resolve the correct insert order using topological sort based on the
+ * dependencies between objects: their reference rules, and the parent of a
+ * relation whose parents this run writes — a child placed by key is written
+ * after the rows it is placed under.
  */
-export function resolveInsertOrder(objects: SeedObjectConfig[]): SeedObjectConfig[] {
+export function resolveInsertOrder(
+  objects: SeedObjectConfig[],
+  relations: readonly SeedRelation[] = [],
+): SeedObjectConfig[] {
   const objectMap = new Map<string, SeedObjectConfig>();
   for (const obj of objects) {
     objectMap.set(obj.objectApiName, obj);
@@ -155,7 +162,7 @@ export function resolveInsertOrder(objects: SeedObjectConfig[]): SeedObjectConfi
       return;
     }
 
-    const deps = extractDependencies(obj);
+    const deps = seedDependencies(obj, relations);
     for (const dep of deps) {
       visit(dep);
     }

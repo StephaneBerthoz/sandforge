@@ -84,4 +84,17 @@ describe('template counts', () => {
       ids: ['001000000000001AAA'],
     });
   });
+
+  it('leaves a child placed by key its own count: its records are its rows, whatever its parents number', () => {
+    const keyed = {
+      ...CRM_STARTER,
+      relations: (CRM_STARTER.relations ?? []).map((relation) =>
+        relation.childObject === 'Contact'
+          ? { ...relation, distribution: { mode: 'byKey' as const } }
+          : relation,
+      ),
+    };
+    const counts = withCount(keyed, countsOf(keyed), 'Account', 4);
+    expect(counts['Contact']).toBe(countsOf(keyed)['Contact']);
+  });
 });

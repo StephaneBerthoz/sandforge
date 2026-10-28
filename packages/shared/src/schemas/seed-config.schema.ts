@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { SEED_RELATION_LIMITS } from '../utils/seed-relations.js';
+import { SEED_RELATION_LIMITS, SEED_ROW_LIMITS } from '../utils/seed-relations.js';
 import { SEED_MAX_RECORDS_PER_OBJECT } from '../constants/defaults.js';
 
 /** Configuration for a single field generation rule */
@@ -42,6 +42,41 @@ export const fieldRuleSchema = z.object({
   config: fieldRuleConfigSchema,
 });
 
+/** What a row is named by, and what a child row names its parent row by. */
+const seedRowKeySchema = z.string().min(1).max(SEED_ROW_LIMITS.maxKeyLength);
+
+/** One record written with these values as they are (`SeedRow`). */
+export const seedRowSchema = z.object({
+  key: seedRowKeySchema,
+  values: z.record(
+    z.string().min(1),
+    z.union([z.string().max(SEED_ROW_LIMITS.maxTextLength), z.number(), z.boolean(), z.null()]),
+  ),
+  parentKey: seedRowKeySchema.optional(),
+});
+
+/**
+ * An object's rows, each key once: a child row names its parent by key, and
+ * a key given twice would leave it two parents to be placed under.
+ */
+export const seedRowsSchema = z
+  .array(seedRowSchema)
+  .min(1)
+  .max(SEED_MAX_RECORDS_PER_OBJECT)
+  .superRefine((rows, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, row] of rows.entries()) {
+      if (seen.has(row.key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index, 'key'],
+          message: `The key "${row.key}" names more than one row: each row is named once`,
+        });
+      }
+      seen.add(row.key);
+    }
+  });
+
 /** Per-object seed configuration */
 export const seedObjectConfigSchema = z.object({
   objectApiName: z.string().min(1),
@@ -52,6 +87,7 @@ export const seedObjectConfigSchema = z.object({
   insertOrder: z.number().int().nonnegative(),
   batchSize: z.number().int().positive().max(10000).default(200),
   optional: z.boolean().optional(),
+  rows: seedRowsSchema.optional(),
 });
 
 /** A record id as an org writes one: 15 letters and digits, or 18 with the case-safe suffix. */
@@ -81,7 +117,7 @@ export const seedRelationParentsSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** How many children each parent of a relation receives. */
+/** How many children each parent of a relation receives, or `byKey`: under the row each names. */
 export const seedRelationDistributionSchema = z
   .discriminatedUnion('mode', [
     z.object({
@@ -97,6 +133,7 @@ export const seedRelationDistributionSchema = z
       mode: z.literal('ratio'),
       ratio: z.number().min(SEED_RELATION_LIMITS.minRatio).max(SEED_RELATION_LIMITS.maxPerParent),
     }),
+    z.object({ mode: z.literal('byKey') }),
   ])
   .refine((distribution) => distribution.mode !== 'range' || distribution.min <= distribution.max, {
     message: 'A range of children per parent cannot start above its end',
@@ -122,6 +159,113 @@ export const seedConfigSchema = z.object({
   aiPersona: z.string().optional(),
   tags: z.array(z.string()).default([]),
 });
+
+/** The part of a template the checks of its rows read. */
+export interface SeedKeyedRowsTemplate {
+  objects: ReadonlyArray<{
+    objectApiName: string;
+    recordCount: number;
+    rows?: ReadonlyArray<{ key: string; parentKey?: string }>;
+  }>;
+  relations?: ReadonlyArray<{
+    childObject: string;
+    parentObject: string;
+    parents: { kind: string };
+    distribution: { mode: string };
+  }>;
+}
+
+/**
+ * What a template's rows break, and where. A type rather than an interface,
+ * so that a schema's refinement context, which takes any issue, takes it.
+ */
+export type SeedKeyedRowsIssue = {
+  code: 'custom';
+  path: Array<string | number>;
+  message: string;
+};
+
+/**
+ * What a template's rows break, across its objects and relations: an object
+ * whose count is not its rows', a parent key no relation places by, a row of
+ * a relation by key that names no parent row, or a relation by key over
+ * parents that have no keys. Each issue says where it is.
+ *
+ * A refinement for the template schemas, given apart from `seedConfigSchema`
+ * because the bridge extends its shape, which an object schema once refined
+ * can no longer be. The run's validator asks the same of a template built in
+ * code, which no schema reads.
+ */
+export function checkSeedKeyedRows(
+  template: SeedKeyedRowsTemplate,
+  ctx: { addIssue(issue: SeedKeyedRowsIssue): void },
+): void {
+  const objects = template.objects;
+  const relations = template.relations ?? [];
+  const issue = (path: Array<string | number>, message: string): void =>
+    ctx.addIssue({ code: 'custom', path, message });
+  for (const [index, object] of objects.entries()) {
+    const rows = object.rows;
+    if (!rows) continue;
+    const name = object.objectApiName;
+    if (object.recordCount !== rows.length) {
+      issue(
+        ['objects', index, 'recordCount'],
+        `${name} gives ${rows.length} row(s) and asks for ${object.recordCount} record(s): ` +
+          'an object with rows writes one record per row',
+      );
+    }
+    const relation = relations.find((r) => r.childObject === name);
+    const byKey = relation?.distribution.mode === 'byKey' ? relation : undefined;
+    const parent = byKey && objects.find((o) => o.objectApiName === byKey.parentObject);
+    const parentKeys = new Set((parent ? (parent.rows ?? []) : []).map((row) => row.key));
+    for (const [at, row] of rows.entries()) {
+      const path = ['objects', index, 'rows', at, 'parentKey'];
+      if (!byKey) {
+        if (row.parentKey !== undefined) {
+          issue(
+            path,
+            `${name} row "${row.key}" names a parent row, and no relation places ${name} by key`,
+          );
+        }
+      } else if (row.parentKey === undefined) {
+        issue(
+          path,
+          `${name} row "${row.key}" names no ${byKey.parentObject} row: a relation by key ` +
+            'places every row under the one it names',
+        );
+      } else if (parent && parent.rows && !parentKeys.has(row.parentKey)) {
+        issue(
+          path,
+          `${name} row "${row.key}" is placed under ${byKey.parentObject} "${row.parentKey}", ` +
+            `which no ${byKey.parentObject} row is`,
+        );
+      }
+    }
+  }
+  for (const [index, relation] of relations.entries()) {
+    if (relation.distribution.mode !== 'byKey') continue;
+    const path = ['relations', index, 'distribution'];
+    const said = `The relation on ${relation.childObject} places by key`;
+    const child = objects.find((o) => o.objectApiName === relation.childObject);
+    const parent = objects.find((o) => o.objectApiName === relation.parentObject);
+    if (relation.parents.kind !== 'generated') {
+      issue(path, `${said}, which only the ${relation.parentObject} rows this run writes have`);
+    } else if (parent && !parent.rows) {
+      issue(path, `${said}, and ${relation.parentObject} has no rows to name`);
+    }
+    if (child && !child.rows) {
+      issue(path, `${said}, and ${relation.childObject} has no rows to place`);
+    }
+  }
+}
+
+/** What {@link checkSeedKeyedRows} finds in a template, as a list. */
+export function seedKeyedRowsIssues(template: SeedKeyedRowsTemplate): SeedKeyedRowsIssue[] {
+  const issues: SeedKeyedRowsIssue[] = [];
+  checkSeedKeyedRows(template, { addIssue: (issue) => issues.push(issue) });
+  return issues;
+}
 
 /** Inferred type for field rule configuration input */
 export type FieldRuleConfigInput = z.infer<typeof fieldRuleConfigSchema>;

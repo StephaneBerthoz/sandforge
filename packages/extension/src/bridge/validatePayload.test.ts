@@ -327,6 +327,52 @@ describe('seedExecutePayloadSchema', () => {
     expect(parsed.template.objects[0]).toHaveProperty('extraObjectKey', 'kept');
     expect(parsed.template.objects[0].fieldRules[0].config).toEqual({ aiPrompt: 'a' });
   });
+
+  it('takes rows placed by key, and refuses one placed under a parent row no row is', () => {
+    const keyedTemplate = (parentKey: string) => ({
+      name: 'Keyed',
+      strategy: 'template',
+      objects: [
+        {
+          objectApiName: 'Account',
+          recordCount: 1,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 0,
+          rows: [{ key: 'a1', values: { Name: 'Acme' } }],
+        },
+        {
+          objectApiName: 'Contact',
+          recordCount: 1,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 1,
+          rows: [{ key: 'c1', parentKey, values: { LastName: 'One' } }],
+        },
+      ],
+      relations: [
+        {
+          childObject: 'Contact',
+          lookupField: 'AccountId',
+          parentObject: 'Account',
+          parents: { kind: 'generated' },
+          distribution: { mode: 'byKey' },
+        },
+      ],
+    });
+
+    const parsed = seedExecutePayloadSchema.parse({ orgId: 'o', template: keyedTemplate('a1') });
+    expect(parsed.template.objects[1].rows).toEqual([
+      { key: 'c1', parentKey: 'a1', values: { LastName: 'One' } },
+    ]);
+    const refused = seedExecutePayloadSchema.safeParse({
+      orgId: 'o',
+      template: keyedTemplate('a2'),
+    });
+    expect(refused.error?.issues.map((issue) => issue.message)).toEqual([
+      'Contact row "c1" is placed under Account "a2", which no Account row is',
+    ]);
+  });
 });
 
 describe('dataops payload schemas', () => {

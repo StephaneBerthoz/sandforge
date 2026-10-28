@@ -56,6 +56,8 @@ export interface DescribedFields {
    * gives none.
    */
   keyPrefix(objectApiName: string): Promise<string | undefined>;
+  /** The most characters each field that holds text takes, by field: what a row's text is cut to. */
+  lengths(objectApiName: string): Promise<ReadonlyMap<string, number>>;
 }
 
 /** A field's active picklist values. */
@@ -104,6 +106,15 @@ export function describedFieldsOf(
     async keyPrefix(objectApiName) {
       const { keyPrefix } = await describeOnce(objectApiName);
       return typeof keyPrefix === 'string' && keyPrefix.length === 3 ? keyPrefix : undefined;
+    },
+    async lengths(objectApiName) {
+      const { fields } = await describeOnce(objectApiName);
+      // A field that holds no text, a number or a date, has a length of 0.
+      return new Map(
+        fields.flatMap((f) =>
+          typeof f.length === 'number' && f.length > 0 ? [[f.name, f.length] as const] : [],
+        ),
+      );
     },
     async required(objectApiName) {
       const { fields } = await describeOnce(objectApiName);

@@ -10,6 +10,7 @@ import {
   seedConfigSchema,
   seedObjectConfigSchema,
   seedRelationSchema,
+  checkSeedKeyedRows,
   complianceFrameworkTypeSchema,
   anonymizationMethodSchema,
   QuickSyncConfigSchema,
@@ -568,13 +569,17 @@ export const seedRelationPayloadSchema = seedRelationSchema
     }
   });
 
-/** Seed template accepted by `seed:execute`. */
+/**
+ * Seed template accepted by `seed:execute`, and by the command line's
+ * `--template-file`: its rows agree with its relations (`checkSeedKeyedRows`).
+ */
 export const seedTemplatePayloadSchema = seedConfigSchema
   .extend({
     objects: z.array(seedObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
     relations: z.array(seedRelationPayloadSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
   })
-  .loose();
+  .loose()
+  .superRefine(checkSeedKeyedRows);
 
 export const seedExecutePayloadSchema = z.object({
   orgId: orgIdSchema,

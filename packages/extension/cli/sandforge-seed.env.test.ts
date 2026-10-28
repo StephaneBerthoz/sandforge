@@ -667,6 +667,142 @@ describe('--template-file with parents named by id', () => {
   });
 });
 
+describe('--template-file with rows placed by key', () => {
+  /** The fake org, its assets taking an account. */
+  function orgWithAssetAccounts() {
+    const org = fakeOrg();
+    const conn = vi.mocked(makeConn)({} as never) as unknown as {
+      describe: (objectApiName: string) => Promise<unknown>;
+      sobject: (objectApiName: string) => Record<string, unknown>;
+    };
+    const assetWithAccount = {
+      ...ASSET,
+      fields: [
+        ...ASSET.fields,
+        {
+          name: 'AccountId',
+          type: 'reference',
+          createable: true,
+          nillable: true,
+          length: 18,
+          referenceTo: ['Account'],
+          defaultedOnCreate: false,
+          picklistValues: [],
+        },
+      ],
+    };
+    const described = (objectApiName: string) =>
+      objectApiName === 'Account' ? ACCOUNT : assetWithAccount;
+    conn.describe = async (objectApiName: string) => described(objectApiName);
+    const sobject = conn.sobject;
+    conn.sobject = (objectApiName: string) => ({
+      ...sobject(objectApiName),
+      describe: async () => described(objectApiName),
+    });
+    return org;
+  }
+
+  /** Two accounts, and three assets each under the account its row names. */
+  function keyedFile(): string {
+    const file = join(dir, 'keyed.json');
+    const object = (objectApiName: string, insertOrder: number, rows: unknown[]) => ({
+      objectApiName,
+      recordCount: rows.length,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder,
+      rows,
+    });
+    writeFileSync(
+      file,
+      JSON.stringify({
+        name: 'Keyed assets',
+        strategy: 'template',
+        objects: [
+          object('Account', 0, [
+            { key: 'a1', values: { Name: 'Acme' } },
+            { key: 'a2', values: { Name: 'Globex' } },
+          ]),
+          object('Asset', 1, [
+            { key: 'x1', parentKey: 'a1', values: { Name: 'Router' } },
+            { key: 'x2', parentKey: 'a2', values: { Name: 'Modem' } },
+            { key: 'x3', parentKey: 'a2', values: { Name: 'Box' } },
+          ]),
+        ],
+        relations: [
+          {
+            childObject: 'Asset',
+            lookupField: 'AccountId',
+            parentObject: 'Account',
+            parents: { kind: 'generated' },
+            distribution: { mode: 'byKey' },
+          },
+        ],
+      }),
+    );
+    return file;
+  }
+
+  const line = (file: string, ...more: string[]): string[] => [
+    'node',
+    'sandforge-seed.ts',
+    '--target',
+    'TGT',
+    '--template-file',
+    file,
+    '--seed',
+    '7',
+    '--json',
+    ...more,
+  ];
+
+  /** What each object of a run's --json summary wrote and failed. */
+  const counts = (): Array<[string, number, number]> =>
+    (
+      JSON.parse(stdout.join('')) as {
+        result: {
+          objectResults: Array<{
+            objectApiName: string;
+            recordsCreated: number;
+            recordsFailed: number;
+          }>;
+        };
+      }
+    ).result.objectResults.map((r) => [r.objectApiName, r.recordsCreated, r.recordsFailed]);
+
+  it('writes each asset under the account its row names', async () => {
+    const { sent } = orgWithAssetAccounts();
+
+    await main(line(keyedFile()));
+
+    // The fake org numbers its ids in the order it creates them: the accounts first.
+    const [accounts, assets] = sent;
+    const accountOf = (id: unknown) => accounts.records[Number(String(id).slice(3, 15))]?.Name;
+    expect(accounts.objectApiName).toBe('Account');
+    expect(assets.records.map((r) => [r.Name, accountOf(r.AccountId)])).toEqual([
+      ['Router', 'Acme'],
+      ['Modem', 'Globex'],
+      ['Box', 'Globex'],
+    ]);
+    expect(counts()).toEqual([
+      ['Account', 2, 0],
+      ['Asset', 3, 0],
+    ]);
+  });
+
+  it('plans in a dry run every row the run writes', async () => {
+    const { sent } = orgWithAssetAccounts();
+
+    await main(line(keyedFile(), '--dry-run'));
+
+    expect(sent).toEqual([]);
+    expect(counts()).toEqual([
+      ['Account', 2, 0],
+      ['Asset', 3, 0],
+    ]);
+  });
+});
+
 describe('--record-type with --template-file', () => {
   /** Asset's record types in the fake org: two open to the user, one inactive. */
   const ASSET_TYPES = [
