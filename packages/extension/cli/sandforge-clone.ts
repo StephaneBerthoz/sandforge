@@ -211,6 +211,8 @@ import {
   countedEmailChecksOf,
   emailCheckLines,
   emailRefusal,
+  emailsUncountedOf,
+  insertsOf,
   objectsUpdatedAfterInsert,
   removalAutomationLines,
   removalAutomationRefusal,
@@ -432,7 +434,11 @@ Usage:
   target's flows send as the records go in, against the daily limits it has
   left — a Developer Edition's email alerts counted against its single emails
   too — and writes nothing past them: a record whose flow fails in the save
-  is refused there, and the org's own emails stop for the day.
+  is refused there, and the org's own emails stop for the day. What sends
+  and could not be read — a flow's definition refused or past the read's
+  bound, a flow a package installed, which the org lets no one read — is
+  said not counted (with --dry-run --json, under writePlan.emailsUncounted),
+  and refuses nothing: --accept-automation already covers it.
 
 Required:
   --record <id>          Source record ID (any object type — prefix detected automatically);
@@ -5824,7 +5830,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   /**
    * What a dry run's gate counted as the write would have begun: per object
    * the records, the storage they take and the emails they send, and in all
-   * the records `--max-total` holds a run to. Given with --json under
+   * the records `--max-total` holds a run to — with why some emails were not
+   * counted, when what sends them could not be read. Given with --json under
    * `writePlan`: an environment holds the real run to this count, so a scope
    * that grew since its dry run is refused, not written.
    */
@@ -5834,6 +5841,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         storageBytes: number;
         objects: WritePlan['objects'];
         emails?: Array<{ limit: string; emails: number }>;
+        emailsUncounted?: string;
       }
     | undefined;
   const beforeWrite = async (boundary: ForgeWriteBoundary): Promise<void> => {
@@ -5865,6 +5873,15 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       overEmails = emailRefusal(emails, args.target);
       emailCounts = emails.map((check) => ({ limit: check.limit, emails: check.emails }));
     }
+    // What sends and could not be read counted as sending nothing, and the
+    // lines said no word of it, a flow a package installed among them, which
+    // no one reads. It is said, as Sync and Autopilot say it, and refuses
+    // nothing: --accept-automation, without which a run that fires anything
+    // unread writes nothing, already covers it.
+    const emailsUncounted = emailsUncountedOf(targetAutomation, insertsOf(plan));
+    if (emailsUncounted !== undefined) {
+      say(`  emails: not counted, ${emailsUncounted} could not be read`);
+    }
     const overTotal =
       plan.totalRows > args.maxTotal
         ? `The run would write ${plan.totalRows} records, more than --max-total ` +
@@ -5883,6 +5900,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         storageBytes: plan.storageBytes,
         objects: plan.objects,
         ...(emailCounts !== undefined ? { emails: emailCounts } : {}),
+        ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
       };
       return;
     }

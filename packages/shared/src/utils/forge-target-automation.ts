@@ -281,6 +281,12 @@ export function emailsPerInsertOf(
  * rewind's updates, deletes and undeletes make an org send. A flow starts on
  * no undelete, and an Apex trigger's emails are not read: an undelete counts
  * none of either.
+ *
+ * A flow, a process or a rule whose definition was not read — refused, past
+ * the read's bound, or a package's, whose flows no user reads — has no
+ * actions here, and counts as sending none: what says it was not counted is
+ * the extension's `emailsUncountedOf` (`ForgeRunGate`), which a count of
+ * these goes with.
  */
 export function emailsPerWriteOf(
   automation: Pick<ForgeTargetAutomation, 'objects'>,

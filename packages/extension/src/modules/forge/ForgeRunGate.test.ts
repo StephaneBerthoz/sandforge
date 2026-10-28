@@ -1,6 +1,8 @@
+import * as fc from 'fast-check';
 import { describe, it, expect, vi } from 'vitest';
 import {
   DATA_STORAGE_NOT_TOLD,
+  type ForgeAutomationWrite,
   type ForgeGraphEdge,
   type ForgeGraphNode,
   type ForgeTargetAutomation,
@@ -27,11 +29,13 @@ import {
   emailChecksOf,
   emailRefusal,
   emailsCountedPerRecord,
+  emailsUncountedOf,
   farPastTheSimulation,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
   forgeVolumeCaseKey,
+  insertsOf,
   isForgeRunGateError,
   objectsAboveReadCeiling,
   objectsUpdatedAfterInsert,
@@ -610,6 +614,260 @@ describe('countedTargetEmails', () => {
       'the definitions of Flow 01, Flow 02, Flow 03, Flow 04, Flow 05, Flow 06, Flow 07, ' +
         'Flow 08, Flow 09, Flow 10 and 2 more on Contact',
     );
+  });
+
+  it('says why the emails of a flow a package installed were not counted, naming the package', async () => {
+    // Probed on a Developer Edition: a package's flow after the save, its
+    // active version named `<its name>-1`, is never read, whoever reads it.
+    const emails = await count(
+      planOf(['Contact', 5]),
+      targetOf([
+        {
+          objectApiName: 'Contact',
+          flows: [
+            flow({
+              apiName: 'survey_kit__Contact_Feedback',
+              label: 'Contact feedback',
+              condition: 'unreadable',
+            }),
+          ],
+          triggers: [],
+        },
+      ]),
+    );
+
+    expect(emails.unread).toBe(
+      'the definition of Contact feedback (package survey_kit, whose flows the org lets no ' +
+        'one read) on Contact',
+    );
+  });
+});
+
+describe('emailsUncountedOf', () => {
+  const flow = (over: Partial<ForgeTargetFlow>): ForgeTargetFlow => ({
+    apiName: 'F',
+    label: 'F',
+    timing: 'afterSave',
+    startsOn: 'create',
+    condition: 'read',
+    permissions: [],
+    messages: [],
+    ...over,
+  });
+  const automationOf = (
+    objects: ForgeTargetAutomation['objects'],
+    unread: ForgeTargetAutomation['unread'] = [],
+  ): Pick<ForgeTargetAutomation, 'objects' | 'unread'> => ({ objects, unread });
+  /** The writes a rewind of contacts' updates and cases' deletes makes. */
+  const rewound = (objectApiName: string, write: ForgeAutomationWrite): boolean =>
+    (objectApiName === 'Contact' && write === 'update') ||
+    (objectApiName === 'Case' && write === 'delete');
+
+  it('names a flow on an update and one before a delete whose definitions were not read, when those writes are made', () => {
+    const uncounted = emailsUncountedOf(
+      automationOf([
+        {
+          objectApiName: 'Contact',
+          flows: [flow({ label: 'Contact edited', startsOn: 'update', condition: 'notRead' })],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Case',
+          flows: [
+            flow({
+              label: 'Case closing',
+              timing: 'beforeDelete',
+              startsOn: 'delete',
+              condition: 'unreadable',
+            }),
+          ],
+          triggers: [],
+        },
+      ]),
+      rewound,
+    );
+
+    expect(uncounted).toBe('the definitions of Contact edited on Contact; Case closing on Case');
+  });
+
+  it('names nothing of a flow read, one before the save, one a held bypass keeps quiet, or one of an object not written', () => {
+    const uncounted = emailsUncountedOf(
+      automationOf([
+        {
+          objectApiName: 'Contact',
+          flows: [
+            flow({ label: 'Contact read', startsOn: 'update' }),
+            flow({
+              label: 'Contact defaults',
+              timing: 'beforeSave',
+              startsOn: 'update',
+              condition: 'notRead',
+            }),
+            flow({
+              label: 'Contact quiet',
+              startsOn: 'update',
+              condition: 'unreadable',
+              permissions: [{ name: 'Load_Data', bypass: true, held: true }],
+            }),
+            flow({ label: 'Contact created', startsOn: 'create', condition: 'notRead' }),
+          ],
+          triggers: [],
+        },
+        {
+          objectApiName: 'Lead',
+          flows: [flow({ label: 'Lead edited', startsOn: 'update', condition: 'notRead' })],
+          triggers: [],
+        },
+      ]),
+      rewound,
+    );
+
+    expect(uncounted).toBeUndefined();
+  });
+
+  it('names once a flow that starts on both writes it fires on', () => {
+    const uncounted = emailsUncountedOf(
+      automationOf([
+        {
+          objectApiName: 'Contact',
+          flows: [
+            flow({ label: 'Contact saved', startsOn: 'createAndUpdate', condition: 'notRead' }),
+          ],
+          triggers: [],
+        },
+      ]),
+      (objectApiName) => objectApiName === 'Contact',
+    );
+
+    expect(uncounted).toBe('the definition of Contact saved on Contact');
+  });
+
+  it('names the parts of the automation that send emails the read could not take, after whose they are', () => {
+    const automation = automationOf(
+      [],
+      [
+        { part: 'flows', reason: 'INSUFFICIENT_ACCESS' },
+        { part: 'triggers', reason: 'INSUFFICIENT_ACCESS' },
+        { part: 'workflowRules', reason: 'INVALID_TYPE' },
+      ],
+    );
+
+    expect(emailsUncountedOf(automation, rewound, "the org's")).toBe(
+      "the org's flows: INSUFFICIENT_ACCESS; the org's workflow rules: INVALID_TYPE",
+    );
+    expect(emailsUncountedOf(automation, rewound)).toBe(
+      "the target's flows: INSUFFICIENT_ACCESS; the target's workflow rules: INVALID_TYPE",
+    );
+  });
+
+  it('counts as written by a run the inserts of the objects its plan holds records of, and nothing else', () => {
+    const plan = writePlanOf([
+      { objectApiName: 'Contact', rows: [], counted: { rows: 3 } },
+      { objectApiName: 'Account', rows: [], counted: { rows: 0 } },
+    ]);
+    const inserts = insertsOf(plan);
+
+    expect(inserts('Contact', 'insert')).toBe(true);
+    expect(inserts('Contact', 'update')).toBe(false);
+    expect(inserts('Account', 'insert')).toBe(false);
+    expect(inserts('Case', 'insert')).toBe(false);
+  });
+
+  describe('for any automation', () => {
+    const OBJECTS = ['Account', 'Contact', 'Case'] as const;
+    const WRITES: readonly ForgeAutomationWrite[] = ['insert', 'update', 'delete', 'undelete'];
+    /** The writes that start a flow, a process or a rule, by what it starts on. */
+    const STARTS: Record<ForgeTargetFlow['startsOn'], readonly ForgeAutomationWrite[]> = {
+      create: ['insert'],
+      update: ['update'],
+      createAndUpdate: ['insert', 'update'],
+      delete: ['delete'],
+    };
+    const entryArb = fc.record({
+      timing: fc.constantFrom<ForgeTargetFlow['timing']>('beforeSave', 'afterSave', 'beforeDelete'),
+      startsOn: fc.constantFrom<ForgeTargetFlow['startsOn']>(
+        'create',
+        'update',
+        'createAndUpdate',
+        'delete',
+      ),
+      condition: fc.constantFrom<ForgeTargetFlow['condition']>('read', 'notRead', 'unreadable'),
+      quiet: fc.boolean(),
+    });
+    const objectArb = fc.record({
+      flows: fc.array(entryArb, { maxLength: 3 }),
+      processes: fc.array(entryArb, { maxLength: 3 }),
+      workflowRules: fc.array(entryArb, { maxLength: 3 }),
+    });
+    const caseArb = fc.record({
+      objects: fc.tuple(objectArb, objectArb, objectArb),
+      written: fc.subarray(
+        OBJECTS.flatMap((object) => WRITES.map((write) => `${object}:${write}`)),
+      ),
+      unread: fc.subarray([
+        'flows',
+        'processes',
+        'workflowRules',
+        'triggers',
+        'conditions',
+      ] as const),
+    });
+
+    it('says nothing exactly when every flow, process and rule that may send on a write made was read, and names only those that were not', () => {
+      fc.assert(
+        fc.property(caseArb, (drawn) => {
+          let n = 0;
+          // Labels of one width, none inside another.
+          const labelled = (entries: (typeof drawn.objects)[number]['flows']) =>
+            entries.map(({ quiet, ...entry }) =>
+              flow({
+                ...entry,
+                label: `F${String(n++).padStart(2, '0')}`,
+                permissions: quiet ? [{ name: 'Load_Data', bypass: true, held: true }] : [],
+              }),
+            );
+          const objects = OBJECTS.map((objectApiName, i) => ({
+            objectApiName,
+            flows: labelled(drawn.objects[i].flows),
+            triggers: [],
+            processes: labelled(drawn.objects[i].processes),
+            workflowRules: labelled(drawn.objects[i].workflowRules),
+          }));
+          const written = new Set(drawn.written);
+          const writes = (objectApiName: string, write: ForgeAutomationWrite) =>
+            written.has(`${objectApiName}:${write}`);
+          const automation = automationOf(
+            objects,
+            drawn.unread.map((part) => ({ part, reason: 'REFUSED' })),
+          );
+
+          const uncounted = emailsUncountedOf(automation, writes);
+
+          const unreadSenders = objects.flatMap((object) =>
+            [...object.flows, ...object.processes, ...object.workflowRules].filter(
+              (entry) =>
+                STARTS[entry.startsOn].some((write) => writes(object.objectApiName, write)) &&
+                entry.timing !== 'beforeSave' &&
+                !entry.permissions.some((p) => p.bypass && p.held === true) &&
+                entry.condition !== 'read',
+            ),
+          );
+          const partsUnread = drawn.unread.some((part) =>
+            ['flows', 'processes', 'workflowRules'].includes(part),
+          );
+          expect(uncounted === undefined).toBe(unreadSenders.length === 0 && !partsUnread);
+          const named = new Set(unreadSenders.map((entry) => entry.label));
+          for (const entry of objects.flatMap((o) => [
+            ...o.flows,
+            ...o.processes,
+            ...o.workflowRules,
+          ])) {
+            expect(uncounted?.includes(entry.label) ?? false).toBe(named.has(entry.label));
+          }
+        }),
+        { numRuns: 300 },
+      );
+    });
   });
 });
 

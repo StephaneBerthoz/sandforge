@@ -7,6 +7,8 @@ import type {
   ForgeTargetFlow,
   ForgeTargetObjectAutomation,
 } from '@sandforge/shared';
+import { emailsPerInsertOf } from '@sandforge/shared';
+import { emailsUncountedOf, insertsOf, writePlanOf } from './ForgeRunGate.js';
 import {
   ASSIGNMENT_RULES_SOQL,
   CONDITIONS_BOUND,
@@ -1311,6 +1313,45 @@ describe('TargetAutomationReader', () => {
       ASSIGNMENT_RULES_SOQL,
       DUPLICATE_RULES_SOQL,
     ]);
+  });
+
+  it("reads a package's flow as unreadable, sending nothing, and a run's gate says its emails were not counted", async () => {
+    // As a Developer Edition answered for a flow a package runs after the
+    // save of its object: listed under its namespace, its active version
+    // named after it, not by an id, and absent from the Tooling API's Flow.
+    const target = fakeTarget({
+      flows: [
+        {
+          ...flowRow(
+            'Contact',
+            'survey_kit__Contact_Feedback',
+            'RecordAfterSave',
+            'Create',
+            'survey_kit__Contact_Feedback-1',
+          ),
+          Label: 'Contact feedback',
+        },
+      ],
+      composites: true,
+      retrieves: true,
+    });
+
+    const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+    expect(automation.objects[0].flows[0]).toEqual(
+      expect.objectContaining({
+        apiName: 'survey_kit__Contact_Feedback',
+        condition: 'unreadable',
+        messages: [],
+      }),
+    );
+    expect(automation.unread).toEqual([]);
+    const plan = writePlanOf([{ objectApiName: 'Contact', rows: [], counted: { rows: 3 } }]);
+    expect(emailsPerInsertOf(automation)).toEqual([]);
+    expect(emailsUncountedOf(automation, insertsOf(plan))).toBe(
+      'the definition of Contact feedback (package survey_kit, whose flows the org lets no ' +
+        'one read) on Contact',
+    );
   });
 
   it('leaves out a trigger that runs on an undelete alone, which fires on no write of a run', async () => {

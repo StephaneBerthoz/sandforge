@@ -120,10 +120,12 @@ import {
   confirmationStorageOf,
   confirmationSimulatedOf,
   countedEmailChecksOf,
+  emailsUncountedOf,
   firedOnInsertOf,
   firedOnUpdateOf,
   formatMB,
   forgeVolumeCaseKey,
+  insertsOf,
   isForgeRunGateError,
   LastSimulations,
   objectsAboveReadCeiling,
@@ -695,6 +697,13 @@ const AUTOMATION_REUSE_MS = 10 * 60_000;
 
 /** The reads of the target's automation kept for the runs Execute starts. */
 const AUTOMATION_READS_KEPT = 8;
+
+/**
+ * What the target runs on the objects a run writes, read before it — Review's
+ * read reused, or its own — or why it could not be read.
+ */
+type TargetAutomationRead =
+  { automation: ForgeTargetAutomation; reused: boolean } | { unread: string };
 
 /** Timeout for reading the target's data storage before the first write, in milliseconds. */
 const LIMITS_TIMEOUT_MS = 30_000;
@@ -2167,6 +2176,8 @@ export class ForgeHandler implements DomainHandler {
     let stoppedBeforeStart = false;
     /** The emails the target's flows send per record inserted, read before the run. */
     let emailsPerInsert: ForgeEmailsPerInsert[] = [];
+    /** What the target runs, read before the run, or why it could not be: the gate says what of it sends unread. */
+    let targetAutomation: TargetAutomationRead | undefined;
     /** Of a simulation, what it would write, kept for the run of its case that follows once it ends. */
     let simulatedPlan: WritePlan | undefined;
 
@@ -2238,6 +2249,7 @@ export class ForgeHandler implements DomainHandler {
       const readCeiling = this.maxRecordsPerObject();
       if (!dryRun) {
         const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        targetAutomation = automation;
         if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
         if (runController.signal.aborted) {
           stoppedBeforeStart = true;
@@ -2391,6 +2403,7 @@ export class ForgeHandler implements DomainHandler {
             orgTier,
             lookup,
             emailsPerInsert,
+            ...(targetAutomation !== undefined ? { automation: targetAutomation } : {}),
             mayBeInTarget,
             ...(dryRun ? {} : { simulated: this.simulations.of(volumeCase) }),
             onSimulated: (plan) => {
@@ -2945,7 +2958,7 @@ export class ForgeHandler implements DomainHandler {
   private async automationBeforeTheRun(
     targetOrgId: string,
     graph: ForgeGraph,
-  ): Promise<{ automation: ForgeTargetAutomation; reused: boolean } | { unread: string }> {
+  ): Promise<TargetAutomationRead> {
     const notWritten = new Set(
       graph.nodes.filter((node) => !node.included).map((node) => node.objectApiName),
     );
@@ -3188,8 +3201,10 @@ export class ForgeHandler implements DomainHandler {
    * Past `sandforge.safety.confirmAboveRecords`, near what the target has
    * left, or when the target would not say what it has left, the user is
    * asked, with the records per object; the guard's large-volume warning goes
-   * in that question, and in the log. What is refused or declined throws, and
-   * the run stops with nothing written.
+   * in that question, and in the log. So is a run whose records make the
+   * target send emails past what it has left today, or that it did not say it
+   * has left of, or that were not counted: what sends could not be read. What
+   * is refused or declined throws, and the run stops with nothing written.
    *
    * @param run.lookup - The requests made for the run besides the executor's:
    *   the read of the target's limits is one of them.
@@ -3203,6 +3218,11 @@ export class ForgeHandler implements DomainHandler {
     lookup: { requests: number };
     /** The emails the target's flows send per record inserted, from the automation read before the run. */
     emailsPerInsert: readonly ForgeEmailsPerInsert[];
+    /**
+     * That automation, or why it could not be read: what of it was not read
+     * sends emails that are not counted. Absent when it was not read.
+     */
+    automation?: TargetAutomationRead;
     /**
      * Per object, the rows of a call the run it resumes had under way that the
      * target may hold already (`InFlightReconciliation.uncertain`): written
@@ -3292,6 +3312,21 @@ export class ForgeHandler implements DomainHandler {
           });
         }
       }
+      // What sends emails and could not be read was counted as sending
+      // nothing, and the run asked nothing of it: it is asked, as a Sync and
+      // an Autopilot run ask. A flow a package installed is never read, so
+      // every target whose package runs one on an object written meets it.
+      const uncounted =
+        run.automation === undefined
+          ? undefined
+          : 'automation' in run.automation
+            ? emailsUncountedOf(run.automation.automation, insertsOf(plan))
+            : `the target's automation: ${run.automation.unread}`;
+      if (uncounted !== undefined) {
+        logger.warn(
+          'Forge write gate: what of the target sends emails could not all be read, and its emails were not counted',
+        );
+      }
       const uncertain = (run.mayBeInTarget ?? []).filter(({ rows }) => rows > 0);
       // What the last simulation of the case counted, beside what the run
       // is about to write: far past it, the run is asked about whatever its
@@ -3310,6 +3345,7 @@ export class ForgeHandler implements DomainHandler {
         storage.verdict === 'fits' &&
         overEmails.length === 0 &&
         unreadEmails.length === 0 &&
+        uncounted === undefined &&
         uncertain.length === 0 &&
         simulated?.farAbove !== true
       ) {
@@ -3328,6 +3364,7 @@ export class ForgeHandler implements DomainHandler {
         ...(boundary.objects.some((object) => object.counted) ? { counted: true as const } : {}),
         ...(overEmails.length > 0 ? { emails: overEmails } : {}),
         ...(unreadEmails.length > 0 ? { emailsUnread: unreadEmails } : {}),
+        ...(uncounted !== undefined ? { emailsUncounted: uncounted } : {}),
         ...pricesForLinesOf(plan),
         ...(uncertain.length > 0
           ? { mayBeInTarget: uncertain.map(({ objectApiName, rows }) => ({ objectApiName, rows })) }

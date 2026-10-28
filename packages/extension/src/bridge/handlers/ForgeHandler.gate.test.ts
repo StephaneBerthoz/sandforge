@@ -1773,6 +1773,103 @@ describe('forge:execute, the gate before the first write', () => {
       expect(calls).toContain('written');
     });
 
+    describe('emails that were not counted', () => {
+      /**
+       * The contacts' flow after the save, as the reader gives one a package
+       * installed: probed on a Developer Edition, its active version was named
+       * after it, not by an id, and no user reads its definition.
+       */
+      const packaged = (
+        over: Partial<ForgeTargetAutomation['objects'][number]['flows'][number]> = {},
+      ) =>
+        ({
+          ...FIRES,
+          objects: [
+            {
+              objectApiName: 'Contact',
+              triggers: [],
+              flows: [
+                {
+                  apiName: 'survey_kit__Contact_Feedback',
+                  label: 'Contact feedback',
+                  timing: 'afterSave',
+                  startsOn: 'create',
+                  condition: 'unreadable',
+                  permissions: [],
+                  paths: [],
+                  messages: [],
+                  switches: [],
+                  ...over,
+                },
+              ],
+            },
+          ],
+        }) satisfies ForgeTargetAutomation;
+
+      it('asks before rows a flow a package installed fires on, saying its emails were not counted and why', async () => {
+        // It fires on every contact the run creates: what it sends was
+        // counted as nothing, and the gate let the run write without a word.
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+          targetAutomation: readerOf(packaged()),
+        });
+
+        await execute();
+
+        expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+        expect(questions[1]).toEqual(
+          expect.objectContaining({
+            total: 11,
+            emailsUncounted:
+              'the definition of Contact feedback (package survey_kit, whose flows the org lets ' +
+              'no one read) on Contact',
+          }),
+        );
+        expect(questions[1]).not.toHaveProperty('emails');
+        expect(questions[1]).not.toHaveProperty('emailsUnread');
+        expect(questions[1]).not.toHaveProperty('aboveRecords');
+        expect(calls.indexOf('asked write')).toBeLessThan(calls.indexOf('written'));
+      });
+
+      it('asks nothing of a flow whose definition was read and sends no email', async () => {
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+          targetAutomation: readerOf(packaged({ apiName: 'Contact_Feedback', condition: 'read' })),
+        });
+
+        await execute();
+
+        expect(questions.map((q) => q.stage)).toEqual(['automation']);
+        expect(calls).toContain('written');
+      });
+
+      it("asks when the target's automation could not be read, none of its emails counted", async () => {
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+          targetAutomation: readerOf(new Error('INVALID_SESSION_ID: Session expired or invalid')),
+        });
+
+        await execute();
+
+        expect(questions.map((q) => q.stage)).toEqual(['automation', 'write']);
+        expect(questions[1]).toEqual(
+          expect.objectContaining({
+            emailsUncounted:
+              "the target's automation: INVALID_SESSION_ID: Session expired or invalid",
+          }),
+        );
+      });
+
+      it('writes nothing when the user declines it', async () => {
+        handler.setForgeOrchestrator(orchestratorHanding(boundaryOf(10)), {
+          targetAutomation: readerOf(packaged()),
+        });
+        answers = [true, false];
+
+        await execute();
+
+        expect(calls).not.toContain('written');
+        expectStoppedAtTheGate('WRITE_DECLINED');
+      });
+    });
+
     describe('beside the last simulation of the same case', () => {
       /** Review's Simulate of `config`, its gate handed `boundary`. */
       async function simulateHanding(

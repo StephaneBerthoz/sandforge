@@ -816,6 +816,84 @@ describe('sandforge-clone target automation', () => {
       expect(stderr).toContain('Nothing was written.');
       expect(orgs.TGT.written).toEqual([]);
     });
+
+    describe('emails that were not counted', () => {
+      /**
+       * A flow a package installed, run after a contact is created, as a
+       * Developer Edition lists one: under its namespace, its active version
+       * named after it, not by an id. No user reads its definition.
+       */
+      const PACKAGE_FLOW = {
+        ApiName: 'survey_kit__Contact_Feedback',
+        Label: 'Contact feedback',
+        TriggerType: 'RecordAfterSave',
+        RecordTriggerType: 'Create',
+        TriggerObjectOrEvent: { QualifiedApiName: 'Contact' },
+        ActiveVersionId: 'survey_kit__Contact_Feedback-1',
+      };
+      const LINE =
+        '  emails: not counted, the definition of Contact feedback (package survey_kit, whose ' +
+        'flows the org lets no one read) on Contact could not be read';
+      const packaged = () =>
+        fakeOrg({ noFlows: true, moreFlows: [PACKAGE_FLOW], limits: STORAGE, duplicateRules: [] });
+
+      it('says on a dry run that the emails of a flow a package installed were not counted, and gives it under writePlan', async () => {
+        withOrgs(packaged());
+
+        expect(await run(argv('--dry-run', '--skip-preflight', '--json'))).toBeUndefined();
+
+        expect(errored).toContain(LINE);
+        const summary = JSON.parse(stdout) as {
+          writePlan: Record<string, unknown>;
+          wouldBeRefused: string[];
+        };
+        expect(summary.writePlan).toEqual({
+          totalRows: 2,
+          storageBytes: 4096,
+          objects: [
+            { objectApiName: 'Account', rows: 1, storageBytes: 2048 },
+            { objectApiName: 'Contact', rows: 1, storageBytes: 2048 },
+          ],
+          emailsUncounted:
+            'the definition of Contact feedback (package survey_kit, whose flows the org lets ' +
+            'no one read) on Contact',
+        });
+        // A real run is refused for the flow that fires, not for its emails.
+        expect(summary.wouldBeRefused).toEqual([
+          expect.stringMatching(/^TGT runs automation on the records this clone inserts: /),
+        ]);
+      });
+
+      it('says it on a real run and writes, the automation accepted', async () => {
+        withOrgs(packaged());
+
+        expect(await run(argv('--skip-preflight', '--accept-automation'))).toBeUndefined();
+
+        expect(printed).toContain(LINE);
+        expect(orgs.TGT.written).toEqual(['Account', 'Contact']);
+      });
+
+      it('writes nothing and exits 1 without --accept-automation, for the flow that fires', async () => {
+        withOrgs(packaged());
+
+        expect(await run(argv('--skip-preflight'))).toBe(1);
+
+        expect(stderr).toMatch(
+          /^TGT runs automation on the records this clone inserts: Contact: flow "Contact feedback"/,
+        );
+        expect(orgs.TGT.written).toEqual([]);
+      });
+
+      it('says nothing of it when every flow that fires was read', async () => {
+        withOrgs(fakeOrg({ limits: STORAGE }));
+
+        expect(await run(argv('--dry-run', '--skip-preflight', '--json'))).toBeUndefined();
+
+        expect(errored.some((line) => line.startsWith('  emails: not counted'))).toBe(false);
+        expect(JSON.parse(stdout)).toHaveProperty('writePlan');
+        expect(JSON.parse(stdout).writePlan).not.toHaveProperty('emailsUncounted');
+      });
+    });
   });
 
   it('reads nothing of it when it only lists the objects of the graph', async () => {

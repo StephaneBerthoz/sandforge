@@ -34,6 +34,7 @@ import {
   heldBypassPermissionsOf,
 } from '@sandforge/shared';
 import type {
+  ForgeAutomationWrite,
   ForgeConfig,
   ForgeEmailLimit,
   ForgeEmailsPerInsert,
@@ -46,6 +47,7 @@ import type {
   ForgeRunGateCode,
   ForgeRunGateStop,
   ForgeTargetAutomation,
+  ForgeTargetFlow,
 } from '@sandforge/shared';
 import {
   ACCOUNT,
@@ -839,10 +841,8 @@ export async function countedTargetEmails(input: {
   // their emails out of the count with no word, and the gate let through a
   // run that took a Developer Edition past its fifteen emails a day. So did
   // a flow, a process or a rule whose own definition was not read.
-  const hidden = [emailSendersUnread(automation.unread), sendersNotReadOf(automation, input.plan)]
-    .filter((said): said is string => said !== undefined)
-    .join('; ');
-  const uncounted = hidden !== '' ? { unread: hidden } : {};
+  const hidden = emailsUncountedOf(automation, insertsOf(input.plan));
+  const uncounted = hidden !== undefined ? { unread: hidden } : {};
   const sending = emailsPerInsertOf(automation);
   if (sending.length === 0) return { checks: [], ...uncounted };
   const limits = await input
@@ -853,24 +853,68 @@ export async function countedTargetEmails(input: {
   return { checks: countedEmailChecksOf(input.plan, sending, limits), ...uncounted };
 }
 
-/** How the parts of the target's automation that send emails are named when unread. */
+/**
+ * The writes whose emails a run counts as it inserts the records of a plan:
+ * the insert of each object it holds records of, as `emailsPerInsertOf`
+ * counts them.
+ */
+export function insertsOf(
+  plan: Pick<WritePlan, 'objects'>,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  const inserted = new Set(
+    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
+  );
+  return (objectApiName, write) => write === 'insert' && inserted.has(objectApiName);
+}
+
+/**
+ * Why the emails of the flows, processes and workflow rules that fire on the
+ * writes `writes` keeps were not counted: what an org sends as its records
+ * are written is counted from the definitions the read took, and what it
+ * could not take counts as sending nothing. Named so: first the parts of the
+ * automation that send emails the read could not take, each with the org's
+ * answer, then, per object, those whose own definition was refused, or left
+ * unread past the read's bound. Undefined when every one that fires was
+ * read. Sync, Autopilot and a Forge run say it in their question before the
+ * write.
+ *
+ * @param writes - Whether the records of an object are written so: a run's
+ *   inserts of the objects its plan holds records of ({@link insertsOf}). An
+ *   undelete starts no flow, process or rule.
+ * @param whose - Whose automation the reason names: the target's unless told.
+ */
+export function emailsUncountedOf(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+  whose = "the target's",
+): string | undefined {
+  const said = [emailSendersUnread(automation.unread, whose), sendersNotReadOf(automation, writes)]
+    .filter((reason): reason is string => reason !== undefined)
+    .join('; ');
+  return said !== '' ? said : undefined;
+}
+
+/** How the parts of an org's automation that send emails are named when unread, after whose they are. */
 const EMAIL_SENDERS_WORDS: Readonly<
   Partial<Record<ForgeTargetAutomation['unread'][number]['part'], string>>
 > = {
-  flows: "the target's flows",
-  processes: "the target's processes",
-  workflowRules: "the target's workflow rules",
+  flows: 'flows',
+  processes: 'processes',
+  workflowRules: 'workflow rules',
 };
 
 /**
- * Why the emails of the target's flows, processes or workflow rules were not
+ * Why the emails of an org's flows, processes or workflow rules were not
  * counted: the parts of its automation that send them the read could not
  * take, each with the org's answer. Undefined when it took them all.
  */
-function emailSendersUnread(unread: ForgeTargetAutomation['unread']): string | undefined {
+function emailSendersUnread(
+  unread: ForgeTargetAutomation['unread'],
+  whose: string,
+): string | undefined {
   const said = unread.flatMap(({ part, reason }) => {
     const words = EMAIL_SENDERS_WORDS[part];
-    return words !== undefined ? [`${words}: ${reason}`] : [];
+    return words !== undefined ? [`${whose} ${words}: ${reason}`] : [];
   });
   return said.length > 0 ? said.join('; ') : undefined;
 }
@@ -879,35 +923,59 @@ function emailSendersUnread(unread: ForgeTargetAutomation['unread']): string | u
 const SENDERS_NAMED = 10;
 
 /**
- * Why the emails of flows, processes or workflow rules that fire as the plan
- * inserts its records were not counted: their definition — the metadata a
+ * The package that installed a flow or a process the read could not take, by
+ * its namespace: what its API name holds before two underscores, which a
+ * flow's own name never does. Probed on a Developer Edition, a flow a package
+ * runs after the save of its object came in `FlowDefinitionView` under its
+ * namespace, its active version named `<its name>-1`, in no form an id
+ * takes, and the Tooling API's `Flow` listed no flow a package installed: no
+ * user reads its definition, and what it sends is never counted. Undefined
+ * for any other.
+ */
+function packageOf(flow: ForgeTargetFlow): string | undefined {
+  if (flow.condition !== 'unreadable') return undefined;
+  const at = flow.apiName.indexOf('__');
+  return at > 0 ? flow.apiName.slice(0, at) : undefined;
+}
+
+/**
+ * Why the emails of flows, processes or workflow rules that fire on the
+ * writes `writes` keeps were not counted: their definition — the metadata a
  * flow's start condition and actions are read from, a process's, a rule's —
  * was refused, or left unread past the read's bound, and what they send is
- * not known. Named per object; undefined when each one that fires was read. A
- * flow that runs before the save sends nothing, and is not named.
+ * not known. Named per object, once though it fires on two writes, and one a
+ * package installed with that package and why it is not read; undefined when
+ * each one that fires was read. A flow that runs before the save sends
+ * nothing, and is not named; one that runs before a delete may, and is.
  *
  * Read with no actions, each counted as sending none: a run into a target
  * whose contact flow was past the bound asked nothing, whatever it sent.
  */
 function sendersNotReadOf(
   automation: Pick<ForgeTargetAutomation, 'objects'>,
-  plan: Pick<WritePlan, 'objects'>,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
 ): string | undefined {
-  const inserted = new Set(
-    plan.objects.filter((object) => object.rows > 0).map((object) => object.objectApiName),
-  );
   const named = automation.objects.flatMap((object) => {
-    if (!inserted.has(object.objectApiName)) return [];
-    const fired = automationByWrite(object).find((entry) => entry.write === 'insert')?.fired ?? [];
-    const names = fired
-      .filter(
-        ({ flow, keptQuiet }) =>
+    // The same flow, process or rule fires on each write it starts on.
+    const unread = new Set(
+      automationByWrite(object)
+        .filter((entry) => writes(object.objectApiName, entry.write))
+        .flatMap((entry) => entry.fired)
+        .flatMap(({ flow, keptQuiet }) =>
           flow !== undefined &&
           keptQuiet !== true &&
           flow.condition !== 'read' &&
-          flow.timing !== 'beforeSave',
-      )
-      .map(({ name }) => name);
+          flow.timing !== 'beforeSave'
+            ? [flow]
+            : [],
+        ),
+    );
+    const names = [...unread].map((flow) => {
+      const installedBy = packageOf(flow);
+      return installedBy !== undefined
+        ? `${flow.label} (package ${installedBy}, whose flows the org lets no one read)`
+        : flow.label;
+    });
     if (names.length === 0) return [];
     const more = names.length > SENDERS_NAMED ? ` and ${names.length - SENDERS_NAMED} more` : '';
     return [

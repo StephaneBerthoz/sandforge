@@ -307,9 +307,10 @@ export interface WriteConfirmation {
     unread: string;
   }>;
   /**
-   * Of a Sync or an Autopilot run, why the target's automation — or its
-   * flows, processes or workflow rules — could not be read: the emails they
-   * send as the records go in were not counted. Absent when it was read.
+   * Of a Sync, an Autopilot or a Forge run, why the target's automation — or
+   * its flows, processes or workflow rules, or the definition of one — could
+   * not be read: the emails they send as the records go in were not counted.
+   * Absent when it was read.
    */
   emailsUncounted?: string;
   /**
