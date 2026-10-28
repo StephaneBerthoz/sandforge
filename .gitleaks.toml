@@ -14,14 +14,25 @@ title = "SandForge"
 useDefault = true
 
 [allowlist]
-description = "Generated trees and resolved dependency metadata, and one fake token in history"
+description = "Generated trees and resolved dependency metadata, and fake keys in history"
 # A test of which access tokens are usable, committed in 1.36.0 with a JWT of
 # the right shape and no content — {"alg":"RS256"}.{"sub":"fake"}.fake — which
 # gitleaks' jwt rule reads as a token. The test now assembles it from parts;
 # the commit that wrote it whole stays in the history this scan reads.
+#
+# The keys of an Agentforce scenario's cases, articles and tests, committed in
+# 1.70: lowercase words joined by hyphens (`retail-orders-test-damaged-parcel-1`),
+# which the generic-api-key rule reads as a key when a line names them `key`.
+# No credential has that shape; one is a run of mixed case and digits.
+#
+# A checkpoint archive's key in a test of the command line, committed in 1.70:
+# 52 letters of the alphabet in order, written in groups of four as SandForge
+# shows a key, drawn by no generator.
 regexTarget = "line"
 regexes = [
   '''eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJmYWtlIn0\.ZmFrZQ''',
+  '''\bkey(?:\s*===?\s*|:\s*)\x27[a-z][a-z0-9]*(?:-[a-z0-9]+){3,}\x27''',
+  '''ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-ABCD-EFGH-IJKL-MNOP-QRSQ''',
 ]
 paths = [
   # Build output and installed packages: third-party bytes, none of them ours,
