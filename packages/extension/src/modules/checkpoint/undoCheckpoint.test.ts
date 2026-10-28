@@ -569,7 +569,9 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
         code: 'AUTOMATION',
         message:
           'DEV-ED: what runs as the undo writes could not all be read, so automation may run. ' +
-          'Undo refused; accept that it runs to undo the rewind all the same. No record was written.',
+          'The emails it sends as the undo writes were not counted against its daily limits, as ' +
+          "what sends them was not read (the org's flows: Tooling API timed out). Undo refused; " +
+          'accept that it runs to undo the rewind all the same. No record was written.',
       },
     });
     // What it read is what the undo writes: what the rewind deleted, wrote over and brought back.
@@ -582,6 +584,52 @@ describe('undoCheckpoint: what it refuses before it writes', () => {
     );
     expect(accepted.status).toBe('success');
     expect(stateOf(r.org)).toEqual(r.beforeRewind);
+  });
+
+  it('says, refusing its automation unaccepted, that the emails of a package’s flow on what it gives back were not counted: an undo has no preview to have said it', async () => {
+    const r = await rewound();
+    const before = stateOf(r.org);
+    // A flow a package runs after an account is saved: no user reads it.
+    const packaged = automationOf({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'survey_kit__Account_feedback',
+              label: 'Account feedback',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'unreadable',
+              permissions: [],
+              messages: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+
+    const outcome = await undone(r, { deps: { readAutomation: packaged } });
+
+    expect(outcome).toEqual({
+      undone: false,
+      refusal: {
+        code: 'AUTOMATION',
+        message:
+          'DEV-ED: 1 flow(s), trigger(s) or rule(s) of Account run as the undo brings records ' +
+          'back, gives them their values back or sends them back to the recycle bin. The ' +
+          'emails it sends as the undo writes were not counted against its daily limits, as ' +
+          'what sends them was not read (the definition of Account feedback (package ' +
+          'survey_kit, whose flows the org lets no one read) on Account). Undo refused; accept ' +
+          'that it runs to undo the rewind all the same. No record was written.',
+      },
+    });
+    expect(stateOf(r.org)).toEqual(before);
+    const accepted = resultOf(
+      await undone(r, { deps: { readAutomation: packaged }, request: { acceptAutomation: true } }),
+    );
+    expect(accepted.status).toBe('success');
   });
 
   it('refuses an undo whose writes would make the org send more emails than it has left today, whatever is accepted, and writes nothing (B11, H1)', async () => {

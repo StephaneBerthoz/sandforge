@@ -609,6 +609,8 @@ for (const theme of THEMES) {
         'convertedLead',
         'activatedContract',
         'removed-Case.Region__c',
+        'hidden-Case.Priority',
+        'uncertain-Case.Tier__c',
         'added',
         'changed',
         'computed',
@@ -633,6 +635,12 @@ for (const theme of THEMES) {
         'AccountRestore',
       );
       await expect(page.getByTestId('checkpoint-preview-automation')).toContainText('CaseTouch');
+      // Said though no email it read is counted: a package's flow is never read.
+      await expect(page.getByTestId('checkpoint-preview-emails')).toHaveCount(0);
+      await expect(page.getByTestId('checkpoint-preview-emails-uncounted')).toHaveText(
+        `What ${ORG} runs as the rewind writes could not all be read (the definition of Case feedback (package survey_kit, whose flows the org lets no one read) on Case), so the emails it sends were not counted against its daily limits.`,
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-emails-uncounted"]');
       await expect(page.getByTestId('checkpoint-preview-refusal')).toContainText('CaseTouch');
       const rewind = page.getByTestId('checkpoint-preview-rewind');
       await expect(rewind).toHaveText(`Rewind ${ORG}…`);

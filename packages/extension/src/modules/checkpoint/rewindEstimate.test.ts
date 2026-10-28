@@ -588,6 +588,21 @@ describe('diffEstimate', () => {
     ).toBe(3 + 3);
   });
 
+  it('sends again the reads of FieldDefinition the last read sent to tell a custom field deleted since from one hidden, and none when it sent none', () => {
+    const read = { objects: CHECKPOINT, diff: { objects: FOUND, unread: [] } };
+    const told = { ...read, diff: { ...read.diff, fieldsRequests: 2 } };
+
+    expect(diffEstimate(told).apiRequests - diffEstimate(read).apiRequests).toBe(2);
+    expect(diffEstimate({ ...read, diff: { ...read.diff, fieldsRequests: 0 } }).apiRequests).toBe(
+      diffEstimate(read).apiRequests,
+    );
+    // The fresh diff, and the read after pass 1, which is the verify here.
+    expect(
+      rewindEstimate({ ...told, automationRequests: 0 }).apiRequests -
+        rewindEstimate({ ...read, automationRequests: 0 }).apiRequests,
+    ).toBe(2 + 2);
+  });
+
   it('prices a read of a checkpoint that holds files: the describe of a link beside the drift describes, the org’s objects described once, and the reads of links and files the last read sent', () => {
     const read = { objects: CHECKPOINT, diff: { objects: FOUND, unread: [] } };
     const files = {

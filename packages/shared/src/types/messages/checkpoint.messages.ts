@@ -245,6 +245,13 @@ export interface CheckpointPreviewResponse extends BaseMessage {
      * absent when they send none, or when the rewind would write nothing.
      */
     emails?: CheckpointEmails[];
+    /**
+     * Why the emails of what fires as the rewind writes were not all
+     * counted: the parts of the org's automation that send them it could not
+     * read, and the flows, processes and rules whose definition it was
+     * refused — a package's, which no user reads. Absent when every one was.
+     */
+    emailsUncounted?: string;
     estimate: CheckpointEstimate;
     refusal?: CheckpointRefusal;
   };

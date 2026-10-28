@@ -55,7 +55,13 @@ import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint } from './checkpointGuard.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
-import { checkpointEmails, emailsRefusal, writtenByUndo } from './rewindEmails.js';
+import {
+  checkpointEmails,
+  checkpointEmailsUncounted,
+  emailsRefusal,
+  emailsUncountedWords,
+  writtenByUndo,
+} from './rewindEmails.js';
 import { FILE_LINK_OBJECT, FILE_OBJECT, holdsCustomSettings } from './checkpointScope.js';
 import { budgetRefusal, fileStorageRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
 import { rewoundObjects, undoPlansOf, type SpooledUndoPlans } from './rewindJournal.js';
@@ -168,11 +174,16 @@ function lockedRefusal(orgName: string, holder: OrgLockHolder): CheckpointRefusa
   };
 }
 
-/** The refusal of an undo whose writes fire the org's automation, not accepted. */
+/**
+ * The refusal of an undo whose writes fire the org's automation, not
+ * accepted, and what of it sends emails that were not counted: an undo has
+ * no preview to have said it.
+ */
 function automationRefusal(
   orgName: string,
   automation: ForgeTargetAutomation,
   steps: ForgeRemovalSteps,
+  emailsUncounted: string | undefined,
 ): CheckpointRefusal {
   const fired = firedOnRemovalStepsOf(automation, steps);
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
@@ -185,8 +196,8 @@ function automationRefusal(
   return {
     code: 'AUTOMATION',
     message:
-      `${orgName}: ${what}. Undo refused; accept that it runs to undo the rewind all the same. ` +
-      NOTHING_WRITTEN,
+      `${orgName}: ${what}. ${emailsUncountedWords('undo', emailsUncounted)}Undo refused; ` +
+      `accept that it runs to undo the rewind all the same. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -353,12 +364,18 @@ export async function undoCheckpoint(
       // Read through the host's own reader: counted as it says it sent them.
       count.add(automation.requests);
     }
+    // What sends emails and could not be read is not counted below: the
+    // acceptance of the automation covers it, and its refusal says so.
+    const written = writtenByUndo(rewound, along);
+    const uncounted = automation ? checkpointEmailsUncounted(written, automation) : undefined;
     if (
       automation &&
       !request.acceptAutomation &&
-      (firedOnRemovalStepsOf(automation, steps).length > 0 || blindedBy(automation.unread))
+      (firedOnRemovalStepsOf(automation, steps).length > 0 ||
+        blindedBy(automation.unread) ||
+        uncounted !== undefined)
     ) {
-      return { undone: false, refusal: automationRefusal(orgName, automation, steps) };
+      return { undone: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
     const cost = undoEstimate({
       objects: checkpoint.objects,
@@ -370,11 +387,7 @@ export async function undoCheckpoint(
     // The emails its writes make the org send, against what it has left of
     // each daily limit: past them, no box lifts the refusal.
     const overEmails = automation
-      ? emailsRefusal(
-          'undo',
-          checkpointEmails(writtenByUndo(rewound, along), automation, budget.emails),
-          orgName,
-        )
+      ? emailsRefusal('undo', checkpointEmails(written, automation, budget.emails), orgName)
       : undefined;
     if (objects.length > 0 && overEmails) return { undone: false, refusal: overEmails };
     if (stopped()) throw new UndoStopped();

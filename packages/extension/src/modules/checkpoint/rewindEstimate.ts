@@ -1030,7 +1030,12 @@ export interface DiffEstimateInput {
     Partial<
       Pick<
         RewindDiff,
-        'undoCannot' | 'withParentDeleted' | 'parentsOutsideRequests' | 'files' | 'filesRequests'
+        | 'undoCannot'
+        | 'withParentDeleted'
+        | 'parentsOutsideRequests'
+        | 'fieldsRequests'
+        | 'files'
+        | 'filesRequests'
       >
     >;
   /**
@@ -1254,7 +1259,10 @@ function readAfterPass(
  *   object of the record a link names — and what its reads of the links and
  *   the files sent, as the last read counted them (`filesRequests`): those
  *   reads follow the links and files found, which an estimate cannot know
- *   before.
+ *   before;
+ * - of the custom fields gone from a drift describe, the reads of the
+ *   Tooling API's `FieldDefinition` that told those deleted from those
+ *   hidden, as the last read counted them (`fieldsRequests`).
  *
  * A drift describe that came back whole — the object's fields changed in the
  * day before the take or since, which its drift tells — answers for its
@@ -1267,6 +1275,7 @@ function readCost(
   users: number,
   parentsOutside = 0,
   files?: FilesRead,
+  fieldsTold = 0,
 ): Cost {
   const moved: MovedObject[] = [];
   const scans: Cost[] = [];
@@ -1306,6 +1315,7 @@ function readCost(
     calls(describesGlobal ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
     calls(outside, SECONDS_PER_SMALL_CALL),
     calls(parentsOutside, SECONDS_PER_SMALL_CALL),
+    calls(fieldsTold, SECONDS_PER_SMALL_CALL),
     calls(files?.requests ?? 0, SECONDS_PER_READ),
     ...scans,
     calls(callsFor(callsFor(users, USERS_PER_READ), QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
@@ -1350,6 +1360,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
     users.size,
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
+    input.diff.fieldsRequests ?? 0,
   );
 }
 
@@ -1372,6 +1383,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
     waiting ? 1 : 0,
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
+    input.diff.fieldsRequests ?? 0,
   );
 }
 

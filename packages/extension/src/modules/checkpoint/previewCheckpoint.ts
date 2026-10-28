@@ -25,7 +25,9 @@
  * it again before it writes, and refuses without it. The emails it sends as
  * the rewind writes are counted against the daily limits the org has left,
  * read with its requests (`rewindEmails.ts`): past them, the rewind is
- * refused.
+ * refused. What sends emails and could not be read — a flow whose definition
+ * the org refused, a package's, which no user reads — is named as not
+ * counted, even when nothing else sends: what it sends is not known.
  *
  * Of a checkpoint that holds files, the files it brings back from the recycle
  * bin are held to the file storage the org has left, read with its requests:
@@ -64,7 +66,12 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { rewindDiff } from './rewindDiff.js';
-import { checkpointEmails, emailsRefusal, writtenByDiff } from './rewindEmails.js';
+import {
+  checkpointEmails,
+  checkpointEmailsUncounted,
+  emailsRefusal,
+  writtenByDiff,
+} from './rewindEmails.js';
 import {
   budgetRefusal,
   fileStorageRefusal,
@@ -119,6 +126,12 @@ export type PreviewOutcome =
       automation?: ForgeTargetAutomation;
       /** The emails its writes make the org send, per daily limit; absent when none. */
       emails?: CheckpointEmails[];
+      /**
+       * Why the emails of what fires as it writes were not all counted: what
+       * of the org's automation that sends them could not be read. Absent
+       * when every one was.
+       */
+      emailsUncounted?: string;
       estimate: CheckpointEstimate;
       /** The refusal the rewind would meet before writing, when it would meet one. */
       refusal?: CheckpointRefusal;
@@ -223,6 +236,7 @@ function keepingDescribes(
     describeGlobal: () => (global ??= org.describeGlobal()),
     reader: {
       lane: () => reader.lane(),
+      tooling: (soql) => reader.tooling(soql),
       calls: () => reader.calls(),
       describe: async (objectApiName, modifiedSince) => {
         const answer = await reader.describe(objectApiName, modifiedSince);
@@ -313,9 +327,9 @@ export async function previewCheckpoint(
     relationships,
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const emails = automation
-    ? checkpointEmails(writtenByDiff(diff.objects), automation, budget.emails)
-    : [];
+  const records = writtenByDiff(diff.objects);
+  const emails = automation ? checkpointEmails(records, automation, budget.emails) : [];
+  const emailsUncounted = automation ? checkpointEmailsUncounted(records, automation) : undefined;
 
   const holder = deps.store.heldBy(checkpoint.org.organizationId);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
@@ -339,6 +353,7 @@ export async function previewCheckpoint(
     diff,
     ...(automation ? { automation } : {}),
     ...(emails.length > 0 ? { emails } : {}),
+    ...(emailsUncounted !== undefined ? { emailsUncounted } : {}),
     estimate,
     ...(refusal ? { refusal } : {}),
   };

@@ -392,6 +392,16 @@ export class MemoryRemovalOrg implements RemovalOrg {
    * no CreatedDate.
    */
   readonly missingFields = new Map<string, ReadonlySet<string>>();
+  /**
+   * Fields field-level security hides from the user, by object: gone from
+   * the describe as a deleted field is, still listed by the Tooling API's
+   * `FieldDefinition`, as asked live.
+   */
+  readonly hiddenFields = new Map<string, ReadonlySet<string>>();
+  /** The org's answer to every read of the Tooling API, when it refuses them. */
+  refuseTooling?: { errorCode: string; message: string };
+  /** The statements of the Tooling API it was asked, in order. */
+  readonly toolingAsked: string[] = [];
   /** REST requests answered: a composite is one, whatever it holds. */
   requests = 0;
   /** SOAP calls answered (the clock, the user, undeletes), which a count of REST requests misses. */
@@ -720,6 +730,12 @@ export class MemoryRemovalOrg implements RemovalOrg {
       return answered(() => this.run(soql, search[1] === 'queryAll'));
     }
     if (/^\/(query|queryAll)\/\w+-\d+$/.test(path)) return answered(() => this.nextPage(path));
+    const tooling = /^\/tooling\/query\/?\?q=(.*)$/.exec(path);
+    if (tooling) {
+      const soql = new URLSearchParams(`q=${tooling[1]}`).get('q') ?? '';
+      this.toolingAsked.push(soql);
+      return answered(() => this.fieldDefinitions(soql));
+    }
     const described = /^\/sobjects\/(\w+)\/describe\/?$/.exec(path);
     if (described) {
       const since = headers['If-Modified-Since'];
@@ -728,6 +744,37 @@ export class MemoryRemovalOrg implements RemovalOrg {
       return { status: 200, body: this.describeOf(described[1]) };
     }
     throw new Error(`Not a request the fake org answers: ${url}`);
+  }
+
+  /**
+   * The rows of the Tooling API's `FieldDefinition` a statement selects, of
+   * one object and a list of names: those its describe lists now and those
+   * field-level security hides from the user. A deleted field is in
+   * neither. Any other statement is refused, as the org refuses one it
+   * cannot read.
+   */
+  private fieldDefinitions(soql: string): MemoryQueryPage {
+    if (this.refuseTooling) {
+      throw orgError(this.refuseTooling.errorCode, this.refuseTooling.message);
+    }
+    const asked =
+      /^SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition\.QualifiedApiName = '(\w+)' AND QualifiedApiName IN \(([^)]*)\)$/.exec(
+        soql,
+      );
+    if (!asked) throw orgError('MALFORMED_QUERY', `Not a statement the fake org reads: ${soql}`);
+    const [, objectApiName, list] = asked;
+    const names = list.split(', ').map((quoted) => quoted.slice(1, -1));
+    const described = (this.schemaChanged.get(objectApiName)?.fields ?? []).map((field) =>
+      String((field as { name?: unknown }).name).toLowerCase(),
+    );
+    const defined = new Set([
+      ...described,
+      ...[...(this.hiddenFields.get(objectApiName) ?? [])].map((name) => name.toLowerCase()),
+    ]);
+    const records = names
+      .filter((name) => defined.has(name.toLowerCase()))
+      .map((name) => ({ attributes: { type: 'FieldDefinition' }, QualifiedApiName: name }));
+    return { totalSize: records.length, done: true, records: records as unknown as MemoryRow[] };
   }
 
   /**

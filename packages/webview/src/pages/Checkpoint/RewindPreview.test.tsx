@@ -318,6 +318,38 @@ describe('RewindPreview', () => {
     ]);
   });
 
+  it('says a field hidden by field-level security apart from one deleted since, with what lifts it, and one it could not tell, with both', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Case', {
+            touched: 1,
+            schemaDrift: {
+              removed: ['Region__c'],
+              added: [],
+              changed: [],
+              hidden: ['Priority'],
+              uncertain: { fields: ['Tier__c'], reason: 'INSUFFICIENT_ACCESS' },
+            },
+          }),
+        ],
+      }),
+    });
+    const lines = within(screen.getByTestId('checkpoint-preview-cannot'))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent);
+    expect(lines).toEqual([
+      'Case.Region__c was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.',
+      'Case.Priority is hidden from admin@example.com by field-level security since the checkpoint: Rewind does not put it back. Give admin@example.com read and edit access to it, then rewind again.',
+      'Case.Tier__c is gone from what DEV-SB shows admin@example.com: it was deleted since the checkpoint (restore it from Deleted Fields within 15 days), or field-level security hides it (give admin@example.com read and edit access). Rewind does not put it back.',
+    ]);
+    // A field hidden is not compared: the org is not said to be as it was.
+    expect(screen.getByTestId('checkpoint-preview-nothing').textContent).toBe(
+      'Nothing to rewind: what still differs is named below, and a rewind cannot put it back.',
+    );
+  });
+
   it('names the objects it could not read, which a rewind leaves as they are', () => {
     renderPreview();
     answerPreview({
@@ -810,6 +842,37 @@ describe('RewindPreview', () => {
     );
     fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
     expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+  });
+
+  it('says the emails of what it could not read were not counted, though nothing it read sends one, and asks for the automation to be accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      emailsUncounted:
+        'the definition of Account feedback (package survey_kit, whose flows the org lets no one ' +
+        'read) on Account',
+    });
+
+    expect(screen.queryByTestId('checkpoint-preview-emails')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-preview-emails-uncounted').textContent).toBe(
+      'What DEV-SB runs as the rewind writes could not all be read (the definition of Account ' +
+        'feedback (package survey_kit, whose flows the org lets no one read) on Account), so the ' +
+        'emails it sends were not counted against its daily limits.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-accept-automation'));
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptAutomation: true }),
+      expect.anything(),
+    );
+  });
+
+  it('says nothing of emails not counted when every one was', () => {
+    renderPreview();
+    answerPreview();
+    expect(screen.queryByTestId('checkpoint-preview-emails-uncounted')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-preview-accept-automation')).not.toBeInTheDocument();
   });
 
   it('lifts a refusal of the automation once its box is ticked', () => {

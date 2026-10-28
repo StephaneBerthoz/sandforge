@@ -5633,6 +5633,8 @@
         "newFileVersion_one": "{{formatted}} fichier a reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une plus ancienne la plus récente, le fichier garde donc son nouveau contenu. Celui qu'il avait reste dans l'historique de ses versions ; son titre est rendu.",
         "newFileVersion_other": "{{formatted}} fichiers ont reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une plus ancienne la plus récente, les fichiers gardent donc leur nouveau contenu. Celui de chacun reste dans l'historique de ses versions ; leurs titres sont rendus.",
         "fieldRemoved": "{{field}} a été supprimé depuis le point de contrôle : restaurez-le depuis les champs supprimés (dans les 15 jours), puis faites revenir l'org à ce point de nouveau.",
+        "fieldHidden": "{{field}} est masqué à {{user}} par la sécurité au niveau du champ depuis le point de contrôle : le retour arrière ne le rétablit pas. Donnez à {{user}} l'accès en lecture et en modification à ce champ, puis faites revenir l'org à ce point de nouveau.",
+        "fieldRemovedOrHidden": "{{field}} n'apparaît plus dans ce que {{org}} montre à {{user}} : il a été supprimé depuis le point de contrôle (restaurez-le depuis les champs supprimés dans les 15 jours), ou la sécurité au niveau du champ le masque (donnez à {{user}} l'accès en lecture et en modification). Le retour arrière ne le rétablit pas.",
         "fieldsAdded_one": "{{fields}} a été ajouté depuis : ses valeurs restent.",
         "fieldsAdded_other": "{{fields}} ont été ajoutés depuis : leurs valeurs restent.",
         "fieldsChanged_one": "Le type de {{fields}} a changé depuis : le retour arrière le tente champ par champ.",
@@ -5677,7 +5679,8 @@
         "fits": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), {{remaining}} sur {{max}} restants aujourd'hui.",
         "exceeds": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}), plus que les {{remaining}} sur {{max}} restants aujourd'hui : le retour arrière est refusé, quoi qu'on coche.",
         "unread": "{{limit}} : environ {{emails}} envoyés par l'automatisation de {{org}} quand le retour arrière écrit ({{senders}}). Ce qu'il reste aujourd'hui n'a pas pu être lu ({{reason}}).",
-        "alertsCounted": "{{org}} compte ses alertes par e-mail parmi ses e-mails individuels, comme une Developer Edition : elles en font partie."
+        "alertsCounted": "{{org}} compte ses alertes par e-mail parmi ses e-mails individuels, comme une Developer Edition : elles en font partie.",
+        "uncounted": "Ce que {{org}} exécute quand le retour arrière écrit n'a pas pu être lu en entier ({{reason}}) : les e-mails envoyés n'ont pas été comptés dans ses limites quotidiennes."
       },
       "cost": "Environ {{time}} · environ {{requests}} requêtes d'API sur les {{left}} qu'il reste aujourd'hui",
       "journal": "Avant d'écrire, le retour arrière garde ce qu'il change : vous pourrez l'annuler jusqu'au {{date}}, plus tôt si la corbeille se remplit.",

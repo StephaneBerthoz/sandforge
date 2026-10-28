@@ -3,7 +3,9 @@ import type { ForgeTargetAutomation, ForgeTargetFlow, RewindDiffObject } from '@
 
 import {
   checkpointEmails,
+  checkpointEmailsUncounted,
   emailsRefusal,
+  emailsUncountedWords,
   writtenByDiff,
   writtenByPlan,
   writtenByUndo,
@@ -289,5 +291,95 @@ describe('emailsRefusal', () => {
       DEVELOPER_EDITION,
     );
     expect(emailsRefusal('rewind', fits, 'DEV-ED')).toBeUndefined();
+  });
+});
+
+describe('checkpointEmailsUncounted', () => {
+  /** A flow whose definition the read did not take: it fires, and what it sends is not known. */
+  const unread = (
+    label: string,
+    startsOn: ForgeTargetFlow['startsOn'],
+    over: Partial<ForgeTargetFlow> = {},
+  ): ForgeTargetFlow => ({ ...flow(label, startsOn, []), condition: 'notRead', ...over });
+
+  it('names a flow whose definition was not read that fires on the updates a preview gives back, with its object', () => {
+    const automation = automationOf({
+      Contact: [unread('Contact edited', 'update')],
+      Account: [flow('Account read', 'update', [])],
+    });
+
+    expect(
+      checkpointEmailsUncounted(
+        writtenByDiff([
+          diffObject('Contact', { giveBack: 4 }),
+          diffObject('Account', { giveBack: 2 }),
+        ]),
+        automation,
+      ),
+    ).toBe('the definition of Contact edited on Contact');
+  });
+
+  it('names a flow before a delete an undo sends back to the bin, and a package’s flow with its package, whose flows no user reads', () => {
+    const automation = automationOf({
+      Case: [unread('Case closing', 'delete', { timing: 'beforeDelete', condition: 'unreadable' })],
+      Contact: [
+        unread('Contact feedback', 'update', {
+          apiName: 'survey_kit__Contact_feedback',
+          condition: 'unreadable',
+        }),
+      ],
+    });
+
+    expect(
+      checkpointEmailsUncounted(
+        writtenByUndo([
+          { objectApiName: 'Case', deleted: 0, broughtBack: 3, givenBack: 0 },
+          { objectApiName: 'Contact', deleted: 0, broughtBack: 0, givenBack: 1 },
+        ]),
+        automation,
+      ),
+    ).toBe(
+      'the definitions of Case closing on Case; Contact feedback (package survey_kit, whose ' +
+        'flows the org lets no one read) on Contact',
+    );
+  });
+
+  it('names nothing of records only brought back, which start no flow, nor of a flow read, nor of a write that writes no record', () => {
+    const automation = automationOf({
+      Contact: [unread('Contact edited', 'update'), flow('Contact read', 'update', [])],
+    });
+
+    expect(
+      checkpointEmailsUncounted(
+        [{ objectApiName: 'Contact', write: 'undelete', records: 5 }],
+        automation,
+      ),
+    ).toBeUndefined();
+    expect(
+      checkpointEmailsUncounted(
+        [{ objectApiName: 'Contact', write: 'update', records: 0 }],
+        automation,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('names the parts of the org’s automation that send emails the read could not take, as the org’s', () => {
+    expect(
+      checkpointEmailsUncounted([{ objectApiName: 'Contact', write: 'update', records: 1 }], {
+        objects: [],
+        unread: [
+          { part: 'flows', reason: 'INSUFFICIENT_ACCESS' },
+          { part: 'triggers', reason: 'INSUFFICIENT_ACCESS' },
+        ],
+      }),
+    ).toBe("the org's flows: INSUFFICIENT_ACCESS");
+  });
+
+  it('says it in the words of a refusal of the act’s automation, and nothing when every email was counted', () => {
+    expect(emailsUncountedWords('undo', 'the definition of Contact edited on Contact')).toBe(
+      'The emails it sends as the undo writes were not counted against its daily limits, as ' +
+        'what sends them was not read (the definition of Contact edited on Contact). ',
+    );
+    expect(emailsUncountedWords('rewind', undefined)).toBe('');
   });
 });

@@ -141,6 +141,12 @@ export interface CompositeReader {
    * changed since answers `notModified`.
    */
   describe(objectApiName: string, modifiedSince?: string): Promise<DescribeAnswer>;
+  /**
+   * The first page of a query of the Tooling API, sent at once in a call of
+   * its own, beside the composites: no composite of the data API was asked
+   * to carry one. Counted among {@link calls}.
+   */
+  tooling(soql: string): Promise<CountedPage>;
   /** Calls sent so far, composites and single calls: the requests they cost the org. */
   calls(): number;
 }
@@ -596,6 +602,23 @@ export function compositeReader(
         });
         schedule();
       });
+    },
+
+    async tooling(soql) {
+      if (signal?.aborted) throw new OrgReadStopped();
+      sent++;
+      let body: unknown;
+      try {
+        body = await conn.request({
+          method: 'GET',
+          url: `/services/data/v${conn.version}/tooling/query?q=${encodeURIComponent(soql)}`,
+        });
+      } catch (err: unknown) {
+        throw new Error(extractErrorMessage(err));
+      }
+      const page = pageOf(body);
+      if (!page) throw new Error('The org answered a Tooling API query with no page');
+      return page;
     },
 
     calls: () => sent,

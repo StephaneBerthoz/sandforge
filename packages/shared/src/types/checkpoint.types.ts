@@ -496,14 +496,35 @@ export type RewindCannotUndoReason =
   | 'deletedWithParentOutside'
   | 'newFileVersion';
 
-/** Fields of an object whose description changed since the take, by API name. */
+/**
+ * Fields of an object whose description changed since the take, by API name.
+ * A field the describe no longer lists is either deleted since or hidden
+ * from the user by field-level security, which takes it out of the describe
+ * and of every query alike, View All Data and Modify All Data
+ * notwithstanding. The Tooling API's `FieldDefinition` still lists a field
+ * hidden so, and no longer one deleted: it tells a custom field's two cases
+ * apart. A standard field cannot be deleted: one gone is hidden. None of the
+ * three is read, compared or written.
+ */
 export interface RewindSchemaDrift {
-  /** Deleted since: named, with what to do. */
+  /** Custom fields deleted since, as `FieldDefinition` no longer lists them: named, with what to do. */
   removed: string[];
   /** Added since: their values are left alone. */
   added: string[];
   /** Whose type or flags changed: tried field by field. */
   changed: string[];
+  /**
+   * Hidden from the user since by field-level security: a standard field
+   * gone from the describe, or a custom one `FieldDefinition` still lists.
+   * Absent when none is.
+   */
+  hidden?: string[];
+  /**
+   * Custom fields gone from the describe that could not be told deleted from
+   * hidden: the org refused the read of `FieldDefinition`, with its answer.
+   * Absent when none is.
+   */
+  uncertain?: { fields: string[]; reason?: string };
 }
 
 /**
@@ -685,6 +706,13 @@ export interface RewindDiff {
    * checkpoint sends them again. Absent when it sent none.
    */
   parentsOutsideRequests?: number;
+  /**
+   * The requests it sent to tell the custom fields gone from a describe
+   * deleted since from those hidden by field-level security
+   * (`RewindSchemaDrift`): each read of the org since the checkpoint sends
+   * them again. Absent when it sent none.
+   */
+  fieldsRequests?: number;
   /**
    * The requests its reads of files sent beyond the reads every object has:
    * the links of the records it holds as they are now, the files it reads by

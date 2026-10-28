@@ -253,7 +253,13 @@ import {
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
-import { checkpointEmails, emailsRefusal, writtenByPlan } from './rewindEmails.js';
+import {
+  checkpointEmails,
+  checkpointEmailsUncounted,
+  emailsRefusal,
+  emailsUncountedWords,
+  writtenByPlan,
+} from './rewindEmails.js';
 import {
   budgetRefusal,
   fileStorageRefusal,
@@ -792,11 +798,16 @@ function recreateRefusal(left: readonly RewindPlanLeft[]): CheckpointRefusal {
   };
 }
 
-/** The refusal of a rewind whose writes fire the org's automation, not accepted. */
+/**
+ * The refusal of a rewind whose writes fire the org's automation, not
+ * accepted, and what of it sends emails that were not counted: there is no
+ * preview of the rewind to have said it.
+ */
 function automationRefusal(
   orgName: string,
   automation: ForgeTargetAutomation,
   steps: ForgeRemovalSteps,
+  emailsUncounted: string | undefined,
 ): CheckpointRefusal {
   const fired = firedOnRemovalStepsOf(automation, steps);
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
@@ -809,8 +820,8 @@ function automationRefusal(
   return {
     code: 'AUTOMATION',
     message:
-      `${orgName}: ${what}. Rewind refused; accept that it runs to rewind all the same. ` +
-      NOTHING_WRITTEN,
+      `${orgName}: ${what}. ${emailsUncountedWords('rewind', emailsUncounted)}Rewind refused; ` +
+      `accept that it runs to rewind all the same. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -1246,6 +1257,7 @@ function keepingDescribes(reader: CompositeReader): {
     bodies,
     reader: {
       lane: () => reader.lane(),
+      tooling: (soql) => reader.tooling(soql),
       calls: () => reader.calls(),
       describe: async (objectApiName, modifiedSince) => {
         const answer = await reader.describe(objectApiName, modifiedSince);
@@ -1660,21 +1672,23 @@ class Rewind {
     );
     if (writing && overBudget) return { rewound: false, refusal: overBudget };
     // The emails its writes make the org send, against what it has left of
-    // each daily limit: past them, no box lifts the refusal.
+    // each daily limit: past them, no box lifts the refusal. Those of what
+    // could not be read are not counted: the acceptance of the automation
+    // that sends them covers them, and its refusal says so.
+    const written = writtenByPlan(first.plan.objects);
     const overEmails = automation
-      ? emailsRefusal(
-          'rewind',
-          checkpointEmails(writtenByPlan(first.plan.objects), automation, budget.emails),
-          orgName,
-        )
+      ? emailsRefusal('rewind', checkpointEmails(written, automation, budget.emails), orgName)
       : undefined;
     if (writing && overEmails) return { rewound: false, refusal: overEmails };
+    const uncounted = automation ? checkpointEmailsUncounted(written, automation) : undefined;
     if (
       automation &&
       !this.request.acceptAutomation &&
-      (firedOnRemovalStepsOf(automation, steps).length > 0 || blindedBy(automation.unread))
+      (firedOnRemovalStepsOf(automation, steps).length > 0 ||
+        blindedBy(automation.unread) ||
+        uncounted !== undefined)
     ) {
-      return { rewound: false, refusal: automationRefusal(orgName, automation, steps) };
+      return { rewound: false, refusal: automationRefusal(orgName, automation, steps, uncounted) };
     }
     if (this.stopped()) throw new RewindStopped();
     // The user it writes as, read once it will write: what its own writes

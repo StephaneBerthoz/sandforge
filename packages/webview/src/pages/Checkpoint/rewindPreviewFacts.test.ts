@@ -107,6 +107,21 @@ describe('rewindPreviewFacts', () => {
         diffObject('Account', { schemaDrift: { removed: ['Region__c'], added: [], changed: [] } }),
       ),
     ).toBe(false);
+    // Hidden, or either: not compared, so not known to hold its values.
+    expect(
+      differs(
+        diffObject('Account', {
+          schemaDrift: { removed: [], added: [], changed: [], hidden: ['Rating'] },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      differs(
+        diffObject('Account', {
+          schemaDrift: { removed: [], added: [], changed: [], uncertain: { fields: ['Tier__c'] } },
+        }),
+      ),
+    ).toBe(false);
     expect(
       heldAsItWas(
         previewDiff({ objects: [], unread: [{ objectApiName: 'Case', reason: 'Refused.' }] }),

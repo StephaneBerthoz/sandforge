@@ -519,6 +519,50 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).not.toContain('The rewind counts no emails');
   });
 
+  it('says the emails of what could not be read are named as not counted, covered by the box of the automation, and refuse no rewind', () => {
+    // Anchor: the preview names them; the rewind and the undo ask for the
+    // automation's acceptance when they are said, and say them in its refusal.
+    expect(PREVIEW).toContain('checkpointEmailsUncounted(records, automation)');
+    for (const act of [REWIND, UNDO]) {
+      expect(act).toContain('uncounted !== undefined)');
+      expect(act).toContain('automationRefusal(orgName, automation, steps, uncounted)');
+    }
+    expect(label('checkpoint.preview.emails.uncounted')).toContain('were not counted');
+
+    expect(section(DOC, '## The preview')).toContain(
+      'What sends emails and could not be read -- a flow, process or rule whose definition the ' +
+        'org refused or the read left past its bound, a flow a package installed, which the org ' +
+        'lets no one read -- is named as not counted, even when nothing else sends, and the box ' +
+        'covers it: a rewind is never refused for it',
+    );
+    expect(section(DOC, '## Undo')).toContain(
+      'and what of it sends emails that were not counted, as an undo has no preview to say it',
+    );
+  });
+
+  it('tells a field hidden by field-level security from one deleted since: a standard field always hidden, a custom one by the Tooling API’s FieldDefinition', () => {
+    // Anchor: a standard field asks nothing; a custom one is asked of
+    // FieldDefinition through the Tooling API; the three kinds are typed.
+    expect(DIFF).toContain('export async function fieldsGoneOf(');
+    expect(DIFF).toContain(
+      "'SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = '",
+    );
+    expect(DIFF).toContain('const CUSTOM_FIELD = /__(?:c|pc|s)$/i;');
+    expect(source(`${MODULE_DIR}/compositeQueries.ts`)).toContain('/tooling/query?q=');
+    expect(TYPES).toContain('hidden?: string[];');
+    expect(TYPES).toContain('uncertain?: { fields: string[]; reason?: string };');
+    expect(label('checkpoint.preview.cannot.fieldHidden')).toContain('field-level security');
+    expect(label('checkpoint.preview.cannot.fieldRemovedOrHidden')).toContain('Deleted Fields');
+
+    expect(section(DOC, '## The preview')).toContain(
+      'the fields field-level security hides from the user since, which the describe and every ' +
+        'query leave out as they do a deleted field, View All Data and Modify All Data ' +
+        'notwithstanding: give the user read and edit access, then rewind again -- a standard ' +
+        "field, which no one deletes, is always said hidden, and of a custom field the Tooling API's " +
+        '`FieldDefinition` tells, which still lists a hidden field and no longer a deleted one',
+    );
+  });
+
   it('says a checkpoint holds the files attached to its records, what a rewind does to them and their links, what it leaves, and the file storage it holds a rewind and an undo to', () => {
     // Anchors: the scope holds files by their document, the diff tells the
     // links between files and records apart from the files no held record

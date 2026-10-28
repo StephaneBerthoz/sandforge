@@ -5633,6 +5633,8 @@
         "newFileVersion_one": "{{formatted}} archivo recibió una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que el archivo conserva su nuevo contenido. El que tenía sigue en su historial de versiones; su título se devuelve.",
         "newFileVersion_other": "{{formatted}} archivos recibieron una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que los archivos conservan su nuevo contenido. El que tenía cada uno sigue en su historial de versiones; sus títulos se devuelven.",
         "fieldRemoved": "{{field}} se eliminó desde el punto de control: restáurelo desde Campos eliminados (en un plazo de 15 días) y luego vuelva a retroceder.",
+        "fieldHidden": "Desde el punto de control, la seguridad a nivel de campo oculta {{field}} a {{user}}: el retroceso no lo restablece. Dé a {{user}} acceso de lectura y edición a ese campo y luego vuelva a retroceder.",
+        "fieldRemovedOrHidden": "{{field}} ya no aparece en lo que {{org}} muestra a {{user}}: se eliminó desde el punto de control (restáurelo desde Campos eliminados en un plazo de 15 días), o la seguridad a nivel de campo lo oculta (dé a {{user}} acceso de lectura y edición). El retroceso no lo restablece.",
         "fieldsAdded_one": "{{fields}} se añadió desde entonces: sus valores se quedan.",
         "fieldsAdded_other": "{{fields}} se añadieron desde entonces: sus valores se quedan.",
         "fieldsChanged_one": "El tipo de {{fields}} cambió desde entonces: el retroceso lo intenta campo por campo.",
@@ -5677,7 +5679,8 @@
         "fits": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), quedan {{remaining}} de {{max}} hoy.",
         "exceeds": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}), más que los {{remaining}} de {{max}} que quedan hoy: el retroceso se rechaza, se marque lo que se marque.",
         "unread": "{{limit}}: unos {{emails}} enviados por la automatización de {{org}} cuando el retroceso escribe ({{senders}}). No se pudo leer lo que queda hoy ({{reason}}).",
-        "alertsCounted": "{{org}} cuenta sus alertas por correo electrónico entre sus correos individuales, como una Developer Edition: están entre ellos."
+        "alertsCounted": "{{org}} cuenta sus alertas por correo electrónico entre sus correos individuales, como una Developer Edition: están entre ellos.",
+        "uncounted": "No se pudo leer todo lo que {{org}} ejecuta cuando el retroceso escribe ({{reason}}): los correos que envía no se contaron en sus límites diarios."
       },
       "cost": "Alrededor de {{time}} · alrededor de {{requests}} solicitudes de API de las {{left}} que quedan hoy",
       "journal": "Antes de escribir, el retroceso guarda lo que cambia: podrá deshacerlo hasta el {{date}}, antes si la papelera se llena.",

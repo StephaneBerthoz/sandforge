@@ -11,6 +11,7 @@ import {
   compositeReader,
   nextPagePath,
   type CompositeLane,
+  type CompositeQueryConnection,
   type CountedPage,
 } from './compositeQueries.js';
 
@@ -321,6 +322,68 @@ describe('compositeReader: describes beside the queries', () => {
     await expect(reader.describe('Account/../x')).rejects.toThrow(/Invalid Salesforce object/);
     await expect(reader.describe('Account', 'not a date')).rejects.toThrow(/Not a date/);
     expect(org.calls).toEqual([]);
+  });
+});
+
+describe('compositeReader: a query of the Tooling API', () => {
+  /** A connection that answers the Tooling API's queries alone, with `answer`, keeping each URL. */
+  function toolingConn(answer: (url: string) => unknown): {
+    conn: CompositeQueryConnection;
+    urls: string[];
+  } {
+    const urls: string[] = [];
+    const refuse = (): Promise<CountedPage> => Promise.reject(new Error('not asked'));
+    return {
+      urls,
+      conn: {
+        version: '66.0',
+        request: async ({ method, url }) => {
+          urls.push(`${method} ${url}`);
+          return answer(url);
+        },
+        query: refuse,
+        queryMore: refuse,
+      },
+    };
+  }
+
+  it('sends it in a call of its own, to the Tooling API, counted among the calls', async () => {
+    const { conn, urls } = toolingConn(() => ({
+      totalSize: 1,
+      done: true,
+      records: [{ attributes: { type: 'FieldDefinition' }, QualifiedApiName: 'Due__c' }],
+    }));
+    const reader = compositeReader(conn);
+    const soql =
+      "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account' AND QualifiedApiName IN ('Due__c')";
+
+    const page = await reader.tooling(soql);
+
+    expect(page.records).toEqual([
+      { attributes: { type: 'FieldDefinition' }, QualifiedApiName: 'Due__c' },
+    ]);
+    expect(urls).toEqual([`GET /services/data/v66.0/tooling/query?q=${encodeURIComponent(soql)}`]);
+    expect(reader.calls()).toBe(1);
+  });
+
+  it('fails with the org’s words when it refuses, or answers no page, and sends nothing once stopped', async () => {
+    const refusing = toolingConn(() => {
+      throw orgError('INVALID_TYPE', "sObject type 'FieldDefinition' is not supported.");
+    });
+    await expect(compositeReader(refusing.conn).tooling('SELECT Id FROM X')).rejects.toThrow(
+      "INVALID_TYPE: sObject type 'FieldDefinition' is not supported.",
+    );
+    const empty = toolingConn(() => '');
+    await expect(compositeReader(empty.conn).tooling('SELECT Id FROM X')).rejects.toThrow(
+      /no page/,
+    );
+    const stopped = new AbortController();
+    stopped.abort();
+    const idle = toolingConn(() => ({ totalSize: 0, done: true, records: [] }));
+    const reader = compositeReader(idle.conn, stopped.signal);
+    await expect(reader.tooling('SELECT Id FROM X')).rejects.toBeInstanceOf(OrgReadStopped);
+    expect(idle.urls).toEqual([]);
+    expect(reader.calls()).toBe(0);
   });
 });
 

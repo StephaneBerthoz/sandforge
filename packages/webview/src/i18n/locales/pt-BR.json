@@ -5633,6 +5633,8 @@
         "newFileVersion_one": "{{formatted}} arquivo recebeu uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então o arquivo mantém o novo conteúdo. O que ele tinha continua no histórico de versões dele; o título dele é devolvido.",
         "newFileVersion_other": "{{formatted}} arquivos receberam uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então os arquivos mantêm o novo conteúdo. O que cada um tinha continua no histórico de versões dele; os títulos deles são devolvidos.",
         "fieldRemoved": "{{field}} foi excluído desde o ponto de verificação: restaure-o em Campos excluídos (em até 15 dias) e depois retroceda de novo.",
+        "fieldHidden": "Desde o ponto de verificação, a segurança em nível de campo oculta {{field}} de {{user}}: o retrocesso não o restaura. Dê a {{user}} acesso de leitura e edição a esse campo e depois retroceda de novo.",
+        "fieldRemovedOrHidden": "{{field}} não aparece mais no que {{org}} mostra a {{user}}: foi excluído desde o ponto de verificação (restaure-o em Campos excluídos em até 15 dias), ou a segurança em nível de campo o oculta (dê a {{user}} acesso de leitura e edição). O retrocesso não o restaura.",
         "fieldsAdded_one": "{{fields}} foi adicionado desde então: os valores dele ficam.",
         "fieldsAdded_other": "{{fields}} foram adicionados desde então: os valores deles ficam.",
         "fieldsChanged_one": "O tipo de {{fields}} mudou desde então: o retrocesso tenta campo por campo.",
@@ -5677,7 +5679,8 @@
         "fits": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), restam {{remaining}} de {{max}} hoje.",
         "exceeds": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}), mais que os {{remaining}} de {{max}} que restam hoje: o retrocesso é recusado, seja o que for marcado.",
         "unread": "{{limit}}: cerca de {{emails}} enviados pela automação de {{org}} quando o retrocesso grava ({{senders}}). Não foi possível ler o que resta hoje ({{reason}}).",
-        "alertsCounted": "{{org}} conta seus alertas por e-mail entre seus e-mails individuais, como uma Developer Edition: eles estão entre eles."
+        "alertsCounted": "{{org}} conta seus alertas por e-mail entre seus e-mails individuais, como uma Developer Edition: eles estão entre eles.",
+        "uncounted": "Não foi possível ler tudo o que {{org}} executa quando o retrocesso grava ({{reason}}): os e-mails enviados não foram contados em seus limites diários."
       },
       "cost": "Cerca de {{time}} · cerca de {{requests}} solicitações de API das {{left}} que restam hoje",
       "journal": "Antes de gravar, o retrocesso guarda o que muda: você pode desfazê-lo até {{date}}, antes se a lixeira encher.",

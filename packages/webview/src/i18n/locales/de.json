@@ -5633,6 +5633,8 @@
         "newFileVersion_one": "{{formatted}} Datei hat seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Datei behält also ihren neuen Inhalt. Der vorherige bleibt in ihrem Versionsverlauf; ihr Titel wird zurückgegeben.",
         "newFileVersion_other": "{{formatted}} Dateien haben seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Dateien behalten also ihren neuen Inhalt. Der vorherige bleibt jeweils in ihrem Versionsverlauf; ihre Titel werden zurückgegeben.",
         "fieldRemoved": "{{field}} wurde seit dem Prüfpunkt gelöscht: Stellen Sie das Feld unter „Gelöschte Felder“ wieder her (innerhalb von 15 Tagen) und setzen Sie dann erneut zurück.",
+        "fieldHidden": "{{field}} ist seit dem Prüfpunkt durch die Sicherheit auf Feldebene vor {{user}} verborgen: Das Zurücksetzen stellt das Feld nicht wieder her. Geben Sie {{user}} Lese- und Bearbeitungszugriff darauf und setzen Sie dann erneut zurück.",
+        "fieldRemovedOrHidden": "{{field}} fehlt in dem, was {{org}} {{user}} zeigt: Das Feld wurde seit dem Prüfpunkt gelöscht (stellen Sie es innerhalb von 15 Tagen unter „Gelöschte Felder“ wieder her), oder die Sicherheit auf Feldebene verbirgt es (geben Sie {{user}} Lese- und Bearbeitungszugriff). Das Zurücksetzen stellt es nicht wieder her.",
         "fieldsAdded_one": "{{fields}} wurde seitdem hinzugefügt: Seine Werte bleiben.",
         "fieldsAdded_other": "{{fields}} wurden seitdem hinzugefügt: Ihre Werte bleiben.",
         "fieldsChanged_one": "Der Typ von {{fields}} hat sich seitdem geändert: Das Zurücksetzen versucht es Feld für Feld.",
@@ -5677,7 +5679,8 @@
         "fits": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), {{remaining}} von {{max}} heute übrig.",
         "exceeds": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}), mehr als die {{remaining}} von {{max}}, die heute übrig sind: Das Zurücksetzen wird abgelehnt, was auch immer angehakt ist.",
         "unread": "{{limit}}: etwa {{emails}}, die die Automatisierung von {{org}} sendet, wenn das Zurücksetzen schreibt ({{senders}}). Was heute übrig ist, konnte nicht gelesen werden ({{reason}}).",
-        "alertsCounted": "{{org}} zählt ihre E-Mail-Benachrichtigungen zu ihren Einzel-E-Mails, wie eine Developer Edition: Sie sind darunter."
+        "alertsCounted": "{{org}} zählt ihre E-Mail-Benachrichtigungen zu ihren Einzel-E-Mails, wie eine Developer Edition: Sie sind darunter.",
+        "uncounted": "Was {{org}} ausführt, wenn das Zurücksetzen schreibt, konnte nicht vollständig gelesen werden ({{reason}}): Die E-Mails, die dabei gesendet werden, wurden nicht auf die Tageslimits angerechnet."
       },
       "cost": "Etwa {{time}} · etwa {{requests}} API-Anfragen von den {{left}}, die heute noch bleiben",
       "journal": "Bevor es schreibt, bewahrt das Zurücksetzen auf, was es ändert: Sie können es bis {{date}} rückgängig machen, früher, wenn sich der Papierkorb füllt.",

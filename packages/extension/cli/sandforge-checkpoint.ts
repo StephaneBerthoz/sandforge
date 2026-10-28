@@ -207,11 +207,12 @@ What a rewind cannot undo: a file deleted since and no longer in the recycle bin
 checkpoint does not hold, a file given a new version since, which keeps it, a lead converted
 since, a contract activated since, a record deleted with a parent created since that Salesforce
 does not undelete on its own, or with its parent of an object the checkpoint does not hold
-(preview counts them); a field added or removed since (preview names it); the values the org
-computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what
-left the org (emails, callouts, outbound messages, platform events); metadata; the files of a
-checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back,
-or to make again, is named by rewind, with its words.
+(preview counts them); a field added since, deleted since, or hidden since from the user by
+field-level security, which the preview tells apart and names; the values the org computes or
+keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
+(emails, callouts, outbound messages, platform events); metadata; the files of a checkpoint
+taken before SandForge 1.70, which holds none. A record the org refuses to put back, or to make
+again, is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -232,15 +233,23 @@ JSON (--json), one value on stdout:
                      user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
-                      refusal?}: carriers, the records brought back for a moment and deleted
-                     again, in none of the other numbers; diff, estimate, automation and refusal
-                     as the extension answers them; refusal is the one a rewind would meet now;
-                     emails, one per daily limit its writes send against: {limit, emails,
-                     verdict, remaining?, max?, alertsCounted?, objects: [{objectApiName, write,
-                     records, perRecord, sentBy}]}; diff.files, for a checkpoint that holds
-                     files: {unlink, relink, updateLinks, outsideAdded, outsideDeleted, storage:
-                     {bringBack, remaining?, undo}, blindSpot?}, the links to remove, put back and
-                     give their sharing back, the files left, and file storage in bytes
+                      emailsUncounted?, refusal?}: carriers, the records brought back for a
+                     moment and deleted again, in none of the other numbers; diff, estimate,
+                     automation and refusal as the extension answers them; refusal is the one a
+                     rewind would meet now; emails, one per daily limit its writes send
+                     against: {limit, emails, verdict, remaining?, max?, alertsCounted?,
+                     objects: [{objectApiName, write, records, perRecord, sentBy}]};
+                     emailsUncounted, what sends emails as it writes that could not be read — a
+                     flow whose definition was refused, a package's, which no user reads — its
+                     emails not counted, which --accept-automation covers;
+                     diff.objects[].schemaDrift, of an object whose fields changed since:
+                     {removed, added, changed, hidden?, uncertain?: {fields, reason?}}, removed
+                     the custom fields deleted since, hidden those field-level security hides
+                     from the user, uncertain those the org would not say which of; diff.files,
+                     for a checkpoint that holds files: {unlink, relink, updateLinks,
+                     outsideAdded, outsideDeleted, storage: {bringBack, remaining?, undo},
+                     blindSpot?}, the links to remove, put back and give their sharing back, the
+                     files left, and file storage in bytes
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -1272,6 +1281,8 @@ export interface PreviewAnswer {
   diff: RewindDiff;
   automation?: ForgeTargetAutomation;
   emails?: CheckpointEmails[];
+  /** Why the emails of what fires as the rewind writes were not all counted. */
+  emailsUncounted?: string;
   estimate: CheckpointEstimate;
   refusal?: CheckpointRefusal;
 }
@@ -1340,11 +1351,17 @@ function automationLines(orgName: string, automation: ForgeTargetAutomation): st
   ];
 }
 
-/** The lines `preview` prints. */
+/**
+ * The lines `preview` prints.
+ *
+ * @param user - The user the preview read the org as: who field-level
+ *   security hides a field from.
+ */
 export function previewLines(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'name' | 'takenAt'>,
   answer: PreviewAnswer,
+  user = 'the user SandForge connects as',
 ): string[] {
   const { diff } = answer;
   const totals = previewTotals(diff);
@@ -1497,6 +1514,26 @@ export function previewLines(
           'Fields, then rewind',
       );
     }
+    // Gone from the describe as a deleted field is, but there still: no
+    // Deleted Fields brings it back, an access given does.
+    if ((drift.hidden ?? []).length > 0) {
+      lines.push(
+        `  fields hidden from ${user} by field-level security since: ` +
+          `${someOf(named(drift.hidden ?? []))} — rewind does not put them back; give ${user} ` +
+          'read and edit access to them, then rewind again',
+      );
+    }
+    if (drift.uncertain !== undefined && drift.uncertain.fields.length > 0) {
+      lines.push(
+        `  fields gone from what ${orgName} shows ${user}: ${someOf(named(drift.uncertain.fields))} ` +
+          '— deleted since (restore them from Deleted Fields within 15 days), or hidden by ' +
+          `field-level security (give ${user} read and edit access); rewind does not put them ` +
+          'back' +
+          (drift.uncertain.reason !== undefined
+            ? ` (which, ${orgName} would not say: ${drift.uncertain.reason})`
+            : ''),
+      );
+    }
     if (drift.added.length > 0) {
       lines.push(`  fields added since, their values left alone: ${someOf(named(drift.added))}`);
     }
@@ -1511,6 +1548,12 @@ export function previewLines(
   }
   if (answer.automation) lines.push(...automationLines(orgName, answer.automation));
   if (answer.emails) lines.push(...emailLines(orgName, answer.emails));
+  if (answer.emailsUncounted !== undefined) {
+    lines.push(
+      `  emails: not counted, ${answer.emailsUncounted} could not be read — what they send as ` +
+        'the rewind writes is not known; --accept-automation covers it',
+    );
+  }
   lines.push(estimateLine(answer.estimate));
   if (answer.refusal) lines.push(`  a rewind now would be refused: ${answer.refusal.message}`);
   return lines;
@@ -1606,6 +1649,7 @@ export function previewJson(
     estimate: answer.estimate,
     ...(answer.automation ? { automation: answer.automation } : {}),
     ...(answer.emails ? { emails: answer.emails } : {}),
+    ...(answer.emailsUncounted !== undefined ? { emailsUncounted: answer.emailsUncounted } : {}),
     ...(answer.refusal ? { refusal: answer.refusal } : {}),
   };
 }
@@ -1679,10 +1723,10 @@ export interface RewindAccepted {
  */
 export function acceptanceRefusal(
   orgName: string,
-  answer: Pick<PreviewAnswer, 'diff' | 'automation'>,
+  answer: Pick<PreviewAnswer, 'diff' | 'automation' | 'emailsUncounted'>,
   accepted: RewindAccepted,
 ): CheckpointRefusalLike | undefined {
-  const { diff, automation } = answer;
+  const { diff, automation, emailsUncounted } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
     const said = undoCannotByReason(diff.undoCannot).map(({ words, of }) => {
       const records = of.reduce((total, u) => total + u.count, 0);
@@ -1716,7 +1760,9 @@ export function acceptanceRefusal(
   if (!automation || accepted.acceptAutomation) return undefined;
   const steps = rewindStepsOf(diff);
   const fired = firedOnRemovalStepsOf(automation, steps);
-  if (fired.length === 0 && !blindedBy(automation.unread)) return undefined;
+  if (fired.length === 0 && !blindedBy(automation.unread) && emailsUncounted === undefined) {
+    return undefined;
+  }
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
   // A link put back is an insert of a link, no record made again.
   const makes = (steps.recreate ?? []).some((name) => name !== FILE_LINK_OBJECT)
@@ -1727,11 +1773,18 @@ export function acceptanceRefusal(
       ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
         `rewind brings records back, ${makes}gives them their values back or deletes them`
       : 'what runs as the rewind writes could not all be read, so automation may run';
+  // Said here too: a rewind refused for its automation is the one place the
+  // command line says it before nothing more is written.
+  const uncounted =
+    emailsUncounted !== undefined
+      ? 'The emails it sends as the rewind writes were not counted against its daily limits, ' +
+        `as what sends them was not read (${emailsUncounted}). `
+      : '';
   return {
     code: 'AUTOMATION',
     message:
-      `${orgName}: ${what}. Rewind refused; give --accept-automation to rewind all the same. ` +
-      'No record was written.',
+      `${orgName}: ${what}. ${uncounted}Rewind refused; give --accept-automation to rewind all ` +
+      'the same. No record was written.',
   };
 }
 
@@ -2418,7 +2471,7 @@ export async function main(
           throw new Stop(refusalOfAnswer(answer, 'The preview'));
         }
         const preview = payloadOf(answer) as unknown as PreviewAnswer;
-        for (const line of previewLines(args.org, checkpoint, preview)) say(line);
+        for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
         answerJson(previewJson(args.org, checkpoint, preview));
         endWith(previewExitCode(preview.diff, args.failOnChange));
         return;
@@ -2751,7 +2804,7 @@ async function rewind(
   });
   if (previewed.outcome !== 'answered') throw new Stop(refusalOfAnswer(previewed, 'The preview'));
   const preview = payloadOf(previewed) as unknown as PreviewAnswer;
-  for (const line of previewLines(args.org, checkpoint, preview)) say(line);
+  for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
   const writes = objectsWrittenBy(preview.diff).length > 0;
   const gate = writes ? acceptanceRefusal(args.org, preview, args) : undefined;
   const outsideStays =

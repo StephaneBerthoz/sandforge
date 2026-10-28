@@ -964,14 +964,13 @@ describe('sandforge-checkpoint rewind', () => {
     );
 
     expect(code).toBe(1);
-    expect(JSON.parse(stdout)).toEqual({
-      refusal: {
-        code: 'AUTOMATION',
-        message:
-          'DEV-SB: what runs as the rewind writes could not all be read, so automation may run. ' +
-          'Rewind refused; give --accept-automation to rewind all the same. No record was written.',
-      },
-    });
+    // The flows the org would not give are among what sends emails: the
+    // preview said them not counted, and so does the refusal.
+    const answered = JSON.parse(stdout) as { refusal: { code: string; message: string } };
+    expect(answered.refusal.code).toBe('AUTOMATION');
+    expect(answered.refusal.message).toMatch(
+      /^DEV-SB: what runs as the rewind writes could not all be read, so automation may run\. The emails it sends as the rewind writes were not counted against its daily limits, as what sends them was not read \(the org's workflow rules: .*; the org's flows: .*\)\. Rewind refused; give --accept-automation to rewind all the same\. No record was written\.$/,
+    );
     expect(stateOf(h.org)).toEqual(before);
     expect(journalsOf(h, checkpoint)).toEqual([]);
   });

@@ -360,11 +360,16 @@ describe('parseArgs', () => {
       'A checkpoint holds the files attached to its records, Salesforce Files and classic attachments:',
       'files?, {documents, links, anchored, readByIds?}',
       'files, {held, queryAllFiles, addedToPicked}',
-      'diff.files, for a checkpoint that holds\n                     files: {unlink, relink, updateLinks, outsideAdded, outsideDeleted, storage:',
+      'diff.files,\n                     for a checkpoint that holds files: {unlink, relink, updateLinks,',
       'files?: {unlinked, relinked, linksUpdated, linksRefused}',
       'files to bring back taking more file storage than it has left',
       'a file given a new version since, which keeps it',
-      'the files of a\ncheckpoint taken before SandForge 1.70, which holds none',
+      'the files of a checkpoint\ntaken before SandForge 1.70, which holds none',
+      // What it says of emails it could not count, and of fields gone since.
+      'emailsUncounted?, refusal?}',
+      'emails not counted, which --accept-automation covers',
+      '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
+      'a field added since, deleted since, or hidden since from the user by\nfield-level security, which the preview tells apart and names',
     ]) {
       expect(stdout).toContain(said);
     }
@@ -802,6 +807,65 @@ describe('previewLines', () => {
     );
   });
 
+  it('says the emails of what sends them and could not be read were not counted, though nothing it read sends one, and prints it in --json', () => {
+    const uncounted =
+      'the definition of Account feedback (package survey_kit, whose flows the org lets no one ' +
+      'read) on Account';
+    const answer = {
+      diff: diffOf([object({ toGiveBack: { records: 2, fields: 2, clearedLookups: 0 } })]),
+      estimate,
+      emailsUncounted: uncounted,
+    };
+
+    const lines = previewLines('DEV-SB', checkpoint, answer);
+
+    expect(lines).toContain(
+      `  emails: not counted, ${uncounted} could not be read — what they send as the rewind writes is not known; --accept-automation covers it`,
+    );
+    expect(previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, answer)).toMatchObject({
+      emailsUncounted: uncounted,
+    });
+    const counted = { diff: answer.diff, estimate };
+    expect(previewLines('DEV-SB', checkpoint, counted).join('\n')).not.toContain('not counted');
+    expect(
+      previewJson('DEV-SB', { checkpointId: 'ck-1', ...checkpoint }, counted),
+    ).not.toHaveProperty('emailsUncounted');
+  });
+
+  it('says a field hidden by field-level security apart from one deleted since, and one it could not tell, each with what to do', () => {
+    const lines = previewLines(
+      'DEV-SB',
+      checkpoint,
+      {
+        diff: diffOf([
+          object({
+            toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+            schemaDrift: {
+              removed: ['Old__c'],
+              added: [],
+              changed: [],
+              hidden: ['Rating', 'Score__c'],
+              uncertain: { fields: ['Tier__c'], reason: 'INSUFFICIENT_ACCESS' },
+            },
+          }),
+        ]),
+        estimate,
+      },
+      'tester@example.com',
+    );
+
+    expect(lines).toContain(
+      '  fields deleted since: Account.Old__c — restore them from Deleted Fields, then rewind',
+    );
+    expect(lines).toContain(
+      '  fields hidden from tester@example.com by field-level security since: Account.Rating, Account.Score__c — rewind does not put them back; give tester@example.com read and edit access to them, then rewind again',
+    );
+    expect(lines).toContain(
+      '  fields gone from what DEV-SB shows tester@example.com: Account.Tier__c — deleted since (restore them from Deleted Fields within 15 days), or hidden by field-level security (give tester@example.com read and edit access); rewind does not put them back (which, DEV-SB would not say: INSUFFICIENT_ACCESS)',
+    );
+    expect(lines.filter((line) => line.includes('Account.Rating'))).toHaveLength(1);
+  });
+
   it('offers --accept-recreate whenever the rewind brings records back, for one Salesforce answers is no longer in the recycle bin, and says nothing of it when it brings none back', () => {
     const offer =
       '  if Salesforce answers that a record to bring back is no longer in the recycle bin — it still lists one emptied from it as deleted —, --accept-recreate makes it again with a new Id, with what was to come back with it; without it, the rewind leaves them and names them';
@@ -1025,6 +1089,55 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
         ),
       ).toBeUndefined();
     }
+  });
+
+  it('says, refusing automation without --accept-automation, that the emails of what could not be read were not counted', () => {
+    const unread = automation({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_edited',
+              label: 'Account edited',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'notRead',
+              permissions: [],
+              messages: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    const emailsUncounted = 'the definition of Account edited on Account';
+
+    expect(
+      acceptanceRefusal('DEV-SB', { diff, automation: unread, emailsUncounted }, NOTHING_ACCEPTED),
+    ).toEqual({
+      code: 'AUTOMATION',
+      message:
+        'DEV-SB: 1 flow(s), trigger(s) or rule(s) of Account run as the rewind brings records ' +
+        'back, gives them their values back or deletes them. The emails it sends as the rewind ' +
+        'writes were not counted against its daily limits, as what sends them was not read (the ' +
+        'definition of Account edited on Account). Rewind refused; give --accept-automation to ' +
+        'rewind all the same. No record was written.',
+    });
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff, automation: automation(), emailsUncounted },
+        NOTHING_ACCEPTED,
+      )?.code,
+    ).toBe('AUTOMATION');
+    expect(
+      acceptanceRefusal(
+        'DEV-SB',
+        { diff, automation: unread, emailsUncounted },
+        { acceptAutomation: true, acceptNoUndo: false, acceptRecreate: false },
+      ),
+    ).toBeUndefined();
   });
 
   it('lets through automation the rewind’s writes do not fire: on insert, or on an object it does not write', () => {

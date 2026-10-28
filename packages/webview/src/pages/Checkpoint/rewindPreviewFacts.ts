@@ -148,14 +148,22 @@ export function recreateLines(
     .filter((line) => line.count > 0);
 }
 
+/** The fields of an object gone from what the org shows since: deleted, hidden, or either. */
+function fieldsGone(object: Pick<RewindDiff['objects'][number], 'schemaDrift'>): number {
+  const drift = object.schemaDrift;
+  if (drift === undefined) return 0;
+  return drift.removed.length + (drift.hidden?.length ?? 0) + (drift.uncertain?.fields.length ?? 0);
+}
+
 /**
  * Whether the org holds the checkpoint's state among the objects and fields
  * it holds: nothing to write, nothing a rewind cannot take back, nothing it
- * leaves unexplained, no field deleted since, every object read, and no file
- * added or deleted since that no record of the checkpoint links to, which a
- * rewind leaves as it is. A record touched since that holds its checkpoint
- * values, and a field added since, whose values a rewind leaves alone, do not
- * make it differ.
+ * leaves unexplained, no field deleted or hidden since — a hidden field is
+ * not compared, so whether it holds its values is not known —, every object
+ * read, and no file added or deleted since that no record of the checkpoint
+ * links to, which a rewind leaves as it is. A record touched since that
+ * holds its checkpoint values, and a field added since, whose values a
+ * rewind leaves alone, do not make it differ.
  */
 export function heldAsItWas(
   diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'files'>>,
@@ -168,7 +176,7 @@ export function heldAsItWas(
       (object) =>
         object.unexplained === 0 &&
         object.cannotUndo.every((item) => item.count === 0) &&
-        (object.schemaDrift?.removed.length ?? 0) === 0,
+        fieldsGone(object) === 0,
     )
   );
 }

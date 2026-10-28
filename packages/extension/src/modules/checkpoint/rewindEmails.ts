@@ -17,6 +17,14 @@
  * write and that no bypass the user holds keeps quiet counts once a record,
  * whatever condition decides it (`emailsPerWriteOf`): an estimate that errs
  * says too much. What an Apex trigger sends is not read.
+ *
+ * What a flow, a process or a rule whose definition was not read sends is
+ * counted as nothing, and said so (`checkpointEmailsUncounted`): a flow a
+ * package runs after the save of its object is one, as no user reads a
+ * package's flows. A rewind is not refused for it, which would refuse every
+ * rewind of an org where a package runs a flow on an object the checkpoint
+ * holds: it fires as the rewind writes, so the rewind asks for its automation
+ * to be accepted, and the question says its emails were not counted.
  */
 
 import {
@@ -31,6 +39,7 @@ import {
 import {
   alertsCountAsSingle,
   emailsCountedPerRecord,
+  emailsUncountedOf,
   type EmailLimit,
 } from '../forge/ForgeRunGate.js';
 import type { RewoundObject } from './rewindEstimate.js';
@@ -138,6 +147,45 @@ function written(
     write,
     records: counts[write],
   }));
+}
+
+/**
+ * Why the emails of what fires on `written` were not counted: the parts of
+ * the org's automation that send emails the read could not take, then the
+ * flows, processes and rules that fire on a write it makes whose definition
+ * was refused or left unread — a package's named with it. Undefined when
+ * each one that fires was read. An undelete starts none of them.
+ */
+export function checkpointEmailsUncounted(
+  written: readonly WrittenRecords[],
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'unread'>,
+): string | undefined {
+  const writes = new Set(
+    written
+      .filter((each) => each.records > 0)
+      .map((each) => `${each.objectApiName}\n${each.write}`),
+  );
+  return emailsUncountedOf(
+    automation,
+    (objectApiName, write) => writes.has(`${objectApiName}\n${write}`),
+    "the org's",
+  );
+}
+
+/**
+ * The sentence a refusal of automation not accepted says of the emails that
+ * were not counted, before it says what lifts it; nothing when every email
+ * was.
+ */
+export function emailsUncountedWords(
+  act: 'rewind' | 'undo',
+  uncounted: string | undefined,
+): string {
+  if (uncounted === undefined) return '';
+  return (
+    `The emails it sends as the ${act} writes were not counted against its daily limits, as ` +
+    `what sends them was not read (${uncounted}). `
+  );
 }
 
 /** Whether the limits could not be read. */

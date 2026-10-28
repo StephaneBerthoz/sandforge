@@ -1056,6 +1056,9 @@ export class CheckpointHandler implements DomainHandler {
         diff: outcome.diff,
         ...(outcome.automation ? { automation: outcome.automation } : {}),
         ...(outcome.emails ? { emails: outcome.emails } : {}),
+        ...(outcome.emailsUncounted !== undefined
+          ? { emailsUncounted: outcome.emailsUncounted }
+          : {}),
         estimate: outcome.estimate,
         ...(outcome.refusal ? { refusal: outcome.refusal } : {}),
       });

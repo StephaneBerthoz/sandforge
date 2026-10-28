@@ -558,6 +558,52 @@ describe('previewCheckpoint', () => {
     expect(without.refusal).toBeUndefined();
   });
 
+  it('says the emails of a package’s flow on an object the rewind gives back were not counted, though nothing it read sends one, and refuses nothing for it', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    // As a flow a package runs after the save comes from the read: its
+    // active version named as no id is, its definition never read.
+    const packaged: PreviewDeps['readAutomation'] = async (objects) => ({
+      ...(await automationRead([])(objects)),
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'survey_kit__Account_feedback',
+              label: 'Account feedback',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'unreadable',
+              permissions: [],
+              messages: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+
+    const outcome = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: packaged },
+      request(t),
+    );
+
+    if (!outcome.previewed) throw new Error(outcome.refusal.message);
+    expect(outcome.emails).toBeUndefined();
+    expect(outcome.emailsUncounted).toBe(
+      'the definition of Account feedback (package survey_kit, whose flows the org lets no one ' +
+        'read) on Account',
+    );
+    expect(outcome.refusal).toBeUndefined();
+    const read = await previewCheckpoint(
+      { org: t.org, store: t.store, readAutomation: automationRead([]) },
+      request(t),
+    );
+    if (!read.previewed) throw new Error(read.refusal.message);
+    expect(read.emailsUncounted).toBeUndefined();
+  });
+
   it('keeps its reads under the preview’s own folder, named by the id the diff carries', async () => {
     const t = await taken();
     changedSince(t.org);

@@ -5633,6 +5633,8 @@
         "newFileVersion_one": "{{formatted}} file got a new version since: Salesforce deletes no version and won't make an older one the latest again, so the file keeps its new content. The content it had is still in its version history; its title is given back.",
         "newFileVersion_other": "{{formatted}} files got a new version since: Salesforce deletes no version and won't make an older one the latest again, so the files keep their new content. The content each had is still in its version history; their titles are given back.",
         "fieldRemoved": "{{field}} was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.",
+        "fieldHidden": "{{field}} is hidden from {{user}} by field-level security since the checkpoint: Rewind does not put it back. Give {{user}} read and edit access to it, then rewind again.",
+        "fieldRemovedOrHidden": "{{field}} is gone from what {{org}} shows {{user}}: it was deleted since the checkpoint (restore it from Deleted Fields within 15 days), or field-level security hides it (give {{user}} read and edit access). Rewind does not put it back.",
         "fieldsAdded_one": "{{fields}} was added since: its values stay.",
         "fieldsAdded_other": "{{fields}} were added since: their values stay.",
         "fieldsChanged_one": "The type of {{fields}} changed since: Rewind tries it field by field.",
@@ -5677,7 +5679,8 @@
         "fits": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), {{remaining}} of {{max}} left today.",
         "exceeds": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}), more than the {{remaining}} of {{max}} left today: the rewind is refused, whatever is ticked.",
         "unread": "{{limit}}: about {{emails}} sent by {{org}}'s automation as the rewind writes ({{senders}}). What is left today could not be read ({{reason}}).",
-        "alertsCounted": "{{org}} counts its email alerts against its single emails, as a Developer Edition does: they are among them."
+        "alertsCounted": "{{org}} counts its email alerts against its single emails, as a Developer Edition does: they are among them.",
+        "uncounted": "What {{org}} runs as the rewind writes could not all be read ({{reason}}), so the emails it sends were not counted against its daily limits."
       },
       "cost": "About {{time}} · about {{requests}} API requests of the {{left}} left today",
       "journal": "Before it writes, Rewind keeps what it changes, so you can undo it until {{date}}, sooner if the recycle bin fills.",

@@ -368,7 +368,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 }) => {
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
-  const { diff, automation, emails, estimate, refusal } = answer;
+  const { diff, automation, emails, emailsUncounted, estimate, refusal } = answer;
   const settings = customSettingsOf(checkpoint);
   const undoCannotId = useId();
   const recreateId = useId();
@@ -396,9 +396,11 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     ? { automation, entries: fired, bypasses: removalStepsBypassesOf(automation, steps) }
     : undefined;
   // A part of the automation the org would not let be read may run as well
-  // as what was read: it is accepted as automation found.
+  // as what was read: it is accepted as automation found. So is what sends
+  // emails that could not be counted, as Sync and Autopilot ask for it.
   const automationFound =
-    automation !== undefined && (fired.length > 0 || blindedBy(automation.unread));
+    automation !== undefined &&
+    (fired.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
   const outside = outsideLines(diff);
   const remade = recreateLines(diff);
   // Salesforce lists a record emptied from the bin as deleted: only the
@@ -480,7 +482,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       <Details diff={diff} />
       <Unread diff={diff} />
       <Files diff={diff} orgName={orgName} username={org.username} />
-      <CannotUndo diff={diff} orgName={orgName} writes={writes} />
+      <CannotUndo diff={diff} orgName={orgName} user={org.username} writes={writes} />
 
       {diff.undoCannot.length > 0 && (
         <section
@@ -593,6 +595,15 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             onReadAgain={onReadAgain}
           />
           {emails && emails.length > 0 && <Emails emails={emails} orgName={orgName} />}
+          {/* Said whether or not anything else sends: a package's flow is never read. */}
+          {emailsUncounted !== undefined && (
+            <p data-testid="checkpoint-preview-emails-uncounted">
+              {t('checkpoint.preview.emails.uncounted', {
+                org: orgName,
+                reason: emailsUncounted,
+              })}
+            </p>
+          )}
           {automationFound && (
             <Box
               checked={ticked.automation}
@@ -1074,20 +1085,31 @@ const Files: React.FC<{ diff: RewindDiff; orgName: string; username: string }> =
 
 /**
  * What a rewind cannot undo, only the lines that apply: records the recycle
- * bin no longer holds and the like, by reason; the fields deleted, added or
- * changed since; and, when the rewind writes anything, what the org keeps
- * itself, what already left it, and its metadata.
+ * bin no longer holds and the like, by reason; the fields deleted, hidden
+ * from `user` by field-level security, either of the two, added or changed
+ * since; and, when the rewind writes anything, what the org keeps itself,
+ * what already left it, and its metadata.
  */
-const CannotUndo: React.FC<{ diff: RewindDiff; orgName: string; writes: boolean }> = ({
-  diff,
-  orgName,
-  writes,
-}) => {
+const CannotUndo: React.FC<{
+  diff: RewindDiff;
+  orgName: string;
+  /** The user the preview read the org as: who field-level security hides a field from. */
+  user: string;
+  writes: boolean;
+}> = ({ diff, orgName, user, writes }) => {
   const { t } = useTranslation();
   const headingId = useId();
   const field = (object: string, name: string): string => `${object}.${name}`;
   const removed = diff.objects.flatMap((object) =>
     (object.schemaDrift?.removed ?? []).map((name) => field(object.objectApiName, name)),
+  );
+  // Gone from the describe as a deleted field is, but still there: Deleted
+  // Fields gives nothing back, an access given does.
+  const hidden = diff.objects.flatMap((object) =>
+    (object.schemaDrift?.hidden ?? []).map((name) => field(object.objectApiName, name)),
+  );
+  const uncertain = diff.objects.flatMap((object) =>
+    (object.schemaDrift?.uncertain?.fields ?? []).map((name) => field(object.objectApiName, name)),
   );
   const added = diff.objects.flatMap((object) =>
     (object.schemaDrift?.added ?? []).map((name) => field(object.objectApiName, name)),
@@ -1107,6 +1129,18 @@ const CannotUndo: React.FC<{ diff: RewindDiff; orgName: string; writes: boolean 
     ...removed.map((name) => ({
       id: `removed-${name}`,
       text: t('checkpoint.preview.cannot.fieldRemoved', { field: name }),
+    })),
+    ...hidden.map((name) => ({
+      id: `hidden-${name}`,
+      text: t('checkpoint.preview.cannot.fieldHidden', { field: name, user }),
+    })),
+    ...uncertain.map((name) => ({
+      id: `uncertain-${name}`,
+      text: t('checkpoint.preview.cannot.fieldRemovedOrHidden', {
+        field: name,
+        org: orgName,
+        user,
+      }),
     })),
     ...(added.length > 0
       ? [

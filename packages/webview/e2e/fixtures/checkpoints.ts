@@ -280,6 +280,8 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
             removed: ['Region__c'],
             added: ['Priority_Score__c'],
             changed: ['Origin'],
+            hidden: ['Priority'],
+            uncertain: { fields: ['Tier__c'], reason: 'INSUFFICIENT_ACCESS' },
           },
           notCompared: ['Last_Touched__c'],
         }),
@@ -318,6 +320,8 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
       conditionsBound: 25,
       requests: 4,
     },
+    emailsUncounted:
+      'the definition of Case feedback (package survey_kit, whose flows the org lets no one read) on Case',
     estimate: { records: 39, apiRequests: 140, apiRequestsLeft: 14_900, seconds: 38, bytes: 0 },
     refusal: {
       code: 'AUTOMATION',

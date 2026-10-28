@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import * as fc from 'fast-check';
 import { paced } from '../../test/runnerPace.js';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +25,7 @@ import {
   OrgReadStopped,
   compositeReader,
   type CompositeQueryConnection,
+  type CountedPage,
   type OrgRow,
 } from './compositeQueries.js';
 import { binLedgerRead, spoolReads, spooledRows } from './orgStreams.js';
@@ -37,7 +39,13 @@ import {
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { Recreated, writeSnapshotIndex } from './snapshotIndex.js';
-import { classFileOf, rewindDiff, type RewindClass } from './rewindDiff.js';
+import {
+  classFileOf,
+  definitionOf,
+  fieldsGoneOf,
+  rewindDiff,
+  type RewindClass,
+} from './rewindDiff.js';
 
 const ORG = '00Dxx0000001234EAA';
 const CHECKPOINT = 'ck-20261022-100000-a1b2';
@@ -1055,22 +1063,22 @@ const ACCOUNT_DESCRIBED = describedOf(ACCOUNT.fields, {
 });
 
 describe('rewindDiff: what changed in the objects’ fields since the take', () => {
-  it('names a field deleted since and compares it no more, never failing its object; leaves a field added since alone; compares still a field whose type changed, and names it', async () => {
+  it('names a custom field deleted since — FieldDefinition no longer lists it — and compares it no more, never failing its object; leaves a field added since alone; compares still a field whose type changed, and names it', async () => {
     const taken = await take({
       objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
       before: (org) => org.add('Account', subject()),
       since: (org) => {
-        org.edit('Account', SUBJECT, { Industry: 'Retail', Description: 'new' });
+        org.edit('Account', SUBJECT, { Industry: 'Retail', Due__c: '2026-11-01T09:00:00Z' });
         org.changeSchema(
           'Account',
-          describedOf([...STAMPS, 'Name', 'Industry', 'Due__c', 'Region__c'], {
-            Due__c: 'datetime',
+          describedOf([...STAMPS, 'Name', 'Industry', 'Description', 'Region__c'], {
+            Description: 'textarea',
           }),
         );
       },
     });
 
-    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Description') });
+    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Due__c') });
 
     expect(diff.unread).toEqual([]);
     expect(await classesOf(taken.folder, 'Account')).toEqual({
@@ -1082,11 +1090,16 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
         { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
         {
           ...bySession(1),
-          schemaDrift: { removed: ['Description'], added: ['Region__c'], changed: ['Industry'] },
-          notCompared: ['Description'],
+          schemaDrift: { removed: ['Due__c'], added: ['Region__c'], changed: ['Industry'] },
+          notCompared: ['Due__c'],
         },
       ),
     ]);
+    // One read of the Tooling API told it deleted, and is counted.
+    expect(taken.org.toolingAsked).toEqual([
+      "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account' AND QualifiedApiName IN ('Due__c')",
+    ]);
+    expect(diff.fieldsRequests).toBe(1);
   });
 
   it('asks whether an object changed since a day before the checkpoint: a field deleted after the take described it and before T0 is named, though no record changed', async () => {
@@ -1095,7 +1108,7 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
       nearT0: (org) =>
         org.changeSchema(
           'Account',
-          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Description'),
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
         ),
     });
 
@@ -1106,11 +1119,118 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
         'Account',
         {},
         {
-          schemaDrift: { removed: ['Description'], added: [], changed: [] },
+          schemaDrift: { removed: ['Due__c'], added: [], changed: [] },
+          notCompared: ['Due__c'],
+        },
+      ),
+    ]);
+  });
+
+  it('says a standard field gone from the describe hidden by field-level security, asking nothing of the Tooling API: no one deletes a standard field', async () => {
+    const taken = await take({
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Description'),
+        );
+      },
+    });
+
+    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Description') });
+
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        {
+          ...bySession(1),
+          schemaDrift: { removed: [], added: [], changed: [], hidden: ['Description'] },
           notCompared: ['Description'],
         },
       ),
     ]);
+    expect(taken.org.toolingAsked).toEqual([]);
+    expect(diff.fieldsRequests).toBeUndefined();
+  });
+
+  it('says a custom field FieldDefinition still lists hidden by field-level security, never deleted, and reads its object without it (P-G1)', async () => {
+    const taken = await take({
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail', Due__c: '2026-11-01T09:00:00Z' });
+        // As the profile's access to it was taken away: gone from the
+        // describe and refused by a query, still a field of the object.
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
+        );
+        org.hiddenFields.set('Account', new Set(['Due__c']));
+      },
+    });
+
+    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Due__c') });
+
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        {
+          ...bySession(1),
+          schemaDrift: { removed: [], added: [], changed: [], hidden: ['Due__c'] },
+          notCompared: ['Due__c'],
+        },
+      ),
+    ]);
+    expect(diff.fieldsRequests).toBe(1);
+  });
+
+  it('leaves a custom field uncertain, with the org’s answer, when the org refuses the read of FieldDefinition, and reads its object all the same', async () => {
+    const taken = await take({
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }],
+      before: (org) => org.add('Account', subject()),
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c' && name !== 'Description'),
+        );
+        org.refuseTooling = {
+          errorCode: 'INSUFFICIENT_ACCESS',
+          message: 'insufficient access rights on cross-reference id',
+        };
+      },
+    });
+
+    const diff = await diffOf(taken, { conn: refusingField(taken.org, 'Due__c') });
+
+    expect(diff.unread).toEqual([]);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        {
+          ...bySession(1),
+          schemaDrift: {
+            removed: [],
+            added: [],
+            changed: [],
+            hidden: ['Description'],
+            uncertain: {
+              fields: ['Due__c'],
+              reason: 'INSUFFICIENT_ACCESS: insufficient access rights on cross-reference id',
+            },
+          },
+          notCompared: ['Description', 'Due__c'],
+        },
+      ),
+    ]);
+    expect(diff.fieldsRequests).toBe(1);
   });
 
   it('names an object whose describe changed and whose field prints are no longer on this machine, and diffs the others', async () => {
@@ -1132,6 +1252,168 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
     expect(diff.objects).toEqual([
       objectOf('Contact', { giveBack: [{ Id: contactId(1), fields: ['LastName'] }] }, bySession(1)),
     ]);
+  });
+});
+
+/**
+ * A reader of the Tooling API's `FieldDefinition` alone: per object, the
+ * fields it defines; an object whose reads it refuses, with the org's
+ * answer. Each statement is kept, as asked.
+ */
+function definitionsReader(
+  defined: Record<string, readonly string[]>,
+  refused: Record<string, string> = {},
+): { tooling: (soql: string) => Promise<CountedPage>; asked: string[] } {
+  const asked: string[] = [];
+  return {
+    asked,
+    tooling: async (soql) => {
+      asked.push(soql);
+      const of =
+        /EntityDefinition\.QualifiedApiName = '(\w+)' AND QualifiedApiName IN \((.*)\)$/.exec(soql);
+      if (!of) throw new Error(`Not a FieldDefinition statement: ${soql}`);
+      const reason = refused[of[1]];
+      if (reason !== undefined) throw new Error(reason);
+      const names = of[2].split(', ').map((quoted) => quoted.slice(1, -1));
+      const fields = new Set((defined[of[1]] ?? []).map((name) => name.toLowerCase()));
+      const records = names
+        .filter((name) => fields.has(name.toLowerCase()))
+        .map((name) => ({ QualifiedApiName: name }));
+      return { totalSize: records.length, done: true, records };
+    },
+  };
+}
+
+describe('fieldsGoneOf: a field gone from the describe, deleted or hidden by field-level security', () => {
+  it('asks for a part of a compound custom field under the field it is part of, and for a person account’s field under the contact', async () => {
+    const reader = definitionsReader({ Account: ['Site__c'], Contact: [] });
+
+    const { gone, requests } = await fieldsGoneOf(
+      reader,
+      new Map([
+        ['Account', ['BillingCity', 'Region__pc', 'Site__Latitude__s', 'Site__Longitude__s']],
+      ]),
+    );
+
+    expect(gone.get('Account')).toEqual({
+      removed: ['Region__pc'],
+      hidden: ['BillingCity', 'Site__Latitude__s', 'Site__Longitude__s'],
+    });
+    // The two parts of one field asked once; a standard field not at all.
+    expect(reader.asked).toEqual([
+      "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Contact' AND QualifiedApiName IN ('Region__c')",
+      "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account' AND QualifiedApiName IN ('Site__c')",
+    ]);
+    expect(requests).toBe(2);
+  });
+
+  it('tells a namespaced custom field by its whole name, and a standard field that only looks custom by its suffix', () => {
+    expect(definitionOf('Account', 'pkg__Score__c')).toEqual({
+      entity: 'Account',
+      name: 'pkg__Score__c',
+    });
+    expect(definitionOf('Account', 'pkg__Site__Latitude__s')).toEqual({
+      entity: 'Account',
+      name: 'pkg__Site__c',
+    });
+    expect(definitionOf('Account', 'pkg__Region__pc')).toEqual({
+      entity: 'Contact',
+      name: 'pkg__Region__c',
+    });
+    expect(definitionOf('Account', 'Rating')).toBeUndefined();
+    expect(definitionOf('Account', 'PersonMailingCity')).toBeUndefined();
+  });
+
+  it('asks two hundred names a statement at most, and leaves uncertain, with the org’s answer, only the fields of an object it refused', async () => {
+    const many = Array.from({ length: 450 }, (_, n) => `F${String(n).padStart(3, '0')}__c`);
+    const reader = definitionsReader(
+      { Account: many.filter((_, n) => n % 2 === 0) },
+      { Contact: 'INSUFFICIENT_ACCESS: insufficient access rights on cross-reference id' },
+    );
+
+    const { gone, requests } = await fieldsGoneOf(
+      reader,
+      new Map([
+        ['Account', many],
+        ['Contact', ['Score__c', 'Email']],
+      ]),
+    );
+
+    expect(requests).toBe(3 + 1);
+    expect(reader.asked.slice(0, 3).map((soql) => soql.split("', '").length)).toEqual([
+      200, 200, 50,
+    ]);
+    expect(gone.get('Account')?.hidden).toHaveLength(225);
+    expect(gone.get('Account')?.removed).toHaveLength(225);
+    expect(gone.get('Account')?.uncertain).toBeUndefined();
+    expect(gone.get('Contact')).toEqual({
+      removed: [],
+      hidden: ['Email'],
+      uncertain: {
+        fields: ['Score__c'],
+        reason: 'INSUFFICIENT_ACCESS: insufficient access rights on cross-reference id',
+      },
+    });
+  });
+
+  it('stops when the run is stopped, never leaving a field uncertain for it', async () => {
+    const reader = {
+      tooling: (): Promise<CountedPage> => Promise.reject(new OrgReadStopped()),
+    };
+
+    await expect(fieldsGoneOf(reader, new Map([['Account', ['Due__c']]]))).rejects.toBeInstanceOf(
+      OrgReadStopped,
+    );
+  });
+
+  it('for any fields gone, names each once as deleted, hidden or uncertain, never a standard field as deleted or uncertain, and asks nothing when no custom field is gone', async () => {
+    const fieldArb = fc.oneof(
+      fc.constantFrom('Rating', 'Description', 'BillingCity', 'PersonEmail', 'Name'),
+      fc.constantFrom('Due__c', 'Score__c', 'pkg__Tier__c', 'Region__pc', 'Site__Latitude__s'),
+    );
+    const caseArb = fc.record({
+      missing: fc.dictionary(
+        fc.constantFrom('Account', 'Contact', 'Case'),
+        fc.uniqueArray(fieldArb, { maxLength: 6 }),
+      ),
+      defined: fc.dictionary(
+        fc.constantFrom('Account', 'Contact', 'Case'),
+        fc.subarray(['Due__c', 'Score__c', 'pkg__Tier__c', 'Region__c', 'Site__c']),
+      ),
+      refused: fc.subarray(['Account', 'Contact', 'Case']),
+    });
+    await fc.assert(
+      fc.asyncProperty(caseArb, async (drawn) => {
+        const reader = definitionsReader(
+          drawn.defined,
+          Object.fromEntries(drawn.refused.map((object) => [object, 'REFUSED'])),
+        );
+        const missing = new Map(Object.entries(drawn.missing));
+
+        const { gone, requests } = await fieldsGoneOf(reader, missing);
+
+        let custom = 0;
+        for (const [objectApiName, fields] of missing) {
+          const told = gone.get(objectApiName);
+          const named = [
+            ...(told?.removed ?? []),
+            ...(told?.hidden ?? []),
+            ...(told?.uncertain?.fields ?? []),
+          ];
+          expect([...named].sort()).toEqual([...fields].sort());
+          for (const field of fields) {
+            if (definitionOf(objectApiName, field) === undefined) {
+              expect(told?.hidden).toContain(field);
+            } else {
+              custom++;
+            }
+          }
+        }
+        expect(requests === 0).toBe(custom === 0);
+        expect(reader.asked).toHaveLength(requests);
+      }),
+      { numRuns: 300 },
+    );
   });
 });
 

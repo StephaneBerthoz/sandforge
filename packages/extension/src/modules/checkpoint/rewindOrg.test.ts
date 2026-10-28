@@ -820,6 +820,57 @@ describe('rewindOrg: what it refuses before it writes', () => {
     expect(resultOf(accepted).status).toBe('success');
   });
 
+  it('says, refusing its automation unaccepted, that the emails of a flow whose definition was not read were not counted, and goes once accepted', async () => {
+    const t = await taken();
+    changedSince(t.org);
+    const diff = await previewed(t);
+    const before = stateOf(t.org);
+    // A flow on the accounts the rewind gives back, past the read's bound:
+    // what it sends is counted as nothing.
+    const unread = automationOf({
+      objects: [
+        {
+          objectApiName: 'Account',
+          flows: [
+            {
+              apiName: 'Account_edited',
+              label: 'Account edited',
+              timing: 'afterSave',
+              startsOn: 'update',
+              condition: 'notRead',
+              permissions: [],
+              messages: [],
+            },
+          ],
+          triggers: [],
+        },
+      ],
+    });
+    t.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+
+    const outcome = await rewound(t, diff.previewId, { deps: { readAutomation: unread } });
+
+    expect(outcome).toEqual({
+      rewound: false,
+      refusal: {
+        code: 'AUTOMATION',
+        message:
+          'DEV-ED: 1 flow(s), trigger(s) or rule(s) of Account run as the rewind brings records ' +
+          'back, gives them their values back or deletes them. The emails it sends as the ' +
+          'rewind writes were not counted against its daily limits, as what sends them was not ' +
+          'read (the definition of Account edited on Account). Rewind refused; accept that it ' +
+          'runs to rewind all the same. No record was written.',
+      },
+    });
+    untouched(t, before);
+    // Not counted, they are not held to what the org has left: accepted, it goes.
+    const accepted = await rewound(t, diff.previewId, {
+      deps: { readAutomation: unread },
+      request: { acceptAutomation: true },
+    });
+    expect(resultOf(accepted).status).toBe('success');
+  });
+
   it('refuses a rewind whose writes would make the org send more emails than it has left today, whatever is accepted, and writes nothing; one that fits goes (B11, H1)', async () => {
     const t = await taken();
     changedSince(t.org);

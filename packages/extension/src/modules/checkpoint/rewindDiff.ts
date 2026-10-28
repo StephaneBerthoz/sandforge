@@ -116,8 +116,11 @@
  *   is printed as the take printed it. A field deleted since, or hidden since
  *   by field-level security, is neither read nor compared, and is named: a
  *   read that names it is refused whole, and its object would read as one
- *   that could not be read. A field added since is left alone; one whose
- *   type changed is compared still, and named;
+ *   that could not be read. Which of the two it is, the describe does not
+ *   say (`fieldsGoneOf`): a standard field cannot be deleted, so one gone is
+ *   hidden, and of a custom one the Tooling API is asked. A field added
+ *   since is left alone; one whose type changed is compared still, and
+ *   named;
  * - the fields not compared: those its owner chose to stop comparing, and
  *   those gone since;
  * - a person account's contact as its account's: Salesforce neither deletes
@@ -174,6 +177,7 @@
 
 import { appendFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import * as z from 'zod';
 import {
   sanitizeSoqlObjectName,
   type CheckpointObject,
@@ -186,7 +190,7 @@ import {
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { ACCOUNT, CONTACT } from '../../core/common/platformRecords.js';
-import { readColumnsApart } from '../../core/common/wideRead.js';
+import { MAX_STATEMENT_URI_CHARS, readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import { sameValue } from '../sync/SyncRunRestore.js';
@@ -575,7 +579,10 @@ type ObjectOutcome = { told: Told } | { unread: string };
 interface FieldsNow {
   /** Absent when no field changed. */
   drift?: RewindSchemaDrift;
-  /** The fields deleted or hidden since, in lower case: neither read nor compared. */
+  /**
+   * The fields deleted or hidden since, or that could not be told which, in
+   * lower case: neither read nor compared.
+   */
   gone: ReadonlySet<string>;
 }
 
@@ -704,22 +711,223 @@ async function valuesNow(
   return now;
 }
 
+// ─── The fields gone from a describe ─────────────────────────────────────────
+
+/**
+ * A custom field's name: `__c`, a person account's `__pc` — the contact's
+ * own field, as its account lists it — or the `__s` of a part of a compound
+ * custom field, a location's latitude or an address's city. Any other is a
+ * standard field, which no one deletes: only custom fields go to Deleted
+ * Fields.
+ */
+const CUSTOM_FIELD = /__(?:c|pc|s)$/i;
+
+/** A part of a compound custom field, `Site__Latitude__s`, and the field it is part of. */
+const COMPOUND_PART = /^(.+)__[A-Za-z]+__s$/i;
+
+/** A person account's field, `Region__pc`: the contact's `Region__c`. */
+const PERSON_FIELD = /^(.+)__pc$/i;
+
+/** A field's name as it may go between quotes in a statement. */
+const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/**
+ * Names one statement asks `FieldDefinition` for at most, whatever the URI
+ * leaves room for: each answers one row at most, so the whole answer fits
+ * the first page of a query, which is all a Tooling read here takes.
+ */
+const DEFINITIONS_PER_STATEMENT = 200;
+
+/**
+ * Where `FieldDefinition` lists a custom field: under its object and name;
+ * a part of a compound field under the field it is part of, which is listed
+ * where its parts are not; a person account's field under the contact.
+ * Undefined for a standard field, and for a name no statement may quote.
+ */
+export function definitionOf(
+  objectApiName: string,
+  field: string,
+): { entity: string; name: string } | undefined {
+  if (!CUSTOM_FIELD.test(field) || !FIELD_NAME.test(field)) return undefined;
+  const person = PERSON_FIELD.exec(field);
+  if (person) return { entity: CONTACT, name: `${person[1]}__c` };
+  const part = COMPOUND_PART.exec(field);
+  if (part) return { entity: objectApiName, name: `${part[1]}__c` };
+  return { entity: objectApiName, name: field };
+}
+
+/** How the fields gone from an object's describe since the take came out. */
+export interface FieldsGone {
+  /** Custom fields `FieldDefinition` no longer lists: deleted since. */
+  removed: string[];
+  /** Standard fields, and custom fields `FieldDefinition` still lists: hidden by field-level security. */
+  hidden: string[];
+  /** Custom fields whose read of `FieldDefinition` the org refused, with its answer. */
+  uncertain?: { fields: string[]; reason?: string };
+}
+
+const fieldDefinitionsSchema = z.array(z.object({ QualifiedApiName: z.string() }).loose());
+
+/**
+ * The statements that ask `FieldDefinition` whether each of `names` of
+ * `entity` is defined, each with the names it asks for, held to the URI's
+ * budget and {@link DEFINITIONS_PER_STATEMENT}: one object a statement, as
+ * the Tooling API was asked it live.
+ */
+function definitionStatements(
+  entity: string,
+  names: readonly string[],
+): Array<{ soql: string; names: string[] }> {
+  const head =
+    'SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = ' +
+    `'${sanitizeSoqlObjectName(entity)}' AND QualifiedApiName IN (`;
+  const statementOf = (list: readonly string[]): string =>
+    `${head}${list.map((name) => `'${name}'`).join(', ')})`;
+  const statements: Array<{ soql: string; names: string[] }> = [];
+  let list: string[] = [];
+  for (const name of names) {
+    const next = [...list, name];
+    const full =
+      next.length > DEFINITIONS_PER_STATEMENT ||
+      encodeURIComponent(statementOf(next)).length > MAX_STATEMENT_URI_CHARS;
+    if (list.length > 0 && full) {
+      statements.push({ soql: statementOf(list), names: list });
+      list = [name];
+    } else {
+      list = next;
+    }
+  }
+  if (list.length > 0) statements.push({ soql: statementOf(list), names: list });
+  return statements;
+}
+
+/** A name `FieldDefinition` is asked for, and the fields gone it answers for. */
+interface AskedDefinition {
+  name: string;
+  fields: Array<{ objectApiName: string; field: string }>;
+}
+
+/**
+ * Of the fields each object's describe no longer lists since the take,
+ * which were deleted and which field-level security hides from the user.
+ * The describe and every query of the data API leave out both alike, View
+ * All Data and Modify All Data notwithstanding: a custom field no permission
+ * granted was absent from an administrator's describe too. Asked live of a
+ * Standard User with View Setup, the Tooling API's `FieldDefinition` listed
+ * a standard field the user's profile hid and a custom field no permission
+ * granted, and no longer listed that custom field once deleted, where the
+ * data API's `FieldDefinition` and `EntityParticle` followed field-level
+ * security as the describe does.
+ *
+ * So a standard field gone is hidden, with no request: no one deletes one.
+ * A custom field is asked of `FieldDefinition` through the Tooling API, one
+ * object a statement: listed, it is hidden; not listed, deleted since; a
+ * read the org refuses leaves its fields uncertain, with the org's answer.
+ * Nothing is refused for it, and every field gone is named in one of the
+ * three.
+ *
+ * @param missing - By object, the fields its describe no longer lists.
+ * @returns By object, how its fields came out; and the requests it sent.
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+export async function fieldsGoneOf(
+  reader: Pick<CompositeReader, 'tooling'>,
+  missing: ReadonlyMap<string, readonly string[]>,
+): Promise<{ gone: Map<string, FieldsGone>; requests: number }> {
+  const gone = new Map<string, FieldsGone>();
+  // By the object `FieldDefinition` is asked of, by name in lower case.
+  const asked = new Map<string, Map<string, AskedDefinition>>();
+  for (const [objectApiName, fields] of missing) {
+    const told: FieldsGone = { removed: [], hidden: [] };
+    gone.set(objectApiName, told);
+    for (const field of fields) {
+      const definition = definitionOf(objectApiName, field);
+      if (definition === undefined) {
+        told.hidden.push(field);
+        continue;
+      }
+      const names = asked.get(definition.entity) ?? new Map<string, AskedDefinition>();
+      asked.set(definition.entity, names);
+      const key = definition.name.toLowerCase();
+      const of = names.get(key) ?? { name: definition.name, fields: [] };
+      names.set(key, of);
+      of.fields.push({ objectApiName, field });
+    }
+  }
+  let requests = 0;
+  const uncertain = new Map<string, { fields: string[]; reasons: string[] }>();
+  for (const [entity, names] of asked) {
+    const listed = new Set<string>();
+    const refused = new Map<string, string>();
+    const statements = definitionStatements(
+      entity,
+      [...names.values()].map(({ name }) => name),
+    );
+    for (const statement of statements) {
+      requests++;
+      try {
+        const page = await reader.tooling(statement.soql);
+        if (!page.done) throw new Error('FieldDefinition answered more than one page');
+        const rows = fieldDefinitionsSchema.safeParse(page.records);
+        if (!rows.success) throw new Error('FieldDefinition answered rows with no field name');
+        for (const row of rows.data) listed.add(row.QualifiedApiName.toLowerCase());
+      } catch (err: unknown) {
+        if (err instanceof OrgReadStopped) throw err;
+        const reason = extractErrorMessage(err);
+        for (const name of statement.names) refused.set(name.toLowerCase(), reason);
+      }
+    }
+    for (const [key, { fields }] of names) {
+      const reason = refused.get(key);
+      for (const { objectApiName, field } of fields) {
+        const told = gone.get(objectApiName);
+        if (told === undefined) continue;
+        if (reason !== undefined) {
+          const held = uncertain.get(objectApiName) ?? { fields: [], reasons: [] };
+          uncertain.set(objectApiName, held);
+          held.fields.push(field);
+          if (!held.reasons.includes(reason)) held.reasons.push(reason);
+        } else if (listed.has(key)) {
+          told.hidden.push(field);
+        } else {
+          told.removed.push(field);
+        }
+      }
+    }
+  }
+  for (const [objectApiName, told] of gone) {
+    told.removed.sort();
+    told.hidden.sort();
+    const held = uncertain.get(objectApiName);
+    if (held !== undefined) {
+      told.uncertain = {
+        fields: held.fields.sort(),
+        ...(held.reasons.length > 0 ? { reason: held.reasons.join('; ') } : {}),
+      };
+    }
+  }
+  return { gone, requests };
+}
+
 // ─── The objects' fields now ─────────────────────────────────────────────────
 
 /**
  * Each of `objects` described again, asked whether it changed since a day
  * before T0, and what changed in its fields printed against the take's: see
- * the module's comment. An object whose describe the org would not give, or
- * whose prints this machine no longer holds, could not be read.
+ * the module's comment. Of the fields a describe no longer lists, those
+ * deleted told from those hidden (`fieldsGoneOf`). An object whose describe
+ * the org would not give, or whose prints this machine no longer holds,
+ * could not be read.
  *
  * @param bodies - Filled with every describe the org answered in full.
+ * @returns By object, its fields now; and the requests the fields gone took.
  * @throws {OrgReadStopped} When the run was stopped.
  */
 async function fieldsNowOf(
   input: RewindDiffInput,
   objects: readonly CheckpointObject[],
   bodies: Map<string, CheckpointDescribe>,
-): Promise<Map<string, FieldsNow | { unread: string }>> {
+): Promise<{ now: Map<string, FieldsNow | { unread: string }>; requests: number }> {
   const { checkpoint, folder, reader } = input;
   const since = new Date(Date.parse(checkpoint.readFrom) - DESCRIBED_SINCE_MS).toISOString();
   const answers = await Promise.allSettled(
@@ -727,6 +935,7 @@ async function fieldsNowOf(
   );
   let prints: Promise<Map<string, ObjectFingerprint>> | undefined;
   const now = new Map<string, FieldsNow | { unread: string }>();
+  const drifts = new Map<string, ReturnType<typeof schemaDrift>>();
   for (const [at, answer] of answers.entries()) {
     const name = objects[at].objectApiName;
     if (answer.status === 'rejected') {
@@ -749,18 +958,39 @@ async function fieldsNowOf(
     try {
       const then = (await (prints ??= readFieldPrints(folder, checkpoint.objects))).get(name);
       if (then === undefined) throw new Error(`The checkpoint holds no field prints of ${name}.`);
-      const { removed, added, changed } = schemaDrift(then, fingerprintOf(parsed.data.fields));
-      now.set(name, {
-        ...(removed.length + added.length + changed.length > 0
-          ? { drift: { removed, added, changed } }
-          : {}),
-        gone: new Set(removed.map((field) => field.toLowerCase())),
-      });
+      drifts.set(name, schemaDrift(then, fingerprintOf(parsed.data.fields)));
     } catch (err: unknown) {
       now.set(name, { unread: extractErrorMessage(err) });
     }
   }
-  return now;
+  const missing = new Map(
+    [...drifts]
+      .filter(([, drift]) => drift.removed.length > 0)
+      .map(([name, drift]) => [name, drift.removed]),
+  );
+  const told =
+    missing.size > 0
+      ? await fieldsGoneOf(reader, missing)
+      : { gone: new Map<string, FieldsGone>(), requests: 0 };
+  for (const [name, { removed, added, changed }] of drifts) {
+    const gone = told.gone.get(name);
+    now.set(name, {
+      ...(removed.length + added.length + changed.length > 0
+        ? {
+            drift: {
+              removed: gone?.removed ?? [],
+              added,
+              changed,
+              ...(gone !== undefined && gone.hidden.length > 0 ? { hidden: gone.hidden } : {}),
+              ...(gone?.uncertain !== undefined ? { uncertain: gone.uncertain } : {}),
+            },
+          }
+        : {}),
+      // Deleted, hidden or either: none of them is read, compared or written.
+      gone: new Set(removed.map((field) => field.toLowerCase())),
+    });
+  }
+  return { now, requests: told.requests };
 }
 
 /**
@@ -2218,7 +2448,7 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
       : undefined;
   const linkDescribe = fileObject !== undefined ? describedLink(reader) : undefined;
   linkDescribe?.catch(() => undefined);
-  const fieldsNow = await fieldsNowOf(input, ordered, bodies);
+  const { now: fieldsNow, requests: fieldsRequests } = await fieldsNowOf(input, ordered, bodies);
   const unread = new Map<string, string>();
   const readable: Array<{ object: CheckpointObject; fields: FieldsNow }> = [];
   for (const object of ordered) {
@@ -2415,6 +2645,7 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     ...(outsideOfCheckpoint.requests > 0
       ? { parentsOutsideRequests: outsideOfCheckpoint.requests }
       : {}),
+    ...(fieldsRequests > 0 ? { fieldsRequests } : {}),
     ...(files !== undefined ? { files } : {}),
     ...(fileObject !== undefined ? { filesRequests } : {}),
     unread: ordered.flatMap(({ objectApiName }) => {
