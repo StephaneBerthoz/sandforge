@@ -103,6 +103,11 @@ const ALLOWED = [
     why: 'Hash algorithms; the frozen-dataset salt model publishes a fingerprint.',
   },
   {
+    pattern: /\bAES-(?:128|192|256)\b/g,
+    example: 'AES-256',
+    why: 'Cipher standard; a checkpoint exported to a file is encrypted with AES-256-GCM.',
+  },
+  {
     pattern: /\bUTC[+-]\d{1,2}\b/g,
     example: 'UTC-7',
     why: 'Fixed UTC offsets; the countdown tests pin a clock to one.',

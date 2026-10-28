@@ -2582,7 +2582,9 @@
       "cleanup_delete": "Suppression de nettoyage",
       "pipeline_approval": "Approbation de pipeline",
       "checkpoint_rewind": "Retour arrière à un point de contrôle",
-      "checkpoint_undo": "Annulation d'un retour arrière"
+      "checkpoint_undo": "Annulation d'un retour arrière",
+      "checkpoint_export": "Export d'un point de contrôle",
+      "checkpoint_import": "Import d'un point de contrôle"
     },
     "filterByAction": "Filtrer par action",
     "filterByModule": "Filtrer par module",

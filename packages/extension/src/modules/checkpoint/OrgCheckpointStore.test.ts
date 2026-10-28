@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -30,6 +31,9 @@ import {
   defaultCheckpointStoreRoot,
   expiresAtFor,
   expiresSoon,
+  exportedFileIn,
+  exportedFilesOf,
+  isExportedPath,
   filesDocumentsFileOf,
   filesLinksFileOf,
   indexFileOf,
@@ -988,5 +992,177 @@ describe('the lock of an org', () => {
     expect(organizationKey(ORG_15)).toBe(ORG);
     expect(organizationKey(ORG)).toBe(ORG);
     expect(() => organizationKey('005xx000001AbCdAAA')).toThrow(CheckpointStoreError);
+  });
+});
+
+describe('what an export carries, and an import writes back', () => {
+  it('lists the files a teammate needs, sorted by path, and never an index, a preview, a journal, a file a write left or what a take spools', async () => {
+    const store = storeIn();
+    const folder = await kept(store);
+    const put = (path: string): void => {
+      const file = join(folder.dir, ...path.split('/'));
+      mkdirSync(join(file, '..'), { recursive: true });
+      writeFileSync(file, `${path}\n`);
+    };
+    for (const path of [
+      'snapshots.json',
+      'backups/op-1__Account.ndjson.gz',
+      'bin/Account.ids',
+      'files/links.ndjson.gz',
+      'files/documents.ndjson.gz',
+      'index/recreated.ndjson',
+      'index/notInBin.ndjson',
+      // None of these leaves.
+      'index/Account.idx',
+      'previews/pv-20261022-141030-c3d4/Account.live.ndjson',
+      'rewinds/rw-20261022-141102-e5f6/journal.ndjson',
+      'files/taking/documents.0.ndjson',
+      'checkpoint.json.4242-0a1b2c3d.tmp',
+      'notes.txt',
+    ]) {
+      put(path);
+    }
+
+    const listed = await exportedFilesOf(folder);
+
+    expect(listed.map((file) => file.path)).toEqual([
+      'backups/op-1__Account.ndjson.gz',
+      'bin/Account.ids',
+      'checkpoint.json',
+      'files/documents.ndjson.gz',
+      'files/links.ndjson.gz',
+      'fingerprints.json.gz',
+      'index/notInBin.ndjson',
+      'index/recreated.ndjson',
+      'snapshots.json',
+    ]);
+    const bin = listed.find((file) => file.path === 'bin/Account.ids');
+    expect(bin).toEqual({
+      path: 'bin/Account.ids',
+      file: join(folder.dir, 'bin', 'Account.ids'),
+      bytes: 'bin/Account.ids\n'.length,
+    });
+  });
+
+  it.runIf(POSIX)('never follows a link out of the folder', async () => {
+    const dir = scratch();
+    const store = storeIn(dir);
+    const folder = await kept(store);
+    writeFileSync(join(dir, 'secret.txt'), 'not the checkpoint’s');
+    symlinkSync(join(dir, 'secret.txt'), join(folder.dir, 'snapshots.json'));
+    mkdirSync(join(folder.dir, 'backups'), { recursive: true });
+    symlinkSync(join(dir, 'secret.txt'), join(folder.dir, 'backups', 'op-1__Account.ndjson'));
+
+    const listed = await exportedFilesOf(folder);
+
+    expect(listed.map((file) => file.path)).toEqual(['checkpoint.json', 'fingerprints.json.gz']);
+  });
+
+  it('allows back only the paths it carries: none outside the folder, absolute, or of a folder of its own', () => {
+    for (const path of [
+      'checkpoint.json',
+      'fingerprints.json',
+      'backups/op-1__Account.ndjson',
+      'backups/op-1__Hier__c.ndjson.gz',
+      'index/notInBin.ndjson',
+    ]) {
+      expect(isExportedPath(path), path).toBe(true);
+    }
+    for (const path of [
+      '../checkpoint.json',
+      '/etc/passwd',
+      'C:\\Windows\\win.ini',
+      'backups/../../escaped.ndjson',
+      'backups\\op-1__Account.ndjson',
+      'index/Account.idx',
+      'rewinds/rw-20261022-141102-e5f6/journal.ndjson',
+      'bin/../Account.ids',
+      '',
+    ]) {
+      expect(isExportedPath(path), path).toBe(false);
+    }
+    expect(() => exportedFileIn('/store/x', '../escaped')).toThrow(CheckpointStoreError);
+    expect(exportedFileIn(join('store', 'x'), 'bin/Account.ids')).toBe(
+      join('store', 'x', 'bin', 'Account.ids'),
+    );
+  });
+
+  it('keeps an import under its id once its files are in, its file written last with the bytes it takes here', async () => {
+    const store = storeIn();
+    const checkpoint = checkpointOf();
+    let staged = '';
+
+    const done = await store.importInto(ORG, checkpoint.checkpointId, async (folder) => {
+      staged = folder.dir;
+      // Written beside the org's checkpoints, under no checkpoint's id, which no list reads.
+      expect(folder.dir.startsWith(join(store.root, ORG, '.importing-'))).toBe(true);
+      expect(await store.list()).toEqual([]);
+      if (POSIX) expect(modeOf(folder.dir)).toBe(0o700);
+      writeFileSync(join(folder.dir, 'snapshots.json'), '{}\n');
+      return { ...checkpoint, bytes: 0 };
+    });
+
+    expect(done).toMatchObject({ outcome: 'imported' });
+    expect(existsSync(staged)).toBe(false);
+    const read = await store.read(checkpoint.checkpointId);
+    expect(read?.checkpoint).toEqual(done.outcome === 'imported' ? done.checkpoint : undefined);
+    const fileBytes = statSync(read?.folder.checkpointFile ?? '').size;
+    expect(read?.checkpoint?.bytes).toBe(fileBytes + 3);
+  });
+
+  it('leaves nothing of an import that fails, and finds a checkpoint of its id kept meanwhile', async () => {
+    const store = storeIn();
+    const checkpoint = checkpointOf();
+
+    await expect(
+      store.importInto(ORG, checkpoint.checkpointId, async (folder) => {
+        writeFileSync(join(folder.dir, 'snapshots.json'), '{}\n');
+        throw new Error('the file is damaged');
+      }),
+    ).rejects.toThrow('the file is damaged');
+    expect(readdirSync(join(store.root, ORG))).toEqual([]);
+
+    await expect(
+      store.importInto(ORG, checkpoint.checkpointId, async () => ({
+        ...checkpoint,
+        checkpointId: 'ck-20261022-110000-zzzz',
+      })),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(readdirSync(join(store.root, ORG))).toEqual([]);
+
+    const done = await store.importInto(ORG, checkpoint.checkpointId, async () => {
+      await kept(store, checkpoint);
+      return checkpoint;
+    });
+    expect(done).toEqual({ outcome: 'exists' });
+    expect(readdirSync(join(store.root, ORG))).toEqual([checkpoint.checkpointId]);
+  });
+
+  it('never takes the folder a take of the same id has just made, empty as it still is', async () => {
+    const store = storeIn();
+    const checkpoint = checkpointOf();
+    const taking = store.folderOf(ORG, checkpoint.checkpointId).dir;
+
+    const done = await store.importInto(ORG, checkpoint.checkpointId, async () => {
+      // A rename onto an empty folder replaces it, where the system allows it.
+      mkdirSync(taking);
+      return checkpoint;
+    });
+
+    expect(done).toEqual({ outcome: 'exists' });
+    expect(readdirSync(taking)).toEqual([]);
+  });
+
+  it('sweeps what an import a killed process left, a day after it began, and nothing younger', async () => {
+    const store = storeIn();
+    const orgDir = join(store.root, ORG);
+    mkdirSync(join(orgDir, '.importing-0123456789ab', 'backups'), { recursive: true });
+    mkdirSync(join(orgDir, '.importing-ba9876543210'), { recursive: true });
+    const old = new Date(NOW.getTime() - DAY - 60_000);
+    utimesSync(join(orgDir, '.importing-0123456789ab'), old, old);
+
+    await store.sweep(NOW);
+
+    expect(readdirSync(orgDir)).toEqual(['.importing-ba9876543210']);
   });
 });

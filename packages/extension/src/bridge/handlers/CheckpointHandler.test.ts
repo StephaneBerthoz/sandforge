@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,6 +24,7 @@ import {
   type OrgCheckpointStore,
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
@@ -1679,5 +1680,245 @@ describe('CheckpointHandler — the side bar’s line', () => {
     expect(h.logs).toContainEqual(
       expect.stringContaining('A listener of the checkpoints failed: the side bar is gone'),
     );
+  });
+});
+
+describe('CheckpointHandler — a checkpoint to another machine, and from one', () => {
+  /** This machine, a checkpoint of the org taken; a teammate's, a store of its own, the same org. */
+  async function twoMachines(there: { org?: HandlerTestOrg; registered?: SalesforceOrg } = {}) {
+    const here = harness();
+    const checkpointId = await taken(here);
+    const away = harness({
+      org: there.org ?? here.org,
+      ...(there.registered ? { registered: there.registered } : {}),
+    });
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-transfer-'));
+    dirs.push(dir);
+    return { here, there: away, checkpointId, file: join(dir, 'before-uat.sfcheckpoint') };
+  }
+
+  /** The folders a store keeps of any org: none, for an import refused. */
+  function foldersOf(h: Harness): string[] {
+    return readdirSync(h.store.root).flatMap((org) => readdirSync(join(h.store.root, org)));
+  }
+
+  it('exports a checkpoint to the file the host names, under a key drawn once, and keeps it on another machine as a checkpoint of the org, listed and previewed there', async () => {
+    const { here, there, checkpointId, file } = await twoMachines();
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    const exported = await here.handler.exportCheckpoint({
+      checkpointId,
+      out: file,
+      sandforgeVersion: '1.70.0',
+    });
+
+    if (!exported.exported) throw new Error(exported.refusal.message);
+    // The org is not contacted by an export.
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+    expect(exported.header).toMatchObject({ checkpointId, records: 3, objects: 2 });
+    const key = parseArchiveKey(exported.key ?? '');
+    expect(key).toBeDefined();
+
+    const check = await there.handler.readImport({ orgId: REGISTERED, file });
+    expect(check).toMatchObject({ allowed: true, header: { checkpointId } });
+    const done = await there.handler.importCheckpoint({
+      orgId: REGISTERED,
+      file,
+      key: key as Buffer,
+    });
+
+    expect(done).toMatchObject({
+      imported: true,
+      outcome: 'imported',
+      checkpoint: { checkpointId, org: { alias: 'DEV-SB' } },
+      warnings: [
+        expect.stringContaining('the lock is per machine'),
+        expect.stringContaining('A field your user cannot see'),
+        expect.stringContaining('their Undo, stayed there'),
+      ],
+    });
+    await there.send('wv-list-1', 'checkpoint:list', { orgId: REGISTERED });
+    expect(answerOf(there, 'wv-list-1').payload.checkpoints).toEqual([
+      expect.objectContaining({ checkpointId, valid: true }),
+    ]);
+    await there.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+    expect(answerOf(there, 'wv-preview-1').type).toBe('checkpoint:preview:response');
+  });
+
+  it('records the export and the import in the audit trail, counts and org, and never the file’s path nor the key, which no log line names either', async () => {
+    const { here, there, checkpointId, file } = await twoMachines();
+    const given = newArchiveKey();
+
+    const exported = await here.handler.exportCheckpoint({
+      checkpointId,
+      out: file,
+      key: given,
+      sandforgeVersion: '1.70.0',
+    });
+    expect(exported).toMatchObject({ exported: true });
+    // A key given is never handed back.
+    expect(exported).not.toHaveProperty('key');
+    const drawn = await here.handler.exportCheckpoint({
+      checkpointId,
+      out: `${file}.second`,
+      sandforgeVersion: '1.70.0',
+    });
+    const drawnText = drawn.exported ? (drawn.key ?? '') : '';
+    expect(drawnText).not.toBe('');
+    await there.handler.importCheckpoint({ orgId: REGISTERED, file, key: given });
+
+    expect(here.trail()[0]).toMatchObject({
+      action: 'checkpoint_export',
+      module: 'checkpoint',
+      orgId: REGISTERED,
+      outcome: 'success',
+      details: { checkpointId, records: 3, objects: 2 },
+    });
+    expect(there.trail()[0]).toMatchObject({
+      action: 'checkpoint_import',
+      orgId: REGISTERED,
+      outcome: 'success',
+      details: { checkpointId, records: 3, objects: 2 },
+    });
+    const keys = [
+      given.toString('hex'),
+      given.toString('base64'),
+      drawnText,
+      drawnText.replaceAll('-', ''),
+    ];
+    const said = JSON.stringify([
+      here.trail(),
+      there.trail(),
+      here.logs,
+      there.logs,
+      here.posted,
+      there.posted,
+    ]);
+    for (const secret of [...keys, file, 'before-uat.sfcheckpoint']) {
+      expect(said.includes(secret), secret).toBe(false);
+    }
+  });
+
+  it('refuses, before the key is read, a file of another org, a production org and a user without View All Data — a wrong key given does not reach the refusal — and keeps nothing', async () => {
+    const wrongKey = newArchiveKey();
+    const cases: Array<{
+      code: string;
+      says: string;
+      prepare: (org: HandlerTestOrg) => void;
+      production?: boolean;
+    }> = [
+      {
+        code: 'OTHER_ORG',
+        says: 'another org than the one this file holds a checkpoint of',
+        prepare: (org) => org.edit('Organization', ORG_ID, { Id: REFRESHED_ORG_ID }),
+      },
+      {
+        code: 'PRODUCTION',
+        says: 'is a production org, or cannot be told from one',
+        prepare: (org) =>
+          org.edit('Organization', ORG_ID, {
+            IsSandbox: false,
+            OrganizationType: 'Enterprise Edition',
+          }),
+      },
+      {
+        code: 'PERMISSIONS',
+        says: 'An import needs a user with View All Data and Modify All Data',
+        prepare: (org) =>
+          org.edit('UserPermissionAccess', '0Up000000000001AAA', { PermissionsViewAllData: false }),
+      },
+    ];
+    for (const { code, says, prepare } of cases) {
+      const { here, checkpointId, file } = await twoMachines();
+      const exported = await here.handler.exportCheckpoint({
+        checkpointId,
+        out: file,
+        sandforgeVersion: '1.70.0',
+      });
+      expect(exported.exported).toBe(true);
+      const elsewhere = new HandlerTestOrg();
+      prepare(elsewhere);
+      const there = harness({ org: elsewhere });
+
+      const check = await there.handler.readImport({ orgId: REGISTERED, file });
+      const done = await there.handler.importCheckpoint({ orgId: REGISTERED, file, key: wrongKey });
+
+      expect(check, code).toMatchObject({
+        allowed: false,
+        header: { checkpointId },
+        refusal: { code, message: expect.stringContaining(says) },
+      });
+      expect(done, code).toMatchObject({ imported: false, refusal: { code } });
+      expect(foldersOf(there), code).toEqual([]);
+      expect(there.trail()[0], code).toMatchObject({
+        action: 'checkpoint_import',
+        outcome: 'stopped',
+        details: { code },
+      });
+    }
+  });
+
+  it('says a file of the org a sandbox was before its refresh is of the org before, nothing imported', async () => {
+    const { here, checkpointId, file } = await twoMachines();
+    await here.handler.exportCheckpoint({ checkpointId, out: file, sandforgeVersion: '1.70.0' });
+    const refreshed = new HandlerTestOrg();
+    refreshed.edit('Organization', ORG_ID, { Id: REFRESHED_ORG_ID });
+    const there = harness({ org: refreshed });
+    there.detector.observe(REGISTERED, { organizationId: ORG_ID }, 'connection');
+    there.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+
+    const check = await there.handler.readImport({ orgId: REGISTERED, file });
+
+    expect(check).toMatchObject({
+      allowed: false,
+      refusal: {
+        code: 'OTHER_ORG',
+        message: expect.stringContaining('was refreshed on 2026-10-22: DEV-SB is another org now'),
+      },
+    });
+  });
+
+  it('refuses a wrong key and a file that is no checkpoint file, keeping nothing', async () => {
+    const { here, there, checkpointId, file } = await twoMachines();
+    await here.handler.exportCheckpoint({ checkpointId, out: file, sandforgeVersion: '1.70.0' });
+
+    expect(
+      await there.handler.importCheckpoint({ orgId: REGISTERED, file, key: newArchiveKey() }),
+    ).toMatchObject({ imported: false, header: { checkpointId }, refusal: { code: 'IMPORT_KEY' } });
+    writeFileSync(`${file}.txt`, 'name,value\n');
+    expect(
+      await there.handler.importCheckpoint({
+        orgId: REGISTERED,
+        file: `${file}.txt`,
+        key: newArchiveKey(),
+      }),
+    ).toMatchObject({ imported: false, refusal: { code: 'IMPORT_NOT_ARCHIVE' } });
+    expect(foldersOf(there)).toEqual([]);
+  });
+
+  it('refuses the export of a checkpoint whose take never ended, and over a file there already, writing nothing', async () => {
+    const { here, checkpointId, file } = await twoMachines();
+    writeFileSync(file, 'kept');
+
+    expect(
+      await here.handler.exportCheckpoint({ checkpointId, out: file, sandforgeVersion: '1.70.0' }),
+    ).toMatchObject({ exported: false, refusal: { code: 'EXPORT_EXISTS' } });
+
+    await here.store.update(checkpointId, (checkpoint) => ({ ...checkpoint, status: 'taking' }));
+    expect(
+      await here.handler.exportCheckpoint({
+        checkpointId,
+        out: `${file}.other`,
+        sandforgeVersion: '1.70.0',
+      }),
+    ).toMatchObject({
+      exported: false,
+      refusal: {
+        code: 'TAKING',
+        message: expect.stringContaining('it can be exported once taken'),
+      },
+    });
+    expect(existsSync(`${file}.other`)).toBe(false);
+    expect(here.trail().filter((entry) => entry.action === 'checkpoint_export')).toEqual([]);
   });
 });

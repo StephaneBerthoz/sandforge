@@ -46,7 +46,9 @@ export type AuditAction =
   | 'subject_erase'
   | 'cleanup_delete'
   | 'checkpoint_rewind'
-  | 'checkpoint_undo';
+  | 'checkpoint_undo'
+  | 'checkpoint_export'
+  | 'checkpoint_import';
 
 /**
  * How a recorded run ended. `stopped` is a run stopped before it wrote

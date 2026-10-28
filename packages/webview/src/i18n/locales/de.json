@@ -2582,7 +2582,9 @@
       "cleanup_delete": "Bereinigungslöschung",
       "pipeline_approval": "Pipeline-Genehmigung",
       "checkpoint_rewind": "Zurücksetzen auf einen Prüfpunkt",
-      "checkpoint_undo": "Zurücksetzen rückgängig machen"
+      "checkpoint_undo": "Zurücksetzen rückgängig machen",
+      "checkpoint_export": "Export eines Prüfpunkts",
+      "checkpoint_import": "Import eines Prüfpunkts"
     },
     "filterByAction": "Nach Aktion filtern",
     "filterByModule": "Nach Modul filtern",

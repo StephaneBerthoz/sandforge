@@ -2427,7 +2427,9 @@
       "cleanup_delete": "クリーンアップ削除",
       "pipeline_approval": "パイプラインの承認",
       "checkpoint_rewind": "チェックポイントへの巻き戻し",
-      "checkpoint_undo": "巻き戻しを元に戻す操作"
+      "checkpoint_undo": "巻き戻しを元に戻す操作",
+      "checkpoint_export": "チェックポイントのエクスポート",
+      "checkpoint_import": "チェックポイントのインポート"
     },
     "filterByAction": "アクションでフィルター",
     "filterByModule": "モジュールでフィルター",

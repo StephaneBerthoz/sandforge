@@ -2582,7 +2582,9 @@
       "cleanup_delete": "Cleanup Delete",
       "pipeline_approval": "Pipeline approval",
       "checkpoint_rewind": "Checkpoint Rewind",
-      "checkpoint_undo": "Rewind Undo"
+      "checkpoint_undo": "Rewind Undo",
+      "checkpoint_export": "Checkpoint Export",
+      "checkpoint_import": "Checkpoint Import"
     },
     "filterByAction": "Filter by action",
     "filterByModule": "Filter by module",

@@ -2582,7 +2582,9 @@
       "cleanup_delete": "Eliminación de limpieza",
       "pipeline_approval": "Aprobación de pipeline",
       "checkpoint_rewind": "Retroceso a un punto de control",
-      "checkpoint_undo": "Deshacer un retroceso"
+      "checkpoint_undo": "Deshacer un retroceso",
+      "checkpoint_export": "Exportación de un punto de control",
+      "checkpoint_import": "Importación de un punto de control"
     },
     "filterByAction": "Filtrar por acción",
     "filterByModule": "Filtrar por módulo",

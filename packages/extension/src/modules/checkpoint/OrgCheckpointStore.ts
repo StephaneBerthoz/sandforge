@@ -36,6 +36,9 @@
  * likewise, and a store another user owns is refused, since that user could
  * read the snapshots and replace them before a rewind writes them back.
  * Deleting a checkpoint deletes its folder, the Undo of its rewinds with it.
+ * A checkpoint leaves the machine only encrypted, in a file of the files
+ * {@link exportedFilesOf} lists (`checkpointArchive.ts`), and another
+ * machine's comes in through {@link OrgCheckpointStore.importInto}.
  *
  * `checkpoint.json` is parsed on every read, and a file that does not parse,
  * or that names another checkpoint or another org than its folder, is listed
@@ -191,7 +194,11 @@ export interface CheckpointFolder {
 }
 
 function folderAt(root: string, organizationKey: string, checkpointId: string): CheckpointFolder {
-  const dir = join(root, organizationKey, checkpointId);
+  return folderIn(join(root, organizationKey, checkpointId), organizationKey, checkpointId);
+}
+
+/** A checkpoint's parts in `dir`: its own folder, or the one an import writes it into first. */
+function folderIn(dir: string, organizationKey: string, checkpointId: string): CheckpointFolder {
   return {
     organizationId: organizationKey,
     checkpointId,
@@ -260,6 +267,94 @@ export function filesDocumentsFileOf(folder: Pick<CheckpointFolder, 'filesDir'>)
  */
 export function filesLinksFileOf(folder: Pick<CheckpointFolder, 'filesDir'>): string {
   return join(folder.filesDir, 'links.ndjson');
+}
+
+// ─── What an export carries ──────────────────────────────────────────────────
+
+/**
+ * The files of a checkpoint's folder an export carries, by their path in the
+ * folder, `/` between its parts whatever the system: what a teammate's
+ * machine needs to preview and rewind the org to it, as this machine keeps
+ * it, compressed members as they are.
+ *
+ * - `checkpoint.json`, the field prints, `snapshots.json`, the values in
+ *   `backups/`, the ids that were in the recycle bin in `bin/`, the files'
+ *   annex in `files/`;
+ * - in `index/`, the records a rewind made again and those the org answered
+ *   are no longer in the recycle bin: what the org became, which no read of
+ *   it tells again (P11);
+ * - never an object's index, which the import makes again from the values
+ *   and checks against what `checkpoint.json` counts; never `previews/` nor
+ *   `rewinds/`, whose Undo stays with the machine that rewound; never a file
+ *   a write left beside the one it replaces, nor what a take spools.
+ *
+ * The list is the import's too: a path it does not match is refused, so a
+ * file names no folder of its own, `..` or an absolute path.
+ */
+const EXPORTED_PATHS: readonly RegExp[] = [
+  /^checkpoint\.json$/,
+  /^fingerprints\.json(?:\.gz)?$/,
+  /^snapshots\.json$/,
+  /^backups\/[A-Za-z0-9_-]{1,200}__[A-Za-z][A-Za-z0-9_]{0,79}\.ndjson(?:\.gz)?$/,
+  /^bin\/[A-Za-z][A-Za-z0-9_]{0,79}\.ids$/,
+  /^files\/(?:links|documents)\.ndjson(?:\.gz)?$/,
+  /^index\/(?:recreated|notInBin)\.ndjson$/,
+];
+
+/** The folders of a checkpoint the paths of {@link EXPORTED_PATHS} are in, the folder itself first. */
+const EXPORTED_FOLDERS = ['', 'backups', 'bin', 'files', 'index'] as const;
+
+/** The path of a checkpoint's file an export carries in it. */
+export const CHECKPOINT_FILE_PATH = CHECKPOINT_FILE;
+
+/** Whether an export carries the file at `path` of a checkpoint's folder, and an import writes it back. */
+export function isExportedPath(path: string): boolean {
+  return EXPORTED_PATHS.some((pattern) => pattern.test(path));
+}
+
+/** A file of a checkpoint's folder an export carries. */
+export interface ExportedFile {
+  /** Its path in the folder: `backups/<snapshot>__Account.ndjson.gz`. */
+  path: string;
+  /** Where it is on this machine. */
+  file: string;
+  /** Its bytes as it was listed: a file a rewind adds lines to is carried as it was then. */
+  bytes: number;
+}
+
+/**
+ * The files of a checkpoint's folder an export carries, sorted by path, read
+ * from the folder: plain files alone, a link never followed, so nothing
+ * outside the folder is carried.
+ */
+export async function exportedFilesOf(
+  folder: Pick<CheckpointFolder, 'dir'>,
+): Promise<ExportedFile[]> {
+  const files: ExportedFile[] = [];
+  for (const sub of EXPORTED_FOLDERS) {
+    let entries;
+    try {
+      entries = await readdir(join(folder.dir, sub), { withFileTypes: true });
+    } catch (err: unknown) {
+      if (codeOf(err) === 'ENOENT' || codeOf(err) === 'ENOTDIR') continue;
+      throw err;
+    }
+    for (const entry of entries) {
+      const path = sub === '' ? entry.name : `${sub}/${entry.name}`;
+      if (!entry.isFile() || !isExportedPath(path)) continue;
+      const file = join(folder.dir, sub, entry.name);
+      files.push({ path, file, bytes: (await stat(file)).size });
+    }
+  }
+  return files.sort((a, b) => compareText(a.path, b.path));
+}
+
+/** Where a file of a checkpoint's folder an export carries is, in `dir`. */
+export function exportedFileIn(dir: string, path: string): string {
+  if (!isExportedPath(path)) {
+    throw new CheckpointStoreError('invalid', 'Not a file a checkpoint holds');
+  }
+  return join(dir, ...path.split('/'));
 }
 
 /** Where one preview's spooled reads are. */
@@ -636,12 +731,9 @@ export class OrgCheckpointStore {
    * @throws {CheckpointStoreError} `invalid`, when the checkpoint does not parse.
    */
   async write(checkpoint: OrgCheckpoint): Promise<void> {
-    const parsed = orgCheckpointSchema.safeParse(checkpoint);
-    if (!parsed.success) {
-      throw new CheckpointStoreError('invalid', `Not a checkpoint: ${parsed.error.message}`);
-    }
-    const folder = this.folderOf(parsed.data.org.organizationId, parsed.data.checkpointId);
-    await this.writeWhole(folder.checkpointFile, `${JSON.stringify(parsed.data, null, 2)}\n`);
+    const parsed = parsedCheckpoint(checkpoint);
+    const folder = this.folderOf(parsed.org.organizationId, parsed.checkpointId);
+    await this.writeWhole(folder.checkpointFile, checkpointFileText(parsed));
   }
 
   /**
@@ -789,6 +881,66 @@ export class OrgCheckpointStore {
   }
 
   /**
+   * Keep here a checkpoint another machine exported. `fill` writes its files
+   * into a folder of their own beside the org's checkpoints,
+   * `.importing-<random>`, its owner's alone, which no list reads, and
+   * answers with what its `checkpoint.json` is to hold; the store writes that
+   * file last, as a take does, with the bytes the folder takes here, then
+   * renames the folder to the checkpoint's id. An import that fails or is
+   * stopped leaves no checkpoint half there: its folder is removed, and one a
+   * killed process left, by the sweep a day later.
+   *
+   * No lock is taken: nothing else writes a checkpoint of an id not yet kept,
+   * and two imports of one rename one folder each, the second finding the
+   * first's.
+   *
+   * @returns `imported`, with the checkpoint as kept; `exists` when a
+   *   checkpoint of that id is kept already, the folder written removed.
+   * @throws What `fill` throws; {@link CheckpointStoreError} `invalid`, when
+   *   what it answers does not parse or is another checkpoint than asked.
+   */
+  async importInto(
+    organizationId: string,
+    checkpointId: string,
+    fill: (folder: CheckpointFolder) => Promise<OrgCheckpoint>,
+  ): Promise<{ outcome: 'imported'; checkpoint: OrgCheckpoint } | { outcome: 'exists' }> {
+    const target = this.folderOf(organizationId, checkpointId);
+    const orgDir = join(this.root, target.organizationId);
+    await makePrivateDir(orgDir);
+    const staging = folderIn(
+      join(orgDir, `${IMPORTING_PREFIX}${randomBytes(6).toString('hex')}`),
+      target.organizationId,
+      target.checkpointId,
+    );
+    await mkdir(staging.dir, { mode: CHECKPOINT_DIR_MODE });
+    try {
+      const filled = parsedCheckpoint(await fill(staging));
+      if (
+        filled.checkpointId !== target.checkpointId ||
+        organizationKeyOrNone(filled.org.organizationId) !== target.organizationId
+      ) {
+        throw new CheckpointStoreError('invalid', 'An import keeps the checkpoint it was asked to');
+      }
+      const checkpoint = parsedCheckpoint({
+        ...filled,
+        bytes: await bytesWithFile(staging.dir, filled),
+      });
+      await this.writeWhole(staging.checkpointFile, checkpointFileText(checkpoint));
+      if (await isFolder(target.dir)) return { outcome: 'exists' };
+      try {
+        await this.renameFile(staging.dir, target.dir);
+      } catch (err: unknown) {
+        // Another import of it renamed its folder first, which a rename never empties.
+        if (await isFolder(target.dir)) return { outcome: 'exists' };
+        throw err;
+      }
+      return { outcome: 'imported', checkpoint };
+    } finally {
+      await rm(staging.dir, { recursive: true, force: true });
+    }
+  }
+
+  /**
    * Delete what has had its day: checkpoints past their `expiresAt`, the
    * journal of a rewind once Undo can no longer bring anything back, and
    * previews older than a day. Run when the panel activates and as any
@@ -802,6 +954,7 @@ export class OrgCheckpointStore {
     const at = now.getTime();
     const swept: CheckpointSweep = { checkpoints: [], journals: [], previews: 0, skipped: [] };
     for (const org of await this.organizationKeys()) {
+      await removeImportsLeft(join(this.root, org), at);
       const due = await dueOf(await this.readsOf(org), at);
       if (due.length === 0) continue;
       const taken = this.lock(org, 'sweep');
@@ -870,6 +1023,72 @@ export class OrgCheckpointStore {
       throw err;
     }
   }
+}
+
+/** What the folder an import writes a checkpoint into first is named by, before its random part. */
+const IMPORTING_PREFIX = '.importing-';
+
+/** The folder an import writes into first, as {@link OrgCheckpointStore.importInto} names it. */
+const IMPORTING_FOLDER = /^\.importing-[0-9a-f]{12}$/;
+
+/**
+ * Remove from an org's folder what imports a killed process left, a day
+ * after they were begun: an import under way, in another window, is never
+ * that long.
+ */
+async function removeImportsLeft(orgDir: string, now: number): Promise<void> {
+  for (const name of await foldersIn(orgDir)) {
+    if (!IMPORTING_FOLDER.test(name)) continue;
+    const dir = join(orgDir, name);
+    const info = await stat(dir).catch(() => undefined);
+    if (info !== undefined && info.mtimeMs + PREVIEW_KEEP_MS <= now) {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * A checkpoint checked before it is written: the store never writes what it
+ * would list as damaged.
+ *
+ * @throws {CheckpointStoreError} `invalid`, when it does not parse.
+ */
+function parsedCheckpoint(checkpoint: OrgCheckpoint): OrgCheckpoint {
+  const parsed = orgCheckpointSchema.safeParse(checkpoint);
+  if (!parsed.success) {
+    throw new CheckpointStoreError('invalid', `Not a checkpoint: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
+/** `checkpoint.json` as the store writes it. */
+function checkpointFileText(checkpoint: OrgCheckpoint): string {
+  return `${JSON.stringify(checkpoint, null, 2)}\n`;
+}
+
+/** Bytes the files under `dir` take, but for its `checkpoint.json`. */
+async function bytesUnderBut(dir: string, but: string): Promise<number> {
+  let bytes = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) bytes += await bytesUnderBut(path, but);
+    else if (entry.isFile() && path !== but) bytes += (await stat(path)).size;
+  }
+  return bytes;
+}
+
+/**
+ * Bytes a checkpoint's folder takes once `checkpoint` is its file, as a take
+ * counts them: every other file as it is, its own as the store writes it,
+ * with the digits of the count it holds.
+ */
+async function bytesWithFile(dir: string, checkpoint: OrgCheckpoint): Promise<number> {
+  const others = await bytesUnderBut(dir, join(dir, CHECKPOINT_FILE));
+  const fileWith = (bytes: number): number =>
+    Buffer.byteLength(checkpointFileText({ ...checkpoint, bytes }), 'utf8');
+  let bytes = others + fileWith(others);
+  bytes = others + fileWith(bytes);
+  return bytes;
 }
 
 /** A checkpoint's folder, read: its file when it parses and is the folder's own. */

@@ -58,7 +58,15 @@ import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
-import { CheckpointHandler, type LatestUsableCheckpoint } from './handlers/CheckpointHandler.js';
+import {
+  CheckpointHandler,
+  type CheckpointExportAnswer,
+  type CheckpointExportRequest,
+  type CheckpointImportAnswer,
+  type CheckpointImportCheck,
+  type CheckpointImportFile,
+  type LatestUsableCheckpoint,
+} from './handlers/CheckpointHandler.js';
 import type { DetectedSandboxRefresh } from '../modules/monitor/SandboxRefreshDetector.js';
 import type { OrgCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore.js';
 import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
@@ -474,6 +482,26 @@ export class ExtensionHandlers {
    */
   rewindCheckpointsFromPreviewsAnswered(): void {
     this.checkpointHandler.rewindFromPreviewsAnswered();
+  }
+
+  /**
+   * Export a kept checkpoint, encrypted, to the file the host names: its save
+   * dialog, or a command line. No page message reaches it.
+   */
+  exportCheckpoint(request: CheckpointExportRequest): Promise<CheckpointExportAnswer> {
+    return this.checkpointHandler.exportCheckpoint(request);
+  }
+
+  /** What a checkpoint file the host names holds, and whether the org lets it be imported, before any key. */
+  readCheckpointImport(request: CheckpointImportFile): Promise<CheckpointImportCheck> {
+    return this.checkpointHandler.readImport(request);
+  }
+
+  /** Import a checkpoint file the host names, with its key, once the org has answered for it. */
+  importCheckpoint(
+    request: CheckpointImportFile & { key: Buffer; keepDays?: number },
+  ): Promise<CheckpointImportAnswer> {
+    return this.checkpointHandler.importCheckpoint(request);
   }
 
   /**

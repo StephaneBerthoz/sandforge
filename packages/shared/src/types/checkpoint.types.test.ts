@@ -2,6 +2,7 @@ import { describe, it, expect, expectTypeOf } from 'vitest';
 import type * as z from 'zod';
 
 import type {
+  CheckpointArchiveHeader,
   CheckpointCustomSettingKind,
   CheckpointEstimate,
   CheckpointLeftOutFieldReason,
@@ -18,6 +19,7 @@ import type {
 import type { ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
 import {
+  checkpointArchiveHeaderSchema,
   checkpointCustomSettingKindSchema,
   checkpointLeftOutFieldReasonSchema,
   checkpointOrgTierSchema,
@@ -59,6 +61,14 @@ describe('the checkpoint file and its schema', () => {
     expectTypeOf<OrgCheckpoint['takenBy']['modifyAllData']>().toEqualTypeOf<true>();
     expectTypeOf<OrgCheckpoint['ignoredFields']>().toEqualTypeOf<string[]>();
     expectTypeOf<OrgCheckpoint['expiresAt']>().toEqualTypeOf<string | null>();
+  });
+});
+
+describe('the header of a checkpoint file', () => {
+  it('reads exactly the shape CheckpointArchiveHeader declares', () => {
+    expectTypeOf<
+      z.infer<typeof checkpointArchiveHeaderSchema>
+    >().toEqualTypeOf<CheckpointArchiveHeader>();
   });
 });
 

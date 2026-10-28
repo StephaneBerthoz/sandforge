@@ -83,6 +83,14 @@ const instantSchema = z.iso.datetime({ offset: true });
 
 const countSchema = z.number().int().nonnegative();
 
+/** A sha256, hex. */
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/, 'Expected a sha256, hex');
+
+/** A SandForge version as its package names it: `1.70.0`, a pre-release tag allowed. */
+const sandforgeVersionSchema = z
+  .string()
+  .regex(/^\d{1,4}\.\d{1,4}\.\d{1,6}(?:-[0-9A-Za-z.-]{1,40})?$/, 'Not a SandForge version');
+
 export const checkpointOrgTierSchema = z.enum(['sandbox', 'scratch', 'developer']);
 export const checkpointScopeModeSchema = z.enum(['everything', 'picked']);
 export const checkpointReadModeSchema = z.enum(['query', 'scanAllLive']);
@@ -190,6 +198,14 @@ export const orgCheckpointSchema = z
     // Absent from a checkpoint taken before files were held, or whose scope
     // left them out: its rewind leaves files added since where they are.
     files: checkpointFilesSchema.optional(),
+    // Set on a checkpoint imported from another machine's export alone.
+    importedFrom: z
+      .object({
+        at: instantSchema,
+        sandforgeVersion: sandforgeVersionSchema,
+        sha256: sha256Schema,
+      })
+      .optional(),
   })
   // T1 follows every read of the take, and the rewind's deletions keep every
   // record created before it: a T1 before T0 would move that boundary back
@@ -198,3 +214,49 @@ export const orgCheckpointSchema = z
     path: ['takenAt'],
     message: 'A checkpoint ends after it begins',
   });
+
+// ─── A checkpoint as a file that leaves the machine (.sfcheckpoint) ──────────
+
+/**
+ * What a `.sfcheckpoint` file's first line says of the SandForge and the
+ * formats that made it, read before the rest of the line: a file a newer
+ * SandForge made is told as such, whatever else its line holds.
+ */
+export const checkpointArchiveVersionsSchema = z
+  .object({
+    format: z.literal('sandforge-checkpoint'),
+    formatVersion: z.number().int().positive().max(1_000_000),
+    checkpointFormat: z.number().int().positive().max(1_000_000),
+    sandforgeVersion: sandforgeVersionSchema,
+  })
+  .loose();
+
+/**
+ * The first line of a `.sfcheckpoint` file, in the formats this SandForge
+ * reads: `CheckpointArchiveHeader` (`types/checkpoint.types.ts`), pinned by
+ * the types' test.
+ */
+export const checkpointArchiveHeaderSchema = z.object({
+  format: z.literal('sandforge-checkpoint'),
+  formatVersion: z.literal(1),
+  checkpointFormat: z.literal(1),
+  sandforgeVersion: sandforgeVersionSchema,
+  organizationId: checkpointOrganizationIdSchema,
+  orgTier: checkpointOrgTierSchema,
+  checkpointId: checkpointIdSchema,
+  takenAt: instantSchema,
+  records: countSchema,
+  objects: countSchema,
+  files: countSchema,
+  bytes: countSchema,
+  cipher: z.literal('aes-256-gcm'),
+  kdf: z.literal('hkdf-sha256'),
+  salt: z.string().regex(/^[0-9a-f]{64}$/, 'Expected 32 bytes, hex'),
+  noncePrefix: z.string().regex(/^[0-9a-f]{16}$/, 'Expected 8 bytes, hex'),
+  keyCheck: z.string().regex(/^[0-9a-f]{32}$/, 'Expected 16 bytes, hex'),
+  chunkBytes: z
+    .number()
+    .int()
+    .min(4096)
+    .max(16 * 1024 * 1024),
+});

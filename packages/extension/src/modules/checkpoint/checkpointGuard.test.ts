@@ -335,6 +335,56 @@ describe('guardCheckpoint: a user who sees and may put back every record', () =>
   });
 });
 
+describe('guardCheckpoint: an import of another machine’s checkpoint', () => {
+  it('refuses an org the file is not of in its own words, before reading the user’s permissions', async () => {
+    const { conn, asked } = orgSaying({ id: OTHER_ORG_ID, sandbox: true });
+
+    const answer = await guardCheckpoint(conn, asking('import', SANDBOX));
+
+    expect(answer).toEqual({
+      allowed: false,
+      refusal: {
+        code: 'OTHER_ORG',
+        message:
+          'DEV-SB is another org than the one this file holds a checkpoint of: it is imported ' +
+          'for the org it was taken of alone, under any alias of it. Nothing was imported.',
+      },
+    });
+    expect(asked.some((soql) => soql.includes('UserPermissionAccess'))).toBe(false);
+  });
+
+  it('refuses a production org and a user without View All Data and Modify All Data, whose machine would hold what they cannot see', async () => {
+    const live = await guardCheckpoint(
+      orgSaying({ id: ORG_ID, sandbox: false, edition: 'Enterprise Edition' }).conn,
+      asking('import', SANDBOX),
+    );
+    expect(live).toMatchObject({ allowed: false, refusal: { code: 'PRODUCTION' } });
+
+    const answer = await guardCheckpoint(
+      orgSaying({ id: ORG_ID, sandbox: true, permissions: { PermissionsModifyAllData: true } })
+        .conn,
+      asking('import', SANDBOX),
+    );
+    expect(answer).toEqual({
+      allowed: false,
+      refusal: {
+        code: 'PERMISSIONS',
+        message:
+          'An import needs a user with View All Data and Modify All Data: SandForge never keeps ' +
+          'on this machine records its user could not see in the org, and a rewind to it must ' +
+          `see and put back what everyone changed. ${USER} doesn't have View All Data. No record ` +
+          'was read or written.',
+      },
+    });
+
+    const both = await guardCheckpoint(
+      orgSaying({ id: ORG_ID, sandbox: true }).conn,
+      asking('import', SANDBOX),
+    );
+    expect(both).toMatchObject({ allowed: true, tier: 'sandbox' });
+  });
+});
+
 describe('guardCheckpoint: custom settings', () => {
   const CUSTOMIZE = 'PermissionsCustomizeApplication';
 

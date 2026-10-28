@@ -200,6 +200,11 @@ interface Harness {
   /** Called with every statement the org is sent. */
   onQuery: (hook: (soql: string) => void) => void;
   run: (...args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** The command run over another store: a teammate's machine. */
+  runIn: (
+    storeDir: string,
+    ...args: string[]
+  ) => Promise<{ code: number; stdout: string; stderr: string }>;
   /** The checkpoints kept, as the store lists them. */
   kept: () => Promise<string[]>;
 }
@@ -286,7 +291,7 @@ function harness(
     };
   };
 
-  const run = async (...args: string[]) => {
+  const runIn = async (store: string, ...args: string[]) => {
     let stdout = '';
     let stderr = '';
     let exited: number | undefined;
@@ -304,7 +309,7 @@ function harness(
     }) as never);
     process.exitCode = undefined;
     try {
-      await main(['node', 'sandforge-checkpoint.ts', ...args, '--store', storeDir], {
+      await main(['node', 'sandforge-checkpoint.ts', ...args, '--store', store], {
         createHost,
         locksDir,
       });
@@ -319,6 +324,7 @@ function harness(
     process.exitCode = undefined;
     return { code, stdout, stderr };
   };
+  const run = (...args: string[]) => runIn(storeDir, ...args);
 
   return {
     org,
@@ -332,6 +338,7 @@ function harness(
       hook = next;
     },
     run,
+    runIn,
     kept: async () => (await opened.store.list()).map((entry) => entry.checkpointId),
   };
 }
@@ -1257,5 +1264,224 @@ describe('sandforge-checkpoint undo', () => {
 
     expect(asked.code).toBe(2);
     expect(asked.stdout).toContain('sends 1 record(s) it brought back to the recycle bin');
+  });
+});
+
+describe('sandforge-checkpoint export and import', () => {
+  /** A teammate's store, and where the file goes. */
+  function elsewhere(): { store: string; file: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-team-'));
+    dirs.push(dir);
+    return { store: join(dir, 'store'), file: join(dir, 'before-uat.sfcheckpoint') };
+  }
+
+  /** The key an export showed on stderr. */
+  function keyShown(stderr: string): string {
+    const key = /key, shown this once and kept nowhere: ([A-Z2-7-]+)/.exec(stderr)?.[1];
+    if (key === undefined) throw new Error(`no key shown: ${stderr}`);
+    return key;
+  }
+
+  it('exports a checkpoint without reaching the org, its key on stderr alone, and imports it into another store with --key-env, where it is listed; the same file again is left as it is', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    const team = elsewhere();
+    const connected = h.connected.length;
+
+    const out = await h.run(
+      'export',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--out',
+      team.file,
+      '--json',
+    );
+
+    expect(out.code).toBe(0);
+    expect(h.connected.length).toBe(connected);
+    const key = keyShown(out.stderr);
+    expect(out.stdout.includes(key)).toBe(false);
+    expect(out.stdout.includes(key.replaceAll('-', ''))).toBe(false);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      checkpoint: { id: checkpoint.checkpointId, name: 'Before UAT', org: 'DEV-SB' },
+      file: team.file,
+      records: 3,
+      objects: 2,
+      keyShown: true,
+    });
+    expect(out.stderr).toContain(
+      'Anyone who has this file and its key can read the 3 records it holds of DEV-SB, ' +
+        'personal data among them. Send the key another way than the file, and only to people ' +
+        'who already see all data in DEV-SB.',
+    );
+    expect(out.stderr).toContain('The file does not expire: delete it once it has served.');
+
+    vi.stubEnv('SANDFORGE_TEAM_KEY', key.toLowerCase());
+    try {
+      const into = await h.runIn(
+        team.store,
+        'import',
+        '--org',
+        'DEV-SB',
+        '--file',
+        team.file,
+        '--key-env',
+        'SANDFORGE_TEAM_KEY',
+        '--keep-days',
+        '7',
+        '--json',
+      );
+      expect(into.code).toBe(0);
+      const answer = JSON.parse(into.stdout) as { expiresAt: string };
+      expect(answer).toMatchObject({
+        outcome: 'imported',
+        checkpoint: { id: checkpoint.checkpointId, name: 'Before UAT', org: 'DEV-SB' },
+        records: 3,
+        objects: 2,
+      });
+      const kept = Date.parse(answer.expiresAt) - Date.now();
+      expect(kept).toBeGreaterThan(7 * 24 * 60 * 60_000 - 60_000);
+      expect(kept).toBeLessThanOrEqual(7 * 24 * 60 * 60_000);
+      expect(into.stderr).toContain(`the file holds checkpoint ${checkpoint.checkpointId}`);
+      expect(into.stderr).toContain('the lock is per machine. Agree on who rewinds.');
+      expect(`${into.stdout}${into.stderr}`.includes(key)).toBe(false);
+
+      const listed = await h.runIn(team.store, 'list', '--org', 'DEV-SB', '--json');
+      expect(JSON.parse(listed.stdout)).toEqual([
+        expect.objectContaining({ id: checkpoint.checkpointId, valid: true }),
+      ]);
+
+      const again = await h.runIn(
+        team.store,
+        'import',
+        '--org',
+        'DEV-SB',
+        '--file',
+        team.file,
+        '--key-env',
+        'SANDFORGE_TEAM_KEY',
+      );
+      expect(again.code).toBe(0);
+      expect(again.stdout).toContain('is kept on this machine already, the same: left as it is');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('asks the org before the key: a file of another org is refused, exit 1, where a key asked first would have stopped at its question', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const team = elsewhere();
+    expect((await h.run('export', '--org', 'DEV-SB', '--out', team.file)).code).toBe(0);
+    // The alias reaches another org now, which says so itself.
+    h.answersAs(REFRESHED_ORG_ID);
+    h.org.edit('Organization', ORG_ID, { Id: REFRESHED_ORG_ID });
+
+    const into = await h.runIn(
+      team.store,
+      'import',
+      '--org',
+      'DEV-SB',
+      '--file',
+      team.file,
+      '--json',
+    );
+
+    expect(into.code).toBe(1);
+    expect(JSON.parse(into.stdout)).toMatchObject({ refusal: { code: 'OTHER_ORG' } });
+    expect(into.stderr).not.toContain('Key of the file');
+    expect(existsSync(team.store) ? readdirSync(team.store) : []).toEqual([]);
+  });
+
+  it('asks the key on a terminal alone: with none, and no --key-env, it stops at its question, exit 2, having imported nothing', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const team = elsewhere();
+    expect((await h.run('export', '--org', 'DEV-SB', '--out', team.file)).code).toBe(0);
+
+    const into = await h.runIn(team.store, 'import', '--org', 'DEV-SB', '--file', team.file);
+
+    expect(into.code).toBe(2);
+    expect(into.stderr).toContain(
+      'Key of the file (not shown as you type it):\nno terminal to type it on: give --key-env VAR',
+    );
+    expect(existsSync(team.store) ? readdirSync(team.store) : []).toEqual([]);
+  });
+
+  it('refuses a key on the line in place of a variable, and a variable that holds no key, exit 2 without repeating either, nothing on stdout', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const team = elsewhere();
+    const key = 'ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-ABCD-EFGH-IJKL-MNOP-QRSQ';
+
+    // With its dashes, and without them, where it reads as a name a variable could have.
+    for (const given of [key, key.replaceAll('-', '')]) {
+      const onLine = await h.run(
+        'export',
+        '--org',
+        'DEV-SB',
+        '--out',
+        team.file,
+        '--key-env',
+        given,
+      );
+      expect(onLine.code).toBe(2);
+      expect(onLine.stdout).toBe('');
+      expect(onLine.stderr).toContain('--key-env takes the name of an environment variable');
+      expect(onLine.stderr.includes('ABCD')).toBe(false);
+    }
+
+    vi.stubEnv('SANDFORGE_TEAM_KEY', 'hunter2-not-a-key');
+    try {
+      const wrong = await h.run(
+        'export',
+        '--org',
+        'DEV-SB',
+        '--out',
+        team.file,
+        '--key-env',
+        'SANDFORGE_TEAM_KEY',
+        '--json',
+      );
+      expect(wrong.code).toBe(2);
+      expect(wrong.stdout).toBe('');
+      expect(wrong.stderr).toContain('SANDFORGE_TEAM_KEY holds no key SandForge reads');
+      expect(wrong.stderr.includes('hunter2')).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(existsSync(team.file)).toBe(false);
+  });
+
+  it('refuses an export over a file there already, and an import with another key than the file’s, exit 1', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const team = elsewhere();
+    expect((await h.run('export', '--org', 'DEV-SB', '--out', team.file)).code).toBe(0);
+
+    const over = await h.run('export', '--org', 'DEV-SB', '--out', team.file, '--json');
+    expect(over.code).toBe(1);
+    expect(JSON.parse(over.stdout)).toMatchObject({ refusal: { code: 'EXPORT_EXISTS' } });
+
+    vi.stubEnv('SANDFORGE_TEAM_KEY', 'A'.repeat(52));
+    try {
+      const into = await h.runIn(
+        team.store,
+        'import',
+        '--org',
+        'DEV-SB',
+        '--file',
+        team.file,
+        '--key-env',
+        'SANDFORGE_TEAM_KEY',
+        '--json',
+      );
+      expect(into.code).toBe(1);
+      expect(JSON.parse(into.stdout)).toMatchObject({ refusal: { code: 'IMPORT_KEY' } });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

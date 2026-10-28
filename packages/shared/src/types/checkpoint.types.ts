@@ -238,6 +238,20 @@ export interface CheckpointTakenOn {
   pid: number;
 }
 
+/**
+ * Where a checkpoint imported on this machine came from: the `.sfcheckpoint`
+ * file another machine exported it to. Its rewinds there, and their Undo,
+ * stayed there.
+ */
+export interface CheckpointImportedFrom {
+  /** When it was imported, this machine's clock. */
+  at: ISODateString;
+  /** The SandForge that exported it. */
+  sandforgeVersion: string;
+  /** sha256, hex, of the file it was imported from. */
+  sha256: string;
+}
+
 /** `checkpoint.json`, version 1. */
 export interface OrgCheckpoint {
   version: 1;
@@ -271,6 +285,49 @@ export interface OrgCheckpoint {
   lastRewind?: CheckpointLastRewind;
   /** Absent before files were held, and when the scope left files out: see {@link CheckpointFiles}. */
   files?: CheckpointFiles;
+  /** Set on a checkpoint imported from a file another machine exported: see {@link CheckpointImportedFrom}. */
+  importedFrom?: CheckpointImportedFrom;
+}
+
+// ─── A checkpoint as a file that leaves the machine (.sfcheckpoint) ──────────
+
+/**
+ * The first line of a `.sfcheckpoint` file, unencrypted: what it holds, enough
+ * to refuse it for another org, a production org or a newer format before a
+ * key is asked, and how its blocks are encrypted. Every block authenticates
+ * it, so a byte changed in it refuses the file. It names neither the
+ * checkpoint, whose name may carry a client's, nor a user or an alias.
+ */
+export interface CheckpointArchiveHeader {
+  format: 'sandforge-checkpoint';
+  /** The layout of the file: its header, blocks and entries. */
+  formatVersion: 1;
+  /** The version of the `checkpoint.json` it holds. */
+  checkpointFormat: 1;
+  /** The SandForge that exported it. */
+  sandforgeVersion: string;
+  /** The org it is a checkpoint of: an import into any other is refused. */
+  organizationId: string;
+  orgTier: CheckpointOrgTier;
+  checkpointId: string;
+  takenAt: ISODateString;
+  /** Records it holds, every object together. */
+  records: number;
+  objects: number;
+  /** Files it holds, and their bytes as an import writes them back: what the disk must have room for. */
+  files: number;
+  bytes: number;
+  cipher: 'aes-256-gcm';
+  /** How the block key is drawn from the key a person is given: HKDF-SHA256 over `salt`. */
+  kdf: 'hkdf-sha256';
+  /** 32 random bytes, hex: a key given twice still encrypts each file under a key of its own. */
+  salt: string;
+  /** 8 random bytes, hex: each block's nonce is it, then the block's index. */
+  noncePrefix: string;
+  /** 16 bytes drawn from the key and the salt, hex: a wrong key is told before a block is read. */
+  keyCheck: string;
+  /** Bytes of the compressed entries each block holds, the last one fewer. */
+  chunkBytes: number;
 }
 
 // ─── Listing, scope and estimates ────────────────────────────────────────────
@@ -409,6 +466,13 @@ export interface CheckpointEstimate {
  * and files to bring back from the recycle bin that take more file storage
  * than the org has left (`FILE_STORAGE`): a file in the bin takes none, and
  * its undelete counts it again.
+ *
+ * An import of a `.sfcheckpoint` file is refused, beside the org's own
+ * refusals, for a file that is no checkpoint file (`IMPORT_NOT_ARCHIVE`), one
+ * a newer SandForge made (`IMPORT_VERSION`), a key that is not the file's
+ * (`IMPORT_KEY`), a file changed or damaged since it was exported
+ * (`IMPORT_DAMAGED`), too little room on this machine's disk (`IMPORT_DISK`),
+ * and another checkpoint of its id kept here already (`IMPORT_KEPT_OTHER`).
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
@@ -422,7 +486,13 @@ export type CheckpointRefusalCode =
   | 'NO_UNDO'
   | 'RECREATE'
   | 'EMAILS'
-  | 'FILE_STORAGE';
+  | 'FILE_STORAGE'
+  | 'IMPORT_NOT_ARCHIVE'
+  | 'IMPORT_VERSION'
+  | 'IMPORT_KEY'
+  | 'IMPORT_DAMAGED'
+  | 'IMPORT_DISK'
+  | 'IMPORT_KEPT_OTHER';
 
 /**
  * A write a rewind or an undo makes, as the org's automation fires on it:

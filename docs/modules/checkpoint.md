@@ -157,7 +157,7 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 ## From the command line
 
-`sandforge-checkpoint` takes, lists, previews, rewinds, undoes and deletes checkpoints without the editor, over the same store, from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
+`sandforge-checkpoint` takes, lists, previews, rewinds, undoes, deletes, exports and imports checkpoints without the editor, over the same store, from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
 
 | Command   | What it does                                                                                                                                                                                                    |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -167,6 +167,8 @@ On disk, the take says before it runs about what it will take: the file that lis
 | `rewind`  | Shows the preview, asks you to type the org's alias, then rewinds from that preview as it read the org; `--dry-run` stops after the preview                                                                     |
 | `undo`    | Takes back the org's last rewind; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                             |
 | `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                 |
+| `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                      |
+| `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`              |
 
 - **Which checkpoint**: `--checkpoint` takes an id, a name or `latest`, the default. `rewind --yes` and `undo --yes`, which do not ask, need it named by its id or its name: `latest` could be a checkpoint taken since by someone else. A name two checkpoints share is refused, exit `2`, with their ids.
 - **The acceptances**: `--accept-automation` for automation that runs as records are updated, deleted or brought back, `--accept-no-undo` for deletions Undo could not bring back, `--accept-recreate` for the records the recycle bin no longer gives back, made again with new Ids, `--accept-outside` for the records outside a checkpoint of picked objects. Without the first three, such a rewind writes nothing, exit `1`; without the last, the records they hang from stay.
@@ -224,6 +226,10 @@ Commands:
             over, send back to the bin what it brought back; what anyone changed since the rewind
             stays, and is said
   delete    delete a checkpoint from this machine; the org is not touched
+  export    write a checkpoint to a .sfcheckpoint file, encrypted, for a teammate who rewinds the
+            same org from another machine; the org is not contacted
+  import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this
+            machine, once the org answers that it is the file's, and its user sees all data
 
 Required:
   --org <alias>                  sf CLI alias of the org (list: every org of the store without it)
@@ -242,7 +248,7 @@ take:
   --max-total <n>                refuse, before reading, more than <n> records (default: 500000)
   --keep-days <n>                when it expires (default: 30; 0 keeps it until deleted)
   --estimate                     say the records, API requests, time and disk it would take, then stop
-preview, rewind, undo, delete:
+preview, rewind, undo, delete, export:
   --checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went
                                  back to; rewind and undo with --yes need it named, by id or name)
 preview:
@@ -274,6 +280,18 @@ undo:
 delete:
   --all                          every checkpoint of the org
   --yes                          do not ask
+export:
+  --out <file>                   the file to write; refused when one is there already
+  --key-env <VAR>                encrypt under the key this environment variable holds, one an
+                                 export showed (a CI step's secret); without it a new key is
+                                 drawn and shown once, on stderr
+import:
+  --file <file>                  the .sfcheckpoint file
+  --key-env <VAR>                read the key from this environment variable; without it the key
+                                 is asked on the terminal, not echoed, and with no terminal it
+                                 stops, exit 2, having imported nothing
+  --keep-days <n>                when it expires on this machine (default: 30; 0 keeps it until
+                                 deleted)
 Options:
   --store <dir>                  where checkpoints live (default: ~/.sandforge/checkpoints, or
                                  checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names)
@@ -289,6 +307,16 @@ unencrypted, in files only you can read (on Windows: in your user profile). Expi
 are deleted as any command starts, each named.
 list and delete read this machine alone and never contact the org. An org's checkpoints are the
 ones taken under its alias or username, and the others kept of the same Organization Id.
+export never writes a checkpoint unencrypted: AES-256-GCM, under a key of 52 letters and digits
+shown once and kept nowhere. Anyone who has the file and its key reads every record it holds:
+send the key another way than the file, and only to people who already see all data in the org.
+The file does not expire: delete it once it has served. It carries neither the journals of
+rewinds nor their undo, which stay on this machine.
+import reads the file's header, then asks the org: another org, a production org, a user without
+View All Data and Modify All Data, a file a newer SandForge made, are each refused before the key
+is asked. A wrong key, or a file changed since it was exported, is refused before anything is
+kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
+The lock against two rewinds at once is per machine: agree on who rewinds the org.
 rewind shows its preview and asks you to type the org's alias before it writes, then rewinds from
 that preview as it read the org: a record someone changes after it read is left as they made it,
 and said. A take, a rewind or an undo of the org under way on this machine, in the editor or in
@@ -384,20 +412,29 @@ JSON (--json), one value on stdout:
                      on their own that had gone there with a record the rewind brought back for
                      a moment
   delete             {deleted: [id], kept: [id]}
+  export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
+                      keyShown}: keyShown, whether a new key was drawn and shown on stderr; never
+                     the key itself
+  import             {outcome, checkpoint: {id, name, takenAt, org}, records, objects, expiresAt,
+                      warnings}: outcome imported, or alreadyKept for the same checkpoint kept here
+                     already
   refused or failed  {refusal: {code, message}}
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
 org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
-delete: every checkpoint named is deleted); 1 refused before it read or wrote (a production org,
+delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
+kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
 --max-total records, more API requests or emails than the org
 has left today, files to bring back taking more file storage than it has left, a checkpoint of
-the org before a refresh or of an expired scratch org, a SandForge run writing to it), or nothing
+the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
+of another org's file, with the wrong key, of a file changed since its export), or nothing
 done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
---yes); 3 partial (rewind and undo: records still differ, each said with why; with
+--yes; import's key: --key-env); 3 partial (rewind and undo: records still differ, each said
+with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
 links between files and records to remove, put back or give their sharing back, records the
 rewind cannot take back or the checkpoint does not hold although they are dated before it, files

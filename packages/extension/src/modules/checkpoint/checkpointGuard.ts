@@ -66,8 +66,11 @@ import {
   type TypedTarget,
 } from '../../core/precheck/orgKindLive.js';
 
-/** What a checkpoint is about to do to an org. */
-export type CheckpointAct = 'take' | 'preview' | 'rewind' | 'undo';
+/**
+ * What a checkpoint is about to do to an org: an import keeps on this machine
+ * a checkpoint of it another machine exported, and reads the org first.
+ */
+export type CheckpointAct = 'take' | 'preview' | 'rewind' | 'undo' | 'import';
 
 /** What the guard is asked about, whatever the act. */
 interface CheckpointGuardBase {
@@ -89,7 +92,7 @@ interface CheckpointGuardBase {
 export type CheckpointGuardRequest =
   | (CheckpointGuardBase & { act: 'take' })
   | (CheckpointGuardBase & {
-      act: 'preview' | 'rewind' | 'undo';
+      act: 'preview' | 'rewind' | 'undo' | 'import';
       /** The Organization Id the checkpoint was taken of. */
       organizationId: string;
     });
@@ -165,6 +168,9 @@ const NEEDS: Readonly<Record<CheckpointAct, string>> = {
     'see would read as deleted since, and the rewind it shows must',
   rewind: 'Rewind needs a user with View All Data and Modify All Data: it must',
   undo: 'Undo needs a user with View All Data and Modify All Data: it must',
+  import:
+    'An import needs a user with View All Data and Modify All Data: SandForge never keeps on ' +
+    'this machine records its user could not see in the org, and a rewind to it must',
 };
 
 /**
@@ -176,6 +182,7 @@ const CUSTOMIZE_LIFTS: Readonly<Record<CheckpointAct, string>> = {
   preview: 'This checkpoint holds custom settings: give the user Customize Application.',
   rewind: 'This checkpoint holds custom settings: give the user Customize Application.',
   undo: 'This checkpoint holds custom settings: give the user Customize Application.',
+  import: 'This checkpoint holds custom settings: give the user Customize Application.',
 };
 
 /** The refusal of an act that keeps or writes custom settings, the user lacking Customize Application. */
@@ -233,7 +240,9 @@ async function permissionsOf(
 
 /**
  * Ask the org, before anything of it is read or written, whether a checkpoint
- * may be taken of it, previewed, rewound to or undone.
+ * may be taken of it, previewed, rewound to or undone, or imported from
+ * another machine's export: before the file is decrypted, so this machine
+ * never holds what its user could not see in the org.
  *
  * @param conn - The connection the act would read and write through.
  * @param request - The act, the org as the registry holds it, and the
@@ -265,9 +274,13 @@ export async function guardCheckpoint(
   if (request.act !== 'take' && !sameOrganization(org.id, request.organizationId)) {
     return refused(
       'OTHER_ORG',
-      `${orgName} is another org than the one this checkpoint was taken of: its Organization ` +
-        "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
-        `org before it, and can only be deleted. ${NOTHING_DONE}`,
+      request.act === 'import'
+        ? `${orgName} is another org than the one this file holds a checkpoint of: it is ` +
+            'imported for the org it was taken of alone, under any alias of it. Nothing was ' +
+            'imported.'
+        : `${orgName} is another org than the one this checkpoint was taken of: its Organization ` +
+            "Id has changed, as a sandbox's does when it is refreshed. This checkpoint is of the " +
+            `org before it, and can only be deleted. ${NOTHING_DONE}`,
     );
   }
 

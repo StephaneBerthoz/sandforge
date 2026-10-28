@@ -148,7 +148,16 @@ describe('docs/modules/checkpoint.md', () => {
 
   it('names each command the script reads in its table, and no other', () => {
     const commands = commandsRead();
-    expect(commands).toEqual(['take', 'list', 'preview', 'rewind', 'undo', 'delete']);
+    expect(commands).toEqual([
+      'take',
+      'list',
+      'preview',
+      'rewind',
+      'undo',
+      'delete',
+      'export',
+      'import',
+    ]);
 
     const table = section(DOC, '## From the command line');
     const rows = [...table.matchAll(/^\| `([a-z]+)` +\|/gm)].map((m) => m[1]);
@@ -574,7 +583,7 @@ describe('docs/modules/checkpoint.md', () => {
       expect(filesDiff).toContain(`  ${field}: number;`);
     }
     expect(filesDiff).toContain('blindSpot?: true;');
-    expect(/export type CheckpointRefusalCode =[^;]*'FILE_STORAGE';/.test(TYPES)).toBe(true);
+    expect(/export type CheckpointRefusalCode =[^;]*'FILE_STORAGE'[;\n]/.test(TYPES)).toBe(true);
     expect(PREVIEW).toContain('? fileStorageRefusal(');
     expect(REWIND).toContain('const overStorage = fileStorageRefusal(');
     expect(UNDO).toContain(
@@ -1060,19 +1069,22 @@ describe('what a checkpoint and a backup hold on this machine', () => {
     ['ci-examples/README.md', source('ci-examples/README.md')],
   ];
 
-  /** The module's source files, tests left out. */
-  function sourcesOf(dir: string): string[] {
+  /** The module's source files, by name, tests left out. */
+  function sourcesOf(dir: string): Array<[string, string]> {
     return readdirSync(resolve(REPO_ROOT, dir))
       .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-      .map((name) => source(`${dir}/${name}`));
+      .map((name) => [name, source(`${dir}/${name}`)]);
   }
 
   it('says the records’ values are kept unencrypted, never "in clear", which reads as "clearly"', () => {
     // Anchor: neither the checkpoint's store nor the DataOps backup's ciphers
     // what it writes: files only their owner can read, values as the org held them.
+    // An export alone does, into a file that leaves the store.
     for (const dir of [MODULE_DIR, 'packages/extension/src/modules/dataops']) {
-      const ciphering = sourcesOf(dir).filter((text) => /createCipheriv|createCipher\(/.test(text));
-      expect(ciphering).toEqual([]);
+      const ciphering = sourcesOf(dir)
+        .filter(([, text]) => /createCipheriv|createCipher\(/.test(text))
+        .map(([name]) => name);
+      expect(ciphering).toEqual(dir === MODULE_DIR ? ['checkpointArchive.ts'] : []);
     }
     expect(STORE).toContain('export const CHECKPOINT_FILE_MODE = 0o600;');
 

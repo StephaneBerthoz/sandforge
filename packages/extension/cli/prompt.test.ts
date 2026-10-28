@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { confirm, typed, type PromptStreams } from './prompt.js';
+import { confirm, hidden, typed, type PromptStreams } from './prompt.js';
 
 /** A terminal, or a CI step's stdin when `tty` is false, and what was written to it. */
 function streams(tty: boolean): { io: PromptStreams; input: PassThrough; asked: () => string } {
@@ -81,5 +81,65 @@ describe('a question on the terminal', () => {
       'Upsert snapshot op-1 back into TGT? [y/N]\n' +
         'no terminal to answer: give --yes to go ahead without the question.\n',
     );
+  });
+});
+
+describe('a secret asked on the terminal', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A terminal that records each switch of its raw mode, and what was written to it. */
+  function terminal() {
+    const made = streams(true);
+    const raw: boolean[] = [];
+    Object.assign(made.input, { setRawMode: (on: boolean) => raw.push(on) });
+    return { ...made, raw };
+  }
+
+  it('reads what is typed with nothing of it written back, in raw mode until it is through', async () => {
+    const { io, input, asked, raw } = terminal();
+
+    const asking = hidden('Key of the file:', 'give --key-env VAR', io);
+    input.write('ABCD-EF');
+    input.write('GH\r');
+
+    await expect(asking).resolves.toBe('ABCD-EFGH');
+    expect(asked()).toBe('Key of the file: \n');
+    expect(raw).toEqual([true, false]);
+  });
+
+  it('takes the last letter back at Backspace, and gives up at Ctrl-C, Ctrl-D on nothing typed, or a terminal that closes', async () => {
+    const one = terminal();
+    const corrected = hidden('Key:', 'give --key-env VAR', one.io);
+    one.input.write('ABX\u007fC\n');
+    await expect(corrected).resolves.toBe('ABC');
+
+    for (const giveUp of ['AB\u0003', '\u0004']) {
+      const two = terminal();
+      const asking = hidden('Key:', 'give --key-env VAR', two.io);
+      two.input.write(giveUp);
+      await expect(asking).resolves.toBeUndefined();
+      expect(two.raw).toEqual([true, false]);
+    }
+
+    const three = terminal();
+    const closed = hidden('Key:', 'give --key-env VAR', three.io);
+    three.input.end();
+    await expect(closed).resolves.toBeUndefined();
+  });
+
+  it('stops the command with exit 2 when no terminal is there, saying what to give instead, and reads nothing', () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const { io, input, asked } = streams(false);
+    const read = vi.spyOn(input, 'on');
+
+    expect(() => hidden('Key of the file:', 'give --key-env VAR', io)).toThrow('exit 2');
+
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(read).not.toHaveBeenCalled();
+    expect(asked()).toBe('Key of the file:\nno terminal to type it on: give --key-env VAR.\n');
   });
 });

@@ -176,7 +176,8 @@ describe('parseArgs', () => {
     const restore = refused('restore', '--org', 'DEV-SB', '--yes');
     expect(restore.code).toBe(2);
     expect(restore.stderr).toContain(
-      '"restore" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo or delete',
+      '"restore" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo, ' +
+        'delete, export or import',
     );
   });
 
@@ -370,6 +371,14 @@ describe('parseArgs', () => {
       'emails not counted, which --accept-automation covers',
       '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
       'a field added since, deleted since, or hidden since from the user by\nfield-level security, which the preview tells apart and names',
+      // A checkpoint to another machine, and from one.
+      'export    write a checkpoint to a .sfcheckpoint file, encrypted, for a teammate who rewinds the',
+      'import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this',
+      '--key-env <VAR>                encrypt under the key this environment variable holds, one an',
+      'keyShown, whether a new key was drawn and shown on stderr; never\n                     the key itself',
+      'outcome imported, or alreadyKept for the same checkpoint kept here',
+      'export never writes a checkpoint unencrypted: AES-256-GCM',
+      "--yes; import's key: --key-env)",
     ]) {
       expect(stdout).toContain(said);
     }

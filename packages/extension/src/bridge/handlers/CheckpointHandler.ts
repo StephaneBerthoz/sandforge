@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import type {
   AuditOutcome,
+  CheckpointArchiveHeader,
   CheckpointCustomSettings,
   CheckpointListEntry,
   CheckpointRefusal,
@@ -56,6 +59,7 @@ import type {
   OrgLockHolder,
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import type { TakeProgress, TakeRequest } from '../../modules/checkpoint/takeCheckpoint.js';
+import type { ArchiveRead } from '../../modules/checkpoint/checkpointArchive.js';
 
 /** Message types handled by CheckpointHandler. */
 const CHECKPOINT_TYPES = new Set([
@@ -90,10 +94,11 @@ const AUDIT_OUTCOMES: Readonly<Record<RewindStatus, AuditOutcome>> = {
 };
 
 /** What is done to a checkpoint, as the refusal of one whose take never ended words it. */
-const ACT_WORDS: Readonly<Record<'preview' | 'rewind' | 'undo', string>> = {
+const ACT_WORDS: Readonly<Record<'preview' | 'rewind' | 'undo' | 'export', string>> = {
   preview: 'previewed',
   rewind: 'rewound to',
   undo: 'used',
+  export: 'exported',
 };
 
 /** How a rewind or an undo that reached the org ended: what it did, or the refusal it met before writing. */
@@ -128,16 +133,81 @@ export interface WindowWriters {
   writingTo?: (orgId: string) => boolean;
 }
 
+/** A refusal of an export or an import, by its code, in the words a person reads. */
+export interface CheckpointTransferRefusal {
+  code: string;
+  message: string;
+}
+
+/** An export of a kept checkpoint, as the host asks it. */
+export interface CheckpointExportRequest {
+  checkpointId: string;
+  /** Where the file goes: the host's save dialog chose it, or the command line named it; never a page. */
+  out: string;
+  /** The key to encrypt under, as SandForge shows one: a CI step's. A new one is drawn without it. */
+  key?: Buffer;
+  /** This SandForge's version, which the file names. */
+  sandforgeVersion: string;
+}
+
+/** How an export ended. */
+export type CheckpointExportAnswer =
+  | {
+      exported: true;
+      checkpoint: OrgCheckpoint;
+      header: CheckpointArchiveHeader;
+      /** Bytes of the file written, and its sha256, hex. */
+      bytes: number;
+      sha256: string;
+      /** The key drawn for it, as a person is shown it, once: absent when one was given. */
+      key?: string;
+    }
+  | { exported: false; refusal: CheckpointTransferRefusal };
+
+/** A `.sfcheckpoint` file the registered org would import, as the host names it. */
+export interface CheckpointImportFile {
+  orgId: string;
+  /** The file: the host's open dialog chose it, or the command line named it; never a page. */
+  file: string;
+}
+
+/** What a file holds, and whether the org lets it be imported, asked before any key. */
+export type CheckpointImportCheck =
+  | { allowed: true; header: CheckpointArchiveHeader }
+  | { allowed: false; header?: CheckpointArchiveHeader; refusal: CheckpointTransferRefusal };
+
+/** How an import ended. */
+export type CheckpointImportAnswer =
+  | {
+      imported: true;
+      /** `alreadyKept`: the same checkpoint was kept here already, and is left as it is. */
+      outcome: 'imported' | 'alreadyKept';
+      checkpoint: OrgCheckpoint;
+      /** What the person is told once it is kept: the lock is per machine, Undo stays with it. */
+      warnings: string[];
+    }
+  | { imported: false; header?: CheckpointArchiveHeader; refusal: CheckpointTransferRefusal };
+
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview, rewind, undo] = await Promise.all([
+  const [store, take, preview, rewind, undo, guard, archive] = await Promise.all([
     import('../../modules/checkpoint/OrgCheckpointStore.js'),
     import('../../modules/checkpoint/takeCheckpoint.js'),
     import('../../modules/checkpoint/previewCheckpoint.js'),
     import('../../modules/checkpoint/rewindOrg.js'),
     import('../../modules/checkpoint/undoCheckpoint.js'),
+    import('../../modules/checkpoint/checkpointGuard.js'),
+    import('../../modules/checkpoint/checkpointArchive.js'),
   ]);
   return {
+    guardCheckpoint: guard.guardCheckpoint,
+    newArchiveKey: archive.newArchiveKey,
+    archiveKeyText: archive.archiveKeyText,
+    exportCheckpointArchive: archive.exportCheckpointArchive,
+    CheckpointExportError: archive.CheckpointExportError,
+    readArchiveHeader: archive.readArchiveHeader,
+    importCheckpointArchive: archive.importCheckpointArchive,
+    DEFAULT_KEEP_DAYS: store.DEFAULT_KEEP_DAYS,
     openCheckpointStore: store.openCheckpointStore,
     defaultCheckpointStoreRoot: store.defaultCheckpointStoreRoot,
     scratchOrgExpired: store.scratchOrgExpired,
@@ -249,6 +319,13 @@ function holderWords(holder: OrgLockHolder): string {
  * - `checkpoint:delete`, `checkpoint:keep`, `checkpoint:rename`,
  *   `checkpoint:ignore-fields` — changes to the checkpoints on this machine;
  *   the org is not touched.
+ *
+ * A checkpoint goes to another machine and comes from one through the host
+ * alone, never a message: {@link CheckpointHandler.exportCheckpoint} writes
+ * it, encrypted, to a file the host names, and
+ * {@link CheckpointHandler.readImport} then
+ * {@link CheckpointHandler.importCheckpoint} keep another machine's here
+ * once the org has answered for it. A page names no path.
  *
  * Every refusal a guard or a gate gives goes out as it gave it, its code and
  * its words, on `checkpoint:error`: a production org is refused by the
@@ -442,6 +519,236 @@ export class CheckpointHandler implements DomainHandler {
     return () => {
       this.changeListeners.delete(listener);
     };
+  }
+
+  // ─── A checkpoint to another machine, and from one ─────────────────────────
+
+  /**
+   * Export a kept checkpoint to a `.sfcheckpoint` file (`checkpointArchive.ts`),
+   * encrypted under the key given — a CI step's — or under one drawn here,
+   * which the answer carries once and nothing keeps. The org is not
+   * contacted. Refused for a checkpoint that can only be deleted, as a
+   * preview refuses it, and for a file there already. Recorded in the audit
+   * trail (`checkpoint_export`) with its counts and its org, never the
+   * file's path nor the key, which no log line names either.
+   */
+  async exportCheckpoint(request: CheckpointExportRequest): Promise<CheckpointExportAnswer> {
+    try {
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const { folder, checkpoint } = await this.checkpointOf(store, request.checkpointId);
+      this.usable(m, checkpoint, 'export');
+      const key = request.key ?? m.newArchiveKey();
+      const exported = await m.exportCheckpointArchive({
+        folder,
+        checkpoint,
+        out: request.out,
+        key,
+        sandforgeVersion: request.sandforgeVersion,
+      });
+      const { header } = exported;
+      recordWriteRun(this.deps, {
+        action: 'checkpoint_export',
+        module: MODULE,
+        operationId: randomUUID(),
+        orgId: this.orgOfCheckpoint(checkpoint)?.id ?? checkpoint.org.organizationId,
+        outcome: 'success',
+        details: {
+          checkpointId: checkpoint.checkpointId,
+          records: header.records,
+          objects: header.objects,
+          files: header.files,
+          bytes: exported.bytes,
+        },
+      });
+      return {
+        exported: true,
+        checkpoint,
+        header,
+        bytes: exported.bytes,
+        sha256: exported.sha256,
+        ...(request.key === undefined ? { key: m.archiveKeyText(key) } : {}),
+      };
+    } catch (err: unknown) {
+      return { exported: false, refusal: await this.transferRefusalOf(err, 'EXPORT_ERROR') };
+    }
+  }
+
+  /**
+   * What a `.sfcheckpoint` file holds, from its header, and whether the
+   * registered org lets it be imported, asked before any key: the file must
+   * be one this SandForge reads, and the org must answer live that it is the
+   * file's org, no production org, and that its user sees and changes all
+   * data — this machine never holds what its user could not see in the org.
+   * Nothing is decrypted, nothing kept.
+   */
+  async readImport(request: CheckpointImportFile): Promise<CheckpointImportCheck> {
+    const checked = await this.importChecked(request);
+    if ('refusal' in checked) return { allowed: false, ...checked };
+    return { allowed: true, header: checked.read.header };
+  }
+
+  /**
+   * Import a `.sfcheckpoint` file another machine exported: the checks of
+   * {@link readImport} made again, then the file decrypted with `key` and
+   * kept as a checkpoint of the org on this machine, listed under its alias
+   * here, kept `keepDays` (30 unless given). The same checkpoint kept here
+   * already is left as it is, `alreadyKept`; another of its id refuses it.
+   * Recorded in the audit trail (`checkpoint_import`) with its counts and its
+   * org, or the refusal's code, never the file's path nor the key.
+   */
+  async importCheckpoint(
+    request: CheckpointImportFile & { key: Buffer; keepDays?: number },
+  ): Promise<CheckpointImportAnswer> {
+    const checked = await this.importChecked(request);
+    const audit = (
+      orgId: string,
+      outcome: AuditOutcome,
+      header: CheckpointArchiveHeader | undefined,
+      extra: { code?: string; alreadyKept?: true } = {},
+    ): void => {
+      recordWriteRun(this.deps, {
+        action: 'checkpoint_import',
+        module: MODULE,
+        operationId: randomUUID(),
+        orgId,
+        outcome,
+        ...(extra.code !== undefined ? { code: extra.code } : {}),
+        details: {
+          ...(header
+            ? {
+                checkpointId: header.checkpointId,
+                records: header.records,
+                objects: header.objects,
+              }
+            : {}),
+          ...(extra.alreadyKept ? { alreadyKept: true } : {}),
+        },
+      });
+    };
+    if ('refusal' in checked) {
+      if (checked.orgId !== undefined) {
+        audit(checked.orgId, 'stopped', checked.header, { code: checked.refusal.code });
+      }
+      return {
+        imported: false,
+        refusal: checked.refusal,
+        ...(checked.header ? { header: checked.header } : {}),
+      };
+    }
+    const { m, store, org, read } = checked;
+    try {
+      const done = await m.importCheckpointArchive({
+        store,
+        file: request.file,
+        read,
+        key: request.key,
+        ...(org.alias ? { alias: org.alias } : {}),
+        keepDays: request.keepDays ?? m.DEFAULT_KEEP_DAYS,
+        takenOn: { host: hostname(), pid: process.pid },
+      });
+      if (!done.imported) {
+        audit(org.id, 'stopped', read.header, { code: done.refusal.code });
+        return { imported: false, header: read.header, refusal: done.refusal };
+      }
+      audit(
+        org.id,
+        'success',
+        read.header,
+        done.outcome === 'alreadyKept' ? { alreadyKept: true } : {},
+      );
+      if (done.outcome === 'imported') this.checkpointsChanged();
+      const orgName = nameOf(org);
+      return {
+        imported: true,
+        outcome: done.outcome,
+        checkpoint: done.checkpoint,
+        warnings: [
+          `Rewinds of ${orgName} from two machines at once fight each other: the lock is per ` +
+            'machine. Agree on who rewinds.',
+          'A field your user cannot see is neither compared nor written back by a rewind from ' +
+            'this machine, and its preview names it.',
+          'The rewinds made from the machine it came from, and their Undo, stayed there.',
+        ],
+      };
+    } catch (err: unknown) {
+      audit(org.id, 'failure', read.header);
+      return {
+        imported: false,
+        header: read.header,
+        refusal: await this.transferRefusalOf(err, 'IMPORT_ERROR'),
+      };
+    }
+  }
+
+  /**
+   * The file's header and the org's answer to it, as {@link readImport} says
+   * them: the registered org, its connection's guard on the file's
+   * Organization Id. An org the registry knows was that id before a refresh
+   * is told so.
+   */
+  private async importChecked(request: CheckpointImportFile): Promise<
+    | {
+        m: CheckpointModules;
+        store: OrgCheckpointStore;
+        org: SalesforceOrg;
+        read: ArchiveRead;
+      }
+    | { refusal: CheckpointTransferRefusal; header?: CheckpointArchiveHeader; orgId?: string }
+  > {
+    let header: CheckpointArchiveHeader | undefined;
+    let orgId: string | undefined;
+    try {
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const org = this.registeredOrg(request.orgId);
+      orgId = org.id;
+      const opened = await m.readArchiveHeader(request.file);
+      if ('refusal' in opened) return { refusal: opened.refusal, orgId };
+      header = opened.read.header;
+      const conn = await this.connect(org);
+      const guarded = await m.guardCheckpoint(conn, {
+        act: 'import',
+        orgName: nameOf(org),
+        registered: org,
+        username: org.username,
+        organizationId: header.organizationId,
+      });
+      if (!guarded.allowed) {
+        const refreshed =
+          guarded.refusal.code === 'OTHER_ORG'
+            ? this.refreshedAt(header.organizationId)
+            : undefined;
+        const refusal =
+          refreshed !== undefined
+            ? {
+                code: 'OTHER_ORG',
+                message:
+                  `The sandbox this file's checkpoint was taken of was refreshed on ` +
+                  `${refreshed.slice(0, 10)}: ${nameOf(org)} is another org now, and the ` +
+                  'checkpoint can no longer be rewound to. Nothing was imported.',
+              }
+            : guarded.refusal;
+        return { refusal, header, orgId };
+      }
+      return { m, store, org, read: opened.read };
+    } catch (err: unknown) {
+      return {
+        refusal: await this.transferRefusalOf(err, 'IMPORT_ERROR'),
+        ...(header ? { header } : {}),
+        ...(orgId !== undefined ? { orgId } : {}),
+      };
+    }
+  }
+
+  /** An export's or an import's failure, as its answer says it: a refusal as it was given. */
+  private async transferRefusalOf(err: unknown, code: string): Promise<CheckpointTransferRefusal> {
+    if (err instanceof Refused) return { code: err.code, message: err.message };
+    const m = await this.modules().catch(() => undefined);
+    if (m !== undefined && err instanceof m.CheckpointExportError) {
+      return { code: err.code, message: err.message };
+    }
+    return { code, message: extractErrorMessage(err) };
   }
 
   /** Tell the listeners the checkpoints kept have changed: one that throws stops neither the others nor the request. */
@@ -707,7 +1014,7 @@ export class CheckpointHandler implements DomainHandler {
   private usable(
     m: CheckpointModules,
     checkpoint: OrgCheckpoint,
-    act: 'preview' | 'rewind' | 'undo',
+    act: 'preview' | 'rewind' | 'undo' | 'export',
   ): void {
     const kept = checkpoint.org.alias ?? checkpoint.org.username;
     if (checkpoint.status !== 'ready') {

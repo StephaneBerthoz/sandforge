@@ -9,6 +9,12 @@
  * over the store the page keeps its checkpoints in. A checkpoint taken here is
  * listed in the editor, and the other way round.
  *
+ * `export` writes a checkpoint, encrypted, to a `.sfcheckpoint` file for a
+ * teammate who rewinds the same org from another machine, and `import` keeps
+ * such a file as a checkpoint here once the org has answered for it: the key
+ * is shown once on stderr, typed back without echo or read from a variable a
+ * CI step sets, and never written to stdout, a file or the audit trail.
+ *
  * `list` and `delete` read this machine alone and never contact the org: an
  * org's checkpoints are told by the alias or username each was taken under,
  * and by the Organization Id they are filed under, so a scratch org that has
@@ -36,7 +42,7 @@
  * pnpm build:shared.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -73,10 +79,12 @@ import { createPanelHost } from './panelHost.js';
 import type { PanelAnswer, PanelHost, PanelHostOptions, PostedMessage } from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, endWith } from './exitCodes.js';
-import { confirm, typed } from './prompt.js';
+import { confirm, hidden, typed } from './prompt.js';
 import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 import { checkpointTakePayloadSchema } from '../src/bridge/validatePayload.js';
 import type { InfraServices } from '../src/bridge/handlers/HandlerTypes.js';
+import type { ExtensionHandlers } from '../src/bridge/ExtensionHandlers.js';
+import { parseArchiveKey } from '../src/modules/checkpoint/checkpointArchive.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
 import {
   DEFAULT_KEEP_DAYS,
@@ -109,6 +117,10 @@ Commands:
             over, send back to the bin what it brought back; what anyone changed since the rewind
             stays, and is said
   delete    delete a checkpoint from this machine; the org is not touched
+  export    write a checkpoint to a .sfcheckpoint file, encrypted, for a teammate who rewinds the
+            same org from another machine; the org is not contacted
+  import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this
+            machine, once the org answers that it is the file's, and its user sees all data
 
 Required:
   --org <alias>                  sf CLI alias of the org (list: every org of the store without it)
@@ -127,7 +139,7 @@ take:
   --max-total <n>                refuse, before reading, more than <n> records (default: ${DEFAULT_MAX_TOTAL})
   --keep-days <n>                when it expires (default: ${DEFAULT_KEEP_DAYS}; 0 keeps it until deleted)
   --estimate                     say the records, API requests, time and disk it would take, then stop
-preview, rewind, undo, delete:
+preview, rewind, undo, delete, export:
   --checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went
                                  back to; rewind and undo with --yes need it named, by id or name)
 preview:
@@ -159,6 +171,18 @@ undo:
 delete:
   --all                          every checkpoint of the org
   --yes                          do not ask
+export:
+  --out <file>                   the file to write; refused when one is there already
+  --key-env <VAR>                encrypt under the key this environment variable holds, one an
+                                 export showed (a CI step's secret); without it a new key is
+                                 drawn and shown once, on stderr
+import:
+  --file <file>                  the .sfcheckpoint file
+  --key-env <VAR>                read the key from this environment variable; without it the key
+                                 is asked on the terminal, not echoed, and with no terminal it
+                                 stops, exit 2, having imported nothing
+  --keep-days <n>                when it expires on this machine (default: ${DEFAULT_KEEP_DAYS}; 0 keeps it until
+                                 deleted)
 Options:
   --store <dir>                  where checkpoints live (default: ~/.sandforge/checkpoints, or
                                  checkpoints/ in the folder SANDFORGE_JOURNAL_DIR names)
@@ -174,6 +198,16 @@ unencrypted, in files only you can read (on Windows: in your user profile). Expi
 are deleted as any command starts, each named.
 list and delete read this machine alone and never contact the org. An org's checkpoints are the
 ones taken under its alias or username, and the others kept of the same Organization Id.
+export never writes a checkpoint unencrypted: AES-256-GCM, under a key of 52 letters and digits
+shown once and kept nowhere. Anyone who has the file and its key reads every record it holds:
+send the key another way than the file, and only to people who already see all data in the org.
+The file does not expire: delete it once it has served. It carries neither the journals of
+rewinds nor their undo, which stay on this machine.
+import reads the file's header, then asks the org: another org, a production org, a user without
+View All Data and Modify All Data, a file a newer SandForge made, are each refused before the key
+is asked. A wrong key, or a file changed since it was exported, is refused before anything is
+kept. A checkpoint kept already the same is left as it is, exit 0; another of its id is refused.
+The lock against two rewinds at once is per machine: agree on who rewinds the org.
 rewind shows its preview and asks you to type the org's alias before it writes, then rewinds from
 that preview as it read the org: a record someone changes after it read is left as they made it,
 and said. A take, a rewind or an undo of the org under way on this machine, in the editor or in
@@ -269,20 +303,29 @@ JSON (--json), one value on stdout:
                      on their own that had gone there with a record the rewind brought back for
                      a moment
   delete             {deleted: [id], kept: [id]}
+  export             {checkpoint: {id, name, takenAt, org}, file, bytes, sha256, records, objects,
+                      keyShown}: keyShown, whether a new key was drawn and shown on stderr; never
+                     the key itself
+  import             {outcome, checkpoint: {id, name, takenAt, org}, records, objects, expiresAt,
+                      warnings}: outcome imported, or alreadyKept for the same checkpoint kept here
+                     already
   refused or failed  {refusal: {code, message}}
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
 org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
-delete: every checkpoint named is deleted); 1 refused before it read or wrote (a production org,
+delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
+kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
 --max-total records, more API requests or emails than the org
 has left today, files to bring back taking more file storage than it has left, a checkpoint of
-the org before a refresh or of an expired scratch org, a SandForge run writing to it), or nothing
+the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
+of another org's file, with the wrong key, of a file changed since its export), or nothing
 done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
---yes); 3 partial (rewind and undo: records still differ, each said with why; with
+--yes; import's key: --key-env); 3 partial (rewind and undo: records still differ, each said
+with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
 links between files and records to remove, put back or give their sharing back, records the
 rewind cannot take back or the checkpoint does not hold although they are dated before it, files
@@ -296,7 +339,16 @@ the state before it.
 // ─── The command line ────────────────────────────────────────────────────────
 
 /** What the tool does, as its first word names it. */
-const COMMANDS = ['take', 'list', 'preview', 'rewind', 'undo', 'delete'] as const;
+const COMMANDS = [
+  'take',
+  'list',
+  'preview',
+  'rewind',
+  'undo',
+  'delete',
+  'export',
+  'import',
+] as const;
 type Command = (typeof COMMANDS)[number];
 
 const isCommand = (word: string): word is Command => (COMMANDS as readonly string[]).includes(word);
@@ -351,6 +403,16 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
     words: 1,
     switches: [...COMMON.switches, '--all', '--yes'],
     values: [...COMMON.values, '--checkpoint'],
+  },
+  export: {
+    words: 1,
+    switches: COMMON.switches,
+    values: [...COMMON.values, '--checkpoint', '--out', '--key-env'],
+  },
+  import: {
+    words: 1,
+    switches: COMMON.switches,
+    values: [...COMMON.values, '--file', '--key-env', '--keep-days'],
   },
 };
 
@@ -416,6 +478,24 @@ export type CliArgs =
       checkpoint?: string;
       all: boolean;
       yes: boolean;
+    })
+  | (CommonArgs & {
+      command: 'export';
+      org: string;
+      checkpoint: string;
+      /** The file to write, absolute. */
+      out: string;
+      /** The variable that holds the key; a new key is drawn without it. */
+      keyEnv?: string;
+    })
+  | (CommonArgs & {
+      command: 'import';
+      org: string;
+      /** The file to import, absolute. */
+      file: string;
+      /** The variable that holds the key; it is asked on the terminal without it. */
+      keyEnv?: string;
+      keepDays: number;
     });
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
@@ -445,13 +525,14 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
   const command = args[0];
   if (command === undefined || command.startsWith('-')) {
     return refuseLine(
-      'Name the command first: take, list, preview, rewind, undo or delete. Run with --help.',
+      'Name the command first: take, list, preview, rewind, undo, delete, export or import. Run ' +
+        'with --help.',
     );
   }
   if (!isCommand(command)) {
     return refuseLine(
-      `"${command}" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo ` +
-        'or delete. Nothing was run. Run with --help.',
+      `"${command}" is not a command of sandforge-checkpoint: take, list, preview, rewind, undo, ` +
+        'delete, export or import. Nothing was run. Run with --help.',
     );
   }
   // A misspelt flag, or `--org=ALIAS`, would be dropped without a word.
@@ -608,7 +689,52 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         yes: args.includes('--yes'),
       };
     }
+    case 'export': {
+      const named = orgNamed();
+      const out = single('--out') ?? refuseLine('export needs --out <file>. Run with --help.');
+      const keyEnv = keyVariable(single('--key-env'));
+      return {
+        ...common,
+        command,
+        org: named,
+        checkpoint: single('--checkpoint') ?? 'latest',
+        out: resolve(out),
+        ...(keyEnv !== undefined ? { keyEnv } : {}),
+      };
+    }
+    case 'import': {
+      const named = orgNamed();
+      const file = single('--file') ?? refuseLine('import needs --file <file>. Run with --help.');
+      const keyEnv = keyVariable(single('--key-env'));
+      return {
+        ...common,
+        command,
+        org: named,
+        file: resolve(file),
+        ...(keyEnv !== undefined ? { keyEnv } : {}),
+        keepDays: wholeNumber('--keep-days') ?? DEFAULT_KEEP_DAYS,
+      };
+    }
   }
+}
+
+/**
+ * The name of the variable `--key-env` gives, or a refusal of the line: it
+ * names a variable, never holds the key, which a shell's history and the
+ * list of processes would keep.
+ */
+function keyVariable(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  // A key typed without its dashes is a name a variable could have: it is refused all the same.
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || parseArchiveKey(name) !== undefined) {
+    // What was given is not repeated: it may be the key itself.
+    return refuseLine(
+      '--key-env takes the name of an environment variable that holds the key, never the key: ' +
+        'a key on the command line stays in the shell’s history and the list of processes. ' +
+        'Nothing was run.',
+    );
+  }
+  return name;
 }
 
 // ─── Which checkpoints are an org's, and which one is meant ──────────────────
@@ -2386,6 +2512,7 @@ export async function main(
   let sweeping = false;
   let lastStep: string | undefined;
   let sweep: () => Promise<void> = () => Promise.resolve();
+  let transfers: Transfers | undefined;
   try {
     const host = (deps.createHost ?? createPanelHost)({
       storeDir: hostDir,
@@ -2406,6 +2533,7 @@ export async function main(
           backgroundRegistry: registry,
         } as Partial<InfraServices> as InfraServices);
         sweep = () => wiring.handlers.sweepCheckpoints();
+        transfers = wiring.handlers;
       },
       onPost: (message: PostedMessage) => {
         if (message.type !== 'operation:progress') return;
@@ -2486,6 +2614,12 @@ export async function main(
       case 'delete':
         await remove(args, host, listAll, say, answerJson);
         return;
+      case 'export':
+        await exportTo(args, { transfers: transfersOf(transfers), listAll, say, answerJson });
+        return;
+      case 'import':
+        await importFrom(args, { transfers: transfersOf(transfers), connect, say, answerJson });
+        return;
     }
   } catch (err: unknown) {
     const stop =
@@ -2500,6 +2634,198 @@ export async function main(
     registry.dispose();
     rmSync(hostDir, { recursive: true, force: true });
   }
+}
+
+/** What the host's handlers do of a checkpoint that leaves the machine, or comes from another. */
+type Transfers = Pick<
+  ExtensionHandlers,
+  'exportCheckpoint' | 'readCheckpointImport' | 'importCheckpoint'
+>;
+
+/** The handlers the host composed, which every host this command stands up does. */
+function transfersOf(transfers: Transfers | undefined): Transfers {
+  if (transfers === undefined) throw new Error('The host composed no handlers.');
+  return transfers;
+}
+
+/** This SandForge's version, which an export names. */
+function sandforgeVersion(): string {
+  try {
+    const read = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as {
+      version?: unknown;
+    };
+    return typeof read.version === 'string' ? read.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/**
+ * The key the variable `name` holds, as SandForge shows one, or the stop of
+ * the line, exit 2: a variable unset, or that holds no such key. What it
+ * holds is never repeated.
+ */
+function keyFromEnvironment(name: string): Buffer {
+  const text = process.env[name];
+  if (text === undefined || text.trim() === '') {
+    throw new Stop(
+      { code: 'NO_KEY', message: `${name} is not set: it holds no key. Nothing was run.` },
+      2,
+    );
+  }
+  const key = parseArchiveKey(text);
+  if (key === undefined) {
+    throw new Stop(
+      {
+        code: 'NO_KEY',
+        message:
+          `${name} holds no key SandForge reads: 52 letters and digits, in groups of four as an ` +
+          'export shows one. Nothing was run.',
+      },
+      2,
+    );
+  }
+  return key;
+}
+
+/** A checkpoint as the JSON of an export and an import names it. */
+function checkpointJson(checkpoint: OrgCheckpoint, org: string): Record<string, unknown> {
+  return {
+    id: checkpoint.checkpointId,
+    name: checkpoint.name,
+    takenAt: checkpoint.takenAt,
+    org,
+  };
+}
+
+/**
+ * `export`: a checkpoint of this machine, never the org, to a `.sfcheckpoint`
+ * file, encrypted; a new key shown once on stderr — never on stdout, where
+ * a CI step's log or a pipe would keep it — unless `--key-env` gave one.
+ */
+async function exportTo(
+  args: Extract<CliArgs, { command: 'export' }>,
+  context: {
+    transfers: Transfers;
+    listAll: () => Promise<CheckpointListEntry[]>;
+    say: (line: string) => void;
+    answerJson: (value: unknown) => void;
+  },
+): Promise<void> {
+  const { say, answerJson } = context;
+  const key = args.keyEnv !== undefined ? keyFromEnvironment(args.keyEnv) : undefined;
+  const all = await context.listAll();
+  const entry = chosen(
+    resolveCheckpoint(all, checkpointsOf(all, args.org), args.checkpoint, args.org),
+  );
+  const answer = await context.transfers.exportCheckpoint({
+    checkpointId: entry.checkpointId,
+    out: args.out,
+    ...(key !== undefined ? { key } : {}),
+    sandforgeVersion: sandforgeVersion(),
+  });
+  if (!answer.exported) throw new Stop(answer.refusal);
+  const { checkpoint, header } = answer;
+  say(
+    `exported '${checkpoint.name}' (${checkpoint.checkpointId}) of ${args.org}, taken ` +
+      `${when(checkpoint.takenAt)}: ${count(header.records)} record(s) of ` +
+      `${count(header.objects)} object(s), ${megabytes(answer.bytes)}, to ${args.out}`,
+  );
+  say(`  sha256 ${answer.sha256}`);
+  if (answer.key !== undefined) {
+    process.stderr.write(`  key, shown this once and kept nowhere: ${answer.key}\n`);
+  }
+  say(
+    `  Anyone who has this file and its key can read the ${count(header.records)} records it ` +
+      `holds of ${args.org}, personal data among them. Send the key another way than the file, ` +
+      `and only to people who already see all data in ${args.org}.`,
+  );
+  say('  The file does not expire: delete it once it has served.');
+  answerJson({
+    checkpoint: checkpointJson(checkpoint, args.org),
+    file: args.out,
+    bytes: answer.bytes,
+    sha256: answer.sha256,
+    records: header.records,
+    objects: header.objects,
+    keyShown: answer.key !== undefined,
+  });
+}
+
+/**
+ * `import`: the file's header said, the org asked whether it is the file's
+ * and its user sees all data — before the key is asked — then the key, from
+ * `--key-env` or typed without echo, and the checkpoint kept here.
+ */
+async function importFrom(
+  args: Extract<CliArgs, { command: 'import' }>,
+  context: {
+    transfers: Transfers;
+    connect: (alias: string) => Promise<SalesforceOrg>;
+    say: (line: string) => void;
+    answerJson: (value: unknown) => void;
+  },
+): Promise<void> {
+  const { say, answerJson } = context;
+  const fromEnvironment = args.keyEnv !== undefined ? keyFromEnvironment(args.keyEnv) : undefined;
+  const org = await context.connect(args.org);
+  const check = await context.transfers.readCheckpointImport({ orgId: org.id, file: args.file });
+  if (check.header !== undefined) {
+    const { header } = check;
+    say(
+      `the file holds checkpoint ${header.checkpointId}, taken ${when(header.takenAt)}: ` +
+        `${count(header.records)} record(s) of ${count(header.objects)} object(s), ` +
+        `${megabytes(header.bytes)}, exported by SandForge ${header.sandforgeVersion}`,
+    );
+  }
+  if (!check.allowed) throw new Stop(check.refusal);
+  const key = fromEnvironment ?? (await typedKey());
+  const answer = await context.transfers.importCheckpoint({
+    orgId: org.id,
+    file: args.file,
+    key,
+    keepDays: args.keepDays,
+  });
+  if (!answer.imported) throw new Stop(answer.refusal);
+  const { checkpoint } = answer;
+  say(
+    answer.outcome === 'imported'
+      ? `imported '${checkpoint.name}' (${checkpoint.checkpointId}) of ${args.org}: ` +
+          `${count(recordsOf(checkpoint))} record(s) of ${count(checkpoint.objects.length)} ` +
+          `object(s), ${keptWords(checkpoint.expiresAt)}`
+      : `'${checkpoint.name}' (${checkpoint.checkpointId}) is kept on this machine already, the ` +
+          'same: left as it is',
+  );
+  for (const warning of answer.warnings) say(`  ${warning}`);
+  answerJson({
+    outcome: answer.outcome,
+    checkpoint: checkpointJson(checkpoint, args.org),
+    records: recordsOf(checkpoint),
+    objects: checkpoint.objects.length,
+    expiresAt: checkpoint.expiresAt,
+    warnings: answer.warnings,
+  });
+}
+
+/** The key typed on the terminal, never echoed, or the stop of the import. */
+async function typedKey(): Promise<Buffer> {
+  const text = await hidden(
+    'Key of the file (not shown as you type it):',
+    'give --key-env VAR, the name of an environment variable that holds the key',
+  );
+  if (text === undefined || text.trim() === '') {
+    throw new Stop({ code: 'DECLINED', message: 'No key was typed. Nothing was imported.' });
+  }
+  const key = parseArchiveKey(text);
+  if (key === undefined) {
+    throw new Stop({
+      code: 'IMPORT_KEY',
+      message:
+        'That is not a key SandForge draws: 52 letters and digits, in groups of four as the ' +
+        'export showed it. Nothing was imported.',
+    });
+  }
+  return key;
 }
 
 /** The checkpoint a resolution names, or the stop it ends the command with. */
