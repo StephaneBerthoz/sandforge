@@ -256,4 +256,4 @@ jobs:
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}"
           echo "$GITLEAKS_SHA256  $ARCHIVE" | sha256sum --check --status
           tar -xzf "$ARCHIVE" gitleaks
-          ./gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1
+          ./gitleaks git . --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1
