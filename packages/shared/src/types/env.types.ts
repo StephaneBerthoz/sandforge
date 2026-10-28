@@ -389,6 +389,11 @@ export interface EnvResourceState {
   status: EnvResourceStatus;
   /** The last is current; earlier ones are runs a replace took back. */
   runs: EnvRun[];
+  /**
+   * Rebuilt by `state recover` from its run files, which do not say what it
+   * was applied from: the next plan replaces it.
+   */
+  recovered?: true;
 }
 
 /**
@@ -747,6 +752,35 @@ export interface EnvStateList {
   journalDir: string;
   states: EnvStateListEntry[];
   expired: Array<{ env: string; organizationId: string; alias?: string; expiresAt: string }>;
+}
+
+/** What `state recover` rebuilt of one resource from its run files. */
+export interface EnvRecoveredResource {
+  kind: EnvResourceKind;
+  status: EnvResourceStatus;
+  /** The ranks of its runs, in the order they ran. */
+  runs: number[];
+  /** Those a removal's own record says it took back whole. */
+  takenBack: number[];
+  /** Whether the file still has it: one it no longer has, the next plan deletes. */
+  inFile: boolean;
+}
+
+/**
+ * What `state recover --json` answers: the state rebuilt from the run files
+ * the journal directory keeps, at serial 1 under a lineage of its own.
+ */
+export interface EnvRecoverResult {
+  env: string;
+  org: { organizationId: string; kind: EnvTargetKind; alias?: string };
+  state: { serial: number; lineage: string };
+  /** Where a state that did not read was set aside, kept, never deleted. */
+  setAside?: string;
+  resources: Record<string, EnvRecoveredResource>;
+  /** The checkpoints a file of the store proves the environment's. */
+  checkpoints: { before?: string; after?: string };
+  /** What could not be linked, each in words. */
+  notLinked: string[];
 }
 
 // ─── Saved plans ─────────────────────────────────────────────────────────────

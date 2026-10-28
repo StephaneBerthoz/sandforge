@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { EnvActionKind, EnvPlan, EnvState } from '@sandforge/shared';
+import {
+  RECOVERED_FINGERPRINT,
+  type EnvActionKind,
+  type EnvPlan,
+  type EnvState,
+} from '@sandforge/shared';
 
 vi.mock('../../src/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -28,6 +33,7 @@ import {
   planChanges,
   planDrifts,
   planLines,
+  RECOVERED_WHY,
   removalOrder,
   type EnvBudget,
   type EnvDryRun,
@@ -520,6 +526,43 @@ describe('the plan, on the memory org', () => {
     const changed = again.actions.find((action) => action.resource === 'contacts');
     expect(changed?.why).toContain('what it writes changed in the file since it was applied');
     expect(changed?.why).toContain('the resources it depends on run again');
+  });
+
+  it('replaces a resource state recover rebuilt, saying so, and never as a change in the file; one applied from the same file stays kept', async () => {
+    const state = await applied();
+    // Control: the state as the apply left it, every resource kept.
+    const kept = await planOf(resolvedOf(document()), state);
+    expect(kept.actions.map((a) => a.action)).toEqual(['keep', 'keep']);
+
+    const rebuilt: EnvState = {
+      ...state,
+      resources: Object.fromEntries(
+        Object.entries(state.resources).map(([name, resource]) => [
+          name,
+          { ...resource, fingerprint: RECOVERED_FINGERPRINT, recovered: true as const },
+        ]),
+      ),
+    };
+    const plan = await planOf(resolvedOf(document()), rebuilt);
+    expectActions(plan, [
+      ['accounts', 'replace', `replaced: ${RECOVERED_WHY}`],
+      ['contacts', 'replace', RECOVERED_WHY],
+    ]);
+    for (const action of plan.actions) {
+      expect(action.why).not.toContain('what it writes changed in the file');
+    }
+    // The mark alone moves it: a recovered resource whose fingerprint happens to be the file's.
+    const marked: EnvState = {
+      ...state,
+      resources: {
+        ...state.resources,
+        accounts: { ...state.resources['accounts']!, recovered: true },
+      },
+    };
+    const markedPlan = await planOf(resolvedOf(document()), marked);
+    expect(markedPlan.actions.find((a) => a.resource === 'accounts')?.why).toBe(
+      `replaced: ${RECOVERED_WHY}`,
+    );
   });
 
   it('counts per object what a create would write, what the org holds of a kept resource, and the gates', async () => {

@@ -71,6 +71,9 @@ const STATE_FILE = 'state.json';
 /** A run's summary, from its state's folder. */
 const SUMMARY_FILE = /^runs\/[a-z][a-z0-9-]{0,62}\/[1-9][0-9]{0,5}\.summary\.json$/;
 
+/** What the removals of a run left, kept beside its summary by its script, from its state's folder. */
+const REMOVALS_FILE = /^runs\/[a-z][a-z0-9-]{0,62}\/[1-9][0-9]{0,5}\.summary\.removals\.json$/;
+
 /** The payload a run was given, from its state's folder. */
 const TEMPLATE_FILE = /^templates\/[a-z][a-z0-9-]{0,62}\.[1-9][0-9]{0,5}\.json$/;
 
@@ -179,6 +182,16 @@ function followed(path: string): string {
 /** Where a run's `--json` summary is kept, from its state's folder: `runs/<resource>/<n>.summary.json`. */
 export function runSummaryPathOf(resource: string, n: number): string {
   return `runs/${parsedName(resource)}/${parsedRunNumber(n)}.summary.json`;
+}
+
+/**
+ * Where the script that took a run back keeps what its removals left on the
+ * run's records, beside its summary, from its state's folder:
+ * `runs/<resource>/<n>.summary.removals.json`. The seed and the clone write
+ * it; the environment only reads it.
+ */
+export function runRemovalsPathOf(resource: string, n: number): string {
+  return `runs/${parsedName(resource)}/${parsedRunNumber(n)}.summary.removals.json`;
 }
 
 /** Where the payload a run was given is kept, from its state's folder: `templates/<resource>.<n>.json`. */
@@ -440,7 +453,11 @@ export class EnvStore {
 
   /** A file of a state's folder, by the path the state names it with. */
   fileOf(organizationId: string, env: string, relativePath: string): string {
-    if (!SUMMARY_FILE.test(relativePath) && !TEMPLATE_FILE.test(relativePath)) {
+    if (
+      !SUMMARY_FILE.test(relativePath) &&
+      !TEMPLATE_FILE.test(relativePath) &&
+      !REMOVALS_FILE.test(relativePath)
+    ) {
       throw new EnvStateError('invalid', `Not a file of a state's folder: "${relativePath}"`);
     }
     return join(this.folderOf(organizationId, env), ...relativePath.split('/'));
@@ -464,6 +481,38 @@ export class EnvStore {
       throw err;
     }
     return stateIn(raw, file, folder);
+  }
+
+  /** Where the state of an environment applied to an org is kept, whether it is there or not. */
+  stateFileOf(organizationId: string, env: string): string {
+    return join(this.folderOf(organizationId, env), STATE_FILE);
+  }
+
+  /**
+   * Set a state that does not read aside, in its folder: renamed to
+   * `state.json.damaged-<when>`, by this machine's clock, and kept — never
+   * deleted, as it is what someone reads to tell what went wrong. The state
+   * it was is then no longer there, and a state can be written in its place.
+   *
+   * @returns Where it is kept now.
+   * @throws {EnvStateError} `invalid`, when the states were opened to be listed.
+   */
+  async setAside(organizationId: string, env: string): Promise<string> {
+    if (this.fileFolder === null) {
+      throw new EnvStateError('invalid', 'The states were opened to be listed, not written');
+    }
+    const file = this.stateFileOf(organizationId, env);
+    const when = new Date(this.now())
+      .toISOString()
+      .replace(/\.\d{3}Z$/, '')
+      .replace(/[-:]/g, '')
+      .replace('T', '-');
+    let aside = `${file}.damaged-${when}`;
+    for (let again = 2; statSync(aside, { throwIfNoEntry: false }) !== undefined; again++) {
+      aside = `${file}.damaged-${when}-${again}`;
+    }
+    await this.renameFile(file, aside);
+    return aside;
   }
 
   /**
@@ -704,8 +753,8 @@ function stateIn(raw: string, file: string, folder: string): EnvState {
     throw new EnvStateError(
       'damaged',
       `The state ${file} does not read as a state of this SandForge, and is not used: a plan ` +
-        'made from part of it would create again what the rest names. Read it, then delete its ' +
-        'folder to start afresh: the records an earlier apply created stay in the org.',
+        'made from part of it would create again what the rest names. Run sandforge-env state ' +
+        'recover: it sets this file aside and rebuilds the state from the run files beside it.',
     );
   }
   // A file copied from another org's folder, or another environment's, would

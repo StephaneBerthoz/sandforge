@@ -31,13 +31,13 @@ import {
   type OrgLockHolder,
 } from '../../src/modules/checkpoint/OrgCheckpointStore.js';
 
-/** What holds an org's environment lock. */
-export type EnvLockOperation = 'apply' | 'destroy' | 'reset';
+/** What holds an org's environment lock: a state recover too, which writes the state an apply reads. */
+export type EnvLockOperation = 'apply' | 'destroy' | 'reset' | 'recover';
 
 /** An environment lock file, as it is written and read back. */
 const envLockFileSchema = z.object({
   ...lockHolderShape,
-  operation: z.enum(['apply', 'destroy', 'reset']),
+  operation: z.enum(['apply', 'destroy', 'reset', 'recover']),
   /** The environment's name, as its file gives it. */
   env: envNameSchema,
   /** The alias the org was named by on this machine. */
@@ -136,7 +136,12 @@ export function envLockRefusal(holder: EnvLockHolder): string {
 /** What a plan says of an apply under way: the plan may be out of date when it ends. */
 export function envLockLine(holder: EnvLockHolder): string {
   const org = holder.alias !== undefined ? ` to ${holder.alias}` : '';
-  const what = holder.operation === 'apply' ? 'an apply' : `a ${holder.operation}`;
+  const what =
+    holder.operation === 'apply'
+      ? 'an apply'
+      : holder.operation === 'recover'
+        ? 'a state recover'
+        : `a ${holder.operation}`;
   return `${what} of ${holder.env}${org} is under way on this machine (${processOf(holder)})`;
 }
 

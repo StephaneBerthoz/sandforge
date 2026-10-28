@@ -947,6 +947,15 @@ export const envRunSchema = z.strictObject({
   takenBack: z.literal(true).optional(),
 });
 
+/**
+ * The fingerprint of a resource whose state `state recover` rebuilt from its
+ * run files: none of them says what the resource was applied from, and a
+ * fingerprint read back from the file as it stands now would declare kept
+ * an environment written from another one. No sha256 of a resource is
+ * this one, so the next plan replaces it.
+ */
+export const RECOVERED_FINGERPRINT = '0'.repeat(64);
+
 export const envResourceStateSchema = z
   .strictObject({
     kind: envResourceKindSchema,
@@ -955,6 +964,12 @@ export const envResourceStateSchema = z
     status: envResourceStatusSchema,
     /** The last is current; earlier ones are runs a replace took back. */
     runs: z.array(envRunSchema).max(1_000),
+    /**
+     * Rebuilt by `state recover` from its run files, its fingerprint
+     * {@link RECOVERED_FINGERPRINT}: the next plan replaces it, and its next
+     * run writes the resource whole again, without the mark.
+     */
+    recovered: z.literal(true).optional(),
   })
   .refine(
     (resource) =>
@@ -1357,6 +1372,42 @@ export const envStateListSchema = z.strictObject({
       }),
     )
     .max(10_000),
+});
+
+/** What `state recover` rebuilt of one resource from its run files. */
+const envRecoveredResourceSchema = z.strictObject({
+  kind: envResourceKindSchema,
+  status: envResourceStatusSchema,
+  /** The ranks of its runs, in the order they ran. */
+  runs: z.array(z.number().int().positive().max(999_999)).max(1_000),
+  /** Those a removal's own record says it took back whole. */
+  takenBack: z.array(z.number().int().positive().max(999_999)).max(1_000),
+  /** Whether the file still has it: one it no longer has, the next plan deletes. */
+  inFile: z.boolean(),
+});
+
+/**
+ * What `state recover --json` answers: the state rebuilt from the run files
+ * the journal directory keeps, per resource what it holds, the checkpoints it
+ * linked, what it could not link, and the damaged state it set aside.
+ */
+export const envRecoverResultSchema = z.strictObject({
+  env: envNameSchema,
+  org: z.strictObject({
+    organizationId: checkpointOrganizationIdSchema,
+    kind: envTargetKindSchema,
+    alias: z.string().min(1).max(255).optional(),
+  }),
+  state: z.strictObject({ serial: countSchema, lineage: z.uuid() }),
+  /** Where a state that did not read was set aside, kept, never deleted. */
+  setAside: z.string().min(1).max(4_096).optional(),
+  resources: z.record(envNameSchema, envRecoveredResourceSchema),
+  checkpoints: z.strictObject({
+    before: checkpointIdSchema.optional(),
+    after: checkpointIdSchema.optional(),
+  }),
+  /** What could not be linked, each in words: a checkpoint no file proves. */
+  notLinked: z.array(z.string().min(1).max(2_000)).max(20),
 });
 
 // ─── Saved plans ─────────────────────────────────────────────────────────────

@@ -162,6 +162,9 @@ describe('what the locks say', () => {
     expect(envLockLine({ ...holder, operation: 'destroy', alias: undefined })).toMatch(
       /^a destroy of case-flow is under way/,
     );
+    expect(envLockLine({ ...holder, operation: 'recover' })).toMatch(
+      /^a state recover of case-flow to pool-1 is under way/,
+    );
     expect(envLockRefusal(holder)).toContain('Nothing was written: run this again once it ends.');
   });
 

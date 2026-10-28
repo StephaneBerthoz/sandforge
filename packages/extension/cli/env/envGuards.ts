@@ -61,7 +61,21 @@ export type EnvRefusalCode =
   | 'PLAN_REFUSED'
   | 'PLAN_OTHER_ORG'
   | 'PLAN_STALE'
-  | 'TWO_STATES';
+  | 'TWO_STATES'
+  /** `state recover`: a state that reads, which it never writes over. */
+  | 'STATE_KEPT'
+  /** `state recover`: a state a later SandForge wrote. */
+  | 'STATE_NEWER'
+  /** `state recover`: a run's summary, or a seed run file, that does not read. */
+  | 'RUN_UNREAD'
+  /** `state recover`: a summary or a sas of another org. */
+  | 'RUN_OTHER_ORG'
+  /** `state recover`: two runs of one rank, or two kinds of one resource. */
+  | 'RUNS_CONFLICT'
+  /** `state recover`: a seed run of a resource that may be another environment's. */
+  | 'RUN_UNCLAIMED'
+  /** `state recover`: no run of the environment to rebuild a state from. */
+  | 'NO_RUNS';
 
 /** A guard's refusal: what refused, in words, and the exit code it ends the verb with. */
 export interface EnvRefusal {
@@ -236,17 +250,25 @@ export function stateTargetRefusal(
  * What a verb meets with no state of the environment for the target: on a
  * Developer Edition org or a sandbox, a refusal unless `--accept-no-state` —
  * an earlier apply's records, if there were any, cannot be told from the
- * org's own, and would be created twice; on a scratch org, a warning.
+ * org's own, and would be created twice; on a scratch org, a warning. When
+ * the journal directory still keeps runs of the environment on the org — the
+ * state alone lost, or set aside — it says `state recover` rebuilds the state
+ * from them.
  */
 export function noStateGuard(
   target: Pick<EnvTarget, 'alias' | 'kind'>,
   env: string,
   acceptNoState: boolean,
+  runsKept = false,
 ): { refusal: EnvRefusal } | { warning: string } {
   const said =
     `this machine keeps no state of ${env} on ${target.alias}: records an earlier apply ` +
     'left there, from another machine or a cache that was not restored, cannot be told from ' +
-    'the org’s own, and would be created twice';
+    'the org’s own, and would be created twice' +
+    (runsKept
+      ? `; it keeps runs of ${env} on ${target.alias}, and sandforge-env state recover ` +
+        'rebuilds the state from them'
+      : '');
   if (target.kind === 'scratch' || acceptNoState) return { warning: said };
   return {
     refusal: {

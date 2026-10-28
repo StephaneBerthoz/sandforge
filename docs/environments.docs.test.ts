@@ -18,7 +18,15 @@
  * moved: an assertion about a page that no longer works this way proves
  * nothing.
  */
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -154,6 +162,13 @@ function dataopsFlags(): Set<string> {
   return flagsIn(table);
 }
 
+/** The flags `state recover` reads, from the script's own table of them. */
+function recoverFlags(): Set<string> {
+  const table = /const RECOVER_FLAGS: CommandFlags = \{([\s\S]*?)\n\};/.exec(CLI)?.[1];
+  if (!table) throw new Error('RECOVER_FLAGS is gone from sandforge-env.ts: re-point this test');
+  return flagsIn(table);
+}
+
 /** The flags each command reads, from the script's table of them. */
 function flagsOf(): Map<string, Set<string>> {
   const table = /const FLAGS: [^=]*= \{\n([\s\S]*?)\n\};\n/.exec(CLI)?.[1];
@@ -239,6 +254,22 @@ function edit(replay: Replay, from: string, to: string): void {
 
 /** What happens between two sessions, as the page says it. */
 const EVENTS: Readonly<Record<string, (replay: Replay) => void | Promise<void>>> = {
+  // An apply as the page's first does it, then its state.json deleted, every run file left.
+  'the state of an apply lost': async (replay) => {
+    const applied = await command(replay, [
+      'apply',
+      '--file',
+      '../case-flow/sandforge.yaml',
+      '--org',
+      'my-de',
+      '--yes',
+      '--accept-no-state',
+    ]);
+    if (applied.code !== 0) throw new Error(`the apply before the loss ended ${applied.code}`);
+    const env = join(replay.journalDir, 'env');
+    const [org] = readdirSync(env);
+    rmSync(join(env, org ?? '', 'case-flow', 'state.json'));
+  },
   'the accounts lose their field rule': (replay) =>
     edit(
       replay,
@@ -476,8 +507,17 @@ describe('docs/environments.md', () => {
       ]),
     );
 
+    // `state recover` is `state` with a second word, read by a table of its own.
+    expect(CLI).toContain("const recover = command === 'state' && args[1] === 'recover';");
+    flags.set('state recover', recoverFlags());
+    expect(flags.get('state recover')).toEqual(new Set(['--json', '--file', '--org', '--alias']));
+
     const table = rows(section(DOC, '## The commands'));
-    expect(table.map(([name]) => name)).toEqual(commands.map((c) => `\`${c}\``));
+    expect(table.map(([name]) => name)).toEqual([
+      ...commands
+        .map((c) => `\`${c}\``)
+        .flatMap((c) => (c === '`state`' ? [c, '`state recover`'] : [c])),
+    ]);
     for (const [name, , listed] of table) {
       const command = (name ?? '').replaceAll('`', '');
       expect(flagsIn(listed ?? ''), command).toEqual(flags.get(command));
@@ -1198,11 +1238,17 @@ describe('docs/environments.md', () => {
     expect(commandsRead()).toContain('output');
     expect(flagsOf().get('plan')?.has('--out')).toBe(true);
     expect(flagsOf().get('apply')?.has('--plan')).toBe(true);
-    expect(later).toContain('keeps a plan for `apply --plan`, and names what an apply created');
+    expect(later).toContain('keeps a plan for `apply --plan`, names what an apply created');
     expect(later).not.toMatch(/Saved plans|Outputs/);
-    // A lost state is not rebuilt: no command recovers one.
-    expect(CLI).not.toMatch(/'recover'/);
-    expect(later).toContain('no `state recover`');
+    // A lost state is rebuilt from the run files: no longer not yet. What
+    // waits is a recovered resource kept, which the plan always replaces.
+    expect(CLI).toContain("args[1] === 'recover'");
+    expect(later).toContain(
+      'names what an apply created, and rebuilds a lost state from the run files the journal directory keeps',
+    );
+    expect(later).not.toContain('no `state recover`');
+    expect(PLAN).toContain('if (kept.recovered === true) {\n      reasons.push(RECOVERED_WHY);');
+    expect(later).toContain('the next apply replaces every resource still in the org');
     // A relation's parents may be another resource's records: no longer not yet.
     const parents = checkEnvFile(
       {
@@ -1750,6 +1796,57 @@ describe('saved plans, outputs and the reason of a step, on the page', () => {
     expect(section(DOC, '### Apply it: `apply`')).toContain(
       "for a step its script refused or failed, why, in the script's own words, under `refusal`: what its answer says, or else the last line it said on stderr",
     );
+  });
+});
+
+describe('state recover, on the page', () => {
+  const RECOVER = source(`${CLI_DIR}/env/envRecover.ts`);
+  const recover = (): string => section(DOC, '## When the state is lost: `state recover`');
+
+  it('says what state recover reads, takes back on proof alone, replaces and refuses, in the words of the code that does it', () => {
+    const page = recover();
+    // Anchors: the readers and the proofs the module's comment names, and the plan's reason.
+    expect(RECOVER).toContain('seedRemovalTookAll(file.run)');
+    expect(RECOVER).toContain('earlier.earlier?.removalLeft?.length === 0');
+    expect(RECOVER).toContain('loadRecordsLeft(load).length === 0');
+    expect(RECOVER).toContain('const forgotten = !found.dataops.has(resource);');
+    expect(RECOVER).toContain('reloadPurgedWhole(answer)');
+    expect(PLAN).toContain(
+      "'its state was recovered from its run files, which do not say what it was applied from'",
+    );
+    expect(page).toContain(
+      '`replaced: its state was recovered from its run files, which do not say what it was applied from`',
+    );
+    expect(page).toContain('`seed-runs/env-<name>-<resource>-<n>-<uuid>.ndjson`');
+    expect(STATE).toContain(
+      'return `env-${parsedName(env)}-${parsedName(resource)}-${parsedRunNumber(n)}-${uuid}`;',
+    );
+    // The refusal of an apply with no state names it when the runs are kept.
+    expect(GUARDS).toContain("'rebuilds the state from them'");
+    expect(page).toContain('`sandforge-env state recover rebuilds the state from them`');
+    // A damaged state, set aside, never deleted.
+    expect(STATE).toContain('let aside = `${file}.damaged-${when}`;');
+    expect(page).toContain('`state.json.damaged-<when>`');
+    expect(STATE).toContain(
+      "'recover: it sets this file aside and rebuilds the state from the run files beside it.'",
+    );
+    // Written at serial 1, under a lineage of its own.
+    expect(RECOVER).toContain('await deps.store.write(next, { serial: 0, lineage: next.lineage })');
+    expect(page).toContain('The state is written at serial 1');
+    // Each refusal it does not replay, in the code's words.
+    for (const words of [
+      'update it, and plan again',
+      'Put it back where it came from',
+      'One rank is one run',
+      'it may be another environment',
+      'there is nothing to rebuild a state from',
+    ]) {
+      expect(page, words).toContain(words);
+      expect(`${RECOVER}${STATE}`.replace(/[`'] \+\n\s+[`']/g, ''), words).toContain(words);
+    }
+    // The checkpoints: by name and date alone.
+    expect(RECOVER).toContain('const beforeName = `${file.name} before`;');
+    expect(page).toContain('named `<name> before` taken before the first run');
   });
 });
 

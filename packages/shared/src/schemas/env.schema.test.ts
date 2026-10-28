@@ -3,9 +3,11 @@ import * as z from 'zod';
 
 import {
   ENV_MAX_RESOURCES,
+  RECOVERED_FINGERPRINT,
   envFileSchema,
   envOutputSchema,
   envPlanSchema,
+  envRecoverResultSchema,
   envRefusalAnswerSchema,
   envRefsIn,
   envRewindResultSchema,
@@ -931,6 +933,18 @@ describe('the state', () => {
     expect(envStateSchema.safeParse(record).success).toBe(true);
   });
 
+  it('reads a resource state recover rebuilt, marked so and fingerprinted as no resource is', () => {
+    const record = state();
+    const accounts = (record['resources'] as Record<string, Record<string, unknown>>)['accounts'];
+    accounts!['recovered'] = true;
+    accounts!['fingerprint'] = RECOVERED_FINGERPRINT;
+    expect(envStateSchema.safeParse(record).success).toBe(true);
+    expect(RECOVERED_FINGERPRINT).toMatch(/^[0-9a-f]{64}$/);
+    // Only the mark: a resource is recovered or says nothing of it.
+    accounts!['recovered'] = false;
+    expect(envStateSchema.safeParse(record).success).toBe(false);
+  });
+
   it('refuses a lineage that is no uuid, and a state of a production org', () => {
     expect(envStateSchema.safeParse({ ...state(), lineage: 'abc' }).success).toBe(false);
     const record = state();
@@ -1263,6 +1277,23 @@ describe('what output answers', () => {
 });
 
 describe('what the other verbs answer', () => {
+  it('reads what state recover answers, and no key it does not name', () => {
+    const answer = {
+      env: 'case-flow',
+      org: { organizationId: '00D000000000009EAA', kind: 'developer', alias: 'DEV' },
+      state: { serial: 1, lineage: '7c1d3f9e-2b4a-4c5d-8e6f-0a1b2c3d4e5f' },
+      setAside:
+        '/home/dev/.sandforge/env/00D000000000009EAA/case-flow/state.json.damaged-20261028-090000',
+      resources: {
+        contacts: { kind: 'seed', status: 'applied', runs: [1, 2], takenBack: [1], inFile: true },
+      },
+      checkpoints: {},
+      notLinked: ['checkpoint before: the file asks none'],
+    };
+    expect(envRecoverResultSchema.safeParse(answer).success).toBe(true);
+    expect(envRecoverResultSchema.safeParse({ ...answer, records: {} }).success).toBe(false);
+  });
+
   it('reads a refusal by its code, with the file’s issues where it gives them', () => {
     expect(
       envRefusalAnswerSchema.safeParse({

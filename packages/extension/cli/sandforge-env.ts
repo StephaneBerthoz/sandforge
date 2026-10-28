@@ -29,6 +29,9 @@
  * A plan may be kept (`plan --out`) and applied as it was made, or refused
  * (`apply --plan`, `env/envSavedPlan.ts`); and what an apply created is read
  * back from this machine alone, by its ids (`output`, `env/envOutput.ts`).
+ * A state lost or damaged is rebuilt from the run files the journal
+ * directory keeps (`state recover`, `env/envRecover.ts`), the org read for
+ * its kind alone.
  *
  * Usage:
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts validate --file sandforge.yaml
@@ -39,6 +42,7 @@
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts output --file sandforge.yaml --org pool-1 --json
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts destroy --file sandforge.yaml --org pool-1 --yes
  *   pnpm exec tsx packages/extension/cli/sandforge-env.ts reset --file sandforge.yaml --org pool-1 --yes
+ *   pnpm exec tsx packages/extension/cli/sandforge-env.ts state recover --file sandforge.yaml --org pool-1
  *
  * Run from the repository root of a checkout, after pnpm install and
  * pnpm build:shared.
@@ -53,6 +57,7 @@ import type {
   EnvOutput,
   EnvPlan,
   EnvPlanDrift,
+  EnvRecoverResult,
   EnvRefusalAnswer,
   EnvSavedPlan,
   EnvState,
@@ -145,6 +150,7 @@ import {
   type EnvRunPreview,
 } from './env/envPlan.js';
 import { outputLines, outputOf, outputStateOf } from './env/envOutput.js';
+import { envRunsKept, recoverEnvState, recoverLines } from './env/envRecover.js';
 import {
   previewEnvRewind,
   rewindEnvironment,
@@ -199,12 +205,17 @@ Commands:
             between two test suites, after asking you to type the org's alias
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
+  state recover
+            rebuild the state of the file's environment on --org, lost or damaged, from the run
+            files the journal directory keeps, every resource marked for the next plan to
+            replace; a damaged state is set aside, kept; reads the org's kind, writes nothing to it
   output    print what an apply created in the org: per resource, the ids of its records by
             object, as its runs' files on this machine name them; --org, the alias it was
             applied by or the Organization Id; reaches no org
 
 Required:
-  --org <alias>              sf CLI alias of the org to fill (validate and state: not needed)
+  --org <alias>              sf CLI alias of the org to fill (validate and state: not needed;
+                             state recover: the org the state was of)
 
 Options:
   --file <path>              the file (default: sandforge.yaml in this folder)
@@ -330,15 +341,17 @@ storage or emails than the org has left, a checkpoint the file asks that its scr
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation or --accept-no-undo, a plan --plan
 names that no longer holds, is a day old or was refused when it was made, no state for output to
-read —, or nothing written; 2 a bad command line, a file that does not validate, a variable not
-set, the journal directory or a dataset inside the file's repository, --out inside it, a file
---plan names that is no plan, a question with no terminal (give --yes); 3 partial (apply: a
-resource partial, or failed after others wrote; destroy: records left, each with why; reset and
-destroy --rewind: records still differ; plan with --fail-on-change or --fail-on-drift: changes or
-drift found; output: a resource not applied whole, or whose records cannot be read); 4 unstable
-(a forge run's or a frozen load's verification found records still changing; reset and destroy
---rewind: someone changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it
-— run it again: it takes up from the state.
+read, a state recover of a state that reads, of another org or of a later SandForge, of a summary
+of another org or that does not read, of two runs of one rank, or of no run at all —, or nothing
+written; 2 a bad command line, a file that does not validate, a variable not set, the journal
+directory or a dataset inside the file's repository, --out inside it, a file --plan names that
+is no plan, a question with no terminal (give --yes); 3 partial (apply: a resource partial, or
+failed after others wrote; destroy: records left, each with why; reset and destroy --rewind:
+records still differ; plan with --fail-on-change or --fail-on-drift: changes or drift found;
+output: a resource not applied whole, or whose records cannot be read); 4 unstable (a forge run's
+or a frozen load's verification found records still changing; reset and destroy --rewind: someone
+changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
+takes up from the state.
 `;
 
 // ─── The command line ────────────────────────────────────────────────────────
@@ -392,9 +405,22 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   output: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
 };
 
+/**
+ * What `state recover` reads of its line, after its two words: the file, the
+ * org, and the aliases of the file's org roles, which the digest the state
+ * keeps of the file is taken with.
+ */
+const RECOVER_FLAGS: CommandFlags = {
+  words: 2,
+  switches: ['--json'],
+  values: ['--file', '--org', '--alias'],
+};
+
 /** Everything the command line settled. */
 export interface CliArgs {
   command: Command;
+  /** `state recover`: the state rebuilt from the run files. */
+  recover: boolean;
   /** The file, absolute. */
   file: string;
   /** Given with --file, or left to the default. */
@@ -448,8 +474,9 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
         'state or output. Nothing was run.',
     );
   }
+  const recover = command === 'state' && args[1] === 'recover';
   // `--yes=true`, a misspelt `--dryrun`, would be dropped without a word.
-  refuseUnreadArguments(args, FLAGS[command]);
+  refuseUnreadArguments(args, recover ? RECOVER_FLAGS : FLAGS[command]);
   const values = (flag: string): string[] => {
     const out: string[] = [];
     for (let at = 1; at < args.length; at++) {
@@ -481,10 +508,11 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
       command === 'apply' ||
       command === 'destroy' ||
       command === 'reset' ||
-      command === 'output') &&
+      command === 'output' ||
+      recover) &&
     org === undefined
   ) {
-    refuseLine(`${command} needs --org, the sf CLI alias of the org.`);
+    refuseLine(`${recover ? 'state recover' : command} needs --org, the sf CLI alias of the org.`);
   }
   const out = single('--out');
   if (out !== undefined && args.includes('--quick')) {
@@ -525,6 +553,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
   const replace = values('--replace');
   return {
     command,
+    recover,
     file: resolve(cwd, fileGiven ?? 'sandforge.yaml'),
     fileGiven: fileGiven !== undefined,
     ...(org !== undefined ? { org } : {}),
@@ -771,9 +800,13 @@ async function prepare(
   const refused = targetRefusal(resolved.checked.file.targets, target);
   if (refused !== undefined) throw stopWith(refused);
 
+  // A recover reads the state its own way: one that does not read is what it
+  // sets aside.
   let state: EnvState | undefined;
   try {
-    state = await store.read(target.organizationId, resolved.checked.file.name);
+    state = args.recover
+      ? undefined
+      : await store.read(target.organizationId, resolved.checked.file.name);
   } catch (err: unknown) {
     if (err instanceof EnvStateError) throw stopWith(stateRefusal(err));
     throw err;
@@ -786,7 +819,8 @@ async function prepare(
   let noState: EnvRefusal | undefined;
   const plans = args.command === 'plan' || args.command === 'apply';
   if (state === undefined && plans) {
-    const guarded = noStateGuard(target, resolved.checked.file.name, args.acceptNoState);
+    const runsKept = await envRunsKept({ store, journalDir }, { resolved, target });
+    const guarded = noStateGuard(target, resolved.checked.file.name, args.acceptNoState, runsKept);
     if ('warning' in guarded) warnings.push(guarded.warning);
     else noState = guarded.refusal;
   }
@@ -1518,6 +1552,33 @@ async function output(
   return { answer, code: whole ? DONE_EXIT : PARTIAL_EXIT };
 }
 
+/**
+ * `state recover`: the state of the file's environment on the org, lost or
+ * damaged, rebuilt from the run files the journal directory keeps. The org is
+ * reached to be typed, and held to the guards a plan holds it to; nothing is
+ * written to it, and nothing asked: the destroy that may follow asks.
+ */
+async function recover(
+  args: CliArgs,
+  deps: EnvCliDeps,
+  say: (line: string) => void,
+): Promise<EnvRecoverResult> {
+  const prepared = await prepare(args, deps, say);
+  const outcome = await recoverEnvState(
+    {
+      store: prepared.store,
+      journalDir: prepared.journalDir,
+      locksDir: prepared.locksDir,
+      sandforgeVersion: sandforgeVersion(),
+      ...(deps.lockOptions !== undefined ? { lockOptions: deps.lockOptions } : {}),
+    },
+    { resolved: prepared.resolved, target: prepared.target },
+  );
+  if ('refusal' in outcome) throw stopWith(outcome.refusal);
+  for (const line of recoverLines(outcome.result)) say(line);
+  return outcome.result;
+}
+
 /** Ask for the org's alias to be typed, or go on when `--yes` said so. */
 async function confirmed(
   args: CliArgs,
@@ -1625,7 +1686,9 @@ export async function main(argv: string[] = process.argv, deps: EnvCliDeps = {})
         return;
       }
       case 'state': {
-        answerJson(await listStates(args, deps, say));
+        answerJson(
+          args.recover ? await recover(args, deps, say) : await listStates(args, deps, say),
+        );
         return;
       }
       case 'output': {

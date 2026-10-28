@@ -23,6 +23,7 @@ import {
   newEnvState,
   openEnvStore,
   removalStarted,
+  runRemovalsPathOf,
   runStarted,
   runSummaryPathOf,
   runTemplatePathOf,
@@ -435,6 +436,57 @@ describe('writing a state', () => {
     await expectRefused(store.write({ ...state, lineage: stateOf().lineage }, state), 'invalid');
     await expectRefused(store.write({ ...state, sandforgeVersion: 'dev' }, state), 'invalid');
     expect(await store.read(ORG, 'case-flow')).toBeUndefined();
+  });
+});
+
+describe('a state set aside, and the files a recover reads', () => {
+  it('sets a state that does not read aside as it was, under the date, never twice under one name, and the next write is the first', async () => {
+    const store = storeOf();
+    const folder = store.folderOf(ORG, 'case-flow');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'state.json'), '{"version":1,"cut');
+
+    const aside = await store.setAside(ORG, 'case-flow');
+    expect(aside).toBe(join(folder, 'state.json.damaged-20261025-120000'));
+    expect(readFileSync(aside, 'utf8')).toBe('{"version":1,"cut');
+    expect(existsSync(join(folder, 'state.json'))).toBe(false);
+    expect(await store.read(ORG, 'case-flow')).toBeUndefined();
+
+    // Set aside again within the same second: the first is kept.
+    writeFileSync(join(folder, 'state.json'), '{"second');
+    const again = await store.setAside(ORG, 'case-flow');
+    expect(again).toBe(join(folder, 'state.json.damaged-20261025-120000-2'));
+    expect(readFileSync(aside, 'utf8')).toBe('{"version":1,"cut');
+
+    const state = stateOf();
+    expect((await store.write(state, state)).serial).toBe(1);
+  });
+
+  it('names what a run’s removals kept beside its summary as a file of the state’s folder, and sets nothing aside from states opened to be listed', async () => {
+    const store = storeOf();
+    expect(runRemovalsPathOf('contacts', 2)).toBe('runs/contacts/2.summary.removals.json');
+    expect(store.fileOf(ORG, 'case-flow', runRemovalsPathOf('contacts', 2))).toBe(
+      join(store.folderOf(ORG, 'case-flow'), 'runs', 'contacts', '2.summary.removals.json'),
+    );
+    expect(() => store.fileOf(ORG, 'case-flow', 'runs/contacts/2.removals.json')).toThrow(
+      EnvStateError,
+    );
+    const { journalDir } = project();
+    const listing = openEnvStore({ journalDir, fileFolder: null });
+    if (!('store' in listing)) throw new Error('refused');
+    await expectRefused(listing.store.setAside(ORG, 'case-flow'), 'invalid');
+  });
+
+  it('says a damaged state is rebuilt by state recover, which sets it aside', async () => {
+    const store = storeOf();
+    const folder = store.folderOf(ORG, 'case-flow');
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'state.json'), '{');
+    const damaged = await expectRefused(store.read(ORG, 'case-flow'), 'damaged');
+    expect(damaged.message).toContain(
+      'Run sandforge-env state recover: it sets this file aside and rebuilds the state from the run files beside it.',
+    );
+    expect(damaged.message).not.toContain('delete its folder');
   });
 });
 

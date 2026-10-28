@@ -16,8 +16,9 @@
  *   `--replace` or `--replace-drifted` asks;
  * - `replace`: what it writes changed in the file; a resource it depends on
  *   runs again (new records, new Ids); its last run was stopped part way,
- *   partial or failed; or the line asks. Its runs are taken back, then it
- *   runs again;
+ *   partial or failed; its state was rebuilt by `state recover`, from run
+ *   files that do not say what it was applied from; or the line asks. Its
+ *   runs are taken back, then it runs again;
  * - `delete`: in the state, gone from the file: its runs are taken back;
  * - `blocked`: its dry run, its removal's preview, a summed gate or what this
  *   SandForge does not do refuses it — and the whole apply with it, before
@@ -315,6 +316,10 @@ function driftOf(held: Held): string | undefined {
   return `${parts.join('; ')}${who}`;
 }
 
+/** Why a resource `state recover` rebuilt is replaced, whatever the file says of it. */
+export const RECOVERED_WHY =
+  'its state was recovered from its run files, which do not say what it was applied from';
+
 /** Why a resource's last run calls for a replace, from its status. */
 const STATUS_WHY: Readonly<Partial<Record<EnvResourceState['status'], string>>> = {
   applying:
@@ -402,7 +407,11 @@ export function classifyResources(
         resource.dependsOn.map((dep) => [dep, state?.resources[dep]?.fingerprint]),
       ),
     );
-    if (kept.fingerprint !== resource.fingerprint && kept.fingerprint !== asIfDepsKept) {
+    // A state rebuilt from its run files names no fingerprint: what the file
+    // writes now cannot be said to be what was applied, nor to differ from it.
+    if (kept.recovered === true) {
+      reasons.push(RECOVERED_WHY);
+    } else if (kept.fingerprint !== resource.fingerprint && kept.fingerprint !== asIfDepsKept) {
       reasons.push('what it writes changed in the file since it was applied');
     }
     const statusWhy = (kind === 'mask' ? MASK_STATUS_WHY : STATUS_WHY)[kept.status];

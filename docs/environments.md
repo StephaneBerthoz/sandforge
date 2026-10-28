@@ -1081,15 +1081,16 @@ $ echo $?
 
 ## The commands
 
-| Command    | What it does                                                                                                                                                    | Flags                                                                                                                                                                                                  |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `validate` | checks the file offline: its schema, each resource against Seed's rules, the order, the variables                                                               | `--file`, `--json`                                                                                                                                                                                     |
-| `plan`     | says what `apply` would do, writing nothing; with `--out`, keeps it for `apply --plan`                                                                          | `--file`, `--org`, `--alias`, `--json`, `--fail-on-change`, `--fail-on-drift`, `--quick`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--out`, `--out-in-repository` |
-| `apply`    | does what the plan says, once the alias is typed or `--yes` given; with `--plan`, the plan kept, or nothing                                                     | `--file`, `--org`, `--alias`, `--json`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--yes`, `--plan`                                                                |
-| `destroy`  | takes back what `apply` created, the last resource first, into the recycle bin; with `--rewind`, rewinds the org to the checkpoint taken before the first apply | `--file`, `--org`, `--alias`, `--json`, `--include-changed`, `--sweep`, `--accept-automation`, `--rewind`, `--accept-no-undo`, `--yes`                                                                 |
-| `reset`    | rewinds the org to the checkpoint taken after the last apply, once the alias is typed or `--yes` given                                                          | `--file`, `--org`, `--alias`, `--json`, `--accept-automation`, `--accept-no-undo`, `--yes`                                                                                                             |
-| `state`    | lists the states kept on this machine, or those of one org or one file; reaches no org                                                                          | `--org`, `--file`, `--json`                                                                                                                                                                            |
-| `output`   | names what an apply created, per resource, by the ids of its records; reaches no org                                                                            | `--org`, `--file`, `--json`                                                                                                                                                                            |
+| Command         | What it does                                                                                                                                                    | Flags                                                                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `validate`      | checks the file offline: its schema, each resource against Seed's rules, the order, the variables                                                               | `--file`, `--json`                                                                                                                                                                                     |
+| `plan`          | says what `apply` would do, writing nothing; with `--out`, keeps it for `apply --plan`                                                                          | `--file`, `--org`, `--alias`, `--json`, `--fail-on-change`, `--fail-on-drift`, `--quick`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--out`, `--out-in-repository` |
+| `apply`         | does what the plan says, once the alias is typed or `--yes` given; with `--plan`, the plan kept, or nothing                                                     | `--file`, `--org`, `--alias`, `--json`, `--replace`, `--replace-drifted`, `--accept-automation`, `--accept-no-state`, `--yes`, `--plan`                                                                |
+| `destroy`       | takes back what `apply` created, the last resource first, into the recycle bin; with `--rewind`, rewinds the org to the checkpoint taken before the first apply | `--file`, `--org`, `--alias`, `--json`, `--include-changed`, `--sweep`, `--accept-automation`, `--rewind`, `--accept-no-undo`, `--yes`                                                                 |
+| `reset`         | rewinds the org to the checkpoint taken after the last apply, once the alias is typed or `--yes` given                                                          | `--file`, `--org`, `--alias`, `--json`, `--accept-automation`, `--accept-no-undo`, `--yes`                                                                                                             |
+| `state`         | lists the states kept on this machine, or those of one org or one file; reaches no org                                                                          | `--org`, `--file`, `--json`                                                                                                                                                                            |
+| `state recover` | rebuilds a state lost or damaged from the run files the journal directory keeps; reads the org's kind alone                                                     | `--file`, `--org`, `--alias`, `--json`                                                                                                                                                                 |
+| `output`        | names what an apply created, per resource, by the ids of its records; reaches no org                                                                            | `--org`, `--file`, `--json`                                                                                                                                                                            |
 
 ### Every flag
 
@@ -1115,12 +1116,17 @@ Commands:
             between two test suites, after asking you to type the org's alias
   state     list the environments kept on this machine, or those of one org (--org, an alias or
             an Organization Id); reaches no org
+  state recover
+            rebuild the state of the file's environment on --org, lost or damaged, from the run
+            files the journal directory keeps, every resource marked for the next plan to
+            replace; a damaged state is set aside, kept; reads the org's kind, writes nothing to it
   output    print what an apply created in the org: per resource, the ids of its records by
             object, as its runs' files on this machine name them; --org, the alias it was
             applied by or the Organization Id; reaches no org
 
 Required:
-  --org <alias>              sf CLI alias of the org to fill (validate and state: not needed)
+  --org <alias>              sf CLI alias of the org to fill (validate and state: not needed;
+                             state recover: the org the state was of)
 
 Options:
   --file <path>              the file (default: sandforge.yaml in this folder)
@@ -1246,15 +1252,17 @@ storage or emails than the org has left, a checkpoint the file asks that its scr
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
 rewind to, a rewind refused for want of --accept-automation or --accept-no-undo, a plan --plan
 names that no longer holds, is a day old or was refused when it was made, no state for output to
-read —, or nothing written; 2 a bad command line, a file that does not validate, a variable not
-set, the journal directory or a dataset inside the file's repository, --out inside it, a file
---plan names that is no plan, a question with no terminal (give --yes); 3 partial (apply: a
-resource partial, or failed after others wrote; destroy: records left, each with why; reset and
-destroy --rewind: records still differ; plan with --fail-on-change or --fail-on-drift: changes or
-drift found; output: a resource not applied whole, or whose records cannot be read); 4 unstable
-(a forge run's or a frozen load's verification found records still changing; reset and destroy
---rewind: someone changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it
-— run it again: it takes up from the state.
+read, a state recover of a state that reads, of another org or of a later SandForge, of a summary
+of another org or that does not read, of two runs of one rank, or of no run at all —, or nothing
+written; 2 a bad command line, a file that does not validate, a variable not set, the journal
+directory or a dataset inside the file's repository, --out inside it, a file --plan names that
+is no plan, a question with no terminal (give --yes); 3 partial (apply: a resource partial, or
+failed after others wrote; destroy: records left, each with why; reset and destroy --rewind:
+records still differ; plan with --fail-on-change or --fail-on-drift: changes or drift found;
+output: a resource not applied whole, or whose records cannot be read); 4 unstable (a forge run's
+or a frozen load's verification found records still changing; reset and destroy --rewind: someone
+changed records during it); 130, 143, 129 Ctrl-C, SIGTERM or SIGHUP stopped it — run it again: it
+takes up from the state.
 ```
 
 ## What is refused
@@ -1342,7 +1350,8 @@ And:
 - **a `reset` or a `destroy --rewind` with no checkpoint to rewind to**: `names no checkpoint taken after an apply`, `names no checkpoint taken before its first apply`, and a `reset` once the last apply did not end whole. The rewind's own refusals are its: automation without `--accept-automation`, deletions undo could not bring back without `--accept-no-undo`, records the recycle bin no longer gives back, which an environment never makes again with new Ids (`never makes records again with new Ids`);
 - **a mask resource's rules that mask nothing**: a set with no rule for its object, exit `2` before any org is reached (`a run would mask nothing`); a field the org does not show the user, blocked in the script's own words by its dry run ([A mask resource](#a-mask-resource));
 - **a masking that could be undone**: a file asking `checkpoint.before` beside a mask resource, exit `2`, and a `destroy --rewind` of a state naming one (`destroy never unmasks`);
-- **a plan kept that no longer holds**, given to `apply --plan`: made for another org, from another file, against another state, a count the org reads otherwise, a day old, by another SandForge, or refused when made, exit `1`; one kept inside the repository without `--out-in-repository`, exit `2` ([Saved plans](#saved-plans-plan---out-and-apply---plan)).
+- **a plan kept that no longer holds**, given to `apply --plan`: made for another org, from another file, against another state, a count the org reads otherwise, a day old, by another SandForge, or refused when made, exit `1`; one kept inside the repository without `--out-in-repository`, exit `2` ([Saved plans](#saved-plans-plan---out-and-apply---plan));
+- **a `state recover` that would write over a state that reads, or rebuild part of one**: a summary of another org or that does not read, two runs of one rank, no run at all, exit `1` ([When the state is lost](#when-the-state-is-lost-state-recover)).
 
 ## The state
 
@@ -1354,7 +1363,64 @@ What `apply` keeps of the org: **ids, counts and dates, never a record's values*
 - **One machine at a time.** An apply and a destroy hold a lock of the org on this machine, `~/.sandforge/locks/<Organization Id>.env.lock`, whatever `SANDFORGE_JOURNAL_DIR` says, and none of their runs starts while a checkpoint take, rewind or undo of the org is under way on this machine. Two machines applying to one org at once are not kept apart: give the jobs one concurrency group, keyed by the org.
 - **How long.** A scratch org's state is deleted 30 days after its last write: every command but `validate` first deletes those whose date has come, and says so. Any other state stays, a `destroy` that took everything back included, until you delete its folder.
 - **Its checkpoints.** The state names the ids of the environment's checkpoints, kept in `checkpoints/` of the same journal directory: a scratch org's for 30 days, any other's until the destroy that deletes them. Unlike the state, they hold the records' values, in clear.
-- **Read strictly.** A state that does not parse is refused, never guessed; one that changed since it was read -- another apply ran, a cache put back an older one -- is refused, never written over.
+- **Read strictly.** A state that does not parse is refused, never guessed; one that changed since it was read -- another apply ran, a cache put back an older one -- is refused, never written over. A state that does not parse is not deleted either: `state recover` sets it aside and rebuilds the state from the run files beside it.
+
+## When the state is lost: `state recover`
+
+`state recover` rebuilds the state of the file's environment on an org from the run files the journal directory keeps, when `state.json` is gone or does not read while those files are still there: deleted by hand, written by another version or cut short, or the environment's folder deleted while `seed-runs/` stayed. It does not make up for a lost cache: a cache that was not restored takes the run files with it, there is nothing to rebuild from, and the [refusal](#what-is-refused) of the next apply stands. When the files are there, that refusal says so: `sandforge-env state recover rebuilds the state from them`.
+
+<!-- replay: developer; the state of an apply lost -->
+
+```console
+$ sandforge-env state recover --file ../case-flow/sandforge.yaml --org my-de
+state of case-flow on my-de rebuilt from its run files: serial 1
+  accounts  seed, applied: run 1
+  contacts  seed, applied: run 1
+  checkpoint.before: the file asks none
+  checkpoint.after: the file asks none
+next: plan replaces each resource still in the org, whose run files do not say what it was applied from, and asks no --accept-no-state
+```
+
+It reaches the org to type it alone, with the guards of a plan -- a production org, a kind of org or a sandbox the file does not allow, a protected org --, takes the org's lock as an apply does, writes nothing to the org and asks nothing: the destroy that may follow asks. All or nothing: a state made of part of the runs would have the next apply create again what the rest names.
+
+- **What it reads.** Each run's summary, by the strict reader of its script, and what its removals kept beside it; each seed run file of the org, `seed-runs/env-<name>-<resource>-<n>-<uuid>.ndjson`, the id the environment gives a seed run, and what its removals kept beside it; each frozen resource's sas and the payloads its loads were given; each mask resource's DataOps store; the checkpoints of the org.
+- **Taken back on proof alone.** A run is marked taken back only where a removal's own record says it took the run back whole: what a seed's or a clone's removal kept beside the run, a sas whose every load was removed, a reload whose purge took the loads before it, a mask resource's store a destroy deleted. Without that, the run stays the org's: taken back again, its removal finds its records gone, where a run wrongly marked would leave its records to nobody.
+- **Replaced next.** No run file says what a resource was applied from: each is marked so, and the next plan replaces it -- `replaced: its state was recovered from its run files, which do not say what it was applied from` --, or creates one a destroy took back, with no `--accept-no-state`. A resource the file no longer has is kept, for the plan to delete.
+- **A lineage of its own.** The state is written at serial 1: a plan kept before the loss is of another state, and refused.
+- **Checkpoints on proof alone.** `checkpoint.before` is linked only to the one checkpoint of the org named `<name> before` taken before the first run, `checkpoint.after` only to the one of its name taken after the last run; otherwise it stays empty, and the recover says so: `destroy --rewind` then has no checkpoint to return to, and `reset` none until the next apply takes one once applied.
+- **A damaged state kept.** One that does not read is set aside first, `state.json.damaged-<when>` beside it, and never deleted.
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env plan --file ../case-flow/sandforge.yaml --org my-de
+contacts: reading what the org holds of run 1
+accounts: reading what the org holds of run 1
+accounts: dry run
+contacts: dry run
+plan of case-flow on my-de (developer, 00Dxx0000001gPLEAY)
+state: kept on this machine, serial 1
+  replace  accounts  Account 3 to write, 3 in the org
+           replaced: its state was recovered from its run files, which do not say what it was applied from
+  replace  contacts  Contact at most 6 to write, 6 in the org
+           replaced: its state was recovered from its run files, which do not say what it was applied from; the resources it depends on run again, with new records: accounts; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
+totals: 0 to create, 2 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
+API requests: about 2, 14000 left; not counted: the removal of the runs of accounts, the removal of the runs of contacts, what contacts draws from the records accounts writes first
+data storage: about 0.02 MB, 5 MB left
+```
+
+Refused, exit `1`, nothing written: a state that reads, which it never writes over --
+
+<!-- replay: then -->
+
+```console
+$ sandforge-env state recover --file ../case-flow/sandforge.yaml --org my-de
+This machine keeps a state of case-flow on my-de that reads, serial 1: state recover never writes over one, and plan reads it. Nothing was written.
+$ echo $?
+1
+```
+
+-- a state a later SandForge wrote (`update it, and plan again`), a state of another org put in this org's folder (`Put it back where it came from`), a summary of a run that wrote to another org, a summary or a seed run file that does not read, two runs kept for one rank (`One rank is one run`), a seed run of a resource neither the file nor the environment's folder has (`it may be another environment's`), and a journal directory that keeps no run of the environment (`there is nothing to rebuild a state from`), which `--accept-no-state` is then for.
 
 ## What destroy takes back, and what it leaves
 
@@ -1381,20 +1447,20 @@ Ctrl-C, a SIGTERM -- a CI job cancelled or timed out -- or a SIGHUP stops the ru
 
 The codes are those of every script ([`exitCodes.ts`](../packages/extension/cli/exitCodes.ts)):
 
-| Code                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`                 | Done: `validate`, the file is valid; `plan`, answered, whatever it found; `apply`, every resource applied whole, or nothing to do; `destroy`, every record taken back; `reset` and `destroy --rewind`, read again, the org matches the checkpoint; `output`, every resource's records named, or taken back                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left, a checkpoint the file asks that its script refuses, a production source without `anonymize` or `accept: { realData: true }`, no checkpoint to reset or rewind to, a rewind refused for want of `--accept-no-undo` or the automation acceptance, a plan `--plan` names that no longer holds, is a day old or was refused when it was made, no state for `output` to read; the alias typed is not the org's |
-| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory or a dataset inside the file's repository, `--out` inside it, a file `--plan` names that is no plan, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `reset` and `destroy --rewind`, records still differ; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found, the whole org against the checkpoint after the last apply included; `output`, a resource not applied whole, or whose records cannot be read                                                                                                                                                                                                                                                                                                                                                                                          |
-| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends, and a frozen load by the verification it chains; `reset` and `destroy --rewind`, someone changed records during the rewind                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Code                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`                 | Done: `validate`, the file is valid; `plan`, answered, whatever it found; `apply`, every resource applied whole, or nothing to do; `destroy`, every record taken back; `reset` and `destroy --rewind`, read again, the org matches the checkpoint; `output`, every resource's records named, or taken back                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `1`                 | Refused before it read or wrote, or nothing written: a production org, a kind of org or a sandbox the file does not allow, a protected org, a state of another org, no state without `--accept-no-state`, another apply of the org under way, a removal refused for automation without `--accept-automation`, more API requests, storage or emails than the org has left, a checkpoint the file asks that its script refuses, a production source without `anonymize` or `accept: { realData: true }`, no checkpoint to reset or rewind to, a rewind refused for want of `--accept-no-undo` or the automation acceptance, a plan `--plan` names that no longer holds, is a day old or was refused when it was made, no state for `output` to read, a `state recover` of a state that reads, of another org or of a later SandForge, of a summary of another org or that does not read, of two runs of one rank, or of no run at all; the alias typed is not the org's |
+| `2`                 | A bad command line, a file that does not validate, a variable not set, the journal directory or a dataset inside the file's repository, `--out` inside it, a file `--plan` names that is no plan, a question with no terminal (give `--yes`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `3`                 | Partial: `apply`, a resource partial, or failed after others wrote; `destroy`, records left, each with why; `reset` and `destroy --rewind`, records still differ; `plan` with `--fail-on-change` or `--fail-on-drift`, changes or drift found, the whole org against the checkpoint after the last apply included; `output`, a resource not applied whole, or whose records cannot be read                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `4`                 | Unstable: a verification found records still changing. No seed run verifies, so a file of seed resources does not end with it; a forge run is verified once it ends, and a frozen load by the verification it chains; `reset` and `destroy --rewind`, someone changed records during the rewind                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `130`, `143`, `129` | Ctrl-C, a SIGTERM or a SIGHUP stopped it: run it again, it takes up from the state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## Not yet
 
-This version applies seed, forge, frozen and mask resources, keeps a plan for `apply --plan`, and names what an apply created; the rest waits for a later one:
+This version applies seed, forge, frozen and mask resources, keeps a plan for `apply --plan`, names what an apply created, and rebuilds a lost state from the run files the journal directory keeps; the rest waits for a later one:
 
-- **A lost state rebuilt**: no `state recover`. A state lost -- a cache not restored -- is not made again from the run files the journal directory keeps: the next apply to a Developer Edition org or a sandbox is refused without `--accept-no-state` ([What is refused](#what-is-refused)).
+- **A recovered resource kept**: after `state recover`, the next apply replaces every resource still in the org, its records taken back and written again, since no run file says what it was applied from. Telling one applied from the file as it stands, to keep it, waits for a later version ([When the state is lost](#when-the-state-is-lost-state-recover)).
 
 ## In CI
 

@@ -12,6 +12,7 @@ import type {
   EnvMaskResource,
   EnvOutput,
   EnvPlan,
+  EnvRecoverResult,
   EnvResource,
   EnvResourceKind,
   EnvResourceState,
@@ -42,6 +43,7 @@ import {
   envMaskResourceSchema,
   envOutputSchema,
   envPlanSchema,
+  envRecoverResultSchema,
   envRefusalAnswerSchema,
   envRewindResultSchema,
   envResourceKindSchema,
@@ -153,5 +155,10 @@ describe('what the other verbs answer, and their schemas', () => {
     expectTypeOf<z.infer<typeof envSavedPlanSchema>>().toEqualTypeOf<EnvSavedPlan>();
     expectTypeOf<z.infer<typeof envOutputSchema>>().toEqualTypeOf<EnvOutput>();
     expectTypeOf<EnvSavedPlan['savedPlan']>().toEqualTypeOf<1>();
+  });
+
+  it('reads exactly the shape state recover answers, and the mark it leaves on a resource', () => {
+    expectTypeOf<z.infer<typeof envRecoverResultSchema>>().toEqualTypeOf<EnvRecoverResult>();
+    expectTypeOf<EnvResourceState['recovered']>().toEqualTypeOf<true | undefined>();
   });
 });
