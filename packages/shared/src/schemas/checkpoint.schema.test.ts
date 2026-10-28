@@ -73,6 +73,188 @@ function readyCheckpoint(): Record<string, unknown> {
   };
 }
 
+/**
+ * An object as `takeCheckpoint` wrote it from 1.66 to 1.69, key by key in
+ * its order: `restrictParents` always, neither `customSetting` nor `access`.
+ */
+function writtenObject(
+  objectApiName: string,
+  readOrder: number,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    objectApiName,
+    records: 3,
+    inBin: 0,
+    readOrder,
+    readMode: objectApiName === 'Task' ? 'scanAllLive' : 'query',
+    undeletable: true,
+    cascadeParents: [],
+    restrictParents: [],
+    fingerprint: 'c'.repeat(64),
+    fields: ['Id', 'SystemModstamp', 'CreatedDate', 'CreatedById', 'Name'],
+    leftOutFields: [],
+    ...extra,
+  };
+}
+
+/**
+ * A `checkpoint.json` of each release from 1.66 to 1.69, as its take wrote it
+ * and its rewind left it. The four takes wrote one shape: what differs is
+ * what each one's org and run gave it — a Developer Edition without an
+ * Automated Process user, a scratch org's expiry as the command line gives
+ * it, a sandbox kept until it is deleted with its last rewind, a rewind
+ * undone.
+ */
+const WRITTEN_BEFORE: Record<string, Record<string, unknown>> = {
+  '1.66.0': {
+    version: 1,
+    checkpointId: 'ck-20261024-091500-k3m9',
+    name: '2026-10-24 09:15 UTC',
+    org: {
+      organizationId: '00Dxx0000001234AAA',
+      username: 'admin@example.com',
+      instanceUrl: 'https://example-dev-ed.my.salesforce.com',
+      isSandbox: false,
+      organizationType: 'Developer Edition',
+      tier: 'developer',
+    },
+    takenBy: { userId: '005xx000001AbCdAAA', viewAllData: true, modifyAllData: true },
+    readFrom: '2026-10-24T09:15:00.120Z',
+    takenAt: '2026-10-24T09:15:41.902Z',
+    scope: { mode: 'everything', leftOut: [] },
+    objects: [
+      writtenObject('Contact', 0, { cascadeParents: ['AccountId'] }),
+      writtenObject('Account', 1),
+    ],
+    ignoredFields: [],
+    snapshotId: 'snapshot-ck-20261024-091500-k3m9',
+    movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+    bytes: 48_211,
+    expiresAt: '2026-11-23T09:15:41.902Z',
+    status: 'ready',
+    takenOn: { host: 'workstation', pid: 1201 },
+  },
+  '1.67.0': {
+    version: 1,
+    checkpointId: 'ck-20261025-140000-p2q7',
+    name: 'Before the demo',
+    org: {
+      organizationId: '00Dxx0000005678AAA',
+      alias: 'DEMO-ORG',
+      username: 'test-user@example.com',
+      instanceUrl: 'https://example-scratch.my.salesforce.com',
+      isSandbox: true,
+      organizationType: 'Developer Edition',
+      tier: 'scratch',
+      scratchExpiresAt: '2026-11-16',
+    },
+    takenBy: {
+      userId: '005xx000001AbCdAAA',
+      automatedProcessUserId: '005xx000001EfGhAAA',
+      viewAllData: true,
+      modifyAllData: true,
+    },
+    readFrom: '2026-10-25T14:00:02.000Z',
+    takenAt: '2026-10-25T14:00:30.415Z',
+    scope: {
+      mode: 'picked',
+      leftOut: [{ objectApiName: 'Nope__c', reason: 'The org has no object of this name.' }],
+    },
+    objects: [
+      writtenObject('Case', 0, { restrictParents: ['AccountId'] }),
+      writtenObject('Account', 1),
+    ],
+    ignoredFields: ['Case.Last_Touched__c'],
+    snapshotId: 'snapshot-ck-20261025-140000-p2q7',
+    movedWhileTaken: { changed: 1, deleted: 0, created: 2 },
+    bytes: 12_800,
+    expiresAt: '2026-11-24T14:00:30.415Z',
+    status: 'ready',
+    takenOn: { host: 'laptop', pid: 77 },
+  },
+  '1.68.0': {
+    version: 1,
+    checkpointId: 'ck-20261026-080000-r4s8',
+    name: 'UAT baseline',
+    org: {
+      organizationId: '00Dxx0000009012AAA',
+      alias: 'UAT',
+      username: 'admin@example.com.uat',
+      instanceUrl: 'https://example--uat.sandbox.my.salesforce.com',
+      isSandbox: true,
+      organizationType: 'Enterprise Edition',
+      tier: 'sandbox',
+    },
+    takenBy: {
+      userId: '005xx000001AbCdAAA',
+      automatedProcessUserId: '005xx000001EfGhAAA',
+      viewAllData: true,
+      modifyAllData: true,
+    },
+    readFrom: '2026-10-26T08:00:00.000Z',
+    takenAt: '2026-10-26T08:03:12.004Z',
+    scope: {
+      mode: 'everything',
+      leftOut: [{ objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' }],
+    },
+    objects: [
+      writtenObject('Task', 0),
+      writtenObject('Contact', 1, { cascadeParents: ['AccountId'] }),
+      writtenObject('Account', 2),
+    ],
+    ignoredFields: [],
+    snapshotId: 'snapshot-ck-20261026-080000-r4s8',
+    movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+    bytes: 2_400_000,
+    expiresAt: null,
+    status: 'ready',
+    takenOn: { host: 'workstation', pid: 4242 },
+    lastRewind: {
+      rewindId: 'rw-20261026-170000-t5u1',
+      endedAt: '2026-10-26T17:02:10.000Z',
+      undoUntil: '2026-11-10T17:02:10.000Z',
+    },
+  },
+  '1.69.1': {
+    version: 1,
+    checkpointId: 'ck-20261027-101010-v6w2',
+    name: 'Sprint 12',
+    org: {
+      organizationId: '00Dxx0000003456AAA',
+      alias: 'DEV-SB',
+      username: 'admin@example.com.dev',
+      instanceUrl: 'https://example--dev.sandbox.my.salesforce.com',
+      isSandbox: true,
+      organizationType: 'Unlimited Edition',
+      tier: 'sandbox',
+    },
+    takenBy: {
+      userId: '005xx000001AbCdAAA',
+      automatedProcessUserId: '005xx000001EfGhAAA',
+      viewAllData: true,
+      modifyAllData: true,
+    },
+    readFrom: '2026-10-27T10:10:10.000Z',
+    takenAt: '2026-10-27T10:12:00.000Z',
+    scope: { mode: 'everything', leftOut: [] },
+    objects: [writtenObject('Opportunity', 0), writtenObject('Account', 1, { inBin: 4 })],
+    ignoredFields: [],
+    snapshotId: 'snapshot-ck-20261027-101010-v6w2',
+    movedWhileTaken: { changed: 0, deleted: 1, created: 0 },
+    bytes: 310_552,
+    expiresAt: '2026-11-26T10:12:00.000Z',
+    status: 'ready',
+    takenOn: { host: 'workstation', pid: 9001 },
+    lastRewind: {
+      rewindId: 'rw-20261027-150000-x7y3',
+      endedAt: '2026-10-27T15:01:00.000Z',
+      undoUntil: '2026-11-11T15:01:00.000Z',
+      undoneAt: '2026-10-27T15:30:00.000Z',
+    },
+  },
+};
+
 /** `readyCheckpoint()` with `patch` laid over it, key by key. */
 function checkpointWith(patch: Record<string, unknown>): Record<string, unknown> {
   return { ...readyCheckpoint(), ...patch };
@@ -161,12 +343,70 @@ describe('orgCheckpointSchema', () => {
     expect(orgCheckpointSchema.safeParse(withoutIgnored).success).toBe(false);
   });
 
-  it('refuses a checkpoint taken by a user without View All Data or Modify All Data', () => {
+  it('refuses a checkpoint taken by a user without View All Data or Modify All Data that does not say how its user held each object whole', () => {
     for (const lacking of [{ viewAllData: false }, { modifyAllData: false }]) {
       const taken = checkpointWith({
         takenBy: { ...(readyCheckpoint().takenBy as object), ...lacking },
       });
-      expect(orgCheckpointSchema.safeParse(taken).success).toBe(false);
+      const parsed = orgCheckpointSchema.safeParse(taken);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.path.join('.'))).toEqual(['objects']);
+    }
+  });
+
+  it('reads a checkpoint taken per object, each object held by Modify All on it or on what it hangs from', () => {
+    const [contact, task] = readyCheckpoint().objects as Record<string, unknown>[];
+    const perObject = checkpointWith({
+      takenBy: { userId: '005xx000001AbCdAAA', viewAllData: false, modifyAllData: false },
+      objects: [
+        { ...contact, access: 'object' },
+        { ...task, objectApiName: 'CaseComment', access: 'parent' },
+      ],
+    });
+
+    const parsed = orgCheckpointSchema.parse(perObject);
+
+    expect(parsed.takenBy).toMatchObject({ viewAllData: false, modifyAllData: false });
+    expect(parsed.objects.map((object) => object.access)).toEqual(['object', 'parent']);
+    expect(orgCheckpointSchema.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(perObject);
+  });
+
+  it('refuses a checkpoint taken per object of which one object has no access, or says it was held by permissions its user lacked', () => {
+    const [contact, task] = readyCheckpoint().objects as Record<string, unknown>[];
+    const takenBy = { userId: '005xx000001AbCdAAA', viewAllData: true, modifyAllData: false };
+    for (const second of [{ ...task }, { ...task, access: 'org' }]) {
+      const parsed = orgCheckpointSchema.safeParse(
+        checkpointWith({ takenBy, objects: [{ ...contact, access: 'object' }, second] }),
+      );
+      expect(parsed.success, JSON.stringify(second)).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.path.join('.'))).toEqual(['objects']);
+    }
+    // A take still reading lists no object yet, and is read as it is.
+    expect(
+      orgCheckpointSchema.safeParse(checkpointWith({ takenBy, objects: [], status: 'taking' }))
+        .success,
+    ).toBe(true);
+  });
+
+  it('reads a checkpoint of a user with View All Data and Modify All Data whose objects say so, and refuses an access it does not know', () => {
+    const held = withContact({ access: 'org' });
+    expect(orgCheckpointSchema.parse(held)).toEqual(held);
+    expect(orgCheckpointSchema.safeParse(withContact({ access: 'sharing' })).success).toBe(false);
+  });
+
+  it('reads back as they are the checkpoints SandForge 1.66, 1.67, 1.68 and 1.69 wrote, which say no access and hold both permissions', () => {
+    for (const [version, written] of Object.entries(WRITTEN_BEFORE)) {
+      const parsed = orgCheckpointSchema.safeParse(written);
+      expect(parsed.success, version).toBe(true);
+      expect(parsed.data, version).toEqual(written);
+      expect(
+        parsed.data?.objects.some((object) => 'access' in object),
+        version,
+      ).toBe(false);
+      expect(parsed.data?.takenBy, version).toMatchObject({
+        viewAllData: true,
+        modifyAllData: true,
+      });
     }
   });
 

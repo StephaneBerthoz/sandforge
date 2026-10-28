@@ -224,14 +224,22 @@ describe('docs/modules/checkpoint.md', () => {
     );
   });
 
-  it('refuses a production org with nothing to lift it, and asks for both permissions', () => {
-    // Positive control: the guard says no override reaches it, and reads the two permissions.
+  it('refuses a production org with nothing to lift it, and asks for both permissions, or at a take for View All and Modify All per object', () => {
+    // Positive control: the guard says no override reaches it, reads the two
+    // permissions, and without them the user's rows of each object.
     expect(GUARD).toContain('So nothing lifts this refusal');
     expect(GUARD).toContain("{ field: 'PermissionsViewAllData', label: 'View All Data' },");
     expect(GUARD).toContain("{ field: 'PermissionsModifyAllData', label: 'Modify All Data' },");
+    expect(GUARD).toContain('FROM ObjectPermissions WHERE ParentId IN (SELECT PermissionSetId');
 
     expect(DOC).toContain('no setting or flag lifts the refusal');
-    expect(DOC).toContain('needs **View All Data and Modify All Data**');
+    expect(DOC).toContain(
+      'needs **View All Data and Modify All Data** to preview, rewind, undo or import',
+    );
+    expect(DOC).toContain('with **View All and Modify All per object**');
+    expect(DOC).toContain(
+      'tasks and events, products and price books, files and custom settings always',
+    );
     expect(DOC).toContain("**Production orgs, and any org other than the checkpoint's own**");
   });
 

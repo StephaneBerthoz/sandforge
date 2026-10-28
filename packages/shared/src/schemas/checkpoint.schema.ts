@@ -102,6 +102,7 @@ export const checkpointLeftOutFieldReasonSchema = z.enum([
 ]);
 export const checkpointStatusSchema = z.enum(['taking', 'ready', 'failed']);
 export const checkpointCustomSettingKindSchema = z.enum(['hierarchy', 'list']);
+export const checkpointObjectAccessSchema = z.enum(['org', 'object', 'parent']);
 
 const checkpointObjectSchema = z.object({
   objectApiName: apiNameSchema,
@@ -121,6 +122,9 @@ const checkpointObjectSchema = z.object({
   // Absent for any object but a custom setting held by name, and from a
   // checkpoint taken before custom settings could be held.
   customSetting: checkpointCustomSettingKindSchema.optional(),
+  // Absent from a checkpoint taken before 1.70, whose user had View All Data
+  // and Modify All Data.
+  access: checkpointObjectAccessSchema.optional(),
 });
 
 /**
@@ -160,8 +164,8 @@ export const orgCheckpointSchema = z
     takenBy: z.object({
       userId: userIdSchema,
       automatedProcessUserId: userIdSchema.optional(),
-      viewAllData: z.literal(true),
-      modifyAllData: z.literal(true),
+      viewAllData: z.boolean(),
+      modifyAllData: z.boolean(),
       // Absent from a checkpoint taken before files were held.
       queryAllFiles: z.boolean().optional(),
     }),
@@ -213,7 +217,22 @@ export const orgCheckpointSchema = z
   .refine((checkpoint) => Date.parse(checkpoint.readFrom) <= Date.parse(checkpoint.takenAt), {
     path: ['takenAt'],
     message: 'A checkpoint ends after it begins',
-  });
+  })
+  // Without View All Data and Modify All Data, an object the file does not
+  // say its user held whole would be read as one they did: a record they
+  // could not see would then be deleted since, and brought back or made
+  // again. `org` would say so of permissions the file says they lacked.
+  .refine(
+    ({ takenBy, objects }) =>
+      (takenBy.viewAllData && takenBy.modifyAllData) ||
+      objects.every((object) => object.access === 'object' || object.access === 'parent'),
+    {
+      path: ['objects'],
+      message:
+        'A checkpoint taken without View All Data and Modify All Data says, of each object, ' +
+        'how its user held it whole',
+    },
+  );
 
 // ─── A checkpoint as a file that leaves the machine (.sfcheckpoint) ──────────
 

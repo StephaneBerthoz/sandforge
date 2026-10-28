@@ -50,6 +50,7 @@ import {
   type CheckpointObject,
 } from '@sandforge/shared';
 import { excludedByDescribe, isNeverCopiedWhenPicked } from '../forge/excludedObjects.js';
+import type { AccessLeftOutReason } from './checkpointAccess.js';
 import type { CheckpointDescribe } from './checkpointFields.js';
 
 /** An object as the org's global describe lists it, as far as the scope reads it. */
@@ -113,7 +114,14 @@ export type ScopeLeftOutReason =
    */
   | 'noRecycleBin'
   /** The org refuses to read it whole. */
-  | 'unreadable';
+  | 'unreadable'
+  /**
+   * Without View All Data and Modify All Data, why an object the user is not
+   * proven to see and put back whole is left out (`checkpointAccess.ts`).
+   * `filesNotProven` and `settingNotProven` are the note's `files` and a
+   * custom setting's: `files` already names the Documents tab's.
+   */
+  | AccessLeftOutReason;
 
 /** An object a checkpoint leaves out, with why. */
 export interface ScopeLeftOut {

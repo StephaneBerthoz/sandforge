@@ -5,6 +5,7 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import {
   guardCheckpoint,
   type CheckpointAct,
+  type CheckpointGuardDeps,
   type CheckpointGuardRequest,
 } from './checkpointGuard.js';
 
@@ -23,16 +24,111 @@ interface OrgSays {
   permissions?: Record<string, boolean> | Error;
   /** Fields of `UserPermissionAccess` the org does not know: a statement naming one is refused. */
   unknownFields?: string[];
+  /**
+   * The org's permission sets by id, each with its rows of `ObjectPermissions`:
+   * a permission set group's aggregate names its group, as `PermissionSet`
+   * does (`PermissionSetGroupId`).
+   */
+  permissionSets?: Record<string, { group?: string; rows: Grant[] }>;
+  /** The running user's assignments, each to a set or to a group (through some set). */
+  assignments?: Array<{ PermissionSetId: string; PermissionSetGroupId?: string }>;
+  /** The objects whose reads the org refuses, with its error. */
+  refusing?: Partial<Record<'ObjectPermissions' | 'PermissionSetAssignment', Error>>;
+  /** The rows of a page of `ObjectPermissions`; all of them unless given. */
+  pageRows?: number;
+}
+
+/** A row of `ObjectPermissions`, as the probes read them: its object, View All and Modify All. */
+type Grant = {
+  SobjectType: string;
+  PermissionsViewAllRecords: boolean;
+  PermissionsModifyAllRecords: boolean;
+};
+
+/** A row of `ObjectPermissions` on `object`, read and edited, with or without View All and Modify All. */
+function grant(object: string, viewAll = false, modifyAll = false): Grant {
+  return {
+    SobjectType: object,
+    PermissionsViewAllRecords: viewAll,
+    PermissionsModifyAllRecords: modifyAll,
+  };
+}
+
+/** The user the connection acts as, read object by object when it lacks the two. */
+const STANDARD_USER = '005000000000042AAA';
+
+/** What the guard is given to read a user object by object. */
+const BY_OBJECT = { userId: async () => STANDARD_USER };
+
+/** The rows a statement on `ObjectPermissions` or `PermissionSetAssignment` selects, as the org reads it. */
+function permissionRowsOf(says: OrgSays, soql: string): Array<Record<string, unknown>> {
+  const sets = says.permissionSets ?? {};
+  const mine = (assignee: string) => (assignee === STANDARD_USER ? (says.assignments ?? []) : []);
+  if (soql.includes('FROM ObjectPermissions')) {
+    const refusal = says.refusing?.ObjectPermissions;
+    if (refusal) throw refusal;
+    const semiJoin =
+      /ParentId IN \(SELECT PermissionSetId FROM PermissionSetAssignment WHERE AssigneeId = '(\w+)'( AND PermissionSetGroupId = null)?\)/.exec(
+        soql,
+      );
+    const groups = /Parent\.PermissionSetGroupId IN \(([^)]*)\)/.exec(soql);
+    let parents: string[];
+    if (semiJoin) {
+      parents = mine(semiJoin[1])
+        .filter((assignment) => semiJoin[2] === undefined || !assignment.PermissionSetGroupId)
+        .map((assignment) => assignment.PermissionSetId);
+    } else if (groups) {
+      const named = groups[1].split(',').map((id) => id.trim().replace(/'/g, ''));
+      parents = Object.entries(sets)
+        .filter(([, set]) => set.group !== undefined && named.includes(set.group))
+        .map(([id]) => id);
+    } else {
+      throw new Error(`Not a read of permissions the org was probed with: ${soql}`);
+    }
+    return parents.flatMap((id) => sets[id]?.rows ?? []);
+  }
+  const refusal = says.refusing?.PermissionSetAssignment;
+  if (refusal) throw refusal;
+  const assigned =
+    /FROM PermissionSetAssignment WHERE AssigneeId = '(\w+)' AND PermissionSetGroupId != null$/.exec(
+      soql,
+    );
+  if (!assigned) throw new Error(`Not a read of assignments the org was probed with: ${soql}`);
+  return mine(assigned[1])
+    .filter((assignment) => assignment.PermissionSetGroupId !== undefined)
+    .map((assignment) => ({ PermissionSetGroupId: assignment.PermissionSetGroupId }));
 }
 
 const BOTH = { PermissionsViewAllData: true, PermissionsModifyAllData: true };
 
-/** A connection to an org that answers as `says`, and the statements it was asked. */
+/** A connection to an org that answers as `says`, and the statements it was asked, next pages among them. */
 function orgSaying(says: OrgSays) {
   const asked: string[] = [];
+  const cursors = new Map<string, Array<Record<string, unknown>>>();
+  const pageOf = (rows: Array<Record<string, unknown>>, totalSize: number) => {
+    const size = says.pageRows ?? rows.length;
+    if (rows.length <= size) return { records: rows, totalSize, done: true };
+    const locator = `/services/data/v66.0/query/01gxx0000000${cursors.size + 1}AAA-${size}`;
+    cursors.set(locator, rows.slice(size));
+    return { records: rows.slice(0, size), totalSize, done: false, nextRecordsUrl: locator };
+  };
   const conn = {
+    queryMore: vi.fn(async (locator: string) => {
+      asked.push(`next ${locator}`);
+      const rest = cursors.get(locator);
+      if (rest === undefined) throw new Error('INVALID_QUERY_LOCATOR: invalid query locator');
+      cursors.delete(locator);
+      return pageOf(rest, rest.length);
+    }),
     query: vi.fn(async (soql: string) => {
       asked.push(soql);
+      if (
+        soql.includes('FROM ObjectPermissions') ||
+        soql.includes('FROM PermissionSetAssignment')
+      ) {
+        const rows = permissionRowsOf(says, soql);
+        return pageOf(rows, rows.length);
+      }
       if (soql.startsWith('SELECT Id, IsSandbox FROM Organization')) {
         return says.id === undefined
           ? { records: [], totalSize: 0 }
@@ -54,7 +150,7 @@ function orgSaying(says: OrgSays) {
       }
       throw new Error(`The guard read records: ${soql}`);
     }),
-  } as unknown as Pick<Connection, 'query'>;
+  } as unknown as Pick<Connection, 'query' | 'queryMore'>;
   return { conn, asked };
 }
 
@@ -101,18 +197,21 @@ describe('guardCheckpoint: never a production org', () => {
       org: { id: ORG_ID, sandbox: true },
       tier: 'sandbox',
       queryAllFiles: false,
+      grants: { kind: 'org' },
     });
     expect(scratch).toEqual({
       allowed: true,
       org: { id: ORG_ID, sandbox: true },
       tier: 'scratch',
       queryAllFiles: false,
+      grants: { kind: 'org' },
     });
     expect(developer).toEqual({
       allowed: true,
       org: { id: ORG_ID, sandbox: false, edition: 'Developer Edition' },
       tier: 'developer',
       queryAllFiles: false,
+      grants: { kind: 'org' },
     });
     expect(registeredBefore).toMatchObject({ allowed: true, tier: 'developer' });
   });
@@ -332,6 +431,291 @@ describe('guardCheckpoint: a user who sees and may put back every record', () =>
     expect(answer.allowed === false && answer.refusal.message).toContain(
       'A preview needs a user with View All Data and Modify All Data',
     );
+  });
+});
+
+/** A Standard User's profile, as P-B4 read it: Account and Contact read, edited and deleted, Case read and edited, Campaign read; no View All, no Modify All. */
+const STANDARD_PROFILE = {
+  rows: [grant('Account'), grant('Contact'), grant('Case'), grant('Campaign')],
+};
+
+/** The statements that read the user's permission rows, as a real org is sent them. */
+const OWN_ROWS =
+  'SELECT SobjectType, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ' +
+  'ObjectPermissions WHERE ParentId IN (SELECT PermissionSetId FROM PermissionSetAssignment ' +
+  `WHERE AssigneeId = '${STANDARD_USER}' AND PermissionSetGroupId = null)`;
+const GROUPS_ASSIGNED =
+  'SELECT PermissionSetGroupId FROM PermissionSetAssignment ' +
+  `WHERE AssigneeId = '${STANDARD_USER}' AND PermissionSetGroupId != null`;
+
+/** The reads after the org's own, of the user's permissions. */
+function permissionReadsOf(asked: readonly string[]): string[] {
+  return asked.filter((soql) => !soql.includes('FROM Organization'));
+}
+
+describe('guardCheckpoint: a user without View All Data and Modify All Data, object by object', () => {
+  it('refuses a Standard User whose rows give View All and Modify All on no object, as P-B4 read them, saying what lifts it', async () => {
+    for (const act of ACTS) {
+      const { conn, asked } = orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: {},
+        permissionSets: { '0PS000000000001AAA': STANDARD_PROFILE },
+        assignments: [{ PermissionSetId: '0PS000000000001AAA' }],
+      });
+
+      const answer = await guardCheckpoint(conn, asking(act, SANDBOX), BY_OBJECT);
+
+      expect(answer).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+      expect(answer.allowed === false && answer.refusal.message).toContain(
+        `${USER} doesn't have them, nor View All and Modify All on any object. Give the user ` +
+          'View All and Modify All on the objects to hold, or View All Data and Modify All ' +
+          'Data. No record was read or written.',
+      );
+      expect(permissionReadsOf(asked)).toEqual([
+        'SELECT PermissionsViewAllData, PermissionsModifyAllData, PermissionsQueryAllFiles ' +
+          'FROM UserPermissionAccess',
+        OWN_ROWS,
+        GROUPS_ASSIGNED,
+      ]);
+    }
+    const take = await guardCheckpoint(
+      orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: {},
+        permissionSets: { '0PS000000000001AAA': STANDARD_PROFILE },
+        assignments: [{ PermissionSetId: '0PS000000000001AAA' }],
+      }).conn,
+      asking('take', SANDBOX),
+      BY_OBJECT,
+    );
+    expect(take.allowed === false && take.refusal.message).toBe(
+      'A checkpoint needs a user with View All Data and Modify All Data, or with View All and ' +
+        'Modify All on each object it holds: a rewind to it must see and put back what ' +
+        `everyone changed there. ${USER} doesn't have them, nor View All and Modify All on any ` +
+        'object. Give the user View All and Modify All on the objects to hold, or View All Data ' +
+        'and Modify All Data. No record was read or written.',
+    );
+  });
+
+  it('lets a user without the two through with what every row of theirs gives each object, OR over the rows, and the requests that read them', async () => {
+    const { conn } = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      permissions: { PermissionsViewAllData: true },
+      permissionSets: {
+        '0PS000000000001AAA': STANDARD_PROFILE,
+        '0PS000000000002AAA': { rows: [grant('Account', true, true), grant('Contact', true)] },
+        '0PS000000000003AAA': { rows: [grant('Contact'), grant('Opportunity', true, true)] },
+      },
+      assignments: [
+        { PermissionSetId: '0PS000000000001AAA' },
+        { PermissionSetId: '0PS000000000002AAA' },
+        { PermissionSetId: '0PS000000000003AAA' },
+      ],
+    });
+
+    const answer = await guardCheckpoint(conn, asking('take', SANDBOX), BY_OBJECT);
+
+    expect(answer).toMatchObject({
+      allowed: true,
+      grants: { kind: 'perObject', viewAllData: true, modifyAllData: false, requests: 3 },
+    });
+    const grants = answer.allowed && answer.grants.kind === 'perObject' ? answer.grants : undefined;
+    // The profile's row of Account, read first, takes nothing from the set that gives it all.
+    expect(Object.fromEntries(grants?.objects ?? [])).toEqual({
+      account: { viewAll: true, modifyAll: true },
+      contact: { viewAll: true, modifyAll: false },
+      case: { viewAll: false, modifyAll: false },
+      campaign: { viewAll: false, modifyAll: false },
+      opportunity: { viewAll: true, modifyAll: true },
+    });
+  });
+
+  it('reads a permission set group by its aggregate, which reflects its muting (P-B5), and never through the set its assignment names, whichever it is', async () => {
+    // The group bundles a set giving Modify All on Account and a muting set
+    // taking it away: the aggregate read `Modify All false` there, live.
+    const sets = {
+      '0PS000000000001AAA': STANDARD_PROFILE,
+      '0PS000000000004AAA': { rows: [grant('Account', true, true)] },
+      '0PS000000000005AAA': { group: '0PG000000000001AAA', rows: [grant('Account', true, false)] },
+      '0PS000000000006AAA': { rows: [grant('Contact', true, true)] },
+    };
+    for (const throughSet of ['0PS000000000004AAA', '0PS000000000005AAA']) {
+      const { conn, asked } = orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: {},
+        permissionSets: sets,
+        assignments: [
+          { PermissionSetId: '0PS000000000001AAA' },
+          { PermissionSetId: throughSet, PermissionSetGroupId: '0PG000000000001AAA' },
+          { PermissionSetId: '0PS000000000006AAA' },
+        ],
+      });
+
+      const answer = await guardCheckpoint(conn, asking('take', SANDBOX), BY_OBJECT);
+
+      const grants =
+        answer.allowed && answer.grants.kind === 'perObject' ? answer.grants : undefined;
+      expect(grants?.objects.get('account'), throughSet).toEqual({
+        viewAll: true,
+        modifyAll: false,
+      });
+      expect(grants?.objects.get('contact'), throughSet).toEqual({
+        viewAll: true,
+        modifyAll: true,
+      });
+      expect(grants?.requests).toBe(4);
+      expect(permissionReadsOf(asked).slice(1)).toEqual([
+        OWN_ROWS,
+        GROUPS_ASSIGNED,
+        'SELECT SobjectType, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ' +
+          "ObjectPermissions WHERE Parent.PermissionSetGroupId IN ('0PG000000000001AAA')",
+      ]);
+    }
+  });
+
+  it('refuses in the org’s words when it will not read the user, their assignments or their rows, saying what lifts it', async () => {
+    const lacking: Array<[OrgSays['refusing'], CheckpointGuardDeps]> = [
+      [
+        {
+          PermissionSetAssignment: new Error(
+            "INVALID_TYPE: sObject type 'PermissionSetAssignment' is not supported.",
+          ),
+        },
+        BY_OBJECT,
+      ],
+      [
+        {
+          ObjectPermissions: new Error(
+            "INVALID_TYPE: sObject type 'ObjectPermissions' is not supported.",
+          ),
+        },
+        BY_OBJECT,
+      ],
+      [
+        {},
+        { userId: async () => Promise.reject(new Error('INVALID_SESSION_ID: Session expired')) },
+      ],
+      [{}, { userId: async () => "005000000000042AAA' OR Id != '" }],
+    ];
+    for (const [refusing, deps] of lacking) {
+      const { conn } = orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: {},
+        permissionSets: { '0PS000000000004AAA': { rows: [grant('Account', true, true)] } },
+        assignments: [{ PermissionSetId: '0PS000000000004AAA' }],
+        refusing,
+      });
+
+      const answer = await guardCheckpoint(conn, asking('rewind', SANDBOX), deps);
+
+      expect(answer).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+      const message = answer.allowed === false ? answer.refusal.message : '';
+      expect(message).toMatch(
+        new RegExp(
+          `^Rewind needs a user with View All Data and Modify All Data, or with View All and ` +
+            `Modify All on each object it puts back: it must see and put back what everyone ` +
+            `changed there\\. ${USER.replace('.', '\\.')} doesn't have them, and SandForge ` +
+            'could not read which objects they have View All and Modify All on \\(.+\\)\\. ' +
+            'View Setup and Configuration lets a user read their own permissions; with View ' +
+            'All Data and Modify All Data, nothing needs reading\\. No record was read or ' +
+            'written\\.$',
+        ),
+      );
+    }
+  });
+
+  it('reads every page of the rows, and refuses rows past a page it cannot turn', async () => {
+    const says: OrgSays = {
+      id: ORG_ID,
+      sandbox: true,
+      permissions: {},
+      permissionSets: {
+        '0PS000000000004AAA': {
+          rows: [grant('Account'), grant('Contact'), grant('Case'), grant('Lead', true, true)],
+        },
+      },
+      assignments: [{ PermissionSetId: '0PS000000000004AAA' }],
+      pageRows: 3,
+    };
+    const turning = orgSaying(says);
+
+    const answer = await guardCheckpoint(turning.conn, asking('take', SANDBOX), BY_OBJECT);
+
+    expect(answer).toMatchObject({ allowed: true, grants: { kind: 'perObject', requests: 4 } });
+    expect(
+      answer.allowed && answer.grants.kind === 'perObject' && answer.grants.objects.get('lead'),
+    ).toEqual({ viewAll: true, modifyAll: true });
+    expect(turning.asked.filter((what) => what.startsWith('next '))).toHaveLength(1);
+
+    const { query } = orgSaying(says).conn;
+    const stuck = await guardCheckpoint({ query }, asking('take', SANDBOX), BY_OBJECT);
+    expect(stuck.allowed === false && stuck.refusal.message).toContain(
+      'could not read which objects they have View All and Modify All on (the org answered 3 ' +
+        'rows of 4, and no next page)',
+    );
+  });
+
+  it('reads no permission row of a user with View All Data and Modify All Data, given a user id or not', async () => {
+    for (const deps of [BY_OBJECT, {}]) {
+      const { conn, asked } = orgSaying({ id: ORG_ID, sandbox: true });
+
+      const answer = await guardCheckpoint(conn, asking('take', SANDBOX), deps);
+
+      expect(answer).toMatchObject({ allowed: true, grants: { kind: 'org' } });
+      expect(asked.join(' ')).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
+    }
+  });
+
+  it('refuses a user without the two as before when its caller gives no user id, and an import even when it does, reading no permission row', async () => {
+    const says: OrgSays = {
+      id: ORG_ID,
+      sandbox: true,
+      permissions: {},
+      permissionSets: { '0PS000000000004AAA': { rows: [grant('Account', true, true)] } },
+      assignments: [{ PermissionSetId: '0PS000000000004AAA' }],
+    };
+    for (const [act, deps] of [
+      ['preview', {}],
+      ['rewind', {}],
+      ['undo', {}],
+      ['import', BY_OBJECT],
+    ] as const) {
+      const { conn, asked } = orgSaying(says);
+
+      const answer = await guardCheckpoint(conn, asking(act, SANDBOX), deps);
+
+      expect(answer, act).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+      expect(answer.allowed === false && answer.refusal.message, act).toContain(
+        `needs a user with View All Data and Modify All Data`,
+      );
+      expect(asked.join(' '), act).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
+    }
+  });
+
+  it('asks for Customize Application before reading any permission row of an act that holds custom settings', async () => {
+    const { conn, asked } = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      permissions: {},
+      permissionSets: { '0PS000000000004AAA': { rows: [grant('Account', true, true)] } },
+      assignments: [{ PermissionSetId: '0PS000000000004AAA' }],
+    });
+
+    const answer = await guardCheckpoint(
+      conn,
+      { ...asking('take', SANDBOX), customSettings: true },
+      BY_OBJECT,
+    );
+
+    expect(answer.allowed === false && answer.refusal.message).toContain(
+      `${USER} needs Customize Application to keep and rewind custom settings`,
+    );
+    expect(asked.join(' ')).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
   });
 });
 

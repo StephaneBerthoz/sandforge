@@ -31,6 +31,23 @@
  * act asks, the preview too: it writes nothing, but without View All Data it
  * would tell records the user cannot see as deleted since.
  *
+ * Without the two, an act whose caller can tell the user who runs it (its
+ * `userId`) reads what the user holds object by object: every row of
+ * `ObjectPermissions` of their permission sets, OR over the rows
+ * (`checkpointAccess.ts`). A Standard User reads them for themselves (P-B4:
+ * `ObjectPermissions`, `PermissionSetAssignment`, `UserPermissionAccess`,
+ * none refused). A permission set group is read by its aggregate, whose rows
+ * reflect its muting (P-B5: Modify All muted read false there); the sets
+ * assigned on their own, and the profile's, by the assignments that name no
+ * group — so a group is never read through a set its assignment may name,
+ * whichever that is. Where nothing gives Modify All on any object, nothing
+ * could be held, and the act is refused as it was. A read the org refuses
+ * refuses the act in its words: `PermissionSetAssignment` needs View Setup
+ * and Configuration, among other permissions, since Summer '20. An act whose
+ * caller gives no user id — one that cannot act object by object — is
+ * refused without the two, as it always was; and so is an import, whatever
+ * its caller gives: the file it keeps was read by another machine's user.
+ *
  * Custom settings. A checkpoint that holds custom settings — a take that
  * names any, an act on a checkpoint that holds one — asks for Customize
  * Application too, in the same statement. View All Custom Settings lets a
@@ -60,17 +77,54 @@ import {
   type CheckpointRefusalCode,
   type OrgTypeAndEdition,
 } from '@sandforge/shared';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   isProductionTarget,
   typeTarget,
   type TypedTarget,
 } from '../../core/precheck/orgKindLive.js';
+import { coversAnyObject, grantsOf, type ObjectGrants } from './checkpointAccess.js';
 
 /**
  * What a checkpoint is about to do to an org: an import keeps on this machine
  * a checkpoint of it another machine exported, and reads the org first.
  */
 export type CheckpointAct = 'take' | 'preview' | 'rewind' | 'undo' | 'import';
+
+/**
+ * What the guard reads an org through: its queries, and the next pages of
+ * one that runs past a page. Without `queryMore`, a read of the user's
+ * permissions that runs past a page is one the guard could not read whole.
+ */
+export type CheckpointGuardConnection = Pick<Connection, 'query'> &
+  Partial<Pick<Connection, 'queryMore'>>;
+
+/** What the guard is given beside the connection. */
+export interface CheckpointGuardDeps {
+  /**
+   * The id of the user the connection acts as (SOAP `getUserInfo`). Given, a
+   * user without View All Data and Modify All Data is read object by object;
+   * absent, such a user is refused, as an act that cannot hold an object by
+   * its own permissions must refuse them.
+   */
+  userId?: () => Promise<string>;
+}
+
+/**
+ * What the user may see and put back: every record of every object, with
+ * View All Data and Modify All Data; or, without them, the objects their
+ * permission rows give View All or Modify All, `requests` being what reading
+ * them sent the org.
+ */
+export type CheckpointGrants =
+  | { kind: 'org' }
+  | {
+      kind: 'perObject';
+      viewAllData: boolean;
+      modifyAllData: boolean;
+      objects: ObjectGrants;
+      requests: number;
+    };
 
 /** What the guard is asked about, whatever the act. */
 interface CheckpointGuardBase {
@@ -109,6 +163,7 @@ export type CheckpointGuardResult =
        * not own are seen only by their id or through a link to a record.
        */
       queryAllFiles: boolean;
+      grants: CheckpointGrants;
     }
   | { allowed: false; refusal: CheckpointRefusal };
 
@@ -212,7 +267,14 @@ async function permissionsOf(
   conn: Pick<Connection, 'query'>,
   customize: boolean,
 ): Promise<
-  { missing: string[]; queryAllFiles: boolean; customizeApplication: boolean } | { unread: string }
+  | {
+      missing: string[];
+      viewAllData: boolean;
+      modifyAllData: boolean;
+      queryAllFiles: boolean;
+      customizeApplication: boolean;
+    }
+  | { unread: string }
 > {
   const asked = [...PERMISSIONS.map((p) => p.field), ...(customize ? [CUSTOMIZE_APPLICATION] : [])];
   const read = async (fields: readonly string[]): Promise<Record<string, unknown> | undefined> => {
@@ -233,10 +295,122 @@ async function permissionsOf(
   }
   return {
     missing: PERMISSIONS.filter((p) => row?.[p.field] !== true).map((p) => p.label),
+    viewAllData: row?.PermissionsViewAllData === true,
+    modifyAllData: row?.PermissionsModifyAllData === true,
     queryAllFiles: row?.[QUERY_ALL_FILES] === true,
     customizeApplication: row?.[CUSTOMIZE_APPLICATION] === true,
   };
 }
+
+/** A user id as it may go in a statement: 15 or 18 characters, `005` first. */
+const USER_ID = /^005[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+
+/** A permission set group's id as it may go in a statement. */
+const GROUP_ID = /^0PG[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+
+/** The columns of a permission row the guard reads. */
+const GRANT_COLUMNS = 'SobjectType, PermissionsViewAllRecords, PermissionsModifyAllRecords';
+
+/**
+ * Every row of `soql`, page after page, and the requests that sent: a read
+ * that runs past a page the connection cannot turn is not read whole.
+ */
+async function allRows(
+  conn: CheckpointGuardConnection,
+  soql: string,
+): Promise<{ rows: Array<Record<string, unknown>>; requests: number }> {
+  let page = await conn.query<Record<string, unknown>>(soql);
+  let requests = 1;
+  const rows = [...page.records];
+  while (!page.done) {
+    const next = page.nextRecordsUrl;
+    if (next === undefined || conn.queryMore === undefined) {
+      throw new Error(
+        `the org answered ${rows.length} rows of ${page.totalSize}, and no next page`,
+      );
+    }
+    page = await conn.queryMore<Record<string, unknown>>(next);
+    requests++;
+    rows.push(...page.records);
+  }
+  return { rows, requests };
+}
+
+/**
+ * What the user holds object by object, from every row of `ObjectPermissions`
+ * of their permission sets: those assigned on their own and the profile's,
+ * by the assignments that name no group, then each group they are assigned
+ * by its aggregate. Or why it could not be read, in the org's words.
+ */
+async function grantsByObject(
+  conn: CheckpointGuardConnection,
+  userId: () => Promise<string>,
+): Promise<{ grants: ObjectGrants; requests: number } | { unread: string }> {
+  let requests = 0;
+  try {
+    const id = await userId();
+    requests++;
+    if (!USER_ID.test(id)) throw new Error(`the org named the user ${JSON.stringify(id)}`);
+    const own = await allRows(
+      conn,
+      `SELECT ${GRANT_COLUMNS} FROM ObjectPermissions WHERE ParentId IN (SELECT PermissionSetId ` +
+        `FROM PermissionSetAssignment WHERE AssigneeId = '${id}' AND PermissionSetGroupId = null)`,
+    );
+    requests += own.requests;
+    const assigned = await allRows(
+      conn,
+      'SELECT PermissionSetGroupId FROM PermissionSetAssignment ' +
+        `WHERE AssigneeId = '${id}' AND PermissionSetGroupId != null`,
+    );
+    requests += assigned.requests;
+    const groups = [
+      ...new Set(
+        assigned.rows
+          .map((row) => row.PermissionSetGroupId)
+          .filter((group): group is string => typeof group === 'string' && GROUP_ID.test(group)),
+      ),
+    ];
+    const rows = [...own.rows];
+    if (groups.length > 0) {
+      const aggregates = await allRows(
+        conn,
+        `SELECT ${GRANT_COLUMNS} FROM ObjectPermissions WHERE Parent.PermissionSetGroupId IN ` +
+          `(${groups.map((group) => `'${group}'`).join(', ')})`,
+      );
+      requests += aggregates.requests;
+      rows.push(...aggregates.rows);
+    }
+    return { grants: grantsOf(rows), requests };
+  } catch (err: unknown) {
+    return { unread: extractErrorMessage(err) };
+  }
+}
+
+/**
+ * The acts that may hold an object by its own permissions. An import is not
+ * one: it keeps another machine's export only for a user who sees every
+ * record of the org, as its file holds what a user of the org could see,
+ * whatever their permissions here.
+ */
+type PerObjectAct = Exclude<CheckpointAct, 'import'>;
+
+/** The act, as a refusal of a user without the two who is read object by object opens with it. */
+const PER_OBJECT_NEEDS: Readonly<Record<PerObjectAct, string>> = {
+  take:
+    'A checkpoint needs a user with View All Data and Modify All Data, or with View All and ' +
+    'Modify All on each object it holds: a rewind to it must see and put back what everyone ' +
+    'changed there.',
+  preview:
+    'A preview needs a user with View All Data and Modify All Data, or with View All and ' +
+    'Modify All on each object it reads: a record the user cannot see would read as deleted ' +
+    'since.',
+  rewind:
+    'Rewind needs a user with View All Data and Modify All Data, or with View All and Modify ' +
+    'All on each object it puts back: it must see and put back what everyone changed there.',
+  undo:
+    'Undo needs a user with View All Data and Modify All Data, or with View All and Modify ' +
+    'All on each object it takes back: it must see and put back what everyone changed there.',
+};
 
 /**
  * Ask the org, before anything of it is read or written, whether a checkpoint
@@ -247,12 +421,16 @@ async function permissionsOf(
  * @param conn - The connection the act would read and write through.
  * @param request - The act, the org as the registry holds it, and the
  *   checkpoint's Organization Id for any act but a take.
- * @returns The org as it said it is, and its kind; or the refusal, with the
- *   code the panel words it by and the sentence a command line prints.
+ * @param deps - What else the guard reads the org through: the user's id,
+ *   without which a user lacking View All Data and Modify All Data is refused.
+ * @returns The org as it said it is, its kind and what the user may see and
+ *   put back; or the refusal, with the code the panel words it by and the
+ *   sentence a command line prints.
  */
 export async function guardCheckpoint(
-  conn: Pick<Connection, 'query'>,
+  conn: CheckpointGuardConnection,
   request: CheckpointGuardRequest,
+  deps: CheckpointGuardDeps = {},
 ): Promise<CheckpointGuardResult> {
   const { orgName, registered } = request;
   if (registered === undefined) {
@@ -295,15 +473,53 @@ export async function guardCheckpoint(
         NOTHING_DONE,
     );
   }
-  if (held.missing.length > 0) {
-    const lacking =
-      held.missing.length === PERMISSIONS.length ? 'them' : held.missing.join(' and ');
+  const lacking = held.missing.length === PERMISSIONS.length ? 'them' : held.missing.join(' and ');
+  const act = request.act;
+  const userId = act === 'import' ? undefined : deps.userId;
+  if (held.missing.length > 0 && userId === undefined) {
     return refused(
       'PERMISSIONS',
       `${opening} ${request.username} doesn't have ${lacking}. ${NOTHING_DONE}`,
     );
   }
   if (customize && !held.customizeApplication) return customizeRefusal(request);
+  const allowed = {
+    allowed: true,
+    org,
+    tier: tierOf(registered, org),
+    queryAllFiles: held.queryAllFiles,
+  } as const;
+  if (held.missing.length === 0 || userId === undefined || act === 'import') {
+    return { ...allowed, grants: { kind: 'org' } };
+  }
 
-  return { allowed: true, org, tier: tierOf(registered, org), queryAllFiles: held.queryAllFiles };
+  const perObject = await grantsByObject(conn, userId);
+  if ('unread' in perObject) {
+    return refused(
+      'PERMISSIONS',
+      `${PER_OBJECT_NEEDS[act]} ${request.username} doesn't have ${lacking}, and SandForge ` +
+        'could not read which objects they have View All and Modify All on ' +
+        `(${perObject.unread}). View Setup and Configuration lets a user read their own ` +
+        'permissions; with View All Data and Modify All Data, nothing needs reading. ' +
+        NOTHING_DONE,
+    );
+  }
+  if (!coversAnyObject(perObject.grants)) {
+    return refused(
+      'PERMISSIONS',
+      `${PER_OBJECT_NEEDS[act]} ${request.username} doesn't have ${lacking}, nor View All ` +
+        'and Modify All on any object. Give the user View All and Modify All on the objects to ' +
+        `hold, or View All Data and Modify All Data. ${NOTHING_DONE}`,
+    );
+  }
+  return {
+    ...allowed,
+    grants: {
+      kind: 'perObject',
+      viewAllData: held.viewAllData,
+      modifyAllData: held.modifyAllData,
+      objects: perObject.grants,
+      requests: perObject.requests,
+    },
+  };
 }

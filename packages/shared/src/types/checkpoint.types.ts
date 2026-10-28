@@ -3,8 +3,8 @@
  * and the checkpoint's own file.
  *
  * A checkpoint is the state of an org's data at a moment: a snapshot of the
- * objects people work in, read by a user who sees all data, kept on this
- * machine. Rewind puts the org back to it, whoever changed it since: it deletes
+ * objects people work in, read by a user who sees every record of them, kept
+ * on this machine. Rewind puts the org back to it, whoever changed it since: it deletes
  * the records created since, gives the records changed since their values back
  * and brings back from the recycle bin the records deleted since. Undo takes a
  * rewind back from its journal.
@@ -94,10 +94,23 @@ export interface CheckpointOrg {
 }
 
 /**
- * The user who took the checkpoint. Both permissions are required at take,
- * rewind and undo: without View All Data a record the user cannot see reads
- * as deleted, and without Modify All Data other users' deletions cannot be
- * brought back from the recycle bin.
+ * How a checkpoint knows its user sees and puts back every record of an
+ * object: View All Data and Modify All Data (`org`); Modify All on the object
+ * itself, which needs View All on it (`object`); or, for an object with no
+ * permissions of its own — an opportunity's products, a case's comments —
+ * Modify All on every record it hangs from by a lookup whose delete takes it
+ * along (`parent`). An object proven none of these ways is left out, named.
+ */
+export type CheckpointObjectAccess = 'org' | 'object' | 'parent';
+
+/**
+ * The user who took the checkpoint, and whether they had View All Data and
+ * Modify All Data. With both, every object is held, whoever owns its records:
+ * without View All Data a record the user cannot see reads as deleted, and
+ * without Modify All Data other users' deletions cannot be brought back from
+ * the recycle bin. Without them, each object the checkpoint holds says how
+ * its user held it whole ({@link CheckpointObject.access}). A checkpoint
+ * taken before 1.70 holds both, `true`.
  */
 export interface CheckpointTakenBy {
   userId: string;
@@ -106,8 +119,8 @@ export interface CheckpointTakenBy {
    * the rewind's own doing, which the convergence pass takes back too.
    */
   automatedProcessUserId?: string;
-  viewAllData: true;
-  modifyAllData: true;
+  viewAllData: boolean;
+  modifyAllData: boolean;
   /**
    * Whether the user had Query All Files. Without it, a file the user does
    * not own is read only by its id, or through a link to a record the user
@@ -205,6 +218,12 @@ export interface CheckpointObject {
    * checkpoint taken before custom settings could be held.
    */
   customSetting?: CheckpointCustomSettingKind;
+  /**
+   * How its user held it whole at the take ({@link CheckpointObjectAccess}).
+   * Set on each object of a checkpoint taken without View All Data and Modify
+   * All Data; absent from a checkpoint taken before 1.70, whose user had both.
+   */
+  access?: CheckpointObjectAccess;
 }
 
 /**
@@ -386,6 +405,8 @@ export interface CheckpointScopeObject {
   leftOutFields: CheckpointLeftOutField[];
   /** Its kind, when it is a custom setting the take was asked to hold by name. */
   customSetting?: CheckpointCustomSettingKind;
+  /** How its user would hold it whole ({@link CheckpointObjectAccess}); absent from an older answer. */
+  access?: CheckpointObjectAccess;
 }
 
 /**
@@ -456,8 +477,9 @@ export interface CheckpointEstimate {
  * the guards say it: a production org or an unknown edition (`PRODUCTION`,
  * which nothing lifts), an org other than the checkpoint's own
  * (`OTHER_ORG`), an expired scratch org, a user without View All Data and
- * Modify All Data, or without Customize Application where custom settings
- * are held (`PERMISSIONS`), a SandForge run or another take, rewind or
+ * Modify All Data who has View All and Modify All on none of the objects, or
+ * on an object picked, or without Customize Application where custom
+ * settings are held (`PERMISSIONS`), a SandForge run or another take, rewind or
  * undo writing to the org (`RUN_WRITING`), more API requests than the org has
  * left today, more records than the take's limit, automation not accepted,
  * deletions Undo could not bring back not accepted (`NO_UNDO`), records to

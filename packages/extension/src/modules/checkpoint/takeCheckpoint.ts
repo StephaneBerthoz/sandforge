@@ -7,10 +7,18 @@
  * The order is the one a rewind depends on.
  *
  * - Nothing of the org is read before the guard has said it is no production
- *   org and its user sees and may put back every record; and no record before
- *   the org's lock is held, the scope is settled and its counts fit the limit
- *   and the requests the org has left today. A refusal names why, and leaves
- *   nothing behind.
+ *   org and its user sees and may put back every record — with View All Data
+ *   and Modify All Data, or object by object; and no record before the org's
+ *   lock is held, the scope is settled and its counts fit the limit and the
+ *   requests the org has left today. A refusal names why, and leaves nothing
+ *   behind.
+ * - Without View All Data and Modify All Data, the scope keeps only the
+ *   objects the user is proven to see and put back whole, each with how
+ *   (`checkpointAccess.ts`), once described: an object hangs from what its
+ *   parents' describes say. One left out is named with why; one asked for by
+ *   name refuses the take, as does a scope of which none is proven. The file
+ *   says, of the user, which of the two they had, and of each object how it
+ *   was held: a rewind to it reads its user's permissions again.
  * - T0, the moment the checkpoint is of, is read on the org's clock before the
  *   records are counted. An object counted empty is then one read empty after
  *   T0, as any other object read after it is, and its snapshot is not asked
@@ -70,6 +78,7 @@ import {
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointObject,
+  type CheckpointObjectAccess,
   type CheckpointFiles,
   type CheckpointRefusal,
   type CheckpointScopeCustomSetting,
@@ -117,7 +126,12 @@ import {
 } from './checkpointFields.js';
 import { fingerprintOf, type ObjectFingerprint } from './checkpointFingerprint.js';
 import { linksCountRead, takeFiles } from './checkpointFiles.js';
-import { guardCheckpoint } from './checkpointGuard.js';
+import { coverageOf, parentsToDescribe } from './checkpointAccess.js';
+import {
+  guardCheckpoint,
+  type CheckpointGrants,
+  type CheckpointGuardConnection,
+} from './checkpointGuard.js';
 import { compressedSnapshotFiles } from './compressedSnapshotFiles.js';
 import {
   FILE_LINK_OBJECT,
@@ -135,6 +149,7 @@ import {
 } from './checkpointScope.js';
 import {
   OrgReadStopped,
+  SUBREQUESTS_PER_COMPOSITE,
   compositeConnectionOf,
   compositeReader,
   type CompositeQueryConnection,
@@ -408,6 +423,30 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
     'Left out: the org deletes its records for good, with no recycle bin, so nothing would ' +
     'tell one deleted since, nor bring it back.',
   unreadable: 'Left out: the org refuses to read it whole.',
+  noViewAll:
+    'Without View All Data and Modify All Data, an object is held only with View All and ' +
+    'Modify All on it, and the user SandForge connects as has neither on this one: a record ' +
+    'they cannot see would read as deleted since.',
+  noModifyAll:
+    'Without View All Data and Modify All Data, an object is held only with View All and ' +
+    'Modify All on it, and the user SandForge connects as has View All on this one, not ' +
+    'Modify All: a rewind could not put back what others changed.',
+  activities:
+    'Without View All Data and Modify All Data, tasks and events are left out: Salesforce has ' +
+    'no View All for activities, and a private one linked to no record stays out of sight.',
+  catalog:
+    'Without View All Data and Modify All Data, products and price books are left out: ' +
+    'Salesforce has no View All or Modify All for them.',
+  filesNotProven:
+    'Without View All Data and Modify All Data, files are left out: nothing proves the user ' +
+    'sees every file.',
+  settingNotProven:
+    'Without View All Data and Modify All Data, custom settings are left out: no permission ' +
+    'on an object proves the user sees and writes every row.',
+  parentNotSeen:
+    'Without View All Data and Modify All Data, an object with no permissions of its own is ' +
+    'held only when the user has View All and Modify All on every record it hangs from, which ' +
+    'is not proven here.',
 };
 
 /** An object the scope left out, as the checkpoint's file and the take's answer name it. */
@@ -480,6 +519,8 @@ interface Described {
   capture: ObjectCapture;
   /** Its kind, when it is a custom setting the take holds. */
   customSetting?: CheckpointCustomSettingKind;
+  /** How its user holds it whole: set once the user's permissions are read against the scope. */
+  access?: CheckpointObjectAccess;
 }
 
 /** The scope read from the org's describes: what a take would hold, before any count. */
@@ -805,7 +846,12 @@ async function recountsOf(
  * counts and the print it has then.
  */
 function entryOf(
-  { scoped, capture, customSetting }: Pick<Planned, 'scoped' | 'capture' | 'customSetting'>,
+  {
+    scoped,
+    capture,
+    customSetting,
+    access,
+  }: Pick<Planned, 'scoped' | 'capture' | 'customSetting' | 'access'>,
   records: number,
   inBin: number,
   fingerprint: string,
@@ -823,6 +869,7 @@ function entryOf(
     fields: capture.fields,
     leftOutFields: capture.leftOutFields,
     ...(customSetting !== undefined ? { customSetting } : {}),
+    ...(access !== undefined ? { access } : {}),
   };
 }
 
@@ -852,7 +899,8 @@ function pageRowsOf(registered: OrgTypeAndEdition | undefined): number {
  * read whole and objects past the limit for one object left out, named; the
  * rest refused past the take's limit or past the requests the org has left
  * today. What the take reads of each object beyond its records is counted
- * from `readFrom`, T0, for the estimate.
+ * from `readFrom`, T0, for the estimate, with what reading its user's
+ * permissions object by object sent (`proven`).
  */
 async function planOf(
   org: TakeOrg,
@@ -862,6 +910,7 @@ async function planOf(
   budget: ApiBudget,
   readFrom: string,
   signal: AbortSignal | undefined,
+  proven: AccessReads = NO_ACCESS_READS,
 ): Promise<Plan> {
   const maxTotal = request.maxTotal ?? DEFAULT_MAX_TOTAL;
   if (!Number.isInteger(maxTotal) || maxTotal < 1) {
@@ -922,23 +971,26 @@ async function planOf(
   for (const { scoped, describe } of objects) {
     prints[scoped.objectApiName] = fingerprintOf(describe.fields);
   }
-  const cost = takeEstimate({
-    described: scope.described,
-    describedAlone: scope.describedAlone,
-    counted: scope.objects.length,
-    countedAlone: alone,
-    recounted: recounts.asked,
-    objects: objects.map((object): TakenObject => ({
-      records: object.records,
-      otherGroups: object.otherGroups,
-      ...object.recount,
-      // None in the bin yet: the take reads it after the estimate.
-      entry: entryOf(object, object.records, 0, prints[object.scoped.objectApiName].digest),
-    })),
-    pageRows: pageRowsOf(request.registered),
-    leftOut,
-    printsBytes: (await compressedFieldPrints(prints)).length,
-  });
+  const cost = withAccessReads(
+    proven,
+    takeEstimate({
+      described: scope.described,
+      describedAlone: scope.describedAlone,
+      counted: scope.objects.length,
+      countedAlone: alone,
+      recounted: recounts.asked,
+      objects: objects.map((object): TakenObject => ({
+        records: object.records,
+        otherGroups: object.otherGroups,
+        ...object.recount,
+        // None in the bin yet: the take reads it after the estimate.
+        entry: entryOf(object, object.records, 0, prints[object.scoped.objectApiName].digest),
+      })),
+      pageRows: pageRowsOf(request.registered),
+      leftOut,
+      printsBytes: (await compressedFieldPrints(prints)).length,
+    }),
+  );
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
   const plan: Plan = {
     objects,
@@ -964,14 +1016,186 @@ async function planOf(
   return overBudget === undefined ? plan : { ...plan, refusal: overBudget };
 }
 
-/** {@link guardCheckpoint}'s view of the take's org: it reads the answer's records, nothing else of jsforce's query. */
-function guardConnectionOf(org: TakeOrg): Pick<Connection, 'query'> {
-  return { query: (soql: string) => org.query(soql) } as unknown as Pick<Connection, 'query'>;
+/**
+ * {@link guardCheckpoint}'s view of the take's org: it reads the answer's
+ * records and next pages, nothing else of jsforce's query.
+ */
+function guardConnectionOf(org: TakeOrg): CheckpointGuardConnection {
+  return {
+    query: (soql: string) => org.query(soql),
+    queryMore: (nextRecordsUrl: string) => org.queryMore(nextRecordsUrl),
+  } as unknown as CheckpointGuardConnection;
+}
+
+/** What reading the user's permissions object by object sent, phase by phase, beyond the take's own reads. */
+interface AccessReads {
+  /** The guard's reads of the user and their permission rows. */
+  guard: number;
+  /** The describes of the objects the scope's objects hang from. */
+  scope: number;
+}
+
+/** What a take of a user with View All Data and Modify All Data sends to read them: nothing more. */
+const NO_ACCESS_READS: AccessReads = { guard: 0, scope: 0 };
+
+/** `cost` with what reading the user's permissions object by object sent, in the phases that send it. */
+function withAccessReads<T extends Pick<CheckpointEstimate, 'apiRequests' | 'requestsByPhase'>>(
+  reads: AccessReads,
+  cost: T,
+): T {
+  if (reads.guard + reads.scope === 0) return cost;
+  const byPhase = cost.requestsByPhase;
+  return {
+    ...cost,
+    apiRequests: cost.apiRequests + reads.guard + reads.scope,
+    ...(byPhase !== undefined
+      ? {
+          requestsByPhase: {
+            ...byPhase,
+            guard: byPhase.guard + reads.guard,
+            scope: byPhase.scope + reads.scope,
+          },
+        }
+      : {}),
+  };
+}
+
+/** The objects a take was asked for by name, in lower case: those picked, and the custom settings named. */
+function namedObjectsOf(request: TakeRequest): Set<string> {
+  const named = [
+    ...(request.mode === 'picked' ? (request.objects ?? []) : []),
+    ...(Array.isArray(request.customSettings) ? request.customSettings : []),
+  ];
+  return new Set(named.map((name) => name.toLowerCase()));
+}
+
+/** Names as a sentence reads them: `A`, `A and B`, `A, B and C`. */
+function listed(names: readonly string[]): string {
+  return names.length <= 1
+    ? (names[0] ?? '')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** The scope a take may hold, as its user's permissions prove it, what proving it sent, and the refusal it meets. */
+interface HeldWhole {
+  scope: DescribedScope;
+  reads: AccessReads;
+  refusal?: CheckpointRefusal;
+}
+
+/**
+ * The objects of `scope` the user is proven to see and put back whole, each
+ * with how (`checkpointAccess.ts`), the others left out with why. With View
+ * All Data and Modify All Data, every object, `org`. Without them, the
+ * objects each object hangs from that the scope did not describe are
+ * described first, 25 a composite: what a lookup's delete takes along only
+ * its parent's describe says. An object asked for by name and not proven
+ * refuses the take, naming it: the person asked for it, and it does not go
+ * in silence. One the scope holds otherwise is left out, named; and when no
+ * object is proven, the take is refused.
+ */
+async function heldWholeOf(
+  org: TakeOrg,
+  reader: CompositeReader,
+  request: TakeRequest,
+  scope: DescribedScope,
+  grants: CheckpointGrants,
+  signal: AbortSignal | undefined,
+): Promise<HeldWhole> {
+  if (grants.kind === 'org') {
+    return {
+      scope: { ...scope, objects: scope.objects.map((object) => ({ ...object, access: 'org' })) },
+      reads: NO_ACCESS_READS,
+    };
+  }
+  const names = scope.objects.map(({ scoped }) => scoped.objectApiName);
+  const input = {
+    grants: grants.objects,
+    describes: scope.objects.map(({ describe }) => describe),
+    customSettings: scope.objects
+      .filter(({ customSetting }) => customSetting !== undefined)
+      .map(({ scoped }) => scoped.objectApiName),
+  };
+  const wanted = parentsToDescribe(names, input);
+  let parents: CheckpointDescribe[] = [];
+  let described = 0;
+  if (wanted.length > 0) {
+    try {
+      const read = await describeAll(org, reader, wanted);
+      parents = [...read.describes.values()];
+      described = Math.ceil(wanted.length / SUBREQUESTS_PER_COMPOSITE) + read.alone;
+    } catch (err: unknown) {
+      // A parent the org did not describe proves nothing: what hangs from
+      // it is left out, named, never held on a guess.
+      if (stopped(err, signal)) throw err;
+    }
+  }
+  const coverage = coverageOf(names, { ...input, describes: [...input.describes, ...parents] });
+  const named = namedObjectsOf(request);
+  const objects: Described[] = [];
+  const leftOut: ScopeLeftOut[] = [...scope.leftOut];
+  const refusedByName: ScopeLeftOut[] = [];
+  for (const object of scope.objects) {
+    const name = object.scoped.objectApiName;
+    const proof = coverage.get(name);
+    if (proof !== undefined && 'access' in proof) {
+      objects.push({ ...object, access: proof.access });
+      continue;
+    }
+    const out: ScopeLeftOut = {
+      objectApiName: name,
+      reason: proof?.reason ?? 'noViewAll',
+      ...(proof?.detail !== undefined ? { detail: proof.detail } : {}),
+    };
+    leftOut.push(out);
+    if (named.has(name.toLowerCase())) refusedByName.push(out);
+  }
+  const kept = new Set(objects.map(({ scoped }) => scoped.objectApiName));
+  const held: HeldWhole = {
+    scope: {
+      ...scope,
+      objects,
+      leftOut,
+      addedToPicked: scope.addedToPicked.filter((name) => kept.has(name)),
+    },
+    reads: { guard: grants.requests, scope: described },
+  };
+  if (refusedByName.length > 0) {
+    const one = refusedByName.length === 1;
+    return {
+      ...held,
+      refusal: {
+        code: 'PERMISSIONS',
+        message:
+          `${request.username} doesn't have View All Data and Modify All Data, and the ` +
+          `checkpoint can't hold ${listed(refusedByName.map((out) => out.objectApiName))}, asked ` +
+          'for by name. ' +
+          `${refusedByName.map((out) => `${out.objectApiName}: ${leftOutOf(out).reason}`).join(' ')} ` +
+          `Leave ${one ? 'it' : 'them'} out, or give the user View All Data and Modify All ` +
+          `Data. ${NOTHING_READ}`,
+      },
+    };
+  }
+  if (objects.length === 0 && scope.objects.length > 0) {
+    return {
+      ...held,
+      refusal: {
+        code: 'PERMISSIONS',
+        message:
+          `${request.username} doesn't have View All Data and Modify All Data, nor View All ` +
+          'and Modify All on any object this checkpoint would hold: without them, a checkpoint ' +
+          'holds only the objects its user sees and puts back whole. Give the user View All and ' +
+          'Modify All on the objects to hold, or View All Data and Modify All Data. ' +
+          NOTHING_READ,
+      },
+    };
+  }
+  return held;
 }
 
 /** The scope's objects as the take's answer lists them, before anything is read. */
 function scopeObjectsOf(plan: Plan): CheckpointScopeObject[] {
-  return plan.objects.map(({ scoped, label, capture, records, customSetting }) => ({
+  return plan.objects.map(({ scoped, label, capture, records, customSetting, access }) => ({
     objectApiName: scoped.objectApiName,
     label,
     ...(scoped.namespace !== undefined ? { namespace: scoped.namespace } : {}),
@@ -979,6 +1203,7 @@ function scopeObjectsOf(plan: Plan): CheckpointScopeObject[] {
     undeletable: capture.undeletable,
     leftOutFields: capture.leftOutFields,
     ...(customSetting !== undefined ? { customSetting } : {}),
+    ...(access !== undefined ? { access } : {}),
   }));
 }
 
@@ -1061,24 +1286,45 @@ const NO_ESTIMATE: CheckpointEstimate = {
  */
 export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Promise<TakeScope> {
   const empty = { mode: request.mode, objects: [], leftOut: [], estimate: NO_ESTIMATE };
-  const guard = await guardCheckpoint(guardConnectionOf(deps.org), {
-    act: 'take',
-    orgName: request.orgName,
-    registered: request.registered,
-    username: request.username,
-    customSettings: namesCustomSettings(request),
-  });
+  const guard = await guardCheckpoint(
+    guardConnectionOf(deps.org),
+    {
+      act: 'take',
+      orgName: request.orgName,
+      registered: request.registered,
+      username: request.username,
+      customSettings: namesCustomSettings(request),
+    },
+    { userId: () => deps.org.userId() },
+  );
   if (!guard.allowed) return { ...empty, refusal: guard.refusal };
   const holder = deps.store.heldBy(guard.org.id);
   const writing = holder === undefined ? await deps.runWriting?.(guard.org.id) : undefined;
   const reader = compositeReader(deps.org, deps.signal);
   try {
     const budget = await readBudget(deps.org, request.orgName);
-    const scope = await describeScope(deps.org, reader, request);
+    const held = await heldWholeOf(
+      deps.org,
+      reader,
+      request,
+      await describeScope(deps.org, reader, request),
+      guard.grants,
+      deps.signal,
+    );
+    const { scope } = held;
     // The moment a take begun now would be of: what its reads beyond the
     // records are counted from.
     const readFrom = await deps.org.serverTime();
-    const plan = await planOf(deps.org, reader, request, scope, budget, readFrom, deps.signal);
+    const plan = await planOf(
+      deps.org,
+      reader,
+      request,
+      scope,
+      budget,
+      readFrom,
+      deps.signal,
+      held.reads,
+    );
     const answer: TakeScope = {
       mode: request.mode,
       objects: scopeObjectsOf(plan),
@@ -1096,7 +1342,7 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
         ? lockedRefusal(request.orgName, holder)
         : writing !== undefined
           ? { code: 'RUN_WRITING' as const, message: writing }
-          : plan.refusal;
+          : (held.refusal ?? plan.refusal);
     return refusal === undefined ? answer : { ...answer, refusal };
   } catch (err: unknown) {
     if (stopped(err, deps.signal)) throw new CheckpointTakeStopped();
@@ -1400,13 +1646,17 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
 
   report(0, `Checking ${request.orgName}`);
   const count = phaseCount(org);
-  const guard = await guardCheckpoint(guardConnectionOf(org), {
-    act: 'take',
-    orgName: request.orgName,
-    registered: request.registered,
-    username: request.username,
-    customSettings: namesCustomSettings(request),
-  });
+  const guard = await guardCheckpoint(
+    guardConnectionOf(org),
+    {
+      act: 'take',
+      orgName: request.orgName,
+      registered: request.registered,
+      username: request.username,
+      customSettings: namesCustomSettings(request),
+    },
+    { userId: () => org.userId() },
+  );
   if (!guard.allowed) return { taken: false, refusal: guard.refusal };
   const organizationId = guard.org.id;
   const checkpointId = newFolderId('ck', now());
@@ -1426,14 +1676,23 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     const budget = await readBudget(org, request.orgName);
     report(2, `Reading the objects of ${request.orgName}`);
     count.enter('scope');
-    const scope = await describeScope(org, reader, request);
+    const held = await heldWholeOf(
+      org,
+      reader,
+      request,
+      await describeScope(org, reader, request),
+      guard.grants,
+      signal,
+    );
+    if (held.refusal !== undefined) return { taken: false, refusal: held.refusal };
+    const { scope } = held;
     count.enter('start');
     const userId = await org.userId();
     const automatedProcessUserId = await automatedProcessUserOf(org);
     const readFrom = await org.serverTime();
     report(8, `Counting the records of ${scope.objects.length} objects`);
     count.enter('counts');
-    const plan = await planOf(org, reader, request, scope, budget, readFrom, signal);
+    const plan = await planOf(org, reader, request, scope, budget, readFrom, signal, held.reads);
     if (plan.refusal !== undefined) return { taken: false, refusal: plan.refusal };
     if (plan.objects.length === 0) {
       throw new Error(
@@ -1464,8 +1723,9 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       takenBy: {
         userId,
         ...(automatedProcessUserId !== undefined ? { automatedProcessUserId } : {}),
-        viewAllData: true,
-        modifyAllData: true,
+        // Both true unless the user's permissions were read object by object.
+        viewAllData: guard.grants.kind === 'org' || guard.grants.viewAllData,
+        modifyAllData: guard.grants.kind === 'org' || guard.grants.modifyAllData,
         queryAllFiles: guard.queryAllFiles,
       },
       readFrom,

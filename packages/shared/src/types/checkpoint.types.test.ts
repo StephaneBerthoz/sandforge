@@ -6,6 +6,7 @@ import type {
   CheckpointCustomSettingKind,
   CheckpointEstimate,
   CheckpointLeftOutFieldReason,
+  CheckpointObjectAccess,
   CheckpointOrgTier,
   CheckpointReadMode,
   CheckpointScopeMode,
@@ -22,6 +23,7 @@ import {
   checkpointArchiveHeaderSchema,
   checkpointCustomSettingKindSchema,
   checkpointLeftOutFieldReasonSchema,
+  checkpointObjectAccessSchema,
   checkpointOrgTierSchema,
   checkpointReadModeSchema,
   checkpointScopeModeSchema,
@@ -55,10 +57,17 @@ describe('the checkpoint file and its schema', () => {
     expect(checkpointReadModeSchema.options).toEqual(['query', 'scanAllLive']);
   });
 
-  it('holds a version 1 file, taken by a user who sees and changes all data', () => {
+  it('holds a version 1 file, taken by a user who sees and changes all data or each object it holds', () => {
     expectTypeOf<OrgCheckpoint['version']>().toEqualTypeOf<1>();
-    expectTypeOf<OrgCheckpoint['takenBy']['viewAllData']>().toEqualTypeOf<true>();
-    expectTypeOf<OrgCheckpoint['takenBy']['modifyAllData']>().toEqualTypeOf<true>();
+    expectTypeOf<OrgCheckpoint['takenBy']['viewAllData']>().toEqualTypeOf<boolean>();
+    expectTypeOf<OrgCheckpoint['takenBy']['modifyAllData']>().toEqualTypeOf<boolean>();
+    expectTypeOf<OrgCheckpoint['objects'][number]['access']>().toEqualTypeOf<
+      CheckpointObjectAccess | undefined
+    >();
+    expectTypeOf<
+      z.infer<typeof checkpointObjectAccessSchema>
+    >().toEqualTypeOf<CheckpointObjectAccess>();
+    expect(checkpointObjectAccessSchema.options).toEqual(['org', 'object', 'parent']);
     expectTypeOf<OrgCheckpoint['ignoredFields']>().toEqualTypeOf<string[]>();
     expectTypeOf<OrgCheckpoint['expiresAt']>().toEqualTypeOf<string | null>();
   });

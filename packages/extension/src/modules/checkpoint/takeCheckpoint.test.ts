@@ -131,6 +131,8 @@ const CHILDREN: Record<string, MemoryChild[]> = {
     { childSObject: 'Attachment', field: 'ParentId', cascadeDelete: true },
   ],
   Contact: [{ childSObject: 'Case', field: 'ContactId' }],
+  // A case's comments go with it: they have no permissions of their own.
+  Case: [{ childSObject: 'CaseComment', field: 'ParentId', cascadeDelete: true }],
 };
 
 /** The data objects described above, as the org lists them. */
@@ -1840,6 +1842,269 @@ describe('takeCheckpoint — the files', () => {
     expect(without).not.toHaveProperty('files');
     const read = await h.store.read(without.checkpointId);
     expect(read !== undefined && existsSync(read.folder.filesDir)).toBe(false);
+  });
+});
+
+/** The permission set of a test's own, assigned to the user the take reads as. */
+const OWN_SET = '0PS000000000001AAA';
+
+/**
+ * The user's rows of `ObjectPermissions`, as an org holds them for a user
+ * without View All Data and Modify All Data: one row per object of a set
+ * assigned to them on its own, View All and Modify All as told.
+ */
+function grantObjects(
+  org: TakeTestOrg,
+  rows: Record<string, { viewAll?: boolean; modifyAll?: boolean }>,
+): void {
+  clock = LONG_AGO;
+  org.add('PermissionSetAssignment', {
+    Id: '0Pa000000000001AAA',
+    AssigneeId: MEMORY_ORG_USER,
+    PermissionSetId: OWN_SET,
+    PermissionSetGroupId: null,
+  });
+  let n = 0;
+  for (const [object, held] of Object.entries(rows)) {
+    org.add('ObjectPermissions', {
+      Id: `110${String(++n).padStart(12, '0')}AAA`,
+      ParentId: OWN_SET,
+      SobjectType: object,
+      PermissionsViewAllRecords: held.viewAll ?? held.modifyAll ?? false,
+      PermissionsModifyAllRecords: held.modifyAll ?? false,
+    });
+  }
+  clock = T0;
+}
+
+/** The words a checkpoint leaves an object out with, without View All Data and Modify All Data. */
+const WITHOUT_BOTH = {
+  noViewAll:
+    'Without View All Data and Modify All Data, an object is held only with View All and ' +
+    'Modify All on it, and the user SandForge connects as has neither on this one: a record ' +
+    'they cannot see would read as deleted since.',
+  noModifyAll:
+    'Without View All Data and Modify All Data, an object is held only with View All and ' +
+    'Modify All on it, and the user SandForge connects as has View All on this one, not ' +
+    'Modify All: a rewind could not put back what others changed.',
+  activities:
+    'Without View All Data and Modify All Data, tasks and events are left out: Salesforce has ' +
+    'no View All for activities, and a private one linked to no record stays out of sight.',
+};
+
+/** A case's comments, as the org describes them: a body, and the case they hang from. */
+const COMMENT_FIELDS = [
+  ...STAMP_FIELDS,
+  writable('CommentBody'),
+  writable('ParentId', 'reference', { referenceTo: ['Case'] }),
+];
+
+describe('takeCheckpoint — a user without View All Data and Modify All Data', () => {
+  it('holds, of everything people work in, the objects the user has Modify All on, each saying so, and leaves out the others named with why', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, {
+      Account: { modifyAll: true },
+      Contact: { modifyAll: true },
+      Case: { viewAll: true },
+      Lead: {},
+      Task: { modifyAll: true },
+    });
+
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(
+      checkpoint.objects.map(({ objectApiName, readOrder, access }) => [
+        objectApiName,
+        readOrder,
+        access,
+      ]),
+    ).toEqual([
+      ['Contact', 0, 'object'],
+      ['Account', 1, 'object'],
+    ]);
+    expect(checkpoint.takenBy).toEqual({
+      userId: MEMORY_ORG_USER,
+      automatedProcessUserId: AUTOMATED_PROCESS,
+      viewAllData: true,
+      modifyAllData: false,
+      queryAllFiles: false,
+    });
+    expect(checkpoint.scope.leftOut).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'Case', reason: WITHOUT_BOTH.noModifyAll },
+        { objectApiName: 'Lead', reason: WITHOUT_BOTH.noViewAll },
+        { objectApiName: 'Task', reason: WITHOUT_BOTH.activities },
+      ]),
+    );
+    // Neither the cases nor the tasks were read, nor their recycle bins.
+    expect(snapshotReads(h.sent)).toEqual(['Contact', 'Account']);
+    expect(readsRecords(h.org.asked).join(' ')).not.toMatch(/FROM (Case|Task|Lead)\b/);
+    // The file it wrote reads back as one taken object by object.
+    const [entry] = await h.store.list({ organizationId: ORG_ID, now: MACHINE_NOW });
+    expect(entry).toMatchObject({ checkpointId: checkpoint.checkpointId, valid: true });
+  });
+
+  it('holds a case’s comments by the cases they hang from, described for it when the objects picked do not hold them', async () => {
+    const h = harness({ modifyAllData: false }, { ...DATA_OBJECTS, CaseComment: {} });
+    h.org.changeSchema('CaseComment', COMMENT_FIELDS);
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Case: { modifyAll: true } });
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(
+        h.deps,
+        request({ mode: 'picked', objects: ['CaseComment', 'Account'] }),
+      ),
+    );
+
+    expect(checkpoint.objects.map(({ objectApiName, access }) => [objectApiName, access])).toEqual([
+      ['Account', 'object'],
+      ['CaseComment', 'parent'],
+    ]);
+    expect(
+      h.org.asked.some((what) => /\/sobjects\/Case\/describe/.test(decodeURIComponent(what))),
+    ).toBe(true);
+
+    // The cases' Modify All taken away, the comments are refused by name.
+    const lacking = harness({ modifyAllData: false }, { ...DATA_OBJECTS, CaseComment: {} });
+    lacking.org.changeSchema('CaseComment', COMMENT_FIELDS);
+    seed(lacking.org);
+    grantObjects(lacking.org, { Account: { modifyAll: true }, Case: { viewAll: true } });
+    const refused = await takeCheckpoint(
+      lacking.deps,
+      request({ mode: 'picked', objects: ['CaseComment', 'Account'] }),
+    );
+    expect(refused).toMatchObject({ taken: false, refusal: { code: 'PERMISSIONS' } });
+    expect(refused.taken === false && refused.refusal.message).toContain(
+      'CaseComment: Without View All Data and Modify All Data, an object with no permissions of ' +
+        'its own is held only when the user has View All and Modify All on every record it ' +
+        'hangs from, which is not proven here (Case, which ParentId names, is not held whole).',
+    );
+  });
+
+  it('refuses a take of picked objects one of which the user is not proven to hold, naming each with why, before reading any record, and keeps nothing', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Case: { viewAll: true } });
+
+    const outcome = await takeCheckpoint(
+      h.deps,
+      request({ mode: 'picked', objects: ['Account', 'Case', 'Task'] }),
+    );
+
+    expect(outcome).toEqual({
+      taken: false,
+      refusal: {
+        code: 'PERMISSIONS',
+        message:
+          "tester@example.com doesn't have View All Data and Modify All Data, and the " +
+          "checkpoint can't hold Case and Task, asked for by name. " +
+          `Case: ${WITHOUT_BOTH.noModifyAll} Task: ${WITHOUT_BOTH.activities} Leave them out, ` +
+          'or give the user View All Data and Modify All Data. No record was read.',
+      },
+    });
+    expect(readsRecords(h.org.asked)).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+
+  it('leaves out, named, the files a scope of picked objects adds though they were not picked, and holds the rest', async () => {
+    const h = harness({ modifyAllData: false }, { ...DATA_OBJECTS, ...FILE_OBJECTS });
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Contact: { modifyAll: true } });
+
+    const scope = await scopeCheckpoint(
+      h.deps,
+      request({ mode: 'picked', objects: ['Account', 'Contact'] }),
+    );
+    const { checkpoint } = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account', 'Contact'] })),
+    );
+
+    expect(scope.refusal).toBeUndefined();
+    expect(scope.objects.map(({ objectApiName, access }) => [objectApiName, access])).toEqual([
+      ['Contact', 'object'],
+      ['Account', 'object'],
+    ]);
+    expect(scope.files).toEqual({ held: false, queryAllFiles: false, addedToPicked: [] });
+    expect(checkpoint.objects.map(({ objectApiName }) => objectApiName)).toEqual([
+      'Contact',
+      'Account',
+    ]);
+    expect(checkpoint).not.toHaveProperty('files');
+    expect(checkpoint.scope.leftOut).toEqual([
+      {
+        objectApiName: 'Attachment',
+        reason:
+          'Without View All Data and Modify All Data, an object with no permissions of its own ' +
+          'is held only when the user has View All and Modify All on every record it hangs ' +
+          'from, which is not proven here (ParentId may name a record of Account, Contact, ' +
+          'Case).',
+      },
+      {
+        objectApiName: 'ContentDocument',
+        reason:
+          'Without View All Data and Modify All Data, files are left out: nothing proves the ' +
+          'user sees every file.',
+      },
+    ]);
+  });
+
+  it('refuses a take of which no object is proven, before reading any record', async () => {
+    const h = harness({ modifyAllData: false });
+    seed(h.org);
+    grantObjects(h.org, { Lead: { modifyAll: true } });
+
+    const outcome = await takeCheckpoint(h.deps, request({ excluded: ['Lead'] }));
+
+    expect(outcome).toEqual({
+      taken: false,
+      refusal: {
+        code: 'PERMISSIONS',
+        message:
+          "tester@example.com doesn't have View All Data and Modify All Data, nor View All and " +
+          'Modify All on any object this checkpoint would hold: without them, a checkpoint ' +
+          'holds only the objects its user sees and puts back whole. Give the user View All ' +
+          'and Modify All on the objects to hold, or View All Data and Modify All Data. No ' +
+          'record was read.',
+      },
+    });
+    expect(readsRecords(h.org.asked)).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
+  });
+
+  it('counts what reading the user’s permissions and describing what objects hang from sent, in the phases its estimate said', async () => {
+    const h = harness({ modifyAllData: false }, { ...DATA_OBJECTS, CaseComment: {} });
+    h.org.changeSchema('CaseComment', COMMENT_FIELDS);
+    seed(h.org);
+    grantObjects(h.org, { Account: { modifyAll: true }, Case: { modifyAll: true } });
+    const asked = request({ mode: 'picked', objects: ['CaseComment', 'Account'] });
+    const scope = await scopeCheckpoint(h.deps, asked);
+
+    const outcome = taken(await takeCheckpoint(h.deps, asked));
+
+    // Beside the org's four: the user, their own rows, their groups.
+    expect(outcome.requests?.byPhase.guard).toBe(4 + 3);
+    // Beside the two global describes, the picked objects' composite and the
+    // encryption right: the composite that describes the cases.
+    expect(outcome.requests?.byPhase.scope).toBe(4 + 1);
+    expect(outcome.estimate.requestsByPhase).toEqual(outcome.requests?.byPhase);
+    expect(outcome.estimate).toEqual(scope.estimate);
+    expect(outcome.requests?.total).toBe(scope.estimate.apiRequests);
+  });
+
+  it('holds every object as the org’s own, with both permissions, and says so in the scope it offers', async () => {
+    const h = harness();
+    seed(h.org);
+
+    const scope = await scopeCheckpoint(h.deps, request());
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(new Set(scope.objects.map(({ access }) => access))).toEqual(new Set(['org']));
+    expect(new Set(checkpoint.objects.map(({ access }) => access))).toEqual(new Set(['org']));
+    expect(checkpoint.takenBy).toMatchObject({ viewAllData: true, modifyAllData: true });
+    expect(h.org.asked.join(' ')).not.toMatch(/ObjectPermissions|PermissionSetAssignment/);
   });
 });
 
