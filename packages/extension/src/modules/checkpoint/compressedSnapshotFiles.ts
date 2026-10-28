@@ -247,7 +247,10 @@ async function* inflatedLines(file: string): AsyncGenerator<string> {
   if ((await stat(file)).size === 0) return;
   const source = createReadStream(file);
   const inflate = createGunzip();
-  source.on('error', (err) => inflate.destroy(err));
+  const onSourceError = (err: Error): void => {
+    inflate.destroy(err);
+  };
+  source.on('error', onSourceError);
   source.pipe(inflate);
   const decoder = new StringDecoder('utf8');
   let rest = '';
@@ -260,6 +263,7 @@ async function* inflatedLines(file: string): AsyncGenerator<string> {
     rest += decoder.end();
     if (rest !== '') yield rest;
   } finally {
+    source.off('error', onSourceError);
     source.destroy();
     inflate.destroy();
   }
