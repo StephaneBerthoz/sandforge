@@ -405,6 +405,12 @@ export interface SeedRunRemovalInfo {
    * import, or a clone from another org. Absent for a seed.
    */
   origin?: 'csv' | 'clone';
+  /**
+   * The pipeline whose Seed step ran the seed, by its name: absent for a seed
+   * from the Seed page. A pipeline's seed is kept, listed and taken back as
+   * the page's are, and nobody watched it write.
+   */
+  pipeline?: { name: string };
   /** The org a clone read from. */
   sourceOrgId?: string;
   /** When the run started, by this machine's clock. */

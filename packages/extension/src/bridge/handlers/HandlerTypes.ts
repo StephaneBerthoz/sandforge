@@ -283,6 +283,8 @@ const SYNTHETIC_ID_PREFIX = {
   'sync:schedule': 'sync:schedule:',
   /** A pipeline's Sync step (`SyncOpsHandler.executeScheduled`); the id is also its operationId. */
   'sync:pipeline': 'sync:pipeline:',
+  /** A pipeline's Seed step (`SeedOpsHandler.seedForPipeline`); the id is also its operationId. */
+  'seed:pipeline': 'seed:pipeline:',
   /** An operation queued while offline (`ExtensionHandlers.replayQueuedOperation`). */
   'offline-replay': 'offline-replay-',
 } as const;

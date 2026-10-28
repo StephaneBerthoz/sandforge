@@ -145,6 +145,12 @@ const idSchema = z.string().regex(/^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/);
 const objectSchema = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/);
 const dateSchema = z.string().min(1).max(40);
 
+/**
+ * The longest name of a pipeline a run's file keeps: a recorder cuts a longer
+ * one to it (`SeedRunCreations.recorder`), as the schema reads no more.
+ */
+export const PIPELINE_NAME_KEPT = 500;
+
 /** The first line of a run's file: the run, its configuration and its orgs. */
 const headSchema = z.object({
   run: z.object({
@@ -160,6 +166,14 @@ const headSchema = z.object({
      * run names none.
      */
     origin: z.enum(['csv', 'clone']).optional(),
+    /**
+     * The pipeline whose step ran the run, by its name (`SeedRunCreations`):
+     * a Seed step's run is kept, listed and taken back as the Seed page's
+     * are. Absent for a run started from a page. Any name reads, an empty one
+     * too, the recorder cutting a long one to {@link PIPELINE_NAME_KEPT}: a
+     * run whose first line does not read cannot be taken back.
+     */
+    pipeline: z.object({ name: z.string().max(PIPELINE_NAME_KEPT) }).optional(),
     /**
      * Set for a session of the Sync page's Real-Time tab (`RealtimeHandler`),
      * kept as a run is from its first write to its stop, under no saved

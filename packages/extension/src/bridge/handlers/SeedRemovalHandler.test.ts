@@ -216,6 +216,30 @@ describe('SeedRemovalHandler', () => {
       expect(listed[0].refusal).toBeUndefined();
     });
 
+    it('lists a seed a pipeline ran by its pipeline, removable as a seed of the page', async () => {
+      const at = new Date(Date.now() - 4 * 60_000).toISOString();
+      const recorder = runs.recorder({
+        runId: 'op-pipeline',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        pipeline: { name: 'Nightly refresh' },
+      });
+      recorder.note('Contact', [fakeId('003', 7)]);
+      await recorder.end({ status: 'success', finishedAt: at, objectResults: [] });
+
+      await handler.handle(buildMsg('seed:removal:list', {}));
+
+      const [listed] = lists();
+      expect(listed.find((run) => run.runId === 'op-pipeline')).toMatchObject({
+        pipeline: { name: 'Nightly refresh' },
+        created: 1,
+        left: [{ objectApiName: 'Contact', count: 1 }],
+      });
+      expect(listed.find((run) => run.runId === 'op-pipeline')?.refusal).toBeUndefined();
+      // A seed of the page names no pipeline.
+      expect(listed.find((run) => run.runId === 'op-1')?.pipeline).toBeUndefined();
+    });
+
     it('lists a run whose window closed under it as unfinished, dated by its last write, and removes what it wrote', async () => {
       const recorder = runs.recorder({
         runId: 'op-cut',

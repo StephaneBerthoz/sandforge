@@ -227,6 +227,8 @@ export class SeedRemovalHandler implements DomainHandler {
       // A CSV import and a clone are kept and listed with the seeds, named.
       ...(run.origin ? { origin: run.origin } : {}),
       ...(run.origin === 'clone' ? { sourceOrgId: run.sourceOrgId } : {}),
+      // A pipeline's seed is listed with the page's, by the pipeline that ran it.
+      ...(run.pipeline ? { pipeline: run.pipeline } : {}),
       // A run is kept as it writes: one whose window closed under it has no
       // end, and so has one still writing in this window, which is not it.
       ...(run.end

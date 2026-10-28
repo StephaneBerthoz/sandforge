@@ -305,6 +305,41 @@ describe('SeedRunCreations', () => {
     });
   });
 
+  it('names the pipeline whose Seed step ran a seed, and no pipeline for a seed of the page', async () => {
+    const runs = nodeSeedRunCreations(dir);
+    const piped = runs.recorder({
+      runId: 'op-pipeline',
+      targetOrgId: 'org-target',
+      pipeline: { name: 'Nightly refresh' },
+    });
+    piped.note('Account', [fakeId('001', 1)]);
+    await piped.end({ status: 'success', objectResults: [] });
+    await runs.record(run('op-page'));
+
+    expect(await nodeSeedRunCreations(dir).get('op-pipeline')).toMatchObject({
+      pipeline: { name: 'Nightly refresh' },
+      created: [{ objectApiName: 'Account', ids: [fakeId('001', 1)] }],
+    });
+    expect((await nodeSeedRunCreations(dir).get('op-page'))?.pipeline).toBeUndefined();
+  });
+
+  it('keeps a run whose pipeline has a name past what a file keeps, the name cut, its records removable', async () => {
+    // A first line that does not read leaves the run with nothing to take
+    // its records back from.
+    const runs = nodeSeedRunCreations(dir);
+    const recorder = runs.recorder({
+      runId: 'op-long',
+      targetOrgId: 'org-target',
+      pipeline: { name: 'n'.repeat(2_000) },
+    });
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.end({ status: 'success', objectResults: [] });
+
+    const kept = await nodeSeedRunCreations(dir).get('op-long');
+    expect(kept?.pipeline?.name).toBe('n'.repeat(500));
+    expect(kept?.created).toEqual([{ objectApiName: 'Account', ids: [fakeId('001', 1)] }]);
+  });
+
   it("keeps the org's own id of a command line's run, whose target is an alias, in the file it names", async () => {
     // Read by its removal, which refuses any other org whatever the alias names by then.
     const runs = nodeSeedRunCreations(dir);

@@ -239,7 +239,7 @@ describe('correlation origins', () => {
     const reasons: Exactly<UncorrelatedReason, never> = true;
     const kinds: Exactly<
       SyntheticRequestKind,
-      'sync:schedule' | 'sync:pipeline' | 'offline-replay'
+      'sync:schedule' | 'sync:pipeline' | 'seed:pipeline' | 'offline-replay'
     > = true;
 
     expect([reasons, kinds]).toEqual([true, true]);

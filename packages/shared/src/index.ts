@@ -302,6 +302,7 @@ export {
   RETIRED_PIPELINE_STEP_TYPES,
   type ApprovalDefect,
 } from './utils/pipelineStepRules.js';
+export { pipelineWriteVerdict, type PipelineWriteVerdict } from './utils/pipelineWriteVerdict.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

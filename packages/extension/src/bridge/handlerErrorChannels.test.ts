@@ -67,6 +67,7 @@ const SYNTHETIC_CALL_SITES = [
   'bridge/ExtensionHandlers.ts#ExtensionHandlers.replayQueuedOperation:offline-replay',
   'bridge/handlers/SyncOpsHandler.ts#SyncOpsHandler.executeScheduled:sync:schedule',
   'bridge/handlers/SyncOpsHandler.ts#SyncOpsHandler.executeScheduled:sync:pipeline',
+  'bridge/handlers/SeedOpsHandler.ts#SeedOpsHandler.seedForPipeline:seed:pipeline',
 ];
 
 /** Every call to `uncorrelated` — none: `UncorrelatedReason` is `never`. */

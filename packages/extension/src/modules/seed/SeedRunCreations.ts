@@ -53,6 +53,7 @@ import type { ApiName } from '@sandforge/shared';
 import {
   IDS_PER_LINE,
   nodeSyncRunCreations,
+  PIPELINE_NAME_KEPT,
   settled,
   type SendingCall,
   type SyncRunCreations,
@@ -85,6 +86,8 @@ export interface SeedRunStart {
   sourceOrgId?: string;
   /** Which way wrote the run, when not the generator. */
   origin?: 'csv' | 'clone';
+  /** The pipeline whose Seed step runs the seed, by its name: absent for a run of the page. */
+  pipeline?: { name: string };
   /**
    * The target's own Organization id, for a run of the command line, whose
    * `targetOrgId` is an alias: its removal is refused from any other org,
@@ -211,6 +214,9 @@ export class SeedRunCreations implements SyncRemovalStateStore {
       targetOrgId: start.targetOrgId,
       ...(start.startedAt !== undefined ? { startedAt: start.startedAt } : {}),
       ...(start.origin !== undefined ? { origin: start.origin } : {}),
+      ...(start.pipeline !== undefined
+        ? { pipeline: { name: start.pipeline.name.slice(0, PIPELINE_NAME_KEPT) } }
+        : {}),
       ...(start.targetOrganizationId !== undefined
         ? { targetOrganizationId: start.targetOrganizationId }
         : {}),

@@ -30,7 +30,18 @@ import {
   GUARD_REFUSAL,
   guardBlockedError,
   guardRefusalCode,
+  syntheticRequest,
+  ABORTED_BEFORE_START,
 } from './HandlerTypes.js';
+import {
+  PIPELINE_SEED_REFUSAL,
+  pipelineSeedAsked,
+  pipelineSeedRefusal,
+  pipelineSeedTierRefusal,
+  type PipelineSeedOutcome,
+  type PipelineSeedRequest,
+  type SeedAsked,
+} from './seedPipeline.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
 import { AIPersonaManager } from '../../modules/ai/AIPersonaManager.js';
@@ -61,6 +72,13 @@ import {
 } from '../../modules/seed/seedRecordTypes.js';
 import { ACCOUNT, leftOutForAccountKind } from '../../core/common/platformRecords.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
+import {
+  withGivenAnswer,
+  type ProductionGuard,
+  type RunConfirmationAnswer,
+  type WriteConfirmation,
+} from '../../core/precheck/ProductionGuard.js';
+import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { seedStorageGate } from '../../modules/seed/seedStorage.js';
 import {
   API_BUDGET_EXCEEDED,
@@ -71,6 +89,7 @@ import {
 } from '../../modules/forge/ForgeRunGate.js';
 import {
   readSeedAutomation,
+  seedAutomationLines,
   seedEmailGate,
   type SeedAutomationRead,
 } from '../../modules/seed/seedAutomation.js';
@@ -105,6 +124,78 @@ interface SeedRunPayload {
   personObjects: string[];
   /** The locale its people and places are drawn in. */
   locale: string;
+}
+
+/**
+ * Why a seed is not run, found before its first write: what the page's
+ * `seed:error` says, and what its `operation:failed` says when the refusal
+ * ends the run's lifecycle; a pipeline's step fails with the message.
+ */
+interface SeedRefusal {
+  code: string;
+  message: string;
+  /** What the page's `seed:error` carries beside its code. */
+  extraPayload?: Record<string, unknown>;
+  /** Set when `operation:failed` follows: whether SandForge worded the refusal (`authored`). */
+  failed?: { authored: boolean };
+}
+
+/** A seed held to every gate before its first write, ready to run. */
+interface SeedCleared {
+  conn: Awaited<ReturnType<typeof getJsforceConnection>>;
+  /** What the run runs with: the template as the org takes it, and its locale. */
+  run: SeedRunPayload;
+  plannedRecords: number;
+  guardDecision: GuardDecision;
+  /** What the org runs as the records are created, or why it could not be read. */
+  automation: SeedAutomationRead;
+  /** The org, as the user knows it. */
+  orgName: string;
+  /** What could not be read or counted, the seed going on: each said in the log. */
+  warnings: string[];
+}
+
+/**
+ * Who answers the question a seed puts before its first write, when the org
+ * would not say what storage it has left or the run would leave it short of
+ * today's API requests; and what comes of a question nobody could answer.
+ */
+interface SeedQuestions {
+  ask: (guard: ProductionGuard, question: WriteConfirmation) => Promise<RunConfirmationAnswer>;
+  /** `goOn` for the page's seed, said in the log; `refuse` for a pipeline's, which nobody watches. */
+  unanswered: 'goOn' | 'refuse';
+}
+
+/** The Seed page's: its user, through the guard's confirmation. */
+const PANEL_QUESTIONS: SeedQuestions = {
+  ask: (guard, question) => guard.confirmRun(question),
+  unanswered: 'goOn',
+};
+
+/** How a seed's run ended: its result, whole, or what it failed with. */
+type SeedRunEnd = { result: SeedExecutionResult } | { error: unknown };
+
+/** What a pipeline's Seed step hands the run beside what the page's does. */
+interface SeedPipelineRun {
+  /** The pipeline, which the run's file names. */
+  pipeline: { name: string };
+  /** Told how the run ended, once the page has been. */
+  ended: (end: SeedRunEnd) => void;
+}
+
+/** Why a pipeline's seed needed an answer before its first write, in a phrase. */
+function unansweredWhy(storage: Awaited<ReturnType<typeof seedStorageGate>>, org: string): string {
+  const why: string[] = [];
+  if (storage.check.verdict === 'unread') {
+    why.push(`the data storage ${org} has left could not be read (${storage.check.unread})`);
+  }
+  if (storage.api.verdict === 'near') {
+    why.push(
+      `it would leave ${org} ${storage.api.remaining - storage.api.estimate} of its ` +
+        `${storage.api.max} daily API requests`,
+    );
+  }
+  return why.join(', and ');
 }
 
 /**
@@ -743,285 +834,43 @@ export class SeedOpsHandler implements DomainHandler {
     const failure: OperationFailureContext = { module: 'seed', operation: msg.type };
 
     try {
-      // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
-      // setting when the webview omitted them.
-      const defaultBatchSize =
-        this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
-      const objects = parsed.template.objects.map((o) => ({
-        ...o,
-        batchSize: o.batchSize ?? defaultBatchSize,
-      }));
-      Object.assign(failure, objectsFailureContext(objects));
-      const conn = await getJsforceConnection(
-        parsed.orgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
-      );
-
-      // Each account written as the kind its record types give it, as the
-      // command line writes them: a person account without Name, a business
-      // account without a person's fields. A person type and a business type
-      // chosen together are refused before the guard is asked or anything is
-      // written.
-      const asTemplate = { ...parsed.template, objects } as unknown as SeedTemplate;
-      const kinds = asTemplate.objects.some((o) => o.objectApiName === ACCOUNT)
-        ? templateForAccountKinds(asTemplate, await personRecordTypes(conn))
-        : { template: asTemplate, personObjects: [] };
-      if ('refusal' in kinds) {
-        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(kinds.refusal), {
-          code: 'RECORD_TYPES_MIXED',
+      const cleared = await this.clearSeed(parsed, operationId, failure, PANEL_QUESTIONS);
+      if ('refusal' in cleared) {
+        // Settle the in-flight useBridgeMutation listener on seed:error (same
+        // dual-channel contract as sync — without it the mutation spun until
+        // its 120 s timeout), correlated to the request so the webview can
+        // drop stale error responses; and end the run's lifecycle when the
+        // refusal has one.
+        const { refusal } = cleared;
+        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(refusal.message), {
+          code: refusal.code,
           retryable: false,
+          ...(refusal.extraPayload ? { extraPayload: refusal.extraPayload } : {}),
         });
-        return;
-      }
-      const payload: SeedRunPayload = {
-        orgId: parsed.orgId,
-        template: kinds.template as unknown as Record<string, unknown>,
-        personObjects: kinds.personObjects,
-        // The people and places of a seed are drawn in the org's own locale
-        // unless the request names one: the panel drew every seed in en_US.
-        locale: await seedLocaleOf(parsed.locale, conn),
-      };
-
-      // Planned record total, known upfront from the template. It feeds the
-      // Production Guard impact summary (the sentence the user reads in the
-      // production confirmation modal) and the Monitor "live operations" panel.
-      const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
-
-      // The storage the records take against what the org has left, before the
-      // guard is asked and before anything is written: a template three times
-      // a Developer Edition's 5 MB filled the org part way through its run.
-      const org = this.deps.orgManager.getOrg(payload.orgId);
-      const storage = await seedStorageGate(
-        conn,
-        kinds.template,
-        kinds.personObjects,
-        org?.alias ?? payload.orgId,
-      );
-      if (storage.check.verdict === 'unread') {
-        this.deps.log(
-          `[WARN] seed:execute ${operationId}: the data storage the org has left could not be ` +
-            `read (${storage.check.unread}): whether the records fit is not known`,
-        );
-      }
-      if (storage.refusal) {
-        const code =
-          storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
-        recordWriteRun(this.deps, {
-          action: 'seed_execute',
-          module: 'seed',
-          operationId,
-          orgId: payload.orgId,
-          outcome: 'stopped',
-          code,
-        });
-        const check = storage.check;
-        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(storage.refusal), {
-          code,
-          retryable: false,
-          extraPayload:
-            check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
-              ? {}
-              : {
-                  estimateMB: Number(formatMB(check.estimateMB)),
-                  remainingMB: check.remainingMB,
-                  maxMB: check.maxMB,
-                  org: org?.alias ?? payload.orgId,
-                },
-        });
-        sendOperationFailed(this.deps, operationId, storage.refusal, false, {
-          context: failure,
-          authored: true,
-        });
-        return;
-      }
-
-      // The emails the records make the org send, against what it has left
-      // today, read with what it runs as they are created, before the guard is
-      // asked and before anything is written: a seed of 75 contacts left a
-      // Developer Edition at -60 of its 15 single emails, its workflow rule
-      // emailing each one. A read that fails is said, and holds nothing back.
-      const orgName = org?.alias || org?.username || payload.orgId;
-      const written = kinds.template.objects.map((o) => ({
-        objectApiName: o.objectApiName,
-        recordCount: o.recordCount,
-      }));
-      const emails = seedEmailGate(
-        await this.readAutomation(
-          payload.orgId,
-          conn,
-          written.map((o) => o.objectApiName),
-          orgName,
-        ),
-        written,
-        orgName,
-      );
-      for (const line of emails.unknown ?? []) {
-        this.deps.log(`[WARN] seed:execute ${operationId}: ${line}`);
-      }
-      if (emails.refusal) {
-        recordWriteRun(this.deps, {
-          action: 'seed_execute',
-          module: 'seed',
-          operationId,
-          orgId: payload.orgId,
-          outcome: 'stopped',
-          code: SEED_EMAILS_EXCEEDED,
-        });
-        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(emails.refusal), {
-          code: SEED_EMAILS_EXCEEDED,
-          retryable: false,
-          extraPayload: emails.figures ? { ...emails.figures } : {},
-        });
-        sendOperationFailed(this.deps, operationId, emails.refusal, false, {
-          context: failure,
-          authored: true,
-        });
-        return;
-      }
-
-      // Production guard check. No write without it: a guard that was never
-      // injected refuses the run instead of waving it through.
-      const guard = this.deps.infraServices?.productionGuard;
-      if (!guard) {
-        recordWriteRun(this.deps, {
-          action: 'seed_execute',
-          module: 'seed',
-          operationId,
-          orgId: payload.orgId,
-          outcome: 'stopped',
-          code: PRODUCTION_GUARD_MISSING.code,
-        });
-        sendHandlerError(
-          this.deps,
-          'seed:execute',
-          'seed:error',
-          msg,
-          new Error(PRODUCTION_GUARD_MISSING.message),
-          { code: PRODUCTION_GUARD_MISSING.code, retryable: false },
-        );
-        sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
-          context: failure,
-        });
-        return;
-      }
-      const guardRequest = {
-        orgId: payload.orgId,
-        orgTier: guardTierOf(org),
-        operation: 'insert' as const,
-        objectName: 'SeedData',
-        recordCount: plannedRecords,
-        module: 'seed',
-      };
-      const { check, decision } = await consultProductionGuard(guard, guardRequest);
-      // What the run carries to the audit trail when it ends.
-      const guardDecision = decision;
-      if (decision === 'refused' || decision === 'declined') {
-        recordWriteRun(this.deps, {
-          action: 'seed_execute',
-          module: 'seed',
-          operationId,
-          orgId: payload.orgId,
-          outcome: 'stopped',
-          guard: decision,
-        });
-      }
-      if (decision === 'refused') {
-        throw guardBlockedError(check.blockedReason ?? check.impactSummary);
-      }
-      // Production Guard's question, which every write to a production org is
-      // asked and no setting turns off: the user's explicit consent.
-      if (decision === 'declined') {
-        const message = 'Operation cancelled by user (confirmation declined).';
-        // Settle the in-flight useBridgeMutation listener on seed:error
-        // (same dual-channel contract as sync — without it the mutation
-        // spun until its 120 s timeout). Correlated to the request so the
-        // webview can drop stale error responses. The code is the one every
-        // write path declines with, so the page says it in the interface
-        // language instead of showing this English prose.
-        sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
-          code: GUARD_REFUSAL.declined,
-          retryable: false,
-        });
-        sendOperationFailed(this.deps, operationId, message, false, { context: failure });
-        return;
-      }
-
-      // Asked before the first write when the org would not say what storage
-      // it has left, or the seed would leave it short of today's API
-      // requests: said only in the log, nobody saw either. With nobody to ask,
-      // the seed goes on, said in the log as before.
-      if (storage.check.verdict === 'unread' || storage.api.verdict === 'near') {
-        const answer = await guard.confirmRun({
-          stage: 'write',
-          module: 'seed',
-          org: orgName,
-          orgTier: guardTierOf(org),
-          objects: kinds.template.objects
-            .map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount }))
-            .sort((a, b) => b.rows - a.rows),
-          total: plannedRecords,
-          storage: confirmationStorageOf(storage.check),
-          counted: true,
-          ...confirmationApiOf(storage.api),
-        });
-        if (answer === 'declined') {
-          recordWriteRun(this.deps, {
-            action: 'seed_execute',
-            module: 'seed',
-            operationId,
-            orgId: payload.orgId,
-            outcome: 'stopped',
-            guard: decision,
-            code: SEED_WRITE_DECLINED,
-          });
-          const message = 'The seed was cancelled before it wrote anything. Nothing was written.';
-          sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
-            code: SEED_WRITE_DECLINED,
-            retryable: false,
-          });
-          sendOperationFailed(this.deps, operationId, message, false, {
+        if (refusal.failed) {
+          sendOperationFailed(this.deps, operationId, refusal.message, false, {
             context: failure,
-            authored: true,
+            ...(refusal.failed.authored ? { authored: true } : {}),
           });
-          return;
         }
-        if (answer === 'unavailable') {
-          this.deps.log(
-            `[WARN] seed:execute ${operationId}: nobody could be asked about the storage or the ` +
-              'API requests the org has left; the seed goes on',
-          );
-        }
+        return;
       }
-
-      // Start performance tracking
-      this.deps.infraServices?.performanceTracker?.start(operationId, 'seed');
 
       const description = 'Seed data generation';
-      sendOperationStarted(this.deps, operationId, 'seed', description);
-      // Feed the Monitor "live operations" panel with the same planned total.
-      this.liveTracker?.register(operationId, 'seed', description, plannedRecords);
-
-      // Create AbortController for this operation
-      const abortController = new AbortController();
-
-      // Build the execution promise (runs detached in the background)
-      const executionPromise = this.executeSeed(
+      const { abortController, execution } = this.beginSeed(
         msg,
-        conn,
-        payload,
+        cleared,
         operationId,
-        abortController,
         failure,
-        guardDecision,
+        description,
       );
 
       // Register with BackgroundOperationRegistry if available
       if (this.registry) {
-        this.registry.register(operationId, 'seed', description, executionPromise, abortController);
+        this.registry.register(operationId, 'seed', description, execution, abortController);
       } else {
         // Fallback: await directly when no registry is available
-        await executionPromise;
+        await execution;
       }
 
       // Return immediately -- execution continues in background
@@ -1049,6 +898,451 @@ export class SeedOpsHandler implements DomainHandler {
   }
 
   /**
+   * Hold a seed to everything it is held to before its first write, the Seed
+   * page's and a pipeline's alike: the record types it writes accounts as,
+   * the data storage and the daily API requests the org has left, the emails
+   * its records make the org send, Production Guard, and the question put
+   * when the storage could not be read or the requests would run short. Each
+   * stop is recorded in the audit trail here; the caller says it, on the
+   * page's channels or as the step's failure. A refusal of the guard is
+   * thrown, as every write path throws it.
+   *
+   * @param asked - The seed as it was asked for.
+   * @param failure - The run's failure context, given the objects it writes.
+   * @param questions - Who answers the question before the first write.
+   */
+  private async clearSeed(
+    asked: SeedAsked,
+    operationId: string,
+    failure: OperationFailureContext,
+    questions: SeedQuestions,
+  ): Promise<SeedCleared | { refusal: SeedRefusal }> {
+    // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
+    // setting when the webview omitted them.
+    const defaultBatchSize =
+      this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
+    const objects = asked.template.objects.map((o) => ({
+      ...o,
+      batchSize: o.batchSize ?? defaultBatchSize,
+    }));
+    Object.assign(failure, objectsFailureContext(objects));
+    const conn = await getJsforceConnection(
+      asked.orgId,
+      this.deps.orgRegistry,
+      this.deps.orgManager,
+    );
+
+    // Each account written as the kind its record types give it, as the
+    // command line writes them: a person account without Name, a business
+    // account without a person's fields. A person type and a business type
+    // chosen together are refused before the guard is asked or anything is
+    // written.
+    const asTemplate = { ...asked.template, objects } as unknown as SeedTemplate;
+    const kinds = asTemplate.objects.some((o) => o.objectApiName === ACCOUNT)
+      ? templateForAccountKinds(asTemplate, await personRecordTypes(conn))
+      : { template: asTemplate, personObjects: [] };
+    if ('refusal' in kinds) {
+      return { refusal: { code: 'RECORD_TYPES_MIXED', message: kinds.refusal } };
+    }
+    const payload: SeedRunPayload = {
+      orgId: asked.orgId,
+      template: kinds.template as unknown as Record<string, unknown>,
+      personObjects: kinds.personObjects,
+      // The people and places of a seed are drawn in the org's own locale
+      // unless the request names one: the panel drew every seed in en_US.
+      locale: await seedLocaleOf(asked.locale, conn),
+    };
+
+    // Planned record total, known upfront from the template. It feeds the
+    // Production Guard impact summary (the sentence the user reads in the
+    // production confirmation modal) and the Monitor "live operations" panel.
+    const plannedRecords = asked.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
+    /** What could not be read or counted, the seed going on: each said in the log. */
+    const warnings: string[] = [];
+    const warn = (line: string): void => {
+      warnings.push(line);
+      this.deps.log(`[WARN] seed:execute ${operationId}: ${line}`);
+    };
+
+    // The storage the records take against what the org has left, before the
+    // guard is asked and before anything is written: a template three times
+    // a Developer Edition's 5 MB filled the org part way through its run.
+    const org = this.deps.orgManager.getOrg(payload.orgId);
+    const storage = await seedStorageGate(
+      conn,
+      kinds.template,
+      kinds.personObjects,
+      org?.alias ?? payload.orgId,
+    );
+    if (storage.check.verdict === 'unread') {
+      warn(
+        `the data storage the org has left could not be read (${storage.check.unread}): ` +
+          'whether the records fit is not known',
+      );
+    }
+    if (storage.refusal) {
+      const code =
+        storage.refusedFor === 'apiRequests' ? API_BUDGET_EXCEEDED : SEED_STORAGE_EXCEEDED;
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'stopped',
+        code,
+      });
+      const check = storage.check;
+      return {
+        refusal: {
+          code,
+          message: storage.refusal,
+          extraPayload:
+            check.verdict === 'unread' || code === API_BUDGET_EXCEEDED
+              ? {}
+              : {
+                  estimateMB: Number(formatMB(check.estimateMB)),
+                  remainingMB: check.remainingMB,
+                  maxMB: check.maxMB,
+                  org: org?.alias ?? payload.orgId,
+                },
+          failed: { authored: true },
+        },
+      };
+    }
+
+    // The emails the records make the org send, against what it has left
+    // today, read with what it runs as they are created, before the guard is
+    // asked and before anything is written: a seed of 75 contacts left a
+    // Developer Edition at -60 of its 15 single emails, its workflow rule
+    // emailing each one. A read that fails is said, and holds nothing back.
+    const orgName = org?.alias || org?.username || payload.orgId;
+    const written = kinds.template.objects.map((o) => ({
+      objectApiName: o.objectApiName,
+      recordCount: o.recordCount,
+    }));
+    const automation = await this.readAutomation(
+      payload.orgId,
+      conn,
+      written.map((o) => o.objectApiName),
+      orgName,
+    );
+    const emails = seedEmailGate(automation, written, orgName);
+    for (const line of emails.unknown ?? []) warn(line);
+    if (emails.refusal) {
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'stopped',
+        code: SEED_EMAILS_EXCEEDED,
+      });
+      return {
+        refusal: {
+          code: SEED_EMAILS_EXCEEDED,
+          message: emails.refusal,
+          extraPayload: emails.figures ? { ...emails.figures } : {},
+          failed: { authored: true },
+        },
+      };
+    }
+
+    // Production guard check. No write without it: a guard that was never
+    // injected refuses the run instead of waving it through.
+    const guard = this.deps.infraServices?.productionGuard;
+    if (!guard) {
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'stopped',
+        code: PRODUCTION_GUARD_MISSING.code,
+      });
+      return {
+        refusal: {
+          code: PRODUCTION_GUARD_MISSING.code,
+          message: PRODUCTION_GUARD_MISSING.message,
+          failed: { authored: false },
+        },
+      };
+    }
+    const guardRequest = {
+      orgId: payload.orgId,
+      orgTier: guardTierOf(org),
+      operation: 'insert' as const,
+      objectName: 'SeedData',
+      recordCount: plannedRecords,
+      module: 'seed',
+    };
+    const { check, decision } = await consultProductionGuard(guard, guardRequest);
+    if (decision === 'refused' || decision === 'declined') {
+      recordWriteRun(this.deps, {
+        action: 'seed_execute',
+        module: 'seed',
+        operationId,
+        orgId: payload.orgId,
+        outcome: 'stopped',
+        guard: decision,
+      });
+    }
+    if (decision === 'refused') {
+      throw guardBlockedError(check.blockedReason ?? check.impactSummary);
+    }
+    // Production Guard's question, which every write to a production org is
+    // asked and no setting turns off: the user's explicit consent.
+    if (decision === 'declined') {
+      // The code is the one every write path declines with, so the page says
+      // it in the interface language instead of showing this English prose.
+      return {
+        refusal: {
+          code: GUARD_REFUSAL.declined,
+          message: 'Operation cancelled by user (confirmation declined).',
+          failed: { authored: false },
+        },
+      };
+    }
+
+    // Asked before the first write when the org would not say what storage
+    // it has left, or the seed would leave it short of today's API
+    // requests: said only in the log, nobody saw either. With nobody to ask,
+    // the page's seed goes on, said in the log as before; a pipeline's is
+    // refused, nobody having approved it.
+    if (storage.check.verdict === 'unread' || storage.api.verdict === 'near') {
+      const answer = await questions.ask(guard, {
+        stage: 'write',
+        module: 'seed',
+        org: orgName,
+        orgTier: guardTierOf(org),
+        objects: kinds.template.objects
+          .map((o) => ({ objectApiName: o.objectApiName, rows: o.recordCount }))
+          .sort((a, b) => b.rows - a.rows),
+        total: plannedRecords,
+        storage: confirmationStorageOf(storage.check),
+        counted: true,
+        ...confirmationApiOf(storage.api),
+      });
+      if (answer === 'declined') {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: decision,
+          code: SEED_WRITE_DECLINED,
+        });
+        return {
+          refusal: {
+            code: SEED_WRITE_DECLINED,
+            message: 'The seed was cancelled before it wrote anything. Nothing was written.',
+            failed: { authored: true },
+          },
+        };
+      }
+      if (answer === 'unavailable' && questions.unanswered === 'refuse') {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          guard: decision,
+          code: PIPELINE_SEED_REFUSAL.unanswered,
+        });
+        return {
+          refusal: {
+            code: PIPELINE_SEED_REFUSAL.unanswered,
+            message:
+              `The seed needed an answer before it wrote — ${unansweredWhy(storage, orgName)} — ` +
+              'and no Approval step before it approved the run: put one before it. Nothing was ' +
+              'written.',
+            failed: { authored: true },
+          },
+        };
+      }
+      if (answer === 'unavailable') {
+        this.deps.log(
+          `[WARN] seed:execute ${operationId}: nobody could be asked about the storage or the ` +
+            'API requests the org has left; the seed goes on',
+        );
+      }
+    }
+    return {
+      conn,
+      run: payload,
+      plannedRecords,
+      guardDecision: decision,
+      automation,
+      orgName,
+      warnings,
+    };
+  }
+
+  /**
+   * Start a seed held to its gates: tracked, announced on `operation:started`,
+   * listed in Live Operations, and run in the background.
+   *
+   * @param description - What Live Operations and the activity feed list it as.
+   * @param pipeline - The pipeline step it runs for, when one does.
+   * @returns The controller that cancels it, and its run.
+   */
+  private beginSeed(
+    msg: InboundRequest,
+    cleared: SeedCleared,
+    operationId: string,
+    failure: OperationFailureContext,
+    description: string,
+    pipeline?: SeedPipelineRun,
+  ): { abortController: AbortController; execution: Promise<{ status: 'failure' } | void> } {
+    // Start performance tracking
+    this.deps.infraServices?.performanceTracker?.start(operationId, 'seed');
+
+    sendOperationStarted(this.deps, operationId, 'seed', description);
+    // Feed the Monitor "live operations" panel with the same planned total.
+    this.liveTracker?.register(operationId, 'seed', description, cleared.plannedRecords);
+
+    // Create AbortController for this operation
+    const abortController = new AbortController();
+
+    // Build the execution promise (runs detached in the background)
+    const execution = this.executeSeed(
+      msg,
+      cleared.conn,
+      cleared.run,
+      operationId,
+      abortController,
+      failure,
+      cleared.guardDecision,
+      pipeline,
+    );
+    return { abortController, execution };
+  }
+
+  /**
+   * Seed an org for a pipeline's Seed step as a seed of the Seed page runs,
+   * with nobody to watch it: held to the same gates (`clearSeed`), kept in the
+   * same run file — which names the pipeline — and so listed in Seed's Recent
+   * runs and taken back from there, registered in Live Operations, recorded
+   * in the audit trail. It resolves once the run has ended.
+   *
+   * Before anything is read of the org, it is refused: in an org SandForge
+   * does not know; in a production org, whatever the answer; in a sandbox
+   * marked Staging with no approval; for a template no longer saved, one that
+   * no longer reads, or one with an AI rule. Then every question is answered
+   * by the request's answer (`withGivenAnswer`): Production Guard's, and the
+   * one the page puts when the storage could not be read or the requests
+   * would run short — refused without an approval, where the page's seed goes
+   * on when nobody can be asked.
+   *
+   * @param request - The org, the template, the pipeline and the Approval's answer.
+   * @param signal - The step's: aborted, the run is cancelled as Cancel in
+   *   Live Operations cancels it, and ends with what it wrote before the stop.
+   * @returns How the run ended: its result, whole, a cancelled one included.
+   * @throws With a code (`PIPELINE_SEED_REFUSAL`, or the page's) when the seed
+   *   is refused before it writes; a {@link StepCancelledError} when the step
+   *   is cancelled before the run starts; the run's error when it fails.
+   */
+  async seedForPipeline(
+    request: PipelineSeedRequest,
+    signal?: AbortSignal,
+  ): Promise<PipelineSeedOutcome> {
+    const org = this.deps.orgManager.getOrg(request.orgId);
+    if (!org) {
+      throw pipelineSeedRefusal(
+        PIPELINE_SEED_REFUSAL.orgUnknown,
+        `The org the seed writes to is not connected to SandForge (${request.orgId}): connect ` +
+          'it, or choose another. Nothing was written.',
+      );
+    }
+    const tierRefusal = pipelineSeedTierRefusal(
+      guardTierOf(org),
+      request.answer,
+      org.alias || org.username || request.orgId,
+    );
+    if (tierRefusal) throw tierRefusal;
+    const chosen = pipelineSeedAsked(request.orgId, request.templateId, (id) =>
+      this.seedTemplateStore.load(id),
+    );
+    if ('refusal' in chosen) throw chosen.refusal;
+
+    // No page waits on a pipeline's run: its origin is a listed synthetic
+    // request, whose id doubles as the operation id, as a pipeline's Sync.
+    const msg = syntheticRequest('seed:pipeline', crypto.randomUUID(), 'seed:execute');
+    const operationId = msg.id;
+    const failure: OperationFailureContext = { module: 'seed', operation: msg.type };
+    const questions: SeedQuestions = {
+      ask: () => Promise.resolve(request.answer.approved ? 'confirmed' : 'unavailable'),
+      unanswered: 'refuse',
+    };
+    return withGivenAnswer(request.answer, async () => {
+      const cleared = await this.clearSeed(chosen.asked, operationId, failure, questions);
+      if ('refusal' in cleared) {
+        throw pipelineSeedRefusal(cleared.refusal.code, cleared.refusal.message);
+      }
+      // Cancelled while the org was read or the guard consulted: nothing is written.
+      if (signal?.aborted) {
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: request.orgId,
+          outcome: 'stopped',
+          guard: cleared.guardDecision,
+          code: ABORTED_BEFORE_START,
+        });
+        throw new StepCancelledError(
+          'The seed was cancelled before it wrote anything. Nothing was written.',
+        );
+      }
+      // What the page's confirmation shows before Start, said before the first write.
+      const automation = seedAutomationLines(cleared.automation, cleared.orgName);
+      for (const line of automation) this.deps.log(`[INFO] seed:execute ${operationId}: ${line}`);
+
+      let ended: SeedRunEnd | undefined;
+      const description = `Pipeline seed of ${chosen.asked.template.name}`;
+      const { abortController, execution } = this.beginSeed(
+        msg,
+        cleared,
+        operationId,
+        failure,
+        description,
+        {
+          pipeline: request.pipeline,
+          ended: (end) => {
+            ended = end;
+          },
+        },
+      );
+      // Registered as the page's run is: Live Operations lists it, and its
+      // Cancel and the step's both reach the run through the registry.
+      this.registry?.register(operationId, 'seed', description, execution, abortController);
+      const onAbort = (): void => {
+        if (this.registry) this.registry.abort(operationId);
+        else abortController.abort();
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      try {
+        await execution;
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
+      }
+      const end = ended as SeedRunEnd | undefined;
+      if (end === undefined) throw new Error('The seed ended without a result.');
+      if ('error' in end) {
+        throw end.error instanceof Error ? end.error : new Error(extractErrorMessage(end.error));
+      }
+      return {
+        operationId,
+        runId: end.result.operationId,
+        result: end.result,
+        automation,
+        warnings: cleared.warnings,
+      };
+    });
+  }
+
+  /**
    * Execute seed operation in the background.
    * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
    *
@@ -1064,6 +1358,9 @@ export class SeedOpsHandler implements DomainHandler {
    * reached answered to the page and recorded. An error thrown while a cancel
    * is pending is still a failure: only the orchestrator, stopping at the
    * cancel, says a run was cancelled.
+   *
+   * A pipeline's run (`pipeline`) names its pipeline in the run's file, and
+   * is told how the run ended, its result whole, once the page has been.
    */
   private async executeSeed(
     msg: InboundRequest,
@@ -1073,6 +1370,7 @@ export class SeedOpsHandler implements DomainHandler {
     abortController: AbortController,
     failure: OperationFailureContext,
     guardDecision?: GuardDecision,
+    pipeline?: SeedPipelineRun,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     const startedAt = new Date().toISOString();
@@ -1105,7 +1403,12 @@ export class SeedOpsHandler implements DomainHandler {
       // it ended. The orchestrator runs under this id, which its result and
       // the page's removal name.
       const runId = crypto.randomUUID();
-      const kept = this.runCreations?.recorder({ runId, targetOrgId: payload.orgId, startedAt });
+      const kept = this.runCreations?.recorder({
+        runId,
+        targetOrgId: payload.orgId,
+        startedAt,
+        ...(pipeline ? { pipeline: pipeline.pipeline } : {}),
+      });
       // Records written before the insert now running, and the run's total,
       // from the orchestrator's report before each object and each partition.
       // The bulk paths count within one insert call; offsetting them keeps the
@@ -1343,6 +1646,7 @@ export class SeedOpsHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      pipeline?.ended({ result });
       // A failure status, not a bare resolve, so the registry marks the run
       // failed — see the method docstring for the contract. A cancelled run
       // is aborted there already.
@@ -1373,6 +1677,7 @@ export class SeedOpsHandler implements DomainHandler {
         extraPayload: offlineHint,
         context: failure,
       });
+      pipeline?.ended({ error: err });
       // Failure-status result (not a rejection, not a bare resolve) so the
       // BackgroundOperationRegistry marks the operation 'failed' — see the
       // method docstring for the contract.
