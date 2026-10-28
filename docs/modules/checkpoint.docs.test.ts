@@ -720,7 +720,7 @@ describe('docs/modules/checkpoint.md', () => {
     // beside it, the undo's plans leave it out of what goes on its own, and
     // the shared removal lets it go with its parent.
     expect(source(`${MODULE_DIR}/rewindJournal.ts`)).toContain(
-      'if (removing(recordKey(id)) && brought.has(parent) && removing(parent)) along.add(id);',
+      'if (removing(recordKey(id)) && cameBack(parent) && removing(parent)) along.add(id);',
     );
     expect(source(`${MODULE_DIR}/undoRewind.ts`)).toContain(
       '...(along.count > 0 ? { goesWithParent } : {}),',

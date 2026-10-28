@@ -442,7 +442,8 @@ describe('sandforge-mcp: the checkpoint tools on the memory org', () => {
         answer: {
           status: 'success',
           deleted: { done: 1 },
-          givenBack: { done: 3 },
+          // The preview's "2 to give back": the case it brought back is counted brought back.
+          givenBack: { done: 2 },
           broughtBack: { done: 1 },
           undo: { cannot: [] },
         },

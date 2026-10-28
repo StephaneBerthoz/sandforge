@@ -245,6 +245,48 @@ describe('restoreOverwrites', () => {
     expect(outcome.left).toEqual([A3]);
   });
 
+  it('tells each record it counts given back whole or gone, by the id the plan names it by, and none it refused or left as changed since', async () => {
+    const same = fakeId('001', 4);
+    const gone = fakeId('001', 5);
+    org.add('Account', { Id: same, Name: 'Same', Description: 'run' }, minutesAgo(10));
+    org.add('Account', { Id: gone, Name: 'After 5', Description: 'run' }, minutesAgo(10));
+    await org.destroy('Account', [gone]);
+    org.touch('Account', A2, new Date(Date.now() + 60_000).toISOString());
+    org.refuseUpdate.set(A3, {
+      statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
+      message: 'Name is locked',
+    });
+    const told: string[] = [];
+
+    const outcome = await restoreOverwrites({
+      org,
+      plan: [
+        { objectApiName: 'Account', backup: BACKUP, ids: [A1.slice(0, 15), A2, A3, same, gone] },
+      ],
+      backups: backups({
+        Account: [
+          ...BEFORE.Account,
+          { Id: same, Name: 'Same', Description: 'run' },
+          { Id: gone, Name: 'Before 5', Description: 'before' },
+        ],
+      }),
+      lastWriteAt: minutesAgo(10),
+      includeChanged: false,
+      counted: (id, as) => told.push(`${id} ${as}`),
+    });
+
+    expect(outcome.objects[0]).toMatchObject({
+      planned: 5,
+      restored: 2,
+      keptChanged: 1,
+      refused: 1,
+      alreadyGone: 1,
+    });
+    expect(told.sort()).toEqual(
+      [`${A1.slice(0, 15)} restored`, `${same} restored`, `${gone} alreadyGone`].sort(),
+    );
+  });
+
   it('counts every record not kept when the backup is gone, and asks the org nothing of them', async () => {
     const outcome = await restoreOverwrites({
       org,

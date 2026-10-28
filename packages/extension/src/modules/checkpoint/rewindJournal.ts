@@ -15,7 +15,8 @@
  * ```
  *
  * It names, before each write: the ids of each batch it brings back from the
- * recycle bin, and the children that come back with a parent; the records of
+ * recycle bin, and the children that come back with a parent, then, once the
+ * org answered, those of them that did not come back; the records of
  * each update of its give-back, once the values they hold are kept
  * (`storeOverwriteBackup`, which a Sync run keeps what it writes over with),
  * and of them those it gives back once the records hanging from them that it
@@ -188,6 +189,23 @@ const idsLineSchema = z.object({
 });
 
 /**
+ * Records of one object a `bringingBack` or `withParent` line named that did
+ * not come back, once the undelete answered: the org refused them, and a read
+ * after it found them still out of the org — no longer in the recycle bin,
+ * one emptied from it — and with them the records named to come back with
+ * them. Their undo leaves them where they are. A line after it that names one
+ * again names it about to come back again. A journal written before it, or a
+ * rewind stopped between the answer and this line, has none: its undo sets
+ * out to send them back to the bin too, and finds them gone.
+ */
+const bringBackLeftLineSchema = z.object({
+  kind: z.literal('bringBackLeft'),
+  objectApiName: objectSchema,
+  ids: idsSchema,
+  at: instantSchema,
+});
+
+/**
  * Records of one object the rewind is about to make again, by the Ids the
  * checkpoint holds them by: named before the insert goes.
  */
@@ -341,6 +359,7 @@ const lineSchema = z.discriminatedUnion('kind', [
   headLineSchema,
   resumedLineSchema,
   idsLineSchema,
+  bringBackLeftLineSchema,
   heldLineSchema,
   beforeParentLineSchema,
   recreatingLineSchema,
@@ -371,6 +390,7 @@ type HeadLine = z.infer<typeof headLineSchema>;
 const WRITE_LINES: ReadonlySet<Line['kind']> = new Set([
   'bringingBack',
   'withParent',
+  'bringBackLeft',
   'givingBack',
   'recreating',
   'recreated',
@@ -532,6 +552,12 @@ export interface RewindJournal {
     parents?: readonly string[],
     options?: { carriers?: boolean },
   ): Promise<void>;
+  /**
+   * Records of one object {@link bringingBack} or {@link withParent} named
+   * that did not come back, once the undelete answered and a read after it
+   * found them still out of the org: their undo leaves them where they are.
+   */
+  bringBackLeft(objectApiName: string, ids: readonly string[]): Promise<void>;
   /**
    * Records the rewind gives back once the records of `by` hanging from them
    * that it deletes are gone, named before anything of the pass is written:
@@ -861,6 +887,12 @@ class JournalFile implements RewindJournal {
     }
   }
 
+  async bringBackLeft(objectApiName: string, ids: readonly string[]): Promise<void> {
+    for (const chunk of chunksOf(ids)) {
+      await this.append({ kind: 'bringBackLeft', objectApiName, ids: chunk });
+    }
+  }
+
   async heldInPlace(
     objectApiName: string,
     by: readonly string[],
@@ -1135,6 +1167,13 @@ class IdsByObject {
     this.byObject.set(objectApiName, object);
   }
 
+  /** Let go of `ids` of an object: a line after names them again, in its turn. */
+  drop(objectApiName: string, ids: readonly string[]): void {
+    const object = this.byObject.get(objectApiName);
+    if (!object) return;
+    for (const id of ids) object.delete(recordKey(id));
+  }
+
   list(keep: (key: string) => boolean = () => true): ObjectIds[] {
     return [...this.byObject].flatMap(([objectApiName, ids]) => {
       const kept = [...ids].filter(([key]) => keep(key)).map(([, id]) => id);
@@ -1313,6 +1352,15 @@ class DidFold {
             into.set(recordKey(id), { objectApiName: line.objectApiName, id, parent });
           }
         });
+        break;
+      case 'bringBackLeft':
+        // Named to come back, but did not: as if never named.
+        this.broughtBack.drop(line.objectApiName, line.ids);
+        this.carriers.drop(line.objectApiName, line.ids);
+        for (const id of line.ids) {
+          this.withParents.delete(recordKey(id));
+          this.carried.delete(recordKey(id));
+        }
         break;
       case 'givingBack':
         this.givenBack.add(line.objectApiName, line.ids);
@@ -2033,9 +2081,11 @@ function readingOrder(
  * A record it brought back and deleted again — one that came back with its
  * parent and that a second pass deleted — is in the recycle bin as it was
  * before the rewind, and in neither of the first two: undeleted by the undo,
- * it would hold the parent the undo sends back to the bin. An undo that ended
- * part way left, of each plan, what it did not settle: the next one takes up
- * that alone.
+ * it would hold the parent the undo sends back to the bin. What the journal
+ * names about to come back that did not (`bringBackLeft`), and what was to
+ * come back with it, is where it was before the rewind too, and in none of
+ * them. An undo that ended part way left, of each plan, what it did not
+ * settle: the next one takes up that alone.
  *
  * Held in memory, the plans of a rewind of a million records took some 700 MB
  * of the extension host: every id as a string in three maps, the journal's
@@ -2072,14 +2122,22 @@ export async function spoolUndoPlans(
     const heldKeys = new RecordKeySet();
     const heldBy = new Map<string, Set<string>>();
     const givenKeys = new RecordKeySet();
+    /** What the journal names about to come back, by key, that did not, as its last line on each says. */
+    const notBack = new Set<string>();
     /** What came back with a carrier, by key, beside the record it hangs from. */
     const carried = new Map<string, { objectApiName: string; id: string; parent: string }>();
     await eachLine(journalFile, (line) => {
       switch (line.kind) {
+        case 'bringBackLeft':
+          for (const id of line.ids) notBack.add(recordKey(id));
+          break;
         case 'bringingBack':
         case 'withParent':
         case 'recreated':
-          for (const id of line.ids) brought.add(id);
+          for (const id of line.ids) {
+            brought.add(id);
+            if (notBack.size > 0) notBack.delete(recordKey(id));
+          }
           if (line.kind === 'withParent' && line.carriers === true && line.parents) {
             line.ids.forEach((id, at) => {
               const parent = line.parents?.[at];
@@ -2117,6 +2175,13 @@ export async function spoolUndoPlans(
       }
     });
 
+    // What the org refused to bring back, and what was to come back with it,
+    // stayed where it was: in none of the plans. Seen live, the undo of a
+    // rewind that had brought back one file of two — the other emptied from
+    // the bin — set out to send both back, with the links and versions of
+    // each, and asked to send back twice what the rewind brought back.
+    const cameBack = (key: string): boolean => brought.has(key) && !notBack.has(key);
+
     // What each removal deleted — what it set out to, less what it left once
     // it answered; all of it when it never did — and of it, what comes back.
     // Of what it deleted, only what it brought back too is held by its key:
@@ -2129,7 +2194,7 @@ export async function spoolUndoPlans(
       for (const id of line.ids) {
         if (left?.has(id) === true) continue;
         const key = recordKey(id);
-        if (brought.has(key)) deleted.add(id);
+        if (cameBack(key)) deleted.add(id);
         else if (undeleteLeft(key)) await back.add(line.objectApiName, id);
       }
     });
@@ -2147,7 +2212,7 @@ export async function spoolUndoPlans(
       }
     }
     const gone = (key: string): boolean => deleted.has(key) || compensated.has(key);
-    const removing = (key: string): boolean => !gone(key) && removeLeft(key);
+    const removing = (key: string): boolean => !notBack.has(key) && !gone(key) && removeLeft(key);
 
     // What came back with a record the undo sends back to the bin goes with
     // it; what came back with one it does not — deleted again since, or left
@@ -2160,7 +2225,7 @@ export async function spoolUndoPlans(
       line.ids.forEach((id, at) => {
         if (!named.add(id)) return;
         const parent = recordKey(line.parents?.[at] ?? '');
-        if (removing(recordKey(id)) && brought.has(parent) && removing(parent)) along.add(id);
+        if (removing(recordKey(id)) && cameBack(parent) && removing(parent)) along.add(id);
       });
     });
     // Of what came back with a carrier, what the rewind moved off it goes on

@@ -462,6 +462,41 @@ describe('the journal, read back', () => {
     );
   });
 
+  it('holds as not brought back what the org refused to bring back, and what was to come back with it, until a line after names it again', async () => {
+    const journal = await journalOpened();
+    await journal.withParent('Contact', [contact(1), contact(2)], [account(1), account(2)]);
+    const undelete = journal.bringingBack(
+      [{ objectApiName: 'Account', ids: [account(1)] }],
+      async () => [],
+    );
+    await undelete([account(1), account(2)]);
+    await journal.bringBackLeft('Account', [account(2)]);
+    await journal.bringBackLeft('Contact', [contact(2)]);
+    await journal.close();
+
+    const read = await readRewindJournal(folder, journal.rewindId);
+    expect(read.did.broughtBack).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1)] },
+      { objectApiName: 'Account', ids: [account(1)] },
+    ]);
+    expect(read.did.withParents).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1)], parents: [account(1)] },
+    ]);
+
+    // A second pass that brought it back names it again.
+    const again = await reopenRewindJournal(folder, journal.rewindId, lock);
+    await again.withParent('Contact', [contact(2)], [account(2)]);
+    await again.bringingBack([{ objectApiName: 'Account', ids: [account(2)] }], async () => [])([
+      account(2),
+    ]);
+    await again.close();
+    const reread = await readRewindJournal(folder, journal.rewindId);
+    expect(reread.did.broughtBack).toEqual([
+      { objectApiName: 'Contact', ids: [contact(1), contact(2)] },
+      { objectApiName: 'Account', ids: [account(1), account(2)] },
+    ]);
+  });
+
   it('holds what was given back once the deletes it waited for were through, with the objects that held it, and names nothing for an object held by none', async () => {
     const journal = await journalOpened();
     await journal.heldInPlace('Opportunity', ['OpportunityLineItem'], [id('006', 1), id('006', 2)]);
@@ -772,6 +807,10 @@ describe('the undo’s plans, kept on disk', () => {
     heldInPlace?: Array<ObjectIds & { by: string[] }>;
     withParents?: Array<ObjectIds & { parents: string[]; carriers?: true }>;
     recreated?: Array<ObjectIds & { from: string[] }>;
+    /** Named once the undelete answered, after what named them: not brought back. */
+    left?: ObjectIds[];
+    /** Named after those, as a second pass brings them back. */
+    again?: { broughtBack?: ObjectIds[]; withParents?: Array<ObjectIds & { parents: string[] }> };
   }
 
   /**
@@ -787,6 +826,9 @@ describe('the undo’s plans, kept on disk', () => {
       ...(did.broughtBack ?? []).map((o) => ({ kind: 'bringingBack', ...o, at })),
       ...(did.withParents ?? []).map((o) => ({ kind: 'withParent', ...o, at })),
       ...(did.recreated ?? []).map((o) => ({ kind: 'recreated', ...o, at })),
+      ...(did.left ?? []).map((o) => ({ kind: 'bringBackLeft', ...o, at })),
+      ...(did.again?.withParents ?? []).map((o) => ({ kind: 'withParent', ...o, at })),
+      ...(did.again?.broughtBack ?? []).map((o) => ({ kind: 'bringingBack', ...o, at })),
       ...(did.deleted ?? []).map((o) => ({ kind: 'deleting', step: 1, ...o, at })),
       ...((did.deleted ?? []).length > 0 ? [{ kind: 'deleted', step: 1, at }] : []),
       ...(did.givenBack ?? []).map((o) => ({ kind: 'givingBack', ...o, at })),
@@ -913,6 +955,71 @@ describe('the undo’s plans, kept on disk', () => {
       { objectApiName: 'Account', count: 1 },
       { objectApiName: 'Contact', count: 2 },
     ]);
+  });
+
+  describe('of a rewind the org refused to bring back a record of', () => {
+    /** Two accounts and their contacts named to come back; the org refused the second account. */
+    const named: Did = {
+      withParents: [
+        {
+          objectApiName: 'Contact',
+          ids: [contact(1), contact(2)],
+          parents: [account(1).slice(0, 15), account(2).slice(0, 15)],
+        },
+      ],
+      broughtBack: [{ objectApiName: 'Account', ids: [account(1), account(2)] }],
+    };
+    const refused: ObjectIds[] = [
+      { objectApiName: 'Account', ids: [account(2)] },
+      { objectApiName: 'Contact', ids: [contact(2)] },
+    ];
+
+    it('sends back to the bin what came back alone, with what came back with it: what the org refused and what was to come back with it stayed where it was', async () => {
+      const { plans, rewound } = await plansOf({ ...named, left: refused });
+
+      expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1)] }]);
+      expect(plans.goesWithParent).toEqual([
+        { objectApiName: 'Contact', ids: [contact(1)], parents: [account(1).slice(0, 15)] },
+      ]);
+      expect(rewound).toEqual([
+        { objectApiName: 'Account', deleted: 0, broughtBack: 1, givenBack: 0 },
+      ]);
+    });
+
+    it('reads a journal written before it named what the org refused as it read it then: every record named to come back goes back', async () => {
+      const { plans } = await plansOf(named);
+
+      expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1), account(2)] }]);
+      expect(plans.goesWithParent).toEqual([
+        {
+          objectApiName: 'Contact',
+          ids: [contact(1), contact(2)],
+          parents: [account(1).slice(0, 15), account(2).slice(0, 15)],
+        },
+      ]);
+    });
+
+    it('sends back what a line after the refusal names again, as a second pass brought it back', async () => {
+      const { plans } = await plansOf({
+        ...named,
+        left: refused,
+        again: {
+          withParents: [
+            { objectApiName: 'Contact', ids: [contact(2)], parents: [account(2).slice(0, 15)] },
+          ],
+          broughtBack: [{ objectApiName: 'Account', ids: [account(2)] }],
+        },
+      });
+
+      expect(plans.remove).toEqual([{ objectApiName: 'Account', ids: [account(1), account(2)] }]);
+      expect(plans.goesWithParent).toEqual([
+        {
+          objectApiName: 'Contact',
+          ids: [contact(1), contact(2)],
+          parents: [account(1).slice(0, 15), account(2).slice(0, 15)],
+        },
+      ]);
+    });
   });
 
   it('leaves out of both what the rewind brought back and deleted again: it is in the recycle bin as it was', async () => {

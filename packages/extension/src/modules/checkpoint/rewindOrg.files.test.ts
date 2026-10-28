@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BYTES_PER_MB, type OrgCheckpoint, type RewindDiff } from '@sandforge/shared';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import { FILE_LINK, MemoryFileOrg, fileId } from '../../test/memoryFileOrg.js';
+import { FILE_LINK, FILE_VERSION, MemoryFileOrg, fileId } from '../../test/memoryFileOrg.js';
 import {
   MEMORY_ORG_USER,
   type MemoryChild,
@@ -32,6 +32,7 @@ import {
 import { openCheckpointStore, rewindDirOf, type CheckpointFolder } from './OrgCheckpointStore.js';
 import type { FileLinkLine } from './checkpointFiles.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
+import { undoPlansOf } from './rewindJournal.js';
 import { rewindOrg, type RewindOutcome } from './rewindOrg.js';
 import { takeCheckpoint, type TakeOrg } from './takeCheckpoint.js';
 import { undoCheckpoint } from './undoCheckpoint.js';
@@ -327,6 +328,14 @@ function liveLinks(org: FileRewindOrg): string[] {
     .sort();
 }
 
+/** A line of a rewind's journal, the fields these tests read. */
+interface JournalLine {
+  kind: string;
+  objectApiName?: string;
+  ids?: string[];
+  parents?: string[];
+}
+
 /** A link of the org, as a diff writes it. */
 function lineOf(org: FileRewindOrg, documentId: string, entityId: string): FileLinkLine {
   const held = org
@@ -472,6 +481,103 @@ describe('rewindOrg, of a checkpoint that holds files: a file emptied from the r
     expect(again.result.status).toBe('success');
     expect(again.result.residual).toEqual([]);
     expect(undeletesOf(t.org, sent)).not.toContain(fileId(9));
+  });
+
+  /** The lines of a rewind's journal, as written. */
+  const journalOf = (t: Taken, rewindId: string): JournalLine[] =>
+    readFileSync(join(rewindDirOf(t.folder, rewindId), 'journal.ndjson'), 'utf8')
+      .split('\n')
+      .filter((text) => text !== '')
+      .map((text) => JSON.parse(text) as JournalLine);
+
+  /** Per object, what the journal named as coming back with `documentId`, sorted. */
+  const namedWith = (
+    lines: readonly JournalLine[],
+    documentId: string,
+  ): Array<[string, string[]]> => {
+    const named = new Map<string, string[]>();
+    for (const { kind, objectApiName, ids = [], parents = [] } of lines) {
+      if (kind !== 'withParent' || objectApiName === undefined) continue;
+      const under = ids.filter((_, at) => parents[at] === documentId.slice(0, 15));
+      if (under.length > 0) {
+        named.set(objectApiName, [...(named.get(objectApiName) ?? []), ...under]);
+      }
+    }
+    return [...named].map(([objectApiName, ids]) => [objectApiName, ids.sort()]);
+  };
+
+  it('names in its journal, once the org answered, the file it could not bring back and what was to come back with it: its undo sends back to the recycle bin the file it brought back alone, with what came back with it, and asks that alone', async () => {
+    const t = await emptiedSince();
+    const rewind = await rewound(t, await previewed(t));
+    if (!rewind.rewound) throw new Error(rewind.refusal.message);
+    const { rewindId } = rewind.result;
+
+    const lines = journalOf(t, rewindId);
+    const withNine = namedWith(lines, fileId(9));
+    const withTwo = namedWith(lines, fileId(2));
+    // Its two links and its version, named before the undelete went.
+    expect(withNine.map(([objectApiName, ids]) => [objectApiName, ids.length])).toEqual(
+      expect.arrayContaining([
+        [FILE_LINK, 2],
+        [FILE_VERSION, 1],
+      ]),
+    );
+    const left = lines
+      .filter((line) => line.kind === 'bringBackLeft')
+      .map(({ objectApiName, ids = [] }) => [objectApiName, [...ids].sort()]);
+    expect(left).toEqual([['ContentDocument', [fileId(9)]], ...withNine]);
+    // Written once the org answered, after the line that named the file.
+    expect(lines.findIndex((line) => line.kind === 'bringBackLeft')).toBeGreaterThan(
+      lines.findIndex((line) => line.kind === 'bringingBack'),
+    );
+
+    // What the command line asks before the undo: the file it brought back,
+    // with what came back with it.
+    const along = withTwo.reduce((sum, [, ids]) => sum + ids.length, 0);
+    const plans = await undoPlansOf(t.folder, rewindId, t.checkpoint.objects);
+    try {
+      expect(plans.remove.spool.count).toBe(1);
+      expect(plans.goesWithParent.count).toBe(along);
+    } finally {
+      await plans.dispose();
+    }
+
+    const read = await t.store.read(t.checkpoint.checkpointId);
+    if (!read?.checkpoint) throw new Error('the checkpoint is gone');
+    const undo = await undoCheckpoint(
+      { org: t.org, undelete: (ids) => t.org.undelete(ids), store: t.store },
+      {
+        ...request(t),
+        checkpoint: read.checkpoint,
+        rewindId,
+        acceptAutomation: false,
+      },
+    );
+
+    if (!undo.undone) throw new Error(undo.refusal.message);
+    expect(undo.result.status).toBe('success');
+    const file = undo.result.deleted.find((object) => object.objectApiName === 'ContentDocument');
+    expect(file).toMatchObject({ planned: 1, deleted: 1, alreadyGone: 0 });
+    expect(undo.result.deleted.reduce((sum, object) => sum + object.planned, 0)).toBe(1 + along);
+    expect(undo.result.wentAlong).toEqual(
+      withTwo.map(([objectApiName, ids]) => ({ objectApiName, count: ids.length })),
+    );
+    expect(t.org.all('ContentDocument').map((row) => row.Id)).toEqual([]);
+    expect(liveLinks(t.org)).toEqual([]);
+  });
+
+  it('counts the file it brought back among what it brought back, not among what it gave back: its give-back says what the preview’s does, none', async () => {
+    const t = await emptiedSince();
+    const diff = await previewed(t);
+    expect(diff.objects.reduce((sum, object) => sum + object.toGiveBack.records, 0)).toBe(0);
+
+    const rewind = await rewound(t, diff);
+
+    if (!rewind.rewound) throw new Error(rewind.refusal.message);
+    expect(rewind.result.restored).toEqual([]);
+    expect(rewind.result.undeleted).toEqual([
+      expect.objectContaining({ objectApiName: 'ContentDocument', planned: 2, undeleted: 1 }),
+    ]);
   });
 });
 

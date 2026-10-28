@@ -401,6 +401,48 @@ describe('a rewind of custom settings held by name', () => {
     );
   });
 
+  it('says it gave back what the preview counted to give back: the rows it brought back once their owner or name was free, given their checkpoint values as they came back, are counted brought back', async () => {
+    const t = await takenWithSettings();
+    hierarchyRemade(t.org);
+    listRenamed(t.org);
+    t.org.edit('Account', '001000000000001AAA', { Name: 'Renamed' }, COLLEAGUE);
+    const diff = await previewed(t);
+    const toGiveBack = diff.objects
+      .filter((object) => object.toGiveBack.records > 0)
+      .map((object) => [
+        object.objectApiName,
+        object.toGiveBack.records,
+        object.toGiveBack.records,
+      ]);
+    expect(toGiveBack).toEqual([['Account', 1, 1]]);
+
+    const result = resultOf(await rewound(t, diff.previewId));
+
+    expect(result.status).toBe('success');
+    expect(result.passes).toBe(2);
+    expect(
+      result.restored.map(({ objectApiName, planned, restored }) => [
+        objectApiName,
+        planned,
+        restored,
+      ]),
+    ).toEqual(toGiveBack);
+    // The org default it brought back, changed before it was deleted, holds
+    // its checkpoint value all the same.
+    expect(rowsOf(t.org, HIERARCHY)).toEqual([
+      { Id: hier(1), SetupOwnerId: ORG_ID, Value__c: 'org default' },
+      { Id: hier(2), SetupOwnerId: PROFILE, Value__c: 'profile' },
+    ]);
+    expect(
+      result.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]).sort(),
+    ).toEqual(
+      [
+        [HIERARCHY, 2],
+        [LIST, 2],
+      ].sort(),
+    );
+  });
+
   it('is undone to the list as it was before it: the row it deleted back, those it brought back in the bin again', async () => {
     const t = await takenWithSettings();
     listRenamed(t.org);

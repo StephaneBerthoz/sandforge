@@ -888,7 +888,9 @@ describe('sandforge-checkpoint rewind', () => {
       checkpoint: { id: checkpoint.checkpointId, name: 'Before UAT', org: 'DEV-SB' },
       status: 'success',
       deleted: { done: 1, left: 0 },
-      givenBack: { done: 3, left: 0 },
+      // What the preview counted to give back: the record it brought back,
+      // given its checkpoint values as it came back, is counted brought back.
+      givenBack: { done: 2, left: 0 },
       broughtBack: { done: 1, left: 0 },
       cannotUndo: [],
       verify: { differences: 0, stable: true, notCompared: [] },
@@ -900,6 +902,7 @@ describe('sandforge-checkpoint rewind', () => {
       expect.arrayContaining(['objects', 'apiRequests', 'result', 'rewindId']),
     );
     expect(stderr).toContain('  1 to delete · 2 to give back · 1 to bring back');
+    expect(stderr).toContain('  gave 2 record(s) back their checkpoint values\n');
     expect(stderr).toContain(
       "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
     );
@@ -1226,5 +1229,34 @@ describe('sandforge-checkpoint undo', () => {
     const again = await h.run('undo', '--org', 'DEV-SB', '--json');
     expect(again.code).toBe(1);
     expect(JSON.parse(again.stdout)).toMatchObject({ refusal: { code: 'NOT_FOUND' } });
+  });
+
+  it('asks to send back to the recycle bin what the rewind brought back alone, never a record the bin no longer gave back to it', async () => {
+    const h = harness();
+    h.org.add('Case', { Id: id('500', 3), Subject: 'Emptied' });
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+    // Deleted since, then emptied from the bin: still listed there, the org
+    // answers its undelete that it is not in it.
+    h.org.trash('Case', id('500', 3), COLLEAGUE);
+    h.org.empty(id('500', 3));
+    const rewound = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+    expect(rewound.code, rewound.stderr).toBe(3);
+    expect(JSON.parse(rewound.stdout)).toMatchObject({ broughtBack: { planned: 2, done: 1 } });
+    clock += 60_000;
+
+    const asked = await h.run('undo', '--org', 'DEV-SB');
+
+    expect(asked.code).toBe(2);
+    expect(asked.stdout).toContain('sends 1 record(s) it brought back to the recycle bin');
   });
 });

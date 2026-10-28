@@ -112,16 +112,22 @@ describe('rewindOrg, on the memory org', () => {
     expect(
       result.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]),
     ).toEqual([['Account', 1]]);
+    // What it gave back is what the preview counted to give back: the account
+    // renamed since. The account it brought back, edited before it was
+    // deleted, and the contacts that came back with it were given their
+    // checkpoint values too — the org reads as the checkpoint holds it — as
+    // part of bringing them back.
+    const toGiveBack = diff.objects
+      .filter((object) => object.toGiveBack.records > 0)
+      .map((object) => [object.objectApiName, object.toGiveBack.records]);
+    expect(toGiveBack).toEqual([['Account', 1]]);
     expect(
       result.restored.map(({ objectApiName, planned, restored }) => [
         objectApiName,
         planned,
         restored,
       ]),
-    ).toEqual([
-      ['Contact', 2, 2],
-      ['Account', 2, 2],
-    ]);
+    ).toEqual([['Account', 1, 1]]);
     // Its own deletes in the bin, the account it brought back out of it.
     expect(
       t.org
@@ -347,8 +353,9 @@ describe('rewindOrg: what a pass writes, in its order', () => {
       const result = resultOf(await rewound(t, diff.previewId));
 
       expect(result.status).toBe('success');
+      // The contacts it brought back, given their values too, are counted
+      // brought back, as the preview counts them.
       expect(result.restored).toEqual([
-        expect.objectContaining({ objectApiName: 'Contact', planned: count, restored: count }),
         expect.objectContaining({ objectApiName: 'Account', planned: count, restored: count }),
       ]);
       expect(result.undeleted).toEqual([
@@ -421,9 +428,11 @@ describe('rewindOrg: the second pass and the verify', () => {
 
     expect(result.status).toBe('success');
     expect(result.passes).toBe(2);
+    // The account renamed since, refused, then given back; the one it
+    // brought back is counted brought back.
     expect(result.restored.find((object) => object.objectApiName === 'Account')).toMatchObject({
-      planned: 2,
-      restored: 2,
+      planned: 1,
+      restored: 1,
       refused: 0,
     });
   });
@@ -432,6 +441,7 @@ describe('rewindOrg: the second pass and the verify', () => {
     const t = await taken();
     changedSince(t.org);
     const diff = await previewed(t);
+    const before = stateOf(t.org);
     t.org.refuse.set(account(4), 'locked by a colleague');
     let refusing = true;
     const undelete = (ids: string[]): Promise<unknown> =>
@@ -472,6 +482,9 @@ describe('rewindOrg: the second pass and the verify', () => {
     expect(result.undeleted).toEqual([
       expect.objectContaining({ objectApiName: 'Account', planned: 1, undeleted: 1, refused: 0 }),
     ]);
+    // What the first pass could not bring back, nor give its values, and the
+    // second brought back and gave them, is counted brought back: the give-back
+    // says the account renamed since alone, as the preview does.
     expect(
       result.restored.map(({ objectApiName, planned, restored, alreadyGone }) => [
         objectApiName,
@@ -479,10 +492,16 @@ describe('rewindOrg: the second pass and the verify', () => {
         restored,
         alreadyGone,
       ]),
-    ).toEqual([
-      ['Contact', 2, 2, 0],
-      ['Account', 2, 2, 0],
-    ]);
+    ).toEqual([['Account', 1, 1, 0]]);
+
+    // The first pass named what the org refused to bring back, the second
+    // named it again as it brought it back: its undo sends it back to the
+    // bin, with the contacts that came back with it.
+    expect(journalKinds(t.folder, result.rewindId)).toContain('bringBackLeft');
+    const undo = await undone(t, result.rewindId);
+    expect(undo.status).toBe('success');
+    expect(undo.planned.remove).toBe(3);
+    expect(stateOf(t.org)).toEqual(before);
   });
 
   it('leaves as they made them the records another user changed during the rewind, names who, and ends unstable', async () => {

@@ -58,7 +58,10 @@
  *   the bin with its account, never on its own. After the undelete, what it
  *   left on its records is read, whoever the org names their last modifier:
  *   the dates an undelete moves are the rewind's own doing, and the records
- *   that came back with a record were dated in the same second.
+ *   that came back with a record were dated in the same second. What the org
+ *   refused to bring back, and what was named to come back with it, is named
+ *   in the journal once a read after the undelete found it still out of the
+ *   org: its undo leaves it where it is.
  * - Carried: a carrier — a record the checkpoint does not hold, deleted since
  *   with records it holds — is brought back in batches of its own, named as
  *   such, and what comes back with it named beside the record it hangs from
@@ -90,6 +93,10 @@
  *   them before its give-back reads them, and Undo gives back the values kept
  *   first. An order past Draft that was Draft at the checkpoint gets its
  *   status back alone, first: its other fields stay locked until it is.
+ *   What the pass brought back is given its values too, as it comes back
+ *   with those it had when deleted: part of bringing it back, which the
+ *   result counts there, its give-back counting what was changed since, as
+ *   the preview does.
  * - Deleted: the records spooled to disk, handed to `removeRunRecords`, named
  *   in the journal before, and what it left named once it answered.
  * - Files, of a checkpoint that holds them: a file (`ContentDocument`) is a
@@ -479,6 +486,22 @@ function answeredNotInBin(answer: unknown, batch: readonly string[]): string[] {
             : '';
       return NOT_IN_BIN.test(words);
     });
+  });
+}
+
+/**
+ * The ids of `batch` whose undelete the org answered refused, one answer per
+ * id in their order, whatever its words: not brought back. A call that threw,
+ * or an answer missing or that says neither, names none: the org may have
+ * brought them back all the same.
+ */
+function answeredRefused(answer: unknown, batch: readonly string[]): string[] {
+  const answers: unknown[] = Array.isArray(answer) ? answer : [answer];
+  return batch.filter((_, place) => {
+    const one = answers[place];
+    return (
+      typeof one === 'object' && one !== null && (one as { success?: unknown }).success === false
+    );
   });
 }
 
@@ -991,10 +1014,40 @@ class PassTally {
     held.add(id);
   }
 
-  restore(from: SyncRestoreObjectResult): void {
+  /**
+   * Per object, the records brought back that the give-back gave their
+   * checkpoint values whole, or found gone — one the org refused to bring
+   * back —, left out of {@link restored}: part of bringing them back. What it
+   * refused or kept of them stays there, with why.
+   */
+  readonly cameBackGiven = new Map<string, RecordKeySet>();
+  /** How many of those it gave their values whole. */
+  cameBackRestored = 0;
+
+  /**
+   * Add what a give-back did, less what `cameBack` names of its records that
+   * it gave their values whole (`restored`) or found gone (`alreadyGone`).
+   */
+  restore(
+    from: SyncRestoreObjectResult,
+    cameBack?: { restored: readonly string[]; alreadyGone: readonly string[] },
+  ): void {
     const into = this.restored.get(from.objectApiName) ?? emptyRestore(from.objectApiName);
-    addRestore(into, { ...from, reasons: from.reasons.map(inRewindWords) });
+    const restored = cameBack?.restored.length ?? 0;
+    const gone = cameBack?.alreadyGone.length ?? 0;
+    addRestore(into, {
+      ...from,
+      planned: from.planned - restored - gone,
+      restored: from.restored - restored,
+      alreadyGone: from.alreadyGone - gone,
+      reasons: from.reasons.map(inRewindWords),
+    });
     this.restored.set(from.objectApiName, into);
+    if (restored + gone === 0 || !cameBack) return;
+    const given = this.cameBackGiven.get(from.objectApiName) ?? new RecordKeySet();
+    for (const id of [...cameBack.restored, ...cameBack.alreadyGone]) given.add(id);
+    this.cameBackGiven.set(from.objectApiName, given);
+    this.cameBackRestored += restored;
   }
 
   undelete(from: SyncUndeleteObjectResult): void {
@@ -1036,11 +1089,13 @@ async function keysOf(spools: readonly IdSpool[]): Promise<Map<string, RecordKey
  * Of the records the second pass acted on, per object, those the first acted
  * on too: each one's outcome of the first pass is replaced by its outcome of
  * the second — a failure of the first it settles, or a success its own
- * automation undid since.
+ * automation undid since. One `uncounted` names of an object, which the
+ * first's tally left out, has no outcome there to replace.
  */
 async function retriedOf(
   second: readonly IdSpool[],
   first: readonly IdSpool[],
+  uncounted?: ReadonlyMap<string, RecordKeySet>,
 ): Promise<Map<string, number>> {
   const before = await keysOf(first);
   const seen = new Map<string, RecordKeySet>();
@@ -1051,9 +1106,10 @@ async function retriedOf(
       if (!earlier) continue;
       const counted = seen.get(objectApiName) ?? new RecordKeySet();
       seen.set(objectApiName, counted);
+      const left = uncounted?.get(objectApiName);
       for await (const ids of spool.pages(objectApiName)) {
         for (const id of ids) {
-          if (earlier.has(id) && counted.add(id)) {
+          if (earlier.has(id) && left?.has(id) !== true && counted.add(id)) {
             retried.set(objectApiName, (retried.get(objectApiName) ?? 0) + 1);
           }
         }
@@ -1091,6 +1147,7 @@ async function passesTally(
     const restoreRetried = await retriedOf(
       [plan.giveBack.beforeDeletes, plan.giveBack.afterDeletes],
       [firstPass.plan.giveBack.beforeDeletes, firstPass.plan.giveBack.afterDeletes],
+      first.cameBackGiven,
     );
     for (const [name, from] of tally.restored) {
       const into = restored.get(name) ?? emptyRestore(name);
@@ -1398,6 +1455,15 @@ class Rewind {
    * someone changed it since it came back (`RunRemovalOptions.goesWithParent`).
    */
   private readonly carried = new RecordKeySet();
+  /**
+   * What the plans of its passes bring back from the recycle bin, and what
+   * comes back with it, by key: given its checkpoint values once back, as it
+   * comes back with those it had when deleted — part of bringing it back,
+   * which the result does not count among what it gave back. The preview's
+   * "to give back" counts what was changed since alone: a result that counted
+   * both said it gave back five records for two.
+   */
+  private readonly comesBack = new RecordKeySet();
   /** Tr, in milliseconds, less the second the org dates to: what it dates no later was made before Tr. */
   private before = Number.NaN;
 
@@ -1474,8 +1540,11 @@ class Rewind {
     for (const { objectApiName } of this.request.checkpoint.objects) {
       const held = new RecordKeySet();
       for (const cls of ACTED) {
+        const comesBack = cls === 'inBin' || cls === 'withParent';
         for await (const row of rowsOf(classFileOf(plan.dir, objectApiName, cls))) {
-          if (typeof row.Id === 'string') held.add(row.Id);
+          if (typeof row.Id !== 'string') continue;
+          held.add(row.Id);
+          if (comesBack) this.comesBack.add(row.Id);
         }
       }
       if (held.size > 0) acted.set(objectApiName, held);
@@ -1718,7 +1787,8 @@ class Rewind {
       tally.deleted.some((object) => object.deleted > 0) ||
       tally.restored.some((object) => object.restored + (object.restoredWithout ?? 0) > 0) ||
       tally.undeleted.some((object) => object.undeleted > 0) ||
-      tally.recreated.some((object) => object.created > 0);
+      tally.recreated.some((object) => object.created > 0) ||
+      one.cameBackRestored + (second?.tally.cameBackRestored ?? 0) > 0;
     const status: RewindStatus = cancelled
       ? 'cancelled'
       : residual.some((entry) => entry.reason === 'changedDuringRewind')
@@ -1920,7 +1990,9 @@ class Rewind {
       rewindId: parts.rewindId,
       status: parts.status,
       deleted: parts.tally.deleted,
-      restored: parts.tally.restored,
+      // An object whose every record given back was one brought back gave
+      // nothing back that was changed since: its records are counted back.
+      restored: parts.tally.restored.filter((object) => object.planned > 0),
       // An object whose every record the bin no longer gave back, each made
       // again instead, brought nothing back: its records are counted made again.
       undeleted: parts.tally.undeleted.filter((object) => object.planned > 0),
@@ -2633,7 +2705,8 @@ class Rewind {
   /**
    * Bring back what was deleted since, parents first, a page of 2,000 ids at
    * a time: before each batch, the children the bin holds of its records are
-   * named in the journal; after it, what the undelete left on them is read.
+   * named in the journal; after it, what the undelete left on them is read,
+   * and what it refused named, with what was to come back with it.
    * What the org answers is no longer in the bin goes to `remake`, given, or
    * is left (`settleGone`). The carriers of a page go in batches of their
    * own, named as carriers, and what comes back with them named beside the
@@ -2691,6 +2764,8 @@ class Rewind {
         });
         /** By key, the records the org answered are not in the bin, each with what was named under it. */
         const answeredGone = new Map<string, ChildRecord[]>();
+        /** By key, the records the org refused to bring back, each with what was named under it. */
+        const refused = new Map<string, { id: string; under: readonly ChildRecord[] }>();
         const call: UndeleteCall = async (batch) => {
           const { byParent, under } = await this.nameChildren(
             journal,
@@ -2705,23 +2780,28 @@ class Rewind {
           for (const id of answeredNotInBin(answer, batch)) {
             answeredGone.set(keyOf(id), under.get(keyOf(id)) ?? []);
           }
+          for (const id of answeredRefused(answer, batch)) {
+            refused.set(keyOf(id), { id, under: under.get(keyOf(id)) ?? [] });
+          }
           return answer;
         };
         // A record the org answers not in the bin though a read found it
         // there came back with a parent since, or is no longer there.
+        const settled = await settleNotInBin(
+          this.org,
+          await undeleteRunDeletions({
+            org: this.org,
+            plan: [{ objectApiName, ids }],
+            undelete: call,
+            ...(this.signal ? { signal: this.signal } : {}),
+          }),
+          [{ objectApiName, ids }],
+          this.notes,
+        );
+        await this.notBroughtBack(journal, objectApiName, refused, settled.left);
         const outcome = await this.settleGone(
           objectApiName,
-          await settleNotInBin(
-            this.org,
-            await undeleteRunDeletions({
-              org: this.org,
-              plan: [{ objectApiName, ids }],
-              undelete: call,
-              ...(this.signal ? { signal: this.signal } : {}),
-            }),
-            [{ objectApiName, ids }],
-            this.notes,
-          ),
+          settled,
           answeredGone,
           tally,
           remake,
@@ -2832,6 +2912,45 @@ class Rewind {
       }),
       left: outcome.left.filter((id) => !moved.has(keyOf(id))),
     };
+  }
+
+  /**
+   * Name in the journal what the org refused to bring back of
+   * `objectApiName`, once the undelete answered, and what was named to come
+   * back with each — those of `refused` the read after it still found out of
+   * the org (`left`): their undo leaves them in the bin. Unnamed, the undo of
+   * a rewind that brought back one file of two, live, asked to send back two,
+   * with the links and versions of both. Best effort, a failure said: the
+   * undo then sets out to send them back too, and finds them gone.
+   */
+  private async notBroughtBack(
+    journal: RewindJournal,
+    objectApiName: string,
+    refused: ReadonlyMap<string, { id: string; under: readonly ChildRecord[] }>,
+    left: readonly string[],
+  ): Promise<void> {
+    if (refused.size === 0) return;
+    const out = new Set(left.map(keyOf));
+    const byObject = new Map<string, string[]>();
+    const add = (object: string, id: string): void => {
+      const ids = byObject.get(object) ?? [];
+      ids.push(id);
+      byObject.set(object, ids);
+    };
+    for (const [key, { id, under }] of refused) {
+      if (!out.has(key)) continue;
+      add(objectApiName, id);
+      for (const child of under) add(child.objectApiName, child.id);
+    }
+    try {
+      for (const [object, ids] of byObject) await journal.bringBackLeft(object, ids);
+    } catch (err: unknown) {
+      this.notes.push(
+        `Which ${objectApiName} records ${this.request.orgName} refused to bring back could not ` +
+          `be kept in the rewind’s journal (${extractErrorMessage(err)}): its undo may count them ` +
+          'among what it sends back to the recycle bin.',
+      );
+    }
   }
 
   /**
@@ -3057,6 +3176,7 @@ class Rewind {
           chunk: readonly string[],
           written: readonly string[],
           rows?: (row: OrgRow) => boolean,
+          counted?: (id: string, as: 'restored' | 'alreadyGone') => void,
         ): Promise<SyncRestoreOutcome> => {
           const outcome = await restoreOverwrites({
             org: this.org,
@@ -3069,6 +3189,7 @@ class Rewind {
             stamps: { ...plan.restore.stamps, ...this.stamps },
             keep: journal.keep,
             stampsFor: () => true,
+            ...(counted ? { counted } : {}),
             ...(this.signal ? { signal: this.signal } : {}),
           });
           stamp(outcome.stamps);
@@ -3092,8 +3213,18 @@ class Rewind {
         }
         const once = twice.length > 0 ? ids.filter((id) => !afterKeys.has(id)) : ids;
         if (once.length === 0) continue;
-        const outcome = await call(once, fields);
-        for (const object of outcome.objects) tally.restore(object);
+        // What the pass brought back, given its checkpoint values, or gone —
+        // the org refused it —, is part of bringing it back: counted apart
+        // from what was changed since, as the preview counts what it gives
+        // back.
+        const cameBack: Record<'restored' | 'alreadyGone', string[]> = {
+          restored: [],
+          alreadyGone: [],
+        };
+        const outcome = await call(once, fields, undefined, (id, as) => {
+          if (this.comesBack.has(id)) cameBack[as].push(id);
+        });
+        for (const object of outcome.objects) tally.restore(object, cameBack);
         tally.leftBy('restore', objectApiName, outcome.left);
         const result = outcome.objects[0];
         if (

@@ -1164,7 +1164,9 @@ describe('CheckpointHandler — the rewind and its undo', () => {
         ]),
       ),
     ).toEqual({
-      Case: { created: 1, updated: 1, deleted: 1 },
+      // The case it brought back is given its checkpoint values as part of
+      // coming back: counted brought back, not given back, as the preview says.
+      Case: { created: 1, updated: 0, deleted: 1 },
       Account: { created: 0, updated: 1, deleted: 0 },
     });
 

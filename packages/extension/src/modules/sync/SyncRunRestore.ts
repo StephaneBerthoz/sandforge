@@ -131,6 +131,13 @@ export interface SyncRestoreInput {
    * reasons, as left as the run wrote them.
    */
   unkept?: ReadonlyArray<{ objectApiName: string; fields: readonly string[] }>;
+  /**
+   * Told each record it counts given back whole (`restored`) or no longer in
+   * the org (`alreadyGone`), by the id the plan names it by: a rewind tells
+   * apart, of what it gives back, the records it brought back from the
+   * recycle bin, which come back with the values they had when deleted.
+   */
+  counted?: (id: string, as: 'restored' | 'alreadyGone') => void;
   /** Stops the restore before its next call to the org. */
   signal?: AbortSignal;
 }
@@ -515,6 +522,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       const current = now.get(key);
       if (!current) {
         tally.result.alreadyGone++;
+        input.counted?.(id, 'alreadyGone');
         continue;
       }
       const modified = Date.parse(String(current.LastModifiedDate ?? ''));
@@ -538,6 +546,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       }
       if (Object.keys(back).length === 1) {
         tally.result.restored++;
+        input.counted?.(id, 'restored');
         // Holding them already, as last modified by the run — or a run after
         // it whose removal gave it back its values: no change since either.
         if (unchanged && stampsFor?.(id) && typeof current.LastModifiedDate === 'string') {
@@ -622,8 +631,10 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       const answers = await send(batch);
       answers.forEach((answer, place) => {
         const record = batch[place];
+        const id = wanted.get(recordKey(record.Id)) ?? record.Id;
         if (answer.success === true) {
           tally.result.restored++;
+          input.counted?.(id, 'restored');
           return;
         }
         const refusal = refusalOf(answer);
@@ -631,6 +642,7 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         // A lookup to a record deleted since names its field: the record is there.
         if (refusal.code === 'ENTITY_IS_DELETED' && fields.length === 0) {
           tally.result.alreadyGone++;
+          input.counted?.(id, 'alreadyGone');
           return;
         }
         const rest = Object.keys(record).filter(
