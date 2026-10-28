@@ -124,7 +124,9 @@ describe('takeEstimate', () => {
       apiRequests: 4 + 5 + 3 + 1 + 1 + 17 + 2,
       requestsByPhase: estimate.requestsByPhase,
       seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 4 + 12 * 0.5),
-      bytes: 6_500 * 1_000 + (8 + 4_500 * 35) + 8 + (8 + 2_000 * 35),
+      // The rows, compressed, their index and their DataOps metadata; and
+      // what checkpoint.json holds whatever its objects.
+      bytes: 6_500 * 300 + (8 + 4_500 * 43) + 8 + (8 + 2_000 * 43) + 2 * 160 + 1_024,
     });
   });
 

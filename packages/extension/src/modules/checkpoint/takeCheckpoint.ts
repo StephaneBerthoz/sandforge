@@ -27,7 +27,8 @@
  *   read after it. It is read by a DataOps handler of its own, bound to the
  *   checkpoint's folder, which holds every row of an object or keeps nothing:
  *   a checkpoint holding part of an object would have its rewind delete the
- *   rest as created since. Each object's index is written from its file once
+ *   rest as created since. Its pages are put down compressed as they come,
+ *   never plain first. Each object's index is written from its file once
  *   read, and must hold as many rows as the read kept.
  * - T1 follows every read. What moved between T0 and T1 after its object was
  *   read is counted, the warning the take ends with: each record is held as it
@@ -44,7 +45,7 @@
  * a checkpoint listed as being taken, which can only be deleted.
  */
 
-import { readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
@@ -73,7 +74,11 @@ import { countRequests, type TypedTarget } from '../../core/precheck/orgKindLive
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { ConfigEntry } from '../../core/storage/ConfigStoreBackend.js';
 import { StepCancelledError } from '../automation/StepExecutor.js';
-import { BackupRecordStore, nodeBackupFiles } from '../dataops/BackupRecordStore.js';
+import {
+  BackupRecordStore,
+  nodeBackupFiles,
+  type BackupRecordStoreDeps,
+} from '../dataops/BackupRecordStore.js';
 import type { ApiBudget } from '../forge/ForgeRunGate.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import { viewsEncryptedData } from '../sync/encryptedFields.js';
@@ -81,6 +86,7 @@ import {
   CheckpointStoreError,
   DEFAULT_KEEP_DAYS,
   binFileOf,
+  compressedFieldPrints,
   expiresAtFor,
   makePrivateDir,
   newFolderId,
@@ -96,6 +102,7 @@ import {
 } from './checkpointFields.js';
 import { fingerprintOf, type ObjectFingerprint } from './checkpointFingerprint.js';
 import { guardCheckpoint } from './checkpointGuard.js';
+import { compressedSnapshotFiles } from './compressedSnapshotFiles.js';
 import {
   globalObjectSchema,
   resolveScope,
@@ -274,6 +281,19 @@ export interface TakeDeps {
   runWriting?: (organizationId: string) => Promise<string | undefined> | string | undefined;
   /** This machine's clock: the checkpoint's id and its expiry. */
   now?: () => Date;
+  /**
+   * The files the snapshot's values are written through, over the
+   * checkpoint's folder: compressed as each page comes
+   * ({@link compressedSnapshotFiles}) unless another is given — the plain
+   * files of a backup, as SandForge 1.69 and earlier wrote a snapshot, which
+   * every reader of a checkpoint still reads.
+   */
+  snapshotFiles?: (dir: string) => BackupRecordStoreDeps;
+}
+
+/** The files a take writes its snapshot through when it is given none: compressed. */
+function compressedFilesOf(dir: string): BackupRecordStoreDeps {
+  return compressedSnapshotFiles(nodeBackupFiles(dir));
 }
 
 /** An object the take could not check for what moved while it was read, and why. */
@@ -595,6 +615,32 @@ interface Planned extends Described {
   otherGroups: number[];
 }
 
+/**
+ * What `checkpoint.json` says of an object of the plan: as the take writes
+ * it once it ran, and as its estimate counts its bytes before, with the
+ * counts and the print it has then.
+ */
+function entryOf(
+  { scoped, capture }: Pick<Planned, 'scoped' | 'capture'>,
+  records: number,
+  inBin: number,
+  fingerprint: string,
+): CheckpointObject {
+  return {
+    objectApiName: scoped.objectApiName,
+    records,
+    inBin,
+    readOrder: scoped.readOrder,
+    readMode: capture.readMode,
+    undeletable: capture.undeletable,
+    cascadeParents: capture.cascadeParents,
+    restrictParents: capture.restrictParents,
+    fingerprint,
+    fields: capture.fields,
+    leftOutFields: capture.leftOutFields,
+  };
+}
+
 /** What a take would hold and cost, settled before any record is read. */
 interface Plan {
   objects: Planned[];
@@ -602,6 +648,8 @@ interface Plan {
   estimate: CheckpointEstimate;
   /** The most rows the snapshot reads of one object. */
   objectLimit: number;
+  /** Each object's field prints, by object, from its describe: what the take keeps of them. */
+  prints: Record<string, ObjectFingerprint>;
   /** The refusal the gates give, when they give one. */
   refusal?: CheckpointRefusal;
 }
@@ -666,16 +714,28 @@ async function planOf(
   leftOut.sort((a, b) =>
     a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0,
   );
+  // Made from the describes already read: the take writes these very prints.
+  const prints: Record<string, ObjectFingerprint> = {};
+  for (const { scoped, describe } of objects) {
+    prints[scoped.objectApiName] = fingerprintOf(describe.fields);
+  }
   const cost = takeEstimate({
     described: scope.described,
     describedAlone: scope.describedAlone,
     counted: scope.objects.length,
     countedAlone: alone,
-    objects: objects.map(({ records, otherGroups }): TakenObject => ({ records, otherGroups })),
+    objects: objects.map((object): TakenObject => ({
+      records: object.records,
+      otherGroups: object.otherGroups,
+      // None in the bin yet: the take reads it after the estimate.
+      entry: entryOf(object, object.records, 0, prints[object.scoped.objectApiName].digest),
+    })),
     pageRows: pageRowsOf(request.registered),
+    leftOut,
+    printsBytes: (await compressedFieldPrints(prints)).length,
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const plan: Plan = { objects, leftOut, estimate, objectLimit };
+  const plan: Plan = { objects, leftOut, estimate, objectLimit, prints };
   if (cost.records > maxTotal) {
     return {
       ...plan,
@@ -916,6 +976,22 @@ async function bytesUnder(dir: string): Promise<number> {
 }
 
 /**
+ * Bytes a checkpoint's folder takes once `checkpoint` is its file: every
+ * other file as it is, its own as the store writes it. Measured before, the
+ * folder held the file of the take under way, which lists no object: on an
+ * org of 200 objects, a sixth of the checkpoint went uncounted. The count is
+ * written into the file it counts, so it is counted with its own digits.
+ */
+async function bytesKept(folder: CheckpointFolder, checkpoint: OrgCheckpoint): Promise<number> {
+  const others = (await bytesUnder(folder.dir)) - (await stat(folder.checkpointFile)).size;
+  const fileWith = (bytes: number): number =>
+    Buffer.byteLength(`${JSON.stringify({ ...checkpoint, bytes }, null, 2)}\n`, 'utf8');
+  let bytes = others + fileWith(others);
+  bytes = others + fileWith(bytes);
+  return bytes;
+}
+
+/**
  * The product's config store, kept in the checkpoint's `snapshots.json`: the
  * snapshot's DataOps metadata, as the command lines keep a store of their
  * own. Its owner's alone to read.
@@ -939,10 +1015,11 @@ const snapshotMetaSchema = z.object({ organizationId: z.string().optional() }).l
 
 /**
  * A DataOps handler of the checkpoint's own: its snapshot's metadata in the
- * checkpoint's `snapshots.json`, its files in the checkpoint's `backups/`, no
- * entry of its own in the registry nor in Live Operations — the take's are
- * the checkpoint's — and its progress passed on to the take. It reads at most
- * `cap` rows of an object, and the take never asks it for an object past it.
+ * checkpoint's `snapshots.json`, its files in the checkpoint's `backups/`,
+ * written through `files`, no entry of its own in the registry nor in Live
+ * Operations — the take's are the checkpoint's — and its progress passed on
+ * to the take. It reads at most `cap` rows of an object, and the take never
+ * asks it for an object past it.
  *
  * Built over the few dependencies a snapshot reads: the log, the org and its
  * credentials, the config store, the setting of the cap, the broker its
@@ -950,6 +1027,7 @@ const snapshotMetaSchema = z.object({ organizationId: z.string().optional() }).l
  */
 async function snapshotHandlerOf(
   folder: CheckpointFolder,
+  files: BackupRecordStoreDeps,
   deps: TakeDeps,
   cap: number,
   progress: (percentage: number, step: string) => void,
@@ -977,7 +1055,7 @@ async function snapshotHandlerOf(
     nextId: () => `${folder.checkpointId}-${++sent}`,
   };
   const handler = new DataOpsHandler(handlerDeps as unknown as HandlerDeps);
-  handler.setBackupRecordStore(new BackupRecordStore(nodeBackupFiles(folder.dir)));
+  handler.setBackupRecordStore(new BackupRecordStore(files));
   await handler.swept();
   return { handler, config };
 }
@@ -1141,34 +1219,23 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       signal,
     );
 
-    const prints: Record<string, ObjectFingerprint> = {};
-    for (const { scoped, describe } of plan.objects) {
-      prints[scoped.objectApiName] = fingerprintOf(describe.fields);
-    }
+    const { prints } = plan;
     await store.writeFingerprints(folder, prints);
-    const objects: CheckpointObject[] = plan.objects.map(({ scoped, capture }) => ({
-      objectApiName: scoped.objectApiName,
-      records: records.get(scoped.objectApiName) ?? 0,
-      inBin: inBin.get(scoped.objectApiName) ?? 0,
-      readOrder: scoped.readOrder,
-      readMode: capture.readMode,
-      undeletable: capture.undeletable,
-      cascadeParents: capture.cascadeParents,
-      restrictParents: capture.restrictParents,
-      fingerprint: prints[scoped.objectApiName].digest,
-      fields: capture.fields,
-      leftOutFields: capture.leftOutFields,
-    }));
+    const objects: CheckpointObject[] = plan.objects.map((object) => {
+      const name = object.scoped.objectApiName;
+      return entryOf(object, records.get(name) ?? 0, inBin.get(name) ?? 0, prints[name].digest);
+    });
     if (signal?.aborted) throw new CheckpointTakeStopped();
-    const checkpoint: OrgCheckpoint = {
+    const ready: OrgCheckpoint = {
       ...taking,
       takenAt,
       objects,
       movedWhileTaken,
-      bytes: await bytesUnder(folder.dir),
+      bytes: 0,
       expiresAt: expiresAtFor(now(), keepDays),
       status: 'ready',
     };
+    const checkpoint: OrgCheckpoint = { ...ready, bytes: await bytesKept(folder, ready) };
     await store.write(checkpoint);
     report(100, `Checkpoint '${checkpoint.name}' taken`, objects.length, objects.length);
     const requests = count.requests();
@@ -1192,7 +1259,8 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
  * Read every object of the plan that holds records into the snapshot,
  * children first, then index each object's file: one row per record, as many
  * as the read kept, or the take fails. An object counted empty is held as one
- * read empty: an empty file and an empty index.
+ * read empty: an empty file and an empty index. The files are written
+ * through the take's snapshot files, compressed unless it was given others.
  *
  * @returns The rows the snapshot holds of each object.
  */
@@ -1207,10 +1275,15 @@ async function snapshotOf(
 ): Promise<Map<string, number>> {
   const read = plan.objects.filter((object) => object.records > 0);
   const kept = new Map<string, number>();
+  const files = (deps.snapshotFiles ?? compressedFilesOf)(folder.dir);
   if (read.length > 0) {
     const cap = Math.max(SNAPSHOT_CAP_MIN, plan.objectLimit);
-    const { handler, config } = await snapshotHandlerOf(folder, deps, cap, (percentage, step) =>
-      report(15 + percentage * 0.65, step),
+    const { handler, config } = await snapshotHandlerOf(
+      folder,
+      files,
+      deps,
+      cap,
+      (percentage, step) => report(15 + percentage * 0.65, step),
     );
     const taken = await handler.backupForPipeline(
       {
@@ -1247,9 +1320,8 @@ async function snapshotOf(
     const name = scoped.objectApiName;
     const rows = kept.get(name) ?? 0;
     if (!kept.has(name)) {
-      const file = snapshotFileOf(folder, snapshotId, name);
       await makePrivateDir(join(folder.dir, 'backups'));
-      await writeFile(file, '', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      await files.writeFile(snapshotFileOf(folder, snapshotId, name), '');
       kept.set(name, 0);
     }
     const index = await writeSnapshotIndex(folder, snapshotId, name);

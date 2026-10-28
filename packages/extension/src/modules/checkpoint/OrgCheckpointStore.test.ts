@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import {
   checkpointIdSchema,
   previewIdSchema,
@@ -157,7 +158,8 @@ describe('where checkpoints are kept', () => {
     expect(folder.dir).toBe(join(store.root, ORG, 'ck-20261022-110000-a1b2'));
     expect(store.folderOf(ORG, 'ck-20261022-110000-a1b2')).toEqual(folder);
     expect(folder.checkpointFile).toBe(join(folder.dir, 'checkpoint.json'));
-    expect(folder.fingerprintsFile).toBe(join(folder.dir, 'fingerprints.json'));
+    expect(folder.fingerprintsFile).toBe(join(folder.dir, 'fingerprints.json.gz'));
+    expect(folder.plainFingerprintsFile).toBe(join(folder.dir, 'fingerprints.json'));
     expect(folder.snapshotsFile).toBe(join(folder.dir, 'snapshots.json'));
     expect(indexFileOf(folder, 'Account')).toBe(join(folder.dir, 'index', 'Account.idx'));
     expect(binFileOf(folder, 'Account')).toBe(join(folder.dir, 'bin', 'Account.ids'));
@@ -384,6 +386,36 @@ describe('the field prints', () => {
     rmSync(folder.fingerprintsFile);
     await expect(store.readFingerprints(folder, checkpointOf())).rejects.toMatchObject({
       code: 'damaged',
+    });
+  });
+
+  it('writes them compressed whole, and reads plain the prints of a checkpoint taken before, when no compressed file is there', async () => {
+    const store = storeIn();
+    const folder = await kept(store);
+
+    const text = gunzipSync(readFileSync(folder.fingerprintsFile)).toString('utf8');
+    expect(JSON.parse(text)).toEqual({ version: 1, objects: { Account: ACCOUNT_PRINT } });
+    expect(existsSync(folder.plainFingerprintsFile)).toBe(false);
+
+    // As SandForge 1.69 kept them.
+    writeFileSync(folder.plainFingerprintsFile, text);
+    rmSync(folder.fingerprintsFile);
+    expect((await store.readFingerprints(folder, checkpointOf())).get('Account')).toEqual(
+      ACCOUNT_PRINT,
+    );
+
+    // A compressed file that does not inflate is not read past for the plain one.
+    writeFileSync(folder.fingerprintsFile, text);
+    await expect(store.readFingerprints(folder, checkpointOf())).rejects.toMatchObject({
+      code: 'damaged',
+      message: 'The checkpoint’s field prints cannot be read',
+    });
+
+    rmSync(folder.fingerprintsFile);
+    rmSync(folder.plainFingerprintsFile);
+    await expect(store.readFingerprints(folder, checkpointOf())).rejects.toMatchObject({
+      code: 'damaged',
+      message: 'The checkpoint’s field prints cannot be read',
     });
   });
 });

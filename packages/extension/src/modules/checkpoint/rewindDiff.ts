@@ -187,7 +187,7 @@ import {
   type ObjectChanges,
   type ObjectRead,
 } from './orgStreams.js';
-import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex, snapshotFileOf } from './snapshotIndex.js';
+import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
 
 /**
  * The classes a record is told into, each with its file in the preview's
@@ -1007,10 +1007,8 @@ async function diffObject(
     const suspects = new Map<string, { id: string; fields: string[] }>();
     const lookups = context.lookups.get(objectApiName) ?? [];
     if (lookups.length > 0 && index.size > 0) {
-      const file = snapshotFileOf(folder, checkpoint.snapshotId, objectApiName);
-      for await (const held of spooledRows(file)) {
-        // As the org names the records now: one made again by its new Id.
-        const row = index.recreated.rowAsNow(held);
+      // As the org names the records now: one made again by its new Id.
+      for await (const row of index.records()) {
         if (isPerson(row)) continue;
         const key = keyOf(row.Id);
         if (key === undefined) continue;

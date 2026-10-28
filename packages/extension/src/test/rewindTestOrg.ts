@@ -44,7 +44,11 @@ import {
   type RewindOutcome,
   type RewindRequest,
 } from '../modules/checkpoint/rewindOrg.js';
-import { takeCheckpoint, type TakeOrg } from '../modules/checkpoint/takeCheckpoint.js';
+import {
+  takeCheckpoint,
+  type TakeDeps,
+  type TakeOrg,
+} from '../modules/checkpoint/takeCheckpoint.js';
 import { undoRewind } from '../modules/checkpoint/undoRewind.js';
 import {
   MEMORY_ORG_USER,
@@ -343,13 +347,15 @@ export function baseRecords(org: RewindTestOrg): void {
 /**
  * Records long before the checkpoint, then the checkpoint, taken at T0 of
  * `objects` as a take takes it, through a snapshot handler reading the same
- * org.
+ * org: its values written through `snapshotFiles` when given, compressed
+ * otherwise.
  */
 export async function taken(
   build: (org: RewindTestOrg) => void = baseRecords,
   org = new RewindTestOrg(),
   objects: readonly string[] = PICKED,
   compared: { objects?: readonly string[]; fields?: readonly string[] } = {},
+  snapshotFiles?: TakeDeps['snapshotFiles'],
 ): Promise<Taken> {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-rewind-'));
   dirs.push(dir);
@@ -376,6 +382,7 @@ export async function taken(
         orgRegistry: {} as never,
       },
       now: () => new Date(T0),
+      ...(snapshotFiles !== undefined ? { snapshotFiles } : {}),
     },
     {
       orgId: 'org-1',

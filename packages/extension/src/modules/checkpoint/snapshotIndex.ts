@@ -10,16 +10,26 @@
  * snapshot at each preview, up to 500,000 rows of hundreds of fields for one
  * object. The take goes through each object's file once, as it is on disk,
  * and keeps of each row the first fifteen characters of its id, its stamp,
- * and the offset and length of its line: 35 bytes, whatever the row holds.
- * A preview makes its sets from that alone, one object at a time.
+ * and where its line is: 43 bytes, whatever the row holds. A preview makes
+ * its sets from that alone, one object at a time.
+ *
+ * The file is compressed, a series of gzip members of whole lines
+ * (`compressedSnapshotFiles.ts`): where a line is, is the member it is in —
+ * its first byte and its bytes — then where the line starts among the
+ * member's lines and its length (`SFCKIDX2`). A checkpoint taken before the
+ * snapshot was compressed holds a plain file, `.ndjson`, and an index of
+ * where each line starts in it and its length, 35 bytes a row (`SFCKIDX1`):
+ * it is read as it was written, never converted, the index's first bytes
+ * saying which file it is of. A SandForge that knows the first index alone
+ * says one of the second damaged, and writes nothing.
  *
  * The set is exact. The records a removal leaves are held as two hashes of
  * their id each (`HashedKeys`), and two ids whose hashes meet are taken there
  * for one: one record more set out to be deleted, which the org says is
  * gone. Here such ids would be a record taken for another — changed for
  * unchanged, deleted for created — so a lookup always ends on the id itself.
- * The index and a table of its rows by id, under half full, take about 45
- * bytes a row: some 22 MB for an object of 500,000 records, released with it.
+ * The index and a table of its rows by id, under half full, take about 55
+ * bytes a row: some 27 MB for an object of 500,000 records, released with it.
  *
  * What was deleted since and is no longer in the recycle bin is told by a
  * scan of the org's live ids and the bin's ids read since, each marked one bit
@@ -28,9 +38,10 @@
  *
  * A rewind gives an object's values back a chunk of records at a time, each
  * chunk read from the snapshot just before its writes (`SnapshotIndex.chunk`):
- * its rows are read at their offsets, never the whole file, and each line is
- * checked to be the record, as read, that the index says is there. A file
- * changed since the take would otherwise give one record's values to another.
+ * its rows are read where the index says, each member they are in inflated
+ * once, never the whole file, and each line is checked to be the record, as
+ * read, that the index says is there. A file changed since the take would
+ * otherwise give one record's values to another.
  *
  * A record the recycle bin no longer gave back, which a rewind made again
  * from its row, lives under a new Id: the checkpoint keeps the pair beside
@@ -44,7 +55,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { open, readFile, rename, rm, type FileHandle } from 'node:fs/promises';
+import { open, readFile, rename, rm, stat, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import * as z from 'zod';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
@@ -59,6 +70,14 @@ import {
   recreatedFileOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
+import {
+  MEMBER_MIN_BYTES,
+  compressedFileOf,
+  linesIn,
+  membersOf,
+  readMember,
+  type Damaged,
+} from './compressedSnapshotFiles.js';
 
 /**
  * The most records a chunk of the snapshot reads: a give-back holds a chunk's
@@ -67,21 +86,65 @@ import {
  */
 export const SNAPSHOT_CHUNK_IDS = 2_000;
 
-/** What an index file starts with: the kind of file it is, and the version of its rows. */
-const INDEX_HEAD = Buffer.from('SFCKIDX1', 'latin1');
+/**
+ * The two forms a snapshot's index and file have been kept in: 1, a plain
+ * file and the offset of each line in it, as SandForge 1.69 and earlier kept
+ * them; 2, a compressed file and the member each line is in.
+ */
+export type SnapshotFormat = 1 | 2;
+
 /** The first fifteen characters of a record's id, one byte each. */
 const KEY_BYTES = 15;
 /** Where a row's stamp is in it: milliseconds since the epoch, a little-endian double. */
 const STAMP_AT = KEY_BYTES;
-/** Where the offset of its line in the snapshot file is: bytes, a little-endian double. */
+/**
+ * Where the offset is, in bytes, a little-endian double: of its line in the
+ * plain file; of the member its line is in, in the compressed one.
+ */
 const OFFSET_AT = STAMP_AT + 8;
-/** Where the length of its line is: bytes, a little-endian 32-bit integer. */
-const LENGTH_AT = OFFSET_AT + 8;
-/** Bytes a row of the snapshot takes in its index. */
-const ROW_BYTES = LENGTH_AT + 4;
+
+/** How a row of an index of one form lays out what it holds after its key, its stamp and its offset. */
+interface IndexLayout {
+  format: SnapshotFormat;
+  /** What an index file starts with: the kind of file it is, and the version of its rows. */
+  head: Buffer;
+  /** Where the bytes of the member its line is in are, a little-endian 32-bit integer; none in form 1. */
+  memberBytesAt?: number;
+  /** Where the offset of its line among the member's lines is, the same; none in form 1. */
+  lineAt?: number;
+  /** Where the length of its line is, the same. */
+  lengthAt: number;
+  /** Bytes a row takes. */
+  rowBytes: number;
+}
+
+const PLAIN_INDEX: IndexLayout = {
+  format: 1,
+  head: Buffer.from('SFCKIDX1', 'latin1'),
+  lengthAt: OFFSET_AT + 8,
+  rowBytes: OFFSET_AT + 8 + 4,
+};
+
+const COMPRESSED_INDEX: IndexLayout = {
+  format: 2,
+  head: Buffer.from('SFCKIDX2', 'latin1'),
+  memberBytesAt: OFFSET_AT + 8,
+  lineAt: OFFSET_AT + 12,
+  lengthAt: OFFSET_AT + 16,
+  rowBytes: OFFSET_AT + 20,
+};
+
+/** The layout of an index of each form. */
+const LAYOUTS: Record<SnapshotFormat, IndexLayout> = { 1: PLAIN_INDEX, 2: COMPRESSED_INDEX };
+
+/** Bytes an index file's head takes, alike in both forms. */
+const HEAD_BYTES = PLAIN_INDEX.head.length;
 
 /** Bytes read from a snapshot file at a time while it is indexed. */
 const SCAN_BYTES = 1 << 20;
+
+/** Records {@link SnapshotIndex.records} reads a compressed file by at a time, before giving them one by one. */
+const RECORDS_BATCH = 500;
 
 /** A Salesforce id, of either length. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
@@ -90,9 +153,9 @@ const ROW_KEY = /^[A-Za-z0-9]{15}$/;
 /** An object's API name, as the snapshot's files are named by. */
 const OBJECT_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 
-/** The bytes an index of `rows` rows takes on disk: what a take's estimate counts for it. */
-export function snapshotIndexBytes(rows: number): number {
-  return INDEX_HEAD.length + rows * ROW_BYTES;
+/** The bytes an index of `rows` rows of a form takes on disk: what a take's estimate counts for it. */
+export function snapshotIndexBytes(rows: number, format: SnapshotFormat): number {
+  return HEAD_BYTES + rows * LAYOUTS[format].rowBytes;
 }
 
 // ─── Where the snapshot is ───────────────────────────────────────────────────
@@ -103,9 +166,11 @@ function backupSegment(name: string): string {
 }
 
 /**
- * The file of an object's values in a checkpoint's snapshot: where the DataOps
- * store bound to the checkpoint's folder writes them
- * (`BackupRecordStore`, `backups/<snapshot>__<Object>.ndjson`).
+ * The plain file of an object's values in a checkpoint's snapshot: where the
+ * DataOps store bound to the checkpoint's folder names them
+ * (`BackupRecordStore`, `backups/<snapshot>__<Object>.ndjson`), and where a
+ * checkpoint taken before the snapshot was compressed holds them. A take now
+ * keeps them in {@link compressedSnapshotFileOf}.
  *
  * @throws {CheckpointStoreError} `invalid`, when `objectApiName` is not an API name.
  */
@@ -124,42 +189,80 @@ export function snapshotFileOf(
   );
 }
 
+/**
+ * The compressed file of an object's values in a checkpoint's snapshot,
+ * `backups/<snapshot>__<Object>.ndjson.gz`: what a take keeps them in.
+ *
+ * @throws {CheckpointStoreError} `invalid`, when `objectApiName` is not an API name.
+ */
+export function compressedSnapshotFileOf(
+  folder: CheckpointFolder,
+  snapshotId: string,
+  objectApiName: string,
+): string {
+  return compressedFileOf(snapshotFileOf(folder, snapshotId, objectApiName));
+}
+
 // ─── The rows of an index ────────────────────────────────────────────────────
+
+/** Where a line of the snapshot is, as a row of its index says. */
+interface LinePlace {
+  /** Of its line in a plain file; of the member it is in, in a compressed one. */
+  offset: number;
+  /** Bytes of its line, without its line break. */
+  length: number;
+  /** Bytes of the member it is in; 0 in a plain file. */
+  memberBytes?: number;
+  /** Where its line starts among the member's lines; 0 in a plain file. */
+  line?: number;
+}
 
 /** The rows of an index, in the order of the snapshot's lines, as the index file holds them. */
 class IndexRows {
   private bytes: Buffer;
+  private readonly rowBytes: number;
   size: number;
 
-  /** @param bytes - The rows of an index file, read; none for an index being written. */
-  constructor(bytes?: Buffer) {
-    this.bytes = bytes ?? Buffer.alloc(ROW_BYTES * 1024);
-    this.size = bytes ? bytes.length / ROW_BYTES : 0;
+  /**
+   * @param layout - The form the rows are in.
+   * @param bytes - The rows of an index file, read; none for an index being written.
+   */
+  constructor(
+    readonly layout: IndexLayout,
+    bytes?: Buffer,
+  ) {
+    this.rowBytes = layout.rowBytes;
+    this.bytes = bytes ?? Buffer.alloc(this.rowBytes * 1024);
+    this.size = bytes ? bytes.length / this.rowBytes : 0;
   }
 
   /** Add a row; its place. */
-  push(key: string, stamp: number, offset: number, length: number): number {
-    const at = this.size * ROW_BYTES;
-    if (at + ROW_BYTES > this.bytes.length) {
-      const grown = Buffer.alloc(Math.max(this.bytes.length * 2, ROW_BYTES * 1024));
+  push(key: string, stamp: number, place: LinePlace): number {
+    const at = this.size * this.rowBytes;
+    if (at + this.rowBytes > this.bytes.length) {
+      const grown = Buffer.alloc(Math.max(this.bytes.length * 2, this.rowBytes * 1024));
       this.bytes.copy(grown, 0, 0, at);
       this.bytes = grown;
     }
+    const { memberBytesAt, lineAt, lengthAt } = this.layout;
     this.bytes.write(key, at, KEY_BYTES, 'latin1');
     this.bytes.writeDoubleLE(stamp, at + STAMP_AT);
-    this.bytes.writeDoubleLE(offset, at + OFFSET_AT);
-    this.bytes.writeUInt32LE(length, at + LENGTH_AT);
+    this.bytes.writeDoubleLE(place.offset, at + OFFSET_AT);
+    if (memberBytesAt !== undefined)
+      this.bytes.writeUInt32LE(place.memberBytes ?? 0, at + memberBytesAt);
+    if (lineAt !== undefined) this.bytes.writeUInt32LE(place.line ?? 0, at + lineAt);
+    this.bytes.writeUInt32LE(place.length, at + lengthAt);
     return this.size++;
   }
 
   keyAt(row: number): string {
-    const at = row * ROW_BYTES;
+    const at = row * this.rowBytes;
     return this.bytes.toString('latin1', at, at + KEY_BYTES);
   }
 
   /** Whether row `row` is held by `key`, compared character by character. */
   holds(row: number, key: string): boolean {
-    const at = row * ROW_BYTES;
+    const at = row * this.rowBytes;
     for (let i = 0; i < KEY_BYTES; i++) {
       if (this.bytes[at + i] !== key.charCodeAt(i)) return false;
     }
@@ -167,15 +270,33 @@ class IndexRows {
   }
 
   stampAt(row: number): number {
-    return this.bytes.readDoubleLE(row * ROW_BYTES + STAMP_AT);
+    return this.bytes.readDoubleLE(row * this.rowBytes + STAMP_AT);
   }
 
+  /** Of its line in a plain file; of the member its line is in, in a compressed one. */
   offsetAt(row: number): number {
-    return this.bytes.readDoubleLE(row * ROW_BYTES + OFFSET_AT);
+    return this.bytes.readDoubleLE(row * this.rowBytes + OFFSET_AT);
+  }
+
+  /** Bytes of the member its line is in; 0 in a plain file. */
+  memberBytesAt(row: number): number {
+    const at = this.layout.memberBytesAt;
+    return at === undefined ? 0 : this.bytes.readUInt32LE(row * this.rowBytes + at);
+  }
+
+  /** Where its line starts among its member's lines; 0 in a plain file. */
+  lineAt(row: number): number {
+    const at = this.layout.lineAt;
+    return at === undefined ? 0 : this.bytes.readUInt32LE(row * this.rowBytes + at);
   }
 
   lengthAt(row: number): number {
-    return this.bytes.readUInt32LE(row * ROW_BYTES + LENGTH_AT);
+    return this.bytes.readUInt32LE(row * this.rowBytes + this.layout.lengthAt);
+  }
+
+  /** Whether row `a`'s line comes before row `b`'s in the file: by offset, then within its member. */
+  before(a: number, b: number): number {
+    return this.offsetAt(a) - this.offsetAt(b) || this.lineAt(a) - this.lineAt(b);
   }
 
   /** Whether row `row` is one an index writes: a key, a date, a place in a file. */
@@ -187,13 +308,14 @@ class IndexRows {
       Number.isFinite(stamp) &&
       Number.isSafeInteger(offset) &&
       offset >= 0 &&
-      this.lengthAt(row) > 0
+      this.lengthAt(row) > 0 &&
+      (this.layout.format === 1 || this.memberBytesAt(row) >= MEMBER_MIN_BYTES)
     );
   }
 
   /** The rows, as the index file holds them after its head. */
   written(): Buffer {
-    return this.bytes.subarray(0, this.size * ROW_BYTES);
+    return this.bytes.subarray(0, this.size * this.rowBytes);
   }
 }
 
@@ -254,11 +376,9 @@ class RowsByKey {
 
 // ─── Reading the snapshot's lines ────────────────────────────────────────────
 
-/** A line of a snapshot file: its number, where it starts, its bytes, and what it says. */
-interface SnapshotLine {
+/** A line of a snapshot file: its number, where it is, and what it says. */
+interface SnapshotLine extends LinePlace {
   number: number;
-  offset: number;
-  length: number;
   text: string;
 }
 
@@ -326,6 +446,51 @@ async function* snapshotLines(file: string, objectApiName: string): AsyncGenerat
   }
 }
 
+/**
+ * Every line of a compressed snapshot file that holds something, a member at
+ * a time, with the member it is in and where it starts among the member's
+ * lines: numbered as the inflated file's lines are, an empty one among them.
+ *
+ * @throws What `damaged` makes, when a member is not one or does not inflate.
+ */
+async function* compressedSnapshotLines(
+  file: string,
+  objectApiName: string,
+  damaged: Damaged,
+): AsyncGenerator<SnapshotLine> {
+  const handle = await openSnapshot(file, objectApiName);
+  try {
+    let number = 0;
+    for await (const member of membersOf(handle, (await handle.stat()).size, damaged)) {
+      for (const line of linesIn(member.lines)) {
+        number++;
+        if (line.length === 0) continue;
+        yield {
+          number,
+          offset: member.at,
+          memberBytes: member.total,
+          line: line.at,
+          length: line.length,
+          text: member.lines.toString('utf8', line.at, line.at + line.length),
+        };
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Whether a file is on this machine. */
+async function present(file: string): Promise<boolean> {
+  try {
+    await stat(file);
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 /** A stamp as the org gives it, `+0000` or `Z`, in milliseconds; NaN for anything else. */
 function stampMs(value: unknown): number {
   const at = orgDateTime(value);
@@ -376,28 +541,45 @@ async function writeWhole(file: string, content: Buffer): Promise<void> {
 /**
  * Index the snapshot of an object once the take has read it whole:
  * `index/<Object>.idx` in the checkpoint's folder, one row per line of its
- * values, written whole or not at all.
+ * values, written whole or not at all. Its compressed file is gone through
+ * member by member, each inflated alone, and indexed in the second form; a
+ * plain one, as a take kept it before the compression, in the first.
  *
  * @throws {CheckpointStoreError} `damaged`, when a line holds no record, a
  *   record without its Id or its `SystemModstamp`, or a record a line before
- *   it holds already: a snapshot a rewind could not tell its records apart
- *   in is not kept, and the take fails.
+ *   it holds already, or a member of the compressed file is not one or does
+ *   not inflate: a snapshot a rewind could not tell its records apart in is
+ *   not kept, and the take fails.
  */
 export async function writeSnapshotIndex(
   folder: CheckpointFolder,
   snapshotId: string,
   objectApiName: string,
 ): Promise<SnapshotIndexWritten> {
-  const file = snapshotFileOf(folder, snapshotId, objectApiName);
+  const plain = snapshotFileOf(folder, snapshotId, objectApiName);
+  const compressed = compressedFileOf(plain);
+  const format: SnapshotFormat = (await present(compressed)) ? 2 : 1;
   const target = indexFileOf(folder, objectApiName);
-  const rows = new IndexRows();
+  const rows = new IndexRows(LAYOUTS[format]);
   const byKey = new RowsByKey(rows, 0);
   const damaged = (line: number, what: string): CheckpointStoreError =>
     new CheckpointStoreError(
       'damaged',
       `The snapshot of ${objectApiName} holds ${what} at line ${line} of its file: it cannot be indexed.`,
     );
-  for await (const line of snapshotLines(file, objectApiName)) {
+  const lines =
+    format === 2
+      ? compressedSnapshotLines(
+          compressed,
+          objectApiName,
+          (why) =>
+            new CheckpointStoreError(
+              'damaged',
+              `The snapshot of ${objectApiName} ${why}: it cannot be indexed.`,
+            ),
+        )
+      : snapshotLines(plain, objectApiName);
+  for await (const line of lines) {
     const record = recordOf(line.text);
     if (!record) throw damaged(line.number, 'no record');
     const id = record.Id;
@@ -408,10 +590,10 @@ export async function writeSnapshotIndex(
     if (!Number.isFinite(stamp)) {
       throw damaged(line.number, `record ${id} without its SystemModstamp`);
     }
-    const row = rows.push(id.slice(0, KEY_BYTES), stamp, line.offset, line.length);
+    const row = rows.push(id.slice(0, KEY_BYTES), stamp, line);
     if (byKey.add(row) >= 0) throw damaged(line.number, `record ${id} a second time`);
   }
-  const content = Buffer.concat([INDEX_HEAD, rows.written()]);
+  const content = Buffer.concat([rows.layout.head, rows.written()]);
   await writeWhole(target, content);
   return { rows: rows.size, bytes: content.length };
 }
@@ -590,11 +772,17 @@ export class SnapshotIndex {
     private readonly byKey: RowsByKey,
     /** The records a rewind made again, every object's: see {@link Recreated}. */
     readonly recreated: Recreated,
+    /**
+     * Bytes the compressed file takes, as its index says: the end of the last
+     * member it names, each member holding at least a line. 0 for a plain one.
+     */
+    private readonly extent: number,
   ) {}
 
   /**
    * The index of `objectApiName` in a checkpoint's folder, whose values are in
-   * the snapshot `snapshotId`.
+   * the snapshot `snapshotId`: of the compressed file, or of the plain one a
+   * take kept before the compression, as its first bytes say.
    *
    * The records a rewind made again are named by their Ids now, as the
    * checkpoint's folder pairs them (`Recreated`), unless `recreated` is given.
@@ -610,7 +798,6 @@ export class SnapshotIndex {
     recreated?: Recreated,
   ): Promise<SnapshotIndex> {
     const file = indexFileOf(folder, objectApiName);
-    const snapshotFile = snapshotFileOf(folder, snapshotId, objectApiName);
     const damaged = (why: string): CheckpointStoreError =>
       new CheckpointStoreError('damaged', `The checkpoint’s index of ${objectApiName} ${why}.`);
     let bytes: Buffer;
@@ -620,19 +807,22 @@ export class SnapshotIndex {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw damaged('is not on this machine');
       throw err;
     }
-    const head = INDEX_HEAD.length;
-    if (
-      bytes.length < head ||
-      !bytes.subarray(0, head).equals(INDEX_HEAD) ||
-      (bytes.length - head) % ROW_BYTES !== 0
-    ) {
+    const layout = [PLAIN_INDEX, COMPRESSED_INDEX].find(
+      ({ head }) => bytes.length >= HEAD_BYTES && bytes.subarray(0, HEAD_BYTES).equals(head),
+    );
+    if (layout === undefined || (bytes.length - HEAD_BYTES) % layout.rowBytes !== 0) {
       throw damaged('is not an index of its snapshot');
     }
-    const rows = new IndexRows(bytes.subarray(head));
+    const plain = snapshotFileOf(folder, snapshotId, objectApiName);
+    const snapshotFile = layout.format === 2 ? compressedFileOf(plain) : plain;
+    const rows = new IndexRows(layout, bytes.subarray(HEAD_BYTES));
     const byKey = new RowsByKey(rows, rows.size);
+    let extent = 0;
     for (let row = 0; row < rows.size; row++) {
       if (!rows.wellFormed(row)) throw damaged(`is damaged at row ${row + 1}`);
       if (byKey.add(row) >= 0) throw damaged(`holds record ${rows.keyAt(row)} twice`);
+      if (layout.format === 2)
+        extent = Math.max(extent, rows.offsetAt(row) + rows.memberBytesAt(row));
     }
     return new SnapshotIndex(
       objectApiName,
@@ -641,7 +831,13 @@ export class SnapshotIndex {
       rows,
       byKey,
       recreated ?? (await Recreated.read(folder)),
+      extent,
     );
+  }
+
+  /** The form the snapshot is kept in: 2, compressed; 1, plain, as a take kept it before the compression. */
+  get format(): SnapshotFormat {
+    return this.rows.layout.format;
   }
 
   /** Records the snapshot holds: `|S|`. */
@@ -702,11 +898,12 @@ export class SnapshotIndex {
   /**
    * A reader of the snapshot's values of `ids` alone, for the give-back of one
    * chunk (`restoreOverwrites`): it answers for this object of this snapshot
-   * only, and reads each record the snapshot holds at its line's offset, in
-   * the file's order, when it is gone through. An id the snapshot does not
-   * hold is left out, as one whose values were not kept. A record made again
-   * is read under its Id now, its lookups that named a record made again
-   * naming that record's new Id.
+   * only, and reads each record the snapshot holds where its line is, in the
+   * file's order, when it is gone through: each member of a compressed file
+   * that holds one of them is inflated once. An id the snapshot does not hold
+   * is left out, as one whose values were not kept. A record made again is
+   * read under its Id now, its lookups that named a record made again naming
+   * that record's new Id.
    *
    * @throws {RangeError} For more than {@link SNAPSHOT_CHUNK_IDS} ids.
    */
@@ -721,7 +918,7 @@ export class SnapshotIndex {
       const row = this.rowOf(id);
       if (row >= 0) wanted.add(row);
     }
-    const rows = [...wanted].sort((a, b) => this.rows.offsetAt(a) - this.rows.offsetAt(b));
+    const rows = [...wanted].sort((a, b) => this.rows.before(a, b));
     return {
       batches: async (operationId, objectApiName, size) => {
         if (operationId !== this.snapshotId || objectApiName !== this.objectApiName) return null;
@@ -732,13 +929,66 @@ export class SnapshotIndex {
   }
 
   /**
-   * The records at `rows`, `size` at a time, each read at its offset.
+   * Every record the snapshot holds, one at a time in the order of its file,
+   * as {@link chunk} reads them — a record made again under its Id now — and
+   * each checked to be the record the index says is there: the file read a
+   * megabyte or a member at a time, never whole.
+   *
+   * @throws {CheckpointStoreError} `damaged`, when the file holds other
+   *   records, more or fewer, than its index says.
+   */
+  async *records(): AsyncGenerator<BackupRecord> {
+    if (this.size === 0) return;
+    if (this.format === 2) {
+      const all = function* (size: number): Generator<number> {
+        for (let row = 0; row < size; row++) yield row;
+      };
+      for await (const batch of this.compressedRowsAt(all(this.size), RECORDS_BATCH)) {
+        yield* batch;
+      }
+      return;
+    }
+    let row = 0;
+    for await (const line of snapshotLines(this.snapshotFile, this.objectApiName)) {
+      const record = recordOf(line.text);
+      if (row >= this.size) throw this.moreThanIndexed();
+      if (!record || !this.isRowOf(row, record)) throw this.notWhereIndexed(row);
+      yield this.recreated.rowAsNow(record);
+      row++;
+    }
+    if (row < this.size) throw this.notWhereIndexed(row);
+  }
+
+  /** The refusal of a snapshot whose line does not hold the record its index says. */
+  private notWhereIndexed(row: number): CheckpointStoreError {
+    return new CheckpointStoreError(
+      'damaged',
+      `The checkpoint’s snapshot of ${this.objectApiName} does not hold record ` +
+        `${this.idAt(row)} where its index says: the file changed since the checkpoint was taken.`,
+    );
+  }
+
+  /** The refusal of a snapshot that holds more records than its index. */
+  private moreThanIndexed(): CheckpointStoreError {
+    return new CheckpointStoreError(
+      'damaged',
+      `The checkpoint’s snapshot of ${this.objectApiName} holds more records than its index: ` +
+        'the file changed since the checkpoint was taken.',
+    );
+  }
+
+  /**
+   * The records at `rows`, `size` at a time, each read where its line is.
    *
    * @throws {CheckpointStoreError} `damaged`, when a line is not the record,
    *   as read, that the index says is there.
    */
   private async *rowsAt(rows: readonly number[], size: number): AsyncGenerator<BackupRecord[]> {
     if (rows.length === 0) return;
+    if (this.format === 2) {
+      yield* this.compressedRowsAt(rows, size);
+      return;
+    }
     const handle = await openSnapshot(this.snapshotFile, this.objectApiName);
     try {
       let buffer = Buffer.alloc(0);
@@ -754,13 +1004,64 @@ export class SnapshotIndex {
           got += bytesRead;
         }
         const record = got === length ? recordOf(buffer.toString('utf8', 0, length)) : undefined;
-        if (!record || !this.isRowOf(row, record)) {
-          throw new CheckpointStoreError(
-            'damaged',
-            `The checkpoint’s snapshot of ${this.objectApiName} does not hold record ` +
-              `${this.idAt(row)} where its index says: the file changed since the checkpoint was taken.`,
-          );
+        if (!record || !this.isRowOf(row, record)) throw this.notWhereIndexed(row);
+        batch.push(this.recreated.rowAsNow(record));
+        if (batch.length === size) {
+          yield batch;
+          batch = [];
         }
+      }
+      if (batch.length > 0) yield batch;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /**
+   * The records at `rows` of a compressed file, `size` at a time: each member
+   * one of them is in read whole and inflated, its header saying it is the
+   * member the index names, then kept for the rows after it in the same
+   * member. The file must take as many bytes as its index says: one cut
+   * short, or that a member was added to, is not the one the take wrote.
+   *
+   * @throws {CheckpointStoreError} `damaged`, when the file is not that
+   *   length, a member is not where its index says or does not inflate, or a
+   *   line is not the record, as read, that the index says is there.
+   */
+  private async *compressedRowsAt(
+    rows: Iterable<number>,
+    size: number,
+  ): AsyncGenerator<BackupRecord[]> {
+    const damaged: Damaged = (why) =>
+      new CheckpointStoreError(
+        'damaged',
+        `The checkpoint’s snapshot of ${this.objectApiName} ${why}: the file changed since the checkpoint was taken.`,
+      );
+    const handle = await openSnapshot(this.snapshotFile, this.objectApiName);
+    try {
+      const bytes = (await handle.stat()).size;
+      if (bytes !== this.extent) {
+        throw damaged(`takes ${bytes} bytes where its index says ${this.extent}`);
+      }
+      let memberAt = -1;
+      let memberBytes = 0;
+      let lines: Buffer = Buffer.alloc(0);
+      let batch: BackupRecord[] = [];
+      for (const row of rows) {
+        const at = this.rows.offsetAt(row);
+        if (at !== memberAt || this.rows.memberBytesAt(row) !== memberBytes) {
+          memberBytes = this.rows.memberBytesAt(row);
+          lines = await readMember(handle, at, memberBytes, damaged);
+          memberAt = at;
+        }
+        const start = this.rows.lineAt(row);
+        const end = start + this.rows.lengthAt(row);
+        const whole =
+          end <= lines.length &&
+          (start === 0 || lines[start - 1] === 10) &&
+          (end === lines.length || lines[end] === 10);
+        const record = whole ? recordOf(lines.toString('utf8', start, end)) : undefined;
+        if (!record || !this.isRowOf(row, record)) throw this.notWhereIndexed(row);
         batch.push(this.recreated.rowAsNow(record));
         if (batch.length === size) {
           yield batch;

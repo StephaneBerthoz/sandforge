@@ -171,8 +171,8 @@ describe('writeSnapshotIndex and SnapshotIndex.read', () => {
 
     const written = await writeSnapshotIndex(folder, SNAPSHOT, 'Account');
 
-    expect(written).toEqual({ rows: 3, bytes: snapshotIndexBytes(3) });
-    expect(snapshotIndexBytes(3)).toBe(8 + 3 * 35);
+    expect(written).toEqual({ rows: 3, bytes: snapshotIndexBytes(3, 1) });
+    expect(snapshotIndexBytes(3, 1)).toBe(8 + 3 * 35);
     const file = indexFileOf(folder, 'Account');
     expect(statSync(file).size).toBe(written.bytes);
     if (POSIX) expect(statSync(file).mode & 0o777).toBe(0o600);
@@ -241,7 +241,7 @@ describe('writeSnapshotIndex and SnapshotIndex.read', () => {
       }
     }
     expect(index.has(accountId(60_000))).toBe(false);
-    expect(statSync(indexFileOf(folder, 'Account')).size).toBe(snapshotIndexBytes(60_000));
+    expect(statSync(indexFileOf(folder, 'Account')).size).toBe(snapshotIndexBytes(60_000, 1));
     // The file is read a megabyte at a time: rows on either side of each
     // boundary are read back at their own offsets.
     const spread = [0, 5_999, 6_000, 30_000, 59_999];

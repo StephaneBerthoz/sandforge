@@ -45,6 +45,7 @@
 
 import type {
   CheckpointEstimate,
+  CheckpointLeftOutObject,
   CheckpointObject,
   CheckpointReadMode,
   CheckpointRefusal,
@@ -79,11 +80,25 @@ import { RUN_RECORDS_PAGE } from './spooledRunRecords.js';
 // ─── Figures ─────────────────────────────────────────────────────────────────
 
 /**
- * Bytes a record takes on this machine, about: measured on six standard
- * objects, 0.36 to 0.73 KB with the writable fields that hold a value, 1.1 to
- * 1.8 KB with every field; the snapshot keeps the writable ones, empty or not.
+ * Bytes a record's row takes in the snapshot on this machine, compressed,
+ * about. Plain, a row was measured on six standard objects at 0.36 to 0.73
+ * KB with the writable fields that hold a value and 1.1 to 1.8 KB with every
+ * field, and the snapshot keeps the writable ones, empty or not: about 1 KB,
+ * what the plain snapshot was estimated at. Compressed in members of 64 KiB,
+ * synthetic Contact rows of 714 bytes took 70, a tenth; a real org's values
+ * repeat less than synthetic ones, and 300 is a fold of 3.3, kept until the
+ * rows of a real org, read on its worst object, say better.
  */
-const BYTES_PER_RECORD = 1_000;
+export const BYTES_PER_RECORD_KEPT = 300;
+
+/**
+ * Bytes `checkpoint.json` takes beside its objects and the ones it leaves
+ * out, about: the org, the user, the dates, the names. 949 on a scratch org.
+ */
+const CHECKPOINT_FILE_REST_BYTES = 1_024;
+
+/** Bytes an object read keeps in `snapshots.json`, its snapshot's DataOps metadata, about. */
+const SNAPSHOT_META_BYTES_PER_OBJECT = 160;
 
 /**
  * Bytes a rewind's journal keeps of a record it gives back: the values it
@@ -314,6 +329,13 @@ export interface TakenObject {
    * one statement reads whole.
    */
   otherGroups?: readonly number[];
+  /**
+   * What `checkpoint.json` will say of it — its fields and those left out,
+   * its parents — with the counts and the print the take has before it
+   * reads: as long as the ones it writes, but for a digit or two. Absent,
+   * its entry is not counted.
+   */
+  entry?: CheckpointObject;
 }
 
 /** What a take's estimate is made from. */
@@ -334,6 +356,63 @@ export interface TakeEstimateInput {
   objects: readonly TakenObject[];
   /** Rows a page of the snapshot reads: what the org's kind reads at a time. */
   pageRows: number;
+  /** The objects the checkpoint names as left out, and why: listed in `checkpoint.json`. */
+  leftOut?: readonly CheckpointLeftOutObject[];
+  /**
+   * Bytes of `fingerprints.json.gz`, measured on the prints the take will
+   * write, made from the describes it already read. Absent, not counted.
+   */
+  printsBytes?: number;
+}
+
+/**
+ * Bytes the items of a list take in a file written as
+ * `JSON.stringify(…, null, 2)`, the list `depth` levels inside it, beside
+ * what the empty list, `[]`, takes: each line of an item indented two spaces
+ * a level, the comma and line break between two items, and the line breaks
+ * and indent around them.
+ */
+function listedJsonBytes(items: readonly unknown[], depth: number): number {
+  if (items.length === 0) return 0;
+  let bytes = 2 * (items.length - 1) + 2 + 2 * (depth - 1);
+  for (const item of items) {
+    const text = JSON.stringify(item, null, 2);
+    let lines = 1;
+    for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) lines++;
+    bytes += Buffer.byteLength(text, 'utf8') + lines * 2 * depth;
+  }
+  return bytes;
+}
+
+/**
+ * The bytes a take keeps on this machine, about, made of what each part
+ * costs:
+ *
+ * - each record's row, compressed ({@link BYTES_PER_RECORD_KEPT}): the one
+ *   part it cannot know before it reads the rows;
+ * - each row of the index, 43 bytes;
+ * - the field prints, compressed, as measured on them;
+ * - `checkpoint.json`, which lists every object kept with its fields and
+ *   every object left out with why, counted as it will be written.
+ *
+ * On an org of a thousand objects, most of them empty, the last two are
+ * most of the checkpoint. A plain checkpoint of a scratch org's 202 objects
+ * holding 70 records took 887,925 bytes, `checkpoint.json` 338,858 of them,
+ * where the estimate before the compression — `records × 1,000` and the
+ * index, nothing of the rest — said 74,066: twelve times too few.
+ */
+export function takeBytes(
+  input: Pick<TakeEstimateInput, 'objects' | 'leftOut' | 'printsBytes'>,
+): number {
+  let bytes = CHECKPOINT_FILE_REST_BYTES + (input.printsBytes ?? 0);
+  const entries: CheckpointObject[] = [];
+  for (const object of input.objects) {
+    bytes += object.records * BYTES_PER_RECORD_KEPT + snapshotIndexBytes(object.records, 2);
+    if (object.records > 0) bytes += SNAPSHOT_META_BYTES_PER_OBJECT;
+    if (object.entry !== undefined) entries.push(object.entry);
+  }
+  // Each list as checkpoint.json nests it: its objects, and its scope's left out.
+  return bytes + listedJsonBytes(entries, 2) + listedJsonBytes(input.leftOut ?? [], 3);
 }
 
 /**
@@ -401,6 +480,8 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  * ran (two reads an object that moved, five a call, followed to their end,
  * and its count); the pages of an org that answers fewer rows than it is
  * asked; and the rows a write moved between two column groups, read again.
+ *
+ * Its disk is {@link takeBytes}.
  */
 export function takeEstimate(
   input: TakeEstimateInput,
@@ -413,10 +494,8 @@ export function takeEstimate(
   let pages = 0;
   let reads = 0;
   let records = 0;
-  let bytes = 0;
   for (const object of input.objects) {
     records += object.records;
-    bytes += object.records * BYTES_PER_RECORD + snapshotIndexBytes(object.records);
     const calls = snapshotCallsOf(object, input.pageRows);
     pages += calls.pages;
     reads += calls.reads;
@@ -440,7 +519,7 @@ export function takeEstimate(
         pages * SECONDS_PER_PAGE +
         reads * SECONDS_PER_READ,
     ),
-    bytes,
+    bytes: takeBytes(input),
   };
 }
 

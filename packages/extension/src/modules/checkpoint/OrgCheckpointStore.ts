@@ -11,22 +11,29 @@
  *
  * ```
  * <store>/<organizationId>/<checkpointId>/
- *   checkpoint.json      what the checkpoint holds, written last
- *   fingerprints.json    each object's field prints, written before it
- *   snapshots.json       the snapshot's DataOps metadata
- *   backups/             the values, one NDJSON file per object
- *   index/<Object>.idx   where each row of an object's values starts
- *   bin/<Object>.ids     the ids in the recycle bin when the take began
+ *   checkpoint.json        what the checkpoint holds, written last
+ *   fingerprints.json.gz   each object's field prints, written before it
+ *   snapshots.json         the snapshot's DataOps metadata
+ *   backups/               the values, one gzip file of NDJSON lines per object
+ *   index/<Object>.idx     where each row of an object's values is
+ *   bin/<Object>.ids       the ids in the recycle bin when the take began
  *   previews/<previewId>/  one preview's spooled reads, kept a day
  *   rewinds/<rewindId>/    one rewind's journal, kept while it can be undone
  * ```
  *
+ * The values and the prints are compressed (`compressedSnapshotFiles.ts`): a
+ * snapshot is most of what a checkpoint of a busy org takes on disk, and its
+ * lines repeat every field's name. A checkpoint taken before holds them
+ * plain — `fingerprints.json` and `.ndjson` files — and is read as it was
+ * written, never converted. `checkpoint.json` stays plain: every listing
+ * reads it.
+ *
  * A checkpoint holds the records' values as the org held them, personal data
- * among them, in clear: every folder is made readable by its owner alone and
- * every file likewise, and a store another user owns is refused, since that
- * user could read the snapshots and replace them before a rewind writes them
- * back. Deleting a checkpoint deletes its folder, the Undo of its rewinds
- * with it.
+ * among them, in clear — compressed is not encrypted, and `zcat` reads them —
+ * so every folder is made readable by its owner alone and every file
+ * likewise, and a store another user owns is refused, since that user could
+ * read the snapshots and replace them before a rewind writes them back.
+ * Deleting a checkpoint deletes its folder, the Undo of its rewinds with it.
  *
  * `checkpoint.json` is parsed on every read, and a file that does not parse,
  * or that names another checkpoint or another org than its folder, is listed
@@ -48,6 +55,8 @@ import { mkdirSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { gunzip, gzip } from 'node:zlib';
 import * as z from 'zod';
 import {
   checkpointIdSchema,
@@ -92,11 +101,17 @@ export const PREVIEW_KEEP_MS = 24 * 60 * 60_000;
 
 const DAY_MS = 24 * 60 * 60_000;
 
+const gzipped = promisify(gzip);
+const gunzipped = promisify(gunzip);
+
 /** The file a checkpoint is described by, in its folder. */
 const CHECKPOINT_FILE = 'checkpoint.json';
 
-/** The file its objects' field prints are kept in, in its folder. */
-const FINGERPRINTS_FILE = 'fingerprints.json';
+/** The file its objects' field prints are kept in, in its folder: a gzip of the JSON whole. */
+const FINGERPRINTS_FILE = 'fingerprints.json.gz';
+
+/** The file a checkpoint taken before the compression keeps its field prints in, plain. */
+const PLAIN_FINGERPRINTS_FILE = 'fingerprints.json';
 
 /** The file its snapshot's DataOps metadata is kept in, in its folder. */
 const SNAPSHOTS_FILE = 'snapshots.json';
@@ -159,7 +174,10 @@ export interface CheckpointFolder {
   checkpointId: string;
   dir: string;
   checkpointFile: string;
+  /** Where a take writes its objects' field prints, compressed. */
   fingerprintsFile: string;
+  /** Where a take before the compression wrote them, plain: read when the other is not there. */
+  plainFingerprintsFile: string;
   /** What a DataOps handler bound to {@link dir} keeps of the snapshot. */
   snapshotsFile: string;
   indexDir: string;
@@ -176,6 +194,7 @@ function folderAt(root: string, organizationKey: string, checkpointId: string): 
     dir,
     checkpointFile: join(dir, CHECKPOINT_FILE),
     fingerprintsFile: join(dir, FINGERPRINTS_FILE),
+    plainFingerprintsFile: join(dir, PLAIN_FINGERPRINTS_FILE),
     snapshotsFile: join(dir, SNAPSHOTS_FILE),
     indexDir: join(dir, 'index'),
     binDir: join(dir, 'bin'),
@@ -424,18 +443,21 @@ const fingerprintsFileSchema = z.object({
  * folder and checked against what its file says of each object's whole
  * print: the store's {@link OrgCheckpointStore.readFingerprints}, for a
  * reader that holds the folder and the objects alone, as a preview does.
+ * The compressed file is inflated whole, a few hundred kilobytes for an org
+ * of a thousand objects; a checkpoint taken before the compression has the
+ * plain one alone.
  *
  * @throws {CheckpointStoreError} `damaged`, when they are not there, do not
- *   parse, or one of `objects` has none or another: what changed in the org's
- *   fields since could not be told.
+ *   inflate or parse, or one of `objects` has none or another: what changed
+ *   in the org's fields since could not be told.
  */
 export async function readFieldPrints(
-  folder: Pick<CheckpointFolder, 'fingerprintsFile'>,
+  folder: Pick<CheckpointFolder, 'fingerprintsFile' | 'plainFingerprintsFile'>,
   objects: ReadonlyArray<Pick<OrgCheckpoint['objects'][number], 'objectApiName' | 'fingerprint'>>,
 ): Promise<Map<string, ObjectFingerprint>> {
   let raw: unknown;
   try {
-    raw = JSON.parse(await readFile(folder.fingerprintsFile, 'utf8'));
+    raw = JSON.parse(await fieldPrintsText(folder));
   } catch {
     throw new CheckpointStoreError('damaged', 'The checkpoint’s field prints cannot be read');
   }
@@ -453,6 +475,37 @@ export async function readFieldPrints(
     }
   }
   return prints;
+}
+
+/**
+ * Field prints as `fingerprints.json.gz` holds them, their JSON compressed
+ * whole: what a take writes, and what its estimate measures before it reads
+ * a record.
+ *
+ * @throws {CheckpointStoreError} `invalid`, when they are not field prints.
+ */
+export async function compressedFieldPrints(
+  prints: Readonly<Record<string, ObjectFingerprint>>,
+): Promise<Buffer> {
+  const file = fingerprintsFileSchema.safeParse({ version: 1, objects: prints });
+  if (!file.success) {
+    throw new CheckpointStoreError('invalid', `Not field prints: ${file.error.message}`);
+  }
+  return gzipped(`${JSON.stringify(file.data)}\n`);
+}
+
+/** The text of a checkpoint's field prints: the compressed file inflated, or else the plain one. */
+async function fieldPrintsText(
+  folder: Pick<CheckpointFolder, 'fingerprintsFile' | 'plainFingerprintsFile'>,
+): Promise<string> {
+  let compressed: Buffer;
+  try {
+    compressed = await readFile(folder.fingerprintsFile);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return readFile(folder.plainFingerprintsFile, 'utf8');
+  }
+  return (await gunzipped(compressed)).toString('utf8');
 }
 
 /**
@@ -562,17 +615,15 @@ export class OrgCheckpointStore {
   /**
    * Write the field prints of a checkpoint's objects, by object: before its
    * `checkpoint.json`, which names each object's whole print, so that a
-   * checkpoint listed as ready always has them.
+   * checkpoint listed as ready always has them. Compressed whole: a print is
+   * a field's name and a hash, and an org of a thousand objects of dozens of
+   * fields each has the prints of tens of thousands.
    */
   async writeFingerprints(
     folder: CheckpointFolder,
     prints: Readonly<Record<string, ObjectFingerprint>>,
   ): Promise<void> {
-    const file = fingerprintsFileSchema.safeParse({ version: 1, objects: prints });
-    if (!file.success) {
-      throw new CheckpointStoreError('invalid', `Not field prints: ${file.error.message}`);
-    }
-    await this.writeWhole(folder.fingerprintsFile, `${JSON.stringify(file.data)}\n`);
+    await this.writeWhole(folder.fingerprintsFile, await compressedFieldPrints(prints));
   }
 
   /**
@@ -771,12 +822,12 @@ export class OrgCheckpointStore {
    * alone and its owner's, flushed to the disk, then renamed over it. A write
    * stopped at any point leaves the file as it was.
    */
-  private async writeWhole(file: string, content: string): Promise<void> {
+  private async writeWhole(file: string, content: string | Buffer): Promise<void> {
     const temp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
     const handle = await open(temp, 'wx', CHECKPOINT_FILE_MODE);
     try {
       try {
-        await handle.writeFile(content, 'utf8');
+        await handle.writeFile(content, typeof content === 'string' ? 'utf8' : undefined);
         await handle.sync();
       } finally {
         await handle.close();

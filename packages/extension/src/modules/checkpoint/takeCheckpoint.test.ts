@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Connection } from 'jsforce';
@@ -15,12 +16,13 @@ import {
 import { removalOrder } from '../forge/ForgeRunRemoval.js';
 import {
   binFileOf,
+  indexFileOf,
   openCheckpointStore,
   type CheckpointFolder,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { takeEstimate } from './rewindEstimate.js';
-import { SnapshotIndex, writeSnapshotIndex } from './snapshotIndex.js';
+import { SnapshotIndex, compressedSnapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
 import {
   CheckpointTakeStopped,
@@ -476,6 +478,63 @@ describe('takeCheckpoint — what it keeps', () => {
     expect(outcome.notChecked).toEqual([]);
   });
 
+  it('keeps each object’s values compressed as they were read, never in a plain file, indexed in the second form row for row, an object counted empty as an empty file', async () => {
+    const h = harness();
+    seed(h.org);
+
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    const folder = h.store.folderOf(ORG_ID, checkpoint.checkpointId);
+    expect(readdirSync(join(folder.dir, 'backups')).sort()).toEqual(
+      checkpoint.objects
+        .map(({ objectApiName }) => `${checkpoint.snapshotId}__${objectApiName}.ndjson.gz`)
+        .sort(),
+    );
+    for (const { objectApiName, records } of checkpoint.objects) {
+      const file = compressedSnapshotFileOf(folder, checkpoint.snapshotId, objectApiName);
+      const bytes = readFileSync(file);
+      // An empty file is never inflated: zlib refuses one.
+      const lines = bytes.length === 0 ? '' : gunzipSync(bytes).toString('utf8');
+      expect(lines.split('\n').filter((line) => line !== '').length).toBe(records);
+      expect(readFileSync(indexFileOf(folder, objectApiName)).toString('latin1', 0, 8)).toBe(
+        'SFCKIDX2',
+      );
+      const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
+      expect([index.format, index.size]).toEqual([2, records]);
+    }
+    expect(checkpoint.objects.find((object) => object.objectApiName === 'Lead')?.records).toBe(0);
+  });
+
+  it('says before it reads a record about the disk the compressed checkpoint then takes', async () => {
+    const h = harness();
+    seed(h.org);
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    const { bytes } = outcome.checkpoint;
+    expect(outcome.estimate.bytes).toBeGreaterThan(bytes * 0.5);
+    expect(outcome.estimate.bytes).toBeLessThan(bytes * 1.5);
+  });
+
+  it('records the bytes its files take once its own file is written, the objects it lists among them', async () => {
+    const h = harness();
+    seed(h.org);
+
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    const folder = h.store.folderOf(ORG_ID, checkpoint.checkpointId);
+    const sizes = (dir: string): number =>
+      readdirSync(dir, { withFileTypes: true }).reduce(
+        (sum, entry) =>
+          sum +
+          (entry.isDirectory()
+            ? sizes(join(dir, entry.name))
+            : statSync(join(dir, entry.name)).size),
+        0,
+      );
+    expect(checkpoint.bytes).toBe(sizes(folder.dir));
+  });
+
   it('records the org as it said it is — a sandbox’s edition too — the user it read as and the Automated Process user, its moments on the org’s clock, and its expiry', async () => {
     const h = harness({ sandbox: true, edition: 'Enterprise Edition' });
     seed(h.org);
@@ -535,7 +594,7 @@ describe('takeCheckpoint — what it keeps', () => {
     );
   });
 
-  it('writes each object’s field prints to fingerprints.json and the checkpoint last, both readable by their owner alone, and lists it as valid without contacting the org', async () => {
+  it('writes each object’s field prints to fingerprints.json.gz and the checkpoint last, both readable by their owner alone, and lists it as valid without contacting the org', async () => {
     const h = harness();
     seed(h.org);
 
@@ -570,7 +629,7 @@ describe('takeCheckpoint — what it keeps', () => {
       'backups',
       'bin',
       'checkpoint.json',
-      'fingerprints.json',
+      'fingerprints.json.gz',
       'index',
       'snapshots.json',
     ]);
@@ -959,14 +1018,16 @@ describe('scopeCheckpoint', () => {
       'FeedItem',
       'User',
     ]);
-    expect(scope.estimate).toEqual({
-      ...takeEstimate({
-        described: 5,
-        objects: [1, 3, 2, 0, 2].map((records) => ({ records, otherGroups: [] })),
-        pageRows: 2_000,
-      }),
-      apiRequestsLeft: 14_000,
+    const { bytes, ...cost } = scope.estimate;
+    const { bytes: rowsAlone, ...expected } = takeEstimate({
+      described: 5,
+      objects: [1, 3, 2, 0, 2].map((records) => ({ records, otherGroups: [] })),
+      pageRows: 2_000,
     });
+    expect(cost).toEqual({ ...expected, apiRequestsLeft: 14_000 });
+    // Its disk counts, beside the rows, what checkpoint.json lists of the
+    // objects kept and left out, and their prints.
+    expect(bytes).toBeGreaterThan(rowsAlone);
     expect(readsRecords(h.org.asked)).toEqual([]);
     expect(getJsforceConnection).not.toHaveBeenCalled();
     expect(checkpointFolders(h.root)).toEqual([]);
