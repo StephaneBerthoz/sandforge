@@ -247,6 +247,31 @@ export class SeedRemovalHandler implements DomainHandler {
     return refusal ? { ...info, refusal } : info;
   }
 
+  /**
+   * A run's line with the scenario it was seeded from, when it kept a
+   * companion file: the run's card then offers its agent's test file, and
+   * says once the run is removed that the file names cases gone. A file that
+   * does not read is left out of the line; writing the test file says why.
+   */
+  private async withScenario(info: SeedRunRemovalInfo): Promise<SeedRunRemovalInfo> {
+    const store = this.creations;
+    if (!store || info.origin) return info;
+    try {
+      const { nodeScenarioSidecarFiles, readScenarioRunSidecar } =
+        await import('../../modules/seed/scenario/scenarioRunSidecar.js');
+      const read = await readScenarioRunSidecar(
+        nodeScenarioSidecarFiles(),
+        store.storagePath,
+        info.runId,
+      );
+      if (read.kind !== 'read') return info;
+      const { packId, agent } = read.sidecar;
+      return { ...info, scenario: { packId, ...(agent ? { agent: agent.agent } : {}) } };
+    } catch {
+      return info;
+    }
+  }
+
   /** Why a removal of the run cannot run now, before anything is asked of the org. */
   private refusalOf(
     run: SyncRunKept,
@@ -337,7 +362,9 @@ export class SeedRemovalHandler implements DomainHandler {
     try {
       const run = await this.runOf(parsed.runId);
       const response = buildResponse(this.deps, msg, 'seed:removal:info:response', {
-        info: run ? (this.infoOf(run) as unknown as Record<string, unknown>) : null,
+        info: run
+          ? ((await this.withScenario(this.infoOf(run))) as unknown as Record<string, unknown>)
+          : null,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -438,8 +465,10 @@ export class SeedRemovalHandler implements DomainHandler {
       for (const run of (await this.creations?.list()) ?? []) {
         runs.push(await this.withJobAnswered(run));
       }
+      const infos: SeedRunRemovalInfo[] = [];
+      for (const run of runs) infos.push(await this.withScenario(this.infoOf(run)));
       const response = buildResponse(this.deps, msg, 'seed:removal:list:response', {
-        runs: runs.map((run) => this.infoOf(run)) as unknown as Record<string, unknown>[],
+        runs: infos as unknown as Record<string, unknown>[],
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} runs=${runs.length}`);

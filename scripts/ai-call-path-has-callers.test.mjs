@@ -35,11 +35,12 @@
  *    spell some of its endpoints exactly like the contract method that wraps
  *    them.
  *
- * 2. THE ASSISTANT'S PROVIDER CALLS. Every `AIAssistant` method that reaches
- *    the provider — directly through the injected call function, or through
- *    another method that does — must have a caller outside the class. A prompt
- *    builder with no caller reads like a feature and bills like one, while no
- *    route can reach it.
+ * 2. THE PROVIDER CALLS OF THE CLASSES THAT BUILD PROMPTS. Every method of
+ *    `AIAssistant` or `ScenarioDrafter` that reaches the provider — directly
+ *    through the injected call function, or through another method that does
+ *    — must have a caller outside the class. A prompt builder with no caller
+ *    reads like a feature and bills like one, while no route can reach it. A
+ *    scenario draft is up to nine calls to the provider for one request.
  *
  * 3. THE SHARED AI SCHEMAS. A schema is alive when shipped code in either
  *    bundle names it, or when its own module derives a type from it with
@@ -70,6 +71,9 @@ const SHARED_AI_SCHEMAS = join(repoRoot, 'packages/shared/src/schemas/ai');
 
 const AI_CLIENT = toTsPath(join(repoRoot, 'packages/extension/src/adapters/ai/AIClient.ts'));
 const AI_ASSISTANT = toTsPath(join(repoRoot, 'packages/extension/src/modules/ai/AIAssistant.ts'));
+const SCENARIO_DRAFTER = toTsPath(
+  join(repoRoot, 'packages/extension/src/modules/ai/ScenarioDrafter.ts'),
+);
 
 /** Directories that hold no shipped code. */
 const NON_SHIPPED_DIRS = /\/(__mocks__|__fixtures__|__snapshots__|e2e|node_modules)\//;
@@ -280,79 +284,85 @@ test('every AIClient contract method is called by shipped code', () => {
   );
 });
 
-test('every AIAssistant method that reaches the provider has a caller', () => {
-  const source = EXTENSION.program.getSourceFile(AI_ASSISTANT);
-  assert.ok(
-    source,
-    `${toRepoPath(AI_ASSISTANT)} is not in the extension program — this gate reads nothing`,
-  );
-  const assistant = findDeclaration(
-    source,
-    (node) => ts.isClassDeclaration(node) && node.name?.text === 'AIAssistant',
-  );
-  assert.ok(
-    assistant,
-    `no AIAssistant class in ${toRepoPath(AI_ASSISTANT)} — this gate reads nothing`,
-  );
+/**
+ * The classes that hold a provider call and build the prompts it sends, each
+ * with the member it calls the provider through.
+ */
+const PROVIDER_CALLERS = [
+  { file: AI_ASSISTANT, className: 'AIAssistant', providerMember: 'callFn' },
+  { file: SCENARIO_DRAFTER, className: 'ScenarioDrafter', providerMember: 'provider' },
+];
 
-  const methods = assistant.members.filter(isPublicMethod);
+for (const { file, className, providerMember } of PROVIDER_CALLERS) {
+  test(`every ${className} method that reaches the provider has a caller`, () => {
+    const source = EXTENSION.program.getSourceFile(file);
+    assert.ok(
+      source,
+      `${toRepoPath(file)} is not in the extension program — this gate reads nothing`,
+    );
+    const owner = findDeclaration(
+      source,
+      (node) => ts.isClassDeclaration(node) && node.name?.text === className,
+    );
+    assert.ok(owner, `no ${className} class in ${toRepoPath(file)} — this gate reads nothing`);
 
-  /** Methods that hand a prompt to the provider, directly or through one another. */
-  const callsProvider = new Set();
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const method of methods) {
-      const name = method.name.text;
-      if (callsProvider.has(name)) continue;
-      let reaches = false;
-      forEachNode(method, (node) => {
-        if (!ts.isCallExpression(node)) return;
-        const callee = node.expression;
-        if (
-          !ts.isPropertyAccessExpression(callee) ||
-          callee.expression.kind !== ts.SyntaxKind.ThisKeyword
-        ) {
-          return;
+    const methods = owner.members.filter(isPublicMethod);
+
+    /** Methods that hand a prompt to the provider, directly or through one another. */
+    const callsProvider = new Set();
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const method of methods) {
+        const name = method.name.text;
+        if (callsProvider.has(name)) continue;
+        let reaches = false;
+        forEachNode(method, (node) => {
+          if (!ts.isCallExpression(node)) return;
+          const callee = node.expression;
+          if (
+            !ts.isPropertyAccessExpression(callee) ||
+            callee.expression.kind !== ts.SyntaxKind.ThisKeyword
+          ) {
+            return;
+          }
+          const target = callee.name.text;
+          if (target === providerMember || callsProvider.has(target)) reaches = true;
+        });
+        if (reaches) {
+          callsProvider.add(name);
+          changed = true;
         }
-        const target = callee.name.text;
-        if (target === 'callFn' || callsProvider.has(target)) reaches = true;
-      });
-      if (reaches) {
-        callsProvider.add(name);
-        changed = true;
       }
     }
-  }
 
-  assert.ok(
-    callsProvider.size > 0,
-    'no AIAssistant method reaches the provider any more — this gate reads nothing',
-  );
-
-  const targets = new Map();
-  for (const method of methods) {
-    if (callsProvider.has(method.name.text)) {
-      targets.set(declKey(method), { name: method.name.text, method });
-    }
-  }
-
-  const callers = callersOf(targets);
-  const unreachable = [];
-  for (const [key, sites] of callers) {
-    const { method } = targets.get(key);
-    const fromOutside = sites.filter(
-      ({ source: caller }) => toTsPath(caller.fileName) !== AI_ASSISTANT,
+    assert.ok(
+      callsProvider.size > 0,
+      `no ${className} method reaches the provider any more — this gate reads nothing`,
     );
-    if (fromOutside.length === 0) unreachable.push(`${method.name.text} (${at(method)})`);
-  }
 
-  assert.deepEqual(
-    unreachable,
-    [],
-    'AIAssistant methods send a prompt to the provider and bill the user for it, yet no shipped ' +
-      `code outside the class can reach them: ${unreachable.join(', ')}`,
-  );
-});
+    const targets = new Map();
+    for (const method of methods) {
+      if (callsProvider.has(method.name.text)) {
+        targets.set(declKey(method), { name: method.name.text, method });
+      }
+    }
+
+    const callers = callersOf(targets);
+    const unreachable = [];
+    for (const [key, sites] of callers) {
+      const { method } = targets.get(key);
+      const fromOutside = sites.filter(({ source: caller }) => toTsPath(caller.fileName) !== file);
+      if (fromOutside.length === 0) unreachable.push(`${method.name.text} (${at(method)})`);
+    }
+
+    assert.deepEqual(
+      unreachable,
+      [],
+      `${className} methods send a prompt to the provider and bill the user for it, yet no ` +
+        `shipped code outside the class can reach them: ${unreachable.join(', ')}`,
+    );
+  });
+}
 
 test('every shared AI schema export is named by shipped code or derives a type', () => {
   const files = readdirSync(SHARED_AI_SCHEMAS)

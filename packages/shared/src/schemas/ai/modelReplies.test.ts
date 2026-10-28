@@ -6,7 +6,13 @@ import {
   PersonaReplySchema,
   DataRowsReplySchema,
   ErrorResolutionReplySchema,
+  ModelReplyShapeError,
+  ScenarioPackDraftSchema,
+  ScenarioPackReplySchema,
+  parseModelReplyNamingFields,
 } from './modelReplies.js';
+import { BUILT_IN_SCENARIO_PACKS } from '../../constants/scenario-packs.js';
+import type { ScenarioPack } from '../../types/scenario.types.js';
 
 describe('parseModelJson', () => {
   it('reads JSON the model wrapped in a markdown fence', () => {
@@ -155,5 +161,139 @@ describe('DataRowsReplySchema', () => {
 
   it('reads a bare value as no row', () => {
     expect(DataRowsReplySchema.parse(42)).toEqual([]);
+  });
+});
+
+/** The plan a pack was drafted from: the pack less its topics' articles and cases. */
+function planOf(pack: ScenarioPack) {
+  return {
+    id: pack.id,
+    name: pack.name,
+    businessContext: pack.businessContext,
+    customers: pack.customers,
+    topics: pack.topics.map(({ key, label, utterances }) => ({ key, label, utterances })),
+    decoy: pack.decoy,
+    outOfScope: pack.outOfScope,
+  };
+}
+
+const PACK = BUILT_IN_SCENARIO_PACKS[0];
+
+describe('parseModelReplyNamingFields', () => {
+  it('names every field a reply breaks by its path, and what is wrong there', () => {
+    const reply = JSON.stringify({
+      ...planOf(PACK),
+      topics: [{ ...planOf(PACK).topics[0], key: 'Not A Key' }, ...planOf(PACK).topics.slice(1)],
+      outOfScope: undefined,
+      extra: true,
+    });
+
+    let refused: unknown;
+    try {
+      parseModelReplyNamingFields(ScenarioPackReplySchema.plan, reply);
+    } catch (err) {
+      refused = err;
+    }
+
+    expect(refused).toBeInstanceOf(ModelReplyShapeError);
+    const { issues, message } = refused as ModelReplyShapeError;
+    expect(issues).toEqual([
+      expect.stringMatching(/^topics\[0\]\.key: A key is lower-case letters/),
+      expect.stringMatching(/^outOfScope: /),
+      '(the reply): Unrecognized key: "extra"',
+    ]);
+    expect(message).toBe(
+      `The AI reply is JSON, but not in the expected format: ${issues.join('; ')}`,
+    );
+  });
+
+  it('says how many more it broke past the first ten', () => {
+    const issues = Array.from({ length: 12 }, (_, i) => `f${i}: wrong`);
+
+    expect(new ModelReplyShapeError(issues).message).toMatch(/f9: wrong; and 2 more$/);
+  });
+
+  it('reads a fenced reply as the plain one, and refuses one that is no JSON', () => {
+    const fenced = '```json\n' + JSON.stringify(planOf(PACK)) + '\n```';
+
+    expect(parseModelReplyNamingFields(ScenarioPackReplySchema.plan, fenced).id).toBe(PACK.id);
+    expect(() => parseModelReplyNamingFields(ScenarioPackReplySchema.plan, 'nope')).toThrow(
+      'The AI reply is not valid JSON.',
+    );
+  });
+});
+
+describe('ScenarioPackReplySchema', () => {
+  it.each(BUILT_IN_SCENARIO_PACKS.map((pack) => [pack.id, pack] as const))(
+    'reads the plan and the topics of the built-in pack %s',
+    (_, pack) => {
+      expect(ScenarioPackReplySchema.plan.safeParse(planOf(pack)).success).toBe(true);
+      for (const topic of pack.topics) {
+        expect(
+          ScenarioPackReplySchema.topic.safeParse({
+            article: topic.article,
+            caseTemplates: topic.caseTemplates,
+          }).success,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it('refuses a plan that names a topic twice or has fewer customers than topics', () => {
+    const plan = planOf(PACK);
+    const twice = { ...plan, topics: [...plan.topics, plan.topics[0]] };
+    const few = { ...plan, customers: { ...plan.customers, count: plan.topics.length - 1 } };
+
+    const paths = (value: unknown) =>
+      ScenarioPackReplySchema.plan.safeParse(value).error?.issues.map((i) => i.path.join('.'));
+    expect(paths(twice)).toEqual([`topics.${plan.topics.length}.key`]);
+    expect(paths(few)).toEqual(['customers.count']);
+  });
+
+  it('holds a topic reply to the bounds the pack holds its article to', () => {
+    const topic = PACK.topics[0];
+    const long = {
+      article: { ...topic.article, body: 'x'.repeat(8_001) },
+      caseTemplates: topic.caseTemplates,
+    };
+
+    expect(
+      ScenarioPackReplySchema.topic.safeParse(long).error?.issues.map((i) => i.path.join('.')),
+    ).toEqual(expect.arrayContaining(['article.body']));
+  });
+
+  it('refuses a topic reply that writes anything besides its article and cases', () => {
+    const topic = PACK.topics[0];
+
+    expect(
+      ScenarioPackReplySchema.topic.safeParse({
+        article: topic.article,
+        caseTemplates: topic.caseTemplates,
+        utterances: topic.utterances,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('ScenarioPackDraftSchema', () => {
+  it('reads a draft whose later topics are not written yet', () => {
+    const draft = {
+      ...planOf(PACK),
+      version: 1,
+      language: PACK.language,
+      topics: PACK.topics.map((topic, index) =>
+        index === 0 ? topic : { key: topic.key, label: topic.label, utterances: topic.utterances },
+      ),
+    };
+
+    expect(ScenarioPackDraftSchema.safeParse(draft).success).toBe(true);
+  });
+
+  it('reads a whole pack as a draft with every topic written', () => {
+    expect(ScenarioPackDraftSchema.safeParse(PACK).success).toBe(true);
+  });
+
+  it('refuses a draft carrying a field no pack has', () => {
+    expect(ScenarioPackDraftSchema.safeParse({ ...PACK, complete: true }).success).toBe(false);
   });
 });

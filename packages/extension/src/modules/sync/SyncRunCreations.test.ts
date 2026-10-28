@@ -5,6 +5,7 @@ import type { BulkApiExecutor } from '../../core/engine/BulkApiExecutor';
 import type { BulkApiManager } from '../../core/engine/BulkApiManager';
 import { BulkDataWriter, syncWriterCalls } from './BulkDataWriter';
 import {
+  SCENARIO_COMPANION_SUFFIX,
   SYNC_RUNS_DIR,
   SyncRunCreations,
   createdCount,
@@ -644,6 +645,36 @@ describe('SyncRunCreations — what a run created, kept as it writes it', () => 
 
       expect(dropped).toEqual([{ runId: 'oldest', created: 40 }]);
     });
+
+    it("drops a scenario's companion file with the run the bound drops, and keeps the others'", async () => {
+      const { files, deps } = memoryDisk();
+      const seeding = new SyncRunCreations(deps);
+      await seedRun(seeding, 'old-settled', '2026-10-01T00:00:00.000Z', 40, true);
+      await seedRun(seeding, 'old-kept', '2026-10-02T00:00:00.000Z', 40, false);
+      files.set(path.join(DIR, `old-settled${SCENARIO_COMPANION_SUFFIX}`), '{"version":1}');
+      files.set(path.join(DIR, `old-kept${SCENARIO_COMPANION_SUFFIX}`), '{"version":1}');
+      const store = new SyncRunCreations({ ...deps, maxBytes: 1_500, hardMaxBytes: 100_000 });
+
+      const recorder = store.recorder(start('new', '2026-10-14T00:00:00.000Z'));
+      recorder.note('Account', [fakeId('001', 1)]);
+      await recorder.flush();
+
+      expect(files.has(path.join(DIR, `old-settled${SCENARIO_COMPANION_SUFFIX}`))).toBe(false);
+      expect(files.has(path.join(DIR, `old-kept${SCENARIO_COMPANION_SUFFIX}`))).toBe(true);
+    });
+  });
+
+  it("forgets a scenario's companion file with its run, named as the run's file is", async () => {
+    const { files, deps } = memoryDisk();
+    const store = new SyncRunCreations(deps);
+    const recorder = store.recorder(start('run:1'));
+    recorder.note('Account', [fakeId('001', 1)]);
+    await recorder.end({ status: 'success' });
+    files.set(path.join(DIR, `run_1${SCENARIO_COMPANION_SUFFIX}`), '{"version":1}');
+
+    await store.forget('run:1');
+
+    expect([...files.keys()]).toEqual([]);
   });
 });
 

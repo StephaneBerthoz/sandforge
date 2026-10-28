@@ -29,6 +29,19 @@ export const CloneWizard = lazy(() =>
 );
 
 /**
+ * A scenario pack's review, its seed and its agent's test file: with the
+ * pack's schema, which checks an edit, parsed when a scenario opens.
+ */
+export const ScenarioFlow = lazy(() =>
+  import('./Scenario/ScenarioFlow').then((module) => ({ default: module.ScenarioFlow })),
+);
+
+/** A scenario pack drafted from the user's own text, with AI on. */
+export const ScenarioDraft = lazy(() =>
+  import('./Scenario/ScenarioDraft').then((module) => ({ default: module.ScenarioDraft })),
+);
+
+/**
  * The seeds kept, under the gallery: fetched beside the list it asks the
  * extension for, which it waits for anyway, with the date formatting it
  * alone needs on the page.

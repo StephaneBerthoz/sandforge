@@ -248,6 +248,14 @@ export interface SeedOrchestratorDependencies {
    */
   signal?: AbortSignal;
   /**
+   * Told, once an object written from rows is written, the id the org gave
+   * each row's record, by the row's key: a row the org refused, or one not
+   * written because its parent row was not, has none. A scenario's seed keeps
+   * its open cases' ids by key beside the run, for its agent's tests, which
+   * are compiled again from the pack and know its cases by key alone.
+   */
+  onRowIds?: (objectApiName: string, ids: Readonly<Record<string, string>>) => void;
+  /**
    * Injected cross-cutting adapters (telemetry, storage, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
    * backward compatibility with tests that pass a narrow deps shape.
@@ -359,7 +367,7 @@ export class SeedOrchestrator {
     operationId: UUID,
     startTime: number,
   ): Promise<SeedExecutionResult> {
-    const run = newRun(template);
+    const run = newRun(template, this.deps.onRowIds);
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(
       template.objects,
       run.relations,
@@ -907,7 +915,7 @@ export class SeedOrchestrator {
       payload: { operationId, totalPartitions: partitions.length, totalRecords },
     });
 
-    const run = newRun(template);
+    const run = newRun(template, this.deps.onRowIds);
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(
       template.objects,
       run.relations,
@@ -1151,6 +1159,8 @@ interface SeedRun {
    * key: what a relation by key places the next object's rows by.
    */
   keys: Map<string, ReadonlyMap<string, KeyedRow>>;
+  /** Told of each object of rows once written: see `SeedOrchestratorDependencies.onRowIds`. */
+  onRowIds?: SeedOrchestratorDependencies['onRowIds'];
   objectResults: SeedObjectResult[];
 }
 
@@ -1161,13 +1171,14 @@ interface SeedRun {
 type KeyedRow = { id: string } | { why: string };
 
 /** A run of `template` before its first object. */
-function newRun(template: SeedTemplate): SeedRun {
+function newRun(template: SeedTemplate, onRowIds?: SeedRun['onRowIds']): SeedRun {
   return {
     relations: template.relations ?? [],
     written: new Set(template.objects.map((o) => o.objectApiName)),
     existingIds: new Map(),
     wroteNothing: new Set(),
     keys: new Map(),
+    ...(onRowIds ? { onRowIds } : {}),
     objectResults: [],
   };
 }
@@ -1229,7 +1240,10 @@ function recordWrite(
   fallback: Pick<SeedObjectResult, 'aiFallback'>,
   keys?: ReadonlyMap<string, KeyedRow>,
 ): void {
-  if (keys) run.keys.set(obj.objectApiName, keys);
+  if (keys) {
+    run.keys.set(obj.objectApiName, keys);
+    run.onRowIds?.(obj.objectApiName, idsByKey(keys));
+  }
   run.existingIds.set(obj.objectApiName, written.successIds);
   if (obj.recordCount > 0 && written.successIds.length === 0) {
     run.wroteNothing.add(obj.objectApiName);
@@ -1242,6 +1256,13 @@ function recordWrite(
     errors: [...written.errors, ...notes],
     ...fallback,
   });
+}
+
+/** Of what became of each row, the ids the org gave, by key. */
+function idsByKey(keys: ReadonlyMap<string, KeyedRow>): Record<string, string> {
+  const ids: Record<string, string> = {};
+  for (const [key, row] of keys) if ('id' in row) ids[key] = row.id;
+  return ids;
 }
 
 /** Where a relation places the records of its child: one parent id per record. */

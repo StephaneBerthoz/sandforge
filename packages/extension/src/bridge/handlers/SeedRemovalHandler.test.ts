@@ -15,6 +15,10 @@ import {
   nodeSeedRunCreations,
   type SeedRunCreations,
 } from '../../modules/seed/SeedRunCreations.js';
+import {
+  nodeScenarioSidecarFiles,
+  writeScenarioRunSidecar,
+} from '../../modules/seed/scenario/scenarioRunSidecar.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
@@ -192,6 +196,42 @@ describe('SeedRemovalHandler', () => {
   });
 
   describe('seed:removal:list', () => {
+    it("lists a scenario's run with the pack it was seeded from and the agent its test file names, and no other run with one", async () => {
+      await writeScenarioRunSidecar(nodeScenarioSidecarFiles(), storage, {
+        version: 1,
+        runId: 'op-1',
+        packId: 'retail-orders',
+        packFingerprint: 'a'.repeat(64),
+        compile: { seed: 1 },
+        openCases: { 'retail-orders-c1-open': fakeId('500', 1) },
+        agent: {
+          agent: 'Support_Agent',
+          runner: 'testing-center',
+          topics: [{ packTopic: 'damaged-parcel', agentTopic: 'Orders', actions: [] }],
+          guardTopic: null,
+        },
+      });
+      await runs.record({
+        runId: 'op-2',
+        targetOrgId: TARGET,
+        startedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        finishedAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+        status: 'success',
+        objectResults: [{ objectApiName: 'Contact', createdIds: [fakeId('003', 9)] }],
+      });
+
+      await handler.handle(buildMsg('seed:removal:list', {}));
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+
+      const [listed] = lists();
+      expect(listed.find((run) => run.runId === 'op-1')?.scenario).toEqual({
+        packId: 'retail-orders',
+        agent: 'Support_Agent',
+      });
+      expect(listed.find((run) => run.runId === 'op-2')).not.toHaveProperty('scenario');
+      expect(info()?.scenario).toEqual({ packId: 'retail-orders', agent: 'Support_Agent' });
+    });
+
     it('lists the runs kept, newest first, and says which can still be removed', async () => {
       await runs.record({
         runId: 'op-2',

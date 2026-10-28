@@ -1097,6 +1097,157 @@
       "setByMe": "Définis par moi",
       "fieldsShown": "{{shown}} champs affichés sur {{total}}",
       "noFieldMatches": "Aucun champ ne correspond à ce filtre."
+    },
+    "scenario": {
+      "section": {
+        "title": "Données de test pour un agent Agentforce",
+        "subtitle": "Un scénario métier écrit en comptes, contacts, requêtes avec leur historique et articles Knowledge cohérents entre eux, et les tests de l'agent qui portent dessus. Aucune clé IA nécessaire."
+      },
+      "card": {
+        "badge": "Scénario de test Agentforce",
+        "review": "Relire",
+        "reviewNamed": "Relire le scénario {{name}}",
+        "file": "Enregistré dans {{path}}",
+        "invalid": "Pas un paquet de scénario",
+        "topics_one": "{{count}} sujet",
+        "topics_other": "{{count}} sujets",
+        "customers_one": "{{count}} client",
+        "customers_other": "{{count}} clients"
+      },
+      "packs": {
+        "retailOrders": {
+          "name": "Commandes d'une boutique en ligne",
+          "description": "Colis abîmés, remboursements, livraisons en retard, changements d'adresse et garanties, en anglais."
+        },
+        "broadbandSupport": {
+          "name": "Assistance Internet",
+          "description": "Pannes, débit lent, litiges de facture, box défaillantes et changements d'offre, en anglais."
+        },
+        "saasSupport": {
+          "name": "Assistance logicielle",
+          "description": "Authentification unique, mots de passe, factures, exports de données et erreurs d'API, en anglais."
+        }
+      },
+      "draftCard": {
+        "title": "Rédiger depuis votre propre texte",
+        "description": "Décrivez votre activité et ce que demandent vos clients : l'IA rédige un scénario que vous relisez et enregistrez avant toute écriture.",
+        "start": "Rédiger un scénario"
+      },
+      "describe": {
+        "label": "Votre scénario",
+        "placeholder": "Ce que fait l'entreprise, qui sont ses clients, ce qu'ils écrivent au support.",
+        "sends": "Envoyé à Anthropic avec votre clé : ce texte, ses adresses e-mail et numéros de téléphone d'abord masqués, la langue, les valeurs des listes de sélection Case de l'org choisie, et les noms des sujets et actions de l'agent choisi. Jamais un enregistrement.",
+        "language": "Langue des articles et des énoncés",
+        "org": "Org dont le brouillon reçoit les listes de sélection Case et l'agent",
+        "noOrg": "Aucune",
+        "agent": "Agent visé par les tests",
+        "noAgent": "Aucun",
+        "preview": "Afficher le texte tel qu'il partira",
+        "masked": "Tel qu'il partira"
+      },
+      "draft": {
+        "start": "Rédiger",
+        "stop": "Arrêter",
+        "resume": "Reprendre le brouillon",
+        "busy": "Rédaction : d'abord un plan, puis un appel par sujet.",
+        "stopped": "Arrêté. Les sujets rédigés sont conservés : reprenez le brouillon pour rédiger les autres.",
+        "failed": "Le brouillon a échoué : {{error}}",
+        "topics": "Sujets du brouillon",
+        "written": "Rédigé",
+        "incomplete": "Incomplet",
+        "notConfigured": "L'IA n'est pas configurée : enregistrez une clé Anthropic dans Paramètres > IA.",
+        "openSettings": "Aller aux Paramètres"
+      },
+      "review": {
+        "title": "Relire {{name}}",
+        "language": "Langue : {{language}}",
+        "source": {
+          "builtIn": "Fourni avec SandForge, son contenu en anglais",
+          "file": "Depuis {{path}}",
+          "draft": "Rédigé, pas encore enregistré"
+        },
+        "customers_one": "{{count}} entreprise cliente ({{industry}})",
+        "customers_other": "{{count}} entreprises clientes ({{industry}})",
+        "topic": "{{label}} : {{title}}",
+        "facts": "Ce qu'une réponse doit dire",
+        "utterances": "Ce que disent les clients, et ce que l'agent doit faire",
+        "cases_one": "{{count}} sorte de requête",
+        "cases_other": "{{count}} sortes de requête",
+        "decoy": "Article leurre : {{title}}, proche de {{topic}}, auquel il ne répond pas.",
+        "outOfScope_one": "{{count}} demande qu'aucun sujet ne couvre, que l'agent doit décliner.",
+        "outOfScope_other": "{{count}} demandes qu'aucun sujet ne couvre, que l'agent doit décliner.",
+        "edit": "Modifier en JSON",
+        "editLabel": "Le scénario, tel que son fichier l'écrit",
+        "apply": "Appliquer",
+        "invalid": "Le scénario ne tient pas :",
+        "wholePack": "Le scénario",
+        "save": "Enregistrer dans l'espace de travail",
+        "saved": "Enregistré dans {{path}}.",
+        "exists": "{{path}} existe déjà.",
+        "overwrite": "L'écraser",
+        "noWorkspace": "Ouvrez un dossier dans VS Code pour enregistrer le scénario.",
+        "saveFirst": "Enregistrez d'abord le scénario dans l'espace de travail : son fichier de test en est écrit après l'exécution.",
+        "continue": "Continuer"
+      },
+      "confirm": {
+        "title": "Seed de {{name}}",
+        "seed": "Graine",
+        "seedHint": "La même graine écrit les mêmes noms. Deux exécutions dans une org demandent deux graines, sinon les noms d'URL de leurs articles se heurtent.",
+        "preparing": "Lecture des statuts de requête et de Knowledge de l'org…",
+        "issues": "Le scénario ne peut pas être compilé :",
+        "objects": "Ce que l'exécution écrit",
+        "optional": "ignoré dans une org qui ne l'a pas",
+        "tests_one": "{{count}} test pour l'agent.",
+        "tests_other": "{{count}} tests pour l'agent.",
+        "statusOrg": "Les requêtes ouvertes sont écrites en {{open}} et les fermées en {{closed}} : les statuts de l'org.",
+        "statusDefault": "L'org n'a pas dit ses statuts de requête ({{reason}}) : les requêtes sont écrites en New et Closed.",
+        "gates": "Les garde-fous du seed s'appliquent : Production Guard avant toute écriture dans une org de production, puis stockage de données, automatisations et e-mails, règles de doublons, et votre lancement.",
+        "notInV1": "Pas écrits dans cette version : e-mails, sessions de messagerie, appels vocaux et transcriptions de chat.",
+        "start": "Lancer le seed du scénario"
+      },
+      "knowledge": {
+        "absent": "Cette org n'a pas Knowledge : les articles sont ignorés. Les tests de réponse depuis Knowledge sont écrits, et l'agent n'aura pas d'article à citer.",
+        "bodyField": "Champ du corps de l'article",
+        "body": "Le corps des articles est écrit dans {{field}}.",
+        "summaryFallback": "L'org n'offre aucun champ texte long pour un corps d'article : les articles portent leur seul résumé.",
+        "drafts": "SandForge écrit les articles en brouillon et ne les publie pas encore : publiez-les dans Knowledge pour que la bibliothèque de données de l'agent les indexe.",
+        "notRewound": "Un retour arrière à un point de contrôle ne reprend pas les articles : le retrait de ce seed, si."
+      },
+      "results": {
+        "openCases": "{{written}} des {{total}} requêtes ouvertes visées par les tests ont été écrites.",
+        "noCase": "Aucune requête ouverte n'a été écrite : aucun fichier de test ne peut être écrit depuis cette exécution.",
+        "companionFailed": "Les Id des requêtes de l'exécution n'ont pas pu être conservés ({{message}}) : aucun fichier de test ne peut être écrit depuis cette exécution."
+      },
+      "tests": {
+        "title": "Fichier de test Agentforce",
+        "noPromise": "SandForge écrit les données et ce que l'agent doit faire. Un verdict dépend de l'agent et d'un modèle qui varie : un test en échec peut venir de l'agent, pas des données.",
+        "reading": "Lecture des agents de l'org…",
+        "noAgent": "Cette org n'a aucun agent Agentforce : créez-en un, puis écrivez le fichier de test depuis cette exécution.",
+        "noAgentforce": "Cette org n'a pas Agentforce : le fichier de test demande une org avec un agent.",
+        "unreadable": "Les agents de l'org n'ont pas pu être lus : {{message}}",
+        "readAgain": "Relire",
+        "agent": "Agent",
+        "mapTopic": "Sujet de l'agent pour {{topic}}",
+        "choose": "Choisir un sujet",
+        "mapActions": "Actions attendues",
+        "guard": "Sujet qui décline ce qu'aucun sujet ne couvre",
+        "noGuard": "Aucun : laisser ces tests de côté",
+        "runner": "Format du fichier de test",
+        "runnerTestingCenter": "Testing Center",
+        "runnerStudio": "Agentforce Studio",
+        "noWorkspace": "Ouvrez un dossier dans VS Code : le fichier de test y est écrit.",
+        "notDx": "Ce dossier n'est pas un projet Salesforce DX (pas de sfdx-project.json) : le fichier est écrit, et sf agent test create s'exécute depuis un projet DX.",
+        "unmatched": "Associez chaque sujet du scénario à un sujet de l'agent.",
+        "write": "Écrire le fichier de test",
+        "overwrite": "L'écraser",
+        "written": "Écrit dans {{path}}.",
+        "leftOut": "Laissés hors du fichier :",
+        "command": "SandForge ne déploie jamais le test ni ne l'exécute, ce qui consomme les crédits de l'org. Depuis le projet, lancez :",
+        "exists": "{{path}} existe déjà.",
+        "refused": "L'agent n'a pas ce que le choix nomme :",
+        "unavailable": "Le fichier de test ne peut pas être écrit : {{message}}",
+        "stale": "Cette exécution a été retirée : son fichier de test nomme des requêtes disparues. Un test créé dans l'org à partir de lui y reste : retirez-le avec sf project delete source -m AiEvaluationDefinition:<nom>."
+      }
     }
   },
   "sync": {
@@ -2581,7 +2732,7 @@
     "aiKeyConfigured": "Clé configurée",
     "aiKeySaved": "Clé enregistrée",
     "aiHint": "La clé est stockée dans le coffre de secrets VSCode et n’est jamais écrite dans les paramètres ni dans les journaux.",
-    "aiSends": "Tant que l'IA est activée, ceci part chez Anthropic, avec votre clé : le chat envoie ce que vous tapez avec la conversation jusque-là ; NL2SOQL envoie votre question avec les noms des objets et des champs de l'org ; un brouillon de pipeline, un persona personnalisé et une règle de champ IA envoient leur description, ou le nom du champ et sa consigne.",
+    "aiSends": "Tant que l'IA est activée, ceci part chez Anthropic, avec votre clé : le chat envoie ce que vous tapez avec la conversation jusque-là ; NL2SOQL envoie votre question avec les noms des objets et des champs de l'org ; un brouillon de pipeline, un persona personnalisé et une règle de champ IA envoient leur description, ou le nom du champ et sa consigne. Un brouillon de scénario pour les données de test d'un agent Agentforce envoie le texte du scénario, adresses e-mail et numéros de téléphone masqués, sa langue, les valeurs des listes de sélection Case de l'org et les noms des sujets et actions de l'agent choisi, jamais un enregistrement.",
     "aiSendsFailures": "Les suggestions de correction envoient le message d'erreur d'une exécution en échec, ses Id Salesforce retirés, sans que personne n'appuie sur rien. Un message d'erreur peut citer des valeurs d'enregistrements.",
     "aiErrorResolution": "Suggérer des corrections pour les exécutions en échec, en envoyant leurs messages d'erreur",
     "aiSaveAndTurnOn": "Enregistrer la clé et activer l'IA",

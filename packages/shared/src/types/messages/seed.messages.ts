@@ -14,6 +14,9 @@ import type {
 } from '../seed.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 import type { ForgeSweepListing } from '../forge.types.js';
+import type { ScenarioCompileOptions, ScenarioPack } from '../scenario.types.js';
+import type { AgentDefinition, AgentTestChoice } from '../../schemas/agentTestSpec.schema.js';
+import type { ScenarioCasePicklists } from './ai.messages.js';
 
 /**
  * Seed messages.
@@ -448,4 +451,206 @@ export interface SeedCreatePersonaRequest extends BaseMessage {
 export interface SeedCreatePersonaResponse extends BaseMessage {
   type: 'seed:create-persona:response';
   payload: { persona: PersonaMsg; success: boolean; error?: string };
+}
+
+// ─── Scenario Messages (Agentforce test data) ───────────────────────────────
+
+/**
+ * A scenario pack the Seed gallery offers: one SandForge ships, one saved in
+ * the workspace as a `*.sandforge-scenario.json` file, or a file of that name
+ * that does not read as a pack, said with why rather than left out.
+ */
+export type SeedScenarioPackEntry =
+  | { source: 'built-in'; pack: ScenarioPack }
+  | { source: 'workspace'; path: string; relativePath: string; pack: ScenarioPack }
+  | { source: 'workspace'; path: string; relativePath: string; issues: string[] };
+
+/** `seed:scenario:packs`. WebView -> Extension. The packs SandForge ships, then the workspace's. */
+export interface SeedScenarioPacksRequest extends BaseMessage {
+  type: 'seed:scenario:packs';
+  payload: Record<string, never>;
+}
+
+/** `seed:scenario:packs:response`. Extension -> WebView. `workspace` is false with no folder open. */
+export interface SeedScenarioPacksResponse extends BaseMessage {
+  type: 'seed:scenario:packs:response';
+  payload: { packs: SeedScenarioPackEntry[]; workspace: boolean };
+}
+
+/**
+ * What the Knowledge articles of a scenario meet in an org: no article object
+ * (Knowledge off), and then none is written and the run stays a success; or
+ * the fields of `Knowledge__kav` a body can be written to, read off its describe.
+ */
+export type SeedScenarioKnowledge =
+  { available: false; reason: string } | { available: true; bodyFields: string[] };
+
+/**
+ * A pack compiled for an org: the choices the run is sent with, the org's own
+ * case statuses among them, and what it writes.
+ */
+export interface SeedScenarioPreparation {
+  /** What the run compiles the pack with, as it was compiled here. */
+  options: ScenarioCompileOptions & {
+    seed: number;
+    caseStatus: { open: string; closed: string };
+  };
+  /**
+   * Each object the run writes, in insert order, with its records; an
+   * optional one is skipped by an org without it.
+   */
+  objects: Array<{ objectApiName: string; recordCount: number; optional?: boolean }>;
+  /** The tests the pack's utterances make. */
+  tests: number;
+  /** Whether the statuses are the org's, or the defaults because the org would not say, with why. */
+  caseStatusFrom: { from: 'org' } | { from: 'default'; reason: string };
+  knowledge: SeedScenarioKnowledge;
+}
+
+/**
+ * `seed:scenario:prepare`. WebView -> Extension. Compile a pack for an org,
+ * read only: its case statuses and its articles' fields are read, nothing is
+ * written.
+ */
+export interface SeedScenarioPrepareRequest extends BaseMessage {
+  type: 'seed:scenario:prepare';
+  payload: { orgId: string; pack: ScenarioPack; seed?: number; articleBodyField?: string };
+}
+
+/** `seed:scenario:prepare:response`. Extension -> WebView. The preparation, or every issue of the pack. */
+export interface SeedScenarioPrepareResponse extends BaseMessage {
+  type: 'seed:scenario:prepare:response';
+  payload: { preparation?: SeedScenarioPreparation; issues?: string[] };
+}
+
+/**
+ * `seed:scenario:execute`. WebView -> Extension. Seed an org from a pack,
+ * compiled with the options its preparation answered: answered on
+ * `seed:execute:response` with the run's result, its `scenario` set, or on
+ * `seed:error`, as a template's seed is, and held to every gate a
+ * template's seed is held to.
+ */
+export interface SeedScenarioExecuteRequest extends BaseMessage {
+  type: 'seed:scenario:execute';
+  payload: {
+    orgId: string;
+    pack: ScenarioPack;
+    options: ScenarioCompileOptions;
+    locale?: string;
+  };
+}
+
+/** Where a test file can be written: a Salesforce DX project, a folder that is not one, or none open. */
+export type SeedScenarioProject =
+  { kind: 'dx'; dir: string } | { kind: 'folder'; dir: string } | { kind: 'none' };
+
+/** How an org answered for its agents (`readAgentCatalog`). */
+export type SeedScenarioAgents =
+  | { kind: 'agents'; agents: AgentDefinition[] }
+  | { kind: 'no-agent'; reason: 'none' | 'no-agentforce'; message: string }
+  | { kind: 'unreadable'; object: string; message: string };
+
+/**
+ * `seed:scenario:agents`. WebView -> Extension. An org's Agentforce agents,
+ * read only, with where a test file would be written and the org's Case
+ * picklist values, which a draft is told.
+ */
+export interface SeedScenarioAgentsRequest extends BaseMessage {
+  type: 'seed:scenario:agents';
+  payload: { orgId: string };
+}
+
+/** `seed:scenario:agents:response`. Extension -> WebView. */
+export interface SeedScenarioAgentsResponse extends BaseMessage {
+  type: 'seed:scenario:agents:response';
+  payload: {
+    orgId: string;
+    agents: SeedScenarioAgents;
+    project: SeedScenarioProject;
+    casePicklists?: ScenarioCasePicklists;
+  };
+}
+
+/**
+ * `seed:scenario:save`. WebView -> Extension. Save a pack in the workspace,
+ * as `<id>.sandforge-scenario.json` at the first folder's root, never over a
+ * file there unless `overwrite`.
+ */
+export interface SeedScenarioSaveRequest extends BaseMessage {
+  type: 'seed:scenario:save';
+  payload: { pack: ScenarioPack; overwrite?: boolean };
+}
+
+/** `seed:scenario:save:response`. Extension -> WebView. */
+export interface SeedScenarioSaveResponse extends BaseMessage {
+  type: 'seed:scenario:save:response';
+  payload: {
+    outcome:
+      | { kind: 'saved'; path: string; relativePath: string }
+      | { kind: 'exists'; path: string; relativePath: string }
+      | { kind: 'no-workspace' };
+  };
+}
+
+/** A test of the scenario the file leaves out, and why (`AgentTestLeftOut`). */
+export interface SeedScenarioTestLeftOut {
+  test: string;
+  reason: 'case-not-written' | 'no-guard-topic';
+  message: string;
+}
+
+/** A name of the user's choice the agent does not have, or why the choice cannot make tests. */
+export interface SeedScenarioTestRefusal {
+  code: string;
+  name: string;
+  message: string;
+}
+
+/** What writing a run's test file did. */
+export type SeedScenarioTestFileOutcome =
+  | {
+      kind: 'written';
+      path: string;
+      /** Relative to the project, as the commands name it. */
+      specPath: string;
+      apiName: string;
+      /** The two commands that create the test in the org and run it; absent outside a DX project. */
+      commands?: { create: string; run: string };
+      /** Set when the workspace is no DX project: `sf agent test create` runs from one. */
+      notDxProject?: true;
+      leftOut: SeedScenarioTestLeftOut[];
+    }
+  | { kind: 'exists'; path: string; specPath: string }
+  | { kind: 'refused'; refusals: SeedScenarioTestRefusal[] }
+  | { kind: 'no-agent'; reason: 'none' | 'no-agentforce'; message: string }
+  /**
+   * Nothing written, for want of what the file is made from: an open folder,
+   * the run, its companion file, the pack it was seeded from, or the catalog.
+   */
+  | {
+      kind: 'unavailable';
+      reason:
+        | 'no-workspace'
+        | 'run-unknown'
+        | 'no-companion'
+        | 'companion-invalid'
+        | 'pack-not-found'
+        | 'catalog-unreadable';
+      message: string;
+    };
+
+/**
+ * `seed:scenario:test-file`. WebView -> Extension. Write the Agentforce test
+ * file of a scenario's run into the workspace, from its companion file, with
+ * the agent and the topics the user matched; never deployed, never run.
+ */
+export interface SeedScenarioTestFileRequest extends BaseMessage {
+  type: 'seed:scenario:test-file';
+  payload: { runId: string; choice: AgentTestChoice; overwrite?: boolean };
+}
+
+/** `seed:scenario:test-file:response`. Extension -> WebView. */
+export interface SeedScenarioTestFileResponse extends BaseMessage {
+  type: 'seed:scenario:test-file:response';
+  payload: { runId: string; outcome: SeedScenarioTestFileOutcome };
 }

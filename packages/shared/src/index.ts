@@ -54,6 +54,7 @@ export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';
 export * from './types/checkpoint.types.js';
 export * from './types/env.types.js';
+export * from './types/scenario.types.js';
 
 // Barrel exports — Bridge
 // NOTE: PROTOCOL_VERSION + isVersionCompatible are re-exported as named exports
@@ -73,6 +74,8 @@ export * from './schemas/quickSync.schema.js';
 export * from './schemas/ai/index.js';
 export * from './schemas/checkpoint.schema.js';
 export * from './schemas/env.schema.js';
+export * from './schemas/scenario.schema.js';
+export * from './schemas/agentTestSpec.schema.js';
 
 // Barrel exports — Constants
 export * from './constants/sf-limits.js';
@@ -82,6 +85,7 @@ export * from './constants/defaults.js';
 export * from './constants/ai-config.js';
 export * from './constants/monitor.js';
 export * from './constants/seed-templates.js';
+export * from './constants/scenario-packs.js';
 export * from './constants/seed-locales.js';
 export * from './constants/faker-methods.js';
 export * from './constants/faker-field-defaults.js';

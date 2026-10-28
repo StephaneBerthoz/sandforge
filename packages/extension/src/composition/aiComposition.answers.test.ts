@@ -32,13 +32,17 @@ import { createAIClientFactory } from '../adapters/ai/AIClientFactory.js';
 import type { StorageAdapter } from '../adapters/storage/StorageAdapter.js';
 import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { AIModules } from '../bridge/handlers/AIHandler.js';
+import { SessionBudget } from '../adapters/ai/tokenBudget/index.js';
+import { RETAIL_ORDERS_PACK } from '@sandforge/shared';
 
 /**
  * The assistant and the model-backed modules as the extension wires them —
  * the real closures, the real modules and the real adapter — over an SDK that
  * answers what each test says.
  */
-async function wiredStack(): Promise<{ assistant: AIAssistant; modules: AIModules }> {
+async function wiredStack(
+  budget?: SessionBudget,
+): Promise<{ assistant: AIAssistant; modules: AIModules }> {
   const key = 'sk-ant-fake-test-key-1234567890';
   const handlers = { setAIAssistant: vi.fn(), setAIModules: vi.fn(), setRuleModules: vi.fn() };
   await initAIComposition({
@@ -48,6 +52,7 @@ async function wiredStack(): Promise<{ assistant: AIAssistant; modules: AIModule
       aiClient: createAIClientFactory({
         storage: { getSecret: vi.fn(async () => key) } as unknown as StorageAdapter,
         getProvider: () => 'anthropic',
+        ...(budget ? { budget } : {}),
       }),
       telemetry: { getLogger: () => ({}) },
     },
@@ -239,4 +244,94 @@ describe('a question asked in a conversation while another waits there', () => {
       expect(sdk.create).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+describe('a scenario pack draft, through the adapter every AI feature calls', () => {
+  const PACK = RETAIL_ORDERS_PACK;
+  const PLAN = JSON.stringify({
+    id: PACK.id,
+    name: PACK.name,
+    businessContext: PACK.businessContext,
+    customers: PACK.customers,
+    topics: PACK.topics.map(({ key, label, utterances }) => ({ key, label, utterances })),
+    decoy: PACK.decoy,
+    outOfScope: PACK.outOfScope,
+  });
+  const REQUEST = {
+    text: 'A home goods shop whose customers write about parcels.',
+    language: 'en_US',
+  };
+
+  it('says a topic cut off at the length limit as cut off, and keeps the plan it had', async () => {
+    const { modules } = await wiredStack();
+    sdk.create
+      .mockResolvedValueOnce(reply('end_turn', PLAN))
+      .mockResolvedValueOnce(reply('max_tokens', '{"article": {"title": "Damaged parcels", "bo'));
+
+    const outcome = await modules.scenarioDrafter.draft(REQUEST);
+
+    expect(outcome).toMatchObject({
+      kind: 'failed',
+      failedAt: { call: 'topic', topicKey: PACK.topics[0].key },
+    });
+    expect(outcome.kind === 'failed' && outcome.error).toContain(CUT_OFF);
+    expect(outcome.kind === 'failed' && outcome.draft?.topics.map((t) => t.key)).toEqual(
+      PACK.topics.map((t) => t.key),
+    );
+    expect(sdk.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('says a plan the model declined as declined, and asks for no topic', async () => {
+    const { modules } = await wiredStack();
+    sdk.create.mockResolvedValue(reply('refusal', ''));
+
+    const outcome = await modules.scenarioDrafter.draft(REQUEST);
+
+    expect(outcome).toEqual({
+      kind: 'failed',
+      sentText: REQUEST.text,
+      error:
+        'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+      failedAt: { call: 'plan' },
+    });
+    expect(sdk.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the window budget refused the call before anything was sent', async () => {
+    const { modules } = await wiredStack(new SessionBudget({ sessionId: 'w', budget: 100 }));
+
+    const outcome = await modules.scenarioDrafter.draft(REQUEST);
+
+    expect(outcome).toMatchObject({ kind: 'failed', failedAt: { call: 'plan' } });
+    expect(outcome.kind === 'failed' && outcome.error).toMatch(/^AI token budget exceeded/);
+    expect(sdk.create).not.toHaveBeenCalled();
+  });
+
+  it('asks every call for a reply of at most 8,192 tokens, under the scenario prompts', async () => {
+    const { modules } = await wiredStack();
+    sdk.create.mockImplementation(async (body: { messages: Array<{ content: string }> }) => {
+      const topic = /<user-data label="topic">\{"key":"([^"]+)"/.exec(
+        body.messages[0].content,
+      )?.[1];
+      const written = PACK.topics.find((t) => t.key === topic);
+      return reply(
+        'end_turn',
+        written
+          ? JSON.stringify({ article: written.article, caseTemplates: written.caseTemplates })
+          : PLAN,
+      );
+    });
+
+    const outcome = await modules.scenarioDrafter.draft(REQUEST);
+
+    expect(outcome.kind).toBe('complete');
+    const bodies = sdk.create.mock.calls.map(
+      ([body]) => body as { max_tokens: number; system: string; messages: unknown[] },
+    );
+    expect(bodies).toHaveLength(1 + PACK.topics.length);
+    expect(bodies.map((b) => b.max_tokens)).toEqual(bodies.map(() => 8_192));
+    expect(bodies[0].system).toMatch(/^You are SandForge ScenarioDrafter\. Plan/);
+    expect(bodies[1].system).toMatch(/^You are SandForge ScenarioDrafter\. Write one topic/);
+    expect(bodies.every((b) => b.messages.length === 1)).toBe(true);
+  });
 });

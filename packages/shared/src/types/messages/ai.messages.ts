@@ -1,4 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
+import type { ScenarioPack } from '../scenario.types.js';
+import type { ScenarioPackDraft } from '../../schemas/ai/modelReplies.js';
 
 /**
  * Token usage counters reported by the AI adapters. `cacheRead`/`cacheCreate`
@@ -41,7 +43,8 @@ export interface AIChatCancelRequest extends BaseMessage {
 
 /**
  * Stop waiting for a model-backed tool's answer: a Forge root query drafted
- * from a description, or an Automation pipeline draft.
+ * from a description, an Automation pipeline draft, or a scenario pack draft
+ * (which answers with the topics written before it stopped).
  * `requestId` is the id of the request that asked. The call to the model is
  * aborted, nothing of it is applied, and that request is answered on its own
  * response channel with `success: false` and code `CANCELLED` — a draft the
@@ -341,6 +344,101 @@ export interface AIGeneratePipelineResponse extends BaseMessage {
     error?: string;
     /** `CANCELLED`: stopped by the user (`ai:tool:cancel`) before a draft came. */
     code?: 'CANCELLED';
+  };
+}
+
+/**
+ * The active values of the target org's Case picklists, by field, in the
+ * org's order: the words its cases are written with.
+ */
+export interface ScenarioCasePicklists {
+  Status?: string[];
+  Origin?: string[];
+  Priority?: string[];
+  Type?: string[];
+}
+
+/** An action of an agent's topic, as a scenario draft names it: its API name, label and description. */
+export interface ScenarioDraftAgentAction {
+  name: string;
+  label?: string;
+  description?: string;
+}
+
+/** A topic of an agent, as a scenario draft names it, with the actions it can take. */
+export interface ScenarioDraftAgentTopic {
+  name: string;
+  label?: string;
+  description?: string;
+  actions: ScenarioDraftAgentAction[];
+}
+
+/**
+ * The agent a scenario's tests are for, as the draft is told of it: its
+ * topics and their actions, by API name, label and description — the shape
+ * the org's agent catalog reads them in, and nothing else of it.
+ */
+export interface ScenarioDraftAgent {
+  topics: ScenarioDraftAgentTopic[];
+}
+
+/**
+ * Draft a scenario pack for testing an Agentforce agent from a scenario the
+ * user wrote, or go on with a draft that stopped.
+ *
+ * What goes to the model is `text` with its email addresses and phone
+ * numbers rewritten to reach nobody, `language`, `casePicklists` and, when
+ * an agent is chosen, the names, labels and descriptions of its topics and
+ * actions; never a record of the org. `maskOnly` asks for nothing but the
+ * text as it would be sent, and reaches no model.
+ *
+ * `draft` is a draft answered before, stopped or failed part way: its plan is
+ * kept and only the topics it lacks are written.
+ *
+ * The request is stopped by `ai:tool:cancel` with its id.
+ */
+export interface AIScenarioDraftRequest extends BaseMessage {
+  type: 'ai:scenario-draft';
+  payload: {
+    text: string;
+    /** As Salesforce writes a language: `en_US`, `fr`. */
+    language: string;
+    casePicklists?: ScenarioCasePicklists;
+    agent?: ScenarioDraftAgent;
+    draft?: ScenarioPackDraft;
+    maskOnly?: boolean;
+  };
+}
+
+/** The call of a scenario draft that failed: the plan, a topic's, or the pack once all were written. */
+export type ScenarioDraftFailedAt =
+  { call: 'plan' } | { call: 'topic'; topicKey: string } | { call: 'pack' };
+
+/**
+ * A scenario draft, or how far it went.
+ *
+ * `success` is true when every call answered and the pack holds together:
+ * `pack` is then the pack, for the user to read and save before anything is
+ * written from it. Otherwise `draft` holds what was written before the draft
+ * stopped (`code: 'CANCELLED'`) or failed (`error`, in the words of the
+ * provider or naming the field a reply broke, at `failedAt`); a draft is no
+ * pack and is never compiled. There is no stand-in for what the model did not
+ * write.
+ *
+ * `sentText` is the scenario as it was sent, or would be with `maskOnly`.
+ */
+export interface AIScenarioDraftResponse extends BaseMessage {
+  type: 'ai:scenario-draft:response';
+  payload: {
+    success: boolean;
+    sentText?: string;
+    pack?: ScenarioPack;
+    draft?: ScenarioPackDraft;
+    failedAt?: ScenarioDraftFailedAt;
+    /** The fields a refused reply broke, each by its path. */
+    issues?: string[];
+    code?: 'AI_NOT_CONFIGURED' | 'CANCELLED';
+    error?: string;
   };
 }
 

@@ -4,6 +4,7 @@ import {
   validatePayload,
   aiForgePlanPayloadSchema,
   aiGeneratePipelinePayloadSchema,
+  aiScenarioDraftPayloadSchema,
   aiToolCancelPayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
@@ -17,10 +18,19 @@ import {
 import type { NL2SOQL, NL2SOQLResult, SchemaContext } from '../../../modules/ai/NL2SOQL.js';
 import { suggestionText, type OrgInfo } from '../../../modules/ai/PipelineGenerator.js';
 import { checkForgeRootQuery } from '../../../modules/ai/forgeRootQuery.js';
+import {
+  maskScenarioText,
+  type ScenarioDraftOutcome,
+} from '../../../modules/ai/ScenarioDrafter.js';
 import { InFlightCalls, untilAborted } from './inFlightCalls.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set(['ai:forge-plan', 'ai:generate-pipeline', 'ai:tool:cancel']);
+const AI_TOOLS_TYPES = new Set([
+  'ai:forge-plan',
+  'ai:generate-pipeline',
+  'ai:scenario-draft',
+  'ai:tool:cancel',
+]);
 
 /**
  * What a draft the user stopped is answered with, on its own channel: no
@@ -73,8 +83,8 @@ interface SchemaConnection {
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles Forge's root query drafts, NL2SOQL's from a description, and
- * pipeline generation. Error resolution is not one of them and has no channel in
+ * Handles Forge's root query drafts, NL2SOQL's from a description,
+ * pipeline generation, and scenario pack drafts. Error resolution is not one of them and has no channel in
  * either direction: a failure is resolved once by `sendOperationFailed`, on
  * the side that raises it, and the suggestion is shown there as a VS Code
  * notification.
@@ -156,6 +166,9 @@ export class AIToolsHandler implements DomainHandler {
         return true;
       case 'ai:generate-pipeline':
         await this.handleGeneratePipeline(msg);
+        return true;
+      case 'ai:scenario-draft':
+        await this.handleScenarioDraft(msg);
         return true;
       case 'ai:tool:cancel':
         this.handleCancel(msg);
@@ -458,5 +471,86 @@ export class AIToolsHandler implements DomainHandler {
     } finally {
       call.end();
     }
+  }
+
+  /**
+   * Draft a scenario pack for testing an Agentforce agent, or go on with a
+   * draft that stopped, or only say what the scenario text would be sent as.
+   *
+   * Every answer carries the text as it is sent, its addresses and numbers
+   * rewritten, so the page shows what leaves. A text asked for with
+   * `maskOnly` reaches no model, and is answered with no provider set up.
+   * A draft stopped with `ai:tool:cancel`, or one whose call failed, answers
+   * with the topics written before; nothing is written to an org from here.
+   */
+  private async handleScenarioDraft(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(aiScenarioDraftPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const answer = (payload: Record<string, unknown>): void =>
+      this.deps.broker.postToWebview(
+        buildResponse(this.deps, msg, 'ai:scenario-draft:response', payload),
+      );
+    if (parsed.maskOnly) {
+      answer({ success: true, sentText: maskScenarioText(parsed.text) });
+      return;
+    }
+    const drafter = this.aiModules?.scenarioDrafter;
+    if (!drafter) {
+      answer({
+        success: false,
+        code: 'AI_NOT_CONFIGURED',
+        error: AI_NOT_CONFIGURED,
+        sentText: maskScenarioText(parsed.text),
+      });
+      return;
+    }
+    const call = this.drafting.begin(msg.id);
+    try {
+      const outcome = await drafter.draft(
+        {
+          text: parsed.text,
+          language: parsed.language,
+          ...(parsed.casePicklists ? { casePicklists: parsed.casePicklists } : {}),
+          ...(parsed.agent ? { agent: parsed.agent } : {}),
+          ...(parsed.draft ? { from: parsed.draft } : {}),
+        },
+        { signal: call.signal },
+      );
+      if (outcome.kind === 'failed') {
+        this.deps.log(`[ERR] ai:scenario-draft (${outcome.failedAt.call}): ${outcome.error}`);
+      } else if (outcome.kind === 'stopped') {
+        this.deps.log(`[TX] ai:scenario-draft:response cancelled`);
+      }
+      answer(scenarioDraftAnswer(outcome));
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] ai:scenario-draft: ${extractErrorMessage(err)}`);
+      answer({ success: false, error: extractErrorMessage(err) });
+    } finally {
+      call.end();
+    }
+  }
+}
+
+/** A scenario draft's outcome, as the page reads it on `ai:scenario-draft:response`. */
+function scenarioDraftAnswer(outcome: ScenarioDraftOutcome): Record<string, unknown> {
+  switch (outcome.kind) {
+    case 'complete':
+      return { success: true, sentText: outcome.sentText, pack: outcome.pack };
+    case 'stopped':
+      return {
+        ...STOPPED,
+        sentText: outcome.sentText,
+        ...(outcome.draft ? { draft: outcome.draft } : {}),
+      };
+    case 'failed':
+      return {
+        success: false,
+        error: outcome.error,
+        failedAt: outcome.failedAt,
+        sentText: outcome.sentText,
+        ...(outcome.issues ? { issues: outcome.issues } : {}),
+        ...(outcome.draft ? { draft: outcome.draft } : {}),
+      };
   }
 }

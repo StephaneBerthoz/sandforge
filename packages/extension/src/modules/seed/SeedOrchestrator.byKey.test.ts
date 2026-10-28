@@ -524,3 +524,70 @@ describe('SeedOrchestrator — rows placed by key', () => {
     }
   });
 });
+
+describe('SeedOrchestrator — the ids of the rows, by key', () => {
+  it('tells, object by object, the id each row became, leaving out the rows the org did not take', async () => {
+    const target = keyedTarget(refusingContact('Contact 3'));
+    const told: Array<[string, Record<string, string>]> = [];
+    await new SeedOrchestrator(
+      seedDeps(target.insert, { onRowIds: (object, ids) => told.push([object, { ...ids }]) }),
+    ).execute(scenario(), 'org');
+
+    expect(told.map(([object]) => object)).toEqual(['Account', 'Contact', 'Case']);
+    const cases = told[2][1];
+    expect(Object.keys(cases).sort()).toEqual(
+      ['c1', 'c2', 'c4', 'c5'].flatMap((c) => [`${c}-closed`, `${c}-open`]).sort(),
+    );
+    // Each key names the record written from its own row.
+    for (const [key, id] of Object.entries(cases)) {
+      const n = key.slice(1, 2);
+      const subject = key.endsWith('-open') ? `Open ${n}` : `Closed ${n}`;
+      expect(target.recordOf(id)?.Subject).toBe(subject);
+    }
+    expect(told[1][1]).not.toHaveProperty('c3');
+  });
+
+  it('tells the ids of the rows across the partitions of a seed large enough to take them', async () => {
+    const target = keyedTarget();
+    let cases: Record<string, string> = {};
+    await new SeedOrchestrator(
+      seedDeps(target.insert, {
+        grappeAdapter: new SeedGrappeAdapter(() => 'gid', 3),
+        grappeConfig: {
+          enabled: true,
+          autoActivateThreshold: 1,
+          grappeSize: 3,
+        } as SeedOrchestratorDependencies['grappeConfig'],
+        onRowIds: (object, ids) => {
+          if (object === 'Case') cases = { ...ids };
+        },
+      }),
+    ).execute(scenario(), 'org');
+
+    expect(Object.keys(cases)).toHaveLength(10);
+    expect(target.recordOf(cases['c4-open'])?.Subject).toBe('Open 4');
+  });
+
+  it('tells nothing of an object written from rules', async () => {
+    const target = keyedTarget();
+    const onRowIds = vi.fn();
+    const ruled: SeedTemplate = template(
+      [
+        {
+          objectApiName: 'Account',
+          recordCount: 2,
+          fieldRules: [
+            { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Acme' } },
+          ],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+      ],
+      [],
+    );
+    await new SeedOrchestrator(seedDeps(target.insert, { onRowIds })).execute(ruled, 'org');
+
+    expect(onRowIds).not.toHaveBeenCalled();
+  });
+});

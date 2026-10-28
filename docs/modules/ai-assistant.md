@@ -15,6 +15,7 @@ The same card turns AI off and on again, and **Remove key** takes the key out of
 - **Pipeline drafts** -- in Automation, the AI Pipeline Generator drafts a pipeline from a description in natural language; its steps are marked when they cannot run (see [Automation](automation.md))
 - **NL2SOQL** -- in Forge's AI tab, describe the records to clone in plain English and get the SOQL query discovery starts from (see [Seed](seed.md))
 - **Custom personas and AI field rules** -- in Seed; an AI field rule is picked by you or set by a built-in persona
+- **Scenario drafts** -- in Seed, **Draft from your own text** writes the scenario pack of an Agentforce agent's test data from your description, a plan then a call per topic, which **Stop** interrupts; its addresses and phone numbers are masked before it is sent, and the pack is reviewed and saved before it is seeded (see [Test data for an Agentforce agent](../agentforce-test-data.md))
 - **One model, one budget** -- `sandforge.ai.model` picks the model every AI feature uses (chat, NL2SOQL, pipeline drafts, error resolution, Seed), and `sandforge.ai.tokenBudgetMaxPerSession` caps the tokens of a window session, shared by all of them, with a warning at 80%. Anthropic is the only provider
 
 ## Error resolution

@@ -248,4 +248,35 @@ describe('SeedRunHistory', () => {
 
     expect(screen.queryByTestId('seed-run-history')).toBeNull();
   });
+
+  it("opens a scenario's run onto its agent's test file, read of the org it wrote to, and no other run", async () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [{ ...RUNS[0], scenario: { packId: 'retail-orders' } }, RUNS[1]],
+    });
+    expect(screen.queryByTestId('seed-run-history-tests-op-1')).toBeNull();
+
+    const toggle = screen.getByTestId('seed-run-history-tests-op-2');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(sentAll('seed:scenario:agents').pop()?.payload).toEqual({ orgId: 'org-dev' }),
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByTestId('scenario-tests-stale')).toBeNull();
+  });
+
+  it('says of a removed scenario run that its test file names cases that are gone', async () => {
+    render(<SeedRunHistory />);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [{ ...RUNS[1], scenario: { packId: 'retail-orders', agent: 'Retail_Service_Agent' } }],
+    });
+
+    fireEvent.click(screen.getByTestId('seed-run-history-tests-op-1'));
+
+    expect((await screen.findByTestId('scenario-tests-stale')).textContent).toContain(
+      'its test file names cases that are gone',
+    );
+  });
 });

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import { MockBridge } from './helpers';
 import { MOCK_ORGS } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
@@ -927,6 +928,117 @@ async function openSeedStart(page: Page): Promise<MockBridge> {
   });
   return bridge;
 }
+
+test.describe('Seed — test data for an Agentforce agent, from a scenario', () => {
+  test('reviews a shipped pack, reads the org, seeds it with what was read, and writes the test file, never deploying it', async ({
+    page,
+  }) => {
+    const bridge = await openSeedStart(page);
+    await bridge.waitForMessage('seed:scenario:packs', { timeout: 10_000 });
+    await respondToAll(page, 'seed:scenario:packs', 'seed:scenario:packs:response', {
+      packs: [{ source: 'built-in', pack: RETAIL_ORDERS_PACK }],
+      workspace: true,
+    });
+
+    await page.getByRole('button', { name: 'Review the scenario Online shop orders' }).click();
+    await expect(page.getByTestId('scenario-review')).toContainText(
+      RETAIL_ORDERS_PACK.topics[0].article.title,
+    );
+    await page.getByTestId('btn-scenario-continue').click();
+    // The org the panel selected, read before anything is written.
+    const prepare = await bridge.waitForMessage('seed:scenario:prepare', { timeout: 10_000 });
+    expect((prepare.payload as { orgId: string }).orgId).toBe('org-src-1');
+    const options = { seed: 1, caseStatus: { open: 'Received', closed: 'Resolved' } };
+    await respondToAll(page, 'seed:scenario:prepare', 'seed:scenario:prepare:response', {
+      preparation: {
+        options,
+        objects: [
+          { objectApiName: 'Account', recordCount: 10 },
+          { objectApiName: 'Knowledge__kav', recordCount: 6, optional: true },
+        ],
+        tests: 14,
+        caseStatusFrom: { from: 'org' },
+        knowledge: { available: false, reason: 'Salesforce Knowledge is not turned on in it' },
+      },
+    });
+    await expect(page.getByTestId('scenario-statuses')).toHaveText(
+      "Open cases are written as Received and closed ones as Resolved: the org's own statuses.",
+    );
+    expect(await outgoing(page, 'seed:scenario:execute')).toEqual([]);
+
+    await page.getByTestId('btn-scenario-start').click();
+    const run = await bridge.waitForMessage('seed:scenario:execute', { timeout: 10_000 });
+    expect(run.payload).toEqual({ orgId: 'org-src-1', pack: RETAIL_ORDERS_PACK, options });
+    await respondToAll(page, 'seed:scenario:execute', 'seed:execute:response', {
+      templateId: 'scenario-retail-orders',
+      operationId: 'scenario-run-1',
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          recordsCreated: 10,
+          recordsFailed: 0,
+          createdIds: [],
+          errors: [],
+        },
+      ],
+      totalRecordsCreated: 10,
+      totalRecordsFailed: 0,
+      duration: 1000,
+      timestamp: '2026-10-28T00:00:00.000Z',
+      scenario: {
+        packId: 'retail-orders',
+        packName: RETAIL_ORDERS_PACK.name,
+        tests: 14,
+        openCasesWritten: 10,
+        openCases: 10,
+        articlesPublished: false,
+        companion: { kind: 'kept' },
+      },
+    });
+    await bridge.waitForMessage('seed:scenario:agents', { timeout: 10_000 });
+    await respondToAll(page, 'seed:scenario:agents', 'seed:scenario:agents:response', {
+      orgId: 'org-src-1',
+      agents: {
+        kind: 'agents',
+        agents: [
+          {
+            id: '16j000000000001AAA',
+            name: 'Retail_Service_Agent',
+            topics: [{ name: 'Order_Issues', described: true, actions: [], unnamedActions: 0 }],
+            unnamedTopics: 0,
+            variables: [],
+          },
+        ],
+      },
+      project: { kind: 'dx', dir: '/workspace' },
+    });
+    for (const topic of RETAIL_ORDERS_PACK.topics) {
+      await page.getByTestId(`scenario-tests-map-${topic.key}`).selectOption('Order_Issues');
+    }
+    await page.getByTestId('btn-scenario-tests-write').click();
+
+    const write = await bridge.waitForMessage('seed:scenario:test-file', { timeout: 10_000 });
+    expect(write.payload).toMatchObject({
+      runId: 'scenario-run-1',
+      choice: { agent: 'Retail_Service_Agent', runner: 'testing-center', guardTopic: null },
+    });
+    await respondToAll(page, 'seed:scenario:test-file', 'seed:scenario:test-file:response', {
+      runId: 'scenario-run-1',
+      outcome: {
+        kind: 'written',
+        path: '/workspace/specs/a.yaml',
+        specPath: 'specs/a.yaml',
+        apiName: 'A',
+        commands: { create: 'sf agent test create --spec specs/a.yaml', run: 'sf agent test run' },
+        leftOut: [],
+      },
+    });
+    await expect(page.getByTestId('scenario-tests-create')).toHaveText(
+      'sf agent test create --spec specs/a.yaml',
+    );
+  });
+});
 
 test.describe('Seed — the start, and a template seeded from its one confirmation', () => {
   test('opens on the gallery, the CRM starter first, and seeds it on the panel’s org after one Start', async ({

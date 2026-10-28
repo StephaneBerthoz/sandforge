@@ -120,6 +120,17 @@ import type {
   SeedDescribeGlobalResponse,
   SeedDescribeObjectResponse,
   SeedErrorResponse,
+  SeedScenarioPacksRequest,
+  SeedScenarioPacksResponse,
+  SeedScenarioPrepareRequest,
+  SeedScenarioPrepareResponse,
+  SeedScenarioExecuteRequest,
+  SeedScenarioAgentsRequest,
+  SeedScenarioAgentsResponse,
+  SeedScenarioSaveRequest,
+  SeedScenarioSaveResponse,
+  SeedScenarioTestFileRequest,
+  SeedScenarioTestFileResponse,
 } from './seed.messages.js';
 import type {
   SyncExecuteRequest,
@@ -429,6 +440,8 @@ import type {
   AIAnomalyScanResponse,
   AIGeneratePipelineRequest,
   AIGeneratePipelineResponse,
+  AIScenarioDraftRequest,
+  AIScenarioDraftResponse,
   AISchemaAdviceRequest,
   AISchemaAdviceResponse,
   AIProviderStatusMessage,
@@ -609,6 +622,12 @@ export type WebViewToExtensionMessage =
   | SeedCloneDescribeSourceRequest
   | SeedListPersonasRequest
   | SeedCreatePersonaRequest
+  | SeedScenarioPacksRequest
+  | SeedScenarioPrepareRequest
+  | SeedScenarioExecuteRequest
+  | SeedScenarioAgentsRequest
+  | SeedScenarioSaveRequest
+  | SeedScenarioTestFileRequest
   // Sync
   | SyncExecuteRequest
   | SyncSimulateRequest
@@ -748,6 +767,7 @@ export type WebViewToExtensionMessage =
   | AIForgePlanRequest
   | AIAnomalyScanRequest
   | AIGeneratePipelineRequest
+  | AIScenarioDraftRequest
   | AISchemaAdviceRequest
   // Settings
   | SettingsGetRequest
@@ -849,6 +869,11 @@ export type ExtensionToWebViewMessage =
   | SeedDescribeGlobalResponse
   | SeedDescribeObjectResponse
   | SeedErrorResponse
+  | SeedScenarioPacksResponse
+  | SeedScenarioPrepareResponse
+  | SeedScenarioAgentsResponse
+  | SeedScenarioSaveResponse
+  | SeedScenarioTestFileResponse
   | SeedRemovalInfoResponse
   | SeedRemovalListResponse
   | SeedRemoveResponse
@@ -1028,6 +1053,7 @@ export type ExtensionToWebViewMessage =
   | AIForgePlanResponse
   | AIAnomalyScanResponse
   | AIGeneratePipelineResponse
+  | AIScenarioDraftResponse
   | AISchemaAdviceResponse
   | AIProviderStatusMessage
   | AIBudgetStateMessage

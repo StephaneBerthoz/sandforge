@@ -1,7 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { ErrorResolutionReplySchema, NL2SOQLReplySchema } from '@sandforge/shared';
+import {
+  ErrorResolutionReplySchema,
+  NL2SOQLReplySchema,
+  ScenarioPackReplySchema,
+  scenarioArticleSchema,
+  scenarioCaseTemplateSchema,
+  scenarioCustomersSchema,
+  scenarioDecoyArticleSchema,
+  scenarioUtteranceSchema,
+} from '@sandforge/shared';
 
-import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from './index.js';
+import {
+  ERROR_RESOLVE_SYSTEM_PROMPT,
+  NL2SOQL_SYSTEM_PROMPT,
+  SCENARIO_PLAN_SYSTEM_PROMPT,
+  SCENARIO_TOPIC_SYSTEM_PROMPT,
+} from './index.js';
 
 /**
  * A system prompt has to describe the task its caller performs and the output
@@ -23,7 +37,12 @@ describe('system prompt contracts', () => {
   it('every prompt carries the untrusted-data clause', () => {
     // Two independent defences: escapeUserData wraps the payload, this clause
     // tells the model what the wrapper means. Neither replaces the other.
-    for (const prompt of [NL2SOQL_SYSTEM_PROMPT, ERROR_RESOLVE_SYSTEM_PROMPT]) {
+    for (const prompt of [
+      NL2SOQL_SYSTEM_PROMPT,
+      ERROR_RESOLVE_SYSTEM_PROMPT,
+      SCENARIO_PLAN_SYSTEM_PROMPT,
+      SCENARIO_TOPIC_SYSTEM_PROMPT,
+    ]) {
       expect(prompt).toMatch(/UNTRUSTED/);
       expect(prompt).toMatch(/strictly as DATA/);
     }
@@ -49,6 +68,43 @@ describe('system prompt contracts', () => {
       expect(
         ERROR_RESOLVE_SYSTEM_PROMPT,
         `ErrorResolver parses "${key}" but the prompt never names it`,
+      ).toContain(key);
+    }
+  });
+
+  // The pack is read through these schemas, a field at every level strict:
+  // a field the prompt never names is one the model has to guess, and a
+  // guess spelt otherwise refuses the whole reply.
+  it('the scenario plan prompt asks for every field the plan is read with', () => {
+    const keys = new Set([
+      ...Object.keys(ScenarioPackReplySchema.plan.shape),
+      ...Object.keys(scenarioCustomersSchema.shape),
+      'key',
+      'label',
+      'utterances',
+      ...Object.keys(scenarioUtteranceSchema.shape),
+      ...Object.keys(scenarioDecoyArticleSchema.shape),
+    ]);
+    expect(keys.size).toBeGreaterThan(10);
+    for (const key of keys) {
+      expect(
+        SCENARIO_PLAN_SYSTEM_PROMPT,
+        `the plan is read with "${key}" but the prompt never names it`,
+      ).toContain(key);
+    }
+  });
+
+  it('the scenario topic prompt asks for every field a topic is read with', () => {
+    const keys = new Set([
+      ...Object.keys(ScenarioPackReplySchema.topic.shape),
+      ...Object.keys(scenarioArticleSchema.shape),
+      ...Object.keys(scenarioCaseTemplateSchema.shape),
+    ]);
+    expect(keys.size).toBeGreaterThan(8);
+    for (const key of keys) {
+      expect(
+        SCENARIO_TOPIC_SYSTEM_PROMPT,
+        `a topic is read with "${key}" but the prompt never names it`,
       ).toContain(key);
     }
   });

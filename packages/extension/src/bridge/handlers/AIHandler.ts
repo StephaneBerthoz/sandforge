@@ -3,6 +3,7 @@ import type { AIAssistant } from '../../modules/ai/AIAssistant.js';
 import type { NL2SOQL } from '../../modules/ai/NL2SOQL.js';
 import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { PipelineGenerator } from '../../modules/ai/PipelineGenerator.js';
+import type { ScenarioDrafter } from '../../modules/ai/ScenarioDrafter.js';
 import type { AnomalyDetector } from '../../modules/ai/AnomalyDetector.js';
 import type { SchemaAdvisor } from '../../modules/ai/SchemaAdvisor.js';
 import { AIChatHandler } from './ai/AIChatHandler.js';
@@ -22,6 +23,8 @@ export interface AIModules {
    */
   errorResolver?: ErrorResolver;
   pipelineGenerator: PipelineGenerator;
+  /** Drafts a scenario pack for testing an Agentforce agent from a scenario the user wrote. */
+  scenarioDrafter: ScenarioDrafter;
 }
 
 /**
@@ -51,6 +54,7 @@ const AI_TYPES = new Set([
   'ai:forge-plan',
   'ai:anomaly-scan',
   'ai:generate-pipeline',
+  'ai:scenario-draft',
   'ai:schema-advice',
 ]);
 
@@ -60,7 +64,7 @@ const AI_TYPES = new Set([
  * Delegates to focused sub-handlers:
  * - {@link AIChatHandler} — chat, conversations, status, key management
  * - {@link AIAnalysisHandler} — anomaly scan, schema advice (rule-based)
- * - {@link AIToolsHandler} — Forge root queries, pipeline generation
+ * - {@link AIToolsHandler} — Forge root queries, pipeline generation, scenario pack drafts
  */
 export class AIHandler implements DomainHandler {
   private readonly chatHandler: AIChatHandler;

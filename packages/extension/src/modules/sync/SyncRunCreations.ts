@@ -56,6 +56,14 @@ export const SYNC_RUNS_HARD_MAX_BYTES = 64 * 1024 * 1024;
 /** The objects a run's files are kept under: removed before any record they hang on. */
 export const SYNC_FILE_OBJECTS: readonly string[] = ['ContentDocument', 'Attachment'];
 
+/**
+ * What a scenario's seed keeps beside its run's file, named after the run:
+ * the ids of the open cases its agent's tests are about
+ * (`scenarioRunSidecar`). Forgotten with the run, or it would name cases a
+ * removal no longer leads back to, and outlive every bound on the folder.
+ */
+export const SCENARIO_COMPANION_SUFFIX = '.scenario.json';
+
 /** A file of the runs' directory. */
 export interface SyncRunFileEntry {
   name: string;
@@ -1120,6 +1128,15 @@ export class SyncRunCreations {
     return path.join(this.dir, `${fileSegment(runId)}.removal.json`);
   }
 
+  private scenarioPath(runId: string): string {
+    return path.join(this.dir, `${fileSegment(runId)}${SCENARIO_COMPANION_SUFFIX}`);
+  }
+
+  /** The directory the extension keeps its data in, which the runs' folder is under. */
+  get storagePath(): string {
+    return this.deps.storagePath;
+  }
+
   /**
    * The recorder of one run. Its file is begun with the first ids noted, the
    * runs' files kept within their bounds first.
@@ -1435,10 +1452,11 @@ export class SyncRunCreations {
     return true;
   }
 
-  /** Forget a run: its file, and what its removals did. */
+  /** Forget a run: its file, what its removals did, and a scenario's companion file. */
   async forget(runId: string): Promise<void> {
     await this.deps.rm(this.runPath(runId));
     await this.deps.rm(this.removalPath(runId));
+    await this.deps.rm(this.scenarioPath(runId));
   }
 
   private async readRemoval(runId: string): Promise<SyncRunRemovalState | undefined> {
@@ -1465,10 +1483,10 @@ export class SyncRunCreations {
     const runs = (await this.list()).filter((run) => run.runId !== beginning).reverse();
     const bytesOf = (run: SyncRunKept): number =>
       (sizes.get(path.basename(this.runPath(run.runId))) ?? 0) +
-      (sizes.get(path.basename(this.removalPath(run.runId))) ?? 0);
+      (sizes.get(path.basename(this.removalPath(run.runId))) ?? 0) +
+      (sizes.get(path.basename(this.scenarioPath(run.runId))) ?? 0);
     const drop = async (run: SyncRunKept): Promise<void> => {
-      await this.deps.rm(this.runPath(run.runId));
-      await this.deps.rm(this.removalPath(run.runId));
+      await this.forget(run.runId);
       total -= bytesOf(run);
     };
     for (const run of runs) {

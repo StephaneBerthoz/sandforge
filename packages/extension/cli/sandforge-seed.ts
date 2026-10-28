@@ -146,6 +146,19 @@ import {
   targetAutomationReader,
 } from './sandforge-clone.js';
 import { holdOutputWhole } from './wholeOutput.js';
+import type { ScenarioPack } from '@sandforge/shared';
+import { readAgentCatalog, type AgentCatalogRead } from '../src/modules/agentforce/agentCatalog.js';
+import { toolingQueryAll, type ToolingQueries } from '../src/modules/seed/scenario/scenarioOrg.js';
+import {
+  keepScenarioRun,
+  scenarioForTarget,
+  scenarioPackOf,
+  scenarioPlanLines,
+  testFileCommand,
+  testFileMain,
+  type ScenarioRunKept,
+  type TestFileTarget,
+} from './seedScenario.js';
 
 /** The locales the faker draws in. */
 const SUPPORTED_LOCALES: readonly string[] = Object.keys(LOCALE_DATA);
@@ -154,14 +167,29 @@ const HELP = `sandforge-seed — fill an org from a seed template, without the e
 
 Usage:
   pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
-    --target <alias> [--template <id> | --template-file <path> | --object <ApiName>:<count>]
-    [options]
+    --target <alias> [--template <id> | --template-file <path> | --object <ApiName>:<count>
+    | --scenario <id | file>] [options]
 
 Required:
   --target <alias>       sf CLI alias of the org to fill
 
 One of:
   --template <id>        a built-in template; --list-templates names them
+  --scenario <id | file> test data for an Agentforce agent, from a scenario
+                         pack: retail-orders, broadband-support, saas-support,
+                         or a *.sandforge-scenario.json file. Its accounts,
+                         contacts, cases with their history and comments, and
+                         Knowledge articles are written as the pack says, each
+                         child under the parent row its key names, the cases
+                         under the target's own open and closed statuses; the
+                         articles are skipped by an org without Knowledge. No
+                         AI key. Goes alone, as --template-file goes. Its run
+                         keeps beside its file the ids of the cases its tests
+                         are about, for --test-file
+  --scenario-seed <n>    with --scenario: the names, companies and addresses
+                         drawn; the same seed writes the same data. Two runs in
+                         one org take two seeds, or their articles' URL names
+                         meet                              (default: 1)
   --template-file <path> a seed template in a JSON file, as the panel runs
                          one: checked before any org is reached, and refused
                          with what does not hold. Its objects, field rules
@@ -300,6 +328,43 @@ Remove what a run created:
   <summary>.removals.json, or beside the run's file, in <run id>.removal.json,
   and the next --remove of the same summary or file reads it.
 
+Write the Agentforce test file of a --scenario run:
+  pnpm exec tsx packages/extension/cli/sandforge-seed.ts \\
+    --test-file <run file | run id> --target <alias> --agent <API name>
+    --topic <scenario topic>=<agent topic>[:<action>[,<action>]] ...
+    [--guard-topic <agent topic>] [--test-runner testing-center | agentforce-studio]
+    [--scenario <id | file>] [--project <dir>] [--overwrite] [--json]
+
+  --test-file <file | id> the run's file, which a --scenario run names as it
+                         begins, or its run id: the ids of the cases its tests
+                         are about are read from beside it
+  --target <alias>       the org the run wrote to, whose agents are read, by
+                         SOQL on their catalog alone
+  --agent <API name>     the agent the tests are for. Without it, the target's
+                         agents are listed, with their topics and actions, and
+                         nothing is written, exit 2. An org with no agent is
+                         said so, exit 1: create one, then write the file
+  --topic <t>=<topic>[:<actions>]
+                         each topic of the scenario, matched to a topic of the
+                         agent, with the actions expected of it, by API name;
+                         one the agent does not have is refused, named
+  --guard-topic <topic>  the agent's topic that declines what no topic covers;
+                         without it those tests are left out, and said
+  --test-runner <r>      testing-center, Testing Center's file (the default),
+                         or agentforce-studio, Agentforce Studio's
+  --scenario <id | file> the pack the run was seeded from, when it is neither
+                         shipped nor a file of the project: one edited since
+                         is refused, its tests would name what no record holds
+  --project <dir>        where the file goes, under specs/  (default: here)
+  --overwrite            write over a file of that name, kept otherwise
+
+  The file is never deployed, and the tests never run: both spend what the
+  org has, and are the user's to start. From a Salesforce DX project, the two
+  commands that do are printed; outside one, sf agent test create cannot run.
+  Exit 0 written; 1 the org has no agent or would not read its catalog; 2 a
+  bad line, a choice the agent refuses, a file there, a run or a pack it
+  cannot be written from.
+
 Environment:
   SANDFORGE_JOURNAL_DIR=<dir>
                          where every run that writes keeps its file, in
@@ -354,6 +419,10 @@ interface CliArgs {
   templateId?: string;
   /** A seed template in a JSON file, read and checked before any org is reached. */
   templateFile?: string;
+  /** A scenario pack: a shipped one's id, or its file. */
+  scenario?: string;
+  /** What a scenario's names and addresses are drawn with; the default when absent. */
+  scenarioSeed?: number;
   /** The run's id, given by whoever runs it (an environment); absent, one is drawn. */
   runId?: string;
   /** In insert order; a relation's child carries the count the relation plans. */
@@ -584,6 +653,8 @@ const RUN_FLAGS: CommandFlags = {
     '--target',
     '--template',
     '--template-file',
+    '--scenario',
+    '--scenario-seed',
     '--run-id',
     '--object',
     '--batch-size',
@@ -636,16 +707,51 @@ export function parseArgs(argv: string[]): CliArgs {
   const target = get('--target');
   const templateId = get('--template');
   const templateFile = get('--template-file');
+  const scenario = get('--scenario');
   const rawObjects = collect('--object');
   if (!target) {
     process.stderr.write('Missing --target. Run with --help.\n');
     process.exit(2);
   }
-  if (!templateId && templateFile === undefined && rawObjects.length === 0) {
+  if (
+    !templateId &&
+    templateFile === undefined &&
+    scenario === undefined &&
+    rawObjects.length === 0
+  ) {
     process.stderr.write(
-      'Nothing to seed: give --template, --template-file or --object. Run with --help.\n',
+      'Nothing to seed: give --template, --template-file, --scenario or --object. Run with ' +
+        '--help.\n',
     );
     process.exit(2);
+  }
+  if (
+    scenario !== undefined &&
+    (templateId !== undefined ||
+      templateFile !== undefined ||
+      rawObjects.length > 0 ||
+      args.includes('--relation') ||
+      args.includes('--record-type'))
+  ) {
+    // The pack says what to write, every row and its parent row.
+    refuse(
+      'Give --scenario alone: the scenario names its records and their links, so it goes with ' +
+        'neither --template, --template-file, --object, --relation nor --record-type.',
+    );
+  }
+  let scenarioSeed: number | undefined;
+  if (args.includes('--scenario-seed')) {
+    const raw = get('--scenario-seed');
+    scenarioSeed = Number(raw);
+    if (scenario === undefined) refuse('--scenario-seed goes with --scenario.');
+    if (
+      raw === undefined ||
+      !/^\d+$/.test(raw) ||
+      !Number.isSafeInteger(scenarioSeed) ||
+      scenarioSeed > MAX_SEED
+    ) {
+      refuse(`--scenario-seed takes a whole number from 0 to ${MAX_SEED}, not "${raw ?? ''}".`);
+    }
   }
   if (
     templateFile !== undefined &&
@@ -732,6 +838,8 @@ export function parseArgs(argv: string[]): CliArgs {
     target,
     templateId,
     ...(templateFile !== undefined ? { templateFile } : {}),
+    ...(scenario !== undefined ? { scenario } : {}),
+    ...(scenarioSeed !== undefined ? { scenarioSeed } : {}),
     ...(runId !== undefined ? { runId } : {}),
     objects: countChildren(objects, relations, refuse),
     relations,
@@ -1185,9 +1293,12 @@ export function seedOrchestrator(deps: {
   locale?: string;
   /** The run's Ctrl-C: the orchestrator stops before its next object, as at the panel's Cancel. */
   signal?: AbortSignal;
+  /** Told the id each row of an object of rows became: a scenario's cases, for its tests. */
+  onRowIds?: SeedOrchestratorDependencies['onRowIds'];
 }): SeedOrchestrator {
   return new SeedOrchestrator({
     ...(deps.signal ? { signal: deps.signal } : {}),
+    ...(deps.onRowIds ? { onRowIds: deps.onRowIds } : {}),
     validator: new SeedValidator(),
     readExistingParentIds: deps.readExistingParentIds,
     ...(deps.readPresentParentIds ? { readPresentParentIds: deps.readPresentParentIds } : {}),
@@ -1317,8 +1428,23 @@ export function dryRunGatesJson(
 /** Run one seed from the given command line; exported so its parsing can be tested. */
 export async function main(argv: string[] = process.argv): Promise<void> {
   if (argv.slice(2).includes('--remove')) return removeMain(argv);
+  if (argv.slice(2).includes('--test-file')) {
+    if (argv.slice(2).includes('--help') || argv.slice(2).includes('-h')) parseArgs(argv);
+    return testFileMain(argv, testFileTarget, journalDirOf());
+  }
   const t0 = Date.now();
   const args = parseArgs(argv);
+  // The scenario is read before any org is reached: a pack that does not
+  // hold is a bad line, as a template file is.
+  let scenarioPack: ScenarioPack | undefined;
+  if (args.scenario !== undefined) {
+    const named = scenarioPackOf(args.scenario);
+    if ('refusal' in named) {
+      process.stderr.write(`${named.refusal}\n`);
+      process.exit(2);
+    }
+    scenarioPack = named.pack;
+  }
   // The template file and the run id are checked before any org is reached:
   // a file that does not hold, or an id another run keeps, is a bad line.
   let fileTemplate: SeedTemplate | undefined;
@@ -1372,6 +1498,27 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const now = new Date().toISOString();
   let template = fileTemplate ?? prebuiltTemplate(args.templateId);
+  /** The scenario compiled for the target, once read of it. */
+  let scenario:
+    Extract<Awaited<ReturnType<typeof scenarioForTarget>>, { compiled: unknown }> | undefined;
+  if (scenarioPack !== undefined) {
+    const compiled = await scenarioForTarget(
+      {
+        query: async (soql) => (await conn.query<Record<string, unknown>>(soql)).records,
+        objectAccess: seedObjectAccess(conn),
+        describe: (objectApiName) => conn.sobject(objectApiName).describe(),
+      },
+      scenarioPack,
+      args.scenarioSeed,
+    );
+    if ('issues' in compiled) {
+      process.stderr.write(`The scenario cannot be compiled: ${compiled.issues.join('; ')}\n`);
+      process.exit(2);
+    }
+    scenario = compiled;
+    template = compiled.compiled.template;
+    for (const line of scenarioPlanLines(scenarioPack, compiled.preparation)) log(line);
+  }
   for (const relation of args.relations) {
     const parents =
       relation.parents.kind === 'generated'
@@ -1619,6 +1766,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
 
   const described = describedFieldsOf((objectApiName) => conn.sobject(objectApiName).describe());
+  /** The id each case of a scenario became, by its row key. */
+  const caseIds: Record<string, string> = {};
 
   const orchestrator = seedOrchestrator({
     // A relation reads its parents from the org when told to, dry run or not:
@@ -1646,6 +1795,15 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     seed,
     locale,
     signal: stop.signal,
+    // A scenario's tests know its cases by key: the id each became is kept
+    // beside the run's file for --test-file.
+    ...(scenario
+      ? {
+          onRowIds: (objectApiName: string, ids: Readonly<Record<string, string>>) => {
+            if (objectApiName === 'Case') Object.assign(caseIds, ids);
+          },
+        }
+      : {}),
   });
 
   log(args.dryRun ? '\nexecuting… (DRY-RUN)' : '\nexecuting… (REAL)');
@@ -1693,6 +1851,24 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     );
   }
   const keptInFile = runFilePath !== undefined && existsSync(runFilePath) ? runFilePath : undefined;
+  // A scenario's companion beside the run's file, once that is kept: the
+  // ids of its open cases by key, which --test-file writes the tests from.
+  const scenarioKept =
+    scenario && scenarioPack && keptInFile !== undefined
+      ? await keepScenarioRun({
+          journalDir: journalDirOf(),
+          runId,
+          pack: scenarioPack,
+          compiled: scenario.compiled,
+          options: scenario.options,
+          caseIds,
+        })
+      : undefined;
+  /** Whether the target has an agent to write the tests for, said once a scenario wrote its cases. */
+  const agents =
+    scenarioKept?.companion !== undefined
+      ? await readAgentCatalog(toolingQueryAll(toolingOf(conn))).catch(() => undefined)
+      : undefined;
   const elapsedMs = Date.now() - t0;
   // Said last, after the summary that names what it wrote: the run stopped.
   const interrupted = stop.signal.aborted;
@@ -1734,6 +1910,18 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),
+          // A scenario's: what its tests are and where their cases' ids are kept.
+          ...(scenario && scenarioPack
+            ? {
+                scenario: {
+                  packId: scenarioPack.id,
+                  options: scenario.options,
+                  tests: scenario.compiled.tests.length,
+                  ...(scenarioKept ?? {}),
+                  ...(agents?.kind === 'no-agent' ? { agents: 'none' } : {}),
+                },
+              }
+            : {}),
           elapsedMs,
           ...(interrupted ? { interrupted: true } : {}),
         },
@@ -1760,11 +1948,67 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           : 'run with --json and save the summary to a file, and --remove takes them back from it'),
     );
   }
+  if (scenarioPack && scenarioKept && keptInFile !== undefined) {
+    for (const line of scenarioKeptLines(
+      scenarioKept,
+      agents,
+      keptInFile,
+      args.target,
+      scenarioPack,
+    )) {
+      log(line);
+    }
+  }
   if (interrupted) {
     process.stderr.write(`${seedInterruptedLine(keptInFile)}\n`);
     return;
   }
   log(`\ndone in ${elapsedMs}ms`);
+}
+
+/** A connection's Tooling API query and its next pages, as an agent's catalog is read through. */
+function toolingOf(conn: ReturnType<typeof makeConn>): ToolingQueries {
+  return {
+    query: async (soql) => conn.tooling.query<Record<string, unknown>>(soql),
+    queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
+  };
+}
+
+/** The org `--test-file` reads the agents of, by its alias. */
+async function testFileTarget(alias: string): Promise<TestFileTarget> {
+  const conn = makeConn(await loadOrg(alias));
+  return { tooling: toolingOf(conn), organizationId: () => organizationIdOf(conn) };
+}
+
+/**
+ * What a scenario's run kept for its test file, as the summary says it: the
+ * command that writes the file, or why none can be written yet. Exported so
+ * it can be tested.
+ */
+export function scenarioKeptLines(
+  kept: ScenarioRunKept,
+  agents: AgentCatalogRead | undefined,
+  runFile: string,
+  target: string,
+  pack: ScenarioPack,
+): string[] {
+  const head = `\nscenario ${kept.packId}: ${kept.openCasesWritten} of its ${kept.openCases} open case(s) written, which its ${kept.tests} test(s) are about`;
+  if (kept.unkept !== undefined) {
+    return [
+      head,
+      `  the ids of its cases could not be kept (${kept.unkept}): no test file can be written from this run`,
+    ];
+  }
+  if (kept.companion === undefined) {
+    return [head, '  no open case was written: no test file can be written from this run'];
+  }
+  if (agents?.kind === 'no-agent')
+    return [head, `  ${agents.message}`, `  ${testFileCommand(runFile, target, pack)}`];
+  return [
+    head,
+    '  the test file is written from this run, never deployed nor run:',
+    `  ${testFileCommand(runFile, target, pack)}`,
+  ];
 }
 
 /** Reasons the summary names for one object; the others are counted. */

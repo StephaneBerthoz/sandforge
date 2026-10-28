@@ -1,10 +1,15 @@
 import type {
   AuditOutcome,
+  CompiledScenario,
   GuardDecision,
+  ScenarioCompileOptions,
+  ScenarioPack,
   SeedTemplate,
   PersonaMsg,
   SeedExecutionResult,
   SeedExecuteRequest,
+  SeedScenarioRunInfo,
+  SeedScenarioTestFileOutcome,
 } from '@sandforge/shared';
 import { integerDigitsOf, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
 import type {
@@ -57,6 +62,13 @@ import {
   seedTemplateSavePayloadSchema,
   seedCreatePersonaPayloadSchema,
   seedAutomationPayloadSchema,
+  seedTemplatePayloadSchema,
+  seedScenarioPacksPayloadSchema,
+  seedScenarioPreparePayloadSchema,
+  seedScenarioExecutePayloadSchema,
+  seedScenarioAgentsPayloadSchema,
+  seedScenarioSavePayloadSchema,
+  seedScenarioTestFilePayloadSchema,
 } from '../validatePayload.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
@@ -98,6 +110,7 @@ import { seedLocaleOf } from '../../modules/seed/seedLocale.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import { isUncopyableObject } from '@sandforge/shared';
+import type { ToolingQueries } from '../../modules/seed/scenario/scenarioOrg.js';
 
 /** The code a seed refused for the data storage it takes is answered with. */
 const SEED_STORAGE_EXCEEDED = 'SEED_STORAGE_EXCEEDED';
@@ -174,6 +187,14 @@ const PANEL_QUESTIONS: SeedQuestions = {
 
 /** How a seed's run ended: its result, whole, or what it failed with. */
 type SeedRunEnd = { result: SeedExecutionResult } | { error: unknown };
+
+/** What a scenario's seed hands the run beside its template: what its companion file is made from. */
+interface ScenarioSeedRun {
+  pack: ScenarioPack;
+  /** The options the pack was compiled with, as the page sent them. */
+  options: ScenarioCompileOptions;
+  compiled: CompiledScenario;
+}
 
 /** What a pipeline's Seed step hands the run beside what the page's does. */
 interface SeedPipelineRun {
@@ -254,6 +275,14 @@ function capResultForBridge(result: SeedExecutionResult): SeedExecutionResult {
   };
 }
 
+/** A connection's Tooling API query and its next pages, as an agent's catalog is read through. */
+function toolingOf(conn: Awaited<ReturnType<typeof getJsforceConnection>>): ToolingQueries {
+  return {
+    query: async (soql) => conn.tooling.query<Record<string, unknown>>(soql),
+    queryMore: async (url) => conn.tooling.queryMore<Record<string, unknown>>(url),
+  };
+}
+
 /** Why a seed that wrote nothing failed: the first thing one of its objects was refused for. */
 function seedFailureReason(result: SeedExecutionResult): string {
   const first = result.objectResults.flatMap((object) => object.errors)[0];
@@ -272,6 +301,12 @@ const SEED_TYPES = new Set([
   'seed:template:delete',
   'seed:list-personas',
   'seed:create-persona',
+  'seed:scenario:packs',
+  'seed:scenario:prepare',
+  'seed:scenario:execute',
+  'seed:scenario:agents',
+  'seed:scenario:save',
+  'seed:scenario:test-file',
 ]);
 
 /**
@@ -491,8 +526,335 @@ export class SeedOpsHandler implements DomainHandler {
       case 'seed:create-persona':
         await this.handleCreatePersona(msg);
         return true;
+      case 'seed:scenario:packs':
+        await this.handleScenarioPacks(msg);
+        return true;
+      case 'seed:scenario:prepare':
+        await this.handleScenarioPrepare(msg);
+        return true;
+      case 'seed:scenario:execute':
+        await this.handleScenarioExecute(msg);
+        return true;
+      case 'seed:scenario:agents':
+        await this.handleScenarioAgents(msg);
+        return true;
+      case 'seed:scenario:save':
+        await this.handleScenarioSave(msg);
+        return true;
+      case 'seed:scenario:test-file':
+        await this.handleScenarioTestFile(msg);
+        return true;
       default:
         return false;
+    }
+  }
+
+  /** The folders of the workspace, in VS Code's order: where packs and test files are. */
+  private workspaceFolders(): string[] {
+    return this.deps.services?.getWorkspaceFolders?.() ?? [];
+  }
+
+  /** Answer a scenario request on its response channel. */
+  private answerScenario(
+    msg: InboundRequest,
+    type: string,
+    payload: Record<string, unknown>,
+  ): void {
+    const response = buildResponse(this.deps, msg, type, payload);
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * `seed:scenario:packs`: the packs SandForge ships, then the workspace's
+   * `*.sandforge-scenario.json` files, each read or said why it is not one.
+   */
+  private async handleScenarioPacks(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!validatePayload(seedScenarioPacksPayloadSchema, msg, 'seed:error', this.deps)) return;
+    try {
+      const { listScenarioPacks, nodeScenarioPackFiles } =
+        await import('../../modules/seed/scenario/scenarioPackFiles.js');
+      const folders = this.workspaceFolders();
+      const packs = await listScenarioPacks(nodeScenarioPackFiles(), folders);
+      this.answerScenario(msg, 'seed:scenario:packs:response', {
+        packs,
+        workspace: folders.length > 0,
+      });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:scenario:packs', 'seed:error', msg, err);
+    }
+  }
+
+  /**
+   * `seed:scenario:prepare`: the pack compiled for an org, read only — its
+   * case statuses, what its articles can hold — so the confirmation says
+   * what the run writes, and the run is sent with what was read.
+   */
+  private async handleScenarioPrepare(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedScenarioPreparePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const { prepareScenario, readScenarioCaseStatus, scenarioKnowledge } =
+        await import('../../modules/seed/scenario/scenarioOrg.js');
+      const { seedObjectAccess } = await import('../../modules/seed/seedObjectAccess.js');
+      const caseStatus = await readScenarioCaseStatus(
+        async (soql) => (await conn.query<Record<string, unknown>>(soql)).records,
+      );
+      const knowledge = await scenarioKnowledge(seedObjectAccess(conn), (objectApiName) =>
+        conn.describe(objectApiName),
+      );
+      const prepared = prepareScenario(parsed.pack, {
+        caseStatus,
+        knowledge,
+        ...(parsed.seed !== undefined ? { seed: parsed.seed } : {}),
+        ...(parsed.articleBodyField !== undefined
+          ? { articleBodyField: parsed.articleBodyField }
+          : {}),
+      });
+      this.answerScenario(msg, 'seed:scenario:prepare:response', { ...prepared });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:scenario:prepare', 'seed:error', msg, err, {
+        retryable: true,
+      });
+    }
+  }
+
+  /**
+   * `seed:scenario:execute`: seed an org from a pack, compiled here again
+   * with the options its preparation answered, through every gate a
+   * template's seed goes through, and answered as one: `seed:execute:response`
+   * once it has ended, its `scenario` set, or `seed:error`.
+   */
+  private async handleScenarioExecute(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedScenarioExecutePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    const { compileScenario, ScenarioCompileError } =
+      await import('../../modules/seed/scenario/compileScenario.js');
+    let compiled: CompiledScenario;
+    try {
+      compiled = compileScenario(parsed.pack, parsed.options);
+    } catch (err: unknown) {
+      if (!(err instanceof ScenarioCompileError)) throw err;
+      sendHandlerError(this.deps, 'seed:scenario:execute', 'seed:error', msg, err, {
+        code: 'SCENARIO_INVALID',
+        retryable: false,
+      });
+      return;
+    }
+    // Held to what any template the page sends is held to.
+    const template = seedTemplatePayloadSchema.safeParse(compiled.template);
+    if (!template.success) {
+      sendHandlerError(
+        this.deps,
+        'seed:scenario:execute',
+        'seed:error',
+        msg,
+        new Error(
+          `The scenario compiled to a template the seed refuses: ${template.error.issues[0]?.message ?? 'invalid'}`,
+        ),
+        { code: 'SCENARIO_INVALID', retryable: false },
+      );
+      return;
+    }
+    await this.runAsked(
+      msg,
+      {
+        orgId: parsed.orgId,
+        template: template.data,
+        ...(parsed.locale !== undefined ? { locale: parsed.locale } : {}),
+      },
+      { pack: parsed.pack, options: parsed.options, compiled },
+    );
+  }
+
+  /**
+   * A scenario's companion file, written beside its run's once the run has
+   * ended: the open cases' ids by key, which its test file is written from.
+   * No file for a run that wrote no open case; a file that cannot be written
+   * is said, and the run ends as it did.
+   */
+  private async keepScenario(
+    result: SeedExecutionResult,
+    scenario: ScenarioSeedRun,
+    caseIds: Readonly<Record<string, string>>,
+  ): Promise<SeedScenarioRunInfo> {
+    const { compiled, pack } = scenario;
+    const openCases = compiled.tests.filter((test) => test.openCase !== undefined);
+    const openCaseKeys = new Set(openCases.map((test) => test.openCase?.caseKey));
+    const openCasesWritten = Object.keys(caseIds).filter((key) => openCaseKeys.has(key)).length;
+    // The articles' publication and their links to the closed cases go here,
+    // once built: see `SCENARIO_ARTICLES_PUBLISHED`.
+    const { SCENARIO_ARTICLES_PUBLISHED } =
+      await import('../../modules/seed/scenario/scenarioOrg.js');
+    const info = {
+      packId: pack.id,
+      packName: pack.name,
+      tests: compiled.tests.length,
+      openCasesWritten,
+      openCases: openCaseKeys.size,
+      articlesPublished: SCENARIO_ARTICLES_PUBLISHED,
+    };
+    if (openCasesWritten === 0) return { ...info, companion: { kind: 'none' } };
+    const store = this.runCreations;
+    if (!store) {
+      return {
+        ...info,
+        companion: { kind: 'failed', message: 'The runs are not kept in this window.' },
+      };
+    }
+    try {
+      const { nodeScenarioSidecarFiles, scenarioRunSidecar, writeScenarioRunSidecar } =
+        await import('../../modules/seed/scenario/scenarioRunSidecar.js');
+      await writeScenarioRunSidecar(
+        nodeScenarioSidecarFiles(),
+        store.storagePath,
+        scenarioRunSidecar({
+          runId: result.operationId,
+          pack,
+          compiled,
+          options: scenario.options,
+          caseIds,
+        }),
+      );
+      return { ...info, companion: { kind: 'kept' } };
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(
+        `[WARN] seed:scenario:execute ${result.operationId}: the companion file could not be ` +
+          `written, so its test file cannot be: ${message}`,
+      );
+      return { ...info, companion: { kind: 'failed', message } };
+    }
+  }
+
+  /**
+   * `seed:scenario:agents`: an org's Agentforce agents, by SOQL on the
+   * catalog objects alone, with where a test file would be written and the
+   * org's Case picklist values. Read only; an org without an agent is
+   * answered so, not refused.
+   */
+  private async handleScenarioAgents(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedScenarioAgentsPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    try {
+      const conn = await getJsforceConnection(
+        parsed.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const { readAgentCatalog } = await import('../../modules/agentforce/agentCatalog.js');
+      const { scenarioCasePicklists, toolingQueryAll } =
+        await import('../../modules/seed/scenario/scenarioOrg.js');
+      const { scenarioProjectOf } = await import('../../modules/seed/scenario/scenarioTestFile.js');
+      const read = await readAgentCatalog(toolingQueryAll(toolingOf(conn)));
+      const casePicklists = await scenarioCasePicklists((objectApiName) =>
+        conn.describe(objectApiName),
+      );
+      this.answerScenario(msg, 'seed:scenario:agents:response', {
+        orgId: parsed.orgId,
+        agents: read.kind === 'agents' ? { kind: 'agents', agents: read.catalog.agents } : read,
+        project: await scenarioProjectOf(this.workspaceFolders()),
+        ...(casePicklists ? { casePicklists } : {}),
+      });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:scenario:agents', 'seed:error', msg, err, {
+        retryable: true,
+      });
+    }
+  }
+
+  /** `seed:scenario:save`: save a reviewed pack in the workspace, never over a file there unless told. */
+  private async handleScenarioSave(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedScenarioSavePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    try {
+      const { nodeScenarioPackFiles, saveScenarioPack } =
+        await import('../../modules/seed/scenario/scenarioPackFiles.js');
+      const outcome = await saveScenarioPack(
+        nodeScenarioPackFiles(),
+        this.workspaceFolders(),
+        parsed.pack,
+        parsed.overwrite === true,
+      );
+      this.answerScenario(msg, 'seed:scenario:save:response', { outcome });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:scenario:save', 'seed:error', msg, err);
+    }
+  }
+
+  /**
+   * `seed:scenario:test-file`: write the Agentforce test file of a
+   * scenario's run into the workspace, for the org the run wrote to, as
+   * its companion file and the pack it was seeded from make it. Never
+   * deployed, never run: the commands that do are answered for the page.
+   */
+  private async handleScenarioTestFile(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedScenarioTestFilePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    const answer = (outcome: SeedScenarioTestFileOutcome): void =>
+      this.answerScenario(msg, 'seed:scenario:test-file:response', {
+        runId: parsed.runId,
+        outcome,
+      });
+    try {
+      const store = this.runCreations;
+      const run = store ? await store.get(parsed.runId) : undefined;
+      const org = run ? this.deps.orgManager.getOrg(run.targetOrgId) : undefined;
+      if (!store || !run || !org) {
+        answer({
+          kind: 'unavailable',
+          reason: 'run-unknown',
+          message: !run
+            ? 'Nothing of this run is kept any more.'
+            : 'The org this run wrote to is no longer connected to SandForge.',
+        });
+        return;
+      }
+      const conn = await getJsforceConnection(
+        run.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const { readAgentCatalog } = await import('../../modules/agentforce/agentCatalog.js');
+      const { nodeAgentTestSpecFiles } = await import('../../modules/agentforce/testSpecWriter.js');
+      const { toolingQueryAll } = await import('../../modules/seed/scenario/scenarioOrg.js');
+      const { findScenarioPack, nodeScenarioPackFiles } =
+        await import('../../modules/seed/scenario/scenarioPackFiles.js');
+      const { nodeScenarioSidecarFiles } =
+        await import('../../modules/seed/scenario/scenarioRunSidecar.js');
+      const { scenarioProjectOf, writeRunTestFile } =
+        await import('../../modules/seed/scenario/scenarioTestFile.js');
+      const folders = this.workspaceFolders();
+      const outcome = await writeRunTestFile(
+        { sidecar: nodeScenarioSidecarFiles(), spec: nodeAgentTestSpecFiles() },
+        {
+          runId: parsed.runId,
+          storagePath: store.storagePath,
+          project: await scenarioProjectOf(folders),
+          alias: org.alias || org.username || run.targetOrgId,
+          choice: parsed.choice,
+          ...(parsed.overwrite !== undefined ? { overwrite: parsed.overwrite } : {}),
+          readCatalog: () => readAgentCatalog(toolingQueryAll(toolingOf(conn))),
+          findPack: (packId, fingerprint) =>
+            findScenarioPack(nodeScenarioPackFiles(), folders, packId, fingerprint),
+        },
+      );
+      answer(outcome);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:scenario:test-file', 'seed:error', msg, err, {
+        retryable: true,
+      });
     }
   }
 
@@ -827,6 +1189,20 @@ export class SeedOpsHandler implements DomainHandler {
       );
       return;
     }
+    await this.runAsked(msg, parsed);
+  }
+
+  /**
+   * Run a seed the page asked for — a template's, or a scenario's compiled —
+   * held to its gates, in the background.
+   *
+   * @param scenario - The pack the template was compiled from, for a scenario's seed.
+   */
+  private async runAsked(
+    msg: InboundRequest,
+    parsed: SeedAsked,
+    scenario?: ScenarioSeedRun,
+  ): Promise<void> {
     // The request id is the operation id, as for sync: the page knows the id of
     // the request it sent, so it can match operation:* events and aim
     // execution:abort at its own run rather than whichever run reported last.
@@ -856,13 +1232,17 @@ export class SeedOpsHandler implements DomainHandler {
         return;
       }
 
-      const description = 'Seed data generation';
+      const description = scenario
+        ? `Seed of the scenario ${scenario.pack.name}`
+        : 'Seed data generation';
       const { abortController, execution } = this.beginSeed(
         msg,
         cleared,
         operationId,
         failure,
         description,
+        undefined,
+        scenario,
       );
 
       // Register with BackgroundOperationRegistry if available
@@ -1194,6 +1574,7 @@ export class SeedOpsHandler implements DomainHandler {
     failure: OperationFailureContext,
     description: string,
     pipeline?: SeedPipelineRun,
+    scenario?: ScenarioSeedRun,
   ): { abortController: AbortController; execution: Promise<{ status: 'failure' } | void> } {
     // Start performance tracking
     this.deps.infraServices?.performanceTracker?.start(operationId, 'seed');
@@ -1215,6 +1596,7 @@ export class SeedOpsHandler implements DomainHandler {
       failure,
       cleared.guardDecision,
       pipeline,
+      scenario,
     );
     return { abortController, execution };
   }
@@ -1371,9 +1753,12 @@ export class SeedOpsHandler implements DomainHandler {
     failure: OperationFailureContext,
     guardDecision?: GuardDecision,
     pipeline?: SeedPipelineRun,
+    scenario?: ScenarioSeedRun,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = robustnessConfigOf(this.deps);
     const startedAt = new Date().toISOString();
+    /** The id each case of a scenario was given, by its row key: what its tests are about. */
+    const caseIds: Record<string, string> = {};
     const templateName = (payload.template as { name?: unknown }).name;
     /** Where the records came from: the template the generator filled in. */
     const source = {
@@ -1539,6 +1924,15 @@ export class SeedOpsHandler implements DomainHandler {
         // The controller the registry aborts: the Seed page's Cancel and Live
         // Operations' both reach the run through it.
         signal: abortController.signal,
+        // A scenario's tests know its cases by key: the id each became is
+        // kept beside the run for its test file.
+        ...(scenario
+          ? {
+              onRowIds: (objectApiName: string, ids: Readonly<Record<string, string>>) => {
+                if (objectApiName === 'Case') Object.assign(caseIds, ids);
+              },
+            }
+          : {}),
       };
       if (!this.deps.services) {
         throw new Error(
@@ -1581,6 +1975,11 @@ export class SeedOpsHandler implements DomainHandler {
           objectResults: result.objectResults,
         })
         .catch(keptFailed);
+      // A scenario's companion file, beside the run's, once the run's is kept:
+      // the open cases' ids, by key, which its test file is written from.
+      if (scenario) {
+        result = { ...result, scenario: await this.keepScenario(result, scenario, caseIds) };
+      }
       this.runningRuns.delete(runId);
       if (!result.cancelled) {
         sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');

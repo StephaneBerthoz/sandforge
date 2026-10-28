@@ -1097,6 +1097,157 @@
       "setByMe": "Von mir festgelegt",
       "fieldsShown": "{{shown}} von {{total}} Feldern angezeigt",
       "noFieldMatches": "Kein Feld entspricht diesem Filter."
+    },
+    "scenario": {
+      "section": {
+        "title": "Testdaten für einen Agentforce-Agenten",
+        "subtitle": "Ein Geschäftsszenario als Accounts, Kontakte, Kundenvorgänge mit ihrer Historie und Knowledge-Artikel, die zusammenpassen, und die Tests des Agenten, die danach fragen. Kein KI-Schlüssel nötig."
+      },
+      "card": {
+        "badge": "Agentforce-Testszenario",
+        "review": "Prüfen",
+        "reviewNamed": "Szenario {{name}} prüfen",
+        "file": "Gespeichert in {{path}}",
+        "invalid": "Kein Szenariopaket",
+        "topics_one": "{{count}} Thema",
+        "topics_other": "{{count}} Themen",
+        "customers_one": "{{count}} Kunde",
+        "customers_other": "{{count}} Kunden"
+      },
+      "packs": {
+        "retailOrders": {
+          "name": "Bestellungen eines Onlineshops",
+          "description": "Beschädigte Pakete, Erstattungen, verspätete Lieferungen, Adressänderungen und Garantiefälle, auf Englisch."
+        },
+        "broadbandSupport": {
+          "name": "Internet-Support",
+          "description": "Störungen, langsame Verbindungen, Rechnungsstreit, Routerfehler und Tarifwechsel, auf Englisch."
+        },
+        "saasSupport": {
+          "name": "Software-Support",
+          "description": "Single Sign-on, Passwörter, Rechnungen, Datenexporte und API-Fehler, auf Englisch."
+        }
+      },
+      "draftCard": {
+        "title": "Aus eigenem Text entwerfen",
+        "description": "Beschreiben Sie Ihr Geschäft und die Anliegen Ihrer Kunden: Die KI entwirft ein Szenario, das Sie prüfen und speichern, bevor etwas geschrieben wird.",
+        "start": "Szenario entwerfen"
+      },
+      "describe": {
+        "label": "Ihr Szenario",
+        "placeholder": "Was das Unternehmen tut, wer seine Kunden sind, worüber sie dem Support schreiben.",
+        "sends": "Mit Ihrem Schlüssel an Anthropic gesendet: dieser Text, seine E-Mail-Adressen und Telefonnummern zuerst maskiert, die Sprache, die Auswahllistenwerte von Kundenvorgängen der gewählten Org und die Themen- und Aktionsnamen des gewählten Agenten. Nie ein Datensatz.",
+        "language": "Sprache der Artikel und Äußerungen",
+        "org": "Org, deren Kundenvorgangs-Auswahllisten und Agent der Entwurf erhält",
+        "noOrg": "Keine",
+        "agent": "Agent, für den die Tests sind",
+        "noAgent": "Keiner",
+        "preview": "Text so zeigen, wie er gesendet wird",
+        "masked": "So, wie er gesendet wird"
+      },
+      "draft": {
+        "start": "Entwerfen",
+        "stop": "Stoppen",
+        "resume": "Entwurf fortsetzen",
+        "busy": "Entwurf läuft: zuerst ein Plan, dann ein Aufruf je Thema.",
+        "stopped": "Gestoppt. Die geschriebenen Themen bleiben erhalten: Setzen Sie den Entwurf fort, um die anderen zu schreiben.",
+        "failed": "Der Entwurf ist fehlgeschlagen: {{error}}",
+        "topics": "Themen des Entwurfs",
+        "written": "Geschrieben",
+        "incomplete": "Unvollständig",
+        "notConfigured": "KI ist nicht eingerichtet: Speichern Sie einen Anthropic-Schlüssel unter Einstellungen > KI.",
+        "openSettings": "Zu den Einstellungen"
+      },
+      "review": {
+        "title": "{{name}} prüfen",
+        "language": "Sprache: {{language}}",
+        "source": {
+          "builtIn": "Mit SandForge ausgeliefert, Inhalt auf Englisch",
+          "file": "Aus {{path}}",
+          "draft": "Entworfen, noch nicht gespeichert"
+        },
+        "customers_one": "{{count}} Kundenunternehmen ({{industry}})",
+        "customers_other": "{{count}} Kundenunternehmen ({{industry}})",
+        "topic": "{{label}}: {{title}}",
+        "facts": "Was eine Antwort sagen muss",
+        "utterances": "Was Kunden sagen und was der Agent tun soll",
+        "cases_one": "{{count}} Art von Kundenvorgang",
+        "cases_other": "{{count}} Arten von Kundenvorgängen",
+        "decoy": "Köderartikel: {{title}}, nah an {{topic}}, das er nicht beantwortet.",
+        "outOfScope_one": "{{count}} Anliegen, das kein Thema abdeckt und das der Agent ablehnen soll.",
+        "outOfScope_other": "{{count}} Anliegen, die kein Thema abdeckt und die der Agent ablehnen soll.",
+        "edit": "Als JSON bearbeiten",
+        "editLabel": "Das Szenario, wie seine Datei es schreibt",
+        "apply": "Übernehmen",
+        "invalid": "Das Szenario ist nicht gültig:",
+        "wholePack": "Das Szenario",
+        "save": "Im Arbeitsbereich speichern",
+        "saved": "Gespeichert in {{path}}.",
+        "exists": "{{path}} ist bereits vorhanden.",
+        "overwrite": "Überschreiben",
+        "noWorkspace": "Öffnen Sie einen Ordner in VS Code, um das Szenario zu speichern.",
+        "saveFirst": "Speichern Sie das Szenario zuerst im Arbeitsbereich: Seine Testdatei wird nach dem Lauf daraus geschrieben.",
+        "continue": "Weiter"
+      },
+      "confirm": {
+        "title": "Seed von {{name}}",
+        "seed": "Startwert",
+        "seedHint": "Derselbe Startwert schreibt dieselben Namen. Zwei Läufe in einer Org brauchen zwei Startwerte, sonst kollidieren die URL-Namen ihrer Artikel.",
+        "preparing": "Kundenvorgangsstatus und Knowledge der Org werden gelesen…",
+        "issues": "Das Szenario kann nicht kompiliert werden:",
+        "objects": "Was der Lauf schreibt",
+        "optional": "übersprungen in einer Org ohne",
+        "tests_one": "{{count}} Test für den Agenten.",
+        "tests_other": "{{count}} Tests für den Agenten.",
+        "statusOrg": "Offene Kundenvorgänge werden als {{open}} geschrieben, geschlossene als {{closed}}: die eigenen Status der Org.",
+        "statusDefault": "Die Org hat ihre Kundenvorgangsstatus nicht genannt ({{reason}}): Kundenvorgänge werden als New und Closed geschrieben.",
+        "gates": "Die Prüfungen des Seeds gelten: Production Guard, bevor in eine Produktions-Org geschrieben wird, dann Datenspeicher, Automatisierung und E-Mails, Duplikatsregeln und Ihr Start.",
+        "notInV1": "In dieser Version nicht geschrieben: E-Mails, Messaging-Sitzungen, Sprachanrufe und Chat-Transkripte.",
+        "start": "Seed des Szenarios starten"
+      },
+      "knowledge": {
+        "absent": "Diese Org hat kein Knowledge: Die Artikel werden übersprungen. Die Tests, die aus Knowledge antworten, werden geschrieben, und der Agent hat keinen Artikel zum Zitieren.",
+        "bodyField": "Feld für den Artikeltext",
+        "body": "Der Artikeltext wird in {{field}} geschrieben.",
+        "summaryFallback": "Die Org bietet kein langes Textfeld für einen Artikeltext: Die Artikel enthalten nur ihre Zusammenfassung.",
+        "drafts": "SandForge schreibt die Artikel als Entwürfe und veröffentlicht sie noch nicht: Veröffentlichen Sie sie in Knowledge, damit die Datenbibliothek des Agenten sie indiziert.",
+        "notRewound": "Das Zurücksetzen auf einen Prüfpunkt nimmt die Artikel nicht zurück: Das Entfernen dieses Seeds schon."
+      },
+      "results": {
+        "openCases": "{{written}} der {{total}} offenen Kundenvorgänge, um die es in den Tests geht, wurden geschrieben.",
+        "noCase": "Kein offener Kundenvorgang wurde geschrieben: Aus diesem Lauf kann keine Testdatei geschrieben werden.",
+        "companionFailed": "Die IDs der Kundenvorgänge des Laufs konnten nicht gespeichert werden ({{message}}): Aus diesem Lauf kann keine Testdatei geschrieben werden."
+      },
+      "tests": {
+        "title": "Agentforce-Testdatei",
+        "noPromise": "SandForge schreibt die Daten und was der Agent tun soll. Ein Ergebnis hängt vom Agenten und von einem Modell ab, das variiert: Ein fehlgeschlagener Test kann vom Agenten kommen, nicht von den Daten.",
+        "reading": "Die Agenten der Org werden gelesen…",
+        "noAgent": "Diese Org hat keinen Agentforce-Agenten: Erstellen Sie einen und schreiben Sie dann die Testdatei aus diesem Lauf.",
+        "noAgentforce": "Diese Org hat kein Agentforce: Die Testdatei braucht eine Org mit einem Agenten.",
+        "unreadable": "Die Agenten der Org konnten nicht gelesen werden: {{message}}",
+        "readAgain": "Erneut lesen",
+        "agent": "Agent",
+        "mapTopic": "Thema des Agenten für {{topic}}",
+        "choose": "Thema wählen",
+        "mapActions": "Erwartete Aktionen",
+        "guard": "Thema, das ablehnt, was kein Thema abdeckt",
+        "noGuard": "Keines: diese Tests weglassen",
+        "runner": "Format der Testdatei",
+        "runnerTestingCenter": "Testing Center",
+        "runnerStudio": "Agentforce Studio",
+        "noWorkspace": "Öffnen Sie einen Ordner in VS Code: Die Testdatei wird dort geschrieben.",
+        "notDx": "Dieser Ordner ist kein Salesforce-DX-Projekt (keine sfdx-project.json): Die Datei wird geschrieben, und sf agent test create läuft in einem DX-Projekt.",
+        "unmatched": "Ordnen Sie jedes Thema des Szenarios einem Thema des Agenten zu.",
+        "write": "Testdatei schreiben",
+        "overwrite": "Überschreiben",
+        "written": "Geschrieben in {{path}}.",
+        "leftOut": "Nicht in der Datei:",
+        "command": "SandForge stellt den Test nie bereit und führt ihn nie aus, denn das verbraucht die Credits der Org. Führen Sie im Projekt aus:",
+        "exists": "{{path}} ist bereits vorhanden.",
+        "refused": "Der Agent hat nicht, was die Auswahl nennt:",
+        "unavailable": "Die Testdatei kann nicht geschrieben werden: {{message}}",
+        "stale": "Dieser Lauf wurde entfernt: Seine Testdatei nennt Kundenvorgänge, die es nicht mehr gibt. Ein daraus in der Org erstellter Test bleibt dort: Entfernen Sie ihn mit sf project delete source -m AiEvaluationDefinition:<Name>."
+      }
     }
   },
   "sync": {
@@ -2581,7 +2732,7 @@
     "aiKeyConfigured": "Schlüssel konfiguriert",
     "aiKeySaved": "Schlüssel gespeichert",
     "aiHint": "Der Schlüssel wird im VSCode-Secret-Vault gespeichert und nie in Einstellungen oder Logs geschrieben.",
-    "aiSends": "Solange KI aktiviert ist, geht Folgendes mit Ihrem Schlüssel an Anthropic: Der Chat sendet, was Sie eingeben, mit dem bisherigen Gesprächsverlauf; NL2SOQL sendet Ihre Frage mit den Namen der Objekte und Felder der Org; ein Pipeline-Entwurf, eine eigene Persona und eine KI-Feldregel senden ihre Beschreibung bzw. den Namen des Felds und seine Anweisung.",
+    "aiSends": "Solange KI aktiviert ist, geht Folgendes mit Ihrem Schlüssel an Anthropic: Der Chat sendet, was Sie eingeben, mit dem bisherigen Gesprächsverlauf; NL2SOQL sendet Ihre Frage mit den Namen der Objekte und Felder der Org; ein Pipeline-Entwurf, eine eigene Persona und eine KI-Feldregel senden ihre Beschreibung bzw. den Namen des Felds und seine Anweisung. Der Entwurf eines Szenarios für Testdaten eines Agentforce-Agenten sendet Ihren Szenariotext mit maskierten E-Mail-Adressen und Telefonnummern, seine Sprache, die Auswahllistenwerte von Kundenvorgängen der Org und die Themen- und Aktionsnamen des gewählten Agenten, nie einen Datensatz.",
     "aiSendsFailures": "Korrekturvorschläge für fehlgeschlagene Läufe senden die Fehlermeldung eines fehlgeschlagenen Laufs, ohne Salesforce-IDs, ohne dass jemand etwas anklickt. Eine Fehlermeldung kann Werte von Datensätzen zitieren.",
     "aiErrorResolution": "Korrekturen für fehlgeschlagene Läufe vorschlagen und dafür ihre Fehlermeldungen senden",
     "aiSaveAndTurnOn": "Schlüssel speichern und KI aktivieren",

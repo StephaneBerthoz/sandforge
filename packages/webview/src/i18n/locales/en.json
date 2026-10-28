@@ -1097,6 +1097,157 @@
       "setByMe": "Set by me",
       "fieldsShown": "{{shown}} of {{total}} fields shown",
       "noFieldMatches": "No field matches this filter."
+    },
+    "scenario": {
+      "section": {
+        "title": "Test data for an Agentforce agent",
+        "subtitle": "A business scenario written as accounts, contacts, cases with their history and Knowledge articles that agree with each other, and the agent's tests that ask about them. No AI key needed."
+      },
+      "card": {
+        "badge": "Agentforce test scenario",
+        "review": "Review",
+        "reviewNamed": "Review the scenario {{name}}",
+        "file": "Saved in {{path}}",
+        "invalid": "Not a scenario pack",
+        "topics_one": "{{count}} topic",
+        "topics_other": "{{count}} topics",
+        "customers_one": "{{count}} customer",
+        "customers_other": "{{count}} customers"
+      },
+      "packs": {
+        "retailOrders": {
+          "name": "Online shop orders",
+          "description": "Damaged parcels, refunds, late deliveries, address changes and warranty claims, in English."
+        },
+        "broadbandSupport": {
+          "name": "Broadband support",
+          "description": "Outages, slow speeds, billing disputes, router faults and plan changes, in English."
+        },
+        "saasSupport": {
+          "name": "Software support",
+          "description": "Single sign-on, passwords, invoices, data exports and API errors, in English."
+        }
+      },
+      "draftCard": {
+        "title": "Draft from your own text",
+        "description": "Describe your business and what its customers ask: AI drafts a scenario that you review and save before anything is written.",
+        "start": "Draft a scenario"
+      },
+      "describe": {
+        "label": "Your scenario",
+        "placeholder": "What the company does, who its customers are, what they write to support about.",
+        "sends": "Sent to Anthropic under your key: this text, its email addresses and phone numbers masked first, the language, the Case picklist values of the org you pick, and the topic and action names of the agent you pick. Never a record.",
+        "language": "Language of the articles and utterances",
+        "org": "Org whose Case picklists and agent the draft is told of",
+        "noOrg": "None",
+        "agent": "Agent the tests are for",
+        "noAgent": "None",
+        "preview": "Show the text as it will be sent",
+        "masked": "As it will be sent"
+      },
+      "draft": {
+        "start": "Draft",
+        "stop": "Stop",
+        "resume": "Go on with the draft",
+        "busy": "Drafting: a plan first, then one call for each topic.",
+        "stopped": "Stopped. The topics written are kept: go on with the draft to write the others.",
+        "failed": "The draft failed: {{error}}",
+        "topics": "Topics of the draft",
+        "written": "Written",
+        "incomplete": "Incomplete",
+        "notConfigured": "AI is not set up: store an Anthropic key in Settings > AI.",
+        "openSettings": "Go to Settings"
+      },
+      "review": {
+        "title": "Review {{name}}",
+        "language": "Language: {{language}}",
+        "source": {
+          "builtIn": "Shipped with SandForge, its content in English",
+          "file": "From {{path}}",
+          "draft": "Drafted, not saved yet"
+        },
+        "customers_one": "{{count}} customer company ({{industry}})",
+        "customers_other": "{{count}} customer companies ({{industry}})",
+        "topic": "{{label}}: {{title}}",
+        "facts": "What an answer has to say",
+        "utterances": "What customers say, and what the agent should do",
+        "cases_one": "{{count}} kind of case",
+        "cases_other": "{{count}} kinds of case",
+        "decoy": "Decoy article: {{title}}, close to {{topic}}, which it does not answer.",
+        "outOfScope_one": "{{count}} request no topic covers, which the agent should decline.",
+        "outOfScope_other": "{{count}} requests no topic covers, which the agent should decline.",
+        "edit": "Edit as JSON",
+        "editLabel": "The scenario, as its file is written",
+        "apply": "Apply",
+        "invalid": "The scenario does not hold:",
+        "wholePack": "The scenario",
+        "save": "Save in the workspace",
+        "saved": "Saved in {{path}}.",
+        "exists": "{{path}} is there already.",
+        "overwrite": "Write over it",
+        "noWorkspace": "Open a folder in VS Code to save the scenario.",
+        "saveFirst": "Save the scenario in the workspace first: its test file is written from it after the run.",
+        "continue": "Continue"
+      },
+      "confirm": {
+        "title": "Seed {{name}}",
+        "seed": "Seed",
+        "seedHint": "The same seed writes the same names. Two runs in one org need two seeds, or their articles' URL names collide.",
+        "preparing": "Reading the org's case statuses and Knowledge…",
+        "issues": "The scenario cannot be compiled:",
+        "objects": "What the run writes",
+        "optional": "skipped by an org without it",
+        "tests_one": "{{count}} test for the agent.",
+        "tests_other": "{{count}} tests for the agent.",
+        "statusOrg": "Open cases are written as {{open}} and closed ones as {{closed}}: the org's own statuses.",
+        "statusDefault": "The org would not say its case statuses ({{reason}}): cases are written as New and Closed.",
+        "gates": "The seed's gates hold: Production Guard before a production org is written to, then data storage, automation and emails, duplicate rules, and your Start.",
+        "notInV1": "Not written in this version: emails, messaging sessions, voice calls and chat transcripts.",
+        "start": "Seed the scenario"
+      },
+      "knowledge": {
+        "absent": "This org has no Knowledge: the articles are skipped. The tests that answer from Knowledge are written, and the agent will have no article to cite.",
+        "bodyField": "Field for the article body",
+        "body": "The article body is written to {{field}}.",
+        "summaryFallback": "The org offers no long text field for an article body: the articles carry their summary alone.",
+        "drafts": "SandForge writes the articles as drafts and does not publish them yet: publish them in Knowledge so that the agent's data library indexes them.",
+        "notRewound": "A checkpoint rewind does not take the articles back: removing this seed does."
+      },
+      "results": {
+        "openCases": "{{written}} of the {{total}} open cases the tests are about were written.",
+        "noCase": "No open case was written: no test file can be written from this run.",
+        "companionFailed": "The ids of the run's cases could not be kept ({{message}}): no test file can be written from this run."
+      },
+      "tests": {
+        "title": "Agentforce test file",
+        "noPromise": "SandForge writes the data and what the agent is expected to do. A verdict depends on the agent and on a model that varies: a test that fails can come from the agent, not the data.",
+        "reading": "Reading the org's agents…",
+        "noAgent": "This org has no Agentforce agent: create one, then write the test file from this run.",
+        "noAgentforce": "This org has no Agentforce: the test file needs an org with an agent.",
+        "unreadable": "The org's agents could not be read: {{message}}",
+        "readAgain": "Read again",
+        "agent": "Agent",
+        "mapTopic": "Agent topic for {{topic}}",
+        "choose": "Choose a topic",
+        "mapActions": "Actions expected",
+        "guard": "Topic that declines what no topic covers",
+        "noGuard": "None: leave those tests out",
+        "runner": "Test file format",
+        "runnerTestingCenter": "Testing Center",
+        "runnerStudio": "Agentforce Studio",
+        "noWorkspace": "Open a folder in VS Code: the test file is written into it.",
+        "notDx": "This folder is not a Salesforce DX project (no sfdx-project.json): the file is written, and sf agent test create runs from a DX project.",
+        "unmatched": "Match each topic of the scenario to a topic of the agent.",
+        "write": "Write the test file",
+        "overwrite": "Write over it",
+        "written": "Written to {{path}}.",
+        "leftOut": "Left out of the file:",
+        "command": "SandForge never deploys the test nor runs it, which spends the org's credits. From the project, run:",
+        "exists": "{{path}} is there already.",
+        "refused": "The agent does not have what the choice names:",
+        "unavailable": "The test file cannot be written: {{message}}",
+        "stale": "This run was removed: its test file names cases that are gone. A test you created in the org from it stays there: remove it with sf project delete source -m AiEvaluationDefinition:<name>."
+      }
     }
   },
   "sync": {
@@ -2581,7 +2732,7 @@
     "aiKeyConfigured": "Key configured",
     "aiKeySaved": "Key saved",
     "aiHint": "The key is stored in the VSCode secret vault and never written to settings or logs.",
-    "aiSends": "While AI is on, these go to Anthropic under your key: the chat sends what you type with the conversation so far; NL2SOQL sends your question with the names of the org's objects and fields; a pipeline draft, a custom persona and an AI field rule send their description, or the field's name and its instruction.",
+    "aiSends": "While AI is on, these go to Anthropic under your key: the chat sends what you type with the conversation so far; NL2SOQL sends your question with the names of the org's objects and fields; a pipeline draft, a custom persona and an AI field rule send their description, or the field's name and its instruction. A scenario draft for an Agentforce agent's test data sends your scenario text with its email addresses and phone numbers masked, its language, the org's Case picklist values and the chosen agent's topic and action names, never a record.",
     "aiSendsFailures": "Fix suggestions for failed runs send a failed run's error message, its Salesforce Ids removed, with nobody pressing anything. An error message can quote record values.",
     "aiErrorResolution": "Suggest fixes for failed runs, sending their error messages",
     "aiSaveAndTurnOn": "Save key and turn on AI",

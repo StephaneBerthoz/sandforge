@@ -19,6 +19,14 @@ const SeedRunRemoval = lazy(() =>
   import('./SeedRunRemoval').then((module) => ({ default: module.SeedRunRemoval })),
 );
 
+/*
+ * A scenario's test file, written from its run later — once the org has an
+ * agent —, loaded when a run is opened onto it.
+ */
+const ScenarioTestFile = lazy(() =>
+  import('./Scenario/ScenarioTestFile').then((module) => ({ default: module.ScenarioTestFile })),
+);
+
 /** The name of the way a run was written, when not the generator: the Seed page's own cards. */
 const ORIGIN_LABELS: Record<NonNullable<SeedRunRemovalInfo['origin']>, string> = {
   csv: 'seed.modeSelect.csv',
@@ -53,6 +61,8 @@ export const SeedRunHistory: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const navigate = useAppStore((s) => s.navigate);
   const [open, setOpen] = useState<string | null>(null);
+  /** The scenario run opened onto its test file. */
+  const [tests, setTests] = useState<string | null>(null);
   const list = useBridgeQuery<{ runs: SeedRunRemovalInfo[] }>(
     'seed:removal:list',
     {},
@@ -166,11 +176,37 @@ export const SeedRunHistory: React.FC = () => {
                         </Button>
                       </>
                     )}
+                    {/* A scenario's run: its agent's test file is written
+                        from here once the org has an agent. */}
+                    {run.scenario && !run.running && !run.runningElsewhere && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-expanded={tests === run.runId}
+                        onClick={() => setTests(tests === run.runId ? null : run.runId)}
+                        data-testid={`seed-run-history-tests-${run.runId}`}
+                        className="text-[11px]"
+                      >
+                        {t('seed.scenario.tests.title')}
+                      </Button>
+                    )}
                   </div>
                   {shown && !run.running && !run.runningElsewhere && (
                     <PartBoundary data-testid="seed-removal-failed">
                       <Suspense fallback={<div aria-busy="true" />}>
                         <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
+                      </Suspense>
+                    </PartBoundary>
+                  )}
+                  {run.scenario && tests === run.runId && (
+                    <PartBoundary data-testid="seed-scenario-tests-failed">
+                      <Suspense fallback={<div aria-busy="true" />}>
+                        <ScenarioTestFile
+                          runId={run.runId}
+                          orgId={run.targetOrgId}
+                          packId={run.scenario.packId}
+                          stale={run.created > 0 && run.left.length === 0}
+                        />
                       </Suspense>
                     </PartBoundary>
                   )}

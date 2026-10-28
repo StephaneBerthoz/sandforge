@@ -323,6 +323,14 @@ export class SeedRunCreations implements SyncRemovalStateStore {
     return this.runs.pathOf(runId);
   }
 
+  /**
+   * The directory the runs' folder is under: where a scenario's seed keeps
+   * its companion file beside its run's (`scenarioSidecarPath`).
+   */
+  get storagePath(): string {
+    return this.runs.storagePath;
+  }
+
   /** What a run kept, with what its removals did; undefined when nothing of it is kept. */
   get(runId: string): Promise<SyncRunKept | undefined> {
     return this.runs.get(runId);

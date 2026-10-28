@@ -156,9 +156,10 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   if (superseded()) return;
 
   // Every AI feature — chat, NL2SOQL, pipeline generation, error resolution,
-  // Seed personas and AI field rules — calls `services.aiClient().chat()`, and
-  // the factory builds that adapter with the window's one token budget. They
-  // are metered from the first call, including calls made while this runs.
+  // scenario pack drafts, Seed personas and AI field rules — calls
+  // `services.aiClient().chat()`, and the factory builds that adapter with the
+  // window's one token budget. They are metered from the first call, including
+  // calls made while this runs.
   const aiCallFn: import('../modules/ai/AIAssistant').AICallFn = async (
     messages,
     callConfig,
@@ -211,11 +212,13 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     return result.text;
   };
 
-  const [{ NL2SOQL }, { ErrorResolver }, { PipelineGenerator }] = await Promise.all([
-    import('../modules/ai/NL2SOQL.js'),
-    import('../modules/ai/ErrorResolver.js'),
-    import('../modules/ai/PipelineGenerator.js'),
-  ]);
+  const [{ NL2SOQL }, { ErrorResolver }, { PipelineGenerator }, { ScenarioDrafter }] =
+    await Promise.all([
+      import('../modules/ai/NL2SOQL.js'),
+      import('../modules/ai/ErrorResolver.js'),
+      import('../modules/ai/PipelineGenerator.js'),
+      import('../modules/ai/ScenarioDrafter.js'),
+    ]);
   if (superseded()) return;
 
   // A failed run asks the model on its own, with nobody pressing anything, so
@@ -236,6 +239,9 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
       ? { errorResolver: new ErrorResolver(aiProvider, vscode.env.language) }
       : {}),
     pipelineGenerator: new PipelineGenerator(aiProvider),
+    // One call a plan and one a topic, each under the reply cap above: a
+    // whole pack in one reply would be cut off, and a reply cut off is refused.
+    scenarioDrafter: new ScenarioDrafter(aiProvider),
   });
   if (!resolveFailures) {
     log('Error resolution disabled (sandforge.ai.errorResolution=false) — no failure is sent.');

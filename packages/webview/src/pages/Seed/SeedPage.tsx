@@ -16,9 +16,13 @@ import {
   CloneWizard,
   CsvUploadWizard,
   QuickSeedFlow,
+  ScenarioDraft,
+  ScenarioFlow,
   SeedGenerateFlow,
   SeedRunHistory,
 } from './seedFlows';
+import { ScenarioCards } from './Scenario/ScenarioCards';
+import type { ScenarioPicked } from './Scenario/scenarioPacks';
 
 /**
  * What the Seed page shows: its start — the template gallery, the other ways
@@ -153,6 +157,42 @@ export const SeedPage: React.FC = () => {
    * its answer with the flow it unmounted.
    */
   const [flowRunning, setFlowRunning] = useState(false);
+  /**
+   * A scenario pack opened from the gallery — its review, its seed, its
+   * test file — or the draft of one from the user's own text, drawn in
+   * place of the gallery as a template's run is.
+   */
+  const [scenario, setScenario] = useState<
+    { kind: 'picked'; picked: ScenarioPicked } | { kind: 'draft' } | null
+  >(null);
+  const closeScenario = useCallback(() => setScenario(null), []);
+  const pickScenario = useCallback(
+    (picked: ScenarioPicked) => setScenario({ kind: 'picked', picked }),
+    [],
+  );
+  const draftScenario = useCallback(() => setScenario({ kind: 'draft' }), []);
+  const drafted = useCallback(
+    (pack: ScenarioPicked['pack']) =>
+      setScenario({ kind: 'picked', picked: { pack, source: { kind: 'draft' } } }),
+    [],
+  );
+  /*
+   * Back from a scenario, the gallery is drawn in its place and the button
+   * pressed went with it: the keyboard goes back to the card it was opened
+   * from, once the cards are drawn again.
+   */
+  const scenarioShown = useRef(scenario);
+  useEffect(() => {
+    const before = scenarioShown.current;
+    scenarioShown.current = scenario;
+    const page = pageRef.current;
+    if (scenario !== null || before === null || !page) return undefined;
+    const card =
+      before.kind === 'picked' && before.picked.source.kind !== 'draft'
+        ? `[data-testid="scenario-card-${before.picked.pack.id}"] [data-testid="btn-review-scenario"]`
+        : '[data-testid="btn-draft-scenario"]';
+    return focusWhenDrawn(page, () => page.querySelector<HTMLElement>(card));
+  }, [scenario]);
 
   if (orgs.length === 0) {
     return (
@@ -176,6 +216,7 @@ export const SeedPage: React.FC = () => {
   const getPageSubtitle = (): string => {
     if (seedMode === 'csv') return t('seed.modeSelect.csv');
     if (seedMode === 'clone') return t('seed.modeSelect.clone');
+    if (scenario !== null) return t('seed.scenario.section.title');
     if (quickSeed.phase !== 'idle') return t('seed.quickSeed.title');
     return t('seed.start.subtitle');
   };
@@ -205,7 +246,17 @@ export const SeedPage: React.FC = () => {
 
       {/* ----- START: the gallery, a template's run, the other ways ----- */}
       {seedMode === 'start' &&
-        (quickSeed.phase !== 'idle' ? (
+        (scenario !== null ? (
+          <PartBoundary data-testid="seed-scenario-failed">
+            <Suspense fallback={FLOW_LOADING}>
+              {scenario.kind === 'draft' ? (
+                <ScenarioDraft orgs={orgs} onDrafted={drafted} onBack={closeScenario} />
+              ) : (
+                <ScenarioFlow picked={scenario.picked} orgs={orgs} onClose={closeScenario} />
+              )}
+            </Suspense>
+          </PartBoundary>
+        ) : quickSeed.phase !== 'idle' ? (
           <PartBoundary data-testid="seed-quick-failed">
             <Suspense fallback={FLOW_LOADING}>
               <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
@@ -214,6 +265,8 @@ export const SeedPage: React.FC = () => {
         ) : (
           <>
             <TemplateGallery onSelectTemplate={handleSelectTemplate} />
+
+            <ScenarioCards onPick={pickScenario} onDraft={draftScenario} />
 
             <section className="flex flex-col gap-(--sf-space-2)" data-testid="seed-other-ways">
               <h2 className="text-sm font-semibold text-(--sf-text-primary)">

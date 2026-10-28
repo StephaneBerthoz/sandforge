@@ -216,6 +216,35 @@ export interface SeedExecutionResult {
    * in the org; its status is never `success`.
    */
   cancelled?: boolean;
+  /** Set for a seed of a scenario pack: what its agent's test file is written from. */
+  scenario?: SeedScenarioRunInfo;
+}
+
+/**
+ * What a scenario's seed kept for its agent's test file: the pack, how many
+ * tests it makes and how many of their open cases the run wrote, and whether
+ * the companion file that keeps their ids beside the run's could be written.
+ */
+export interface SeedScenarioRunInfo {
+  packId: string;
+  packName: string;
+  tests: number;
+  /** The open cases the run wrote, which the tests are said about. */
+  openCasesWritten: number;
+  /** The open cases the pack compiled to. */
+  openCases: number;
+  /**
+   * Whether the articles the run wrote were published and linked to their
+   * cases: not yet, they stay drafts, which an agent's data library does not
+   * index (`SCENARIO_ARTICLES_PUBLISHED`).
+   */
+  articlesPublished: boolean;
+  /**
+   * `kept`: the companion file was written. `none`: no open case was written,
+   * so there is nothing for a test to be about. `failed`: it could not be
+   * written, with why: the test file cannot be written from this run.
+   */
+  companion: { kind: 'kept' } | { kind: 'none' } | { kind: 'failed'; message: string };
 }
 
 /** Per-object seed result */
@@ -484,6 +513,11 @@ export interface SeedRunRemovalInfo {
   removed?: ForgeUndoMark;
   /** Why no removal can run now; absent when one can. */
   refusal?: { code: SeedRemovalRefusalCode; message: string };
+  /**
+   * Set for a scenario's seed that kept its companion file: the pack it was
+   * seeded from, and the agent its test file was last written for, once one was.
+   */
+  scenario?: { packId: string; agent?: string };
 }
 
 /** What removing what a Seed run created did, object by object, the last written first. */

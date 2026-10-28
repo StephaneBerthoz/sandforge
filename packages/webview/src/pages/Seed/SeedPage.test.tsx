@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, RETAIL_ORDERS_PACK } from '@sandforge/shared';
 import type { SalesforceOrg, SeedTemplate } from '@sandforge/shared';
 import type { QuickSeedOptions, QuickSeedState } from './useQuickSeed';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -98,6 +98,14 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     if (type === 'seed:automation') {
       return mockAutomationState;
     }
+    if (type === 'seed:scenario:packs') {
+      return {
+        data: { packs: [{ source: 'built-in', pack: RETAIL_ORDERS_PACK }], workspace: true },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
 }));
@@ -158,12 +166,14 @@ const flowState = vi.hoisted(() => ({ csvRuns: false, unfetched: null as string 
 
 vi.mock('./seedFlows', async () => {
   const { createElement, useEffect } = await import('react');
-  const [generate, quick, csv, clone, history] = await Promise.all([
+  const [generate, quick, csv, clone, history, scenario, draft] = await Promise.all([
     import('./SeedGenerateFlow'),
     import('./QuickSeedFlow'),
     import('./CsvUpload/CsvUploadWizard'),
     import('./Clone/CloneWizard'),
     import('./SeedRunHistory'),
+    import('./Scenario/ScenarioFlow'),
+    import('./Scenario/ScenarioDraft'),
   ]);
   /** The CSV import, which says an import runs when the test asks it to. */
   const CsvUploadWizard = (props: Parameters<typeof csv.CsvUploadWizard>[0]) => {
@@ -190,6 +200,8 @@ vi.mock('./seedFlows', async () => {
     CsvUploadWizard: fetched('CsvUploadWizard', CsvUploadWizard),
     CloneWizard: fetched('CloneWizard', clone.CloneWizard),
     SeedRunHistory: fetched('SeedRunHistory', history.SeedRunHistory),
+    ScenarioFlow: fetched('ScenarioFlow', scenario.ScenarioFlow),
+    ScenarioDraft: fetched('ScenarioDraft', draft.ScenarioDraft),
   };
 });
 
@@ -771,6 +783,24 @@ describe('SeedPage', () => {
     fireEvent.click(back);
 
     expect(document.activeElement).toBe(screen.getByTestId('btn-use-template'));
+  });
+
+  it("opens a scenario's review in place of the gallery, and hands the keyboard back to its card on Back", async () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-2' });
+
+    render(<SeedPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review the scenario Online shop orders' }));
+
+    const back = await screen.findByTestId('btn-scenario-back');
+    expect(screen.queryByTestId('template-gallery')).toBeNull();
+    expect(screen.getByTestId('scenario-review').textContent).toContain(RETAIL_ORDERS_PACK.name);
+    back.focus();
+    fireEvent.click(back);
+
+    expect(screen.getByTestId('template-gallery')).toBeDefined();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Review the scenario Online shop orders' }),
+    );
   });
 
   it('saves the template the run was sent when Save as template is clicked on the results', () => {

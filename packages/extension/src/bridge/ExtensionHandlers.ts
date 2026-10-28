@@ -761,6 +761,13 @@ export class ExtensionHandlers {
         'seed:template:delete',
         'seed:list-personas',
         'seed:create-persona',
+        // Agentforce test data: a scenario pack's seed and its agent's test file.
+        'seed:scenario:packs',
+        'seed:scenario:prepare',
+        'seed:scenario:execute',
+        'seed:scenario:agents',
+        'seed:scenario:save',
+        'seed:scenario:test-file',
       ],
       this.seedHandler,
     );
@@ -962,6 +969,7 @@ export class ExtensionHandlers {
         'ai:forge-plan',
         'ai:anomaly-scan',
         'ai:generate-pipeline',
+        'ai:scenario-draft',
         'ai:schema-advice',
       ],
       this.aiHandler,

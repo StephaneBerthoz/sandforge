@@ -5,7 +5,9 @@ import type { AIModules } from '../AIHandler.js';
 import { inboundRequest } from '../../../test/mockFactories.js';
 import { NL2SOQL } from '../../../modules/ai/NL2SOQL.js';
 import { PipelineGenerator } from '../../../modules/ai/PipelineGenerator.js';
+import { ScenarioDrafter } from '../../../modules/ai/ScenarioDrafter.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
+import { RETAIL_ORDERS_PACK, type ScenarioPackDraft } from '@sandforge/shared';
 
 vi.mock('../../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -617,6 +619,237 @@ describe('AIToolsHandler', () => {
       await handler.handle(createMsg('ai:forge-plan', { prompt: 'accounts', orgId: 'org1' }));
 
       expect(posted()[0].payload).toEqual({ success: false, error: 'overloaded' });
+    });
+  });
+
+  describe('ai:scenario-draft', () => {
+    const PACK = RETAIL_ORDERS_PACK;
+    const TYPED = 'A home goods shop. Customers write to jane.doe@gmail.com about late parcels.';
+
+    /** A model that answers the plan, then each topic, from the built-in retail pack. */
+    function packModel(
+      answer?: (topic: string | undefined, options?: { signal?: AbortSignal }) => Promise<string>,
+    ) {
+      return vi.fn(async (prompt: string, _system?: string, options?: { signal?: AbortSignal }) => {
+        const topic = /<user-data label="topic">\{"key":"([^"]+)"/.exec(prompt)?.[1];
+        if (answer) return answer(topic, options);
+        return JSON.stringify(topicOrPlan(topic));
+      });
+    }
+
+    function topicOrPlan(topic: string | undefined): Record<string, unknown> {
+      if (topic === undefined) {
+        return {
+          id: PACK.id,
+          name: PACK.name,
+          businessContext: PACK.businessContext,
+          customers: PACK.customers,
+          topics: PACK.topics.map(({ key, label, utterances }) => ({ key, label, utterances })),
+          decoy: PACK.decoy,
+          outOfScope: PACK.outOfScope,
+        };
+      }
+      const written = PACK.topics.find((t) => t.key === topic);
+      return { article: written?.article, caseTemplates: written?.caseTemplates };
+    }
+
+    function posted(): Array<{
+      type: string;
+      correlationId?: string;
+      payload: Record<string, unknown>;
+    }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call) => call[0],
+      );
+    }
+
+    it('answers the pack drafted, with the scenario as it was sent', async () => {
+      const provider = packModel();
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+
+      const handled = await handler.handle(
+        createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US' }),
+      );
+
+      expect(handled).toBe(true);
+      expect(provider).toHaveBeenCalledTimes(1 + PACK.topics.length);
+      expect(posted()).toEqual([
+        expect.objectContaining({
+          type: 'ai:scenario-draft:response',
+          correlationId: 'msg-1',
+          payload: {
+            success: true,
+            sentText:
+              'A home goods shop. Customers write to jane.doe@gmail.example about late parcels.',
+            pack: PACK,
+          },
+        }),
+      ]);
+    });
+
+    it('says the text as it would be sent without asking any model, AI set up or not', async () => {
+      await handler.handle(
+        createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US', maskOnly: true }),
+      );
+
+      expect(posted()[0].payload).toEqual({
+        success: true,
+        sentText:
+          'A home goods shop. Customers write to jane.doe@gmail.example about late parcels.',
+      });
+    });
+
+    it('says no provider is set up, with the text it would have sent', async () => {
+      await handler.handle(createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US' }));
+
+      expect(posted()[0].payload).toEqual({
+        success: false,
+        code: 'AI_NOT_CONFIGURED',
+        error: 'AI not configured. Set your API key in Settings > AI.',
+        sentText:
+          'A home goods shop. Customers write to jane.doe@gmail.example about late parcels.',
+      });
+    });
+
+    it('is stopped by ai:tool:cancel, and answers CANCELLED with the topics written before', async () => {
+      let signalOfThird: AbortSignal | undefined;
+      const provider = packModel(async (topic, options) => {
+        if (topic === PACK.topics[1].key) {
+          signalOfThird = options?.signal;
+          return new Promise<string>((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')));
+          });
+        }
+        return JSON.stringify(topicOrPlan(topic));
+      });
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+
+      const asked = handler.handle(
+        createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US' }),
+      );
+      await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(3));
+      await handler.handle(
+        inboundRequest({
+          id: 'cancel-1',
+          type: 'ai:tool:cancel',
+          timestamp: Date.now(),
+          payload: { requestId: 'msg-1' },
+        }),
+      );
+      await asked;
+
+      expect(signalOfThird?.aborted).toBe(true);
+      expect(provider).toHaveBeenCalledTimes(3);
+      const [answer] = posted();
+      expect(answer.type).toBe('ai:scenario-draft:response');
+      expect(answer.payload).toMatchObject({ success: false, code: 'CANCELLED' });
+      const draft = answer.payload.draft as ScenarioPackDraft;
+      expect(draft.topics.map((topic) => topic.article !== undefined)).toEqual([
+        true,
+        false,
+        false,
+        false,
+        false,
+      ]);
+      expect(answer.payload.pack).toBeUndefined();
+    });
+
+    it('answers a failed call with the provider words, where it failed, and the draft so far', async () => {
+      const provider = packModel(async (topic) => {
+        if (topic === PACK.topics[2].key) {
+          throw new Error(
+            'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+          );
+        }
+        return JSON.stringify(topicOrPlan(topic));
+      });
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+
+      await handler.handle(createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US' }));
+
+      const { payload } = posted()[0];
+      expect(payload).toMatchObject({
+        success: false,
+        error:
+          'The model declined to answer this request. Rephrase it, or choose another model in sandforge.ai.model.',
+        failedAt: { call: 'topic', topicKey: PACK.topics[2].key },
+      });
+      expect((payload.draft as ScenarioPackDraft).topics[1].article).toEqual(
+        PACK.topics[1].article,
+      );
+      expect(payload.pack).toBeUndefined();
+    });
+
+    it('goes on with a draft handed back, writing only the topics it lacks', async () => {
+      const provider = packModel();
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+      const draft = {
+        ...topicOrPlan(undefined),
+        version: 1,
+        language: PACK.language,
+        topics: PACK.topics.map((topic, index) =>
+          index < 3 ? topic : { key: topic.key, label: topic.label, utterances: topic.utterances },
+        ),
+      };
+
+      await handler.handle(
+        createMsg('ai:scenario-draft', { text: TYPED, language: 'en_US', draft }),
+      );
+
+      expect(provider).toHaveBeenCalledTimes(2);
+      expect(posted()[0].payload).toMatchObject({ success: true, pack: PACK });
+    });
+
+    it('drops what an agent carries besides its topics and actions before anything is sent', async () => {
+      const provider = packModel();
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+
+      await handler.handle(
+        createMsg('ai:scenario-draft', {
+          text: TYPED,
+          language: 'en_US',
+          agent: {
+            id: '0Xx000000000001AAA',
+            name: 'Store_Service_Agent',
+            variables: [{ name: 'VerifiedCustomerId' }],
+            topics: [{ name: 'Delivery', described: true, actions: [{ name: 'Track_Parcel' }] }],
+          },
+        }),
+      );
+
+      const plan = provider.mock.calls[0][0];
+      expect(plan).toContain('{"name":"Delivery","actions":[{"name":"Track_Parcel"}]}');
+      expect(plan).not.toContain('0Xx000000000001AAA');
+      expect(plan).not.toContain('Store_Service_Agent');
+      expect(plan).not.toContain('VerifiedCustomerId');
+    });
+
+    it('refuses a language Salesforce does not write that way, and a text past its bound (INVALID_PAYLOAD)', async () => {
+      const provider = packModel();
+      handler.setAIModules({
+        scenarioDrafter: new ScenarioDrafter(provider),
+      } as unknown as AIModules);
+
+      await handler.handle(createMsg('ai:scenario-draft', { text: TYPED, language: 'english' }));
+      await handler.handle(
+        createMsg('ai:scenario-draft', { text: 'x'.repeat(8_001), language: 'en_US' }),
+      );
+
+      expect(posted().map((m) => [m.type, m.payload.code])).toEqual([
+        ['ai:error', 'INVALID_PAYLOAD'],
+        ['ai:error', 'INVALID_PAYLOAD'],
+      ]);
+      expect(provider).not.toHaveBeenCalled();
     });
   });
 

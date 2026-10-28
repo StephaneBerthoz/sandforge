@@ -31,6 +31,9 @@
     "reports.context.decisionCount",
     "seed.automation.entry",
     "seed.csv.mapper.incompatible",
+    "seed.scenario.review.topic",
+    "seed.scenario.tests.runnerStudio",
+    "seed.scenario.tests.runnerTestingCenter",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",
     "sync.conflictResolution.conflictTypes.editEdit"

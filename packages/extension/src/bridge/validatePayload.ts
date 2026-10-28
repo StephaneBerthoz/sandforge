@@ -37,6 +37,11 @@ import {
   checkpointScopeModeSchema,
   previewIdSchema,
   rewindIdSchema,
+  SCENARIO_DRAFT_LIMITS,
+  ScenarioPackDraftSchema,
+  scenarioPackSchema,
+  scenarioCompileOptionsSchema,
+  agentTestChoiceSchema,
 } from '@sandforge/shared';
 import type {
   CheckpointScopeMode,
@@ -628,6 +633,53 @@ export const seedCreatePersonaPayloadSchema = z.object({
   // `success: false` response (existing webview flow) instead of INVALID_PAYLOAD.
   description: z.string().max(10_000),
 });
+
+// ── seed:scenario:* payload schemas ─────────────────────────────────────────
+// A pack is checked whole, as a file of the workspace is: every bound of it
+// held by its own schema, which names the field a pack breaks.
+
+/** `seed:scenario:packs`: nothing asked but the list. */
+export const seedScenarioPacksPayloadSchema = z.object({}).strict();
+
+/** `seed:scenario:prepare`: a pack, the org it is compiled for, and the run's own choices. */
+export const seedScenarioPreparePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    pack: scenarioPackSchema,
+    seed: scenarioCompileOptionsSchema.shape.seed,
+    articleBodyField: sfApiNameSchema.optional(),
+  })
+  .strict();
+
+/** `seed:scenario:execute`: a pack and the options its preparation answered. */
+export const seedScenarioExecutePayloadSchema = z
+  .object({
+    orgId: orgIdSchema,
+    pack: scenarioPackSchema,
+    options: scenarioCompileOptionsSchema,
+    locale: z
+      .string()
+      .regex(/^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$/)
+      .optional(),
+  })
+  .strict();
+
+/** `seed:scenario:agents`: the org whose agents are read. */
+export const seedScenarioAgentsPayloadSchema = z.object({ orgId: orgIdSchema }).strict();
+
+/** `seed:scenario:save`: the pack to save in the workspace. */
+export const seedScenarioSavePayloadSchema = z
+  .object({ pack: scenarioPackSchema, overwrite: z.boolean().optional() })
+  .strict();
+
+/** `seed:scenario:test-file`: the run, and what the user matched its scenario to. */
+export const seedScenarioTestFilePayloadSchema = z
+  .object({
+    runId: opaqueIdSchema,
+    choice: agentTestChoiceSchema,
+    overwrite: z.boolean().optional(),
+  })
+  .strict();
 
 // ── seed:clone:* payload schemas ────────────────────────────────────────────
 // Mirror what `useClone` posts (describe-source / preview / execute).
@@ -1409,8 +1461,60 @@ export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,
   orgIds: z.array(orgIdSchema).max(50).optional(),
 });
-/** `ai:tool:cancel` — the Forge plan or pipeline request to stop, by its id. */
+/** `ai:tool:cancel` — the Forge plan, pipeline or scenario draft request to stop, by its id. */
 export const aiToolCancelPayloadSchema = z.object({ requestId: opaqueIdSchema });
+
+/** The active values of one Case picklist, in the org's order. */
+const casePicklistValuesSchema = z
+  .array(z.string().min(1).max(SCENARIO_DRAFT_LIMITS.picklistValue))
+  .max(SCENARIO_DRAFT_LIMITS.picklistValues);
+
+/** A topic's or an action's label and description, as the agent catalog reads them. */
+const agentLabelled = {
+  label: z.string().max(SCENARIO_DRAFT_LIMITS.agentLabel).optional(),
+  description: z.string().max(SCENARIO_DRAFT_LIMITS.agentDescription).optional(),
+};
+
+/**
+ * `ai:scenario-draft` — a scenario to draft a pack from, or a draft to go on
+ * with. The agent is read as plain objects, not strict ones: the page may
+ * hand over the catalog's agent as it is, and its ids and variables are
+ * dropped here, so they cannot reach a prompt.
+ */
+export const aiScenarioDraftPayloadSchema = z.object({
+  text: z.string().trim().min(1).max(SCENARIO_DRAFT_LIMITS.text),
+  language: scenarioPackSchema.shape.language,
+  casePicklists: z
+    .object({
+      Status: casePicklistValuesSchema.optional(),
+      Origin: casePicklistValuesSchema.optional(),
+      Priority: casePicklistValuesSchema.optional(),
+      Type: casePicklistValuesSchema.optional(),
+    })
+    .optional(),
+  agent: z
+    .object({
+      topics: z
+        .array(
+          z.object({
+            name: z.string().min(1).max(SCENARIO_DRAFT_LIMITS.agentName),
+            ...agentLabelled,
+            actions: z
+              .array(
+                z.object({
+                  name: z.string().min(1).max(SCENARIO_DRAFT_LIMITS.agentName),
+                  ...agentLabelled,
+                }),
+              )
+              .max(SCENARIO_DRAFT_LIMITS.agentActions),
+          }),
+        )
+        .max(SCENARIO_DRAFT_LIMITS.agentTopics),
+    })
+    .optional(),
+  draft: ScenarioPackDraftSchema.optional(),
+  maskOnly: z.boolean().optional(),
+});
 
 // ── migration:* payload schemas ───────────────────────────────────────────
 // Mirror the shared request contracts (no current webview emitter). The

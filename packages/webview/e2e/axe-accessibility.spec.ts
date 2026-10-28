@@ -7,6 +7,7 @@ import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
+import { BUILT_IN_SCENARIO_PACKS, RETAIL_ORDERS_PACK } from '@sandforge/shared';
 
 /**
  * What Chromium paints: the reference evidence for a contrast claim in this
@@ -1148,6 +1149,107 @@ async function answerAll(
     });
   }
 }
+
+/**
+ * The Seed gallery's scenarios as the host lists them: the packs SandForge
+ * ships, and a file of the workspace that does not read as one.
+ */
+async function openScenarioGallery(bridge: MockBridge, page: Page): Promise<void> {
+  await bridge.waitForMessage('seed:scenario:packs', { timeout: 10_000 });
+  await answerAll(page, 'seed:scenario:packs', 'seed:scenario:packs:response', {
+    packs: [
+      ...BUILT_IN_SCENARIO_PACKS.map((pack) => ({ source: 'built-in', pack })),
+      {
+        source: 'workspace',
+        path: '/workspace/broken.sandforge-scenario.json',
+        relativePath: 'broken.sandforge-scenario.json',
+        issues: ['topics: Too small: expected array to have >=3 items'],
+      },
+    ],
+    workspace: true,
+  });
+  await page.waitForSelector('[data-testid="scenario-card-retail-orders"]', { timeout: 10_000 });
+}
+
+/** The review of the shipped retail pack, opened from its card. */
+async function openScenarioReview(bridge: MockBridge, page: Page): Promise<void> {
+  await openScenarioGallery(bridge, page);
+  await page.getByTestId('scenario-card-retail-orders').getByTestId('btn-review-scenario').click();
+  await page.waitForSelector('[data-testid="scenario-review"]', { timeout: 10_000 });
+}
+
+/** The retail pack's confirmation, read of an org without Knowledge. */
+async function openScenarioConfirm(bridge: MockBridge, page: Page): Promise<void> {
+  await openScenarioReview(bridge, page);
+  await page.getByTestId('btn-scenario-continue').click();
+  await page.getByTestId('scenario-org-selector').selectOption(DEV_SANDBOX.id);
+  await bridge.waitForMessage('seed:scenario:prepare', { timeout: 10_000 });
+  await answerAll(page, 'seed:scenario:prepare', 'seed:scenario:prepare:response', {
+    preparation: {
+      options: { seed: 1, caseStatus: { open: 'New', closed: 'Closed' } },
+      objects: [
+        { objectApiName: 'Account', recordCount: 10 },
+        { objectApiName: 'Contact', recordCount: 10 },
+        { objectApiName: 'Case', recordCount: 30 },
+        { objectApiName: 'CaseComment', recordCount: 58 },
+        { objectApiName: 'Knowledge__kav', recordCount: 6, optional: true },
+      ],
+      tests: 14,
+      caseStatusFrom: { from: 'org' },
+      knowledge: { available: false, reason: 'Salesforce Knowledge is not turned on in it' },
+    },
+  });
+  await page.waitForSelector('[data-testid="scenario-knowledge-absent"]', { timeout: 10_000 });
+}
+
+/** A scenario's run, its companion file kept, the articles skipped without Knowledge. */
+const SCENARIO_RESULT = {
+  templateId: 'scenario-retail-orders',
+  operationId: 'scenario-run-1',
+  status: 'success',
+  objectResults: [
+    { objectApiName: 'Account', recordsCreated: 10, recordsFailed: 0, createdIds: [], errors: [] },
+    {
+      objectApiName: 'Knowledge__kav',
+      recordsCreated: 0,
+      recordsFailed: 0,
+      createdIds: [],
+      errors: ['Skipped: Knowledge__kav: Salesforce Knowledge is not turned on in it.'],
+      optional: true,
+    },
+  ],
+  totalRecordsCreated: 10,
+  totalRecordsFailed: 0,
+  duration: 1200,
+  timestamp: '2026-10-28T00:00:00.000Z',
+  scenario: {
+    packId: 'retail-orders',
+    packName: RETAIL_ORDERS_PACK.name,
+    tests: 14,
+    openCasesWritten: 10,
+    openCases: 10,
+    articlesPublished: false,
+    companion: { kind: 'kept' },
+  },
+};
+
+/** An agent with one topic of its own, which can take one action. */
+const SCENARIO_AGENT = {
+  id: '16j000000000001AAA',
+  name: 'Retail_Service_Agent',
+  label: 'Retail Service Agent',
+  topics: [
+    {
+      name: 'Order_Issues',
+      label: 'Orders',
+      described: true,
+      actions: [{ name: 'Identify_Customer', label: 'Identify Customer', described: true }],
+      unnamedActions: 0,
+    },
+  ],
+  unnamedTopics: 0,
+  variables: [],
+};
 
 /**
  * Create a conversation on the AI page and confirm it as the host does,
@@ -4225,6 +4327,144 @@ for (const theme of SCANNED_THEMES) {
           results,
           '[data-testid="clone-preview-left-to-the-platform"]',
         ),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed gallery with its Agentforce test scenarios, the draft card and a pack file that does not hold', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true, ai: true });
+      await openScenarioGallery(bridge, page);
+      await page.waitForSelector('[data-testid="scenario-card-draft"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="seed-scenarios"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario review, its topics opened and its edit refused with the field', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioReview(bridge, page);
+      await page.locator('[data-testid="scenario-review-topics"] summary').first().click();
+      await page.getByTestId('btn-scenario-edit').click();
+      await page.getByTestId('scenario-review-text').fill('{"version": 1}');
+      await page.getByTestId('btn-scenario-apply').click();
+      await page.waitForSelector('[data-testid="scenario-review-problems"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-review-problems"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario confirmation saying the org has no Knowledge', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioConfirm(bridge, page);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-knowledge-absent"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario results with the agent test file matched and written', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioConfirm(bridge, page);
+      await page.getByTestId('btn-scenario-start').click();
+      await bridge.waitForMessage('seed:scenario:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:scenario:execute', 'seed:execute:response', SCENARIO_RESULT);
+      await bridge.waitForMessage('seed:scenario:agents', { timeout: 10_000 });
+      await answerAll(page, 'seed:scenario:agents', 'seed:scenario:agents:response', {
+        orgId: DEV_SANDBOX.id,
+        agents: { kind: 'agents', agents: [SCENARIO_AGENT] },
+        project: { kind: 'dx', dir: '/workspace' },
+      });
+      for (const topic of RETAIL_ORDERS_PACK.topics) {
+        await page.getByTestId(`scenario-tests-map-${topic.key}`).selectOption('Order_Issues');
+      }
+      await page.getByTestId('btn-scenario-tests-write').click();
+      await bridge.waitForMessage('seed:scenario:test-file', { timeout: 10_000 });
+      await answerAll(page, 'seed:scenario:test-file', 'seed:scenario:test-file:response', {
+        runId: 'scenario-run-1',
+        outcome: {
+          kind: 'written',
+          path: '/workspace/specs/Retail_Service_Agent-retail-orders-sandforge-testSpec.yaml',
+          specPath: 'specs/Retail_Service_Agent-retail-orders-sandforge-testSpec.yaml',
+          apiName: 'Retail_Service_Agent_retail_orders_SandForge',
+          commands: {
+            create:
+              'sf agent test create --spec specs/Retail_Service_Agent-retail-orders-sandforge-testSpec.yaml --api-name Retail_Service_Agent_retail_orders_SandForge -o DevSandbox',
+            run: 'sf agent test run --api-name Retail_Service_Agent_retail_orders_SandForge --wait 10 -o DevSandbox',
+          },
+          leftOut: [
+            {
+              test: 'retail-orders-out-1',
+              reason: 'no-guard-topic',
+              message: 'No topic of the agent declines what no topic covers.',
+            },
+          ],
+        },
+      });
+      await page.waitForSelector('[data-testid="scenario-tests-create"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-tests-outcome"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario results in an org with no Agentforce agent, saying to create one', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true });
+      await openScenarioConfirm(bridge, page);
+      await page.getByTestId('btn-scenario-start').click();
+      await bridge.waitForMessage('seed:scenario:execute', { timeout: 10_000 });
+      await answerAll(page, 'seed:scenario:execute', 'seed:execute:response', SCENARIO_RESULT);
+      await bridge.waitForMessage('seed:scenario:agents', { timeout: 10_000 });
+      await answerAll(page, 'seed:scenario:agents', 'seed:scenario:agents:response', {
+        orgId: DEV_SANDBOX.id,
+        agents: { kind: 'no-agent', reason: 'none', message: 'none' },
+        project: { kind: 'folder', dir: '/workspace' },
+      });
+      await page.waitForSelector('[data-testid="scenario-tests-no-agent"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-tests-no-agent"]'),
+      ).toBeGreaterThan(0);
+    });
+
+    test('Seed scenario draft stopped, its topics written and incomplete', async ({ page }) => {
+      await navigateToModule(bridge, page, 'seed', 'seed-page', { theme, orgs: true, ai: true });
+      await openScenarioGallery(bridge, page);
+      await page.getByTestId('btn-draft-scenario').click();
+      await page
+        .getByTestId('scenario-draft-text')
+        .fill('An online shop. Write to jane@gmail.com.');
+      await page.getByTestId('btn-scenario-draft-start').click();
+      await bridge.waitForMessage('ai:scenario-draft', { timeout: 10_000 });
+      await answerAll(page, 'ai:scenario-draft', 'ai:scenario-draft:response', {
+        success: false,
+        code: 'CANCELLED',
+        sentText: 'An online shop. Write to jane@gmail.example.',
+        draft: {
+          ...RETAIL_ORDERS_PACK,
+          topics: RETAIL_ORDERS_PACK.topics.map((topic, index) =>
+            index === 0
+              ? topic
+              : { key: topic.key, label: topic.label, utterances: topic.utterances },
+          ),
+        },
+      });
+      await page.waitForSelector('[data-testid="scenario-draft-partial"]', { timeout: 10_000 });
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="scenario-draft-partial"]'),
       ).toBeGreaterThan(0);
     });
 

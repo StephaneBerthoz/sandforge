@@ -119,6 +119,18 @@ const SeedMessages = [
   msg('seed:list-personas:response'),
   msg('seed:create-persona'),
   msg('seed:create-persona:response'),
+  // Agentforce test data: scenario packs, their seed and their agent's test file.
+  msg('seed:scenario:packs'),
+  msg('seed:scenario:packs:response'),
+  msg('seed:scenario:prepare'),
+  msg('seed:scenario:prepare:response'),
+  msg('seed:scenario:execute'),
+  msg('seed:scenario:agents'),
+  msg('seed:scenario:agents:response'),
+  msg('seed:scenario:save'),
+  msg('seed:scenario:save:response'),
+  msg('seed:scenario:test-file'),
+  msg('seed:scenario:test-file:response'),
 ] as const;
 export const SeedMessageSchema = z.discriminatedUnion('type', SeedMessages);
 
@@ -498,7 +510,7 @@ const AIMessages = [
   msg('ai:remove-key'),
   msg('ai:remove-key:response'),
   msg('ai:error'),
-  // Stops the model call of a Forge plan or pipeline draft request.
+  // Stops the model call of a Forge plan, pipeline or scenario draft request.
   msg('ai:tool:cancel'),
   msg('ai:forge-plan'),
   msg('ai:forge-plan:response'),
@@ -506,6 +518,8 @@ const AIMessages = [
   msg('ai:anomaly-scan:response'),
   msg('ai:generate-pipeline'),
   msg('ai:generate-pipeline:response'),
+  msg('ai:scenario-draft'),
+  msg('ai:scenario-draft:response'),
   msg('ai:schema-advice'),
   msg('ai:schema-advice:response'),
   // Provider status banner (breaker open / half-open / closed).
