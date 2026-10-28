@@ -401,8 +401,11 @@ describe('sandforge-checkpoint take', () => {
       Object.values(answer.estimate.requestsByPhase).reduce((total, said) => total + said, 0),
     );
     // The composites of counts and of the recycle bin's reads go through the
-    // connection's requests, as jsforce's do: one each, as estimated.
-    expect(answer.requests.byPhase).toMatchObject({ counts: 1, bin: 1 });
+    // connection's requests, as jsforce's do: one of counts, one of what the
+    // next phases read of the objects holding records, and one of the bin's
+    // reads, as estimated.
+    expect(answer.requests.byPhase).toMatchObject({ counts: 2, bin: 1 });
+    expect(answer.estimate.requestsByPhase).toMatchObject({ counts: 2, bin: 1 });
     expect(stderr).toMatch(/ {2}sent \d+ API requests to the org, about \d+ estimated: guard /);
   });
 

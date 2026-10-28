@@ -156,6 +156,23 @@ describe('rewindPreviewFacts', () => {
     ]);
   });
 
+  it('says the files given a new version since, which keep it, last of what a rewind cannot undo', () => {
+    const diff = previewDiff({
+      objects: [
+        diffObject('ContentDocument', {
+          cannotUndo: [
+            { reason: 'goneForGood', count: 1 },
+            { reason: 'newFileVersion', count: 2 },
+          ],
+        }),
+      ],
+    });
+    expect(cannotUndoLines(diff)).toEqual([
+      { reason: 'goneForGood', count: 1, objects: ['ContentDocument'] },
+      { reason: 'newFileVersion', count: 2, objects: ['ContentDocument'] },
+    ]);
+  });
+
   it('counts the records brought back for a moment, in none of the three numbers, and a rewind of them writes: brought back, then deleted again', () => {
     const diff = previewDiff({
       objects: [

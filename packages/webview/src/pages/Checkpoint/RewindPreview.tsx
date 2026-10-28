@@ -127,6 +127,7 @@ const CANNOT_UNDO_KEYS: Readonly<Record<CannotUndoLine['reason'], string>> = {
   deletedWithParentOutside: 'checkpoint.preview.cannot.deletedWithParentOutside',
   convertedLead: 'checkpoint.preview.cannot.convertedLead',
   activatedContract: 'checkpoint.preview.cannot.activatedContract',
+  newFileVersion: 'checkpoint.preview.cannot.newFileVersion',
 };
 
 /** What the preview says Undo could not bring back of what a rewind deletes, by reason. */

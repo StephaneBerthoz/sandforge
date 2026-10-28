@@ -21,6 +21,8 @@ interface OrgSays {
   edition?: string | Error;
   /** The running user's row of `UserPermissionAccess`, or the error its read fails with. */
   permissions?: Record<string, boolean> | Error;
+  /** Fields of `UserPermissionAccess` the org does not know: a statement naming one is refused. */
+  unknownFields?: string[];
 }
 
 const BOTH = { PermissionsViewAllData: true, PermissionsModifyAllData: true };
@@ -43,6 +45,11 @@ function orgSaying(says: OrgSays) {
       if (soql.includes('FROM UserPermissionAccess')) {
         const row = says.permissions ?? BOTH;
         if (row instanceof Error) throw row;
+        if (says.unknownFields?.some((field) => soql.includes(field))) {
+          throw new Error(
+            `No such column '${says.unknownFields[0]}' on entity 'UserPermissionAccess'.`,
+          );
+        }
         return { records: [row], totalSize: 1 };
       }
       throw new Error(`The guard read records: ${soql}`);
@@ -89,12 +96,23 @@ describe('guardCheckpoint: never a production org', () => {
       asking('preview', { orgType: 'Production', metadata: { edition: 'Developer Edition' } }),
     );
 
-    expect(sandbox).toEqual({ allowed: true, org: { id: ORG_ID, sandbox: true }, tier: 'sandbox' });
-    expect(scratch).toEqual({ allowed: true, org: { id: ORG_ID, sandbox: true }, tier: 'scratch' });
+    expect(sandbox).toEqual({
+      allowed: true,
+      org: { id: ORG_ID, sandbox: true },
+      tier: 'sandbox',
+      queryAllFiles: false,
+    });
+    expect(scratch).toEqual({
+      allowed: true,
+      org: { id: ORG_ID, sandbox: true },
+      tier: 'scratch',
+      queryAllFiles: false,
+    });
     expect(developer).toEqual({
       allowed: true,
       org: { id: ORG_ID, sandbox: false, edition: 'Developer Edition' },
       tier: 'developer',
+      queryAllFiles: false,
     });
     expect(registeredBefore).toMatchObject({ allowed: true, tier: 'developer' });
   });
@@ -219,7 +237,8 @@ describe('guardCheckpoint: a user who sees and may put back every record', () =>
       expect(answer).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
       expect(asked).toEqual([
         'SELECT Id, IsSandbox FROM Organization LIMIT 1',
-        'SELECT PermissionsViewAllData, PermissionsModifyAllData FROM UserPermissionAccess',
+        'SELECT PermissionsViewAllData, PermissionsModifyAllData, PermissionsQueryAllFiles ' +
+          'FROM UserPermissionAccess',
       ]);
     }
   });
@@ -264,6 +283,44 @@ describe('guardCheckpoint: a user who sees and may put back every record', () =>
       `SandForge could not read whether ${USER} has them (sObject type 'UserPermissionAccess' ` +
         'is not supported.), and takes an org that will not say for a user who has neither.',
     );
+  });
+
+  it('reads Query All Files in the statement that reads the two permissions, and refuses no act without it', async () => {
+    for (const act of ACTS) {
+      const without = orgSaying({ id: ORG_ID, sandbox: true });
+      const holding = orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: { ...BOTH, PermissionsQueryAllFiles: true },
+      });
+
+      const lacking = await guardCheckpoint(without.conn, asking(act, SANDBOX));
+      const having = await guardCheckpoint(holding.conn, asking(act, SANDBOX));
+
+      expect(lacking).toMatchObject({ allowed: true, queryAllFiles: false });
+      expect(having).toMatchObject({ allowed: true, queryAllFiles: true });
+      expect(without.asked.filter((soql) => soql.includes('UserPermissionAccess'))).toEqual([
+        'SELECT PermissionsViewAllData, PermissionsModifyAllData, PermissionsQueryAllFiles ' +
+          'FROM UserPermissionAccess',
+      ]);
+    }
+  });
+
+  it('asks the two permissions alone of an org that does not know Query All Files, and takes its user for one without it', async () => {
+    const { conn, asked } = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      unknownFields: ['PermissionsQueryAllFiles'],
+    });
+
+    const answer = await guardCheckpoint(conn, asking('take', SANDBOX));
+
+    expect(answer).toMatchObject({ allowed: true, queryAllFiles: false });
+    expect(asked.filter((soql) => soql.includes('UserPermissionAccess'))).toEqual([
+      'SELECT PermissionsViewAllData, PermissionsModifyAllData, PermissionsQueryAllFiles ' +
+        'FROM UserPermissionAccess',
+      'SELECT PermissionsViewAllData, PermissionsModifyAllData FROM UserPermissionAccess',
+    ]);
   });
 
   it('refuses a preview by a user without View All Data, whose records out of sight would read as deleted since', async () => {

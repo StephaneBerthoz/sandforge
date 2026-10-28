@@ -16,6 +16,15 @@
  * field-level security; a classic encrypted field the user reads masked would
  * keep the mask, and a rewind would write it back over the real value, as a
  * Sync run's removal did; a file body is no field value.
+ *
+ * A file, `ContentDocument`, is kept as a record whose content is left out:
+ * the fields a person sets — its title, description, owner and sharing — and,
+ * as witnesses a rewind compares nothing by and never writes, the latest
+ * version and the size of its content. A new version since moves the first,
+ * which the org lets no one point back at an older one (P-A6); the second is
+ * what bringing the file back takes of the org's file storage (P-A8). Where
+ * the file sits in a library, the asset it backs and whether it is archived
+ * are the library's settings, not the file's data, and are not kept.
  */
 
 import * as z from 'zod';
@@ -30,6 +39,7 @@ import {
   leftOutForAccountKind,
 } from '../../core/common/platformRecords.js';
 import { ENCRYPTED_FIELD_TYPE } from '../sync/encryptedFields.js';
+import { FILE_OBJECT } from './checkpointScope.js';
 
 /** A field as an object's describe gives it, as far as a checkpoint reads it. */
 export const checkpointFieldSchema = z
@@ -96,6 +106,46 @@ export const PERSON_ACCOUNT_FLAG = 'IsPersonAccount';
 
 /** The object of an event: read with archived ones, as a task is. */
 const EVENT = 'Event';
+
+/**
+ * What a file's snapshot keeps beside the fields a person sets, never
+ * compared and never written: the version a new one replaces as the latest,
+ * which the org refuses to set (`INVALID_FIELD_FOR_INSERT_UPDATE`, P-A6), and
+ * the bytes of its content, which a file brought back from the recycle bin
+ * takes again of the org's file storage (P-A8).
+ */
+export const FILE_WITNESSES: readonly string[] = ['LatestPublishedVersionId', 'ContentSize'];
+
+/**
+ * A file's fields that belong to a library rather than to the file — its
+ * place in one, the asset it backs, whether it is archived — that a file's
+ * snapshot does not keep: neither compared nor written back. Named so a
+ * preview can say they are not compared.
+ */
+export const FILE_SETTINGS_NOT_KEPT: readonly string[] = [
+  'ParentId',
+  'ContentAssetId',
+  'IsArchived',
+];
+
+/**
+ * The content of a file, its versions' `VersionData`, listed among the
+ * fields its snapshot leaves out as a file body: said before the take, and
+ * what keeps a rewind from making a file emptied from the recycle bin again
+ * (`recreatable`, which reads the bodies left out), as it would make one with
+ * no content. A file has no base64 field of its own to say so.
+ */
+export const FILE_BODY = 'VersionData';
+
+/** Whether `objectApiName` is a file's, whose witnesses and settings its snapshot treats apart. */
+function isFile(objectApiName: string): boolean {
+  return objectApiName.toLowerCase() === FILE_OBJECT.toLowerCase();
+}
+
+/** The witnesses its snapshot keeps of an object, in lower case: a file's alone has any. */
+function witnessesOf(objectApiName: string): ReadonlySet<string> {
+  return new Set(isFile(objectApiName) ? FILE_WITNESSES.map((name) => name.toLowerCase()) : []);
+}
 
 /**
  * How a checkpoint reads an object: a plain query, or one that reads the
@@ -216,10 +266,18 @@ export async function captureProjection(
   if (personFlag && (described.name === ACCOUNT || described.name === CONTACT)) {
     kept.push(personFlag.name);
   }
+  const file = isFile(described.name);
+  if (file) {
+    for (const witness of FILE_WITNESSES) {
+      const field = byName.get(witness.toLowerCase());
+      if (field) kept.push(field.name);
+    }
+  }
+  const notKept = new Set(file ? FILE_SETTINGS_NOT_KEPT.map((name) => name.toLowerCase()) : []);
   const already = new Set(kept.map((name) => name.toLowerCase()));
   const candidates = described.fields
     .map((field) => field.name)
-    .filter((name) => !already.has(name.toLowerCase()));
+    .filter((name) => !already.has(name.toLowerCase()) && !notKept.has(name.toLowerCase()));
 
   const { writable, skipped, denied } = await guardOver(described).partitionWritableFields(
     described.name,
@@ -247,6 +305,7 @@ export async function captureProjection(
     if (reason !== undefined) leftOutFields.push({ field: name, reason });
     else if (writableNames.has(name)) kept.push(name);
   }
+  if (file) leftOutFields.push({ field: FILE_BODY, reason: 'base64' });
   return { fields: kept, leftOutFields };
 }
 
@@ -366,20 +425,24 @@ export function ignoredFieldsOf(
   return ignored;
 }
 
-/** Whether a column of a snapshot is a value a rewind compares, rather than a stamp or the person flag. */
-function isValueColumn(field: string): boolean {
+/**
+ * Whether a column of a snapshot of `objectApiName` is a value a rewind
+ * compares, rather than a stamp, the person flag or a file's witness.
+ */
+function isValueColumn(objectApiName: string, field: string): boolean {
   const name = field.toLowerCase();
   return (
     name !== PERSON_ACCOUNT_FLAG.toLowerCase() &&
-    !SNAPSHOT_STAMPS.some((stamp) => stamp.toLowerCase() === name)
+    !SNAPSHOT_STAMPS.some((stamp) => stamp.toLowerCase() === name) &&
+    !witnessesOf(objectApiName).has(name)
   );
 }
 
 /**
  * The fields of a snapshot a comparison with the org reads: its values, less
- * the stamps and the person flag, and less the fields its owner chose not to
- * compare — those an automation sets again on every save would otherwise keep
- * every rewind partial.
+ * the stamps, the person flag and a file's witnesses, and less the fields its
+ * owner chose not to compare — those an automation sets again on every save
+ * would otherwise keep every rewind partial.
  */
 export function comparedFields(
   objectApiName: string,
@@ -388,7 +451,7 @@ export function comparedFields(
 ): string[] {
   const ignored = ignoredFieldsOf(objectApiName, ignoredFields);
   return snapshotFields.filter(
-    (field) => isValueColumn(field) && !ignored.has(field.toLowerCase()),
+    (field) => isValueColumn(objectApiName, field) && !ignored.has(field.toLowerCase()),
   );
 }
 
@@ -432,7 +495,7 @@ export async function restoreAllowList(input: RestoreAllowListInput): Promise<Re
   const notWritten: RestoreAllowList['notWritten'] = [];
   const present: string[] = [];
   for (const field of input.snapshotFields) {
-    if (!isValueColumn(field)) continue;
+    if (!isValueColumn(input.objectApiName, field)) continue;
     if (ignored.has(field.toLowerCase())) notWritten.push({ field, reason: 'ignored' });
     // Deleted since, or hidden since by field-level security: the describe
     // lists neither, and the org refuses a query or an update that names it.

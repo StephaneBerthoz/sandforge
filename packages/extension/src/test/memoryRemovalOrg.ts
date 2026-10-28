@@ -62,7 +62,14 @@
  * the bin unless told, as the org was seen to refuse it.
  *
  * A statement it cannot read throws (`memorySoql.ts`), so one it cannot read
- * never passes for one that selects nothing.
+ * never passes for one that selects nothing. A semi-join, `Field IN (SELECT
+ * Column FROM Object [WHERE …])`, is read as the list of what its inner
+ * statement selects, from the rows the outer one sees.
+ *
+ * What a subclass changes of what the org does — which rows a statement
+ * sees, which it refuses, what follows a delete or an undelete — goes through
+ * the protected hooks `rowsFor`, `statementRefusal`, `removed` and
+ * `undeleted`; a file's org (`memoryFileOrg.ts`) is one.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
@@ -202,9 +209,10 @@ export interface MemoryOrgOptions {
   now?: () => number;
   /**
    * The rows of each page a query answers: 2,000 unless given, or by the
-   * page's place from 0, since an org's pages are not all the same size.
+   * page's place from 0 and the statement, since an org's pages are not all
+   * the same size, and it answers a wide statement in shorter pages (P-D2).
    */
-  pageSize?: number | ((page: number) => number);
+  pageSize?: number | ((page: number, soql: string) => number);
   /** Open cursors past which a new one releases the oldest: none unless given. */
   cursorLimit?: number;
 }
@@ -312,10 +320,11 @@ interface ClearedLookup {
   value: string;
 }
 
-/** An open cursor: the rows it read, and the pages it has answered. */
+/** An open cursor: the rows it read, the pages it has answered, and the statement it answers. */
 interface Cursor {
   rows: MemoryRow[];
   pages: number;
+  soql: string;
 }
 
 /** The answer of one read of a request, before it is sent back. */
@@ -357,8 +366,9 @@ export class MemoryRemovalOrg implements RemovalOrg {
   private readonly schemaChanged = new Map<string, { at: number; fields: unknown[] }>();
   private readonly cursors = new Map<string, Cursor>();
   private cursorsOpened = 0;
-  private readonly now: () => number;
-  private readonly pageSize: (page: number) => number;
+  /** The org's clock, in ms since the epoch. */
+  protected readonly now: () => number;
+  private readonly pageSize: (page: number, soql: string) => number;
   private readonly cursorLimit: number;
   /** Records whose delete the org refuses, with its answer. */
   readonly refuse = new Map<string, string>();
@@ -558,7 +568,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
    * The rows a read sees: the live ones but archived activities; reading the
    * recycle bin too, those as well, and the deleted ones.
    */
-  private visible(objectApiName: string, scanAll: boolean): MemoryRow[] {
+  protected visible(objectApiName: string, scanAll: boolean): MemoryRow[] {
     const live = this.all(objectApiName);
     if (!scanAll) return live.filter((row) => row.IsArchived !== true);
     for (const held of this.binned.values()) {
@@ -568,11 +578,52 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return live;
   }
 
+  /**
+   * The rows `soql`, a statement of `objectApiName`, sees: {@link visible}'s,
+   * unless a subclass sees others.
+   */
+  protected rowsFor(objectApiName: string, scanAll: boolean, _soql: string): MemoryRow[] {
+    return this.visible(objectApiName, scanAll);
+  }
+
+  /** The org's refusal of `soql`, a statement of `objectApiName`, before it reads: none unless a subclass has one. */
+  protected statementRefusal(_objectApiName: string, _soql: string): Error | undefined {
+    return undefined;
+  }
+
+  /** Called with each record a delete sends to the recycle bin, what cascades included, once it is there. */
+  protected removed(_objectApiName: string, _row: MemoryRow): void {}
+
+  /** Called with each record an undelete brings back, what comes back with it included, once it is back. */
+  protected undeleted(_objectApiName: string, _row: MemoryRow): void {}
+
+  /**
+   * `soql` with each semi-join, `IN (SELECT Column FROM Object [WHERE …])`,
+   * read as the list of what its inner statement selects of the rows it
+   * sees, through the recycle bin when the outer statement reads it.
+   */
+  private withSemiJoinsRead(soql: string, scanAll: boolean): string {
+    return soql.replace(
+      /\bIN\s*\(\s*(SELECT\s+(\w+)\s+FROM\s+(\w+)(?:\s+WHERE\s+[^()]+)?)\s*\)/gi,
+      (_whole, inner: string, column: string, object: string) => {
+        const statement = parseSoql(inner);
+        const values = selectFrom(this.rowsFor(object, scanAll, inner), statement)
+          .map((row) => row[column])
+          .filter((value): value is string => typeof value === 'string');
+        // An empty list is no statement the org reads: one no id can match.
+        const listed = values.length > 0 ? values : ['000000000000000AAA'];
+        return `IN (${listed.map((value) => `'${value}'`).join(', ')})`;
+      },
+    );
+  }
+
   /** The first page of what `soql` selects, a cursor kept for the rest. */
   private run(soql: string, scanAll: boolean): MemoryQueryPage {
-    const statement = parseSoql(soql);
+    const statement = parseSoql(this.withSemiJoinsRead(soql, scanAll));
     const refusal = this.refuseRead.get(statement.object);
     if (refusal) throw orgError(refusal.errorCode, refusal.message);
+    const refused = this.statementRefusal(statement.object, soql);
+    if (refused) throw refused;
     for (const field of this.missingFields.get(statement.object) ?? []) {
       if (new RegExp(`\\b${field}\\b`).test(soql)) {
         throw orgError(
@@ -581,20 +632,20 @@ export class MemoryRemovalOrg implements RemovalOrg {
         );
       }
     }
-    const selected = selectFrom(this.visible(statement.object, scanAll), statement);
+    const selected = selectFrom(this.rowsFor(statement.object, scanAll, soql), statement);
     const columns = statement.columns;
     if (columns === null) return { totalSize: selected.length, done: true, records: [] };
     const rows = selected.map(
       (row) => Object.fromEntries(columns.map((column) => [column, row[column]])) as MemoryRow,
     );
-    const first = this.pageSize(0);
+    const first = this.pageSize(0, soql);
     if (rows.length <= first) return { totalSize: rows.length, done: true, records: rows };
     for (const oldest of this.cursors.keys()) {
       if (this.cursors.size < this.cursorLimit) break;
       this.cursors.delete(oldest);
     }
     const locator = `${LOCATOR_PREFIX}${++this.cursorsOpened}`;
-    this.cursors.set(locator, { rows, pages: 1 });
+    this.cursors.set(locator, { rows, pages: 1, soql });
     return {
       totalSize: rows.length,
       done: false,
@@ -611,7 +662,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
     const cursor = this.cursors.get(locator);
     if (!cursor) throw orgError('INVALID_QUERY_LOCATOR', 'invalid query locator');
     const from = Number(offset);
-    const to = from + this.pageSize(cursor.pages);
+    const to = from + this.pageSize(cursor.pages, cursor.soql);
     cursor.pages++;
     const records = cursor.rows.slice(from, to);
     if (to >= cursor.rows.length) {
@@ -961,6 +1012,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
         row,
         ...(key === root ? {} : { deletedWith: root }),
       });
+      this.removed(object, row);
       for (const child of this.children[object] ?? []) {
         if (child.cascadeDelete || child.restrictedDelete) continue;
         for (const held of this.all(child.childSObject)) {
@@ -1052,6 +1104,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
         row.LastModifiedDate = at;
         if (this.facts.undeleterIsLastModifier) row.LastModifiedById = by;
         this.table(entry.objectApiName).set(other, row);
+        this.undeleted(entry.objectApiName, row);
       }
       if (this.facts.undeleteRestoresLookups) {
         for (const [other] of back) this.restoreLookups(other, by);

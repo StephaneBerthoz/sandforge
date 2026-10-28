@@ -31,6 +31,15 @@
  * back — the org refuses a lookup to a record in the bin. A value from before
  * that names any record the undo leaves in the bin is left as it is.
  *
+ * The links between files and records the rewind wrote on its own are taken
+ * back last but one: the links it inserted again removed before anything
+ * goes back to the bin, the links it removed inserted again — each under a
+ * new Id, as Salesforce brings no link back from the recycle bin (P-A3) —
+ * and the sharing it gave back given the sharing from before, once the files
+ * and records they tie are back. A file the rewind deleted comes back with
+ * its links, a file it brought back goes back to the bin with them, as any
+ * record (P-A1).
+ *
  * Once through, it reads again by their ids the records it gave back, and
  * compares the values the org holds with those from before the rewind: a
  * field the org's automation set again on save, or one someone changed
@@ -50,6 +59,7 @@ import type {
   CheckpointObject,
   ForgeUndoObjectResult,
   ForgeUndoStatus,
+  RewindFilesResult,
   SyncRestoreObjectResult,
   SyncUndeleteObjectResult,
 } from '@sandforge/shared';
@@ -81,6 +91,15 @@ import {
   type SyncUndeleteOutcome,
   type UndeleteCall,
 } from '../sync/SyncRunUndelete.js';
+import {
+  addWritten,
+  insertFileLinks,
+  nothingWritten,
+  removeFileLinks,
+  shareFileLinks,
+  type FileLinksOrg,
+  type FileLinksWritten,
+} from './fileLinksWrite.js';
 import type { CheckpointFolder, OrgLock } from './OrgCheckpointStore.js';
 import {
   reopenRewindJournal,
@@ -104,7 +123,11 @@ export interface UndoRewindInput {
    * comes back from the recycle bin comes parents first.
    */
   objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>>;
-  org: RemovalOrg;
+  /**
+   * The org; its inserts are what the links the rewind removed are inserted
+   * again through: an org that takes none has them refused, named.
+   */
+  org: RemovalOrg & Partial<Pick<FileLinksOrg, 'create'>>;
   /** Takes records out of the recycle bin by their ids (`conn.soap.undelete`). */
   undelete: UndeleteCall;
   /** Stops the undo before its next call to the org. */
@@ -158,6 +181,13 @@ export interface UndoRewindOutcome {
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
   undeleted: SyncUndeleteObjectResult[];
+  /**
+   * What it took back of the links between files and records the rewind
+   * wrote: the links it inserted again removed (`unlinked`), the links it
+   * removed inserted again (`relinked`), the sharing it gave back given back
+   * (`linksUpdated`). Absent when the rewind wrote no link.
+   */
+  files?: RewindFilesResult;
   residual: UndoResidual[];
   /** How many records each part set out to take back. */
   planned: { remove: number; bringBack: number; giveBack: number };
@@ -840,6 +870,34 @@ async function undoFrom(
     return plans.giveBackKeys.has(key) && restored !== undefined && !swept.notGiven.has(key);
   };
 
+  // The links the rewind inserted again go first, before what it brought
+  // back goes back to the bin: a link to a record in the bin is read by no
+  // one, and comes back with it the day it does.
+  const links = plans.links;
+  const linksDone: Record<'removed' | 'reinserted' | 'shared', FileLinksWritten> = {
+    removed: nothingWritten(),
+    reinserted: nothingWritten(),
+    shared: nothingWritten(),
+  };
+  if (links && links.remove.count > 0 && !signal?.aborted) {
+    for await (const page of links.remove.pages()) {
+      addWritten(
+        linksDone.removed,
+        await removeFileLinks(org, page, {
+          after: async ({ done }) => {
+            if (done.length > 0) {
+              await journal.linksUndone(
+                'removed',
+                done.map((link) => link.Id),
+              );
+            }
+          },
+          stopped: () => signal?.aborted === true,
+        }),
+      );
+    }
+  }
+
   let outcome: RunRemovalOutcome;
   if (plans.remove.spool.count > 0) {
     outcome = await removeRunRecords(org, plans.remove, {
@@ -860,6 +918,73 @@ async function undoFrom(
     if (!signal?.aborted) await sweep();
     outcome = nothingRemoved(signal?.aborted === true && !undeleted && !restored);
   }
+  // Once the files and records they tie are back: the links the rewind
+  // removed, inserted again, and the sharing it gave back given back.
+  if (links && !outcome.stoppedForUndeletable && !signal?.aborted) {
+    const create = org.create?.bind(org);
+    for await (const page of links.reinsert.pages()) {
+      if (!create) {
+        linksDone.reinserted.refused += page.length;
+        linksDone.reinserted.reasons.push(
+          'The links the rewind removed could not be inserted again: this connection inserts no record.',
+        );
+        continue;
+      }
+      addWritten(
+        linksDone.reinserted,
+        await insertFileLinks({ create }, page, {
+          after: async ({ made }) => {
+            if (made.length > 0) {
+              await journal.linksUndone(
+                'reinserted',
+                made.map((pair) => pair.from),
+              );
+            }
+          },
+          stopped: () => signal?.aborted === true,
+        }),
+      );
+    }
+    for await (const page of links.share.pages()) {
+      addWritten(
+        linksDone.shared,
+        await shareFileLinks(
+          org,
+          // Every field it holds sent: what the rewind wrote is not kept,
+          // and a value sent as the link holds it changes nothing.
+          page.map((link) => ({ ...link, now: { ShareType: '', Visibility: '' } })),
+          {
+            after: async ({ done }) => {
+              if (done.length > 0) {
+                await journal.linksUndone(
+                  'shared',
+                  done.map((link) => link.Id),
+                );
+              }
+            },
+            stopped: () => signal?.aborted === true,
+          },
+        ),
+      );
+    }
+  }
+  const files: RewindFilesResult | undefined = links
+    ? {
+        unlinked: linksDone.removed.done,
+        relinked: linksDone.reinserted.done,
+        linksUpdated: linksDone.shared.done,
+        linksRefused:
+          linksDone.removed.refused + linksDone.reinserted.refused + linksDone.shared.refused,
+      }
+    : undefined;
+  for (const reason of [
+    ...linksDone.removed.reasons,
+    ...linksDone.reinserted.reasons,
+    ...linksDone.shared.reasons,
+  ]) {
+    if (!notes.includes(reason)) notes.push(`A link between a file and a record: ${reason}`);
+  }
+
   const finishedAt = new Date().toISOString();
   if (outcome.stoppedForUndeletable) {
     return {
@@ -947,6 +1072,7 @@ async function undoFrom(
     residual = await stillDiffering(org, plans, valuesBefore, notGiven, notes);
   }
   if (residual.length > 0 && status === 'success') status = 'partial';
+  if ((files?.linksRefused ?? 0) > 0 && status === 'success') status = 'partial';
 
   // Kept whatever it ended on, cancelled included, as a Sync run's removal
   // keeps its own: what the next undo sets out to take back, what it wrote
@@ -982,6 +1108,7 @@ async function undoFrom(
     ...(carriedAlone.length > 0 ? { carriedAlone } : {}),
     restored: restored?.objects ?? [],
     undeleted: undeleted?.objects ?? [],
+    ...(files ? { files } : {}),
     residual,
     planned,
     notes,

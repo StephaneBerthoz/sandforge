@@ -294,6 +294,22 @@ describe('a removal past the bulk threshold', () => {
     expect(outcome.objects[0]).toMatchObject({ planned: 9_999, deleted: 9_999 });
   });
 
+  it('deletes files over REST alone, two hundred a call, past the threshold too: never by a job (T16)', async () => {
+    const files = Array.from({ length: 12_000 }, (_, n) => fakeId('069', n + 1));
+    const plan = [{ objectApiName: 'ContentDocument', ids: files }];
+    for (const handed of [plan, inPages(plan, 2_000)]) {
+      const org = new JobOrg();
+      org.add('ContentDocument', ...files.map((Id) => ({ Id })));
+
+      const outcome = await removeRunRecords(org, handed, OPTIONS);
+
+      expect(org.jobs).toEqual([]);
+      expect(org.calls).toHaveLength(60);
+      expect(org.calls.every((call) => call.ids.length === 200)).toBe(true);
+      expect(outcome.objects[0]).toMatchObject({ planned: 12_000, deleted: 12_000 });
+    }
+  });
+
   it('deletes over REST, whatever it holds, where the org takes no job', async () => {
     const { org, plan } = contactsUnderAnAccount(10_500);
     const rest: RemovalOrg = {

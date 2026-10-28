@@ -99,6 +99,40 @@ export interface CheckpointTakenBy {
   automatedProcessUserId?: string;
   viewAllData: true;
   modifyAllData: true;
+  /**
+   * Whether the user had Query All Files. Without it, a file the user does
+   * not own is read only by its id, or through a link to a record the user
+   * sees: one in a library the user is not a member of, or linked to no
+   * record the checkpoint holds, is never seen. Absent from a checkpoint
+   * taken before files were held.
+   */
+  queryAllFiles?: boolean;
+}
+
+/**
+ * The files a checkpoint holds beside its objects, in its folder's `files/`:
+ * the links between a file (`ContentDocument`) and a record of the checkpoint,
+ * and each file's latest version and size, which a rewind cannot write back
+ * and reads to tell a file given a new version since. A file's content is no
+ * record's value, and is not held.
+ *
+ * Absent from a checkpoint taken before files were held, and from one whose
+ * scope left `ContentDocument` out: a rewind to it leaves files added since
+ * where they are, as SandForge 1.69 did.
+ */
+export interface CheckpointFiles {
+  /** Files the checkpoint holds the latest version and size of: its own snapshot's, and every one a link names. */
+  documents: number;
+  /** Links between a file and a record of the checkpoint. */
+  links: number;
+  /** Of the files, those a link ties to a record of the checkpoint: those a rewind acts on. */
+  anchored: number;
+  /**
+   * Objects whose records' links were read by lists of their ids, the org
+   * having refused to read them with one statement, or answered too late.
+   * Absent when there is none.
+   */
+  readByIds?: string[];
 }
 
 /** An object the scope left out, with the reason a person reads. */
@@ -218,6 +252,8 @@ export interface OrgCheckpoint {
   status: CheckpointStatus;
   takenOn: CheckpointTakenOn;
   lastRewind?: CheckpointLastRewind;
+  /** Absent before files were held, and when the scope left files out: see {@link CheckpointFiles}. */
+  files?: CheckpointFiles;
 }
 
 // ─── Listing, scope and estimates ────────────────────────────────────────────
@@ -277,6 +313,22 @@ export interface CheckpointScopeObject {
 }
 
 /**
+ * What a take would hold of the org's files, said before it reads a record:
+ * whether its user has Query All Files, without which the files of libraries
+ * the user is not a member of are never seen, and the objects of files a
+ * scope of picked objects holds though they were not picked
+ * (`ContentDocument`, `Attachment`), which a rewind of the picked ones would
+ * otherwise leave as they are.
+ */
+export interface CheckpointScopeFiles {
+  /** Whether `ContentDocument` is among the objects held. */
+  held: boolean;
+  queryAllFiles: boolean;
+  /** Objects added to the objects picked; none in `everything` mode. */
+  addedToPicked: string[];
+}
+
+/**
  * The phases of a take, in the order it runs them, as its requests are
  * estimated and counted: the guard's reads and the day's limits, the
  * describes of the scope, the user and T0, the counts, the recycle bin at
@@ -319,8 +371,11 @@ export interface CheckpointEstimate {
  * undo writing to the org (`RUN_WRITING`), more API requests than the org has
  * left today, more records than the take's limit, automation not accepted,
  * deletions Undo could not bring back not accepted (`NO_UNDO`), records to
- * make again with new Ids not accepted (`RECREATE`), and more emails than the
- * org has left today of a daily limit (`EMAILS`), which nothing lifts either.
+ * make again with new Ids not accepted (`RECREATE`), more emails than the
+ * org has left today of a daily limit (`EMAILS`), which nothing lifts either,
+ * and files to bring back from the recycle bin that take more file storage
+ * than the org has left (`FILE_STORAGE`): a file in the bin takes none, and
+ * its undelete counts it again.
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
@@ -333,7 +388,8 @@ export type CheckpointRefusalCode =
   | 'AUTOMATION'
   | 'NO_UNDO'
   | 'RECREATE'
-  | 'EMAILS';
+  | 'EMAILS'
+  | 'FILE_STORAGE';
 
 /**
  * A write a rewind or an undo makes, as the org's automation fires on it:
@@ -394,14 +450,18 @@ export interface CheckpointRefusal {
  * since that Salesforce does not undelete on its own, and records deleted
  * since with their parent, a record of an object the checkpoint does not
  * hold (`deletedWithParentOutside`): they come back with that parent only,
- * which a checkpoint holding its object would bring back.
+ * which a checkpoint holding its object would bring back — and files given a
+ * new version since (`newFileVersion`): Salesforce neither deletes a version
+ * nor lets the latest point back at an older one, so such a file keeps its
+ * new content, the one it had staying in its version history.
  */
 export type RewindCannotUndoReason =
   | 'goneForGood'
   | 'convertedLead'
   | 'activatedContract'
   | 'deletedWithCreatedParent'
-  | 'deletedWithParentOutside';
+  | 'deletedWithParentOutside'
+  | 'newFileVersion';
 
 /** Fields of an object whose description changed since the take, by API name. */
 export interface RewindSchemaDrift {
@@ -505,6 +565,59 @@ export interface RewindDiffObject {
   notCompared: string[];
 }
 
+/**
+ * What a rewind to a checkpoint that holds files would do to the links
+ * between its files and its records, and what it leaves of the org's files.
+ * The files themselves are records of `ContentDocument` among the diff's
+ * objects: deleted, brought back, given their fields back, or named.
+ */
+export interface RewindFilesDiff {
+  /** Links added since between a file and a record that both stay: removed. */
+  unlink: number;
+  /**
+   * Links of the checkpoint removed since, between a file and a record that
+   * both stay: inserted again, each under a new Id, as Salesforce brings no
+   * link back from the recycle bin.
+   */
+  relink: number;
+  /** Links whose sharing (`ShareType`, `Visibility`) changed since: given back. */
+  updateLinks: number;
+  /**
+   * Files added since that no link ties to a record the checkpoint holds — a
+   * user's own, a library's: left, and counted.
+   */
+  outsideAdded: number;
+  /** Files deleted since that no link tied to a record the checkpoint holds: left in the recycle bin. */
+  outsideDeleted: number;
+  /** File storage, in bytes. */
+  storage: {
+    /** What the files it brings back from the recycle bin take once back: the bin holds them for nothing. */
+    bringBack: number;
+    /** What the org has left; absent when it did not say. */
+    remaining?: number;
+    /** What the files it deletes would take again, were Undo to bring them back. */
+    undo: number;
+  };
+  /**
+   * Set when the user lacks Query All Files: a file the user does not own
+   * that no link ties to a record the checkpoint holds — in a library the
+   * user is not a member of — is not seen, neither deleted nor brought back.
+   */
+  blindSpot?: true;
+}
+
+/** What a rewind did to the links between files and records, or an undo of one. */
+export interface RewindFilesResult {
+  /** Links it removed. */
+  unlinked: number;
+  /** Links it inserted again, each under a new Id. */
+  relinked: number;
+  /** Links it gave their sharing back. */
+  linksUpdated: number;
+  /** Links the org refused to remove, insert or update: each named among the residual. */
+  linksRefused: number;
+}
+
 /** What a rewind to a checkpoint would do, read from the org now, writing nothing. */
 export interface RewindDiff {
   checkpointId: string;
@@ -540,6 +653,15 @@ export interface RewindDiff {
    */
   parentsOutsideRequests?: number;
   /**
+   * The requests its reads of files sent beyond the reads every object has:
+   * the links of the records it holds as they are now, the files it reads by
+   * their ids — those the user sees no other way, those a link names that it
+   * did not find — and the links of the files to delete to anything else.
+   * Each read of the org since the checkpoint sends them again. Absent for a
+   * checkpoint that holds no files.
+   */
+  filesRequests?: number;
+  /**
    * Objects whose read failed, with the reason: never read as unchanged, so
    * the rewind leaves them as they are.
    */
@@ -548,6 +670,12 @@ export interface RewindDiff {
   userNames: Record<string, string>;
   /** The users who changed records of the checkpoint's objects in the hour before Tr. */
   activeLastHour: string[];
+  /**
+   * The links between files and records, and the files left: absent for a
+   * checkpoint that holds no files ({@link OrgCheckpoint.files}), whose
+   * rewind leaves files added since where they are.
+   */
+  files?: RewindFilesDiff;
 }
 
 // ─── The result of a rewind, and of an undo ──────────────────────────────────
@@ -675,6 +803,13 @@ export interface RewindResult {
    * when it deleted none.
    */
   removedJournals?: Array<{ checkpointId: string; name: string; rewindId: string }>;
+  /**
+   * What it did to the links between files and records: absent for a
+   * checkpoint that holds no files, and when it touched no link. The files
+   * it deleted and brought back are among {@link deleted} and
+   * {@link undeleted}, as `ContentDocument`.
+   */
+  files?: RewindFilesResult;
   /** API requests it used, counted by SandForge, and the requests the org has left today. */
   apiRequests: { used: number; leftToday: number };
   finishedAt: ISODateString;

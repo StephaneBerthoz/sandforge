@@ -92,6 +92,21 @@
  *   status back alone, first: its other fields stay locked until it is.
  * - Deleted: the records spooled to disk, handed to `removeRunRecords`, named
  *   in the journal before, and what it left named once it answered.
+ * - Files, of a checkpoint that holds them: a file (`ContentDocument`) is a
+ *   record, deleted, brought back and given its fields back as one, never
+ *   made again; its links come and go with it and with the record they tie
+ *   it to, under the same Ids, in any order (P-A1, P-A5). A file to delete
+ *   is a record of the removal's: a link from it holds no record it is
+ *   linked to — the PDF an org generates as an order is activated kept the
+ *   order, as a removal found live. Once the deletions and
+ *   the give-back are through, the links that neither brings back are
+ *   written on their own (`fileLinksWrite.ts`): one added since removed, one
+ *   of the checkpoint removed since inserted again, one whose sharing changed
+ *   given it back, each named in the journal before it goes.
+ *
+ * Bringing a file back from the recycle bin takes file storage again, which
+ * the bin took none of (P-A8): a rewind that brings back more than the org has
+ * left is refused before it writes (`FILE_STORAGE`).
  *
  * **The second pass** runs once the first wrote anything: the org read again,
  * the pass planned from what the first left and from what the rewind's own
@@ -147,6 +162,7 @@ import {
   type OrgTypeAndEdition,
   recordWriteHeaders,
   type RewindDiff,
+  type RewindFilesResult,
   type RewindResidual,
   type RewindResidualReason,
   type RewindRecreatedObject,
@@ -184,7 +200,29 @@ import {
   comparedFields,
   rowToWriteBack,
 } from './checkpointFields.js';
+import {
+  anchorOf,
+  fileLinkChangedLineSchema,
+  fileLinkClassFileOf,
+  fileLinkLineSchema,
+  heldFileDocuments,
+  heldPrefixesOf,
+  FILE_IDS_PER_READ,
+  FILE_LINK_COLUMNS,
+  type FileLinkChangedLine,
+  type FileLinkLine,
+} from './checkpointFiles.js';
 import { guardCheckpoint } from './checkpointGuard.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
+import {
+  SHARE_TYPE_WORDS,
+  USER_LINK_WORDS,
+  insertFileLinks,
+  nothingWritten,
+  removeFileLinks,
+  shareFileLinks,
+  type FileLinksWritten,
+} from './fileLinksWrite.js';
 import {
   OrgReadStopped,
   compositeReader,
@@ -206,6 +244,7 @@ import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewind
 import { checkpointEmails, emailsRefusal, writtenByPlan } from './rewindEmails.js';
 import {
   budgetRefusal,
+  fileStorageRefusal,
   readBudget,
   relationshipsOf,
   rewindWritesCost,
@@ -362,6 +401,10 @@ const NOTHING_WRITTEN = 'No record was written.';
 
 const ACCOUNT = 'Account';
 const CONTACT = 'Contact';
+
+/** The first three characters of the ids of an account and of a user, as a file's link names them. */
+const ACCOUNT_PREFIX = '001';
+const USER_PREFIX = '005';
 
 /** The org's objects as its global describe lists them, as far as a bring back reads them. */
 const globalObjectsSchema = z
@@ -586,6 +629,37 @@ async function* rowsOf(file: string): AsyncGenerator<OrgRow> {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 }
+
+/** The links of a plan's file of one class, read whole: a pass's links are a few thousand at most. */
+async function linksIn(file: string, cls: 'linkAdded' | 'linkRemoved'): Promise<FileLinkLine[]> {
+  const links: FileLinkLine[] = [];
+  for await (const row of rowsOf(file)) {
+    const parsed = fileLinkLineSchema.safeParse(row);
+    if (!parsed.success) {
+      throw new Error(`A line of ${file} names no ${cls} link: the plan is not whole.`);
+    }
+    links.push(parsed.data);
+  }
+  return links;
+}
+
+/** The links of a plan's file of links whose sharing changed, each beside the sharing it has now. */
+async function changedLinksIn(file: string): Promise<FileLinkChangedLine[]> {
+  const links: FileLinkChangedLine[] = [];
+  for await (const row of rowsOf(file)) {
+    const parsed = fileLinkChangedLineSchema.safeParse(row);
+    if (!parsed.success) throw new Error(`A line of ${file} names no link: the plan is not whole.`);
+    links.push(parsed.data);
+  }
+  return links;
+}
+
+/** The org's objects as its global describe lists them, as far as the prefixes of their ids. */
+const keyPrefixesSchema = z
+  .object({
+    sobjects: z.array(z.object({ name: z.string(), keyPrefix: z.string().nullish() }).loose()),
+  })
+  .loose();
 
 /** {@link guardCheckpoint}'s view of the org: it reads the answer's records, nothing else of jsforce's query. */
 function guardConnectionOf(org: RewindOrg): Pick<Connection, 'query'> {
@@ -864,6 +938,12 @@ class PassTally {
   readonly notInBin = new Map<string, RecordKeySet>();
   /** Per object, such records the checkpoint cannot make again: a file, or one it holds no values of. */
   readonly lost = new Map<string, RecordKeySet>();
+  /** What it wrote to the links between files and records: removed, inserted again, shared again. */
+  readonly links: Record<'unlink' | 'relink' | 'share', FileLinksWritten> = {
+    unlink: nothingWritten(),
+    relink: nothingWritten(),
+    share: nothingWritten(),
+  };
   wrote = false;
   cancelled = false;
 
@@ -1119,6 +1199,31 @@ function stepsOf(plan: RewindPlan): ForgeRemovalSteps {
   };
 }
 
+/**
+ * {@link stepsOf} with the writes to the links between files and records:
+ * a link removed is a delete, one inserted again an insert, one shared again
+ * an update — what a trigger on links, common ("a file attached updates the
+ * case"), runs on.
+ */
+function stepsWithLinks(plan: RewindPlan): ForgeRemovalSteps {
+  const steps = stepsOf(plan);
+  const { unlink, relink, share, unlinkFrom } = plan.links;
+  const add = (step: readonly string[] | undefined, writes: boolean): string[] =>
+    writes ? [...(step ?? []), FILE_LINK_OBJECT] : [...(step ?? [])];
+  return {
+    ...steps,
+    delete: add(steps.delete, unlink.count + unlinkFrom.count > 0),
+    recreate: add(steps.recreate, relink.count > 0),
+    giveBack: add(steps.giveBack, share.count > 0),
+  };
+}
+
+/** Links a plan writes on their own, or files whose links it removes. */
+function linkWrites(plan: RewindPlan): number {
+  const { unlink, relink, share, unlinkFrom } = plan.links;
+  return unlink.count + relink.count + share.count + unlinkFrom.count;
+}
+
 /** Whether a plan writes anything to the org. */
 function writes(plan: RewindPlan): boolean {
   return (
@@ -1126,7 +1231,8 @@ function writes(plan: RewindPlan): boolean {
       plan.bringBack.count +
       plan.recreate.count +
       plan.giveBack.beforeDeletes.count +
-      plan.giveBack.afterDeletes.count >
+      plan.giveBack.afterDeletes.count +
+      linkWrites(plan) >
     0
   );
 }
@@ -1220,7 +1326,7 @@ export async function rewindOrg(deps: RewindDeps, request: RewindRequest): Promi
   if (!guard.allowed) return { rewound: false, refusal: guard.refusal };
   const locked = deps.store.lock(checkpoint.org.organizationId, 'rewind', checkpoint.checkpointId);
   if ('busy' in locked) return { rewound: false, refusal: lockedRefusal(orgName, locked.busy) };
-  const rewind = new Rewind(deps, request, count, locked.lock);
+  const rewind = new Rewind(deps, request, count, locked.lock, guard.queryAllFiles);
   try {
     const writing = await deps.runWriting?.(guard.org.id);
     if (writing !== undefined) return refusedWith('RUN_WRITING', writing);
@@ -1274,6 +1380,8 @@ class Rewind {
     private readonly request: RewindRequest,
     private readonly count: ReturnType<typeof counted>,
     private readonly lock: OrgLock,
+    /** Whether its user has Query All Files, as its guard read it: what its reads see of files. */
+    private readonly queryAllFiles: boolean,
   ) {
     this.org = count.org;
     this.signal = deps.signal;
@@ -1305,6 +1413,7 @@ class Rewind {
       describeGlobal: () => this.describeGlobal(),
       previewId,
       readAt,
+      queryAllFiles: this.queryAllFiles,
       ...(this.signal ? { signal: this.signal } : {}),
     });
     return { diff, dir };
@@ -1331,6 +1440,7 @@ class Rewind {
         ? { removalStamps: { ...this.stamps } }
         : {}),
       ...(pass === 2 && this.spans.length > 0 ? { removalSpans: [...this.spans] } : {}),
+      ...(pass === 2 ? { recreated: await Recreated.read(this.request.folder) } : {}),
       dir: join(fresh.dir, `plan${pass}-${randomBytes(4).toString('hex')}`),
       ...(this.signal ? { signal: this.signal } : {}),
     });
@@ -1356,6 +1466,13 @@ class Rewind {
     const inCheckpoint = new Set(
       this.request.checkpoint.objects.map(({ objectApiName }) => objectApiName.toLowerCase()),
     );
+    // A checkpoint that holds files holds their links and versions with them,
+    // as its preview counts them: no relationship to either leads outside it.
+    if (this.request.checkpoint.files !== undefined) {
+      for (const held of [FILE_LINK_OBJECT, FILE_VERSION_OBJECT]) {
+        inCheckpoint.add(held.toLowerCase());
+      }
+    }
     const relationships = new Map<string, ObjectRelationships>();
     for (const [objectApiName, body] of this.kept.bodies) {
       relationships.set(
@@ -1395,6 +1512,15 @@ class Rewind {
     if (noUndo.length > 0) return { rewound: false, refusal: noUndoRefusal(noUndo) };
     const notMade = first.plan.left.filter((entry) => entry.reason === 'recreateNotAccepted');
     if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };
+    // The files it brings back take file storage again, which the bin took
+    // none of: past what the org has left, nothing is written.
+    const overStorage = fileStorageRefusal(
+      'rewind',
+      await this.bringBackFiles(first.plan, fresh.dir),
+      budget.fileStorage?.remaining,
+      orgName,
+    );
+    if (overStorage) return { rewound: false, refusal: overStorage };
     // A rewind stopped part way that wrote, whose work the fresh read finds
     // done: its journal is taken up to end it, and its Undo stays offered.
     const last = checkpoint.lastRewind;
@@ -1402,7 +1528,7 @@ class Rewind {
       last !== undefined && last.endedAt === undefined && last.undoneAt === undefined;
     const writing = writes(first.plan);
     if (!writing && !stoppedBefore) return this.wroteNothing(fresh, first, budget.remaining);
-    const steps = stepsOf(first.plan);
+    const steps = stepsWithLinks(first.plan);
     let automation: ForgeTargetAutomation | undefined;
     if (writing && this.deps.readAutomation) {
       const objects = [
@@ -1609,6 +1735,7 @@ class Rewind {
     }
     const read = await journal.read();
     const undoCannot = this.undoCannotOf(read);
+    const files = this.filesOf(residual, [one, ...(second ? [second.tally] : [])]);
     const carriers = (read.did.carriers ?? []).map(({ objectApiName, ids }) => ({
       objectApiName,
       count: ids.length,
@@ -1644,9 +1771,64 @@ class Rewind {
         undo: { until: undoUntil, cannot: undoCannot },
         removedJournals,
         carriers,
+        ...(files ? { files } : {}),
       }),
       notes: this.notes,
     };
+  }
+
+  /**
+   * What the passes did to the links between files and records, a link done
+   * once counted once, and the links the org refused as the verify names
+   * them: absent for a checkpoint that holds no files, and when no link was
+   * written or refused.
+   */
+  private filesOf(
+    residual: readonly RewindResidual[],
+    tallies: readonly PassTally[],
+  ): RewindFilesResult | undefined {
+    if (this.request.checkpoint.files === undefined) return undefined;
+    const sum = (part: 'unlink' | 'relink' | 'share'): number =>
+      tallies.reduce((total, tally) => total + tally.links[part].done, 0);
+    const files: RewindFilesResult = {
+      unlinked: sum('unlink'),
+      relinked: sum('relink'),
+      linksUpdated: sum('share'),
+      linksRefused: residual
+        .filter((entry) => entry.objectApiName === FILE_LINK_OBJECT && entry.reason === 'refused')
+        .reduce((total, entry) => total + entry.count, 0),
+    };
+    return files.unlinked + files.relinked + files.linksUpdated + files.linksRefused > 0
+      ? files
+      : undefined;
+  }
+
+  /**
+   * The files a plan brings back from the recycle bin, and the bytes they
+   * take once back: each by the size the fresh read found it in the bin
+   * with, else by the size the checkpoint holds of it.
+   */
+  private async bringBackFiles(
+    plan: RewindPlan,
+    freshDir: string,
+  ): Promise<{ files: number; bytes: number }> {
+    const files = new RecordKeySet();
+    for await (const ids of plan.bringBack.pages(FILE_OBJECT)) for (const id of ids) files.add(id);
+    if (files.size === 0) return { files: 0, bytes: 0 };
+    const sizes = new Map<string, number>();
+    for await (const row of rowsOf(deletedSpoolOf(freshDir, FILE_OBJECT))) {
+      if (typeof row.Id === 'string' && typeof row.ContentSize === 'number' && files.has(row.Id)) {
+        sizes.set(keyOf(row.Id), row.ContentSize);
+      }
+    }
+    if (sizes.size < files.size && this.request.checkpoint.files !== undefined) {
+      for await (const held of heldFileDocuments(this.request.folder)) {
+        if (files.has(held.Id) && !sizes.has(keyOf(held.Id)) && held.ContentSize !== null) {
+          sizes.set(keyOf(held.Id), held.ContentSize);
+        }
+      }
+    }
+    return { files: files.size, bytes: [...sizes.values()].reduce((sum, size) => sum + size, 0) };
   }
 
   /**
@@ -1703,6 +1885,8 @@ class Rewind {
     removedJournals?: EarlierJournalRemoved[];
     /** Per object, the carriers it brought back for a moment. */
     carriers?: RewindResult['carriers'];
+    /** What it did to the links between files and records. */
+    files?: RewindFilesResult;
   }): RewindResult {
     const used = this.count.used();
     return {
@@ -1723,6 +1907,7 @@ class Rewind {
       ...((parts.removedJournals ?? []).length > 0
         ? { removedJournals: parts.removedJournals }
         : {}),
+      ...(parts.files ? { files: parts.files } : {}),
       apiRequests: { used, leftToday: Math.max(0, parts.leftToday - used) },
       finishedAt: this.now().toISOString(),
     };
@@ -1915,12 +2100,128 @@ class Rewind {
         stamp,
       );
     }
+    // The links neither the deletions nor the bring-back write, once both
+    // ends of each are where the checkpoint holds them.
+    if (!tally.cancelled && !this.stopped() && linkWrites(plan) > 0) {
+      this.progress(
+        'givingBack',
+        pass,
+        pass === 1 ? 68 : 89,
+        'Putting back the links between files and records',
+      );
+      await this.writeLinks(journal, plan, tally);
+    }
     if (this.stopped()) tally.cancelled = true;
     await journal.removal({
       removalStamps: passStamps,
       removalSpans: outcome?.span ? [outcome.span] : [],
     });
     return tally;
+  }
+
+  /**
+   * Write the links of a pass's plan on their own, each call named in the
+   * journal before it goes and once it answered: the links added since
+   * removed — and those of a file kept for what it is shared with outside the
+   * checkpoint, to the records it holds that stay —, the checkpoint's removed
+   * since inserted again, to the records' Ids now, the sharing that changed
+   * since given back. See `fileLinksWrite.ts`.
+   */
+  private async writeLinks(
+    journal: RewindJournal,
+    plan: RewindPlan,
+    tally: PassTally,
+  ): Promise<void> {
+    const stopped = (): boolean => this.stopped();
+    const wrote = async (done: number): Promise<void> => {
+      if (done === 0) return;
+      tally.wrote = true;
+      await journal.wrote();
+    };
+    const unlink = await linksIn(plan.links.unlink.file, 'linkAdded');
+    const named = new Set(unlink.map((link) => keyOf(link.Id)));
+    for (const link of await this.heldLinksOf(plan.links.unlinkFrom, plan)) {
+      if (!named.has(keyOf(link.Id))) unlink.push(link);
+    }
+    tally.links.unlink = await removeFileLinks(this.org, unlink, {
+      before: (links) => journal.unlinking(links),
+      after: async ({ done, left }) => {
+        if (left.length > 0) await journal.unlinkLeft(left);
+        await wrote(done.length);
+      },
+      stopped,
+    });
+    if (tally.links.unlink.cancelled) tally.cancelled = true;
+
+    if (!tally.cancelled && plan.links.relink.count > 0) {
+      const made = await Recreated.read(this.request.folder);
+      tally.links.relink = await insertFileLinks(
+        this.org,
+        await linksIn(plan.links.relink.file, 'linkRemoved'),
+        {
+          after: async ({ made: pairs }) => {
+            if (pairs.length > 0) await journal.relinked(pairs);
+            await wrote(pairs.length);
+          },
+          stopped,
+        },
+        (id) => made.currentOf(keyOf(id)) ?? id,
+      );
+      if (tally.links.relink.cancelled) tally.cancelled = true;
+    }
+
+    if (!tally.cancelled && plan.links.share.count > 0) {
+      const changed = await changedLinksIn(plan.links.share.file);
+      const nowOf = new Map(changed.map((link) => [keyOf(link.Id), link.now]));
+      tally.links.share = await shareFileLinks(this.org, changed, {
+        // What each update writes over, kept first: the sharing it has now.
+        before: (links) =>
+          journal.linksUpdating(
+            links.map((link) => ({ ...link, ...(nowOf.get(keyOf(link.Id)) ?? {}) })),
+          ),
+        after: async ({ done, left }) => {
+          if (left.length > 0) await journal.linksUpdateLeft(left);
+          await wrote(done.length);
+        },
+        stopped,
+      });
+      if (tally.links.share.cancelled) tally.cancelled = true;
+    }
+  }
+
+  /**
+   * The links of the files `spool` names to the records of the checkpoint
+   * that stay, read from the org by the files' ids: those of files kept for
+   * what they are shared with outside a checkpoint of picked objects. A link
+   * to a record the pass deletes goes with that record.
+   */
+  private async heldLinksOf(spool: IdSpool, plan: RewindPlan): Promise<FileLinkLine[]> {
+    if (spool.count === 0) return [];
+    const global = keyPrefixesSchema.safeParse(await this.describeGlobal());
+    const prefixes = heldPrefixesOf(
+      global.success ? global.data.sobjects : [],
+      this.request.checkpoint.objects.map(({ objectApiName }) => objectApiName),
+    );
+    const links: FileLinkLine[] = [];
+    for await (const ids of spool.pages(FILE_OBJECT, FILE_IDS_PER_READ)) {
+      for (const list of idLists(ids, FILE_IDS_PER_READ)) {
+        let page: CountedPage = await this.org.query(
+          `SELECT ${FILE_LINK_COLUMNS.join(', ')} FROM ${FILE_LINK_OBJECT} ` +
+            `WHERE ContentDocumentId IN (${list})`,
+        );
+        for (;;) {
+          for (const row of page.records) {
+            const link = fileLinkLineSchema.safeParse(row);
+            if (!link.success || anchorOf(link.data, prefixes) === undefined) continue;
+            if (plan.deletes.has(keyOf(link.data.LinkedEntityId))) continue;
+            links.push(link.data);
+          }
+          if (page.done || !page.nextRecordsUrl) break;
+          page = await this.org.queryMore(page.nextRecordsUrl);
+        }
+      }
+    }
+    return links;
   }
 
   /**
@@ -2897,7 +3198,76 @@ class Rewind {
         });
       }
     }
+    await this.linksStillDiffering(verify.dir, made, tallies, add);
     return [...groups.values()];
+  }
+
+  /**
+   * The links between files and records the verify still finds otherwise
+   * than the checkpoint holds them, each named once, by the Id the verify
+   * names it by: kept, when Salesforce refuses whatever is sent — a link to
+   * a user, the sharing type of a link to an account —; refused, in the
+   * org's words, when a pass wrote it and the org refused; changed since
+   * the preview, when no pass set out to write it.
+   */
+  private async linksStillDiffering(
+    dir: string,
+    made: readonly PlanMade[],
+    tallies: readonly PassTally[],
+    add: (
+      objectApiName: string,
+      reason: RewindResidualReason,
+      id: string,
+      extra?: { message?: string },
+    ) => void,
+  ): Promise<void> {
+    if (this.request.checkpoint.files === undefined) return;
+    const pairOf = (link: Pick<FileLinkLine, 'ContentDocumentId' | 'LinkedEntityId'>): string =>
+      `${keyOf(link.ContentDocumentId)}:${keyOf(link.LinkedEntityId)}`;
+    const acted = new Set<string>();
+    for (const { plan } of made) {
+      for (const { file } of [plan.links.unlink, plan.links.relink, plan.links.share]) {
+        for await (const row of rowsOf(file)) {
+          const link = fileLinkLineSchema.safeParse(row);
+          if (link.success) acted.add(pairOf(link.data));
+        }
+      }
+    }
+    const refusals = new Map<string, string>();
+    for (const tally of [...tallies].reverse()) {
+      for (const part of ['unlink', 'relink', 'share'] as const) {
+        for (const { id, reason } of tally.links[part].left) refusals.set(keyOf(id), reason);
+      }
+    }
+    for (const cls of ['linkAdded', 'linkRemoved', 'linkChanged'] as const) {
+      for await (const row of rowsOf(fileLinkClassFileOf(dir, cls))) {
+        const parsed = fileLinkLineSchema.safeParse(row);
+        if (!parsed.success) continue;
+        const link = parsed.data;
+        const changed =
+          cls === 'linkChanged' ? fileLinkChangedLineSchema.safeParse(row) : undefined;
+        const typeOnly =
+          changed?.success === true &&
+          changed.data.now.Visibility === link.Visibility &&
+          changed.data.now.ShareType !== link.ShareType &&
+          link.LinkedEntityId.startsWith(ACCOUNT_PREFIX);
+        if (typeOnly) {
+          add(FILE_LINK_OBJECT, 'kept', link.Id, { message: SHARE_TYPE_WORDS });
+          continue;
+        }
+        if (cls === 'linkAdded' && link.LinkedEntityId.startsWith(USER_PREFIX)) {
+          add(FILE_LINK_OBJECT, 'kept', link.Id, { message: USER_LINK_WORDS });
+          continue;
+        }
+        if (!acted.has(pairOf(link))) {
+          add(FILE_LINK_OBJECT, 'changedSincePreview', link.Id);
+          continue;
+        }
+        add(FILE_LINK_OBJECT, 'refused', link.Id, {
+          message: refusals.get(keyOf(link.Id)) ?? STILL_DIFFERS,
+        });
+      }
+    }
   }
 
   /**

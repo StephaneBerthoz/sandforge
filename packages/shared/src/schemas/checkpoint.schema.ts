@@ -111,6 +111,24 @@ const checkpointObjectSchema = z.object({
     .max(5000),
 });
 
+/**
+ * What a checkpoint holds of the org's files beside its objects, in its
+ * folder's `files/`: how many files and links, and the objects whose links
+ * were read by lists of ids. A file held is one a link ties to a record of
+ * the checkpoint, or one its snapshot holds: never more anchored than held.
+ */
+const checkpointFilesSchema = z
+  .object({
+    documents: countSchema,
+    links: countSchema,
+    anchored: countSchema,
+    readByIds: z.array(apiNameSchema).min(1).max(10_000).optional(),
+  })
+  .refine((files) => files.anchored <= files.documents, {
+    path: ['anchored'],
+    message: 'More files anchored than held',
+  });
+
 /** `checkpoint.json`, version 1. */
 export const orgCheckpointSchema = z
   .object({
@@ -132,6 +150,8 @@ export const orgCheckpointSchema = z
       automatedProcessUserId: userIdSchema.optional(),
       viewAllData: z.literal(true),
       modifyAllData: z.literal(true),
+      // Absent from a checkpoint taken before files were held.
+      queryAllFiles: z.boolean().optional(),
     }),
     readFrom: instantSchema,
     takenAt: instantSchema,
@@ -163,6 +183,9 @@ export const orgCheckpointSchema = z
         undoneAt: instantSchema.optional(),
       })
       .optional(),
+    // Absent from a checkpoint taken before files were held, or whose scope
+    // left them out: its rewind leaves files added since where they are.
+    files: checkpointFilesSchema.optional(),
   })
   // T1 follows every read of the take, and the rewind's deletions keep every
   // record created before it: a T1 before T0 would move that boundary back

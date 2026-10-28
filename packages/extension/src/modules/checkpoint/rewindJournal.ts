@@ -23,8 +23,12 @@
  * point at that it deletes too, each beside that record, which Undo couldn't
  * bring back once both went; the records it makes again, those the recycle bin
  * no longer gives back, by the Ids they had before each insert and by the Ids
- * the org gave them once it answered; and the records it sets out to delete,
- * then, once the removal answered, those it left. After a crash, what it set
+ * the org gave them once it answered; the records it sets out to delete,
+ * then, once the removal answered, those it left; and of the links between
+ * files and records, each it removes — all of it, for its undo to insert it
+ * again — and once the org answered those it left, each it inserts again by
+ * the Id the org gave it beside the one it stands for, and the sharing each
+ * update writes over. After a crash, what it set
  * out to delete stands, and the undo finds out which of them the recycle bin
  * holds; a record an insert made that a crash kept from being named is the
  * next rewind's to delete, made since and held by nothing. What
@@ -41,7 +45,10 @@
  *
  * Read back, the journal is three plans for its undo: what to bring back
  * from the recycle bin, what to give back its values, and what to send back
- * there — what it brought back, and what it made again. A record the rewind
+ * there — what it brought back, and what it made again — and three of links:
+ * what to insert again, what to remove, and what sharing to give back. A link
+ * is never brought back from the bin (P-A3): one the rewind removed is
+ * inserted again under a new Id, with its two ends and its sharing. A record the rewind
  * brought back and then deleted again, or the
  * other way round, is where it was before: in none of them. The journal is
  * read a line at a time, never whole, and the plans are written to files of
@@ -101,6 +108,10 @@ import {
   type OrgCheckpointStore,
   type OrgLock,
 } from './OrgCheckpointStore.js';
+import { fileLinkLineSchema, type FileLinkLine } from './checkpointFiles.js';
+import { FILE_LINK_OBJECT } from './checkpointScope.js';
+import type { LinkSharing } from './fileLinksWrite.js';
+import { spooledRows } from './orgStreams.js';
 import type { RewoundObject } from './rewindEstimate.js';
 import { IdSpool, IdSpoolWriter, RecordKeySet, SpooledRunRecords } from './spooledRunRecords.js';
 
@@ -251,6 +262,67 @@ const removalLineSchema = z.object({
   at: instantSchema,
 });
 
+/**
+ * Links between files and records the rewind is about to remove, each whole
+ * — its two ends and its sharing — as its undo inserts it again: Salesforce
+ * brings no link back from the recycle bin (P-A3).
+ */
+const unlinkingLineSchema = z.object({
+  kind: z.literal('unlinking'),
+  links: z.array(fileLinkLineSchema).min(1).max(IDS_PER_LINE),
+  at: instantSchema,
+});
+
+/**
+ * Links whose write the org answered without writing them, after the line
+ * that named them: of a removal (`unlinkLeft`), of an update of their sharing
+ * (`linksUpdateLeft`). Their undo has nothing to take back.
+ */
+const linksLeftLineSchema = z.object({
+  kind: z.enum(['unlinkLeft', 'linksUpdateLeft']),
+  ids: idsSchema,
+  at: instantSchema,
+});
+
+/**
+ * Links the rewind inserted again, by the Ids the org gave them, `from[i]`
+ * the Id of the checkpoint's link `ids[i]` stands for: its undo removes them.
+ */
+const relinkedLineSchema = z.object({
+  kind: z.literal('relinked'),
+  ids: idsSchema,
+  from: idsSchema,
+  at: instantSchema,
+});
+
+/** A link's sharing, as an update writes over it. */
+const linkSharingSchema = fileLinkLineSchema.pick({
+  Id: true,
+  LinkedEntityId: true,
+  ShareType: true,
+  Visibility: true,
+});
+
+/** Links whose sharing the rewind is about to give back, each with the sharing it writes over. */
+const linksUpdatingLineSchema = z.object({
+  kind: z.literal('linksUpdating'),
+  links: z.array(linkSharingSchema).min(1).max(IDS_PER_LINE),
+  at: instantSchema,
+});
+
+/**
+ * What an undo took back of the links, as it goes: links it inserted again,
+ * by the Ids the rewind removed (`reinserted`); links it removed, by the Ids
+ * the rewind gave them (`removed`); links it gave their sharing back
+ * (`shared`). The next undo leaves them.
+ */
+const linksUndoneLineSchema = z.object({
+  kind: z.literal('linksUndone'),
+  part: z.enum(['reinserted', 'removed', 'shared']),
+  ids: idsSchema,
+  at: instantSchema,
+});
+
 /** A write answered, said once it has. */
 const wroteLineSchema = z.object({ kind: z.literal('wrote'), at: instantSchema });
 
@@ -276,6 +348,11 @@ const lineSchema = z.discriminatedUnion('kind', [
   stepIdsLineSchema,
   deletedLineSchema,
   removalLineSchema,
+  unlinkingLineSchema,
+  linksLeftLineSchema,
+  relinkedLineSchema,
+  linksUpdatingLineSchema,
+  linksUndoneLineSchema,
   wroteLineSchema,
   endLineSchema,
   undoLineSchema,
@@ -301,6 +378,11 @@ const WRITE_LINES: ReadonlySet<Line['kind']> = new Set([
   'deleteLeft',
   'deleted',
   'removal',
+  'unlinking',
+  'unlinkLeft',
+  'relinked',
+  'linksUpdating',
+  'linksUpdateLeft',
   'wrote',
 ]);
 
@@ -484,6 +566,18 @@ export interface RewindJournal {
   deleted(outcome: Pick<RunRemovalOutcome, 'left'>): Promise<void>;
   /** What a removal left on records, and when it ran: `removalStamps`, `removalSpans`. */
   removal(change: Pick<SyncRunRemovalState, 'removalStamps' | 'removalSpans'>): Promise<void>;
+  /** Links about to be removed, each whole, before the call goes: its undo inserts them again. */
+  unlinking(links: readonly FileLinkLine[]): Promise<void>;
+  /** Of the links of the last {@link unlinking}, those the org did not remove, once it answered. */
+  unlinkLeft(ids: readonly string[]): Promise<void>;
+  /** Links inserted again, each the Id the org gave it beside the one of the checkpoint's it stands for. */
+  relinked(pairs: ReadonlyArray<{ from: string; id: string }>): Promise<void>;
+  /** Links about to be given their sharing back, each with the sharing it holds now, before the call goes. */
+  linksUpdating(before: readonly LinkSharing[]): Promise<void>;
+  /** Of the links of the last {@link linksUpdating}, those the org did not update, once it answered. */
+  linksUpdateLeft(ids: readonly string[]): Promise<void>;
+  /** What an undo took back of the links, as it went: see the line's comment. */
+  linksUndone(part: 'reinserted' | 'removed' | 'shared', ids: readonly string[]): Promise<void>;
   /** A write answered: the latest time the rewind wrote moves to now. */
   wrote(): Promise<void>;
   /** The rewind went through: the next rewind of the checkpoint starts a journal of its own. */
@@ -851,6 +945,50 @@ class JournalFile implements RewindJournal {
     await this.append({ kind: 'removal', state: { version: 1, ...state } });
   }
 
+  async unlinking(links: readonly FileLinkLine[]): Promise<void> {
+    for (let at = 0; at < links.length; at += IDS_PER_LINE) {
+      await this.append({ kind: 'unlinking', links: links.slice(at, at + IDS_PER_LINE) });
+    }
+  }
+
+  async unlinkLeft(ids: readonly string[]): Promise<void> {
+    for (const chunk of chunksOf(ids)) await this.append({ kind: 'unlinkLeft', ids: chunk });
+  }
+
+  async relinked(pairs: ReadonlyArray<{ from: string; id: string }>): Promise<void> {
+    for (let at = 0; at < pairs.length; at += IDS_PER_LINE) {
+      const chunk = pairs.slice(at, at + IDS_PER_LINE);
+      await this.append({
+        kind: 'relinked',
+        ids: chunk.map(({ id }) => id),
+        from: chunk.map(({ from }) => from),
+      });
+    }
+  }
+
+  async linksUpdating(before: readonly LinkSharing[]): Promise<void> {
+    for (let at = 0; at < before.length; at += IDS_PER_LINE) {
+      const links = before.slice(at, at + IDS_PER_LINE).map((link) => ({
+        Id: link.Id,
+        LinkedEntityId: link.LinkedEntityId,
+        ShareType: link.ShareType,
+        Visibility: link.Visibility,
+      }));
+      await this.append({ kind: 'linksUpdating', links });
+    }
+  }
+
+  async linksUpdateLeft(ids: readonly string[]): Promise<void> {
+    for (const chunk of chunksOf(ids)) await this.append({ kind: 'linksUpdateLeft', ids: chunk });
+  }
+
+  async linksUndone(
+    part: 'reinserted' | 'removed' | 'shared',
+    ids: readonly string[],
+  ): Promise<void> {
+    for (const chunk of chunksOf(ids)) await this.append({ kind: 'linksUndone', part, ids: chunk });
+  }
+
   async wrote(): Promise<void> {
     await this.append({ kind: 'wrote' });
   }
@@ -957,6 +1095,12 @@ async function eachLine(
 
 /** A line that names each of its records beside another record must name as many: damage otherwise. */
 function pairedOrDamaged(line: Line): void {
+  if (line.kind === 'relinked' && line.from.length !== line.ids.length) {
+    throw new CheckpointStoreError(
+      'damaged',
+      'The rewind’s journal names links inserted again without the links they stand for.',
+    );
+  }
   if (line.kind === 'recreated' && line.from.length !== line.ids.length) {
     throw new CheckpointStoreError(
       'damaged',
@@ -1701,8 +1845,142 @@ export interface SpooledUndoPlans {
    * carrier stays there.
    */
   carriedAlone: { keys: RecordKeySet; objects: Array<{ objectApiName: string; count: number }> };
+  /**
+   * What the undo does to the links between files and records, each plan a
+   * file of lines in the plans' folder: see {@link UndoLinkPlans}. Absent
+   * when the rewind wrote no link, or an undo before took all of it back.
+   */
+  links?: UndoLinkPlans;
   /** Remove the plans' files. Once is enough. */
   dispose(): Promise<void>;
+}
+
+/** Links of an undo's plan, kept in a file of their own, read a page at a time. */
+export interface UndoLinkPlan<T> {
+  count: number;
+  pages(): AsyncGenerator<T[]>;
+}
+
+/**
+ * What an undo does to the links between files and records:
+ *
+ * - `reinsert`: the links the rewind removed, inserted again, each whole —
+ *   under a new Id, as the org brings no link back from the bin (P-A3);
+ * - `remove`: the links it inserted, removed, by the Ids the org gave them;
+ * - `share`: the links it gave their sharing back, given the sharing they
+ *   held before, as the first update wrote over it.
+ *
+ * A link the rewind inserted, then removed, is where it was before: in none.
+ */
+export interface UndoLinkPlans {
+  reinsert: UndoLinkPlan<FileLinkLine>;
+  remove: UndoLinkPlan<{ Id: string }>;
+  share: UndoLinkPlan<LinkSharing>;
+}
+
+/** Write `lines` to `file`, one a line, and the plan that reads them back a page at a time. */
+async function linkPlanOf<T>(
+  file: string,
+  lines: readonly T[],
+  read: (row: unknown) => T,
+): Promise<UndoLinkPlan<T>> {
+  if (lines.length > 0) {
+    await makePrivateDir(dirname(file));
+    await appendSynced(file, lines.map((line) => `${JSON.stringify(line)}\n`).join(''));
+  }
+  return {
+    count: lines.length,
+    pages: async function* () {
+      if (lines.length === 0) return;
+      let page: T[] = [];
+      for await (const row of spooledRows(file)) {
+        page.push(read(row));
+        if (page.length >= IDS_PER_LINE) {
+          yield page;
+          page = [];
+        }
+      }
+      if (page.length > 0) yield page;
+    },
+  };
+}
+
+/**
+ * The undo's plans of links, from a journal's lines read in their order:
+ * see {@link UndoLinkPlans}. What an undo before took back, and what the
+ * org answered it did not write, are in none.
+ */
+async function spoolLinkPlans(
+  journalFile: string,
+  dir: string,
+): Promise<UndoLinkPlans | undefined> {
+  const unlinked = new Map<string, FileLinkLine>();
+  const relinked = new Map<string, { Id: string }>();
+  const shared = new Map<string, LinkSharing>();
+  /** The links the last update named that no update before it did. */
+  let sharedNow = new Set<string>();
+  const reinserted = new Set<string>();
+  const removed = new Set<string>();
+  const given = new Set<string>();
+  await eachLine(journalFile, (line) => {
+    switch (line.kind) {
+      case 'unlinking':
+        for (const link of line.links) {
+          if (!unlinked.has(recordKey(link.Id))) unlinked.set(recordKey(link.Id), link);
+        }
+        break;
+      case 'unlinkLeft':
+        for (const id of line.ids) unlinked.delete(recordKey(id));
+        break;
+      case 'relinked':
+        for (const id of line.ids) relinked.set(recordKey(id), { Id: id });
+        break;
+      case 'linksUpdating':
+        sharedNow = new Set();
+        // The sharing kept first stands: an update of a second pass writes
+        // over what the first gave back, not what the rewind found.
+        for (const link of line.links) {
+          if (shared.has(recordKey(link.Id))) continue;
+          shared.set(recordKey(link.Id), link);
+          sharedNow.add(recordKey(link.Id));
+        }
+        break;
+      case 'linksUpdateLeft':
+        for (const id of line.ids) {
+          if (sharedNow.has(recordKey(id))) shared.delete(recordKey(id));
+        }
+        break;
+      case 'linksUndone': {
+        const into =
+          line.part === 'reinserted' ? reinserted : line.part === 'removed' ? removed : given;
+        for (const id of line.ids) into.add(recordKey(id));
+        break;
+      }
+      default:
+        break;
+    }
+  });
+  // Inserted by the rewind, then removed by it: as it was before.
+  for (const key of [...relinked.keys()]) {
+    if (!unlinked.has(key)) continue;
+    relinked.delete(key);
+    unlinked.delete(key);
+  }
+  const reinsert = [...unlinked].filter(([key]) => !reinserted.has(key)).map(([, link]) => link);
+  const remove = [...relinked].filter(([key]) => !removed.has(key)).map(([, link]) => link);
+  const share = [...shared].filter(([key]) => !given.has(key)).map(([, link]) => link);
+  if (reinsert.length + remove.length + share.length === 0) return undefined;
+  return {
+    reinsert: await linkPlanOf(join(dir, 'links.reinsert.ndjson'), reinsert, (row) =>
+      fileLinkLineSchema.parse(row),
+    ),
+    remove: await linkPlanOf(join(dir, 'links.remove.ndjson'), remove, (row) => ({
+      Id: z.object({ Id: idSchema }).parse(row).Id,
+    })),
+    share: await linkPlanOf(join(dir, 'links.share.ndjson'), share, (row) =>
+      linkSharingSchema.parse(row),
+    ),
+  };
 }
 
 /**
@@ -1931,6 +2209,7 @@ export async function spoolUndoPlans(
       });
     });
     const giveBack = await given.finish();
+    const links = await spoolLinkPlans(journalFile, dir);
     const held = new RecordKeySet();
     const heldCounts = new Map<string, number>();
     for (const { objectApiName } of giveBack.objects) {
@@ -1966,6 +2245,7 @@ export async function spoolUndoPlans(
         keys: carriedAlone,
         objects: [...carriedCounts].map(([objectApiName, count]) => ({ objectApiName, count })),
       },
+      ...(links ? { links } : {}),
       dispose,
     };
   } catch (err: unknown) {
@@ -2015,6 +2295,15 @@ export function rewoundObjects(plans: SpooledUndoPlans): RewoundObject[] {
   for (const { objectApiName, count } of plans.held.objects) {
     const object = of(objectApiName);
     object.givenBackHeld = (object.givenBackHeld ?? 0) + count;
+  }
+  // A link the rewind removed is inserted again, one it inserted removed,
+  // one it shared otherwise given its sharing back: a call of 200 each.
+  const links = plans.links;
+  if (links) {
+    const object = of(FILE_LINK_OBJECT);
+    object.deleted += links.reinsert.count;
+    object.broughtBack += links.remove.count;
+    object.givenBack += links.share.count;
   }
   return [...byObject.values()];
 }

@@ -128,6 +128,14 @@ const FILE_VERSION = 'ContentVersion';
 /** Files named per object: the count says how many there were. */
 const FILE_NAME_LIMIT = 5;
 
+/**
+ * The objects whose records never go by a Bulk API job, however many: a
+ * file's version, deleted by its document (`deleteVersions`); and a file,
+ * which a rewind deletes over REST alone — a job of files was never tried on
+ * an org, and 10,000 files go in 50 calls.
+ */
+const NEVER_BY_JOB: ReadonlySet<string> = new Set([FILE_VERSION, FILE]);
+
 /** Records told by their key, as a set of keys tells them, without holding them. */
 export interface RecordKeys {
   has(key: string): boolean;
@@ -281,6 +289,12 @@ interface PlatformAdded {
  *   already held. Cloning an account alone, it came after the run's last
  *   write and held the account. It is bookkeeping about the run's record,
  *   whenever it was written: the org deletes it with the record.
+ * - `ContentVersion`: a file's version, made with the file — the first one
+ *   makes it — or as a new version of it, which moves the file's own dates
+ *   (P-A6, a scratch org). A version of a file of the run's comes and goes
+ *   with it, the file's dates saying whether it changed since: read by its
+ *   own, a file made while a checkpoint was taken was held by its first
+ *   version, dated before the checkpoint's end, and a rewind kept it.
  *
  * The same clone had the platform write QuoteHistory, Pricebook2History and
  * ContentDocumentHistory rows, which this check never reads (the org gives
@@ -302,6 +316,10 @@ const PLATFORM_ADDED: Readonly<Record<string, PlatformAdded>> = {
   DuplicateRecordItem: {
     ends: ['RecordId'],
     cameWithRun: (row, runRecords) => isRunRecord(row.RecordId, runRecords),
+  },
+  ContentVersion: {
+    ends: ['ContentDocumentId'],
+    cameWithRun: (row, runRecords) => isRunRecord(row.ContentDocumentId, runRecords),
   },
 };
 
@@ -1462,7 +1480,7 @@ export async function removeRunRecords(
     // a time, as it did.
     const gathers =
       session.bulkDestroy !== undefined &&
-      objectApiName !== FILE_VERSION &&
+      !NEVER_BY_JOB.has(objectApiName) &&
       count >= BULK_DELETE_THRESHOLD;
     let candidates: string[] = [];
     /** The place among the object's records of each candidate, by its key. */
@@ -2224,7 +2242,8 @@ function callsOf(ids: readonly string[]): DeleteRound[] {
  * {@link BULK_DELETE_THRESHOLD} records or more goes as jobs of up to
  * {@link BULK_DELETE_JOB_RECORDS}, where the org takes jobs; the rest in calls
  * of {@link RECORDS_PER_CALL}. A file's version is deleted by its document,
- * read first (`deleteVersions`): never by a job.
+ * read first (`deleteVersions`), and a file over REST: never by a job
+ * ({@link NEVER_BY_JOB}).
  */
 async function deleteRounds(
   org: RemovalOrg,
@@ -2232,7 +2251,7 @@ async function deleteRounds(
   ids: string[],
 ): Promise<DeleteRound[]> {
   const rounds: DeleteRound[] = [];
-  const byJob = org.bulkDestroy !== undefined && objectApiName !== FILE_VERSION;
+  const byJob = org.bulkDestroy !== undefined && !NEVER_BY_JOB.has(objectApiName);
   const cut = (list: string[]): void => {
     if (!byJob || list.length < BULK_DELETE_THRESHOLD) {
       rounds.push(...callsOf(list));

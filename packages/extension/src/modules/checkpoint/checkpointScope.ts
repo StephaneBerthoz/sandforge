@@ -18,9 +18,20 @@
  * - big objects, external objects, Data Cloud objects, Knowledge article
  *   versions and platform events, which neither the recycle bin nor an
  *   update reaches as it reaches a record;
- * - files: a file's contents and versions are no record's values;
+ * - the documents of the Documents tab, shared content kept in folders —
+ *   logos, letterheads, email template images — as setup is;
  * - and any object the org will not read without a filter, which never fails
  *   the checkpoint.
+ *
+ * Files are held. A file is a `ContentDocument`, held as a record though the
+ * data API creates none — a rewind never makes a file, it deletes one, brings
+ * one back or gives its fields back — with its versions and its links to
+ * records held through it: Salesforce neither deletes nor brings back a
+ * version on its own, and a link is read through the record it ties a file
+ * to (`checkpointFiles.ts`). An `Attachment` of the old model is a record
+ * like any other, its body left out as every file body is. Picked objects
+ * hold both unless they are left out by name: a rewind of the picked objects
+ * would otherwise leave the files added to their records since.
  *
  * A managed package's objects stay: a party of an industry package is data
  * like an account, and a copy that leaves such a package out does so because
@@ -43,6 +54,8 @@ export const globalObjectSchema = z
     deletable: z.boolean().optional(),
     customSetting: z.boolean().optional(),
     layoutable: z.boolean().optional(),
+    /** The first three characters of its records' ids: what tells the object a link names. */
+    keyPrefix: z.string().nullish(),
   })
   .loose();
 
@@ -70,8 +83,10 @@ export type ScopeLeftOutReason =
   | 'unsupportedKind'
   /** A custom setting: configuration. */
   | 'customSetting'
-  /** A file, its versions, documents and links, or an attachment. */
+  /** A document of the Documents tab: shared content kept in folders. */
   | 'files'
+  /** A file's version or link: held with its file, `ContentDocument`. */
+  | 'heldWithFiles'
   /** Users, permissions and the rest of setup, and the org's logs and jobs. */
   | 'setup'
   /** Metadata, which the Tooling API serves: deployed, not kept as data. */
@@ -104,6 +119,12 @@ export interface ScopeCandidates {
   /** The objects to describe, by the names the org gives them. */
   candidates: string[];
   leftOut: ScopeLeftOut[];
+  /**
+   * In `picked` mode, the objects of {@link HELD_WHEN_PICKED} the scope holds
+   * though they were not picked, by the names the org gives them; none in
+   * `everything` mode.
+   */
+  addedToPicked: string[];
 }
 
 /** What a person asks a checkpoint to hold. */
@@ -115,6 +136,25 @@ export interface ScopeRequest {
   excluded?: readonly string[];
 }
 
+/** A file, as the org names its object: held, and its versions and links with it. */
+export const FILE_OBJECT = 'ContentDocument';
+
+/** The link of a file to a record, read through the record: held with its file. */
+export const FILE_LINK_OBJECT = 'ContentDocumentLink';
+
+/** A file's version, which Salesforce deletes and brings back with its file only. */
+export const FILE_VERSION_OBJECT = 'ContentVersion';
+
+/** A file of the old model, hanging from one record: held as a record, its body left out. */
+export const ATTACHMENT_OBJECT = 'Attachment';
+
+/**
+ * The objects of files that picked objects hold though they were not picked,
+ * unless left out by name: a rewind of the picked objects would otherwise
+ * leave as they are the files added to their records since.
+ */
+export const HELD_WHEN_PICKED: readonly string[] = [FILE_OBJECT, ATTACHMENT_OBJECT];
+
 /**
  * Chatter's records that hold what people post. Their names end in no suffix
  * the copy's rule reads — a feed item's ends in `item` — and a post comes
@@ -123,10 +163,14 @@ export interface ScopeRequest {
 const CHATTER_OBJECTS: ReadonlySet<string> = new Set(['feeditem', 'feedcomment', 'feedattachment']);
 
 /**
- * A file's document and its links to records: a checkpoint holds no file,
- * nor the objects holding a file's body, which every copy leaves out too.
+ * A file's versions and its links to records: held with the file, never as
+ * objects of their own. Salesforce neither deletes nor brings back a version
+ * on its own (`deletable` and `undeletable` false), and refuses to read the
+ * links without naming the file or the record they tie (FA4).
  */
-const FILE_OBJECTS: ReadonlySet<string> = new Set(['contentdocument', 'contentdocumentlink']);
+const HELD_WITH_FILES: ReadonlySet<string> = new Set(
+  [FILE_VERSION_OBJECT, FILE_LINK_OBJECT].map((name) => name.toLowerCase()),
+);
 
 /**
  * Big objects, external objects, Data Cloud objects, Knowledge article
@@ -156,6 +200,7 @@ interface DescribedOut {
 const WORKED_WITHOUT_LAYOUT: ReadonlySet<string> = new Set(
   [
     'AccountContactRole',
+    ATTACHMENT_OBJECT,
     'CaseTeamMember',
     'EmailMessageRelation',
     'EventRelation',
@@ -181,18 +226,33 @@ function leftOutReason(
   if (name.endsWith('changeevent')) return 'changeEvent';
   if (UNSUPPORTED_SUFFIXES.some((suffix) => name.endsWith(suffix))) return 'unsupportedKind';
   if (object.customSetting === true) return 'customSetting';
-  if (FILE_OBJECTS.has(name) || isFileBodiedObject(object.name)) return 'files';
+  if (HELD_WITH_FILES.has(name)) return 'heldWithFiles';
+  // Every copy leaves both out, a file for its body: a checkpoint holds
+  // their records and none of their bodies. A file is held though the data
+  // API creates none, as a rewind never makes one.
+  if (name === FILE_OBJECT.toLowerCase()) return editable(object) ? undefined : 'notWritable';
+  if (name === ATTACHMENT_OBJECT.toLowerCase())
+    return writableData(object) ? undefined : 'notWritable';
+  if (isFileBodiedObject(object.name)) return 'files';
   if (isNeverCopiedWhenPicked(object.name)) return 'setup';
   if (mode === 'everything' && object.layoutable === false && !WORKED_WITHOUT_LAYOUT.has(name)) {
     return 'setup';
   }
   if (described.out.has(name)) return described.tooling.has(name) ? 'metadata' : 'notWritable';
-  const writable =
-    object.queryable === true &&
-    object.createable === true &&
-    object.updateable === true &&
-    object.deletable === true;
-  return writable ? undefined : 'notWritable';
+  return writableData(object) ? undefined : 'notWritable';
+}
+
+/** Whether the user may query, create, edit and delete an object's records. */
+function writableData(object: GlobalObject): boolean {
+  return object.createable === true && editable(object);
+}
+
+/**
+ * Whether the user may query, edit and delete an object's records: what a
+ * rewind does to a file, which it never creates.
+ */
+function editable(object: GlobalObject): boolean {
+  return object.queryable === true && object.updateable === true && object.deletable === true;
 }
 
 /** Names in code-unit order, so that the same org gives the same list on any machine. */
@@ -226,6 +286,7 @@ export function scopeCandidates(
   const leftOut: ScopeLeftOut[] = [];
   const candidates: string[] = [];
   const asked: GlobalObject[] = [];
+  const addedToPicked: string[] = [];
   if (request.mode === 'picked') {
     const seen = new Set<string>();
     for (const picked of request.objects ?? []) {
@@ -235,6 +296,16 @@ export function scopeCandidates(
       const object = byLowerName.get(key);
       if (object) asked.push(object);
       else leftOut.push({ objectApiName: picked, reason: 'notFound' });
+    }
+    // Only an org that has them, and only when not left out by name: a
+    // scope that leaves files out by name keeps the rewind of 1.69, which
+    // leaves files added since.
+    for (const name of HELD_WHEN_PICKED) {
+      const key = name.toLowerCase();
+      const object = byLowerName.get(key);
+      if (seen.has(key) || excluded.has(key) || object === undefined) continue;
+      asked.push(object);
+      addedToPicked.push(object.name);
     }
   } else {
     asked.push(...byLowerName.values());
@@ -248,7 +319,7 @@ export function scopeCandidates(
   }
   candidates.sort();
   leftOut.sort(byName);
-  return { mode: request.mode, candidates, leftOut };
+  return { mode: request.mode, candidates, leftOut, addedToPicked };
 }
 
 /** An object a checkpoint holds. */

@@ -5131,6 +5131,7 @@
         "deletedWithParentOutside_other": "その後、チェックポイントにないオブジェクトのレコードである親と一緒に削除された {{formatted}} 件のレコードは、ごみ箱に残ります。Salesforce はその親と一緒にしか戻しません。親のオブジェクトを含むチェックポイントなら復元できます ({{objects}})。",
         "convertedLead_other": "その後に {{formatted}} 件のリードが取引開始されました。Salesforce はリードの取引開始を取り消せません。取引開始で作成されたものは削除し、リードは取引開始済みのまま残ります。",
         "activatedContract_other": "その後に {{formatted}} 件の契約が有効化されました。Salesforce はドラフトに戻さないため、有効なまま残ります。",
+        "newFileVersion_other": "その後に {{formatted}} 件のファイルに新しいバージョンが追加されました。Salesforce はバージョンを削除せず、古いバージョンを最新に戻すこともできないため、ファイルは新しい内容のまま残り、以前の内容はバージョン履歴に残ります。",
         "fieldRemoved": "{{field}} はチェックポイントの後に削除されました。削除済み項目から (15 日以内に) 復元してから、もう一度巻き戻してください。",
         "fieldsAdded_other": "{{fields}} はその後に追加されました。値はそのまま残ります。",
         "fieldsChanged_other": "{{fields}} の型はその後に変更されました。巻き戻しでは項目ごとに試します。",

@@ -30,6 +30,16 @@
  * and an org that will not say is taken for one whose user has neither. Every
  * act asks, the preview too: it writes nothing, but without View All Data it
  * would tell records the user cannot see as deleted since.
+ *
+ * Query All Files is read in the same statement, and its absence refuses
+ * nothing. Without it, a user with View All Data still does not see a file
+ * someone else owns in a read of the files that names no id, even linked to
+ * a record the user sees (P-A7, a scratch org); named by its id, through the
+ * link to that record, the file is seen, deleted and brought back. A
+ * checkpoint reads its files so, and what it cannot reach — a file of a
+ * library the user is not a member of, linked to no record it holds — is a
+ * blind spot it names. Asked for, it would refuse a checkpoint of each of the
+ * test orgs, whose admins all lack it, and of most orgs.
  */
 
 import type { Connection } from 'jsforce';
@@ -75,6 +85,11 @@ export type CheckpointGuardResult =
       /** The org as it said it is, live. */
       org: TypedTarget;
       tier: CheckpointOrgTier;
+      /**
+       * Whether the user has Query All Files: without it, files the user does
+       * not own are seen only by their id or through a link to a record.
+       */
+      queryAllFiles: boolean;
     }
   | { allowed: false; refusal: CheckpointRefusal };
 
@@ -83,6 +98,9 @@ const PERMISSIONS = [
   { field: 'PermissionsViewAllData', label: 'View All Data' },
   { field: 'PermissionsModifyAllData', label: 'Modify All Data' },
 ] as const;
+
+/** Query All Files, as `UserPermissionAccess` names it: read with the two, refusing nothing. */
+const QUERY_ALL_FILES = 'PermissionsQueryAllFiles';
 
 /** What a refusal says the guard did not do. */
 const NOTHING_DONE = 'No record was read or written.';
@@ -132,20 +150,39 @@ const NEEDS: Readonly<Record<CheckpointAct, string>> = {
 
 /**
  * The permissions of the two the running user lacks, by the names a person
- * reads, or why they could not be read.
+ * reads, and whether the user has Query All Files; or why the two could not
+ * be read.
+ *
+ * Query All Files is asked in the statement that asks the two. An org that
+ * refuses that statement is asked the two alone, and its user is then taken
+ * for one without Query All Files: a field the org does not know would
+ * otherwise refuse every checkpoint of it, for a permission that refuses
+ * none.
  */
-async function missingPermissions(
+async function permissionsOf(
   conn: Pick<Connection, 'query'>,
-): Promise<{ missing: string[] } | { unread: string }> {
-  try {
+): Promise<{ missing: string[]; queryAllFiles: boolean } | { unread: string }> {
+  const two = PERMISSIONS.map((p) => p.field);
+  const read = async (fields: readonly string[]): Promise<Record<string, unknown> | undefined> => {
     const answer = await conn.query<Record<string, unknown>>(
-      `SELECT ${PERMISSIONS.map((p) => p.field).join(', ')} FROM UserPermissionAccess`,
+      `SELECT ${fields.join(', ')} FROM UserPermissionAccess`,
     );
-    const row = answer.records[0];
-    return { missing: PERMISSIONS.filter((p) => row?.[p.field] !== true).map((p) => p.label) };
-  } catch (err: unknown) {
-    return { unread: err instanceof Error ? err.message : String(err) };
+    return answer.records[0];
+  };
+  let row: Record<string, unknown> | undefined;
+  try {
+    row = await read([...two, QUERY_ALL_FILES]);
+  } catch {
+    try {
+      row = await read(two);
+    } catch (err: unknown) {
+      return { unread: err instanceof Error ? err.message : String(err) };
+    }
   }
+  return {
+    missing: PERMISSIONS.filter((p) => row?.[p.field] !== true).map((p) => p.label),
+    queryAllFiles: row?.[QUERY_ALL_FILES] === true,
+  };
 }
 
 /**
@@ -188,7 +225,7 @@ export async function guardCheckpoint(
     );
   }
 
-  const held = await missingPermissions(conn);
+  const held = await permissionsOf(conn);
   const opening = `${NEEDS[request.act]} see and put back what everyone changed.`;
   if ('unread' in held) {
     return refused(
@@ -207,5 +244,5 @@ export async function guardCheckpoint(
     );
   }
 
-  return { allowed: true, org, tier: tierOf(registered, org) };
+  return { allowed: true, org, tier: tierOf(registered, org), queryAllFiles: held.queryAllFiles };
 }

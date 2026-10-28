@@ -1233,3 +1233,108 @@ describe('the journals of earlier rewinds', () => {
     expect(existsSync(rewindDirOf(folder, taken))).toBe(true);
   });
 });
+
+describe('the journal of the links between files and records', () => {
+  const OBJECTS = [
+    { objectApiName: 'ContentDocument', readOrder: 0 },
+    { objectApiName: 'Account', readOrder: 1 },
+  ];
+  const file = (n: number): string => id('069', n);
+  const linkId = (n: number): string => id('06A', n);
+  const link = (n: number, entity: string, shareType = 'V') => ({
+    Id: linkId(n),
+    ContentDocumentId: file(n),
+    LinkedEntityId: entity,
+    ShareType: shareType,
+    Visibility: 'AllUsers',
+  });
+
+  /** The undo's plans of links of the journal, read back whole, then let go. */
+  async function linkPlansOf(journal: RewindJournal) {
+    const plans = await undoPlansOf(folder, journal.rewindId, OBJECTS);
+    try {
+      const read = async <T>(plan: { pages(): AsyncGenerator<T[]> } | undefined): Promise<T[]> => {
+        const lines: T[] = [];
+        if (plan) for await (const page of plan.pages()) lines.push(...page);
+        return lines;
+      };
+      return {
+        reinsert: await read(plans.links?.reinsert),
+        remove: await read(plans.links?.remove),
+        share: await read(plans.links?.share),
+        rewound: rewoundObjects(plans).filter((o) => o.objectApiName === 'ContentDocumentLink'),
+        none: plans.links === undefined,
+      };
+    } finally {
+      await plans.dispose();
+    }
+  }
+
+  it('names each link it removes whole, before the call, and what the org left once it answered; its undo inserts again what went, never what stayed (P-A3)', async () => {
+    const journal = await journalOpened();
+    await journal.unlinking([link(1, account(1)), link(2, account(2))]);
+    await journal.unlinkLeft([linkId(2)]);
+    await journal.close();
+
+    expect(linesOn(journal).map((line) => line.kind)).toEqual(['head', 'unlinking', 'unlinkLeft']);
+    const { reinsert, rewound } = await linkPlansOf(journal);
+    expect(reinsert).toEqual([link(1, account(1))]);
+    expect(rewound).toEqual([
+      { objectApiName: 'ContentDocumentLink', deleted: 1, broughtBack: 0, givenBack: 0 },
+    ]);
+  });
+
+  it('removes in its undo the links it inserted again, by the ids the org gave them, and gives back the sharing the first update wrote over', async () => {
+    const journal = await journalOpened();
+    await journal.relinked([{ from: linkId(3), id: linkId(30) }]);
+    await journal.linksUpdating([{ ...link(4, account(1)), ShareType: 'C' }]);
+    // A second pass writes over what the first gave back: the first's stands.
+    await journal.linksUpdating([{ ...link(4, account(1)), ShareType: 'I' }, link(5, account(2))]);
+    await journal.linksUpdateLeft([linkId(5)]);
+    await journal.close();
+
+    const { remove, share } = await linkPlansOf(journal);
+    expect(remove).toEqual([{ Id: linkId(30) }]);
+    expect(share).toEqual([
+      {
+        Id: linkId(4),
+        LinkedEntityId: account(1),
+        ShareType: 'C',
+        Visibility: 'AllUsers',
+      },
+    ]);
+  });
+
+  it('leaves out a link it inserted then removed, which is where it was, and what an undo before took back', async () => {
+    const journal = await journalOpened();
+    await journal.relinked([
+      { from: linkId(6), id: linkId(60) },
+      { from: linkId(7), id: linkId(70) },
+    ]);
+    await journal.unlinking([{ ...link(6, account(1)), Id: linkId(60) }]);
+    await journal.unlinking([link(8, account(1))]);
+    await journal.linksUndone('removed', [linkId(70)]);
+    await journal.linksUndone('reinserted', [linkId(8)]);
+    await journal.close();
+
+    expect(await linkPlansOf(journal)).toMatchObject({ none: true, rewound: [] });
+  });
+
+  it('refuses as damaged a line of links inserted again that names fewer links they stand for than links', async () => {
+    const journal = await journalOpened();
+    await journal.close();
+    appendFileSync(
+      join(journal.dir, 'journal.ndjson'),
+      `${JSON.stringify({
+        kind: 'relinked',
+        ids: [linkId(1), linkId(2)],
+        from: [linkId(3)],
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+
+    await expect(readRewindJournal(folder, journal.rewindId)).rejects.toMatchObject({
+      code: 'damaged',
+    });
+  });
+});

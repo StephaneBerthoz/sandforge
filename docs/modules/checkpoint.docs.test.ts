@@ -305,7 +305,8 @@ describe('docs/modules/checkpoint.md', () => {
       unsupportedKind:
         'big objects, external objects, Data Cloud objects, Knowledge article versions and platform events',
       customSetting: 'custom settings, which are configuration',
-      files: 'files, their versions, documents and links, and attachments',
+      files: 'the documents of the Documents tab, shared content kept in folders',
+      heldWithFiles: "a file's versions and links, listed there as held with their file",
       setup: 'users, permissions and the rest of setup',
       metadata: 'metadata, which is deployed rather than kept as data',
       notWritable: 'an object the user may not query, create, edit and delete',
@@ -526,6 +527,7 @@ describe('docs/modules/checkpoint.md', () => {
       'deletedWithCreatedParent',
       'deletedWithParentOutside',
       'goneForGood',
+      'newFileVersion',
     ]);
     expect(DIFF).toContain(
       "...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),",
@@ -537,6 +539,9 @@ describe('docs/modules/checkpoint.md', () => {
     );
     expect(DIFF).toContain(
       "? [{ reason: 'deletedWithParentOutside' as const, count: withParentOutside }]",
+    );
+    expect(DIFF).toContain(
+      "...(newVersions > 0 ? [{ reason: 'newFileVersion' as const, count: newVersions }] : []),",
     );
     const kept = /const LEFT_AS_IT_IS[^=]*= \{([\s\S]*?)\n\};/.exec(REWIND)?.[1] ?? '';
     expect([...kept.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1])).toEqual([

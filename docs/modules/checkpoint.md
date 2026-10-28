@@ -36,7 +36,7 @@ The moment worth keeping is often right after filling an org. The results of a S
     - Setup and configuration: users, permissions and the rest of setup; custom settings, which are configuration; metadata, which is deployed rather than kept as data; and, in **Everything people work in**, the setup the org keeps as records (permissions, OAuth scopes, license assignments), told by its having no page layout, but for the few related-list objects people work in without one, such as account contact roles and case team members.
     - Chatter and the org's own bookkeeping: Chatter posts, comments and their attachments; history, sharing and change-event objects.
     - Kinds a rewind cannot handle: big objects, external objects, Data Cloud objects, Knowledge article versions and platform events.
-    - Files: files, their versions, documents and links, and attachments.
+    - Files: the documents of the Documents tab, shared content kept in folders, as setup is; and a file's versions and links, listed there as held with their file, which the checkpoint holds as it holds attachments.
     - What the user or the org does not allow: an object the user may not query, create, edit and delete; an object the org would not describe; an object the org will not read without a filter, which never fails the take.
     - What it could not keep track of: an object with no `SystemModstamp`, whose changes nothing could tell; an object without a recycle bin, whose deleted records nothing could tell nor bring back.
     - Too large: an object holding more records than the take's limit, left out whole rather than kept in part.

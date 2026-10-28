@@ -155,6 +155,36 @@ describe('orgCheckpointSchema', () => {
     }
   });
 
+  it('reads the files a checkpoint holds and whether its user had Query All Files, and one taken before files were held', () => {
+    const before = readyCheckpoint();
+    const withFiles = checkpointWith({
+      takenBy: { ...(before.takenBy as object), queryAllFiles: false },
+      files: { documents: 12, links: 30, anchored: 9, readByIds: ['Contact'] },
+    });
+
+    expect(orgCheckpointSchema.parse(withFiles)).toMatchObject({
+      takenBy: { queryAllFiles: false },
+      files: { documents: 12, links: 30, anchored: 9, readByIds: ['Contact'] },
+    });
+    const parsed = orgCheckpointSchema.parse(before);
+    expect(parsed).not.toHaveProperty('files');
+    expect(parsed.takenBy).not.toHaveProperty('queryAllFiles');
+  });
+
+  it('refuses files more anchored than held, an empty list of objects read by ids, and counts that are not whole', () => {
+    for (const files of [
+      { documents: 2, links: 3, anchored: 3 },
+      { documents: 2, links: 3, anchored: 1, readByIds: [] },
+      { documents: 2.5, links: 3, anchored: 1 },
+      { documents: 2, links: 3 },
+    ]) {
+      expect(
+        orgCheckpointSchema.safeParse(checkpointWith({ files })).success,
+        JSON.stringify(files),
+      ).toBe(false);
+    }
+  });
+
   it('refuses a checkpoint whose take ends before it begins', () => {
     const backwards = checkpointWith({ takenAt: '2026-10-22T14:05:11.999Z' });
     const parsed = orgCheckpointSchema.safeParse(backwards);

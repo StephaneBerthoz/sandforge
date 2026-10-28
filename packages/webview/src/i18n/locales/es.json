@@ -5449,6 +5449,8 @@
         "convertedLead_other": "{{formatted}} candidatos se convirtieron desde entonces: Salesforce no puede deshacer la conversión de un candidato. Lo que crearon las conversiones se elimina, y los candidatos siguen convertidos.",
         "activatedContract_one": "{{formatted}} contrato se activó desde entonces: Salesforce no lo devolverá a Borrador, así que sigue activado.",
         "activatedContract_other": "{{formatted}} contratos se activaron desde entonces: Salesforce no los devolverá a Borrador, así que siguen activados.",
+        "newFileVersion_one": "{{formatted}} archivo recibió una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que el archivo conserva su nuevo contenido y el anterior queda en su historial de versiones.",
+        "newFileVersion_other": "{{formatted}} archivos recibieron una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que los archivos conservan su nuevo contenido y el anterior de cada uno queda en su historial de versiones.",
         "fieldRemoved": "{{field}} se eliminó desde el punto de control: restáurelo desde Campos eliminados (en un plazo de 15 días) y luego vuelva a retroceder.",
         "fieldsAdded_one": "{{fields}} se añadió desde entonces: sus valores se quedan.",
         "fieldsAdded_other": "{{fields}} se añadieron desde entonces: sus valores se quedan.",

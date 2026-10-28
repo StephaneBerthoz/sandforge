@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Connection } from 'jsforce';
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { MemoryFileOrg, fileId } from '../../test/memoryFileOrg.js';
 import {
   MEMORY_ORG_USER,
-  MemoryRemovalOrg,
   type MemoryChild,
   type MemoryOrgRequest,
 } from '../../test/memoryRemovalOrg.js';
@@ -21,6 +21,7 @@ import {
   type CheckpointFolder,
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
+import { heldFileDocuments, heldFileLinks } from './checkpointFiles.js';
 import { takeEstimate } from './rewindEstimate.js';
 import { SnapshotIndex, compressedSnapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
@@ -126,6 +127,8 @@ const CHILDREN: Record<string, MemoryChild[]> = {
   Account: [
     { childSObject: 'Contact', field: 'AccountId' },
     { childSObject: 'Case', field: 'AccountId', restrictedDelete: true },
+    // An account's attachments go with it, and come back with it (P-A9).
+    { childSObject: 'Attachment', field: 'ParentId', cascadeDelete: true },
   ],
   Contact: [{ childSObject: 'Case', field: 'ContactId' }],
 };
@@ -139,6 +142,60 @@ const DATA_OBJECTS: Record<string, Record<string, unknown>> = {
   Task: {},
 };
 
+/** The objects of files, as a scratch org's global describe lists them (FA1, FA2, FA10). */
+const FILE_OBJECTS: Record<string, Record<string, unknown>> = {
+  ContentDocument: { createable: false, keyPrefix: '069' },
+  ContentDocumentLink: { keyPrefix: '06A' },
+  ContentVersion: { deletable: false, keyPrefix: '068' },
+  Attachment: { layoutable: false, keyPrefix: '00P' },
+  Document: { layoutable: false, keyPrefix: '015' },
+};
+
+/** The prefixes of the data objects' ids, as the global describe gives them. */
+const KEY_PREFIXES: Record<string, string> = {
+  Account: '001',
+  Contact: '003',
+  Case: '500',
+  Task: '00T',
+  Lead: '00Q',
+};
+
+/** What the org describes of the objects of files a checkpoint describes. */
+const FILE_FIELDS: Record<string, unknown[]> = {
+  ContentDocument: [
+    ...STAMP_FIELDS,
+    writable('Title', 'string', { createable: false }),
+    writable('Description', 'textarea', { createable: false }),
+    writable('OwnerId', 'reference', { createable: false, referenceTo: ['User'] }),
+    writable('SharingPrivacy', 'picklist', { createable: false }),
+    writable('SharingOption', 'picklist', { createable: false }),
+    writable('ParentId', 'reference', { createable: false, referenceTo: ['ContentWorkspace'] }),
+    { name: 'LatestPublishedVersionId', type: 'reference', permissionable: false },
+    { name: 'ContentSize', type: 'int', permissionable: false },
+  ],
+  ContentDocumentLink: [
+    { name: 'Id', type: 'id', permissionable: false },
+    {
+      name: 'LinkedEntityId',
+      type: 'reference',
+      createable: true,
+      referenceTo: ['Account', 'Contact', 'Case', 'User', 'ContentWorkspace'],
+    },
+    { name: 'ContentDocumentId', type: 'reference', createable: true },
+    { name: 'IsDeleted', type: 'boolean', permissionable: false },
+    { name: 'SystemModstamp', type: 'datetime', permissionable: false },
+    writable('ShareType', 'picklist'),
+    writable('Visibility', 'picklist'),
+  ],
+  Attachment: [
+    ...STAMP_FIELDS,
+    writable('Name'),
+    writable('ParentId', 'reference', { referenceTo: ['Account', 'Contact', 'Case'] }),
+    writable('Body', 'base64'),
+    writable('IsPrivate', 'boolean'),
+  ],
+};
+
 /** The objects the org lists, beyond the data objects described above. */
 const LISTED_ELSEWHERE: Record<string, Record<string, unknown>> = {
   FeedItem: {},
@@ -147,11 +204,25 @@ const LISTED_ELSEWHERE: Record<string, Record<string, unknown>> = {
 };
 
 /**
+ * The rows of a page the memory org answers, as a scratch org answered them
+ * (P-D2): 1,000 to a statement of a snapshot's width — 49 columns of
+ * contacts — where 2,000 were asked, and the 2,000 asked to a narrow one, of
+ * ids and stamps. Where between 5 columns and 49 the org starts shortening
+ * its pages nothing measured; a snapshot's statement names its six stamps
+ * and a value at least.
+ */
+function pageRowsOf(_page: number, soql: string): number {
+  const select = /^SELECT (.+?) FROM /i.exec(soql)?.[1] ?? '';
+  return select.split(',').length > 6 ? 1_000 : 2_000;
+}
+
+/**
  * The memory org as a take reads it: its global describe lists what a test
  * says, with the rights of a user who may write everything, and it answers
- * `/limits`. Every statement and call it is sent is recorded.
+ * `/limits`. Every statement and call it is sent is recorded. It holds files
+ * as the probes saw a scratch org hold them (`memoryFileOrg.ts`).
  */
-class TakeTestOrg extends MemoryRemovalOrg implements TakeOrg {
+class TakeTestOrg extends MemoryFileOrg implements TakeOrg {
   limits = { Max: 15_000, Remaining: 14_000 };
   readonly asked: string[] = [];
   /** Called with each call's path or statement before it is answered: what a test fails a call from. */
@@ -163,8 +234,10 @@ class TakeTestOrg extends MemoryRemovalOrg implements TakeOrg {
   refusedInComposite?: (url: string) => boolean;
 
   constructor(private readonly listed: Record<string, Record<string, unknown>>) {
-    super(CHILDREN, { now: () => clock });
-    for (const [name, fields] of Object.entries(FIELDS)) this.changeSchema(name, fields);
+    super(CHILDREN, { now: () => clock, pageSize: pageRowsOf });
+    for (const [name, fields] of Object.entries({ ...FIELDS, ...FILE_FIELDS })) {
+      this.changeSchema(name, fields);
+    }
   }
 
   /** The Tooling API's global describe: a request, which lists no object here. */
@@ -189,6 +262,7 @@ class TakeTestOrg extends MemoryRemovalOrg implements TakeOrg {
         createable: true,
         updateable: true,
         deletable: true,
+        ...(KEY_PREFIXES[name] !== undefined ? { keyPrefix: KEY_PREFIXES[name] } : {}),
         ...extra,
       })),
     };
@@ -392,11 +466,13 @@ function snapshotReads(sent: Harness['sent']): string[] {
 
 /** Whether a statement read records of an object: anything but the guard's, the user's and the counts. */
 function readsRecords(asked: readonly string[]): string[] {
-  return asked.filter(
-    (what) =>
-      /IsDeleted = true/.test(decodeURIComponent(what)) ||
-      /SELECT Id, SystemModstamp/.test(decodeURIComponent(what)),
-  );
+  return asked.filter((what) => {
+    const read = decodeURIComponent(what);
+    return (
+      /IsDeleted = true|FROM ContentDocumentLink|SELECT Id, SystemModstamp/.test(read) &&
+      !/COUNT\(\)/.test(read)
+    );
+  });
 }
 
 describe('takeCheckpoint — what it keeps', () => {
@@ -555,6 +631,7 @@ describe('takeCheckpoint — what it keeps', () => {
       automatedProcessUserId: AUTOMATED_PROCESS,
       viewAllData: true,
       modifyAllData: true,
+      queryAllFiles: false,
     });
     expect(checkpoint.readFrom).toBe(new Date(T0).toISOString());
     expect(checkpoint.takenAt).toBe(new Date(T0).toISOString());
@@ -754,7 +831,9 @@ describe('takeCheckpoint — what moved while it was taken', () => {
 
     expect(checkpoint.movedWhileTaken).toEqual({ changed: 0, deleted: 0, created: 0 });
     expect(
-      h.org.asked.map(decodeURIComponent).filter((what) => what.includes('SystemModstamp >=')),
+      h.org.asked
+        .map(decodeURIComponent)
+        .filter((what) => what.includes('SystemModstamp >=') && !what.includes('COUNT()')),
     ).toEqual([]);
   });
 });
@@ -1019,9 +1098,16 @@ describe('scopeCheckpoint', () => {
       'User',
     ]);
     const { bytes, ...cost } = scope.estimate;
+    // Each object holding records counted again: its bin at T0 and what was
+    // stamped since the change reads' start, none of either.
     const { bytes: rowsAlone, ...expected } = takeEstimate({
       described: 5,
-      objects: [1, 3, 2, 0, 2].map((records) => ({ records, otherGroups: [] })),
+      recounted: 2 * 4,
+      objects: [1, 3, 2, 0, 2].map((records) => ({
+        records,
+        otherGroups: [],
+        ...(records > 0 ? { inBin: 0, stampedSince: 0 } : {}),
+      })),
       pageRows: 2_000,
     });
     expect(cost).toEqual({ ...expected, apiRequestsLeft: 14_000 });
@@ -1091,7 +1177,9 @@ describe('takeCheckpoint — the requests it sends', () => {
         scope: 4,
         // The user, the Automated Process user, T0.
         start: 3,
-        counts: 1,
+        // The five counts; then the bin and what was stamped since of the
+        // four objects holding records, in two calls.
+        counts: 1 + 2,
         bin: 1,
         // Four objects of a page each, and which org the snapshot is of.
         snapshot: 5,
@@ -1126,12 +1214,13 @@ describe('takeCheckpoint — the requests it sends', () => {
 
     const account = outcome.checkpoint.objects.find((o) => o.objectApiName === 'Account');
     expect(account?.records).toBe(2_600);
-    // Read in three groups: a page of 2,000 rows, then one of 600, each read
-    // again by its ids in the two other groups.
+    // Read in three groups: two pages of 1,000 rows, as the org answers a
+    // wide statement, then one of 600, each read again by its ids in the two
+    // other groups.
     const statements = h.sent.filter(({ soql }) => soql.includes('FROM Account WHERE Id IN ('));
     expect(statements.length).toBeGreaterThan(2 * 2 * 4);
     expect(outcome.requests?.byPhase.snapshot).toBe(
-      2 + statements.length + 1 + 3, // its pages, its reads by id, the org, the other objects
+      3 + statements.length + 1 + 3, // its pages, its reads by id, the org, the other objects
     );
     expect(differing(outcome)).toEqual({});
   });
@@ -1146,7 +1235,7 @@ describe('takeCheckpoint — the requests it sends', () => {
     const outcome = taken(await takeCheckpoint(h.deps, request()));
 
     expect(outcome.checkpoint.objects.map((object) => object.objectApiName)).toContain('Case');
-    expect(scope.estimate.requestsByPhase).toMatchObject({ scope: 3 + 1 + 1, counts: 1 + 1 });
+    expect(scope.estimate.requestsByPhase).toMatchObject({ scope: 3 + 1 + 1, counts: 1 + 1 + 2 });
     expect(outcome.requests?.byPhase).toEqual(scope.estimate.requestsByPhase);
   });
 
@@ -1166,9 +1255,10 @@ describe('takeCheckpoint — the requests it sends', () => {
     expect(outcome.checkpoint.scope.leftOut.map((out) => out.objectApiName)).toContain(
       'Opportunity',
     );
-    // Six objects counted, two composites; five kept, one composite of bin
-    // reads and one of checks.
-    expect(outcome.requests?.byPhase).toMatchObject({ counts: 2, bin: 1, stability: 2 });
+    // Six objects counted, two composites, and again the four kept that hold
+    // records, two more; five kept, one composite of bin reads and one of
+    // checks.
+    expect(outcome.requests?.byPhase).toMatchObject({ counts: 2 + 2, bin: 1, stability: 2 });
     expect(differing(outcome)).toEqual({});
   });
 
@@ -1227,6 +1317,307 @@ describe('takeCheckpoint — the requests it sends', () => {
 
     expect(handed).toHaveLength(1);
     expect(handed[0]).toBe(await vi.mocked(getJsforceConnection).mock.results[0]?.value);
+  });
+});
+
+describe('takeCheckpoint — the Automated Process user', () => {
+  it('names the user the org’s flows write as, among the two users of that type a scratch org has, in either order (P-B4)', async () => {
+    const users = [
+      { Id: '005000000000003AAA', UserType: 'AutomatedProcess', Name: 'Data.com Clean' },
+      { Id: '005000000000004AAA', UserType: 'AutomatedProcess', Name: 'Automated Process' },
+    ];
+    for (const listed of [users, [...users].reverse()]) {
+      const h = harness();
+      seed(h.org);
+      clock = LONG_AGO;
+      // The harness's lone user of the type out of the way: the org's two.
+      h.org.trash('User', AUTOMATED_PROCESS);
+      for (const user of listed) h.org.add('User', user);
+      clock = T0;
+
+      const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+      expect(checkpoint.takenBy.automatedProcessUserId, `${listed[0].Name} first`).toBe(
+        '005000000000004AAA',
+      );
+    }
+  });
+
+  it('takes the one user of that type of an org that names it otherwise, and none of an org that has several, none so named', async () => {
+    const one = harness();
+    seed(one.org);
+    const several = harness();
+    seed(several.org);
+    clock = LONG_AGO;
+    several.org.add('User', {
+      Id: '005000000000005AAA',
+      UserType: 'AutomatedProcess',
+      Name: 'Another process',
+    });
+    clock = T0;
+
+    expect(taken(await takeCheckpoint(one.deps, request())).checkpoint.takenBy).toMatchObject({
+      automatedProcessUserId: AUTOMATED_PROCESS,
+    });
+    expect(
+      taken(await takeCheckpoint(several.deps, request())).checkpoint.takenBy,
+    ).not.toHaveProperty('automatedProcessUserId');
+  });
+});
+
+describe('takeCheckpoint — what it reads past a page, priced before it reads it', () => {
+  it('prices the bin’s pages, the snapshot’s pages of 1,000 rows and the reads again of what a load just before T0 stamped, and sends as many', async () => {
+    const h = harness();
+    seed(h.org);
+    // Loaded two minutes before T0, as the contacts of P-D2 were: stamped
+    // in the five minutes the last phase reads again.
+    clock = T0 - 2 * 60_000;
+    for (let n = 10; n < 3_010; n++) {
+      h.org.add('Contact', { Id: contactId(n), LastName: `Loaded ${n}`, AccountId: accountId(1) });
+    }
+    clock = LONG_AGO;
+    for (let n = 0; n < 4_500; n++) {
+      h.org.add('Case', { Id: caseId(100 + n), Subject: `Closed ${n}` });
+      h.org.trash('Case', caseId(100 + n));
+    }
+    clock = T0;
+    const scope = await scopeCheckpoint(h.deps, request());
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(outcome.estimate.requestsByPhase).toEqual(scope.estimate.requestsByPhase);
+    expect(outcome.requests?.byPhase).toMatchObject({
+      // Three pages of the bin's ids, the first with the other objects'.
+      bin: 1 + 2,
+      // The contacts in four pages of 1,000 rows, the three other objects
+      // holding records a page each, which org the snapshot is of.
+      snapshot: 4 + 3 + 1,
+      // T1, the checks, the contacts' moved and deleted reads — their first
+      // pages in one call, then one more page of 2,000 ids — and their count.
+      stability: 1 + 1 + (1 + 1) + 1,
+    });
+    expect(outcome.requests?.byPhase).toEqual(outcome.estimate.requestsByPhase);
+  });
+});
+
+/** A user other than the one SandForge connects as. */
+const OTHER_USER = '005000000000077AAA';
+
+/** An org listing the objects of files beside the data objects. */
+function fileHarness(): Harness {
+  return harness({}, { ...DATA_OBJECTS, ...FILE_OBJECTS, ...LISTED_ELSEWHERE });
+}
+
+/** Files the org held long before the checkpoint, on the seeded records. */
+function seedFiles(org: TakeTestOrg): void {
+  clock = LONG_AGO;
+  org.addFile({
+    documentId: fileId(1),
+    title: 'Contract',
+    size: 1_200,
+    links: [{ entityId: accountId(1) }, { entityId: contactId(1), shareType: 'C' }],
+  });
+  // Another user's, which a read naming no id does not show (P-A7).
+  org.addFile({
+    documentId: fileId(2),
+    title: 'Quote',
+    ownerId: OTHER_USER,
+    size: 300,
+    links: [{ entityId: accountId(2) }],
+  });
+  // The session user's own, linked to no record.
+  org.addFile({ documentId: fileId(3), title: 'Notes', size: 50 });
+  org.add('Attachment', {
+    Id: '00P000000000001AAA',
+    Name: 'scan.pdf',
+    ParentId: accountId(1),
+    Body: 'c2Nhbg==',
+  });
+  clock = T0;
+}
+
+/** Every line of an async source. */
+async function all<T>(lines: AsyncIterable<T>): Promise<T[]> {
+  const read: T[] = [];
+  for await (const line of lines) read.push(line);
+  return read;
+}
+
+/** What a link holds, as a test compares it. */
+function ends(link: { ContentDocumentId: string; LinkedEntityId: string; ShareType: string }) {
+  return [link.ContentDocumentId, link.LinkedEntityId, link.ShareType];
+}
+
+describe('takeCheckpoint — the files', () => {
+  it('holds files and attachments as records, and the links of its records to files with each file’s latest version and size, another user’s among them', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    const objects = new Map(checkpoint.objects.map((object) => [object.objectApiName, object]));
+    // The snapshot of files reads them naming no id: the user's own alone.
+    expect(objects.get('ContentDocument')).toMatchObject({ records: 2 });
+    expect(objects.get('ContentDocument')?.fields).toEqual(
+      expect.arrayContaining(['LatestPublishedVersionId', 'ContentSize', 'Title', 'OwnerId']),
+    );
+    expect(objects.get('ContentDocument')?.leftOutFields).toEqual([
+      { field: 'VersionData', reason: 'base64' },
+    ]);
+    expect(objects.get('Attachment')).toMatchObject({
+      records: 1,
+      cascadeParents: ['ParentId'],
+      leftOutFields: [{ field: 'Body', reason: 'base64' }],
+    });
+    expect(checkpoint.files).toEqual({ documents: 3, links: 3, anchored: 2 });
+    expect(checkpoint.takenBy.queryAllFiles).toBe(false);
+    expect(checkpoint.scope.leftOut).toEqual(
+      expect.arrayContaining([
+        {
+          objectApiName: 'ContentVersion',
+          reason: expect.stringContaining('Held with its file (ContentDocument)'),
+        },
+        {
+          objectApiName: 'ContentDocumentLink',
+          reason: expect.stringContaining('Held with its file (ContentDocument)'),
+        },
+        {
+          objectApiName: 'Document',
+          reason:
+            'Documents of the Documents tab are left out: they are shared content kept in ' +
+            'folders, as setup is.',
+        },
+      ]),
+    );
+
+    const read = await h.store.read(checkpoint.checkpointId);
+    if (!read) throw new Error('not kept');
+    const links = await all(heldFileLinks(read.folder));
+    expect(links.map(ends)).toEqual(
+      expect.arrayContaining([
+        [fileId(1), accountId(1), 'V'],
+        [fileId(1), contactId(1), 'C'],
+        [fileId(2), accountId(2), 'V'],
+      ]),
+    );
+    expect(links).toHaveLength(3);
+    const documents = await all(heldFileDocuments(read.folder));
+    expect(new Map(documents.map((file) => [file.Id, [file.anchored, file.ContentSize]]))).toEqual(
+      new Map([
+        [fileId(1), [true, 1_200]],
+        [fileId(2), [true, 300]],
+        [fileId(3), [false, 50]],
+      ]),
+    );
+    expect(documents.every((file) => typeof file.LatestPublishedVersionId === 'string')).toBe(true);
+    // Kept compressed, as the snapshot is.
+    expect(readdirSync(read.folder.filesDir).sort()).toEqual([
+      'documents.ndjson.gz',
+      'links.ndjson.gz',
+    ]);
+  });
+
+  it('reads the links through the records, never through the files, and each file a link names by its id', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+
+    taken(await takeCheckpoint(h.deps, request()));
+
+    const asked = h.org.asked.map(decodeURIComponent);
+    const linkReads = asked.filter(
+      (what) => what.includes('FROM ContentDocumentLink') && !what.includes('COUNT()'),
+    );
+    expect(linkReads.length).toBeGreaterThan(0);
+    for (const read of linkReads) expect(read).toContain('LinkedEntityId IN (SELECT Id FROM');
+    expect(asked.some((what) => what.includes('FROM ContentDocument WHERE Id IN ('))).toBe(true);
+  });
+
+  it('sends the requests its estimate said for the files, and says before the take whether the user has Query All Files', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+    const scope = await scopeCheckpoint(h.deps, request());
+
+    const outcome = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(scope.files).toEqual({ held: true, queryAllFiles: false, addedToPicked: [] });
+    expect(outcome.requests?.byPhase).toEqual(outcome.estimate.requestsByPhase);
+    expect(outcome.estimate).toEqual(scope.estimate);
+  });
+
+  it('reads the links of an object by lists of its records’ ids when the org refuses to read them in one statement, and says so', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+    h.org.refuseSemiJoin = {
+      errorCode: 'QUERY_TIMEOUT',
+      message: 'Your query request was running for too long.',
+    };
+
+    const { checkpoint } = taken(await takeCheckpoint(h.deps, request()));
+
+    expect(checkpoint.files).toEqual({
+      documents: 3,
+      links: 3,
+      anchored: 2,
+      readByIds: ['Case', 'Contact', 'Account'],
+    });
+    const read = await h.store.read(checkpoint.checkpointId);
+    if (!read) throw new Error('not kept');
+    const links = await all(heldFileLinks(read.folder));
+    expect(links.map((link) => link.LinkedEntityId).sort()).toEqual(
+      [accountId(1), accountId(2), contactId(1)].sort(),
+    );
+  });
+
+  it('fails, keeping nothing, when the links of an object could not be read whole either way', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+    h.org.refuseSemiJoin = {
+      errorCode: 'QUERY_TIMEOUT',
+      message: 'Your query request was running for too long.',
+    };
+    h.org.failing = (what) =>
+      decodeURIComponent(what).includes("LinkedEntityId IN ('")
+        ? new Error('socket hang up')
+        : undefined;
+
+    await expect(takeCheckpoint(h.deps, request())).rejects.toThrow('socket hang up');
+    expect(checkpointFolders(h.root)).toEqual([]);
+  });
+
+  it('holds the files and attachments of the objects picked, unless they are left out by name, and keeps no annex then', async () => {
+    const h = fileHarness();
+    seed(h.org);
+    seedFiles(h.org);
+
+    const picked = taken(
+      await takeCheckpoint(h.deps, request({ mode: 'picked', objects: ['Account'] })),
+    ).checkpoint;
+    const without = taken(
+      await takeCheckpoint(
+        h.deps,
+        request({ mode: 'picked', objects: ['Account'], excluded: ['ContentDocument'] }),
+      ),
+    ).checkpoint;
+
+    expect(picked.objects.map((object) => object.objectApiName).sort()).toEqual([
+      'Account',
+      'Attachment',
+      'ContentDocument',
+    ]);
+    // The links of the accounts alone: the checkpoint holds no contact.
+    expect(picked.files).toEqual({ documents: 3, links: 2, anchored: 2 });
+    expect(without.objects.map((object) => object.objectApiName).sort()).toEqual([
+      'Account',
+      'Attachment',
+    ]);
+    expect(without).not.toHaveProperty('files');
+    const read = await h.store.read(without.checkpointId);
+    expect(read !== undefined && existsSync(read.folder.filesDir)).toBe(false);
   });
 });
 

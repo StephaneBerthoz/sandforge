@@ -386,8 +386,9 @@ describe('CheckpointHandler — the take', () => {
     const requests = answer.payload.requests as { total: number; byPhase: Record<string, number> };
     const estimate = answer.payload.estimate as { requestsByPhase?: Record<string, number> };
     expect(requests.total).toBe(Object.values(requests.byPhase).reduce((a, b) => a + b, 0));
-    expect(requests.byPhase).toMatchObject({ counts: 1, bin: 1 });
-    expect(estimate.requestsByPhase).toMatchObject({ counts: 1, bin: 1, stability: 2 });
+    // The counts, then what the next phases read of the objects holding records.
+    expect(requests.byPhase).toMatchObject({ counts: 2, bin: 1 });
+    expect(estimate.requestsByPhase).toMatchObject({ counts: 2, bin: 1, stability: 2 });
     const operation = (type: string) =>
       h.posted.filter(
         (message) =>

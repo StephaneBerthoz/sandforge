@@ -19,6 +19,8 @@ import {
   budgetRefusal,
   changeReadsCost,
   diffEstimate,
+  fileStorageRefusal,
+  linkWritesCost,
   readBudget,
   relationshipsOf,
   bulkJobRequests,
@@ -33,6 +35,7 @@ import {
   takeEstimate,
   undeleteCost,
   undoEstimate,
+  SNAPSHOT_PAGE_ROWS,
   type EstimatedObject,
   type ObjectRelationships,
 } from './rewindEstimate.js';
@@ -107,23 +110,23 @@ describe('takeEstimate', () => {
     // The guard, the org, its edition, the permissions and the limits; the
     // two global describes, 2 calls of describes and the encryption right;
     // the user, the Automated Process user and T0; a call of counts, one of
-    // the bin's first pages; 3 pages of the first object and 1 of the wide
-    // one, whose page of 2,000 rows is read again by its ids, 268 then 500
-    // a statement, and which org the snapshot is of; T1 and a call of checks.
+    // the bin's first pages; 5 pages of 1,000 rows of the first object and 2
+    // of the wide one, each read again by its ids, 268 then 500 a statement,
+    // and which org the snapshot is of; T1 and a call of checks.
     expect(estimate.requestsByPhase).toEqual({
       guard: 4,
       scope: 3 + 2,
       start: 3,
       counts: 1,
       bin: 1,
-      snapshot: 3 + (1 + 8 + 4) + 1,
+      snapshot: 5 + (2 + 2 * (4 + 2)) + 1,
       stability: 1 + 1,
     });
     expect(estimate).toEqual({
       records: 6_500,
-      apiRequests: 4 + 5 + 3 + 1 + 1 + 17 + 2,
+      apiRequests: 4 + 5 + 3 + 1 + 1 + 20 + 2,
       requestsByPhase: estimate.requestsByPhase,
-      seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 4 + 12 * 0.5),
+      seconds: Math.ceil(2 * 2.5 + 3 * 0.35 + 7 + 12 * 0.5),
       // The rows, compressed, their index and their DataOps metadata; and
       // what checkpoint.json holds whatever its objects.
       bytes: 6_500 * 300 + (8 + 4_500 * 43) + 8 + (8 + 2_000 * 43) + 2 * 160 + 1_024,
@@ -135,13 +138,95 @@ describe('takeEstimate', () => {
       takeEstimate({ described: 1, objects: [{ records, otherGroups }], pageRows: 2_000 })
         .requestsByPhase?.snapshot ?? Number.NaN;
 
-    // Two pages, 2,000 rows then 600: the full one read again in 8
-    // statements of 268 ids and 4 of 500, the last in 3 and 2; and the org.
-    expect(snapshot(2_600, [268, 500])).toBe(2 + (8 + 4) + (3 + 2) + 1);
+    // Three pages, 1,000 rows twice then 600: each full one read again in 4
+    // statements of 268 ids and 2 of 500, the last in 3 and 2; and the org.
+    expect(snapshot(2_600, [268, 500])).toBe(3 + 2 * (4 + 2) + (3 + 2) + 1);
     // Three records take one statement a group, not as many as a full page.
     expect(snapshot(3, [268])).toBe(1 + 1 + 1);
     // One statement reads an object whose fields fit it.
-    expect(snapshot(4_001, [])).toBe(3 + 1);
+    expect(snapshot(4_001, [])).toBe(5 + 1);
+  });
+
+  it('prices a page of the snapshot at 1,000 rows whatever is asked, and fewer when fewer are asked', () => {
+    const snapshot = (records: number, pageRows: number): number =>
+      takeEstimate({ described: 1, objects: [{ records }], pageRows }).requestsByPhase?.snapshot ??
+      Number.NaN;
+
+    expect(SNAPSHOT_PAGE_ROWS).toBe(1_000);
+    expect(snapshot(60_000, 2_000)).toBe(60 + 1);
+    // A Developer Edition's pages, asked 500 rows at a time.
+    expect(snapshot(60_000, 500)).toBe(120 + 1);
+  });
+
+  it('says what the take of 60,000 contacts sent, phase by phase, but for the one composite of counts it sends now to know it (P-D2)', () => {
+    // A scratch org's take of Contact alone, 60,000 records loaded by Bulk
+    // just before, 49 columns a row, 4,791 contacts in the recycle bin: it
+    // estimated 46 requests and sent 109, its snapshot answered 1,000 rows
+    // a page, its recycle bin three pages of ids, and its last phase read
+    // again the 60,000 contacts stamped in the five minutes before T0.
+    const estimate = takeEstimate({
+      described: 1,
+      objects: [{ records: 60_000, inBin: 4_791, stampedSince: 60_000 }],
+      recounted: 2,
+      pageRows: 2_000,
+    });
+
+    expect(estimate.requestsByPhase).toEqual({
+      guard: 4,
+      scope: 4,
+      start: 3,
+      // The count, then the bin's and what was stamped since, in one call.
+      counts: 1 + 1,
+      bin: 3,
+      snapshot: 61,
+      // T1, the check, the reads of what moved and was deleted since — the
+      // first pages in one call, then 29 more of 2,000 ids — and the count.
+      stability: 1 + 1 + (1 + 29) + 1,
+    });
+    expect(estimate.apiRequests).toBe(109 + 1);
+  });
+
+  it('prices nothing past the first page of an object’s bin and no read of what moved when its counts did not say otherwise', () => {
+    const counted = takeEstimate({
+      described: 1,
+      objects: [{ records: 10, inBin: 0, stampedSince: 0 }],
+      recounted: 2,
+      pageRows: 2_000,
+    });
+    const uncounted = takeEstimate({ described: 1, objects: [{ records: 10 }], pageRows: 2_000 });
+
+    expect(counted.requestsByPhase).toMatchObject({ counts: 2, bin: 1, stability: 2 });
+    expect(uncounted.requestsByPhase).toMatchObject({ counts: 1, bin: 1, stability: 2 });
+  });
+
+  it('prices the links of each object’s records five objects a call, a page a call, those the org would not count by their records’ ids, and the files they name 200 a statement', () => {
+    const objects = [
+      { records: 3_000, links: 2_500 },
+      { records: 500, links: null },
+      { records: 40 },
+      { records: 0 },
+    ];
+    const files = (input: Parameters<typeof takeEstimate>[0]['objects']): number =>
+      (takeEstimate({ described: 4, objects: input, pageRows: 2_000 }).requestsByPhase?.snapshot ??
+        Number.NaN) -
+      (takeEstimate({
+        described: 4,
+        objects: input.map(({ records }) => ({ records })),
+        pageRows: 2_000,
+      }).requestsByPhase?.snapshot ?? Number.NaN);
+
+    // The two objects' statements in one call, then the second page of the
+    // first; the second's 500 records by their ids, 3 statements in one
+    // call; the 2,500 files named, 13 statements in 3 calls.
+    expect(files(objects)).toBe(1 + 1 + 1 + 3);
+    expect(files(objects.map(({ records }) => ({ records })))).toBe(0);
+    expect(takeEstimate({ described: 4, objects, pageRows: 2_000 }).bytes).toBeGreaterThan(
+      takeEstimate({
+        described: 4,
+        objects: objects.map(({ records }) => ({ records })),
+        pageRows: 2_000,
+      }).bytes,
+    );
   });
 
   it('counts every object it counts, those it then leaves out among them, and again alone each describe and count a composite did not answer', () => {
@@ -384,6 +469,27 @@ describe('the bricks, as they send their requests to the org', () => {
     ).toBe(3 + 1 + 60 + 60);
   });
 
+  it('prices the deletes of files by REST calls of 200 however many, never as a Bulk API job: 12,000 files take 60 calls', () => {
+    expect(
+      removalCost([{ objectApiName: 'ContentDocument', records: 12_000, dependents: 0 }])
+        .apiRequests,
+    ).toBe(3 + 1 + 60 + 60);
+  });
+
+  it('prices the writes of links, each kind in REST collections of 200 of its own', () => {
+    const files = {
+      unlink: 450,
+      relink: 1,
+      updateLinks: 200,
+      outsideAdded: 9,
+      outsideDeleted: 4,
+      storage: { bringBack: 0, undo: 0 },
+    };
+    expect(linkWritesCost(files).apiRequests).toBe(3 + 1 + 1);
+    expect(linkWritesCost({ ...files, unlink: 0, relink: 0, updateLinks: 0 }).apiRequests).toBe(0);
+    expect(linkWritesCost(undefined).apiRequests).toBe(0);
+  });
+
   it('gives back in chunks of 2,000, each a call with its clock and its user, and reads a wide object a quarter as many ids a statement', () => {
     const narrow = ['Id', 'SystemModstamp', 'Name'];
     // Two chunks of 2,000 (10 reads, 10 updates, 10 stamps each) and one of 1.
@@ -480,6 +586,28 @@ describe('diffEstimate', () => {
       rewindEstimate({ ...told, automationRequests: 0 }).apiRequests -
         rewindEstimate({ ...read, automationRequests: 0 }).apiRequests,
     ).toBe(3 + 3);
+  });
+
+  it('prices a read of a checkpoint that holds files: the describe of a link beside the drift describes, the org’s objects described once, and the reads of links and files the last read sent', () => {
+    const read = { objects: CHECKPOINT, diff: { objects: FOUND, unread: [] } };
+    const files = {
+      unlink: 0,
+      relink: 0,
+      updateLinks: 0,
+      outsideAdded: 0,
+      outsideDeleted: 0,
+      storage: { bringBack: 0, undo: 0 },
+    };
+    const holding = { ...read, diff: { ...read.diff, files, filesRequests: 7 } };
+    // The drift describes of three objects and a link go in one call still;
+    // the org's objects described; the seven the files' reads sent.
+    expect(diffEstimate(holding).apiRequests - diffEstimate(read).apiRequests).toBe(1 + 7);
+    const many = Array.from({ length: 25 }, (_, n) => held(`Object${n}__c`, 1));
+    expect(
+      diffEstimate({ objects: many, diff: { objects: [], unread: [], files, filesRequests: 0 } })
+        .apiRequests -
+        diffEstimate({ objects: many, diff: { objects: [], unread: [] } }).apiRequests,
+    ).toBe(1 + 1);
   });
 
   it('names the users who last changed what it found, two hundred a read, five reads a call', () => {
@@ -1068,6 +1196,37 @@ describe('rewindEstimate', () => {
   });
 });
 
+describe('rewindEstimate — the links of files', () => {
+  const files = {
+    unlink: 3,
+    relink: 2,
+    updateLinks: 1,
+    outsideAdded: 0,
+    outsideDeleted: 0,
+    storage: { bringBack: 0, undo: 0 },
+  };
+
+  it('writes a rewind that has links alone to write — a file linked since to a record that stays — its links priced and journaled', () => {
+    const reads = rewindEstimate({
+      objects: CHECKPOINT,
+      diff: { objects: [], unread: [], files: { ...files, unlink: 0, relink: 0, updateLinks: 0 } },
+      automationRequests: 0,
+    });
+    const links = rewindEstimate({
+      objects: CHECKPOINT,
+      diff: { objects: [], unread: [], files },
+      automationRequests: 0,
+    });
+
+    expect(reads).toMatchObject({ records: 0, bytes: 0 });
+    expect(links.records).toBe(0);
+    // The user it writes as, a call of each kind of link, and the read after it.
+    expect(links.apiRequests).toBeGreaterThan(reads.apiRequests + 1 + 3);
+    // Three links kept whole, two Ids, the sharing of one.
+    expect(links.bytes).toBe(3 * 150 + 2 * 40 + 150);
+  });
+});
+
 describe('undoEstimate', () => {
   const RELATIONSHIPS = new Map<string, ObjectRelationships>([
     ['Account', { dependents: 2, cascades: 1 }],
@@ -1170,6 +1329,43 @@ describe('the budget gate', () => {
         'written.',
     );
     expect(budgetRefusal('rewind', 10, budget, 'DEV-SB')).toBeUndefined();
+  });
+
+  it('reads what the org has left of its file storage from the same answer, and nothing when it does not say', async () => {
+    const said = limitsOrg({
+      DailyApiRequests: { Max: 15_000, Remaining: 64 },
+      FileStorageMB: { Max: 20, Remaining: 7 },
+    });
+    expect(await readBudget(said, 'DEV-SB')).toMatchObject({
+      fileStorage: { max: 20, remaining: 7 },
+    });
+    expect(said.asked).toEqual(['GET /limits']);
+    const silent = limitsOrg({ DailyApiRequests: { Max: 15_000, Remaining: 64 } });
+    expect(await readBudget(silent, 'DEV-SB')).not.toHaveProperty('fileStorage');
+  });
+
+  it('refuses to bring back files that take more file storage than the org has left, naming both, and lets through exactly what is left (P-A8)', () => {
+    const MB = 1_048_576;
+    expect(fileStorageRefusal('rewind', { files: 12, bytes: 12 * MB }, 10, 'DEV-SB')).toEqual({
+      code: 'FILE_STORAGE',
+      message:
+        'Bringing back 12 files takes 12 MB of file storage; DEV-SB has 10 MB left. Free file ' +
+        'storage, then rewind again. No record was read or written.',
+    });
+    expect(
+      fileStorageRefusal('rewind', { files: 2, bytes: 10 * MB }, 10, 'DEV-SB'),
+    ).toBeUndefined();
+    expect(fileStorageRefusal('rewind', { files: 1, bytes: 9 * MB }, 10, 'DEV-SB')).toBeUndefined();
+    expect(fileStorageRefusal('undo', { files: 1, bytes: 300_000 }, 0, 'DEV-SB')?.message).toBe(
+      'Bringing back 1 file takes 0.3 MB of file storage; DEV-SB has 0 MB left. Free file ' +
+        'storage, then undo the rewind again while the recycle bin still holds them. No record ' +
+        'was read or written.',
+    );
+    // An org that does not say, or nothing to bring back: nothing to hold.
+    expect(
+      fileStorageRefusal('rewind', { files: 3, bytes: 40 * MB }, undefined, 'DEV-SB'),
+    ).toBeUndefined();
+    expect(fileStorageRefusal('rewind', { files: 0, bytes: 0 }, 0, 'DEV-SB')).toBeUndefined();
   });
 
   it('runs no act on an org that will not say what it has left, and says which org', async () => {

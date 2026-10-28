@@ -171,6 +171,7 @@ const CANNOT_UNDO_ORDER: readonly RewindCannotUndoReason[] = [
   'deletedWithParentOutside',
   'convertedLead',
   'activatedContract',
+  'newFileVersion',
 ];
 
 /** What a rewind cannot take back, by reason, for the reasons that apply. */

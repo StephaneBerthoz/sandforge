@@ -9,15 +9,21 @@
  * lets its user see and put back every record; and nothing is written before
  * the org's lock is held, for the undo's whole length, no SandForge run of
  * this machine writes to the org, what the undo's writes fire was accepted,
- * the day's requests are enough, and the emails its writes make the org send
- * fit what it has left of each daily limit (`rewindEmails.ts`). Each refusal
- * names why, and writes nothing.
+ * the day's requests are enough, the emails its writes make the org send
+ * fit what it has left of each daily limit (`rewindEmails.ts`), and the files
+ * the rewind deleted, which the undo brings back, fit the file storage the
+ * org has left: a file in the recycle bin takes none, and its undelete
+ * counts it again (P-A8, `FILE_STORAGE`). Each refusal names why, and writes
+ * nothing.
  *
  * What the undo writes is what the rewind's journal says it did, read before
  * the gates: what it deleted comes back from the recycle bin, what it wrote
  * over gets its values back, what it brought back goes back to the bin, and
- * so does what it made again, which the result names apart. Those objects'
- * automation is read as a rewind reads it, undeletes included.
+ * so does what it made again, which the result names apart; a link between a
+ * file and a record the rewind removed is inserted again, one it inserted
+ * removed, and the sharing it gave back given back. Those objects'
+ * automation is read as a rewind reads it, undeletes included, the links'
+ * among them.
  *
  * Once through, a record it gave back that differs again from its values
  * from before the rewind is named by who last changed it: the user it writes
@@ -50,9 +56,11 @@ import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint } from './checkpointGuard.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
 import { checkpointEmails, emailsRefusal, writtenByUndo } from './rewindEmails.js';
-import { budgetRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
-import { rewoundObjects, undoPlansOf } from './rewindJournal.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT } from './checkpointScope.js';
+import { budgetRefusal, fileStorageRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
+import { rewoundObjects, undoPlansOf, type SpooledUndoPlans } from './rewindJournal.js';
 import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
+import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import { rewindWriters } from './rewindPlan.js';
 import { undoRewind, type UndoResidual, type UndoRewindOutcome } from './undoRewind.js';
 
@@ -182,6 +190,32 @@ function automationRefusal(
   };
 }
 
+/**
+ * The files the undo brings back from the recycle bin — those the rewind
+ * deleted — and the bytes they take once back, read by their ids from the
+ * bin: the rewind deleted files created since, which the checkpoint holds no
+ * size of. A file the read does not find counts no bytes.
+ */
+async function bringBackFiles(
+  org: Pick<RewindOrg, 'queryDeleted'>,
+  plans: Pick<SpooledUndoPlans, 'bringBack'>,
+): Promise<{ files: number; bytes: number }> {
+  let files = 0;
+  let bytes = 0;
+  for await (const ids of plans.bringBack.pages(FILE_OBJECT)) {
+    files += ids.length;
+    for (const list of idLists(ids, RECORDS_PER_CALL)) {
+      const answer = await org.queryDeleted(
+        `SELECT Id, ContentSize FROM ${FILE_OBJECT} WHERE Id IN (${list}) AND IsDeleted = true`,
+      );
+      for (const row of answer.records as Array<{ ContentSize?: unknown }>) {
+        if (typeof row.ContentSize === 'number') bytes += row.ContentSize;
+      }
+    }
+  }
+  return { files, bytes };
+}
+
 /** How the undo ended, as a rewind's result says it: unstable when someone else changed what it gave back. */
 function statusOf(outcome: UndoRewindOutcome, residual: readonly RewindResidual[]): RewindStatus {
   if (outcome.status === 'cancelled' || outcome.status === 'failure') return outcome.status;
@@ -274,14 +308,39 @@ export async function undoCheckpoint(
     // What goes back to the bin with its parent is read with what the undo
     // deletes, as it was when it was sent on its own: what the org runs for
     // a record its parent's delete takes along is not told apart here.
+    // A link removed again is a delete, one inserted again an insert, one
+    // shared again an update: what a trigger on links runs on.
+    const links = plans.links;
+    const linked = (writes: number): string[] => (writes > 0 ? [FILE_LINK_OBJECT] : []);
     const steps: ForgeRemovalSteps = {
       bringBack: namesOf(plans.bringBack.objects),
-      giveBack: namesOf(plans.giveBack.objects),
-      delete: [...new Set([...namesOf(along), ...namesOf(plans.remove.objects)])],
+      giveBack: [...namesOf(plans.giveBack.objects), ...linked(links?.share.count ?? 0)],
+      delete: [
+        ...new Set([
+          ...namesOf(along),
+          ...namesOf(plans.remove.objects),
+          ...linked(links?.remove.count ?? 0),
+        ]),
+      ],
+      ...((links?.reinsert.count ?? 0) > 0 ? { recreate: [FILE_LINK_OBJECT] } : {}),
     };
-    await plans.dispose();
+    let files: { files: number; bytes: number };
+    try {
+      files = await bringBackFiles(count.org, plans);
+    } finally {
+      await plans.dispose();
+    }
+    // The files the rewind deleted take file storage again once back: past
+    // what the org has left, nothing is written.
+    const overStorage = fileStorageRefusal('undo', files, budget.fileStorage?.remaining, orgName);
+    if (overStorage) return { undone: false, refusal: overStorage };
     const objects = [
-      ...new Set([...(steps.bringBack ?? []), ...(steps.giveBack ?? []), ...(steps.delete ?? [])]),
+      ...new Set([
+        ...(steps.bringBack ?? []),
+        ...(steps.giveBack ?? []),
+        ...(steps.delete ?? []),
+        ...(steps.recreate ?? []),
+      ]),
     ];
     let automation: ForgeTargetAutomation | undefined;
     if (objects.length > 0 && deps.readAutomation) {
@@ -369,6 +428,7 @@ export async function undoCheckpoint(
         ...(outcome.carriedAlone ? { carriedAlone: outcome.carriedAlone } : {}),
         restored: outcome.restored,
         undeleted: outcome.undeleted,
+        ...(outcome.files ? { files: outcome.files } : {}),
         residual,
         passes: 1,
         apiRequests: { used, leftToday: Math.max(0, budget.remaining - used) },

@@ -79,6 +79,20 @@
  * back is back: a record made again names its parent by the Id the parent has
  * then. It is made only once that its Ids are new was accepted, and left
  * otherwise (`recreateNotAccepted`).
+ *
+ * **The links between files and records**, of a checkpoint that holds files,
+ * are told apart by the diffs (`fileLinksDiff`), each by its file and its
+ * record — a link inserted again has a new Id — and planned as records are:
+ * one confirmed that the fresh diff finds in the same class is acted on, one
+ * it finds otherwise is left (`changedSincePreview`). A link added since is
+ * removed, one of the checkpoint removed since inserted again, one whose
+ * sharing changed given it back; never one whose file or record this pass
+ * deletes, which goes with it. The second pass inserts again too a link the
+ * first expected back with a file or a record it brought back or made again,
+ * which the org did not bring back with it. A file a checkpoint of picked
+ * objects keeps for what it is shared with outside it has its links to the
+ * records it holds removed (`unlinkFrom`), the file left where it is. A
+ * checkpoint taken before files were held has no link to plan.
  */
 
 import { appendFile, readdir } from 'node:fs/promises';
@@ -94,9 +108,17 @@ import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
 import type { SyncRestoreInput } from '../sync/SyncRunRestore.js';
 import { OrgReadStopped, type OrgRow } from './compositeQueries.js';
+import {
+  fileLinkChangedLineSchema,
+  fileLinkClassFileOf,
+  fileLinkLineSchema,
+  type FileLinkClass,
+} from './checkpointFiles.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT } from './checkpointScope.js';
 import { CHECKPOINT_FILE_MODE, makePrivateDir } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, spooledRows } from './orgStreams.js';
 import { classFileOf } from './rewindDiff.js';
+import type { Recreated } from './snapshotIndex.js';
 import {
   IdSpoolWriter,
   RecordKeySet,
@@ -275,7 +297,7 @@ export interface RewindPlanObject {
 
 /** What one pass of a rewind is made from. */
 export interface RewindPlanInput {
-  checkpoint: Pick<OrgCheckpoint, 'objects' | 'takenAt' | 'scope'>;
+  checkpoint: Pick<OrgCheckpoint, 'objects' | 'takenAt' | 'scope' | 'files'>;
   /** The first pass, or the second, which acts on what the first left. */
   pass: 1 | 2;
   /**
@@ -301,6 +323,12 @@ export interface RewindPlanInput {
   removalStamps?: Readonly<Record<string, string>>;
   /** When earlier removals of the rewind ran, and as whom: see `RunRemovalOptions.removalSpans`. */
   removalSpans?: readonly ForgeRemovalSpan[];
+  /**
+   * The records made again so far, by the keys the checkpoint holds them by:
+   * a link of one, which the diff names by its new Id, is one the first pass
+   * expected back with it.
+   */
+  recreated?: Pick<Recreated, 'originalOf'>;
   /** Where the plan is written: a folder of its own, made when missing, empty when not. */
   dir: string;
   /** Stops it between two objects. */
@@ -359,7 +387,43 @@ export interface RewindPlan {
   beforeParent: Array<{ objectApiName: string; count: number; file: string }>;
   /** What it leaves that differs, per object and reason. */
   left: RewindPlanLeft[];
+  /** What it does to the links between files and records: see {@link RewindPlanLinks}. */
+  links: RewindPlanLinks;
 }
+
+/** Links of one class a pass writes, in a file of the plan's folder, one a line. */
+export interface PlannedLinks {
+  file: string;
+  count: number;
+}
+
+/**
+ * What a pass does to the links between files and records, each class's
+ * lines written to the plan's folder as the diff writes them
+ * (`fileLinkClassFileOf`), so a second pass reads them as what the first set
+ * out to do.
+ */
+export interface RewindPlanLinks {
+  /** Links added since between a file and a record that both stay: removed. */
+  unlink: PlannedLinks;
+  /** Links of the checkpoint removed since: inserted again, each under a new Id. */
+  relink: PlannedLinks;
+  /** Links whose sharing changed since: given the checkpoint's back. */
+  share: PlannedLinks;
+  /**
+   * Files kept for what they are shared with outside a checkpoint of picked
+   * objects, whose deletion was not accepted: their links to the records the
+   * checkpoint holds are removed, the files left.
+   */
+  unlinkFrom: IdSpool;
+}
+
+/** The classes of links a pass acts on, and the plan's name for each. */
+const LINK_CLASSES: ReadonlyArray<{ cls: FileLinkClass; as: 'unlink' | 'relink' | 'share' }> = [
+  { cls: 'linkAdded', as: 'unlink' },
+  { cls: 'linkRemoved', as: 'relink' },
+  { cls: 'linkChanged', as: 'share' },
+];
 
 /**
  * The users whose writes are a rewind's own: the one it writes as, and the
@@ -499,6 +563,93 @@ interface ChangedAfter {
   own: RecordKeySet;
   /** Flags: the other user's place in `users`, plus one. */
   other: RecordKeySet;
+}
+
+// ─── The links between files and records ─────────────────────────────────────
+
+/** A link by its two ends, as the diffs tell it: a link inserted again has a new Id. */
+function linkKeyOf(row: { ContentDocumentId: string; LinkedEntityId: string }): string {
+  return `${row.ContentDocumentId.slice(0, 15)}:${row.LinkedEntityId.slice(0, 15)}`;
+}
+
+/** A line of a diff's links, read as its class writes it, or the diff is not whole. */
+function linkLineOf(
+  row: OrgRow,
+  cls: FileLinkClass,
+  file: string,
+): { Id: string; ContentDocumentId: string; LinkedEntityId: string } {
+  const schema = cls === 'linkChanged' ? fileLinkChangedLineSchema : fileLinkLineSchema;
+  const parsed = schema.safeParse(row);
+  if (!parsed.success) {
+    throw new Error(`A line of ${file} names no link: the diff it was read from is not whole.`);
+  }
+  return parsed.data;
+}
+
+/** What a pass plans of links is made from. */
+interface LinksInput {
+  confirmedDir: string;
+  freshDir: string;
+  dir: string;
+  pass: 1 | 2;
+  /** Whether this pass deletes a record, a file among them: its links go with it. */
+  deleted: (id: string) => boolean;
+  /**
+   * For the second pass, what the first brought back or made again, by the
+   * Ids the reads named it by then or the record made again has now: its
+   * links were expected with it.
+   */
+  earlier: (id: string) => boolean;
+  left: LeftTally;
+}
+
+/** The links of a plan that writes none. */
+function noLinks(dir: string): Pick<RewindPlanLinks, 'unlink' | 'relink' | 'share'> {
+  return {
+    unlink: { file: fileLinkClassFileOf(dir, 'linkAdded'), count: 0 },
+    relink: { file: fileLinkClassFileOf(dir, 'linkRemoved'), count: 0 },
+    share: { file: fileLinkClassFileOf(dir, 'linkChanged'), count: 0 },
+  };
+}
+
+/** Plan each class of links: see the module's comment. */
+async function planLinks(
+  input: LinksInput,
+): Promise<Pick<RewindPlanLinks, 'unlink' | 'relink' | 'share'>> {
+  const planned: Partial<Record<'unlink' | 'relink' | 'share', PlannedLinks>> = {};
+  for (const { cls, as } of LINK_CLASSES) {
+    const confirmed = new Set<string>();
+    const confirmedFile = fileLinkClassFileOf(input.confirmedDir, cls);
+    for await (const row of rowsOf(confirmedFile)) {
+      confirmed.add(linkKeyOf(linkLineOf(row, cls, confirmedFile)));
+    }
+    const file = fileLinkClassFileOf(input.freshDir, cls);
+    const lines = new ClassLines(fileLinkClassFileOf(input.dir, cls));
+    let count = 0;
+    for await (const row of rowsOf(file)) {
+      const link = linkLineOf(row, cls, file);
+      // Gone with its file, or its record: nothing of it to write.
+      if (input.deleted(link.ContentDocumentId) || input.deleted(link.LinkedEntityId)) continue;
+      const expected =
+        input.pass === 2 &&
+        cls === 'linkRemoved' &&
+        (input.earlier(link.ContentDocumentId) || input.earlier(link.LinkedEntityId));
+      if (!confirmed.has(linkKeyOf(link)) && !expected) {
+        input.left.add(FILE_LINK_OBJECT, 'changedSincePreview', link.Id);
+        continue;
+      }
+      await lines.add(row);
+      count++;
+    }
+    await lines.flush();
+    planned[as] = { file: lines.file, count };
+  }
+  const none = noLinks(input.dir);
+  return {
+    unlink: planned.unlink ?? none.unlink,
+    relink: planned.relink ?? none.relink,
+    share: planned.share ?? none.share,
+  };
 }
 
 // ─── The plan ────────────────────────────────────────────────────────────────
@@ -833,6 +984,53 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     for await (const row of rowsOf(file)) await made.add(object.objectApiName, idOf(row, file));
   }
 
+  // ─── The links between files and records ───
+  // What the first pass brought back or made again: a link of it that the
+  // org did not bring back with it is inserted again by the second.
+  const earlier = new RecordKeySet();
+  if (pass === 2) {
+    for (const object of objects) {
+      for (const cls of [
+        'inBin',
+        'withParent',
+        'deletedWhileTaken',
+        'carrier',
+        'toRecreate',
+      ] as const) {
+        const file = classFileOf(confirmedDir, object.objectApiName, cls);
+        for await (const row of rowsOf(file)) earlier.add(idOf(row, file));
+      }
+    }
+  }
+  // A checkpoint taken before files were held rewinds as it did then: no
+  // link is written on its own, whatever its folders hold.
+  const linked =
+    checkpoint.files === undefined
+      ? noLinks(dir)
+      : await planLinks({
+          confirmedDir,
+          freshDir,
+          dir,
+          pass,
+          deleted: (id) => RECORD_ID.test(id) && deleted(id),
+          earlier: (id) =>
+            RECORD_ID.test(id) &&
+            (earlier.has(id) || earlier.has(input.recreated?.originalOf(id.slice(0, 15)) ?? id)),
+          left,
+        });
+  // A file kept for what it is shared with outside the checkpoint: its links
+  // to the records the checkpoint holds go, and the file stays.
+  const unlinkFrom = new IdSpoolWriter(`${dir}/unlinkFrom`);
+  for (const cls of DELETED) {
+    const file = classFileOf(dir, FILE_OBJECT, cls);
+    for await (const row of rowsOf(file)) {
+      const id = idOf(row, file);
+      if ((kept.flagsOf(id) & LEFT_FLAG.outsideNotAccepted) !== 0) {
+        await unlinkFrom.add(FILE_OBJECT, id);
+      }
+    }
+  }
+
   const removalStamps = { ...input.removalStamps, ...stamps };
   const hasStamps = Object.keys(removalStamps).length > 0;
   const planObjects = objects.map(({ objectApiName }) => countsOf(objectApiName)).filter(planned);
@@ -867,6 +1065,7 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     // Children first, as the removal deletes them.
     beforeParent: beforeParent.reverse(),
     left: left.all(order),
+    links: { ...linked, unlinkFrom: await unlinkFrom.finish() },
   };
 }
 

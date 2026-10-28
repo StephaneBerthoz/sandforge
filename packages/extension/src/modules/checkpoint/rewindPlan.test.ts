@@ -14,6 +14,7 @@ import {
   type MemoryOrgFacts,
 } from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
+import { MemoryFileOrg } from '../../test/memoryFileOrg.js';
 import { comparedFields } from './checkpointFields.js';
 import { fingerprintOf } from './checkpointFingerprint.js';
 import { OrgReadStopped, compositeReader, type OrgRow } from './compositeQueries.js';
@@ -167,6 +168,8 @@ interface Scenario {
   before?: Act;
   /** After every object was read, before the take ended. */
   afterRead?: Act;
+  /** The org holds files, their versions and their links, as the probes saw a scratch org hold them. */
+  files?: true;
 }
 
 const made: string[] = [];
@@ -185,10 +188,10 @@ class World {
   private plans = 0;
 
   constructor(scenario: Scenario, facts?: Partial<MemoryOrgFacts>) {
-    this.org = new MemoryRestoreOrg(scenario.children ?? {}, {
-      now: () => this.clock,
-      ...(facts ? { facts } : {}),
-    });
+    const options = { now: () => this.clock, ...(facts ? { facts } : {}) };
+    this.org = scenario.files
+      ? new MemoryFileOrg(scenario.children ?? {}, options)
+      : new MemoryRestoreOrg(scenario.children ?? {}, options);
     for (const object of scenario.objects) {
       if (object.undeletable === false) this.org.comesBackOnlyWithParent.add(object.objectApiName);
     }
@@ -695,6 +698,54 @@ describe('a rewind’s plan: the deletion’s boundary (B1)', () => {
       expect.objectContaining({ objectApiName: 'Account', deleted: 0, keptDependents: 1 }),
     ]);
     expect(world.live('Opportunity', dependent)).toBe(true);
+  });
+
+  it('deletes a record created since whose only child is a link to a file it deletes too: the file is a record of the removal, and its link holds nothing (T9, the PDF of an order activated, live)', async () => {
+    const parent = accountId(1);
+    const file = idOf('069', 1);
+    const FILE: Held = { objectApiName: 'ContentDocument', fields: [...STAMPS, 'Title'] };
+    const ACCOUNT_LINKS: MemoryChild = {
+      childSObject: 'ContentDocumentLink',
+      field: 'LinkedEntityId',
+      cascadeDelete: true,
+    };
+    // A file made while the checkpoint was taken, linked to an account made
+    // then too: its link is dated before T1, as a record the run never made.
+    const scenario = (objects: Held[]): Scenario => ({
+      objects,
+      files: true,
+      children: { Account: [ACCOUNT_LINKS] },
+      afterRead: (org) => {
+        org.add('Account', { Id: parent, Name: 'Made while taken' });
+        (org as MemoryFileOrg).addFile({
+          documentId: file,
+          title: 'Order.pdf',
+          links: [{ entityId: parent }],
+        });
+      },
+    });
+
+    const world = await take(scenario([FILE, ACCOUNT]));
+    const plan = await world.plan({ freshDir: (await world.diff(PV1, TR)).dir });
+    const outcome = await world.remove(plan);
+
+    expect(await idsOf(plan.deletes)).toEqual({ ContentDocument: [file], Account: [parent] });
+    expect(outcome.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'ContentDocument', deleted: 1 }),
+      expect.objectContaining({ objectApiName: 'Account', deleted: 1, keptDependents: 0 }),
+    ]);
+    expect(world.live('Account', parent)).toBe(false);
+
+    // A checkpoint that holds no files: the link to a file the removal does
+    // not delete keeps the account, for a record that stays.
+    const without = await take(scenario([ACCOUNT]));
+    const kept = await without.remove(
+      await without.plan({ freshDir: (await without.diff(PV1, TR)).dir }),
+    );
+    expect(kept.objects).toEqual([
+      expect.objectContaining({ objectApiName: 'Account', deleted: 0, keptDependents: 1 }),
+    ]);
+    expect(without.live('Account', parent)).toBe(true);
   });
 
   it('keeps a colleague’s record made after Tr, and the parent it hangs from', async () => {
@@ -1309,5 +1360,191 @@ describe('a rewind’s plan: chunks and pages (M2)', () => {
     expect(plan.objects).toEqual([
       counts('Account', { deleted: records, givenBackFirst: records }),
     ]);
+  });
+});
+
+describe('a rewind’s plan: the links between files and records', () => {
+  const fileId = (n: number): string => idOf('069', n);
+  const linkId = (n: number): string => idOf('06A', n);
+  const held = (objectApiName: string, readOrder: number): CheckpointObject => ({
+    objectApiName,
+    records: 1,
+    inBin: 0,
+    readOrder,
+    readMode: 'query',
+    undeletable: true,
+    cascadeParents: [],
+    fingerprint: 'f'.repeat(64),
+    fields: STAMPS,
+    leftOutFields: [],
+  });
+  const OBJECTS = [held('ContentDocument', 0), held('Account', 1)];
+  const link = (n: number, file: number, account: number) => ({
+    Id: linkId(n),
+    ContentDocumentId: fileId(file),
+    LinkedEntityId: accountId(account),
+    ShareType: 'V',
+    Visibility: 'AllUsers',
+  });
+  const createdSince = (id: string) => ({
+    Id: id,
+    CreatedDate: new Date(SINCE).toISOString(),
+    LastModifiedDate: new Date(SINCE).toISOString(),
+  });
+
+  /** A folder of a diff's files, each named as the diff names it, its lines as given. */
+  function diffDir(files: Record<string, readonly object[]>): string {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-plan-links-'));
+    made.push(dir);
+    for (const [name, rows] of Object.entries(files)) {
+      writeFileSync(join(dir, name), rows.map((row) => `${JSON.stringify(row)}\n`).join(''));
+    }
+    return dir;
+  }
+
+  function planOf(
+    confirmedDir: string,
+    freshDir: string,
+    options: Partial<Omit<RewindPlanInput, 'checkpoint'>> & {
+      mode?: CheckpointScopeMode;
+      /** A checkpoint taken before files were held, rather than one that holds them. */
+      before170?: true;
+    } = {},
+  ): Promise<RewindPlan> {
+    const { mode, before170, ...rest } = options;
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-plan-'));
+    made.push(dir);
+    return rewindPlan({
+      checkpoint: {
+        objects: OBJECTS,
+        takenAt: new Date(T0_MS + 2_000).toISOString(),
+        scope: { mode: mode ?? 'everything', leftOut: [] },
+        ...(before170 ? {} : { files: { documents: 4, links: 4, anchored: 4 } }),
+      },
+      pass: 1,
+      confirmedDir,
+      freshDir,
+      readAt: new Date(TR).toISOString(),
+      ownWriters: [MEMORY_ORG_USER],
+      acceptOutside: false,
+      acceptNoUndo: false,
+      acceptRecreate: false,
+      dir: join(dir, 'plan'),
+      ...rest,
+    });
+  }
+
+  it('acts on a link confirmed that the fresh diff finds in the same class, told by its file and its record whatever its id, and leaves and names one the user did not confirm', async () => {
+    const confirmed = diffDir({
+      'ContentDocumentLink.linkAdded.ndjson': [link(1, 1, 1)],
+      'ContentDocumentLink.linkRemoved.ndjson': [link(2, 2, 1)],
+      'ContentDocumentLink.linkChanged.ndjson': [
+        { ...link(3, 3, 1), now: { ShareType: 'V', Visibility: 'InternalUsers' } },
+      ],
+    });
+    // Linked again since the preview, under another id; and one added since.
+    const fresh = diffDir({
+      'ContentDocumentLink.linkAdded.ndjson': [link(11, 1, 1), link(4, 4, 1)],
+      'ContentDocumentLink.linkRemoved.ndjson': [link(2, 2, 1)],
+      'ContentDocumentLink.linkChanged.ndjson': [
+        { ...link(3, 3, 1), now: { ShareType: 'V', Visibility: 'InternalUsers' } },
+      ],
+    });
+
+    const plan = await planOf(confirmed, fresh);
+
+    expect(await linesOf(plan.links.unlink.file)).toEqual([link(11, 1, 1)]);
+    expect(await linesOf(plan.links.relink.file)).toEqual([link(2, 2, 1)]);
+    expect(plan.links.share.count).toBe(1);
+    expect(plan.left).toEqual([
+      {
+        objectApiName: 'ContentDocumentLink',
+        reason: 'changedSincePreview',
+        count: 1,
+        ids: [linkId(4)],
+      },
+    ]);
+  });
+
+  it('writes no link whose file the pass deletes: its links go with it', async () => {
+    const files = {
+      'ContentDocument.createdSince.ndjson': [{ Id: fileId(1) }],
+      'ContentDocument.live.ndjson': [createdSince(fileId(1))],
+      'ContentDocumentLink.linkAdded.ndjson': [link(1, 1, 1)],
+    };
+    const dir = diffDir(files);
+
+    const plan = await planOf(dir, dir);
+
+    expect(await idsOf(plan.deletes.spool)).toEqual({ ContentDocument: [fileId(1)] });
+    expect(plan.links.unlink.count).toBe(0);
+  });
+
+  it('inserts again in the second pass a link expected back with a record the first brought back, which the org did not bring back with it; never one the first set out to write nothing of', async () => {
+    const first = diffDir({ 'Account.inBin.ndjson': [{ Id: accountId(1) }] });
+    const fresh = diffDir({
+      'ContentDocumentLink.linkRemoved.ndjson': [link(1, 1, 1), link(2, 2, 2)],
+    });
+
+    const plan = await planOf(first, fresh, { pass: 2 });
+
+    expect(await linesOf(plan.links.relink.file)).toEqual([link(1, 1, 1)]);
+    expect(plan.left.map(({ reason, ids }) => [reason, ids])).toEqual([
+      ['changedSincePreview', [linkId(2)]],
+    ]);
+  });
+
+  it('inserts again in the second pass a link of a record the first made again, which the fresh diff names by its new id', async () => {
+    const first = diffDir({ 'Account.toRecreate.ndjson': [{ Id: accountId(1) }] });
+    const remade = accountId(91);
+    const fresh = diffDir({
+      'ContentDocumentLink.linkRemoved.ndjson': [{ ...link(1, 1, 1), LinkedEntityId: remade }],
+    });
+    const recreated = {
+      originalOf: (key: string) => (key === remade.slice(0, 15) ? accountId(1) : undefined),
+    };
+
+    const plan = await planOf(first, fresh, { pass: 2, recreated });
+    expect(plan.links.relink.count).toBe(1);
+
+    const unknown = await planOf(first, fresh, { pass: 2 });
+    expect(unknown.links.relink.count).toBe(0);
+  });
+
+  it('keeps a file shared outside a checkpoint of picked objects, and names it to have its links to the records the checkpoint holds removed, unless its deletion was accepted (T11)', async () => {
+    const dir = diffDir({
+      'ContentDocument.createdSince.ndjson': [{ Id: fileId(1) }],
+      'ContentDocument.live.ndjson': [createdSince(fileId(1))],
+      'ContentDocument.outsideParents.ndjson': [{ Id: fileId(1) }],
+    });
+
+    const kept = await planOf(dir, dir, { mode: 'picked' });
+    expect(await idsOf(kept.links.unlinkFrom)).toEqual({ ContentDocument: [fileId(1)] });
+    expect(kept.deletes.spool.count).toBe(0);
+    expect(kept.left.map(({ objectApiName, reason }) => [objectApiName, reason])).toEqual([
+      ['ContentDocument', 'outsideNotAccepted'],
+    ]);
+
+    const accepted = await planOf(dir, dir, { mode: 'picked', acceptOutside: true });
+    expect(accepted.links.unlinkFrom.count).toBe(0);
+    expect(await idsOf(accepted.deletes.spool)).toEqual({ ContentDocument: [fileId(1)] });
+  });
+
+  it('plans no link of a checkpoint taken before files were held, whatever its folders hold, and the rest as before', async () => {
+    const dir = diffDir({
+      'Account.createdSince.ndjson': [{ Id: accountId(1) }],
+      'Account.live.ndjson': [createdSince(accountId(1))],
+      'ContentDocumentLink.linkAdded.ndjson': [link(1, 1, 2)],
+    });
+
+    const plan = await planOf(dir, dir, { before170: true });
+
+    expect(plan.links).toMatchObject({
+      unlink: { count: 0 },
+      relink: { count: 0 },
+      share: { count: 0 },
+    });
+    expect(plan.links.unlinkFrom.count).toBe(0);
+    expect(await idsOf(plan.deletes.spool)).toEqual({ Account: [accountId(1)] });
   });
 });

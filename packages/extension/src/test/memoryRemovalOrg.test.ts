@@ -209,6 +209,34 @@ describe('MemoryRemovalOrg', () => {
       ]);
     });
 
+    it('pages a statement as it is told for its width, a wide one shorter, as a scratch org answered a snapshot (P-D2)', async () => {
+      const org = accounts(2_500, {
+        pageSize: (_page, soql) => (soql.startsWith('SELECT Id, Name') ? 1_000 : 2_000),
+      });
+
+      expect(await drain(org, await org.query('SELECT Id, Name FROM Account'))).toEqual([
+        1_000, 1_000, 500,
+      ]);
+      expect(await drain(org, await org.query('SELECT Id FROM Account'))).toEqual([2_000, 500]);
+    });
+
+    it('reads a semi-join as the list of what its inner statement selects, through the recycle bin when the outer one reads it', async () => {
+      const org = accounts(3);
+      org.add('Contact', { Id: '003000000000001AAA', AccountId: fakeId('001', 1) });
+      org.add('Contact', { Id: '003000000000002AAA', AccountId: fakeId('001', 3) });
+      org.trash('Account', fakeId('001', 3));
+
+      const live = await org.query(
+        "SELECT Id FROM Contact WHERE AccountId IN (SELECT Id FROM Account WHERE Name != 'none')",
+      );
+      const none = await org.query(
+        "SELECT COUNT() FROM Contact WHERE AccountId IN (SELECT Id FROM Account WHERE Name = 'none')",
+      );
+
+      expect(live.records.map((row) => row.Id)).toEqual(['003000000000001AAA']);
+      expect(none.totalSize).toBe(0);
+    });
+
     it('keeps every cursor open by default: the oldest of 150 still reads its next page', async () => {
       const org = accounts(201, { pageSize: 200 });
       const oldest = await org.query('SELECT Id FROM Account');

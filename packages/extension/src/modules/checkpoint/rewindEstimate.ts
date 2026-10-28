@@ -43,6 +43,7 @@
  * answer — is left out, and the estimate is about.
  */
 
+import { BYTES_PER_MB } from '@sandforge/shared';
 import type {
   CheckpointEstimate,
   CheckpointLeftOutObject,
@@ -140,8 +141,34 @@ const TAKE_START_REQUESTS = 3;
  */
 const SNAPSHOT_ORG_REQUESTS = 1;
 
+/**
+ * Rows the org gives a page of a snapshot at most, whatever it is asked: a
+ * take of 60,000 contacts read 49 columns a row in pages of 1,000 where 2,000
+ * were asked, 61 calls where its estimate said 31 (P-D2, a scratch org),
+ * while the narrow reads beside it — ids, stamps — came back 2,000 a page.
+ * The org keeps the right to answer fewer rows than asked; nothing says how
+ * many, nor from how many columns. A snapshot reads every field a person
+ * sets, dozens of columns on most objects: its pages are priced at this, and
+ * a narrow object, which the org may answer in fuller pages, is priced above
+ * what it sends.
+ */
+export const SNAPSHOT_PAGE_ROWS = 1_000;
+
 /** Requests a take's last phase sends before its reads of what moved: T1 on the org's clock, a SOAP call. */
 const STABILITY_CLOCK_REQUESTS = 1;
+
+/** Ids a take's read by id names: of records whose links it reads, of files it reads. */
+const FILE_IDS_PER_READ = 200;
+
+/**
+ * Bytes a link between a file and a record takes in a checkpoint's files,
+ * compressed, about: 147 plain, 27 compressed on synthetic ids, which repeat
+ * more than an org's.
+ */
+const BYTES_PER_FILE_LINK_KEPT = 60;
+
+/** Bytes a file takes in a checkpoint's files — its latest version and size — compressed, about: 23 on synthetic ids. */
+const BYTES_PER_FILE_KEPT = 50;
 
 /**
  * The term the reads by id of a snapshot read through the recycle bin keep
@@ -267,6 +294,22 @@ const BULK_JOB_FIXED_CALLS = 3;
 /** The file version, whose records a removal deletes by their document, never by a job. */
 const FILE_VERSION = 'ContentVersion';
 
+/**
+ * The file, whose records a removal deletes by REST calls of 200 only,
+ * however many: nothing asked the Bulk API what it does to a file's versions
+ * and links, and 12,000 files take 60 calls.
+ */
+const FILE_DOCUMENT = 'ContentDocument';
+
+/** Links one REST call of a rewind removes, inserts or updates: a collection of 200. */
+const LINKS_PER_CALL = 200;
+
+/**
+ * Bytes a rewind's journal keeps of a link it removes — its two ends and its
+ * sharing, which an undo inserts again — about.
+ */
+const JOURNAL_BYTES_PER_LINK = 150;
+
 // ─── Counting ────────────────────────────────────────────────────────────────
 
 /** Requests and time, about, of a part of an act. */
@@ -324,6 +367,24 @@ function readsById(records: number, fields: readonly string[]): number {
 export interface TakenObject {
   records: number;
   /**
+   * Ids in its recycle bin at T0, counted before the take reads them: what
+   * prices the bin's pages past the first. Absent, one page.
+   */
+  inBin?: number;
+  /**
+   * Its records stamped since the change reads' start — five minutes before
+   * T0 — live or in the bin, counted before the take reads any: what the
+   * take's last phase reads again of an object that moved before T0, as one
+   * a load just before the take filled. Absent, none.
+   */
+  stampedSince?: number;
+  /**
+   * Present for an object whose records' links to files the take reads: how
+   * many there are, counted before; `null` when the org would not count
+   * them, which it then reads by lists of the records' ids.
+   */
+  links?: number | null;
+  /**
    * For each of its column groups after the first, the ids one statement
    * reading it by id names ({@link snapshotGroupReads}): none for an object
    * one statement reads whole.
@@ -352,6 +413,12 @@ export interface TakeEstimateInput {
   counted?: number;
   /** Of them, those whose count a composite did not answer, each asked again alone. */
   countedAlone?: number;
+  /**
+   * The counts asked once the records are, five a call: of each object
+   * holding records, its recycle bin at T0, its records stamped since the
+   * change reads' start, and its links to files when they are read.
+   */
+  recounted?: number;
   /** Per object the take holds, its records and how its other column groups are read. */
   objects: readonly TakenObject[];
   /** Rows a page of the snapshot reads: what the org's kind reads at a time. */
@@ -392,6 +459,8 @@ function listedJsonBytes(items: readonly unknown[], depth: number): number {
  *   part it cannot know before it reads the rows;
  * - each row of the index, 43 bytes;
  * - the field prints, compressed, as measured on them;
+ * - the links of its records to files, and a file each link names, as
+ *   counted before the take reads them;
  * - `checkpoint.json`, which lists every object kept with its fields and
  *   every object left out with why, counted as it will be written.
  *
@@ -409,6 +478,8 @@ export function takeBytes(
   for (const object of input.objects) {
     bytes += object.records * BYTES_PER_RECORD_KEPT + snapshotIndexBytes(object.records, 2);
     if (object.records > 0) bytes += SNAPSHOT_META_BYTES_PER_OBJECT;
+    // A link and the file it names, at most, one file a link.
+    bytes += (object.links ?? 0) * (BYTES_PER_FILE_LINK_KEPT + BYTES_PER_FILE_KEPT);
     if (object.entry !== undefined) entries.push(object.entry);
   }
   // Each list as checkpoint.json nests it: its objects, and its scope's left out.
@@ -467,19 +538,27 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  * - `counts`: every object kept once described, five a call, and again alone
  *   each count a call did not answer — an object then left out, as the org
  *   would not count it or as it holds more than one object may, was counted
- *   all the same;
- * - `bin`: the recycle bin at T0, each object's first page, five a call;
- * - `snapshot`: a page a call, each page's other column groups by its ids,
- *   and the read of which org the snapshot is of;
- * - `stability`: T1, then each object's newest stamp, five a call.
+ *   all the same — then, five a call, what the next phases' reads hold of
+ *   each object holding records: its recycle bin at T0, its records stamped
+ *   since the change reads' start, and its links to files;
+ * - `bin`: the recycle bin at T0, five objects at a time, each page of ids a
+ *   call for the longest of the five;
+ * - `snapshot`: a page a call, of {@link SNAPSHOT_PAGE_ROWS} rows at most
+ *   whatever is asked, each page's other column groups by its ids, the read
+ *   of which org the snapshot is of; then the links of each object's records
+ *   to files, five objects at a time, a page of a statement each call — read
+ *   by lists of 200 records' ids where the org would not count them — and
+ *   the files they name, read by lists of 200 ids, five lists a call;
+ * - `stability`: T1, each object's newest stamp, five a call, and, for each
+ *   object stamped since the change reads' start, its records stamped since
+ *   and those deleted since, read as the bin is, then its count.
  *
- * Not known before the take reads them, and left out: the recycle bin's
- * further pages (an object holding more than a page of ids in the bin at T0
- * takes a call per page past the first, for the longest of the five objects
- * read with it); what moved in the five minutes before T0 or while the take
- * ran (two reads an object that moved, five a call, followed to their end,
- * and its count); the pages of an org that answers fewer rows than it is
- * asked; and the rows a write moved between two column groups, read again.
+ * Not known before the take reads them, and left out: what moves while the
+ * take runs, and what the five minutes before T0 moved of an object that
+ * held no record when it was counted; the recycle bin past its first page of
+ * such an object; the files a link names that another link of the same file
+ * names too, which the estimate takes for one each; and the rows a write
+ * moved between two column groups, read again.
  *
  * Its disk is {@link takeBytes}.
  */
@@ -489,25 +568,37 @@ export function takeEstimate(
   const kept = input.objects.length;
   const describeCalls = callsFor(input.described, SUBREQUESTS_PER_COMPOSITE);
   const describedAlone = input.describedAlone ?? 0;
-  const counts = callsFor(input.counted ?? kept, QUERIES_PER_COMPOSITE) + (input.countedAlone ?? 0);
+  const counts =
+    callsFor(input.counted ?? kept, QUERIES_PER_COMPOSITE) +
+    (input.countedAlone ?? 0) +
+    callsFor(input.recounted ?? 0, QUERIES_PER_COMPOSITE);
   const fiveAtATime = callsFor(kept, QUERIES_PER_COMPOSITE);
+  const pageRows = Math.min(input.pageRows, SNAPSHOT_PAGE_ROWS);
   let pages = 0;
   let reads = 0;
   let records = 0;
   for (const object of input.objects) {
     records += object.records;
-    const calls = snapshotCallsOf(object, input.pageRows);
+    const calls = snapshotCallsOf(object, pageRows);
     pages += calls.pages;
     reads += calls.reads;
   }
+  const bin = streamedReadsCost(input.objects.map((object) => pagesOf(object.inBin ?? 0)));
+  const files = filesCost(input.objects);
+  const moved = input.objects.filter((object) => (object.stampedSince ?? 0) > 0);
+  const changes = sum(
+    streamedReadsCost(moved.flatMap((object) => [pagesOf(object.stampedSince ?? 0), 1])),
+    calls(callsFor(moved.length, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+  );
+  const snapshot = pages + reads + (pages > 0 ? SNAPSHOT_ORG_REQUESTS : 0);
   const requestsByPhase: Record<CheckpointTakePhase, number> = {
     guard: TAKE_GUARD_REQUESTS,
     scope: TAKE_SCOPE_REQUESTS + describeCalls + describedAlone,
     start: TAKE_START_REQUESTS,
     counts,
-    bin: fiveAtATime,
-    snapshot: pages + reads + (pages > 0 ? SNAPSHOT_ORG_REQUESTS : 0),
-    stability: STABILITY_CLOCK_REQUESTS + fiveAtATime,
+    bin: bin.apiRequests,
+    snapshot: snapshot + files.apiRequests,
+    stability: STABILITY_CLOCK_REQUESTS + fiveAtATime + changes.apiRequests,
   };
   return {
     records,
@@ -515,12 +606,39 @@ export function takeEstimate(
     requestsByPhase,
     seconds: Math.ceil(
       describeCalls * SECONDS_PER_DESCRIBE_CALL +
-        (describedAlone + counts + 2 * fiveAtATime) * SECONDS_PER_SMALL_CALL +
+        (describedAlone + counts + fiveAtATime) * SECONDS_PER_SMALL_CALL +
+        bin.seconds +
+        changes.seconds +
+        files.seconds +
         pages * SECONDS_PER_PAGE +
         reads * SECONDS_PER_READ,
     ),
     bytes: takeBytes(input),
   };
+}
+
+/**
+ * What a take's reads of its files cost (`takeFiles`): the links of each
+ * object's records, five objects at a time — the statement the org would not
+ * count tried all the same, then the object's records' ids read 200 a
+ * statement, five a call — and the files the links name, 200 a statement,
+ * five a call, one file a link at most.
+ */
+function filesCost(objects: readonly TakenObject[]): Cost {
+  const linked = objects.filter((object) => object.links !== undefined);
+  if (linked.length === 0) return NOTHING;
+  let byIds = 0;
+  let named = 0;
+  for (const object of linked) {
+    if (object.links === null)
+      byIds += callsFor(callsFor(object.records, FILE_IDS_PER_READ), QUERIES_PER_COMPOSITE);
+    else named += object.links ?? 0;
+  }
+  return sum(
+    streamedReadsCost(linked.map((object) => pagesOf(object.links ?? 0))),
+    calls(byIds, SECONDS_PER_READ),
+    calls(callsFor(callsFor(named, FILE_IDS_PER_READ), QUERIES_PER_COMPOSITE), SECONDS_PER_READ),
+  );
 }
 
 // ─── The bricks a rewind and an undo go through ──────────────────────────────
@@ -799,10 +917,15 @@ export function bulkJobStateReads(records: number): number {
  * What deleting `records` records of one object costs, as the removal sends
  * them (`deleteRounds`): past {@link BULK_DELETE_THRESHOLD}, jobs of one size
  * of up to {@link BULK_DELETE_JOB_RECORDS} records, each priced by the calls
- * it sends; else, and for a file's versions, REST calls of 200.
+ * it sends; else, and for a file and its versions whatever their number,
+ * REST calls of 200.
  */
 function deletesCost(records: number, objectApiName: string | undefined): Cost {
-  if (records < BULK_DELETE_THRESHOLD || objectApiName === FILE_VERSION) {
+  if (
+    records < BULK_DELETE_THRESHOLD ||
+    objectApiName === FILE_VERSION ||
+    objectApiName === FILE_DOCUMENT
+  ) {
     return calls(runRequestsEstimate([{ rows: records }]), SECONDS_PER_WRITE);
   }
   const jobs = Math.ceil(records / BULK_DELETE_JOB_RECORDS);
@@ -888,7 +1011,12 @@ export interface DiffEstimateInput {
    * counted sent.
    */
   diff: Pick<RewindDiff, 'objects' | 'unread'> &
-    Partial<Pick<RewindDiff, 'undoCannot' | 'withParentDeleted' | 'parentsOutsideRequests'>>;
+    Partial<
+      Pick<
+        RewindDiff,
+        'undoCannot' | 'withParentDeleted' | 'parentsOutsideRequests' | 'files' | 'filesRequests'
+      >
+    >;
   /**
    * Per object, its relationships as its describe lists them
    * ({@link relationshipsOf}). One not given, of an object the rewind
@@ -1104,7 +1232,13 @@ function readAfterPass(
  * - every id of each object some of whose records it found gone for good, an
  *   object at a time;
  * - the names of the users who last changed what it found, 200 a read, five
- *   reads a call; none when it found nothing to delete or give back.
+ *   reads a call; none when it found nothing to delete or give back;
+ * - for a checkpoint that holds files, the describe of a file's link beside
+ *   the drift describes, the org's objects described once — what tells the
+ *   object of the record a link names — and what its reads of the links and
+ *   the files sent, as the last read counted them (`filesRequests`): those
+ *   reads follow the links and files found, which an estimate cannot know
+ *   before.
  *
  * A drift describe that came back whole — the object's fields changed in the
  * day before the take or since, which its drift tells — answers for its
@@ -1116,6 +1250,7 @@ function readCost(
   unread: ReadonlySet<string>,
   users: number,
   parentsOutside = 0,
+  files?: FilesRead,
 ): Cost {
   const moved: MovedObject[] = [];
   const scans: Cost[] = [];
@@ -1139,9 +1274,11 @@ function readCost(
     if (read.outside.all > 0) describesGlobal = true;
     outside += outsideReads(read.deletes, read.outside.worked);
   }
+  if (files !== undefined) describesGlobal = true;
+  const described = objects.length + (files !== undefined ? 1 : 0);
   return sum(
     calls(DIFF_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    calls(callsFor(objects.length, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
+    calls(callsFor(described, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
     changeReadsCost({
       objects: objects.length,
       held: objects.filter((object) => object.records > 0).map((object) => object.objectApiName),
@@ -1153,9 +1290,20 @@ function readCost(
     calls(describesGlobal ? 1 : 0, SECONDS_PER_DESCRIBE_CALL),
     calls(outside, SECONDS_PER_SMALL_CALL),
     calls(parentsOutside, SECONDS_PER_SMALL_CALL),
+    calls(files?.requests ?? 0, SECONDS_PER_READ),
     ...scans,
     calls(callsFor(callsFor(users, USERS_PER_READ), QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
   );
+}
+
+/** What the reads of a checkpoint's files sent, as the last read counted them. */
+interface FilesRead {
+  requests: number;
+}
+
+/** The files' part of a read, for a diff of a checkpoint that holds files; none for one that holds none. */
+function filesReadOf(diff: DiffEstimateInput['diff']): FilesRead | undefined {
+  return diff.files !== undefined ? { requests: diff.filesRequests ?? 0 } : undefined;
 }
 
 /** The checkpoint's objects the last read found, by name, each with how a read finds it. */
@@ -1185,6 +1333,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     users.size,
     input.diff.parentsOutsideRequests ?? 0,
+    filesReadOf(input.diff),
   );
 }
 
@@ -1206,6 +1355,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     waiting ? 1 : 0,
     input.diff.parentsOutsideRequests ?? 0,
+    filesReadOf(input.diff),
   );
 }
 
@@ -1349,7 +1499,9 @@ function mayHangFrom(
  * - the read after it, which plans pass 2 and is the verify when pass 2 has
  *   nothing to do;
  * - pass 2 and the verify after it, when records come back with a parent:
- *   pass 2 deletes them, and gives back what they held in place.
+ *   pass 2 deletes them, and gives back what they held in place;
+ * - the links between files and records it removes, inserts again and gives
+ *   their sharing back, 200 a call each (`linkWritesCost`).
  *
  * The read after a pass finds the org as the rewind leaves it, never a
  * preview's worth of work. Not counted: a record sent again without a field
@@ -1485,8 +1637,32 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
   return sum(
     calls(REWIND_USER_REQUESTS, SECONDS_PER_SMALL_CALL),
     passOne,
+    linkWritesCost(input.diff.files),
     readAfterPassCost(input, false),
     passTwo,
+  );
+}
+
+/** Links a rewind writes: those it removes, inserts again and gives their sharing back. */
+function linksWritten(files: RewindDiff['files']): number {
+  return files === undefined ? 0 : files.unlink + files.relink + files.updateLinks;
+}
+
+/**
+ * What a rewind's writes of links cost: each of the three kinds in REST
+ * collections of 200 — a link removed, one inserted again under a new Id
+ * (Salesforce brings none back from the recycle bin), one given its sharing
+ * back — never mixed in one call. Not counted: what the rewind reads again
+ * of the links to tell what the org did not bring back with a file or a
+ * record, which follows what it finds.
+ */
+export function linkWritesCost(files: RewindDiff['files']): Cost {
+  if (files === undefined) return NOTHING;
+  return calls(
+    callsFor(files.unlink, LINKS_PER_CALL) +
+      callsFor(files.relink, LINKS_PER_CALL) +
+      callsFor(files.updateLinks, LINKS_PER_CALL),
+    SECONDS_PER_WRITE,
   );
 }
 
@@ -1497,7 +1673,8 @@ export function rewindWritesCost(input: RewindEstimateInput): Cost {
  * once it has something to write, the automation read and its writes
  * (`rewindWritesCost`). The records counted are the three numbers of the
  * preview and the records it makes again; the bytes, what the journal keeps
- * of them.
+ * of them and of the links it writes. A rewind that writes links alone —
+ * a file linked since to a record that stays — writes all the same.
  */
 export function rewindEstimate(
   input: RewindEstimateInput,
@@ -1515,7 +1692,8 @@ export function rewindEstimate(
     calls(ACT_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
     input.reusesPreview === true ? NOTHING : diffEstimate(input),
   );
-  if (records === 0) {
+  const files = input.diff.files;
+  if (records === 0 && linksWritten(files) === 0) {
     return {
       records: 0,
       apiRequests: reads.apiRequests,
@@ -1534,11 +1712,26 @@ export function rewindEstimate(
     seconds: Math.ceil(cost.seconds),
     // A record made again is journaled twice: before its insert, by the Id
     // it had, and after, by its new one.
-    bytes: journalBytes(
-      objects.reduce((total, object) => total + givenBack(object), 0),
-      toDelete + toBringBack + 2 * recreated,
-    ),
+    bytes:
+      journalBytes(
+        objects.reduce((total, object) => total + givenBack(object), 0),
+        toDelete + toBringBack + 2 * recreated,
+      ) + linkJournalBytes(files),
   };
+}
+
+/**
+ * Bytes, about, a rewind's journal keeps of the links it writes: a link it
+ * removes whole, which an undo inserts again; the Id of one it inserts,
+ * which an undo removes; the sharing a link had, which an undo gives back.
+ */
+function linkJournalBytes(files: RewindDiff['files']): number {
+  if (files === undefined) return 0;
+  return (
+    files.unlink * JOURNAL_BYTES_PER_LINK +
+    files.relink * JOURNAL_BYTES_PER_ID +
+    files.updateLinks * JOURNAL_BYTES_PER_LINK
+  );
 }
 
 /** What a rewind did to one object, as its journal says: what an undo takes back. */
@@ -1735,13 +1928,25 @@ export interface CheckpointBudget extends ApiBudget {
    * emails is held to them (`rewindEmails.ts`).
    */
   emails: Partial<Record<ForgeEmailLimit, EmailLimit>> | { unread: string };
+  /**
+   * What it has left of its file storage, in MB, read from the same answer;
+   * absent when it does not say. A file in the recycle bin takes none, and
+   * its undelete counts it again (P-A8): what a rewind brings back of files
+   * is held to it (`fileStorageRefusal`).
+   */
+  fileStorage?: { max: number; remaining: number };
 }
+
+/** What `/limits` says of an org's file storage, when it says it. */
+const fileStorageSchema = z
+  .object({ FileStorageMB: z.object({ Max: z.number(), Remaining: z.number() }).loose() })
+  .loose();
 
 /**
  * The requests the org has left today, read once, before anything else of
  * the act: an act that cannot tell does not run, as one that runs the org out
- * of them stops its integrations too. Its daily email limits are read from
- * the same answer, no request more.
+ * of them stops its integrations too. Its daily email limits and its file
+ * storage are read from the same answer, no request more.
  *
  * @throws When the org does not say, naming it.
  */
@@ -1762,7 +1967,19 @@ export async function readBudget(org: LimitsTransport, orgName: string): Promise
   } catch (err: unknown) {
     emails = { unread: extractErrorMessage(err) };
   }
-  return { ...budget, emails };
+  const files = fileStorageSchema.safeParse(answer);
+  return {
+    ...budget,
+    emails,
+    ...(files.success
+      ? {
+          fileStorage: {
+            max: files.data.FileStorageMB.Max,
+            remaining: files.data.FileStorageMB.Remaining,
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -1782,6 +1999,54 @@ export function budgetRefusal(
     message:
       `${words.what} takes about ${apiRequests} API requests; ${orgName} has ` +
       `${budget.remaining} of its ${budget.max} left today. ${words.then} ${words.done}`,
+  };
+}
+
+/** What each act that brings files back from the recycle bin says it does, and what to do. */
+const FILE_STORAGE_WORDS: Readonly<Record<'rewind' | 'undo', { then: string; done: string }>> = {
+  rewind: {
+    then: 'Free file storage, then rewind again.',
+    done: 'No record was read or written.',
+  },
+  undo: {
+    then: 'Free file storage, then undo the rewind again while the recycle bin still holds them.',
+    done: 'No record was read or written.',
+  },
+};
+
+/** Bytes as a person reads a size of file storage: whole megabytes, rounded up past the first. */
+function storageMegabytes(bytes: number): string {
+  const megabytes = bytes / BYTES_PER_MB;
+  return megabytes < 1
+    ? `${Math.max(1, Math.round(megabytes * 10)) / 10} MB`
+    : `${Math.ceil(megabytes)} MB`;
+}
+
+/**
+ * The refusal of an act that would bring back from the recycle bin files
+ * taking more file storage than the org has left, in the words a person
+ * reads; nothing when they fit, or when the org did not say what it has
+ * left. A file in the bin takes no storage and its undelete counts it again
+ * (P-A8): bringing back exactly what is left fits.
+ *
+ * @param need - The files it brings back, and the bytes they take once back.
+ * @param remainingMb - What the org has left of its file storage, in MB (`/limits`).
+ */
+export function fileStorageRefusal(
+  act: 'rewind' | 'undo',
+  need: { files: number; bytes: number },
+  remainingMb: number | undefined,
+  orgName: string,
+): CheckpointRefusal | undefined {
+  if (remainingMb === undefined || need.files === 0) return undefined;
+  if (need.bytes <= remainingMb * BYTES_PER_MB) return undefined;
+  const words = FILE_STORAGE_WORDS[act];
+  const files = need.files === 1 ? '1 file' : `${need.files} files`;
+  return {
+    code: 'FILE_STORAGE',
+    message:
+      `Bringing back ${files} takes ${storageMegabytes(need.bytes)} of file storage; ` +
+      `${orgName} has ${remainingMb} MB left. ${words.then} ${words.done}`,
   };
 }
 

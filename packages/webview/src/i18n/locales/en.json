@@ -5449,6 +5449,8 @@
         "convertedLead_other": "{{formatted}} leads were converted since: Salesforce cannot unconvert a lead. What the conversions made is deleted, and the leads stay converted.",
         "activatedContract_one": "{{formatted}} contract was activated since: Salesforce will not set it back to Draft, so it stays activated.",
         "activatedContract_other": "{{formatted}} contracts were activated since: Salesforce will not set them back to Draft, so they stay activated.",
+        "newFileVersion_one": "{{formatted}} file was given a new version since: Salesforce neither deletes a version nor sets an older one back as the latest, so the file keeps its new content, and the one it had stays in its version history.",
+        "newFileVersion_other": "{{formatted}} files were given a new version since: Salesforce neither deletes a version nor sets an older one back as the latest, so the files keep their new content, and the one each had stays in its version history.",
         "fieldRemoved": "{{field}} was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.",
         "fieldsAdded_one": "{{fields}} was added since: its values stay.",
         "fieldsAdded_other": "{{fields}} were added since: their values stay.",

@@ -152,6 +152,16 @@
  *   along with its parent: made while the checkpoint was taken, brought back
  *   since, changed in the second the read began in.
  *
+ * Of a checkpoint that holds files, a file (`ContentDocument`) is told as any
+ * record, but only when a link ties it to a record the checkpoint holds: as
+ * it was then, for a file the checkpoint holds; as it is now, for one added
+ * since. Any other file is counted and left (`fileLinksDiff.ts`), as are its
+ * links; the links of the files acted on are told apart as sets, and the
+ * files another user owns, which a user without Query All Files reads by
+ * their ids alone, are read so. A checkpoint that holds no files — taken
+ * before files were held, or by a scope that left them out — is told as it
+ * was before: nothing of its files is read.
+ *
  * An object any of whose reads failed is named "could not be read", never
  * taken for one that did not change: a rewind leaves it as it is.
  *
@@ -170,6 +180,7 @@ import {
   type OrgCheckpoint,
   type RewindDiff,
   type RewindDiffObject,
+  type RewindFilesDiff,
   type RewindSchemaDrift,
 } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
@@ -180,6 +191,7 @@ import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemov
 import { orgDateTime } from '../sync/SyncDelta.js';
 import { sameValue } from '../sync/SyncRunRestore.js';
 import {
+  FILE_WITNESSES,
   PERSON_ACCOUNT_FLAG,
   checkpointDescribeSchema,
   comparedFields,
@@ -188,6 +200,9 @@ import {
   readModeOf,
   type CheckpointDescribe,
 } from './checkpointFields.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
+import { fileLinkClassFileOf } from './checkpointFiles.js';
+import { outsideOfFiles, readFileAnchors, tellFiles, type FileAnchors } from './fileLinksDiff.js';
 import { fingerprintOf, schemaDrift, type ObjectFingerprint } from './checkpointFingerprint.js';
 import { OrgReadStopped, type CompositeReader, type OrgRow } from './compositeQueries.js';
 import {
@@ -251,7 +266,17 @@ import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.
  * - `outsideParents`: of the records to delete, those records outside the
  *   checkpoint created since T1 hang from, which their deletion takes along.
  *   Not a class of its own either: a rewind of picked objects keeps them
- *   unless the deletion of what hangs from them is accepted.
+ *   unless the deletion of what hangs from them is accepted;
+ *
+ * and of a file (`ContentDocument`) of a checkpoint that holds files
+ * (`fileLinksDiff.ts`):
+ *
+ * - `outsideAdded`: added since — created, or brought back from the bin —
+ *   that no link ties to a record the checkpoint holds: left, never deleted;
+ * - `outsideDeleted`: deleted since, that no link of the checkpoint tied to a
+ *   record it holds: left where it is;
+ * - `newFileVersion`: given a new version since, which no rewind takes back.
+ *   Not a class of its own: each of its files is in another, or in none.
  */
 export type RewindClass =
   | 'giveBack'
@@ -271,7 +296,10 @@ export type RewindClass =
   | 'deletedWithCreatedParent'
   | 'deletedWithParentOutside'
   | 'undoCannot'
-  | 'outsideParents';
+  | 'outsideParents'
+  | 'outsideAdded'
+  | 'outsideDeleted'
+  | 'newFileVersion';
 
 /** Every class, as the files of an object are named by. */
 const REWIND_CLASSES: readonly RewindClass[] = [
@@ -293,6 +321,9 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'deletedWithParentOutside',
   'undoCannot',
   'outsideParents',
+  'outsideAdded',
+  'outsideDeleted',
+  'newFileVersion',
 ];
 
 /** Why a record deleted since stays in the bin with a parent the rewind does not bring back. */
@@ -322,10 +353,20 @@ export function classFileOf(previewDir: string, objectApiName: string, cls: Rewi
 
 /** What a diff since a checkpoint reads from. */
 export interface RewindDiffInput {
+  /**
+   * The checkpoint: with its files' block when it holds files — its rewind
+   * acts on the files linked to its records alone, and on their links — and
+   * the user it was taken as, whose Query All Files says what it could see.
+   * Without that block, files are what a checkpoint of SandForge 1.69 made
+   * of them: nothing it holds.
+   */
   checkpoint: Pick<
     OrgCheckpoint,
     'checkpointId' | 'readFrom' | 'takenAt' | 'objects' | 'ignoredFields' | 'snapshotId'
-  >;
+  > &
+    Partial<Pick<OrgCheckpoint, 'files'>> & {
+      takenBy?: Pick<OrgCheckpoint['takenBy'], 'queryAllFiles'>;
+    };
   /** The checkpoint's folder: its snapshot, index, bin and field prints. */
   folder: CheckpointFolder;
   /** The org, read through composites. */
@@ -342,6 +383,12 @@ export interface RewindDiffInput {
   readAt: string;
   /** Stops the reads between two pages, two calls or two objects. */
   signal?: AbortSignal;
+  /**
+   * Whether the user reading now has Query All Files, when its guard read
+   * it: without it, a file another user owns linked to no record the
+   * checkpoint holds is not seen now either.
+   */
+  queryAllFiles?: boolean;
 }
 
 /**
@@ -382,6 +429,11 @@ function keyOf(id: unknown): string | undefined {
 function dateMs(value: unknown): number {
   const at = orgDateTime(value);
   return at === null ? Number.NaN : Date.parse(at);
+}
+
+/** Whether `objectApiName` is a file's, `ContentDocument`. */
+function isFile(objectApiName: string): boolean {
+  return objectApiName.toLowerCase() === FILE_OBJECT.toLowerCase();
 }
 
 /** Whether a field holds no value: a lookup the org cleared. */
@@ -571,6 +623,12 @@ interface DiffContext {
    * The account's diff takes them out as it compares them.
    */
   personAccounts: Set<string>;
+  /**
+   * For a checkpoint that holds files, which file a rewind acts on: one a
+   * link of the checkpoint tied to a record it holds, or, added since, one a
+   * link ties to such a record now. Absent for one that holds none.
+   */
+  files?: FileAnchors;
 }
 
 /** The ids of an object in the recycle bin at T0, by key, read from its bin file once asked. */
@@ -712,6 +770,14 @@ function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): 
   const fields = [...object.cascadeParents, ...(object.restrictParents ?? [])].filter(
     (field) => !gone.has(field.toLowerCase()),
   );
+  // A file's latest version and size, which tell a new version since and
+  // what bringing it back takes of the org's file storage.
+  if (isFile(object.objectApiName)) {
+    for (const witness of FILE_WITNESSES) {
+      const field = heldField(object.fields, witness);
+      if (field !== undefined && !gone.has(field.toLowerCase())) fields.push(field);
+    }
+  }
   const flag = heldField(object.fields, PERSON_ACCOUNT_FLAG);
   if (object.objectApiName === CONTACT && flag !== undefined) {
     const account = heldField(object.fields, 'AccountId');
@@ -1248,6 +1314,11 @@ async function diffObject(
   const { input, previewDir, t0s, back, carriers, stranded, stuck, personAccounts } = context;
   const { folder, reader, checkpoint, signal } = input;
   const objectApiName = object.objectApiName;
+  // A file is acted on when a link ties it to a record the checkpoint holds:
+  // as it was then, for a file the checkpoint holds; as it is now, for one
+  // added since. Any other — a user's own, a library's — is counted, left.
+  const anchors = isFile(objectApiName) ? context.files : undefined;
+  const actedThen = (id: string): boolean => anchors === undefined || anchors.anchoredThen(id);
   const spools = new Map<RewindClass, ClassSpool>();
   const spool = (cls: RewindClass): ClassSpool => {
     let held = spools.get(cls);
@@ -1445,7 +1516,7 @@ async function diffObject(
         const person = isPerson(row);
         const held = index.stampOf(id);
         if (held !== undefined) {
-          if (person) continue;
+          if (person || !actedThen(id)) continue;
           const cleared = suspects.get(key)?.fields;
           if (cleared) suspects.delete(key);
           const ofPerson = objectApiName === ACCOUNT && personAccounts.delete(key);
@@ -1458,14 +1529,19 @@ async function diffObject(
         tally.liveNotHeld++;
         // Counted with its account, which alone is deleted.
         if (person) continue;
-        if (await inBinAtCheckpoint(key)) {
-          await spool('broughtBackSince').add({ Id: id });
-          toDelete(row, id, key, true);
-        } else if (dateMs(row.CreatedDate) >= t0s) {
-          await spool('createdSince').add({ Id: id });
-          toDelete(row, id, key, true);
-        } else {
+        const added: RewindClass | undefined = (await inBinAtCheckpoint(key))
+          ? 'broughtBackSince'
+          : dateMs(row.CreatedDate) >= t0s
+            ? 'createdSince'
+            : undefined;
+        if (added === undefined) {
           await spool('unexplained').add({ Id: id });
+        } else if (anchors !== undefined && !anchors.anchoredNow(id)) {
+          // A file no record of the checkpoint links to: never deleted.
+          await spool('outsideAdded').add({ Id: id });
+        } else {
+          await spool(added).add({ Id: id });
+          toDelete(row, id, key, true);
         }
       }
     }
@@ -1500,6 +1576,10 @@ async function diffObject(
         if (index.has(id)) {
           tally.deletedHeld++;
           if (person) continue;
+          if (!actedThen(id)) {
+            await spool('outsideDeleted').add({ Id: id });
+            continue;
+          }
           // Salesforce keeps it in the bin for good.
           const strandedAs = stranded.get(key);
           if (stuck.has(key)) await spool(lostAs).add({ Id: id });
@@ -1524,9 +1604,12 @@ async function diffObject(
         // parent the rewind brings back: it comes back with it.
         if (dateMs(row.CreatedDate) < t0s) {
           const strandedAs = stranded.get(key);
-          await spool(stuck.has(key) ? 'goneForGood' : (strandedAs ?? 'deletedWhileTaken')).add({
-            Id: id,
-          });
+          const as: RewindClass = !actedThen(id)
+            ? 'outsideDeleted'
+            : stuck.has(key)
+              ? 'goneForGood'
+              : (strandedAs ?? 'deletedWhileTaken');
+          await spool(as).add({ Id: id });
         } else if (wentWithParent(row, key)) {
           await spool('comesBackWithParent').add({ Id: id });
           toDelete(row, id, key, false);
@@ -1570,7 +1653,8 @@ async function diffObject(
           }
         }
         for (const id of ids) {
-          if (!persons.has(id.slice(0, 15))) await spool(lostAs).add({ Id: id });
+          if (persons.has(id.slice(0, 15))) continue;
+          await spool(actedThen(id) ? lostAs : 'outsideDeleted').add({ Id: id });
         }
         ids = [];
       };
@@ -1901,6 +1985,192 @@ function differs(diff: RewindDiffObject): boolean {
   );
 }
 
+// ─── Files ───────────────────────────────────────────────────────────────────
+
+/** The describe of a file's link, asked beside the objects' own. */
+async function describedLink(reader: CompositeReader): Promise<CheckpointDescribe> {
+  const answer = await reader.describe(FILE_LINK_OBJECT);
+  const parsed = checkpointDescribeSchema.safeParse('body' in answer ? answer.body : null);
+  if (!parsed.success) throw new Error(`The org gave no describe of ${FILE_LINK_OBJECT}.`);
+  return parsed.data;
+}
+
+/** Where the preview of `previewDir` spools each class of each object. */
+function classFilesOf(previewDir: string): (objectApiName: string, cls: RewindClass) => string {
+  return (objectApiName, cls) => classFileOf(previewDir, objectApiName, cls);
+}
+
+/**
+ * Which file a rewind acts on (`readFileAnchors`), read before any object is
+ * told; or why the links could not be read, which the files' object is named
+ * unread for: a file whose links were not read is none a rewind can tell
+ * anchored, and none it may delete. Nothing when the files' own change reads
+ * failed: their diff names why.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function fileAnchorsOf(
+  input: RewindDiffInput,
+  parts: {
+    previewDir: string;
+    ordered: readonly CheckpointObject[];
+    changes: ReadonlyMap<string, ObjectChanges>;
+    linkDescribe: Promise<CheckpointDescribe>;
+    fileObject: CheckpointObject;
+    unread: ReadonlyMap<string, string>;
+  },
+): Promise<{ anchors: FileAnchors } | { unread: string } | undefined> {
+  const name = parts.fileObject.objectApiName;
+  const changed = parts.changes.get(name);
+  if (parts.unread.has(name) || changed === undefined || 'unread' in changed) return undefined;
+  try {
+    return {
+      anchors: await readFileAnchors({
+        reader: input.reader,
+        folder: input.folder,
+        previewDir: parts.previewDir,
+        snapshotId: input.checkpoint.snapshotId,
+        objects: parts.ordered,
+        changes: parts.changes,
+        linkDescribe: parts.linkDescribe,
+        describeGlobal: input.describeGlobal,
+        ...(input.signal ? { signal: input.signal } : {}),
+      }),
+    };
+  } catch (err: unknown) {
+    if (err instanceof OrgReadStopped) throw err;
+    return {
+      unread:
+        'The links of its files to the records of the checkpoint could not be read: ' +
+        extractErrorMessage(err),
+    };
+  }
+}
+
+/** Remove the classes of the links a preview wrote: its files could not be told whole. */
+async function discardLinkClasses(previewDir: string): Promise<void> {
+  await Promise.all(
+    (['linkAdded', 'linkRemoved', 'linkChanged'] as const).map((cls) =>
+      rm(fileLinkClassFileOf(previewDir, cls), { force: true }),
+    ),
+  );
+}
+
+/**
+ * What a rewind does about the checkpoint's files once every object is told
+ * (`tellFiles`): what it adds to the diff of `ContentDocument` — the files
+ * another user owns to delete, to bring back or gone for good, the new
+ * versions — and the diff's files. A read that fails names the files' object
+ * unread, its classes and the links' removed: nothing of them is acted on.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function filesOf(
+  input: RewindDiffInput,
+  parts: {
+    anchors: FileAnchors;
+    fileObject: CheckpointObject;
+    changes: ReadonlyMap<string, ObjectChanges>;
+    outcomes: Map<string, ObjectOutcome>;
+    ordered: readonly CheckpointObject[];
+    previewDir: string;
+    t0s: number;
+  },
+): Promise<RewindFilesDiff | undefined> {
+  const name = parts.fileObject.objectApiName;
+  const outcome = parts.outcomes.get(name);
+  const fileChanges = parts.changes.get(name);
+  if (outcome === undefined || !('told' in outcome) || fileChanges === undefined) return undefined;
+  const told = new Set(
+    [...parts.outcomes]
+      .filter(([, each]) => 'told' in each)
+      .map(([objectApiName]) => objectApiName),
+  );
+  try {
+    const result = await tellFiles({
+      anchors: parts.anchors,
+      reader: input.reader,
+      folder: input.folder,
+      snapshotId: input.checkpoint.snapshotId,
+      t0s: parts.t0s,
+      objects: parts.ordered,
+      fileChanges,
+      told,
+      classFileOf: classFilesOf(parts.previewDir),
+      previewDir: parts.previewDir,
+      queryAllFiles:
+        input.checkpoint.takenBy?.queryAllFiles === true && input.queryAllFiles !== false,
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    const { diff, people } = outcome.told;
+    diff.toDelete.createdSince += result.createdSince;
+    diff.toBringBack.deletedWhileTaken += result.deletedWhileTaken;
+    for (const row of result.changedBy) people.add(row);
+    diff.lastChangedBy = people.byUser();
+    const goneForGood = result.goneForGood;
+    const newVersions = result.newFileVersion;
+    const lost = diff.cannotUndo.find((cannot) => cannot.reason === 'goneForGood');
+    if (lost !== undefined) lost.count += goneForGood;
+    else if (goneForGood > 0)
+      diff.cannotUndo.unshift({ reason: 'goneForGood', count: goneForGood });
+    diff.cannotUndo.push(
+      ...(newVersions > 0 ? [{ reason: 'newFileVersion' as const, count: newVersions }] : []),
+    );
+    return result.files;
+  } catch (err: unknown) {
+    if (err instanceof OrgReadStopped) throw err;
+    await discardClasses(parts.previewDir, name);
+    await discardLinkClasses(parts.previewDir);
+    parts.outcomes.set(name, { unread: extractErrorMessage(err) });
+    return undefined;
+  }
+}
+
+/**
+ * Of the files the rewind deletes, those linked as well to something the
+ * checkpoint does not hold, counted among what its deletion takes along
+ * outside the checkpoint (`outsideOfFiles`), as the links that go with them.
+ * A read that fails names the files' object unread, as one whose other reads
+ * of what its deletion takes along failed.
+ *
+ * @throws {OrgReadStopped} When the run was stopped.
+ */
+async function filesOutsideOf(
+  input: RewindDiffInput,
+  parts: {
+    anchors: FileAnchors;
+    fileObject: CheckpointObject;
+    outcomes: Map<string, ObjectOutcome>;
+    previewDir: string;
+  },
+): Promise<void> {
+  const name = parts.fileObject.objectApiName;
+  const outcome = parts.outcomes.get(name);
+  if (outcome === undefined || !('told' in outcome)) return;
+  const { diff } = outcome.told;
+  if (diff.toDelete.createdSince + diff.toDelete.broughtBackSince === 0) return;
+  try {
+    const { links, files } = await outsideOfFiles({
+      anchors: parts.anchors,
+      reader: input.reader,
+      classFileOf: classFilesOf(parts.previewDir),
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    if (links === 0) return;
+    diff.outside = [
+      ...diff.outside.filter(({ objectApiName }) => objectApiName !== FILE_LINK_OBJECT),
+      { objectApiName: FILE_LINK_OBJECT, count: links, parents: files },
+    ].sort((a, b) =>
+      a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0,
+    );
+  } catch (err: unknown) {
+    if (err instanceof OrgReadStopped) throw err;
+    await discardClasses(parts.previewDir, name);
+    await discardLinkClasses(parts.previewDir);
+    parts.outcomes.set(name, { unread: extractErrorMessage(err) });
+  }
+}
+
 /**
  * What a rewind to a checkpoint would do, read from the org now: see the
  * module's comment. The objects are diffed in the checkpoint's reading order,
@@ -1925,6 +2195,15 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
 
   const ordered = [...checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
   const bodies = new Map<string, CheckpointDescribe>();
+  // A checkpoint that holds files reads their links too: the describe of a
+  // link, which names the objects a link may tie a file to, asked with the
+  // objects' own so that it goes in the same call.
+  const fileObject =
+    checkpoint.files !== undefined
+      ? ordered.find(({ objectApiName }) => isFile(objectApiName))
+      : undefined;
+  const linkDescribe = fileObject !== undefined ? describedLink(reader) : undefined;
+  linkDescribe?.catch(() => undefined);
   const fieldsNow = await fieldsNowOf(input, ordered, bodies);
   const unread = new Map<string, string>();
   const readable: Array<{ object: CheckpointObject; fields: FieldsNow }> = [];
@@ -1995,6 +2274,24 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   stuckWith(stuck, back, gone);
   for (const key of [...carriers]) if (!back.has(key)) carriers.delete(key);
   const stranded = strandedOf(back, gone, outsideOfCheckpoint.outside);
+  // Which file a rewind acts on, told before any object is: the links of the
+  // checkpoint, and those of its records now.
+  let filesRequests = 0;
+  const filesSince = reader.calls();
+  const anchored =
+    fileObject !== undefined && linkDescribe !== undefined
+      ? await fileAnchorsOf(input, {
+          previewDir,
+          ordered,
+          changes,
+          linkDescribe,
+          fileObject,
+          unread,
+        })
+      : undefined;
+  filesRequests += reader.calls() - filesSince;
+  const anchors = anchored !== undefined && 'anchors' in anchored ? anchored.anchors : undefined;
+
   const context: DiffContext = {
     input,
     previewDir,
@@ -2006,12 +2303,17 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     stuck,
     lookups,
     personAccounts: await personAccountsOf(ordered, changes),
+    ...(anchors !== undefined ? { files: anchors } : {}),
   };
 
   const outcomes = new Map<string, ObjectOutcome>();
   for (const { object, fields } of readable) {
     if (signal?.aborted) throw new OrgReadStopped();
-    const early = unread.get(object.objectApiName);
+    const early =
+      unread.get(object.objectApiName) ??
+      (anchored !== undefined && 'unread' in anchored && object === fileObject
+        ? anchored.unread
+        : undefined);
     const changed = changes.get(object.objectApiName);
     outcomes.set(
       object.objectApiName,
@@ -2021,8 +2323,29 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     );
   }
 
-  // What its deletions take along outside the checkpoint.
+  // The files another user owns, the new versions, the links, the storage.
+  let files: RewindFilesDiff | undefined;
+  if (anchors !== undefined && fileObject !== undefined) {
+    const since = reader.calls();
+    files = await filesOf(input, {
+      anchors,
+      fileObject,
+      changes,
+      outcomes,
+      ordered,
+      previewDir,
+      t0s,
+    });
+    filesRequests += reader.calls() - since;
+  }
+
+  // What its deletions take along outside the checkpoint: a file's links and
+  // versions are held with it, by a checkpoint that holds files.
   const inCheckpoint = new Set(ordered.map(({ objectApiName }) => objectApiName.toLowerCase()));
+  if (checkpoint.files !== undefined && fileObject !== undefined) {
+    for (const held of [FILE_LINK_OBJECT, FILE_VERSION_OBJECT])
+      inCheckpoint.add(held.toLowerCase());
+  }
   let worked: Promise<ReadonlyMap<string, string>> | undefined;
   const workedNow = (): Promise<ReadonlyMap<string, string>> =>
     (worked ??= workedObjects({ describeGlobal: input.describeGlobal }));
@@ -2044,6 +2367,14 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
       outcomes.set(objectApiName, { unread: extractErrorMessage(err) });
     }
   }
+  // And of the files it deletes, their links to anything else the
+  // checkpoint does not hold: a library, a group, a record of another object.
+  if (anchors !== undefined && fileObject !== undefined) {
+    const since = reader.calls();
+    await filesOutsideOf(input, { anchors, fileObject, outcomes, previewDir });
+    filesRequests += reader.calls() - since;
+    if (!('told' in (outcomes.get(fileObject.objectApiName) ?? { unread: '' }))) files = undefined;
+  }
 
   const told = ordered.flatMap(({ objectApiName }) => {
     const outcome = outcomes.get(objectApiName);
@@ -2064,6 +2395,8 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     ...(outsideOfCheckpoint.requests > 0
       ? { parentsOutsideRequests: outsideOfCheckpoint.requests }
       : {}),
+    ...(files !== undefined ? { files } : {}),
+    ...(fileObject !== undefined ? { filesRequests } : {}),
     unread: ordered.flatMap(({ objectApiName }) => {
       const outcome = outcomes.get(objectApiName);
       const reason =

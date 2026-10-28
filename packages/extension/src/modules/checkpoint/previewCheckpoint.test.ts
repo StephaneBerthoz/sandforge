@@ -624,4 +624,21 @@ describe('objectsWrittenBy', () => {
       }),
     ).toEqual(['Account', 'Contact']);
   });
+
+  it('names the link of a file to a record when the rewind removes, inserts or updates links, as a trigger on a link runs on each, and not when it writes none', () => {
+    const files = (links: { unlink: number; relink: number; updateLinks: number }) => ({
+      objects: [],
+      files: {
+        ...links,
+        outsideAdded: 2,
+        outsideDeleted: 1,
+        storage: { bringBack: 0, undo: 0 },
+      },
+    });
+
+    expect(objectsWrittenBy(files({ unlink: 0, relink: 1, updateLinks: 0 }))).toEqual([
+      'ContentDocumentLink',
+    ]);
+    expect(objectsWrittenBy(files({ unlink: 0, relink: 0, updateLinks: 0 }))).toEqual([]);
+  });
 });

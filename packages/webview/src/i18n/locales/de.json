@@ -5449,6 +5449,8 @@
         "convertedLead_other": "{{formatted}} Leads wurden seitdem konvertiert: Salesforce kann die Konvertierung eines Leads nicht aufheben. Was die Konvertierungen erstellt haben, wird gelöscht, und die Leads bleiben konvertiert.",
         "activatedContract_one": "{{formatted}} Vertrag wurde seitdem aktiviert: Salesforce setzt ihn nicht auf Entwurf zurück, er bleibt also aktiviert.",
         "activatedContract_other": "{{formatted}} Verträge wurden seitdem aktiviert: Salesforce setzt sie nicht auf Entwurf zurück, sie bleiben also aktiviert.",
+        "newFileVersion_one": "{{formatted}} Datei hat seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Datei behält also ihren neuen Inhalt; der vorherige bleibt in ihrem Versionsverlauf.",
+        "newFileVersion_other": "{{formatted}} Dateien haben seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Dateien behalten also ihren neuen Inhalt; der vorherige bleibt jeweils in ihrem Versionsverlauf.",
         "fieldRemoved": "{{field}} wurde seit dem Prüfpunkt gelöscht: Stellen Sie das Feld unter „Gelöschte Felder“ wieder her (innerhalb von 15 Tagen) und setzen Sie dann erneut zurück.",
         "fieldsAdded_one": "{{fields}} wurde seitdem hinzugefügt: Seine Werte bleiben.",
         "fieldsAdded_other": "{{fields}} wurden seitdem hinzugefügt: Ihre Werte bleiben.",

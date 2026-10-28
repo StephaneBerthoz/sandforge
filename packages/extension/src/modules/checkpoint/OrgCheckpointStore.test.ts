@@ -30,6 +30,8 @@ import {
   defaultCheckpointStoreRoot,
   expiresAtFor,
   expiresSoon,
+  filesDocumentsFileOf,
+  filesLinksFileOf,
   indexFileOf,
   newFolderId,
   openCheckpointStore,
@@ -163,6 +165,9 @@ describe('where checkpoints are kept', () => {
     expect(folder.snapshotsFile).toBe(join(folder.dir, 'snapshots.json'));
     expect(indexFileOf(folder, 'Account')).toBe(join(folder.dir, 'index', 'Account.idx'));
     expect(binFileOf(folder, 'Account')).toBe(join(folder.dir, 'bin', 'Account.ids'));
+    // Named plain, kept compressed beside them as `.ndjson.gz`.
+    expect(filesLinksFileOf(folder)).toBe(join(folder.dir, 'files', 'links.ndjson'));
+    expect(filesDocumentsFileOf(folder)).toBe(join(folder.dir, 'files', 'documents.ndjson'));
     expect(previewDirOf(folder, 'pv-20261022-120000-c3d4')).toBe(
       join(folder.dir, 'previews', 'pv-20261022-120000-c3d4'),
     );

@@ -30,6 +30,10 @@
  *   rest as created since. Its pages are put down compressed as they come,
  *   never plain first. Each object's index is written from its file once
  *   read, and must hold as many rows as the read kept.
+ * - The files follow the snapshot, once it is indexed: the links of its
+ *   records to files, read through the records, and each file a link names,
+ *   read by its id (`checkpointFiles.ts`). A file another user owns is seen
+ *   no other way by a user without Query All Files (P-A7).
  * - T1 follows every read. What moved between T0 and T1 after its object was
  *   read is counted, the warning the take ends with: each record is held as it
  *   was read, and a rewind treats what moved since as changed since.
@@ -58,7 +62,9 @@ import {
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointObject,
+  type CheckpointFiles,
   type CheckpointRefusal,
+  type CheckpointScopeFiles,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
   type CheckpointTakePhase,
@@ -101,9 +107,12 @@ import {
   type ObjectCapture,
 } from './checkpointFields.js';
 import { fingerprintOf, type ObjectFingerprint } from './checkpointFingerprint.js';
+import { linksCountRead, takeFiles } from './checkpointFiles.js';
 import { guardCheckpoint } from './checkpointGuard.js';
 import { compressedSnapshotFiles } from './compressedSnapshotFiles.js';
 import {
+  FILE_LINK_OBJECT,
+  FILE_OBJECT,
   globalObjectSchema,
   resolveScope,
   scopeCandidates,
@@ -122,13 +131,16 @@ import {
 } from './compositeQueries.js';
 import {
   binLedgerRead,
+  changeReadsFrom,
   countRead,
   countRecords,
   readChanges,
+  readStreams,
   soqlInstant,
   spoolReads,
   spooledRows,
   type ObjectChanges,
+  type ObjectRead,
 } from './orgStreams.js';
 import {
   budgetRefusal,
@@ -330,6 +342,8 @@ export interface TakeScope {
   estimate: CheckpointEstimate;
   /** The refusal a take would meet before reading a record, when it would meet one. */
   refusal?: CheckpointRefusal;
+  /** What it would hold of the org's files, and what it could not see of them; absent for a take refused before its scope is read. */
+  files?: CheckpointScopeFiles;
 }
 
 /** Why a take ended without a checkpoint: it was stopped. Nothing of it is kept. */
@@ -359,7 +373,12 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
     'Left out: neither the recycle bin nor an update reaches this kind of object as it ' +
     'reaches a record.',
   customSetting: 'Custom settings are left out: they are configuration.',
-  files: "Files are left out: a checkpoint doesn't cover files.",
+  files:
+    'Documents of the Documents tab are left out: they are shared content kept in folders, as ' +
+    'setup is.',
+  heldWithFiles:
+    "Held with its file (ContentDocument): Salesforce neither deletes nor brings back a file's " +
+    'version on its own, and reads the links of a file through the records they tie it to.',
   setup: 'Users, permissions and setup are left out.',
   metadata: "Left out: it is metadata, which a checkpoint doesn't hold.",
   notWritable:
@@ -445,12 +464,43 @@ interface Described {
 
 /** The scope read from the org's describes: what a take would hold, before any count. */
 interface DescribedScope {
-  /** Objects described. */
+  /** Objects described, the link of a file among them when the scope holds files. */
   described: number;
   /** Of them, those whose describe was asked again alone. */
   describedAlone: number;
   objects: Described[];
   leftOut: ScopeLeftOut[];
+  /** The objects of files a scope of picked objects holds though they were not picked. */
+  addedToPicked: string[];
+  /**
+   * When the scope holds files, the objects whose records a link may tie a
+   * file to, in lower case, as the describe of a link names them; absent
+   * when it holds none.
+   */
+  linkable?: ReadonlySet<string>;
+}
+
+/** Whether `name` names a file's object, whatever its case. */
+function isFileObject(name: string): boolean {
+  return name.toLowerCase() === FILE_OBJECT.toLowerCase();
+}
+
+/**
+ * The objects whose records a link may tie a file to, in lower case, from
+ * the describe of a link's `LinkedEntityId`; or why it could not tell.
+ */
+function linkableOf(
+  linkObject: string | undefined,
+  describes: ReadonlyMap<string, CheckpointDescribe>,
+  errors: ReadonlyMap<string, string>,
+): { linkable: Set<string> } | { why: string } {
+  if (linkObject === undefined) return { why: `the org lists no ${FILE_LINK_OBJECT}` };
+  const described = describes.get(linkObject);
+  if (described === undefined) return { why: errors.get(linkObject) ?? 'it was not described' };
+  const entity = described.fields.find((field) => field.name.toLowerCase() === 'linkedentityid');
+  const targets = entity?.referenceTo ?? [];
+  if (targets.length === 0) return { why: 'its describe names no record a link ties a file to' };
+  return { linkable: new Set(targets.map((name) => name.toLowerCase())) };
 }
 
 /**
@@ -524,8 +574,41 @@ async function describeScope(
     },
     tooling,
   );
-  const { describes, errors, alone } = await describeAll(org, reader, candidates.candidates);
-  const scope = resolveScope(candidates, describes, errors);
+  // A scope that holds files describes their links too, beside its objects:
+  // the records a link may tie a file to are what the take reads links of.
+  const holdsFiles = candidates.candidates.some(isFileObject);
+  const linkObject = holdsFiles
+    ? global.sobjects.find((object) => object.name.toLowerCase() === FILE_LINK_OBJECT.toLowerCase())
+        ?.name
+    : undefined;
+  const names =
+    linkObject === undefined ? candidates.candidates : [...candidates.candidates, linkObject];
+  const { describes, errors, alone } = await describeAll(org, reader, names);
+  let linkable: ReadonlySet<string> | undefined;
+  let linksUnread: string | undefined;
+  if (holdsFiles) {
+    const links = linkableOf(linkObject, describes, errors);
+    if ('linkable' in links) linkable = links.linkable;
+    else linksUnread = links.why;
+    if (linkObject !== undefined) describes.delete(linkObject);
+  }
+  let scope = resolveScope(candidates, describes, errors);
+  // A file whose links cannot be read is no file a rewind can tell anchored:
+  // left out, with why, rather than held without them.
+  if (linksUnread !== undefined) {
+    const file = scope.objects.find(({ objectApiName }) => isFileObject(objectApiName));
+    if (file !== undefined) {
+      scope = withoutRefusedReads(
+        scope,
+        new Map([
+          [
+            file.objectApiName,
+            `its links to records, ${FILE_LINK_OBJECT}, could not be described: ${linksUnread}`,
+          ],
+        ]),
+      );
+    }
+  }
   const encrypted = await viewsEncryptedData(async (soql) => (await org.query(soql)).records);
   const labels = new Map(
     global.sobjects.map((object: GlobalObject) => [object.name, labelOf(object)]),
@@ -543,10 +626,14 @@ async function describeScope(
     });
   }
   return {
-    described: candidates.candidates.length,
+    described: names.length,
     describedAlone: alone,
     objects,
     leftOut: scope.leftOut,
+    addedToPicked: candidates.addedToPicked,
+    ...(linkable !== undefined && objects.some(({ scoped }) => isFileObject(scoped.objectApiName))
+      ? { linkable }
+      : {}),
   };
 }
 
@@ -608,11 +695,73 @@ async function countAll(
   return { counts, refused, alone };
 }
 
+/**
+ * What the counts tell of an object holding records beyond its records, for
+ * the estimate: its recycle bin at T0, its records stamped since the change
+ * reads' start, and its links to files when the take reads them.
+ */
+type Recount = Pick<TakenObject, 'inBin' | 'stampedSince' | 'links'>;
+
 /** One object a take holds, with what it records of it before reading it. */
 interface Planned extends Described {
   records: number;
   /** For each of its column groups after the first, the ids a read of it by id names a statement. */
   otherGroups: number[];
+  recount: Recount;
+}
+
+/** Whether the take reads the links of `objectApiName`'s records: a record a link may tie a file to. */
+function readsLinksOf(objectApiName: string, linkable: ReadonlySet<string> | undefined): boolean {
+  return linkable?.has(objectApiName.toLowerCase()) === true && !isFileObject(objectApiName);
+}
+
+/**
+ * Count, for each object holding records, five counts a call, what the take
+ * reads of it beyond its records: its recycle bin at T0, its records stamped
+ * since the change reads' start, live or in the bin, and the links of its
+ * records to files when the take reads them. A count the org does not
+ * answer prices nothing more, or, for links, their read by the records' ids.
+ *
+ * @returns Per object, what was counted, and how many counts were asked.
+ */
+async function recountsOf(
+  reader: CompositeReader,
+  objects: ReadonlyArray<{ objectApiName: string; records: number }>,
+  linkable: ReadonlySet<string> | undefined,
+  readFrom: string,
+  signal: AbortSignal | undefined,
+): Promise<{ asked: number; of: Map<string, Recount> }> {
+  const reads: Array<ObjectRead & { counts: keyof Recount }> = [];
+  for (const { objectApiName, records } of objects) {
+    if (records === 0) continue;
+    const object = sanitizeSoqlObjectName(objectApiName);
+    reads.push(
+      {
+        objectApiName: object,
+        soql: `SELECT COUNT() FROM ${object} WHERE IsDeleted = true AND SystemModstamp < ${soqlInstant(readFrom)}`,
+        scanAll: true,
+        counts: 'inBin',
+      },
+      {
+        objectApiName: object,
+        soql: `SELECT COUNT() FROM ${object} WHERE SystemModstamp >= ${changeReadsFrom(readFrom)}`,
+        scanAll: true,
+        counts: 'stampedSince',
+      },
+    );
+    if (readsLinksOf(object, linkable)) reads.push({ ...linksCountRead(object), counts: 'links' });
+  }
+  const outcomes = await readStreams(reader, reads, () => undefined, signal);
+  const of = new Map<string, Recount>();
+  outcomes.forEach((outcome, at) => {
+    const { objectApiName, counts } = reads[at];
+    const counted = outcome.read ? outcome.totalSize : undefined;
+    const recount = of.get(objectApiName) ?? {};
+    if (counts === 'links') recount.links = counted ?? null;
+    else if (counted !== undefined) recount[counts] = counted;
+    of.set(objectApiName, recount);
+  });
+  return { asked: reads.length, of };
 }
 
 /**
@@ -650,6 +799,8 @@ interface Plan {
   objectLimit: number;
   /** Each object's field prints, by object, from its describe: what the take keeps of them. */
   prints: Record<string, ObjectFingerprint>;
+  /** {@link DescribedScope.linkable}, when the take holds files. */
+  linkable?: ReadonlySet<string>;
   /** The refusal the gates give, when they give one. */
   refusal?: CheckpointRefusal;
 }
@@ -664,7 +815,8 @@ function pageRowsOf(registered: OrgTypeAndEdition | undefined): number {
  * The scope counted and held to the take's limits: objects the org will not
  * read whole and objects past the limit for one object left out, named; the
  * rest refused past the take's limit or past the requests the org has left
- * today.
+ * today. What the take reads of each object beyond its records is counted
+ * from `readFrom`, T0, for the estimate.
  */
 async function planOf(
   org: TakeOrg,
@@ -672,6 +824,7 @@ async function planOf(
   request: TakeRequest,
   scope: DescribedScope,
   budget: ApiBudget,
+  readFrom: string,
   signal: AbortSignal | undefined,
 ): Promise<Plan> {
   const maxTotal = request.maxTotal ?? DEFAULT_MAX_TOTAL;
@@ -709,7 +862,21 @@ async function planOf(
         object.capture.fields,
         object.capture.readMode,
       ),
+      recount: {},
     });
+  }
+  const linkable = objects.some(({ scoped }) => isFileObject(scoped.objectApiName))
+    ? scope.linkable
+    : undefined;
+  const recounts = await recountsOf(
+    reader,
+    objects.map(({ scoped, records }) => ({ objectApiName: scoped.objectApiName, records })),
+    linkable,
+    readFrom,
+    signal,
+  );
+  for (const object of objects) {
+    object.recount = recounts.of.get(object.scoped.objectApiName) ?? {};
   }
   leftOut.sort((a, b) =>
     a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0,
@@ -724,9 +891,11 @@ async function planOf(
     describedAlone: scope.describedAlone,
     counted: scope.objects.length,
     countedAlone: alone,
+    recounted: recounts.asked,
     objects: objects.map((object): TakenObject => ({
       records: object.records,
       otherGroups: object.otherGroups,
+      ...object.recount,
       // None in the bin yet: the take reads it after the estimate.
       entry: entryOf(object, object.records, 0, prints[object.scoped.objectApiName].digest),
     })),
@@ -735,7 +904,14 @@ async function planOf(
     printsBytes: (await compressedFieldPrints(prints)).length,
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const plan: Plan = { objects, leftOut, estimate, objectLimit, prints };
+  const plan: Plan = {
+    objects,
+    leftOut,
+    estimate,
+    objectLimit,
+    prints,
+    ...(linkable !== undefined ? { linkable } : {}),
+  };
   if (cost.records > maxTotal) {
     return {
       ...plan,
@@ -799,12 +975,20 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
   try {
     const budget = await readBudget(deps.org, request.orgName);
     const scope = await describeScope(deps.org, reader, request);
-    const plan = await planOf(deps.org, reader, request, scope, budget, deps.signal);
+    // The moment a take begun now would be of: what its reads beyond the
+    // records are counted from.
+    const readFrom = await deps.org.serverTime();
+    const plan = await planOf(deps.org, reader, request, scope, budget, readFrom, deps.signal);
     const answer: TakeScope = {
       mode: request.mode,
       objects: scopeObjectsOf(plan),
       leftOut: plan.leftOut,
       estimate: plan.estimate,
+      files: {
+        held: plan.objects.some(({ scoped }) => isFileObject(scoped.objectApiName)),
+        queryAllFiles: guard.queryAllFiles,
+        addedToPicked: scope.addedToPicked,
+      },
     };
     const refusal =
       holder !== undefined
@@ -876,11 +1060,27 @@ async function editionOf(org: TakeOrg, typed: TypedTarget): Promise<string> {
   return edition;
 }
 
-/** The org's Automated Process user, whose writes in answer to a rewind are the rewind's own; none when it has none. */
+/** The name of the user an org's flows and processes write as, among its users of that type. */
+const AUTOMATED_PROCESS_NAME = 'Automated Process';
+
+/**
+ * The org's Automated Process user, whose writes in answer to a rewind are
+ * the rewind's own; none when it has none. An org has more than one user of
+ * that type: a scratch org and a Developer Edition both have "Automated
+ * Process" and "Data.com Clean" (P-B4), and one of them read with `LIMIT 1`
+ * and no order was either — whose writes, the cleaning service's, are no
+ * answer to a rewind. The one named so is taken; an org that names its one
+ * user of the type otherwise has it taken all the same, and one that has
+ * several, none so named, has none taken.
+ */
 async function automatedProcessUserOf(org: TakeOrg): Promise<string | undefined> {
-  const answer = await org.query("SELECT Id FROM User WHERE UserType = 'AutomatedProcess' LIMIT 1");
-  const id = answer.records[0]?.Id;
-  return typeof id === 'string' ? id : undefined;
+  const answer = await org.query("SELECT Id, Name FROM User WHERE UserType = 'AutomatedProcess'");
+  const users = answer.records.filter(
+    (user): user is { Id: string; Name?: unknown } => typeof user.Id === 'string',
+  );
+  const named = users.find((user) => user.Name === AUTOMATED_PROCESS_NAME);
+  if (named !== undefined) return named.Id;
+  return users.length === 1 ? users[0].Id : undefined;
 }
 
 /** A name of T0 as a person reads it, for a checkpoint not given one: `2026-10-22 14:05 UTC`. */
@@ -1126,7 +1326,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     const readFrom = await org.serverTime();
     report(8, `Counting the records of ${scope.objects.length} objects`);
     count.enter('counts');
-    const plan = await planOf(org, reader, request, scope, budget, signal);
+    const plan = await planOf(org, reader, request, scope, budget, readFrom, signal);
     if (plan.refusal !== undefined) return { taken: false, refusal: plan.refusal };
     if (plan.objects.length === 0) {
       throw new Error(
@@ -1159,6 +1359,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
         ...(automatedProcessUserId !== undefined ? { automatedProcessUserId } : {}),
         viewAllData: true,
         modifyAllData: true,
+        queryAllFiles: guard.queryAllFiles,
       },
       readFrom,
       takenAt: readFrom,
@@ -1195,13 +1396,14 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     }
 
     count.enter('snapshot');
-    const records = await snapshotOf(
+    const { records, files } = await snapshotOf(
       folder,
       snapshotId,
       plan,
       request,
       deps,
       organizationId,
+      reader,
       report,
     );
 
@@ -1234,6 +1436,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
       bytes: 0,
       expiresAt: expiresAtFor(now(), keepDays),
       status: 'ready',
+      ...(files !== undefined ? { files } : {}),
     };
     const checkpoint: OrgCheckpoint = { ...ready, bytes: await bytesKept(folder, ready) };
     await store.write(checkpoint);
@@ -1261,8 +1464,11 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
  * as the read kept, or the take fails. An object counted empty is held as one
  * read empty: an empty file and an empty index. The files are written
  * through the take's snapshot files, compressed unless it was given others.
+ * Then, when the plan holds files, their links to the records read and the
+ * files they name (`takeFiles`).
  *
- * @returns The rows the snapshot holds of each object.
+ * @returns The rows the snapshot holds of each object, and what the
+ *   checkpoint holds of the files when it holds them.
  */
 async function snapshotOf(
   folder: CheckpointFolder,
@@ -1271,8 +1477,9 @@ async function snapshotOf(
   request: TakeRequest,
   deps: TakeDeps,
   organizationId: string,
+  reader: CompositeReader,
   report: (percentage: number, step: string, processed?: number, total?: number) => void,
-): Promise<Map<string, number>> {
+): Promise<{ records: Map<string, number>; files?: CheckpointFiles }> {
   const read = plan.objects.filter((object) => object.records > 0);
   const kept = new Map<string, number>();
   const files = (deps.snapshotFiles ?? compressedFilesOf)(folder.dir);
@@ -1338,7 +1545,20 @@ async function snapshotOf(
       plan.objects.length,
     );
   }
-  return kept;
+  const file = plan.objects.find(({ scoped }) => isFileObject(scoped.objectApiName));
+  if (file === undefined || plan.linkable === undefined) return { records: kept };
+  report(88, 'Reading the links of files to the records read');
+  const held = await takeFiles({
+    reader,
+    folder,
+    snapshotId,
+    linked: plan.objects
+      .map(({ scoped }) => scoped.objectApiName)
+      .filter((name) => (kept.get(name) ?? 0) > 0 && readsLinksOf(name, plan.linkable)),
+    documentsInSnapshot: (kept.get(file.scoped.objectApiName) ?? 0) > 0,
+    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+  });
+  return { records: kept, files: held };
 }
 
 /**

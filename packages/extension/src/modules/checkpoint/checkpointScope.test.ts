@@ -67,10 +67,11 @@ const ORG: GlobalObject[] = [
   data('FAQ__ka'),
   data('Order_Placed__e'),
   data('App_Config__c', { customSetting: true }),
-  data('ContentVersion'),
-  data('Attachment'),
-  data('ContentDocument'),
+  data('ContentVersion', { deletable: false }),
+  data('Attachment', { layoutable: false }),
+  data('ContentDocument', { createable: false }),
   data('ContentDocumentLink'),
+  data('Document', { layoutable: false }),
   data('User', { deletable: false }),
   data('PermissionSet'),
   data('LoginHistory', { createable: false, updateable: false, deletable: false }),
@@ -90,8 +91,10 @@ describe('scopeCandidates', () => {
 
     expect(candidates).toEqual([
       'Account',
+      'Attachment',
       'Case',
       'Contact',
+      'ContentDocument',
       'Event',
       'Task',
       'Vlocity__c',
@@ -101,7 +104,7 @@ describe('scopeCandidates', () => {
     ]);
   });
 
-  it('leaves out Chatter posts, history, sharing, change events, custom settings, files and the six kinds of object a rewind cannot put back, each named with why', () => {
+  it('leaves out Chatter posts, history, sharing, change events, custom settings, the Documents tab and the six kinds of object a rewind cannot put back, each named with why, and a file’s versions and links as held with it', () => {
     const { leftOut } = scopeCandidates(ORG, { mode: 'everything' }, [
       'ApexClass',
       'PricingProcedure',
@@ -117,13 +120,12 @@ describe('scopeCandidates', () => {
       App_Config__c: 'customSetting',
       Archive__b: 'unsupportedKind',
       AsyncApexJob: 'setup',
-      Attachment: 'files',
       Case__Feed: 'chatter',
       Case__History: 'history',
       Case__Share: 'sharing',
-      ContentDocument: 'files',
-      ContentDocumentLink: 'files',
-      ContentVersion: 'files',
+      ContentDocumentLink: 'heldWithFiles',
+      ContentVersion: 'heldWithFiles',
+      Document: 'files',
       FAQ__ka: 'unsupportedKind',
       FAQ__kav: 'unsupportedKind',
       FeedAttachment: 'chatter',
@@ -176,12 +178,60 @@ describe('scopeCandidates', () => {
     });
 
     expect(scope.mode).toBe('picked');
-    expect(scope.candidates).toEqual(['Case', 'vlocity_cmt__Party__c']);
+    expect(scope.candidates).toEqual([
+      'Attachment',
+      'Case',
+      'ContentDocument',
+      'vlocity_cmt__Party__c',
+    ]);
+    expect(scope.addedToPicked).toEqual(['ContentDocument', 'Attachment']);
     expect(reasons(scope.leftOut)).toEqual({
       App_Config__c: 'customSetting',
       FeedItem: 'chatter',
       Ghost__c: 'notFound',
     });
+  });
+
+  it('holds a file though the data API creates none, an attachment though the org gives it no layout, and a file’s versions and links with the file, never as objects of their own', () => {
+    const { candidates, leftOut } = scopeCandidates(ORG, { mode: 'everything' });
+    const unwritable = scopeCandidates(
+      [
+        data('ContentDocument', { createable: false, deletable: false }),
+        data('Attachment', { layoutable: false, updateable: false }),
+      ],
+      { mode: 'everything' },
+    );
+
+    expect(candidates).toEqual(expect.arrayContaining(['ContentDocument', 'Attachment']));
+    expect(reasons(leftOut)).toMatchObject({
+      ContentVersion: 'heldWithFiles',
+      ContentDocumentLink: 'heldWithFiles',
+      Document: 'files',
+    });
+    // Still held to what a rewind does to one: query, edit and delete it.
+    expect(reasons(unwritable.leftOut)).toEqual({
+      Attachment: 'notWritable',
+      ContentDocument: 'notWritable',
+    });
+  });
+
+  it('holds the objects of files beside the objects picked, unless they are picked already, left out by name, or the org has none', () => {
+    const asked = scopeCandidates(ORG, { mode: 'picked', objects: ['Account', 'attachment'] });
+    const excluded = scopeCandidates(ORG, {
+      mode: 'picked',
+      objects: ['Account'],
+      excluded: ['contentdocument', 'Attachment'],
+    });
+    const none = scopeCandidates([data('Account')], { mode: 'picked', objects: ['Account'] });
+    const everything = scopeCandidates(ORG, { mode: 'everything' });
+
+    expect(asked.candidates).toEqual(['Account', 'Attachment', 'ContentDocument']);
+    expect(asked.addedToPicked).toEqual(['ContentDocument']);
+    expect(excluded.candidates).toEqual(['Account']);
+    expect(excluded.addedToPicked).toEqual([]);
+    expect(excluded.leftOut).toEqual([]);
+    expect(none.addedToPicked).toEqual([]);
+    expect(everything.addedToPicked).toEqual([]);
   });
 
   it('leaves out what its owner excludes, whatever the case of the name', () => {

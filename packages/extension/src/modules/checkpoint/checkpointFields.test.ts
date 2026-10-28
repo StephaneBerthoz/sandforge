@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { recreatable } from './rewindDiff';
 import {
+  FILE_BODY,
+  FILE_SETTINGS_NOT_KEPT,
+  FILE_WITNESSES,
   SNAPSHOT_STAMPS,
   captureProjection,
   cascadeParentsOf,
@@ -206,6 +210,82 @@ describe('captureProjection', () => {
       'CreatedDate',
       'Text__c',
     ]);
+  });
+});
+
+/** A file as a scratch org describes it (FA1): the data API creates none, a person edits some of its fields. */
+const FILE = described('ContentDocument', [
+  writable('Title', 'string', { createable: false }),
+  writable('Description', 'textarea', { createable: false }),
+  writable('OwnerId', 'reference', { createable: false, referenceTo: ['User'] }),
+  writable('SharingPrivacy', 'picklist', { createable: false }),
+  writable('SharingOption', 'picklist', { createable: false }),
+  writable('IsInternalOnly', 'boolean', { createable: false }),
+  writable('ParentId', 'reference', { createable: false, referenceTo: ['ContentWorkspace'] }),
+  writable('ContentAssetId', 'reference', { createable: false, referenceTo: ['ContentAsset'] }),
+  writable('IsArchived', 'boolean', { createable: false }),
+  {
+    name: 'LatestPublishedVersionId',
+    type: 'reference',
+    createable: false,
+    updateable: false,
+    permissionable: false,
+    referenceTo: ['ContentVersion'],
+  },
+  { name: 'ContentSize', type: 'int', createable: false, updateable: false, permissionable: false },
+  { name: 'FileType', type: 'string', createable: false, updateable: false, permissionable: false },
+]);
+
+describe('a file, as a checkpoint keeps it', () => {
+  it('keeps the fields a person sets and, as witnesses, its latest version and its size, never its library’s settings', async () => {
+    const { fields, leftOutFields } = await captureProjection(FILE, { viewsEncryptedData: false });
+
+    expect(fields).toEqual([
+      ...SNAPSHOT_STAMPS,
+      ...FILE_WITNESSES,
+      'Title',
+      'Description',
+      'OwnerId',
+      'SharingPrivacy',
+      'SharingOption',
+      'IsInternalOnly',
+    ]);
+    for (const setting of FILE_SETTINGS_NOT_KEPT) expect(fields).not.toContain(setting);
+    expect(leftOutFields).toEqual([{ field: FILE_BODY, reason: 'base64' }]);
+  });
+
+  it('compares and writes back the fields a person sets, never a witness, which the org lets no one write', async () => {
+    const { fields } = await captureProjection(FILE, { viewsEncryptedData: false });
+
+    expect(comparedFields('ContentDocument', fields, [])).toEqual([
+      'Title',
+      'Description',
+      'OwnerId',
+      'SharingPrivacy',
+      'SharingOption',
+      'IsInternalOnly',
+    ]);
+    const allow = await restoreAllowList({
+      objectApiName: 'ContentDocument',
+      snapshotFields: fields,
+      described: FILE,
+      ignoredFields: [],
+      viewsEncryptedData: false,
+    });
+    expect(allow.fields).toEqual(comparedFields('ContentDocument', fields, []));
+    expect(allow.notWritten).toEqual([]);
+    // A field of the same name on an object that is no file is a value like any other.
+    expect(comparedFields('Thing__c', ['Id', 'ContentSize'], [])).toEqual(['ContentSize']);
+  });
+
+  it('lists a file’s content among the bodies it leaves out, so that a rewind never makes a file emptied from the recycle bin again', async () => {
+    const file = await objectCapture(FILE, [FILE], { viewsEncryptedData: false });
+    const contact = await objectCapture(described('Contact', [writable('LastName')]), [], {
+      viewsEncryptedData: false,
+    });
+
+    expect(recreatable(file)).toBe(false);
+    expect(recreatable(contact)).toBe(true);
   });
 });
 

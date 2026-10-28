@@ -26,22 +26,31 @@
  * the rewind writes are counted against the daily limits the org has left,
  * read with its requests (`rewindEmails.ts`): past them, the rewind is
  * refused.
+ *
+ * Of a checkpoint that holds files, the files it brings back from the recycle
+ * bin are held to the file storage the org has left, read with its requests:
+ * a file in the bin takes none, and its undelete counts it again (P-A8), so
+ * a rewind that would bring back more than is left is refused
+ * (`FILE_STORAGE`) before it writes. The diff says what is left, and what the
+ * files it deletes would take again, were Undo to bring them back.
  */
 
-import type {
-  CheckpointEmails,
-  CheckpointEstimate,
-  CheckpointRefusal,
-  ForgeTargetAutomation,
-  OrgCheckpoint,
-  OrgTypeAndEdition,
-  RewindDiff,
-  RewindDiffObject,
+import {
+  BYTES_PER_MB,
+  type CheckpointEmails,
+  type CheckpointEstimate,
+  type CheckpointRefusal,
+  type ForgeTargetAutomation,
+  type OrgCheckpoint,
+  type OrgTypeAndEdition,
+  type RewindDiff,
+  type RewindDiffObject,
 } from '@sandforge/shared';
 import type { Connection } from 'jsforce';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
 import { guardCheckpoint } from './checkpointGuard.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
 import { compositeReader, type CompositeReader } from './compositeQueries.js';
 import {
   newFolderId,
@@ -53,6 +62,7 @@ import { rewindDiff } from './rewindDiff.js';
 import { checkpointEmails, emailsRefusal, writtenByDiff } from './rewindEmails.js';
 import {
   budgetRefusal,
+  fileStorageRefusal,
   readBudget,
   relationshipsOf,
   rewindEstimate,
@@ -138,9 +148,13 @@ function guardConnectionOf(org: TakeOrg): Pick<Connection, 'query'> {
  * The objects a rewind would write to: records to delete, to give values
  * back, to bring back, or to make again, and records it brings back for a
  * moment to delete again — counted in none of those, but written twice: the
- * rewind reads what runs on their object, and refuses it unaccepted.
+ * rewind reads what runs on their object, and refuses it unaccepted. The
+ * link of a file to a record too, when it removes, inserts or updates links:
+ * a trigger on a link — a file attached updates its case — runs on each.
  */
-export function objectsWrittenBy(diff: Pick<RewindDiff, 'objects'>): string[] {
+export function objectsWrittenBy(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): string[] {
   const writes = (object: RewindDiffObject): boolean =>
     object.toDelete.createdSince +
       object.toDelete.broughtBackSince +
@@ -152,7 +166,20 @@ export function objectsWrittenBy(diff: Pick<RewindDiff, 'objects'>): string[] {
       (object.toBringBack.carriers ?? 0) +
       (object.toRecreate ?? 0) >
     0;
-  return diff.objects.filter(writes).map((object) => object.objectApiName);
+  const written = diff.objects.filter(writes).map((object) => object.objectApiName);
+  const links = diff.files;
+  if (links !== undefined && links.unlink + links.relink + links.updateLinks > 0) {
+    written.push(FILE_LINK_OBJECT);
+  }
+  return written;
+}
+
+/** The files a rewind brings back from the recycle bin: on their own, or as another user's file the snapshot could not read. */
+function filesBroughtBack(diff: Pick<RewindDiff, 'objects'>): number {
+  const files = diff.objects.find((object) => object.objectApiName === FILE_OBJECT);
+  if (files === undefined) return 0;
+  const back = files.toBringBack;
+  return back.inBin + back.withParent + back.deletedWhileTaken;
 }
 
 /** What a read of the org's automation that failed answers: each part it reads left unread, and why. */
@@ -235,8 +262,13 @@ export async function previewCheckpoint(
     describeGlobal: kept.describeGlobal,
     previewId,
     readAt,
+    queryAllFiles: guard.queryAllFiles,
     ...(signal ? { signal } : {}),
   });
+  const storage = budget.fileStorage;
+  if (diff.files !== undefined && storage !== undefined) {
+    diff.files.storage.remaining = storage.remaining * BYTES_PER_MB;
+  }
 
   const written = objectsWrittenBy(diff);
   let automation: ForgeTargetAutomation | undefined;
@@ -255,6 +287,12 @@ export async function previewCheckpoint(
   const inCheckpoint = new Set(
     checkpoint.objects.map(({ objectApiName }) => objectApiName.toLowerCase()),
   );
+  // A checkpoint that holds files holds their links and versions with them:
+  // no relationship to either leads outside it, as the diff reads them.
+  if (checkpoint.files !== undefined) {
+    for (const held of [FILE_LINK_OBJECT, FILE_VERSION_OBJECT])
+      inCheckpoint.add(held.toLowerCase());
+  }
   const relationships = new Map<string, ObjectRelationships>();
   for (const [objectApiName, body] of kept.bodies) {
     relationships.set(
@@ -281,7 +319,15 @@ export async function previewCheckpoint(
       : writing !== undefined
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
         : (budgetRefusal('rewind', cost.apiRequests, budget, orgName) ??
-          emailsRefusal('rewind', emails, orgName));
+          emailsRefusal('rewind', emails, orgName) ??
+          (diff.files !== undefined
+            ? fileStorageRefusal(
+                'rewind',
+                { files: filesBroughtBack(diff), bytes: diff.files.storage.bringBack },
+                storage?.remaining,
+                orgName,
+              )
+            : undefined));
   return {
     previewed: true,
     diff,

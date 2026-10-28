@@ -17,13 +17,15 @@
  *   backups/               the values, one gzip file of NDJSON lines per object
  *   index/<Object>.idx     where each row of an object's values is
  *   bin/<Object>.ids       the ids in the recycle bin when the take began
+ *   files/                 the links of its files to its records, and each
+ *                          file's latest version and size (`checkpointFiles.ts`)
  *   previews/<previewId>/  one preview's spooled reads, kept a day
  *   rewinds/<rewindId>/    one rewind's journal, kept while it can be undone
  * ```
  *
- * The values and the prints are compressed (`compressedSnapshotFiles.ts`): a
- * snapshot is most of what a checkpoint of a busy org takes on disk, and its
- * lines repeat every field's name. A checkpoint taken before holds them
+ * The values, the prints and the files' annex are compressed
+ * (`compressedSnapshotFiles.ts`): a snapshot is most of what a checkpoint of
+ * a busy org takes on disk, and its lines repeat every field's name. A checkpoint taken before holds them
  * plain — `fingerprints.json` and `.ndjson` files — and is read as it was
  * written, never converted. `checkpoint.json` stays plain: every listing
  * reads it.
@@ -182,6 +184,8 @@ export interface CheckpointFolder {
   snapshotsFile: string;
   indexDir: string;
   binDir: string;
+  /** What it holds of the org's files: absent from a checkpoint that holds none. */
+  filesDir: string;
   previewsDir: string;
   rewindsDir: string;
 }
@@ -198,6 +202,7 @@ function folderAt(root: string, organizationKey: string, checkpointId: string): 
     snapshotsFile: join(dir, SNAPSHOTS_FILE),
     indexDir: join(dir, 'index'),
     binDir: join(dir, 'bin'),
+    filesDir: join(dir, 'files'),
     previewsDir: join(dir, 'previews'),
     rewindsDir: join(dir, 'rewinds'),
   };
@@ -228,6 +233,24 @@ export function recreatedFileOf(folder: CheckpointFolder): string {
 /** Where the ids of an object that were in the recycle bin when the take began are. */
 export function binFileOf(folder: CheckpointFolder, objectApiName: string): string {
   return join(folder.binDir, `${objectSegment(objectApiName)}.ids`);
+}
+
+/**
+ * Where a checkpoint keeps each file it holds, a line each: its latest
+ * version and size. Named plain, as the DataOps store names a file of lines:
+ * written and read through `compressedSnapshotFiles`, it is kept as
+ * `documents.ndjson.gz`.
+ */
+export function filesDocumentsFileOf(folder: Pick<CheckpointFolder, 'filesDir'>): string {
+  return join(folder.filesDir, 'documents.ndjson');
+}
+
+/**
+ * Where a checkpoint keeps the links between its files and its records, a
+ * line each, kept as `links.ndjson.gz` as {@link filesDocumentsFileOf} is.
+ */
+export function filesLinksFileOf(folder: Pick<CheckpointFolder, 'filesDir'>): string {
+  return join(folder.filesDir, 'links.ndjson');
 }
 
 /** Where one preview's spooled reads are. */
