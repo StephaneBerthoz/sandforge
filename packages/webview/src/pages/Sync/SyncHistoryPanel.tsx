@@ -10,8 +10,10 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/Icon';
 import { usePagination } from '../../hooks/usePagination';
+import { useRewoundMarks } from '../../hooks/useRewoundMarks';
+import { RewoundBadge } from '../../components/ui/RewoundMark';
 import { formatDuration, formatRelativeTime, formatStoredDate } from '../../utils/formatters';
-import type { SyncHistoryEntry } from '@sandforge/shared';
+import type { RewoundRun, SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 import { SyncUnfinishedRuns } from './syncRemovalParts';
 
@@ -34,6 +36,19 @@ const triggeredByKeyMap: Record<string, string> = {
 };
 
 /**
+ * A run of the history as a rewind's mark reads it: the target it wrote to,
+ * when, and the objects its configuration wrote.
+ */
+function rewoundRunOf(entry: SyncHistoryEntry): RewoundRun {
+  return {
+    orgId: entry.configSnapshot.targetOrgId,
+    startedAt: entry.startTime,
+    endedAt: entry.endTime,
+    objects: entry.configSnapshot.objects.map((object) => object.objectApiName),
+  };
+}
+
+/**
  * SyncHistoryPanel displays a paginated, virtual-scrolled table of sync execution history.
  * Includes export buttons (CSV/JSON), refresh, and row click to view details.
  *
@@ -49,6 +64,7 @@ export const SyncHistoryPanel: React.FC = () => {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+  const markOf = useRewoundMarks(entries.length === 0);
 
   const pagination = usePagination({ totalItems: entries.length });
   const paginatedEntries = useMemo(
@@ -78,8 +94,19 @@ export const SyncHistoryPanel: React.FC = () => {
       {
         key: 'objects',
         header: t('sync.history.objects'),
-        render: (row: HistoryRow) =>
-          row.result.objectResults.map((o) => o.objectApiName).join(', '),
+        // A run a rewind took back says so in a word; its detail says it whole.
+        render: (row: HistoryRow) => {
+          const names = row.result.objectResults.map((o) => o.objectApiName).join(', ');
+          const mark = markOf(rewoundRunOf(row));
+          return mark ? (
+            <span className="inline-flex items-center gap-1">
+              <RewoundBadge mark={mark} testId={`sync-history-rewound-${row.id}`} />
+              {names}
+            </span>
+          ) : (
+            names
+          );
+        },
       },
       {
         key: 'records',
@@ -118,7 +145,7 @@ export const SyncHistoryPanel: React.FC = () => {
           t(triggeredByKeyMap[row.triggeredBy] ?? 'sync.history.triggeredManual'),
       },
     ],
-    [t],
+    [t, markOf],
   );
 
   const isLoading = loading && entries.length === 0;
@@ -201,7 +228,7 @@ export const SyncHistoryPanel: React.FC = () => {
           />
 
           {/* Detail panel */}
-          {selectedEntry && <SyncHistoryDetail />}
+          {selectedEntry && <SyncHistoryDetail rewound={markOf(rewoundRunOf(selectedEntry))} />}
         </>
       )}
     </div>

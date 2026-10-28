@@ -7,6 +7,7 @@ import type {
   ForgeRemovalPlan,
   ForgeResumeRunRequest,
   ForgeUndoResult,
+  RewoundRun,
 } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { cn } from '../../theme';
@@ -15,6 +16,8 @@ import { useForgeStore, type ForgeExecutionResult } from '../../stores/useForgeS
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { REMOVAL_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
+import { useRewoundMarks } from '../../hooks/useRewoundMarks';
+import { RewoundMark } from '../../components/ui/RewoundMark';
 import { Button } from '../../components/ui/Button';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { DEPTH_KEYS } from './useForgeForm';
@@ -48,6 +51,34 @@ const STATUS_CLASSES: Record<ForgeExecutionResult['status'], string> = {
  */
 function shown(iso: string): string | null {
   return formatStoredDate(iso, 'yyyy-MM-dd HH:mm');
+}
+
+/**
+ * A run as a rewind's mark reads it: the target it wrote to, from its start
+ * to its record, and the objects it created records of — those its graph set
+ * out to clone, for a run recorded before it kept them. Nothing for a run
+ * that wrote nothing, or whose target or date is not known.
+ */
+function rewoundRunOf(run: ForgeExecutionResult | ForgeRemovalPlan): RewoundRun | undefined {
+  const ended = Date.parse(run.timestamp);
+  if (!run.targetOrgId || !Number.isFinite(ended)) return undefined;
+  let objects: string[];
+  if ('objects' in run) {
+    objects = run.objects.map((object) => object.objectApiName);
+  } else {
+    if ((run.createdCount ?? run.idRemapCount) === 0 && !run.updatedCount) return undefined;
+    const created = run.idRemapCreated ?? [];
+    objects = (created.length > 0 ? created : run.graph.nodes).map(
+      (object) => object.objectApiName,
+    );
+  }
+  const duration = Number.isFinite(run.duration) && run.duration > 0 ? run.duration : 0;
+  return {
+    orgId: run.targetOrgId,
+    startedAt: new Date(ended - duration).toISOString(),
+    endedAt: run.timestamp,
+    objects,
+  };
 }
 
 /** What `forge:undo` answers. */
@@ -146,6 +177,15 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
     [entries],
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';
+  const markOf = useRewoundMarks(entries.length === 0 && olderRuns.length === 0);
+  /** A run's mark, under its line: a rewind took it back. */
+  const rewoundOf = (run: ForgeExecutionResult | ForgeRemovalPlan): React.ReactNode => {
+    const facts = rewoundRunOf(run);
+    const mark = facts ? markOf(facts) : undefined;
+    return mark ? (
+      <RewoundMark mark={mark} testId={`forge-history-rewound-${run.forgeId}`} />
+    ) : null;
+  };
 
   if (entries.length === 0 && olderRuns.length === 0) {
     // A background fetch with nothing to show is silent; a failed one says so,
@@ -390,6 +430,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                 {t('forge.history.reuse')}
               </button>
             </div>
+            {rewoundOf(entry)}
             {removalBlock}
           </div>
         );
@@ -436,6 +477,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
                     })}
                   </span>
                 )}
+                {rewoundOf(plan)}
                 {removalOf(plan)}
               </div>
             );

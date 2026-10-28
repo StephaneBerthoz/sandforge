@@ -167,6 +167,12 @@ describe('SeedRemovalHandler', () => {
       expect(removalOrg).not.toHaveBeenCalled();
     });
 
+    it('names the objects the run wrote, in the order it first wrote each, for a rewind’s mark to tell those its checkpoint held', async () => {
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+
+      expect(info()?.objects).toEqual(['Account', 'Contact']);
+    });
+
     it("offers nothing on a production org, with the guard's reason", async () => {
       orgType = 'Production';
       edition = 'Enterprise Edition';

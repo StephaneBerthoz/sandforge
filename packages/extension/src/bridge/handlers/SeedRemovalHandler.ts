@@ -239,6 +239,13 @@ export class SeedRemovalHandler implements DomainHandler {
             ? { runningElsewhere: true as const }
             : { unfinished: true as const }),
       created: createdCount(run),
+      // What a rewind's mark on the line tells inside its checkpoint from outside it.
+      objects: [
+        ...new Set([
+          ...run.created.map(({ objectApiName }) => objectApiName),
+          ...(run.overwritten ?? []).map(({ objectApiName }) => objectApiName),
+        ]),
+      ],
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
     };

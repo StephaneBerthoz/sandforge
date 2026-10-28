@@ -4845,6 +4845,15 @@
     "checkpointNow": {
       "why": "Before your testers start, keep {{org}} as it is now: it becomes the point to come back to, and a rewind returns it there, whoever changes it next.",
       "take": "Take a checkpoint now"
+    },
+    "rewound": {
+      "mark": "Rewound on {{date}} to “{{name}}”",
+      "markPartly": "Rewound in part on {{date}} to “{{name}}”: it ran as the checkpoint was taken or as the rewind ran",
+      "stopped": "A rewind to “{{name}}” stopped part way on {{date}}",
+      "leftSome": "the rewind left some records: open the removal to see what is left",
+      "undone": "undone on {{date}}",
+      "outside": "Not rewound: {{objects}}, outside the checkpoint",
+      "badge": "Rewound"
     }
   },
   "grappe": {

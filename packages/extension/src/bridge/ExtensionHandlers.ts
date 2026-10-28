@@ -1083,6 +1083,7 @@ export class ExtensionHandlers {
         'checkpoint:keep',
         'checkpoint:rename',
         'checkpoint:ignore-fields',
+        'checkpoint:rewinds',
       ],
       this.checkpointHandler,
     );

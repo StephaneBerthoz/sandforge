@@ -279,3 +279,64 @@ export const checkpointArchiveHeaderSchema = z.object({
     .min(4096)
     .max(16 * 1024 * 1024),
 });
+
+// ─── The rewinds of an org (<store>/<org>/rewinds.ndjson) ────────────────────
+
+/** How a rewind or an undo ended: `RewindStatus`. */
+export const rewindStatusSchema = z.enum([
+  'success',
+  'partial',
+  'failure',
+  'unstable',
+  'cancelled',
+]);
+
+const rewindTotalsSchema = z.object({
+  deleted: countSchema,
+  restored: countSchema,
+  undeleted: countSchema,
+  recreated: countSchema,
+});
+
+/** A year either way: past it, one of the two clocks was not telling the time. */
+const MAX_ORG_AHEAD_MS = 366 * 86_400_000;
+
+/** A rewind that wrote, as its line says it ended: `CheckpointRewindEnded`. */
+export const checkpointRewindEndedSchema = z.object({
+  kind: z.literal('rewind'),
+  rewindId: rewindIdSchema,
+  checkpointId: checkpointIdSchema,
+  checkpointName: checkpointNameSchema,
+  organizationId: checkpointOrganizationIdSchema,
+  mode: checkpointScopeModeSchema,
+  objects: z.array(apiNameSchema).max(10_000),
+  readFrom: instantSchema,
+  takenAt: instantSchema,
+  startedAt: instantSchema,
+  endedAt: instantSchema,
+  orgAheadMs: z.number().int().min(-MAX_ORG_AHEAD_MS).max(MAX_ORG_AHEAD_MS).optional(),
+  status: rewindStatusSchema,
+  totals: rewindTotalsSchema,
+});
+
+/** The undo of a rewind that went through, as its line says it: `CheckpointRewindUndone`. */
+export const checkpointRewindUndoneSchema = z.object({
+  kind: z.literal('undo'),
+  rewindId: rewindIdSchema,
+  checkpointId: checkpointIdSchema,
+  organizationId: checkpointOrganizationIdSchema,
+  status: z.enum(['success', 'partial', 'unstable']),
+  undoneAt: instantSchema,
+});
+
+/**
+ * A line of an org's rewind ledger: `CheckpointRewindRecord`
+ * (`types/checkpoint.types.ts`), pinned by its test. A key it does not know
+ * is dropped, so a line a later SandForge wrote is read for what this one
+ * knows of it; and the ledger writes what this schema parsed, so no other key
+ * — a record's id, a value — ever reaches the file.
+ */
+export const checkpointRewindRecordSchema = z.discriminatedUnion('kind', [
+  checkpointRewindEndedSchema,
+  checkpointRewindUndoneSchema,
+]);

@@ -6,9 +6,11 @@ import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useRewoundMarks } from '../../hooks/useRewoundMarks';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { PartBoundary } from '../../components/ui/PartBoundary';
+import { RewoundMark } from '../../components/ui/RewoundMark';
 
 /*
  * A seed's removal, loaded when a seed is opened onto it: with Forge's sweep
@@ -69,6 +71,7 @@ export const SeedRunHistory: React.FC = () => {
     { errorType: 'seed:remove:error' },
   );
   const runs = list.data?.runs ?? [];
+  const markOf = useRewoundMarks(runs.length === 0);
   if (runs.length === 0) return null;
 
   return (
@@ -89,6 +92,14 @@ export const SeedRunHistory: React.FC = () => {
               const date =
                 formatStoredDate(run.endedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
               const shown = open === run.runId;
+              // A rewind that deleted what the run created left the line
+              // offering a removal that found it all gone, unexplained.
+              const mark = markOf({
+                orgId: run.targetOrgId,
+                startedAt: run.startedAt,
+                ...(run.running || run.runningElsewhere ? {} : { endedAt: run.endedAt }),
+                ...(run.objects ? { objects: run.objects } : {}),
+              });
               return (
                 <li
                   key={run.runId}
@@ -191,6 +202,9 @@ export const SeedRunHistory: React.FC = () => {
                       </Button>
                     )}
                   </div>
+                  {mark && (
+                    <RewoundMark mark={mark} testId={`seed-run-history-rewound-${run.runId}`} />
+                  )}
                   {shown && !run.running && !run.runningElsewhere && (
                     <PartBoundary data-testid="seed-removal-failed">
                       <Suspense fallback={<div aria-busy="true" />}>

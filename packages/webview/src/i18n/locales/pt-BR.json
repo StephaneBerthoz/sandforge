@@ -4845,6 +4845,15 @@
     "checkpointNow": {
       "why": "Antes que seus testadores comecem, guarde {{org}} como está agora como o ponto ao qual voltar. Retroceder depois a devolve a esse ponto, não importa quem a altere em seguida.",
       "take": "Criar um ponto de verificação agora"
+    },
+    "rewound": {
+      "mark": "Retrocedida em {{date}} para “{{name}}”",
+      "markPartly": "Retrocedida em parte em {{date}} para “{{name}}”: a execução rodou enquanto o ponto de verificação era criado ou durante o retrocesso",
+      "stopped": "Um retrocesso para “{{name}}” parou no meio em {{date}}",
+      "leftSome": "o retrocesso deixou registros: abra a remoção para ver o que resta",
+      "undone": "retrocesso desfeito em {{date}}",
+      "outside": "Não retrocedido: {{objects}}, fora do ponto de verificação",
+      "badge": "Retrocedida"
     }
   },
   "grappe": {

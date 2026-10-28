@@ -18,6 +18,8 @@ import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
 import { heldRecordChoiceOf } from './heldRecordChoice';
+import { RewoundMark } from '../../components/ui/RewoundMark';
+import type { RewoundMark as RewoundMarkOf } from '@sandforge/shared';
 
 /** Map sync status to badge variant. */
 const statusVariant: Record<string, BadgeVariant> = {
@@ -26,11 +28,17 @@ const statusVariant: Record<string, BadgeVariant> = {
   failure: 'error',
 };
 
+/** Props for {@link SyncHistoryDetail}. */
+export interface SyncHistoryDetailProps {
+  /** The mark of the rewind that took the run back, when one did. */
+  rewound?: RewoundMarkOf;
+}
+
 /**
  * SyncHistoryDetail renders the detailed view of a single sync execution.
  * Shows per-object results, config snapshot summary, and a "Run Again" button.
  */
-export const SyncHistoryDetail: React.FC = () => {
+export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound }) => {
   const { t } = useTranslation();
   const { selectedEntry, clearSelection, rerun } = useSyncHistoryStore();
 
@@ -87,6 +95,10 @@ export const SyncHistoryDetail: React.FC = () => {
           </span>
         )}
       </div>
+
+      {/* A rewind took the run back: before its removal, which then finds
+          what the rewind deleted gone, and keeps what it gave back. */}
+      {rewound && <RewoundMark mark={rewound} testId="sync-history-detail-rewound" />}
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-(--sf-space-2)">

@@ -581,6 +581,8 @@ import type {
   CheckpointKeepResponse,
   CheckpointRenameResponse,
   CheckpointIgnoreFieldsResponse,
+  CheckpointRewindsRequest,
+  CheckpointRewindsResponse,
   CheckpointErrorResponse,
 } from './checkpoint.messages.js';
 
@@ -826,7 +828,8 @@ export type WebViewToExtensionMessage =
   | CheckpointDeleteRequest
   | CheckpointKeepRequest
   | CheckpointRenameRequest
-  | CheckpointIgnoreFieldsRequest;
+  | CheckpointIgnoreFieldsRequest
+  | CheckpointRewindsRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -1142,4 +1145,5 @@ export type ExtensionToWebViewMessage =
   | CheckpointKeepResponse
   | CheckpointRenameResponse
   | CheckpointIgnoreFieldsResponse
+  | CheckpointRewindsResponse
   | CheckpointErrorResponse;

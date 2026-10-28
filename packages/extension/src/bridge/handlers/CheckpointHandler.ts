@@ -8,6 +8,7 @@ import type {
   CheckpointListEntry,
   CheckpointRefusal,
   CheckpointRefusalCode,
+  CheckpointRewindListed,
   CheckpointScopeMode,
   ForgeTargetAutomation,
   OrgCheckpoint,
@@ -35,6 +36,7 @@ import {
   checkpointPreviewPayloadSchema,
   checkpointRenamePayloadSchema,
   checkpointRewindPayloadSchema,
+  checkpointRewindsPayloadSchema,
   checkpointScopePayloadSchema,
   checkpointTakePayloadSchema,
   checkpointUndoPayloadSchema,
@@ -73,6 +75,7 @@ const CHECKPOINT_TYPES = new Set([
   'checkpoint:keep',
   'checkpoint:rename',
   'checkpoint:ignore-fields',
+  'checkpoint:rewinds',
 ]);
 
 /** The module runs are listed under, in the registry and in Live Operations. */
@@ -319,6 +322,10 @@ function holderWords(holder: OrgLockHolder): string {
  * - `checkpoint:delete`, `checkpoint:keep`, `checkpoint:rename`,
  *   `checkpoint:ignore-fields` — changes to the checkpoints on this machine;
  *   the org is not touched.
+ * - `checkpoint:rewinds` — the rewinds and undos the ledger of each org's
+ *   folder keeps (`rewindLedger.ts`), each line with the registered orgs it
+ *   is of, read from this machine alone: what the Seed, Sync and Forge
+ *   histories mark a run rewound by.
  *
  * A checkpoint goes to another machine and comes from one through the host
  * alone, never a message: {@link CheckpointHandler.exportCheckpoint} writes
@@ -434,6 +441,9 @@ export class CheckpointHandler implements DomainHandler {
         return true;
       case 'checkpoint:ignore-fields':
         await this.handleIgnoreFields(msg);
+        return true;
+      case 'checkpoint:rewinds':
+        await this.handleRewinds(msg);
         return true;
       default:
         return false;
@@ -1733,6 +1743,50 @@ export class CheckpointHandler implements DomainHandler {
         ignoredFields: parsed.fields,
       })),
     );
+  }
+
+  /**
+   * The rewinds the ledgers of the store keep, of the registered orgs named
+   * or of every registered org, each line with those it is of: an org's are
+   * those of every Organization Id it was, a sandbox refreshed since among
+   * them. Read from this machine alone; a line that does not parse is left
+   * out, and named in the log.
+   */
+  private async handleRewinds(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      checkpointRewindsPayloadSchema,
+      msg,
+      'checkpoint:error',
+      this.deps,
+    );
+    if (parsed === null) return;
+    try {
+      const store = await this.openedStore();
+      const { readRewindLedgers } = await import('../../modules/checkpoint/rewindLedger.js');
+      const orgIds = parsed?.orgIds ?? this.deps.orgManager.getAllOrgs().map((org) => org.id);
+      const was = orgIds.map((orgId) => ({ orgId, ids: this.organizationIdsOf(orgId) }));
+      const reads = await readRewindLedgers(
+        store.root,
+        was.flatMap(({ ids }) => ids),
+      );
+      const rewinds: CheckpointRewindListed[] = [];
+      for (const [organizationId, read] of reads) {
+        for (const line of read.unreadable) {
+          this.deps.log(
+            `[WARN] Line ${line} of the rewind ledger of ${organizationId} does not parse: left out`,
+          );
+        }
+        for (const record of read.records) {
+          const of = was.filter(({ ids }) =>
+            ids.some((id) => sameOrganization(id, record.organizationId)),
+          );
+          rewinds.push({ ...record, orgIds: of.map(({ orgId }) => orgId) });
+        }
+      }
+      this.respond(msg, 'checkpoint:rewinds:response', { rewinds });
+    } catch (err: unknown) {
+      this.fail(msg, err, 'REWINDS_ERROR');
+    }
   }
 
   /**

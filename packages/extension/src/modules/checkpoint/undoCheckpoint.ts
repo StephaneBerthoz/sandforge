@@ -65,6 +65,7 @@ import {
 import { FILE_LINK_OBJECT, FILE_OBJECT, holdsCustomSettings } from './checkpointScope.js';
 import { budgetRefusal, fileStorageRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
 import { rewoundObjects, undoPlansOf, type SpooledUndoPlans } from './rewindJournal.js';
+import { noteRewindUndone } from './rewindLedger.js';
 import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import { rewindWriters } from './rewindPlan.js';
@@ -429,6 +430,16 @@ export async function undoCheckpoint(
             'its list may still offer to undo it.',
         );
       }
+      // The org's ledger outlives the checkpoint: the runs the rewind took back are marked undone.
+      const note = await noteRewindUndone({
+        folder,
+        lock: locked.lock,
+        checkpoint,
+        rewindId,
+        status,
+        undoneAt,
+      });
+      if (note !== undefined) notes.push(note);
     }
     const used = count.used();
     return {

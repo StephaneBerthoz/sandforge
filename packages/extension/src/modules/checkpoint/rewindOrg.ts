@@ -276,6 +276,7 @@ import {
   type RewindJournal,
   type RewindJournalRead,
 } from './rewindJournal.js';
+import { noteRewindEnded, OrgClockWatch } from './rewindLedger.js';
 import {
   heldInPlaceReason,
   rewindPlan,
@@ -1478,6 +1479,8 @@ class Rewind {
   private readonly comesBack = new RecordKeySet();
   /** Tr, in milliseconds, less the second the org dates to: what it dates no later was made before Tr. */
   private before = Number.NaN;
+  /** The org's clock against this machine's, as the rewind last read it: for the ledger's line. */
+  private readonly clock = new OrgClockWatch(() => this.now().getTime());
 
   constructor(
     private readonly deps: RewindDeps,
@@ -1487,7 +1490,7 @@ class Rewind {
     /** Whether its user has Query All Files, as its guard read it: what its reads see of files. */
     private readonly queryAllFiles: boolean,
   ) {
-    this.org = count.org;
+    this.org = this.clock.watched(count.org);
     this.signal = deps.signal;
     this.now = deps.now ?? (() => new Date());
     this.kept = keepingDescribes(compositeReader(this.org, this.signal));
@@ -1868,7 +1871,7 @@ class Rewind {
         );
       }
     }
-    return {
+    const outcome: RewindOutcome & { rewound: true } = {
       rewound: true,
       result: this.resultOf({
         rewindId: journal.rewindId,
@@ -1885,6 +1888,23 @@ class Rewind {
       }),
       notes: this.notes,
     };
+    // A rewind that wrote is kept in its org's ledger, which outlives the
+    // checkpoint: the histories mark the runs it took back. One stopped, or
+    // taken up after a stop, counts what its journal says was sent, an
+    // answer or not; one that went through, what the org answered it did.
+    if (did || (read.lastWriteAt !== undefined && (cancelled || journal.resumed))) {
+      const note = await noteRewindEnded({
+        folder: this.request.folder,
+        lock: this.lock,
+        checkpoint,
+        result: outcome.result,
+        startedAt: tr,
+        ...(!cancelled && verify ? { endedAt: verify.diff.readAt } : {}),
+        clock: this.clock,
+      });
+      if (note !== undefined) this.notes.push(note);
+    }
+    return outcome;
   }
 
   /**

@@ -4845,6 +4845,15 @@
     "checkpointNow": {
       "why": "Avant que vos testeurs ne commencent, gardez {{org}} telle qu'elle est maintenant comme point où revenir. Revenir à ce point l'y ramène ensuite, quel que soit l'auteur des changements à venir.",
       "take": "Créer un point de contrôle maintenant"
+    },
+    "rewound": {
+      "mark": "Écritures reprises le {{date}} par le retour arrière à « {{name}} »",
+      "markPartly": "Écritures reprises en partie le {{date}} par le retour arrière à « {{name}} » : l’exécution a tourné pendant la création du point de contrôle ou pendant le retour arrière",
+      "stopped": "Un retour arrière à « {{name}} » s’est arrêté en cours de route le {{date}}",
+      "leftSome": "le retour arrière a laissé des enregistrements : ouvrez le retrait pour voir ce qui reste",
+      "undone": "retour arrière annulé le {{date}}",
+      "outside": "Non repris : {{objects}}, hors du point de contrôle",
+      "badge": "Retour arrière"
     }
   },
   "grappe": {

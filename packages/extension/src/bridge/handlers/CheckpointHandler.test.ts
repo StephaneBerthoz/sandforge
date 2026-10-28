@@ -25,6 +25,7 @@ import {
 } from '../../modules/checkpoint/OrgCheckpointStore.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
+import { appendToRewindLedger, rewindLedgerFileOf } from '../../modules/checkpoint/rewindLedger.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
@@ -780,6 +781,99 @@ describe('CheckpointHandler — the list', () => {
         organizationId: REFRESHED_ORG_ID.slice(0, 15),
       }),
     ).toBe(1);
+  });
+});
+
+describe('CheckpointHandler — the rewinds the histories mark runs by', () => {
+  /** A rewind of `organizationId` kept in its ledger, under its lock. */
+  async function kept(h: Harness, organizationId: string, rewindId: string): Promise<void> {
+    const held = h.store.lock(organizationId, 'rewind');
+    if (!('lock' in held)) throw new Error('the lock is held');
+    try {
+      await appendToRewindLedger(rewindLedgerFileOf(h.store.root, organizationId), held.lock, {
+        kind: 'rewind',
+        rewindId,
+        checkpointId: 'ck-20261022-140512-aaaa',
+        checkpointName: 'Before UAT',
+        organizationId,
+        mode: 'everything',
+        objects: ['Account'],
+        readFrom: '2026-10-22T14:05:12.000Z',
+        takenAt: '2026-10-22T14:06:00.000Z',
+        startedAt: '2026-10-22T16:00:00.000Z',
+        endedAt: '2026-10-22T16:05:00.000Z',
+        status: 'success',
+        totals: { deleted: 1, restored: 0, undeleted: 0, recreated: 0 },
+      });
+    } finally {
+      held.lock.release();
+    }
+  }
+
+  it('answers each registered org’s rewinds from this machine alone, each with the orgs it is of', async () => {
+    const h = harness();
+    await kept(h, ORG_ID, 'rw-20261022-160000-aaaa');
+    await kept(h, '00D000000000007AAA', 'rw-20261022-160000-bbbb');
+
+    await h.send('wv-rewinds-1', 'checkpoint:rewinds', { orgIds: [REGISTERED] });
+    await h.send('wv-rewinds-2', 'checkpoint:rewinds');
+
+    for (const requestId of ['wv-rewinds-1', 'wv-rewinds-2']) {
+      const answer = answerOf(h, requestId);
+      expect(answer.type).toBe('checkpoint:rewinds:response');
+      expect(answer.payload.rewinds).toEqual([
+        expect.objectContaining({ rewindId: 'rw-20261022-160000-aaaa', orgIds: [REGISTERED] }),
+      ]);
+    }
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+
+  it('answers a refreshed sandbox’s rewinds of the org before beside those since', async () => {
+    const h = harness();
+    await kept(h, ORG_ID, 'rw-20261022-160000-aaaa');
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+    await kept(h, REFRESHED_ORG_ID, 'rw-20261022-170000-cccc');
+
+    await h.send('wv-rewinds-1', 'checkpoint:rewinds', { orgIds: [REGISTERED] });
+
+    const rewinds = answerOf(h, 'wv-rewinds-1').payload.rewinds as Array<{
+      rewindId: string;
+      orgIds: string[];
+    }>;
+    expect(rewinds.map(({ rewindId, orgIds }) => [rewindId, orgIds]).sort()).toEqual([
+      ['rw-20261022-160000-aaaa', [REGISTERED]],
+      ['rw-20261022-170000-cccc', [REGISTERED]],
+    ]);
+  });
+
+  it('leaves out a line of a ledger that does not parse, and names it in the log', async () => {
+    const h = harness();
+    await kept(h, ORG_ID, 'rw-20261022-160000-aaaa');
+    const { appendFileSync } = await import('node:fs');
+    appendFileSync(rewindLedgerFileOf(h.store.root, ORG_ID), '{"kind":"rewind"}\n');
+
+    await h.send('wv-rewinds-1', 'checkpoint:rewinds', { orgIds: [REGISTERED] });
+
+    expect(answerOf(h, 'wv-rewinds-1').payload.rewinds).toHaveLength(1);
+    expect(h.logs).toContainEqual(
+      expect.stringMatching(
+        /^\[WARN\] Line 2 of the rewind ledger of 00D\w+ does not parse: left out$/,
+      ),
+    );
+  });
+
+  it('refuses a request that names no org in its list, one twice, or asks what it does not know', async () => {
+    const h = harness();
+
+    for (const [requestId, payload] of [
+      ['wv-rewinds-1', { orgIds: [] }],
+      ['wv-rewinds-2', { orgIds: [REGISTERED, REGISTERED] }],
+      ['wv-rewinds-3', { orgIds: [REGISTERED], since: '2026-01-01' }],
+    ] as const) {
+      await h.send(requestId, 'checkpoint:rewinds', payload);
+      const answer = answerOf(h, requestId);
+      expect([answer.type, answer.payload.code]).toEqual(['checkpoint:error', 'INVALID_PAYLOAD']);
+    }
   });
 });
 

@@ -975,3 +975,71 @@ export interface RewindResult {
   apiRequests: { used: number; leftToday: number };
   finishedAt: ISODateString;
 }
+
+// ─── The rewinds of an org, as the histories mark the runs they took back ────
+
+/** What a rewind did in all, as its line in the ledger counts it: records, never which. */
+export interface CheckpointRewindTotals {
+  deleted: number;
+  restored: number;
+  undeleted: number;
+  recreated: number;
+}
+
+/**
+ * A rewind that wrote, as it ended: gone through, stopped part way, or ended
+ * before it was through. Its four times are on the org's clock;
+ * `orgAheadMs` is how far the org's clock was ahead of this machine's at the
+ * rewind's last read of it, which puts them on the machine's clock the
+ * histories of Seed, Sync and Forge date their runs by.
+ */
+export interface CheckpointRewindEnded {
+  kind: 'rewind';
+  rewindId: string;
+  checkpointId: string;
+  /** What the checkpoint was called when the rewind ended: the mark names it so. */
+  checkpointName: string;
+  organizationId: string;
+  mode: CheckpointScopeMode;
+  /** The objects the checkpoint held: all the rewind could take back. */
+  objects: string[];
+  /** T0 of the checkpoint. */
+  readFrom: ISODateString;
+  /** T1 of the checkpoint. */
+  takenAt: ISODateString;
+  /** Tr, when the rewind began its reads. */
+  startedAt: ISODateString;
+  /** When it ended, or was stopped. */
+  endedAt: ISODateString;
+  /** Absent when the rewind never read the org's clock: the marks then read the two clocks as one. */
+  orgAheadMs?: number;
+  status: RewindStatus;
+  totals: CheckpointRewindTotals;
+}
+
+/** The undo of a rewind once it went through, whole or in part, on this machine's clock. */
+export interface CheckpointRewindUndone {
+  kind: 'undo';
+  /** The rewind it took back. */
+  rewindId: string;
+  checkpointId: string;
+  organizationId: string;
+  status: Extract<RewindStatus, 'success' | 'partial' | 'unstable'>;
+  undoneAt: ISODateString;
+}
+
+/**
+ * A line of an org's rewind ledger, `rewinds.ndjson` in the org's folder of
+ * the store, beside its checkpoints and outliving them: what the Seed, Sync
+ * and Forge histories mark a run rewound by. It names no record and holds no
+ * value: the exact count of a run's records a rewind took is the run's
+ * removal preview to give.
+ */
+export type CheckpointRewindRecord = CheckpointRewindEnded | CheckpointRewindUndone;
+
+/**
+ * A line of the ledger as `checkpoint:rewinds` answers it, with the
+ * registered orgs it is of, by their ids in this machine's registry: those
+ * that were its Organization Id, a sandbox refreshed since among them.
+ */
+export type CheckpointRewindListed = CheckpointRewindRecord & { orgIds: string[] };

@@ -899,6 +899,75 @@ describe('ForgeHistoryPanel — older runs', () => {
 
     expect(screen.queryByTestId('forge-history-older')).toBeNull();
   });
+
+  it('marks a run a rewind took back, an older one among them, and none that ended before the checkpoint', () => {
+    const later: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      forgeId: 'forge-later',
+      timestamp: '2026-08-02T10:00:00.000Z',
+    };
+    render(
+      <ForgeHistoryPanel
+        entries={[later, REMOVABLE_RUN]}
+        olderRuns={[OLDER_RUN]}
+        error={null}
+        onReuseConfig={vi.fn()}
+      />,
+    );
+    const request = sent('checkpoint:rewinds');
+    if (!request) throw new Error("no 'checkpoint:rewinds' was sent");
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'resp-rewinds',
+            type: 'checkpoint:rewinds:response',
+            timestamp: Date.now(),
+            correlationId: request.id,
+            payload: {
+              rewinds: [
+                {
+                  kind: 'rewind',
+                  rewindId: 'rw-20260803-090000-aaaa',
+                  checkpointId: 'ck-20260731-090000-aaaa',
+                  checkpointName: 'Sprint start',
+                  organizationId: '00D000000000001AAA',
+                  mode: 'picked',
+                  objects: ['Account'],
+                  readFrom: '2026-07-31T09:00:00.000Z',
+                  takenAt: '2026-07-31T09:02:00.000Z',
+                  startedAt: '2026-08-03T09:00:00.000Z',
+                  endedAt: '2026-08-03T09:04:00.000Z',
+                  status: 'success',
+                  totals: { deleted: 3, restored: 0, undeleted: 0, recreated: 0 },
+                  orgIds: [DEV.id],
+                },
+                {
+                  kind: 'undo',
+                  rewindId: 'rw-20260803-090000-aaaa',
+                  checkpointId: 'ck-20260731-090000-aaaa',
+                  organizationId: '00D000000000001AAA',
+                  status: 'success',
+                  undoneAt: '2026-08-03T11:00:00.000Z',
+                  orgIds: [DEV.id],
+                },
+              ],
+            },
+          },
+        }),
+      );
+    });
+
+    for (const forgeId of ['forge-later', 'forge-older']) {
+      const mark = screen.getByTestId(`forge-history-rewound-${forgeId}`);
+      expect(mark.textContent).toContain('to “Sprint start”');
+      expect(mark.textContent).toContain('undone on');
+      // The run's contacts: the checkpoint held accounts alone.
+      expect(mark.textContent).toContain('Not rewound: Contact, outside the checkpoint');
+    }
+    // Run in February: the checkpoint of July holds what it created.
+    expect(screen.queryByTestId('forge-history-rewound-forge-removable')).toBeNull();
+  });
 });
 
 describe('ForgeHistoryPanel — a run whose ids are in its journal', () => {

@@ -169,6 +169,58 @@ describe('SyncHistoryPanel', () => {
     expect(screen.getAllByText('Account')).toHaveLength(2);
   });
 
+  it('marks a run a rewind took back in a word in the table, and in full in its detail', () => {
+    const entry = makeMockEntry('h-rw');
+    const before = {
+      ...makeMockEntry('h-before'),
+      startTime: '2023-12-31T20:00:00Z',
+      endTime: '2023-12-31T20:05:00Z',
+    };
+    useSyncHistoryStore.setState({
+      entries: [entry, before],
+      selectedEntry: entry,
+      loading: false,
+    });
+    mockPostMessage.mockClear();
+    render(<SyncHistoryPanel />);
+
+    const request = mockPostMessage.mock.calls
+      .map((call) => (call[0] as { payload: { id: string; type: string } }).payload)
+      .find((message) => message.type === 'checkpoint:rewinds');
+    expect(request).toBeDefined();
+    fromHost({
+      id: 'resp-rewinds',
+      type: 'checkpoint:rewinds:response',
+      correlationId: request?.id,
+      payload: {
+        rewinds: [
+          {
+            kind: 'rewind',
+            rewindId: 'rw-20240101-020000-aaaa',
+            checkpointId: 'ck-20231231-230000-aaaa',
+            checkpointName: 'Before UAT',
+            organizationId: '00D000000000001AAA',
+            mode: 'everything',
+            objects: ['Account'],
+            readFrom: '2023-12-31T23:00:00.000Z',
+            takenAt: '2023-12-31T23:05:00.000Z',
+            startedAt: '2024-01-01T02:00:00.000Z',
+            endedAt: '2024-01-01T02:10:00.000Z',
+            status: 'success',
+            totals: { deleted: 98, restored: 0, undeleted: 0, recreated: 0 },
+            orgIds: ['org-2'],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByTestId('sync-history-rewound-h-rw').textContent).toBe('Rewound');
+    expect(screen.queryByTestId('sync-history-rewound-h-before')).toBeNull();
+    expect(screen.getByTestId('sync-history-detail-rewound').textContent).toContain(
+      'to “Before UAT”',
+    );
+  });
+
   it('should render DataTable with entries when data exists', () => {
     const entries = [makeMockEntry('h-1'), makeMockEntry('h-2', 'failure')];
     useSyncHistoryStore.setState({ entries, loading: false });

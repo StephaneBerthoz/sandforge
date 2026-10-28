@@ -36,7 +36,7 @@ function envelope(type: string) {
 }
 
 describe('checkpoint messages', () => {
-  it('declares the ten checkpoint requests, each with its answer', () => {
+  it('declares the eleven checkpoint requests, each with its answer', () => {
     const literals = declaredLiterals();
     const requests = literals.filter((literal) => !isReply(literal));
     expect(requests).toEqual([
@@ -50,6 +50,7 @@ describe('checkpoint messages', () => {
       'checkpoint:keep',
       'checkpoint:rename',
       'checkpoint:ignore-fields',
+      'checkpoint:rewinds',
     ]);
     // The page's bridge hooks wait on `<request>:response` unless told otherwise.
     const unanswered = requests.filter((request) => !literals.includes(`${request}:response`));

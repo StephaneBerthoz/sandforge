@@ -242,6 +242,45 @@ describe('SeedRunHistory', () => {
     expect(screen.queryByTestId('seed-run-history-origin-op-1')).toBeNull();
   });
 
+  it('marks a seed a rewind took back, and none that ended before the checkpoint was taken', () => {
+    render(<SeedRunHistory />);
+    // Nothing to mark yet: the rewinds are read once the list holds a run.
+    expect(sentAll('checkpoint:rewinds')).toEqual([]);
+    answer('seed:removal:list', 'seed:removal:list:response', {
+      runs: [
+        { ...RUNS[0], objects: ['Account', 'Opportunity'] },
+        { ...RUNS[1], objects: ['Account'] },
+      ],
+    });
+    answer('checkpoint:rewinds', 'checkpoint:rewinds:response', {
+      rewinds: [
+        {
+          kind: 'rewind',
+          rewindId: 'rw-20261018-120000-aaaa',
+          checkpointId: 'ck-20261018-070000-aaaa',
+          checkpointName: 'Before UAT',
+          organizationId: '00D000000000001AAA',
+          mode: 'picked',
+          objects: ['Account', 'Contact'],
+          readFrom: '2026-10-18T07:00:00.000Z',
+          takenAt: '2026-10-18T07:05:00.000Z',
+          startedAt: '2026-10-18T12:00:00.000Z',
+          endedAt: '2026-10-18T12:10:00.000Z',
+          status: 'partial',
+          totals: { deleted: 5, restored: 0, undeleted: 0, recreated: 0 },
+          orgIds: ['org-dev'],
+        },
+      ],
+    });
+
+    const mark = screen.getByTestId('seed-run-history-rewound-op-2');
+    expect(mark.textContent).toContain('to “Before UAT”');
+    expect(mark.textContent).toContain('the rewind left some records');
+    expect(mark.textContent).toContain('Not rewound: Opportunity, outside the checkpoint');
+    // The seed of the day before: the checkpoint holds what it created.
+    expect(screen.queryByTestId('seed-run-history-rewound-op-1')).toBeNull();
+  });
+
   it('shows nothing when no seed is kept', () => {
     render(<SeedRunHistory />);
     answer('seed:removal:list', 'seed:removal:list:response', { runs: [] });

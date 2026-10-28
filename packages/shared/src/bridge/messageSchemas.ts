@@ -693,6 +693,9 @@ const CheckpointMessages = [
   msg('checkpoint:rename:response'),
   msg('checkpoint:ignore-fields'),
   msg('checkpoint:ignore-fields:response'),
+  // The rewinds the ledger keeps, read from this machine alone: the histories' marks.
+  msg('checkpoint:rewinds'),
+  msg('checkpoint:rewinds:response'),
   // Error channel for every checkpoint request: refusals, malformed payloads, failures.
   msg('checkpoint:error'),
 ] as const;

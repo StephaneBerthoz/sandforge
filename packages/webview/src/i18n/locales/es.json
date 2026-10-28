@@ -4845,6 +4845,15 @@
     "checkpointNow": {
       "why": "Antes de que empiecen sus evaluadores, conserve {{org}} tal como está ahora como el punto al que volver. Retroceder la devuelve después a ese punto, quienquiera que la cambie a continuación.",
       "take": "Crear un punto de control ahora"
+    },
+    "rewound": {
+      "mark": "Retrocedida el {{date}} a «{{name}}»",
+      "markPartly": "Retrocedida en parte el {{date}} a «{{name}}»: la ejecución corrió mientras se creaba el punto de control o durante el retroceso",
+      "stopped": "Un retroceso a «{{name}}» se detuvo a medias el {{date}}",
+      "leftSome": "el retroceso dejó registros: abra su eliminación para ver lo que queda",
+      "undone": "retroceso deshecho el {{date}}",
+      "outside": "No retrocedido: {{objects}}, fuera del punto de control",
+      "badge": "Retrocedida"
     }
   },
   "grappe": {

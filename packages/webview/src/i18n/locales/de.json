@@ -4845,6 +4845,15 @@
     "checkpointNow": {
       "why": "Bevor Ihre Tester beginnen, halten Sie {{org}} im jetzigen Stand als Punkt fest, zu dem Sie zurückkehren können. Das Zurücksetzen bringt die Org dann dorthin zurück, egal wer sie danach ändert.",
       "take": "Jetzt einen Prüfpunkt erstellen"
+    },
+    "rewound": {
+      "mark": "Am {{date}} auf „{{name}}“ zurückgesetzt",
+      "markPartly": "Am {{date}} teilweise auf „{{name}}“ zurückgesetzt: Der Durchlauf lief, während der Prüfpunkt erstellt wurde oder das Zurücksetzen lief",
+      "stopped": "Ein Zurücksetzen auf „{{name}}“ wurde am {{date}} mittendrin gestoppt",
+      "leftSome": "das Zurücksetzen hat Datensätze übrig gelassen: Öffnen Sie das Entfernen, um zu sehen, was übrig ist",
+      "undone": "am {{date}} rückgängig gemacht",
+      "outside": "Nicht zurückgesetzt: {{objects}}, außerhalb des Prüfpunkts",
+      "badge": "Zurückgesetzt"
     }
   },
   "grappe": {

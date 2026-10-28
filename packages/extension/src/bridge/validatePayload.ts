@@ -1293,6 +1293,23 @@ export const checkpointIgnoreFieldsPayloadSchema = z.object({
   fields: checkpointIgnoredFieldsSchema,
 });
 
+/** Most registered orgs one read of the rewinds names: every org a panel lists, and more. */
+const MAX_REWINDS_ORGS = 500;
+
+// The registered orgs whose rewinds the histories mark their runs by; every
+// registered org when none is named.
+export const checkpointRewindsPayloadSchema = z
+  .object({
+    orgIds: z
+      .array(orgIdSchema)
+      .min(1)
+      .max(MAX_REWINDS_ORGS)
+      .refine((ids) => new Set(ids).size === ids.length, 'An org is named twice')
+      .optional(),
+  })
+  .strict()
+  .optional();
+
 // ── autopilot:* payload schemas ─────────────────────────────────────────────
 // Mirror the shared request contracts (shared/types/messages/autopilot.messages.ts).
 // Fields the handler never reads stay optional so a partial payload that used

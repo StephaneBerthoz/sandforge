@@ -5,6 +5,7 @@ import type {
   CheckpointListEntry,
   CheckpointLeftOutObject,
   CheckpointRefusal,
+  CheckpointRewindListed,
   CheckpointScopeCustomSetting,
   CheckpointScopeFiles,
   CheckpointScopeMode,
@@ -184,6 +185,18 @@ export interface CheckpointIgnoreFieldsRequest extends BaseMessage {
   payload: { checkpointId: string; fields: string[] };
 }
 
+/**
+ * `checkpoint:rewinds`. WebView -> Extension. The rewinds of the registered
+ * orgs named — of every registered org when none is — and their undos, as
+ * the rewind ledger of each org's folder of the store keeps them: what the
+ * Seed, Sync and Forge histories mark a run rewound by. Read from this
+ * machine alone; no org is contacted.
+ */
+export interface CheckpointRewindsRequest extends BaseMessage {
+  type: 'checkpoint:rewinds';
+  payload?: { orgIds?: string[] };
+}
+
 /** `checkpoint:list:response`. Extension -> WebView. */
 export interface CheckpointListResponse extends BaseMessage {
   type: 'checkpoint:list:response';
@@ -291,6 +304,15 @@ export interface CheckpointRenameResponse extends BaseMessage {
 export interface CheckpointIgnoreFieldsResponse extends BaseMessage {
   type: 'checkpoint:ignore-fields:response';
   payload: { checkpoint: OrgCheckpoint };
+}
+
+/**
+ * `checkpoint:rewinds:response`. Extension -> WebView. Each org's lines in
+ * the order they were written, each with the registered orgs it is of.
+ */
+export interface CheckpointRewindsResponse extends BaseMessage {
+  type: 'checkpoint:rewinds:response';
+  payload: { rewinds: CheckpointRewindListed[] };
 }
 
 /**

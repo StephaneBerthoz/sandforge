@@ -219,6 +219,13 @@ export {
   type ForgeRunObjectRecords,
 } from './utils/forge-run-records.js';
 export {
+  REWOUND_MARGIN_MS,
+  rewoundMarkOf,
+  type RewoundMark,
+  type RewoundMarkKind,
+  type RewoundRun,
+} from './utils/rewound-marks.js';
+export {
   csvCell,
   idMapCsv,
   idMapCsvLines,

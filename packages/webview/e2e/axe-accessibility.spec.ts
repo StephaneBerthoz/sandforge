@@ -7915,6 +7915,39 @@ async function openSeedSelectWithSuggestion(
     .waitFor({ state: 'visible', timeout: 10_000 });
 }
 
+/**
+ * What `checkpoint:rewinds` answers of an org: a checkpoint taken on
+ * 2026-09-21 at 09:00 of its accounts and contacts, a rewind to it on the
+ * 23rd that left some records, and its undo. The Forge run of the 22nd it
+ * took back whole, but for its cases; a seed that ran as the checkpoint was
+ * taken, in part.
+ */
+function rewindLedgerOf(orgId: string): Array<Record<string, unknown>> {
+  const common = {
+    rewindId: 'rw-20260923-090000-aaaa',
+    checkpointId: 'ck-20260921-090000-aaaa',
+    organizationId: '00D000000000001AAA',
+    orgIds: [orgId],
+  };
+  return [
+    {
+      ...common,
+      kind: 'rewind',
+      checkpointName: 'Before UAT',
+      mode: 'picked',
+      objects: ['Account', 'Contact'],
+      readFrom: '2026-09-21T09:00:00.000Z',
+      takenAt: '2026-09-21T09:03:00.000Z',
+      startedAt: '2026-09-23T09:00:00.000Z',
+      endedAt: '2026-09-23T09:06:00.000Z',
+      orgAheadMs: 800,
+      status: 'partial',
+      totals: { deleted: 7, restored: 1, undeleted: 0, recreated: 0 },
+    },
+    { ...common, kind: 'undo', status: 'success', undoneAt: '2026-09-23T11:00:00.000Z' },
+  ];
+}
+
 for (const theme of STATE_THEMES) {
   test.describe(`rendered contrast — ${theme} — states`, () => {
     test.describe.configure({ timeout: 60000 });
@@ -10892,6 +10925,131 @@ for (const theme of STATE_THEMES) {
       await page.getByTestId('seed-run-history-unfinished-op-axe-2').waitFor({ timeout: 10_000 });
 
       await expectReadable(page, theme, '[data-testid="seed-run-history"]');
+    });
+
+    test('Seed earlier seeds, one a rewind took back in part and an undo brought back', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'seed', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('seed:removal:list', { timeout: 10_000 });
+      await answerAll(page, 'seed:removal:list', 'seed:removal:list:response', {
+        runs: [
+          {
+            runId: 'op-axe-rw',
+            targetOrgId: QA_SANDBOX.id,
+            // It ran as the checkpoint was taken: rewound in part.
+            startedAt: '2026-09-21T08:59:00.000Z',
+            endedAt: '2026-09-21T09:01:00.000Z',
+            created: 12,
+            objects: ['Account', 'Case'],
+            left: [{ objectApiName: 'Case', count: 4 }],
+          },
+        ],
+      });
+      await bridge.waitForMessage('checkpoint:rewinds', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:rewinds', 'checkpoint:rewinds:response', {
+        rewinds: rewindLedgerOf(QA_SANDBOX.id),
+      });
+      const mark = page.getByTestId('seed-run-history-rewound-op-axe-rw');
+      await expect(mark).toContainText('Rewound in part on');
+      await expect(mark).toContainText('Not rewound: Case, outside the checkpoint');
+
+      await expectReadable(page, theme, '[data-testid="seed-run-history"]');
+    });
+
+    test('Sync history, a run a rewind took back, its detail open', async ({ page }) => {
+      const entry = {
+        id: 'h-axe-rw',
+        configSnapshot: {
+          id: 'cfg-axe-rw',
+          name: 'Accounts',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          direction: 'source_to_target',
+          mode: 'full',
+          conflictStrategy: 'source_wins',
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'insert',
+              fieldMappings: [],
+              transformRules: [],
+              excludedFields: [],
+              addOnFields: [],
+              batchSize: 200,
+              insertOrder: 1,
+            },
+          ],
+          enableRollback: false,
+          createdAt: '2026-09-22T09:00:00.000Z',
+          updatedAt: '2026-09-22T09:00:00.000Z',
+        },
+        result: {
+          configId: 'cfg-axe-rw',
+          operationId: 'op-axe-sync-rw',
+          status: 'success',
+          objectResults: [
+            {
+              objectApiName: 'Account',
+              operation: 'insert',
+              processed: 4,
+              success: 4,
+              failed: 0,
+              skipped: 0,
+              conflictCount: 0,
+              errors: [],
+            },
+          ],
+          totalProcessed: 4,
+          totalSuccess: 4,
+          totalFailed: 0,
+          totalSkipped: 0,
+          duration: 60_000,
+          timestamp: '2026-09-22T10:01:00.000Z',
+        },
+        startTime: '2026-09-22T10:00:00.000Z',
+        endTime: '2026-09-22T10:01:00.000Z',
+        triggeredBy: 'manual',
+      };
+      await openPanel(bridge, page, 'sync', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      await page.getByTestId('tab-history').click();
+      await bridge.respondToNext('sync:history:list', 'sync:history:list:response', {
+        entries: [entry],
+      });
+      await bridge.waitForMessage('checkpoint:rewinds', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:rewinds', 'checkpoint:rewinds:response', {
+        rewinds: rewindLedgerOf(QA_SANDBOX.id),
+      });
+      await expect(page.getByTestId('sync-history-rewound-h-axe-rw')).toHaveText('Rewound');
+      await page.getByTestId('table-row-0').click();
+      await bridge.respondToNext('sync:history:detail', 'sync:history:detail:response', {
+        entry,
+      });
+      await expect(page.getByTestId('sync-history-detail-rewound')).toContainText('Rewound on');
+
+      await expectReadable(page, theme);
+    });
+
+    test('Forge recent runs, one a rewind took back and left some records of', async ({ page }) => {
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [FORGE_REMOVABLE_RUN],
+      });
+      await bridge.waitForMessage('checkpoint:rewinds', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:rewinds', 'checkpoint:rewinds:response', {
+        rewinds: rewindLedgerOf(QA_SANDBOX.id),
+      });
+      const mark = page.getByTestId(`forge-history-rewound-${FORGE_REMOVABLE_RUN.forgeId}`);
+      await expect(mark).toContainText('the rewind left some records');
+      await expect(mark).toContainText('undone on');
+      await mark.scrollIntoViewIfNeeded();
+
+      await expectReadable(page, theme);
     });
 
     test('Seed earlier seeds, one another window is writing', async ({ page }) => {

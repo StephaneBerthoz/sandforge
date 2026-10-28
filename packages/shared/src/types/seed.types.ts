@@ -536,6 +536,13 @@ export interface SeedRunRemovalInfo {
   /** Records it created, in all. */
   created: number;
   /**
+   * The objects it wrote, in the order it first wrote each: those it created
+   * records of, then those it wrote over records of. What the history's mark
+   * of a rewind names as outside the checkpoint. Absent from a line listed
+   * before it was told.
+   */
+  objects?: string[];
+  /**
    * What a removal takes now, per object, the last object written first.
    * Empty once removals took them all.
    */

@@ -947,6 +947,38 @@ describe('docs/modules/checkpoint.md', () => {
   });
 });
 
+describe('the rewound runs the histories mark', () => {
+  const LEDGER = source(`${MODULE_DIR}/rewindLedger.ts`);
+  const MARKS = source('packages/shared/src/utils/rewound-marks.ts');
+  const marks = section(DOC, '## Rewound runs in the histories');
+  /** A mark's label as the page names it, its placeholders as the page writes them. */
+  const named = (key: string): string =>
+    label(key)
+      .replace('{{date}}', '\\<date\\>')
+      .replace('{{name}}', '\\<checkpoint\\>')
+      .replace('{{objects}}', '\\<objects\\>');
+
+  it('names each mark as the histories write it', () => {
+    expect(marks).toContain(`**${named('runResults.rewound.mark')}**`);
+    expect(marks).toContain(`**${named('runResults.rewound.outside')}**`);
+    expect(label('runResults.rewound.markPartly')).toMatch(/^Rewound in part /);
+    expect(marks).toContain('**Rewound in part**');
+  });
+
+  it('gives the margin around each bound the marks are told by', () => {
+    expect(constant(MARKS, 'REWOUND_MARGIN_MS')).toBe(2 * 60_000);
+    expect(marks).toContain('two minutes either side of each');
+  });
+
+  it('says where the ledger is, and how much of it is kept', () => {
+    expect(LEDGER).toContain("export const REWIND_LEDGER_FILE = 'rewinds.ndjson';");
+    expect(constant(LEDGER, 'LEDGER_MAX_LINES')).toBe(400);
+    expect(constant(LEDGER, 'LEDGER_KEPT_LINES')).toBe(200);
+    expect(marks).toContain("`rewinds.ndjson`, in the org's folder of the store");
+    expect(marks).toContain('keeps the last 200 rewinds and undos once it passes 400');
+  });
+});
+
 describe('the README lines of the module', () => {
   const READMES = ['README.md', 'packages/extension/README.md'];
 
