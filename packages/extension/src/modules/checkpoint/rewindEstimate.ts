@@ -171,6 +171,16 @@ const BYTES_PER_FILE_LINK_KEPT = 60;
 const BYTES_PER_FILE_KEPT = 50;
 
 /**
+ * Bytes an id of the recycle bin at T0 takes in the checkpoint's `bin/`, in
+ * clear, a line each as the take spools it: `{"Id":"…"}`, 18 characters,
+ * and its line break. Measured on a scratch org whose bin held 77,624 ids:
+ * 2,173,472 bytes, 85 % of the checkpoint, where the estimate counted none.
+ */
+export const BYTES_PER_BIN_ID_KEPT = Buffer.byteLength(
+  `${JSON.stringify({ Id: '0'.repeat(18) })}\n`,
+);
+
+/**
  * The term the reads by id of a snapshot read through the recycle bin keep
  * to (DataOps' `LIVE_ROWS`): a Task's or an Event's other column groups name
  * it beside their ids, which leaves room for fewer ids.
@@ -367,8 +377,9 @@ function readsById(records: number, fields: readonly string[]): number {
 export interface TakenObject {
   records: number;
   /**
-   * Ids in its recycle bin at T0, counted before the take reads them: what
-   * prices the bin's pages past the first. Absent, one page.
+   * Ids in its recycle bin at T0, counted before the take reads them, of an
+   * object holding no record too: what prices the bin's pages past the
+   * first, and what `bin/` keeps of them. Absent, one page and no byte.
    */
   inBin?: number;
   /**
@@ -414,9 +425,9 @@ export interface TakeEstimateInput {
   /** Of them, those whose count a composite did not answer, each asked again alone. */
   countedAlone?: number;
   /**
-   * The counts asked once the records are, five a call: of each object
-   * holding records, its recycle bin at T0, its records stamped since the
-   * change reads' start, and its links to files when they are read.
+   * The counts asked once the records are, five a call: of each object, its
+   * recycle bin at T0; of each holding records, its records stamped since
+   * the change reads' start, and its links to files when they are read.
    */
   recounted?: number;
   /** Per object the take holds, its records and how its other column groups are read. */
@@ -461,6 +472,8 @@ function listedJsonBytes(items: readonly unknown[], depth: number): number {
  * - the field prints, compressed, as measured on them;
  * - the links of its records to files, and a file each link names, as
  *   counted before the take reads them;
+ * - each id of its recycle bin at T0, kept in clear
+ *   ({@link BYTES_PER_BIN_ID_KEPT}), as counted before the take reads them;
  * - `checkpoint.json`, which lists every object kept with its fields and
  *   every object left out with why, counted as it will be written.
  *
@@ -468,7 +481,10 @@ function listedJsonBytes(items: readonly unknown[], depth: number): number {
  * most of the checkpoint. A plain checkpoint of a scratch org's 202 objects
  * holding 70 records took 887,925 bytes, `checkpoint.json` 338,858 of them,
  * where the estimate before the compression — `records × 1,000` and the
- * index, nothing of the rest — said 74,066: twelve times too few.
+ * index, nothing of the rest — said 74,066: twelve times too few. On the
+ * same org, its bin since grown to 77,624 ids, a compressed checkpoint took
+ * 2,564,779 bytes, its bin 2,173,472 of them, where the estimate, counting
+ * none of the bin, said 402,332.
  */
 export function takeBytes(
   input: Pick<TakeEstimateInput, 'objects' | 'leftOut' | 'printsBytes'>,
@@ -478,6 +494,7 @@ export function takeBytes(
   for (const object of input.objects) {
     bytes += object.records * BYTES_PER_RECORD_KEPT + snapshotIndexBytes(object.records, 2);
     if (object.records > 0) bytes += SNAPSHOT_META_BYTES_PER_OBJECT;
+    bytes += (object.inBin ?? 0) * BYTES_PER_BIN_ID_KEPT;
     // A link and the file it names, at most, one file a link.
     bytes += (object.links ?? 0) * (BYTES_PER_FILE_LINK_KEPT + BYTES_PER_FILE_KEPT);
     if (object.entry !== undefined) entries.push(object.entry);
@@ -539,8 +556,8 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *   each count a call did not answer — an object then left out, as the org
  *   would not count it or as it holds more than one object may, was counted
  *   all the same — then, five a call, what the next phases' reads hold of
- *   each object holding records: its recycle bin at T0, its records stamped
- *   since the change reads' start, and its links to files;
+ *   each object: its recycle bin at T0, and of one holding records, its
+ *   records stamped since the change reads' start, and its links to files;
  * - `bin`: the recycle bin at T0, five objects at a time, each page of ids a
  *   call for the longest of the five;
  * - `snapshot`: a page a call, of {@link SNAPSHOT_PAGE_ROWS} rows at most
@@ -555,10 +572,9 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *
  * Not known before the take reads them, and left out: what moves while the
  * take runs, and what the five minutes before T0 moved of an object that
- * held no record when it was counted; the recycle bin past its first page of
- * such an object; the files a link names that another link of the same file
- * names too, which the estimate takes for one each; and the rows a write
- * moved between two column groups, read again.
+ * held no record when it was counted; the files a link names that another
+ * link of the same file names too, which the estimate takes for one each;
+ * and the rows a write moved between two column groups, read again.
  *
  * Its disk is {@link takeBytes}.
  */

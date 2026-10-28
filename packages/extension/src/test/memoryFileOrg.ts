@@ -24,8 +24,10 @@
  *   answers `Entity type is not undeletable`; one inserted again gets a new
  *   Id. The link of a file's owner is not deleted: `FIELD_INTEGRITY_EXCEPTION`.
  * - A link is read only by the file or the record it ties: any other read of
- *   them is refused, `MALFORMED_QUERY` (FA4). A link has no `CreatedDate`,
- *   nor the other audit dates (`INVALID_FIELD`).
+ *   them is refused, `MALFORMED_QUERY` (FA4), and so is a read by its file
+ *   that filters on a column that is not an id, `IsDeleted` among them
+ *   ({@link LINK_FILTER_REFUSAL}). A link has no `CreatedDate`, nor the other
+ *   audit dates (`INVALID_FIELD`).
  * - Without Query All Files ({@link MemoryFileOrg.queryAllFiles}), the
  *   session's user sees a file another user owns only in a read that names
  *   it by its id, never in one that does not, even through `queryAll`, even
@@ -137,6 +139,39 @@ function namesIds(soql: string): boolean {
 function namesLinkEnds(soql: string): boolean {
   return /\b(?:ContentDocumentId|LinkedEntityId)\s*(?:=|IN\b)/i.test(soql);
 }
+
+/** The columns a link is read by that the org takes beside its file: its ids. */
+const LINK_ID_COLUMNS: ReadonlySet<string> = new Set(['id', 'contentdocumentid', 'linkedentityid']);
+
+/**
+ * Whether a read of links by their file filters on a column that is not an
+ * id, `IsDeleted` say, which the org refuses: see {@link LINK_FILTER_REFUSAL}.
+ * What a semi-join filters is its own statement's.
+ */
+function filtersFileLinksBeyondIds(soql: string): boolean {
+  const where = /\bWHERE\b([\s\S]*?)(?:\bORDER\s+BY\b|\bLIMIT\b|$)/i.exec(soql)?.[1] ?? '';
+  const outer = where.replace(/\(\s*SELECT\b[^()]*\)/gi, '()').replace(/'[^']*'/g, "''");
+  if (!/\bContentDocumentId\s*(?:=|IN\b)/i.test(outer)) return false;
+  const filtered = [
+    ...outer.matchAll(/\b(\w+)\s*(?:!=|<=|>=|=|<|>|\bNOT\s+IN\b|\bIN\b|\bLIKE\b)/gi),
+  ];
+  return filtered.some(([, column]) => !LINK_ID_COLUMNS.has(column.toLowerCase()));
+}
+
+/**
+ * What the org answers a read of links by their file that filters on another
+ * column than an id. Asked on a scratch org through `queryAll`:
+ * `SELECT Id, ContentDocumentId FROM ContentDocumentLink WHERE
+ * ContentDocumentId IN (…) AND IsDeleted = true` was refused in these words,
+ * the same without the filter on `IsDeleted` answered, and a read by
+ * `LinkedEntityId IN (…) AND IsDeleted = true` too.
+ */
+export const LINK_FILTER_REFUSAL = {
+  errorCode: 'MALFORMED_QUERY',
+  message:
+    'Implementation restriction: filtering on non-id fields is only permitted when filtering by ' +
+    'ContentDocumentLink.LinkedEntityId using the equals operator.',
+};
 
 /** See the module's comment. */
 export class MemoryFileOrg extends MemoryRestoreOrg {
@@ -340,6 +375,9 @@ export class MemoryFileOrg extends MemoryRestoreOrg {
           'ContentDocumentId or LinkedEntityId using the equals operator or multiple Id’s ' +
           'using the IN operator.',
       );
+    }
+    if (filtersFileLinksBeyondIds(soql)) {
+      return orgError(LINK_FILTER_REFUSAL.errorCode, LINK_FILTER_REFUSAL.message);
     }
     const refusal = this.refuseSemiJoin;
     if (refusal && /\bIN\s*\(\s*SELECT\b/i.test(soql)) {

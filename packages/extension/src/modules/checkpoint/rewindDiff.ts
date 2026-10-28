@@ -228,7 +228,7 @@ import {
   type ObjectChanges,
   type ObjectRead,
 } from './orgStreams.js';
-import { GoneForGood, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
+import { GoneForGood, NotInBin, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
 
 /**
  * The classes a record is told into, each with its file in the preview's
@@ -617,7 +617,8 @@ interface DiffContext {
   stranded: ReadonlyMap<string, StrandedClass>;
   /**
    * By key, the records deleted since that the bin holds and Salesforce will
-   * not let out of it (`stuckOf`): gone for good, never to bring back.
+   * not let out of it (`stuckOf`), and those it answered an earlier rewind are
+   * no longer in it (`NotInBin`): gone for good, never to bring back.
    */
   stuck: ReadonlySet<string>;
   /** By object, the lookups of its snapshot rows that may name a record of {@link back}. */
@@ -2262,6 +2263,12 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
 
   const { back, gone } = await toBringBackOf({ input, t0s }, ordered, changes);
   const stuck = stuckOf(back, gone);
+  // What the org answered an earlier rewind is no longer in the recycle bin,
+  // though it still lists it there: no read tells it from what the bin holds
+  // (P11), its answer did.
+  const notInBin = await NotInBin.read(folder);
+  for (const key of notInBin.keys()) if (back.has(key) || gone.has(key)) stuck.add(key);
+  stuckWith(stuck, back, gone);
   const carriers = carriersOf(ordered, back, gone);
   const compared = new Map(
     readable.map(({ object, fields }) => [

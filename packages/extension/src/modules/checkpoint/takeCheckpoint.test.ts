@@ -22,7 +22,7 @@ import {
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { heldFileDocuments, heldFileLinks } from './checkpointFiles.js';
-import { takeEstimate } from './rewindEstimate.js';
+import { BYTES_PER_BIN_ID_KEPT, takeEstimate } from './rewindEstimate.js';
 import { SnapshotIndex, compressedSnapshotFileOf, writeSnapshotIndex } from './snapshotIndex.js';
 import { spooledRows } from './orgStreams.js';
 import {
@@ -1309,15 +1309,16 @@ describe('scopeCheckpoint', () => {
       'User',
     ]);
     const { bytes, ...cost } = scope.estimate;
-    // Each object holding records counted again: its bin at T0 and what was
-    // stamped since the change reads' start, none of either.
+    // Each object counted again: its bin at T0, and of each holding records,
+    // what was stamped since the change reads' start, none of either.
     const { bytes: rowsAlone, ...expected } = takeEstimate({
       described: 5,
-      recounted: 2 * 4,
+      recounted: 5 + 4,
       objects: [1, 3, 2, 0, 2].map((records) => ({
         records,
         otherGroups: [],
-        ...(records > 0 ? { inBin: 0, stampedSince: 0 } : {}),
+        inBin: 0,
+        ...(records > 0 ? { stampedSince: 0 } : {}),
       })),
       pageRows: 2_000,
     });
@@ -1473,9 +1474,10 @@ describe('takeCheckpoint — the requests it sends', () => {
     expect(differing(outcome)).toEqual({});
   });
 
-  it('counts the recycle bin’s further pages, which no estimate knows before it reads the bin', async () => {
+  it('prices the recycle bin of an object holding no live record as it reads it, and counts what its bin/ keeps of it: it counts that bin before it reads it', async () => {
     const h = harness();
     seed(h.org);
+    const before = await scopeCheckpoint(h.deps, request());
     clock = LONG_AGO;
     for (let n = 0; n < 4_500; n++) {
       const id = `00Q${String(n).padStart(12, '0')}AAA`;
@@ -1486,9 +1488,18 @@ describe('takeCheckpoint — the requests it sends', () => {
 
     const outcome = taken(await takeCheckpoint(h.deps, request()));
 
-    expect(outcome.checkpoint.objects.find((o) => o.objectApiName === 'Lead')?.inBin).toBe(4_500);
-    // Three pages of ids: the first with the other objects', two more alone.
-    expect(differing(outcome)).toEqual({ bin: 2 });
+    const lead = outcome.checkpoint.objects.find((o) => o.objectApiName === 'Lead');
+    expect(lead).toMatchObject({ records: 0, inBin: 4_500 });
+    // Three pages of ids, the first with the other objects', two more alone:
+    // estimated as sent.
+    expect(outcome.requests?.byPhase.bin).toBe((before.estimate.requestsByPhase?.bin ?? 0) + 2);
+    expect(differing(outcome)).toEqual({});
+    // Each id kept in clear, a line each, as bin/ holds it.
+    const binBytes = statSync(
+      binFileOf(h.deps.store.folderOf(ORG_ID, outcome.checkpoint.checkpointId), 'Lead'),
+    ).size;
+    expect(binBytes).toBe(4_500 * BYTES_PER_BIN_ID_KEPT);
+    expect(outcome.estimate.bytes - before.estimate.bytes).toBeGreaterThanOrEqual(binBytes);
   });
 
   it('counts the reads of what moved while it was taken, which no estimate knows before', async () => {

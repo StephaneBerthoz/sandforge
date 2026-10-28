@@ -813,6 +813,14 @@ export interface RewindResult {
    * is none.
    */
   carriedAlone?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * An undo's alone: of what it sent to the recycle bin, per object, the
+   * records that went there with a record it deleted, as they had come back
+   * with it — counted in `deleted`, never sent on their own: a contact with
+   * its account, a feed or a history with its record. Absent when there is
+   * none.
+   */
+  wentAlong?: Array<{ objectApiName: string; count: number }>;
   /** What still differs once it read the org again. */
   residual: RewindResidual[];
   /**

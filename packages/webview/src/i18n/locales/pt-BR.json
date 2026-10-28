@@ -5434,7 +5434,8 @@
         "giveBack": "Devolver valores",
         "bringBack": "Recuperar",
         "cannotUndo": "Irreversível",
-        "recreate": "Recriar"
+        "recreate": "Recriar",
+        "customSetting": "Configuração personalizada (dados de configuração)"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} registro excluído enquanto o ponto de verificação era criado volta com os valores que tinha então.",
@@ -5538,7 +5539,9 @@
         "carriers_one": "recupera por um momento {{formatted}} registro que tinha levado registros do ponto de verificação junto e depois o exclui de novo",
         "carriers_other": "recupera por um momento {{formatted}} registros que tinham levado registros do ponto de verificação junto e depois os exclui de novo",
         "links_one": "deixa {{formatted}} vínculo entre um arquivo e um registro como estava",
-        "links_other": "deixa {{formatted}} vínculos entre arquivos e registros como estavam"
+        "links_other": "deixa {{formatted}} vínculos entre arquivos e registros como estavam",
+        "customSettings_one": "Destes, {{formatted}} é uma linha de uma configuração personalizada: configuração, que volta ao que o ponto de verificação guarda.",
+        "customSettings_other": "Destes, {{formatted}} são linhas de configurações personalizadas: configuração, que volta ao que o ponto de verificação guarda."
       },
       "toRecreate_one": "{{formatted}} a recriar",
       "toRecreate_other": "{{formatted}} a recriar",

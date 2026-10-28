@@ -52,6 +52,10 @@
  * the record made again where the checkpoint has it, never as one created
  * since to delete, and its old Id, still in the bin or purged, never as one
  * to bring back or make again.
+ *
+ * A record the org answered a rewind is no longer in the recycle bin, though
+ * it still lists it as deleted, is kept beside them too (`NotInBin`): a later
+ * preview takes it as stuck in the bin, never as one to bring back.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -67,6 +71,7 @@ import {
   CHECKPOINT_FILE_MODE,
   CheckpointStoreError,
   indexFileOf,
+  notInBinFileOf,
   recreatedFileOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
@@ -753,6 +758,93 @@ export class Recreated {
       if (remapped !== value) now[field] = remapped;
     }
     return now as BackupRecord;
+  }
+}
+
+// ─── Records the recycle bin no longer gives back ───────────────────────────
+
+const notInBinLineSchema = z.object({
+  objectApiName: z.string().regex(OBJECT_NAME).max(80),
+  id: z.string().regex(RECORD_ID),
+});
+
+/**
+ * The records a rewind set out to bring back that the org answered are no
+ * longer in the recycle bin ("UNDELETE_FAILED: Entity is not in the recycle
+ * bin"), every object together, by key. The org still lists them as deleted:
+ * emptied from the bin, or kept there for good, no read tells them from the
+ * records it holds (P11). Seen live on a file emptied from the bin: each
+ * preview counted it to bring back, and each rewind ended partial on the
+ * refusal. Kept so, a later preview takes them for what they are, stuck in
+ * the bin: made again, or gone for good.
+ *
+ * Read whole from the checkpoint's folder, a line a record, and added to as a
+ * rewind is refused, each line flushed before the rewind goes on. A line that
+ * does not read — a crash cut it short — is left out: the record it named is
+ * only sent to the org once more, which refuses it again.
+ */
+export class NotInBin {
+  private constructor(private readonly held: ReadonlySet<string>) {}
+
+  /** No record refused. */
+  static readonly none = new NotInBin(new Set());
+
+  /** The records a checkpoint's folder keeps: none when it keeps none. */
+  static async read(folder: CheckpointFolder): Promise<NotInBin> {
+    let text: string;
+    try {
+      text = await readFile(notInBinFileOf(folder), 'utf8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return NotInBin.none;
+      throw err;
+    }
+    const keys = new Set<string>();
+    for (const line of text.split('\n')) {
+      if (line === '') continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const record = notInBinLineSchema.safeParse(value);
+      if (record.success) keys.add(record.data.id.slice(0, KEY_BYTES));
+    }
+    return new NotInBin(keys);
+  }
+
+  /**
+   * Add records of `objectApiName` to a checkpoint's folder, flushed to the
+   * disk before it answers, its owner's alone to read.
+   */
+  static async add(
+    folder: CheckpointFolder,
+    objectApiName: string,
+    ids: readonly string[],
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    const file = notInBinFileOf(folder);
+    const text = ids.map((id) => `${JSON.stringify({ objectApiName, id })}\n`).join('');
+    const handle = await open(file, 'a', CHECKPOINT_FILE_MODE);
+    let made = false;
+    try {
+      made = (await handle.stat()).size === 0;
+      await handle.appendFile(text, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (made) await syncFolder(dirname(file));
+  }
+
+  /** Whether the org answered of `id`, an id or a key, that it is no longer in the recycle bin. */
+  has(id: string): boolean {
+    return this.held.has(id.slice(0, KEY_BYTES));
+  }
+
+  /** The keys of the records refused, as the org knows them: their first fifteen characters. */
+  keys(): IterableIterator<string> {
+    return this.held.values();
   }
 }
 

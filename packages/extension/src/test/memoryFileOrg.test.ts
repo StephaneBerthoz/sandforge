@@ -4,6 +4,7 @@ import {
   FILE_DOCUMENT,
   FILE_LINK,
   FILE_VERSION,
+  LINK_FILTER_REFUSAL,
   MemoryFileOrg,
   SHARE_TYPE_REFUSAL,
   fileId,
@@ -196,6 +197,34 @@ describe('MemoryFileOrg', () => {
         `SELECT Id, CreatedDate FROM ContentDocumentLink WHERE ContentDocumentId = '${fileId(1)}'`,
       ),
     ).rejects.toMatchObject({ errorCode: 'INVALID_FIELD' });
+  });
+
+  it('refuses a read of links by their file that filters on IsDeleted, in the words a scratch org answered, and answers the same read without it, and one by their record that filters on IsDeleted', async () => {
+    const org = orgWithFile();
+    await org.destroy(FILE_DOCUMENT, [fileId(1)]);
+
+    await expect(
+      org.queryAll(
+        `SELECT Id, ContentDocumentId FROM ContentDocumentLink WHERE ContentDocumentId IN ('${fileId(1)}') AND IsDeleted = true`,
+      ),
+    ).rejects.toMatchObject(LINK_FILTER_REFUSAL);
+    const unfiltered = await org.queryAll(
+      `SELECT Id, ContentDocumentId, IsDeleted FROM ContentDocumentLink WHERE ContentDocumentId IN ('${fileId(1)}')`,
+    );
+    expect(unfiltered.records.map((row) => row.IsDeleted)).toEqual([true, true]);
+    expect(
+      (
+        await org.queryAll(
+          `SELECT Id FROM ContentDocumentLink WHERE LinkedEntityId IN ('${ACCOUNT_1}') AND IsDeleted = true`,
+        )
+      ).records,
+    ).toHaveLength(1);
+    // A semi-join's own filter is its statement's, not the links'.
+    await expect(
+      org.queryAll(
+        'SELECT Id FROM ContentDocumentLink WHERE ContentDocumentId IN (SELECT Id FROM ContentDocument WHERE IsDeleted = true)',
+      ),
+    ).resolves.toMatchObject({ totalSize: 2 });
   });
 
   it('reads the links of the records of an object through a semi-join, and refuses one when told to (FA5)', async () => {

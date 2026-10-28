@@ -1171,7 +1171,7 @@ describe('rewindLines, undoLines and resultJson', () => {
     );
     expect(lines).toEqual([
       "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
-      '  deleted 1 record(s) created since the checkpoint (in the recycle bin for up to 15 days)',
+      '  deleted 1 record(s) added since the checkpoint — created, or brought back from the recycle bin they were in when it was taken — (in the recycle bin for up to 15 days)',
       '  gave 2 record(s) back their checkpoint values',
       '  brought back 2 record(s) deleted since the checkpoint, with their original Ids, and 1 that came back with them',
       '  undo it until 2026-11-06 17:00 UTC, sooner if the recycle bin fills: undo --org DEV-SB --checkpoint ck-20261022-160000-cccc',
@@ -1433,7 +1433,7 @@ describe('rewindLines, undoLines and resultJson', () => {
 
     expect(rewindLines('DEV-SB', checkpoint, result)).toEqual([
       "DEV-SB is back at 'Before UAT': read again, nothing differs among the objects and fields it holds.",
-      '  deleted 1 record(s) created since the checkpoint (in the recycle bin for up to 15 days)',
+      '  deleted 1 record(s) added since the checkpoint — created, or brought back from the recycle bin they were in when it was taken — (in the recycle bin for up to 15 days)',
       '  gave 1 record(s) back their checkpoint values',
       '  brought back 1 record(s) deleted since the checkpoint, with their original Ids',
       '  of them, brought back for a moment and deleted again: Account 1 — records the checkpoint does not hold that had taken records of it along, back in the recycle bin with what came back with them',
@@ -1482,6 +1482,52 @@ describe('rewindLines, undoLines and resultJson', () => {
       { object: 'Contact', count: 1 },
     ]);
     expect(resultJson('undo', 'DEV-SB', checkpoint, result)).not.toHaveProperty('carriers');
+  });
+
+  it('counts among what an undo sent back to the recycle bin only what it sent, never what went there with a record it sent — a contact’s feed, an opportunity’s history — as the rewind counts what it brought back (G-B1)', () => {
+    const removed = (objectApiName: string, deleted: number) => ({
+      ...DID.deleted![0],
+      objectApiName,
+      planned: deleted,
+      deleted,
+      alreadyGone: 0,
+      refused: 0,
+      reasons: [],
+    });
+    // As a live undo answered: four records sent back, one made again
+    // deleted again, three that had come back with them gone along.
+    const result = resultOf({
+      deleted: [
+        removed('ContactFeed', 2),
+        removed('OpportunityHistory', 1),
+        removed('Task', 1),
+        removed('Opportunity', 1),
+        removed('Contact', 3),
+      ],
+      remade: [{ objectApiName: 'Contact', count: 1 }],
+      wentAlong: [
+        { objectApiName: 'ContactFeed', count: 2 },
+        { objectApiName: 'OpportunityHistory', count: 1 },
+      ],
+    });
+
+    const lines = undoLines('DEV-SB', checkpoint, result);
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        '  sent back to the recycle bin 4 record(s) the rewind brought back, with what came back with them',
+        '  deleted again 1 record(s) the rewind made again, with what went with them',
+      ]),
+    );
+  });
+
+  it('says of the records a rewind deleted that they were added since, created or brought back from the recycle bin they were in when the checkpoint was taken, never all created since', () => {
+    const lines = rewindLines('DEV-SB', checkpoint, resultOf(DID));
+
+    expect(lines.filter((line) => line.startsWith('  deleted '))).toEqual([
+      '  deleted 1 record(s) added since the checkpoint — created, or brought back from the recycle bin they were in when it was taken — (in the recycle bin for up to 15 days)',
+    ]);
+    expect(lines.join('\n')).not.toContain('created since the checkpoint');
   });
 
   it('says what a rewind made again with new Ids, counts it in its JSON, and names an insert the org refused', () => {
@@ -1739,6 +1785,7 @@ describe('files', () => {
       movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
       bytes: 2048,
       expiresAt: null,
+      takenBy: { userId: '005000000000001AAA', viewAllData: true, modifyAllData: true },
       files: { documents: 9, links: 14, anchored: 7, readByIds: ['Case'] },
     } as unknown as OrgCheckpoint;
     expect(takeLines(kept, '/store/ck')).toEqual(
@@ -1750,6 +1797,53 @@ describe('files', () => {
     const without = { ...kept };
     delete without.files;
     expect(takeLines(without, '/store/ck').filter((line) => line.includes('link'))).toEqual([]);
+  });
+
+  it('says after a take, as its estimate said, the objects of files added to those picked and what a user without Query All Files does not see', () => {
+    const picked = {
+      checkpointId: 'ck-20261022-160000-dddd',
+      name: 'Before UAT',
+      org: { organizationId: '00D000000000001AAA', alias: 'DEV-SB', username: 'admin@example.com' },
+      readFrom: '2026-10-22T16:00:00.000Z',
+      takenAt: '2026-10-22T16:01:00.000Z',
+      objects: ['Account', 'ContentDocument', 'Attachment'].map((objectApiName) => ({
+        objectApiName,
+        records: 1,
+        fields: [],
+        leftOutFields: [],
+      })),
+      scope: { mode: 'picked', leftOut: [] },
+      ignoredFields: [],
+      movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+      bytes: 2048,
+      expiresAt: null,
+      takenBy: {
+        userId: '005000000000001AAA',
+        viewAllData: true,
+        modifyAllData: true,
+        queryAllFiles: false,
+      },
+      files: { documents: 5, links: 5, anchored: 5 },
+    } as unknown as OrgCheckpoint;
+
+    const lines = takeLines(picked, '/store/ck', ['Account']);
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        '  added to the objects picked: ContentDocument, Attachment — without them a rewind would leave the files attached since as they are',
+        "  the user the alias connects as doesn't have Query All Files: other users' files that no record of the checkpoint is attached to (in a library the user is not a member of, say) are not seen, nor counted among the files left; files attached to its records are seen",
+      ]),
+    );
+    // Picked by name, a file object is not said added; with Query All Files, nothing is out of sight.
+    const named = takeLines(
+      { ...picked, takenBy: { ...picked.takenBy, queryAllFiles: true } },
+      '/store/ck',
+      ['Account', 'contentdocument'],
+    );
+    expect(named.filter((line) => line.includes('added to the objects picked'))).toEqual([
+      '  added to the objects picked: Attachment — without them a rewind would leave the files attached since as they are',
+    ]);
+    expect(named.filter((line) => line.includes('Query All Files'))).toEqual([]);
   });
 });
 

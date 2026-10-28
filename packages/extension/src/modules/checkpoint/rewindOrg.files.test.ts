@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,7 +29,7 @@ import {
   journalKinds,
   writable,
 } from '../../test/rewindTestOrg.js';
-import { openCheckpointStore, type CheckpointFolder } from './OrgCheckpointStore.js';
+import { openCheckpointStore, rewindDirOf, type CheckpointFolder } from './OrgCheckpointStore.js';
 import type { FileLinkLine } from './checkpointFiles.js';
 import { previewCheckpoint } from './previewCheckpoint.js';
 import { rewindOrg, type RewindOutcome } from './rewindOrg.js';
@@ -173,6 +173,14 @@ class FileRewindOrg extends MemoryFileOrg implements TakeOrg {
   override async serverTime(): Promise<string> {
     if (this.ticking) clock.now += 1_000;
     return super.serverTime();
+  }
+
+  /** The ids of each undelete sent, in the order sent. */
+  readonly undeleteRequests: string[][] = [];
+
+  override async undelete(ids: string[]): Promise<unknown> {
+    this.undeleteRequests.push([...ids]);
+    return super.undelete(ids);
   }
 }
 
@@ -379,6 +387,91 @@ describe('rewindOrg, of a checkpoint that holds files: file storage (P-A8)', () 
     expect(outcome.rewound).toBe(true);
     expect(t.org.all('ContentDocument').map((row) => row.Id)).toEqual([fileId(1)]);
     expect(liveLinks(t.org)).toEqual([`${fileId(1)}>${account(1)} V AllUsers`]);
+  });
+
+  it('names in its journal the links that come back with a file, read as the org takes a read of a file’s links, and warns of none', async () => {
+    const t = await deletedSince(1);
+    const links = t.org
+      .heldLinks()
+      .filter((link) => link.ContentDocumentId === fileId(1))
+      .map((link) => link.Id)
+      .sort();
+    expect(links).toHaveLength(2);
+
+    const outcome = await rewound(t, await previewed(t));
+
+    if (!outcome.rewound) throw new Error(outcome.refusal.message);
+    expect(outcome.notes.filter((note) => note.includes(FILE_LINK))).toEqual([]);
+    const lines = readFileSync(
+      join(rewindDirOf(t.folder, outcome.result.rewindId), 'journal.ndjson'),
+      'utf8',
+    )
+      .split('\n')
+      .filter((text) => text !== '')
+      .map((text) => JSON.parse(text) as { kind: string; objectApiName?: string; ids?: string[] });
+    const named = lines
+      .filter((line) => line.kind === 'withParent' && line.objectApiName === FILE_LINK)
+      .flatMap((line) => line.ids ?? [])
+      .sort();
+    expect(named).toEqual(links);
+  });
+});
+
+describe('rewindOrg, of a checkpoint that holds files: a file emptied from the recycle bin (P11)', () => {
+  /** Two files on an account at the checkpoint; since, both deleted, the second emptied from the bin, still listed there. */
+  async function emptiedSince(): Promise<Taken> {
+    const t = await taken((org) => {
+      org.add('Account', { Id: account(1), Name: 'One' });
+      for (const n of [2, 9]) {
+        org.addFile({
+          documentId: fileId(n),
+          title: `File ${n}.txt`,
+          size: 17,
+          links: [{ entityId: account(1) }],
+        });
+      }
+    });
+    clock.now = SINCE;
+    t.org.trash('ContentDocument', fileId(2), COLLEAGUE);
+    t.org.trash('ContentDocument', fileId(9), COLLEAGUE);
+    t.org.empty(fileId(9));
+    return t;
+  }
+
+  /** The files the org was asked to bring back, in the order asked. */
+  const undeletesOf = (org: FileRewindOrg, from: number): string[] =>
+    org.undeleteRequests.slice(from).flat();
+
+  it('counts it to bring back, as no read tells it from a file in the bin; refused, it is named gone for good and kept with the checkpoint: the next preview names it so, takes no storage for it, and the next rewind sends nothing for it and ends done', async () => {
+    const t = await emptiedSince();
+    const first = await previewed(t);
+    const files = (diff: RewindDiff) =>
+      diff.objects.find(({ objectApiName }) => objectApiName === 'ContentDocument');
+    expect(files(first)?.toBringBack.inBin).toBe(2);
+    expect(first.files?.storage.bringBack).toBe(34);
+
+    const rewind = await rewound(t, first);
+
+    if (!rewind.rewound) throw new Error(rewind.refusal.message);
+    expect(rewind.result.status).toBe('partial');
+    expect(rewind.result.residual).toEqual([
+      { objectApiName: 'ContentDocument', reason: 'goneForGood', count: 1, ids: [fileId(9)] },
+    ]);
+    expect(t.org.all('ContentDocument').map((row) => row.Id)).toEqual([fileId(2)]);
+
+    clock.now += 60_000;
+    const second = await previewed(t);
+    expect(files(second)?.toBringBack.inBin).toBe(0);
+    expect(files(second)?.cannotUndo).toEqual([{ reason: 'goneForGood', count: 1 }]);
+    expect(second.files?.storage.bringBack).toBe(0);
+    const sent = t.org.undeleteRequests.length;
+
+    const again = await rewound(t, second);
+
+    if (!again.rewound) throw new Error(again.refusal.message);
+    expect(again.result.status).toBe('success');
+    expect(again.result.residual).toEqual([]);
+    expect(undeletesOf(t.org, sent)).not.toContain(fileId(9));
   });
 });
 

@@ -31,6 +31,22 @@
  * back — the org refuses a lookup to a record in the bin. A value from before
  * that names any record the undo leaves in the bin is left as it is.
  *
+ * A custom setting's rows go the other way round: what the rewind brought
+ * back of them goes back to the bin first, then what it deleted comes back
+ * and what it wrote over gets its values back. A row holds a key — a
+ * hierarchy's owner, a list's name — that a live row of the same key keeps
+ * from it: Salesforce refuses the undelete of a hierarchy's row over a live
+ * row of its owner, `DUPLICATE_VALUE`, and takes a list's row back beside
+ * a row of its name (P-C2). Brought back first, on the memory org held to
+ * those answers, the org default and the profile rows a rewind had deleted
+ * were refused, and once the rows it brought back went to the bin the org
+ * default and that profile had no row at all. A row holds no
+ * lookup and nothing hangs from it, so no other record waits on the order.
+ * The other objects keep theirs: deleted before what it deleted came back,
+ * a parent the rewind brought back would keep for good in the bin a child
+ * the rewind had deleted on its own (F41), and a record it wrote over would
+ * name a record still in the bin.
+ *
  * The links between files and records the rewind wrote on its own are taken
  * back last but one: the links it inserted again removed before anything
  * goes back to the bin, the links it removed inserted again — each under a
@@ -120,9 +136,10 @@ export interface UndoRewindInput {
   lock: OrgLock;
   /**
    * The checkpoint's objects, children first (`OrgCheckpoint.objects`): what
-   * comes back from the recycle bin comes parents first.
+   * comes back from the recycle bin comes parents first, and a custom
+   * setting's rows once what goes back to the bin is gone.
    */
-  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder'>>;
+  objects: ReadonlyArray<Pick<CheckpointObject, 'objectApiName' | 'readOrder' | 'customSetting'>>;
   /**
    * The org; its inserts are what the links the rewind removed are inserted
    * again through: an org that takes none has them refused, named.
@@ -177,6 +194,13 @@ export interface UndoRewindOutcome {
    * stays there: back in the bin on their own. Absent when there is none.
    */
   carriedAlone?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Of what it sent back to the recycle bin, per object, the records that
+   * went there with a record it deleted, as they had come back with it:
+   * counted in {@link deleted}, never sent on their own. Absent when there is
+   * none.
+   */
+  wentAlong?: Array<{ objectApiName: string; count: number }>;
   /** What it gave back its values from before the rewind, per object. */
   restored: SyncRestoreObjectResult[];
   /** What it brought back from the recycle bin, per object, parents first. */
@@ -700,6 +724,15 @@ async function undoFrom(
   let untouched = new RecordKeySet();
   const restamped: Record<string, string> = {};
 
+  // A custom setting's rows are brought back and given back once the
+  // removal has sent back to the bin the rows the rewind brought back, which
+  // hold the keys they need: see the module's comment.
+  const settings = new Set(
+    input.objects
+      .filter((object) => object.customSetting !== undefined)
+      .map((object) => object.objectApiName),
+  );
+  const notSetting = (objectApiName: string): boolean => !settings.has(objectApiName);
   const order = heldInPlaceOrder(plans);
   let undeleted: SyncUndeleteOutcome | undefined;
   let restored: SyncRestoreOutcome | undefined;
@@ -754,8 +787,12 @@ async function undoFrom(
    * before in memory. What its undeletes restamped of a chunk is read just
    * before it. A stop between two chunks leaves the rest not reached.
    */
-  const giveBackOf = async (keep: (key: string) => boolean): Promise<boolean> => {
+  const giveBackOf = async (
+    keep: (key: string) => boolean,
+    of: (objectApiName: string) => boolean = notSetting,
+  ): Promise<boolean> => {
     for (const { objectApiName } of plans.giveBack.objects) {
+      if (!of(objectApiName)) continue;
       const object = assertSoqlIdentifier(objectApiName);
       const tally: SyncRestoreObjectResult = {
         objectApiName,
@@ -824,9 +861,9 @@ async function undoFrom(
     // before those records come back: the org refuses them while they are
     // there, or refuses them under values they never had.
     const through =
-      (await bringBack(order.bringFirst)) &&
+      (await bringBack(order.bringFirst.filter(notSetting))) &&
       (await giveBackOf(order.held)) &&
-      (await bringBack(order.bringAfter));
+      (await bringBack(order.bringAfter.filter(notSetting)));
     if (through) {
       // Every record brought back: what came back with a record after it is
       // live now, and was answered not in the bin when it was sent first.
@@ -917,6 +954,18 @@ async function undoFrom(
     // no removal reads the org's clock and user for nothing.
     if (!signal?.aborted) await sweep();
     outcome = nothingRemoved(signal?.aborted === true && !undeleted && !restored);
+  }
+  // A custom setting's rows, once the rows that held their keys are in the
+  // bin: given back, then brought back. Stopped, what is not reached is left
+  // for the next undo, as the sweep leaves it.
+  if (settings.size > 0 && !outcome.stoppedForUndeletable) {
+    await giveBackOf(
+      () => true,
+      (objectApiName) => settings.has(objectApiName),
+    );
+    await bringBack(
+      [...order.bringFirst, ...order.bringAfter].filter((name) => settings.has(name)),
+    );
   }
   // Once the files and records they tie are back: the links the rewind
   // removed, inserted again, and the sharing it gave back given back.
@@ -1106,6 +1155,14 @@ async function undoFrom(
     deleted: removed,
     ...(remade.length > 0 ? { remade } : {}),
     ...(carriedAlone.length > 0 ? { carriedAlone } : {}),
+    ...(wentAlong.length > 0
+      ? {
+          wentAlong: wentAlong.map(({ objectApiName, deleted }) => ({
+            objectApiName,
+            count: deleted,
+          })),
+        }
+      : {}),
     restored: restored?.objects ?? [],
     undeleted: undeleted?.objects ?? [],
     ...(files ? { files } : {}),

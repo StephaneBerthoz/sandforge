@@ -418,5 +418,73 @@ describe('a rewind of custom settings held by name', () => {
         .map((held) => held.Id)
         .sort(),
     ).toEqual([row(1), row(2)]);
+    // The row it brought back went to the bin before the row of its name
+    // came back: the list never held two rows of one name.
+    expect(t.org.heldTwice).toEqual([]);
+  });
+
+  it('is undone to the hierarchy as it was before it: the rows that took the owners since come back once the rows it brought back have gone and freed them, none refused, no owner left without a row', async () => {
+    const t = await takenWithSettings();
+    hierarchyRemade(t.org);
+    const diff = await previewed(t);
+    const result = resultOf(await rewound(t, diff.previewId));
+    expect(result.status).toBe('success');
+
+    const undo = await undone(t, result.rewindId);
+
+    expect(undo.status).toBe('success');
+    expect(t.org.refusedUndeletes).toEqual([]);
+    expect(undo.undeleted).toEqual([
+      expect.objectContaining({ objectApiName: HIERARCHY, planned: 3, undeleted: 3, refused: 0 }),
+    ]);
+    expect(rowsOf(t.org, HIERARCHY)).toEqual([
+      { Id: hier(3), SetupOwnerId: ORG_ID, Value__c: 'org default again' },
+      { Id: hier(4), SetupOwnerId: PROFILE, Value__c: 'profile again' },
+      { Id: hier(5), SetupOwnerId: MEMORY_ORG_USER, Value__c: 'user' },
+    ]);
+    expect(
+      t.org
+        .inBin(HIERARCHY)
+        .map((held) => held.Id)
+        .sort(),
+    ).toEqual([hier(1), hier(2)]);
+  });
+
+  it('is undone without sending to the bin before the rows come back what the rest of the checkpoint holds: a record it deleted comes back before the records it brought back go', async () => {
+    const t = await takenWithSettings();
+    hierarchyRemade(t.org);
+    clock.now = SINCE;
+    t.org.add('Account', {
+      Id: '001000000000002AAA',
+      Name: 'Made since',
+      LastModifiedById: COLLEAGUE,
+    });
+    t.org.trash('Account', '001000000000001AAA', COLLEAGUE);
+    const diff = await previewed(t);
+    const result = resultOf(await rewound(t, diff.previewId));
+    expect(result.status).toBe('success');
+    const sent: string[] = [];
+    const undelete = t.org.undelete.bind(t.org);
+    const destroy = t.org.destroy.bind(t.org);
+    t.org.undelete = async (ids: string[]) => {
+      sent.push(...ids.map((id) => `undelete ${key(id)}`));
+      return undelete(ids);
+    };
+    t.org.destroy = async (objectApiName: string, ids: string[]) => {
+      sent.push(...ids.map((id) => `delete ${key(id)}`));
+      return destroy(objectApiName, ids);
+    };
+
+    const undo = await undone(t, result.rewindId);
+
+    expect(undo.status).toBe('success');
+    // The account made since, which the rewind deleted, came back before the
+    // account it brought back went; the settings' rows, after theirs.
+    const at = (what: string): number => sent.indexOf(what);
+    expect(at(`undelete ${key('001000000000002AAA')}`)).toBeLessThan(
+      at(`delete ${key('001000000000001AAA')}`),
+    );
+    expect(at(`delete ${key(hier(1))}`)).toBeLessThan(at(`undelete ${key(hier(3))}`));
+    expect(rowsOf(t.org, 'Account').map((live) => live.Id)).toEqual(['001000000000002AAA']);
   });
 });

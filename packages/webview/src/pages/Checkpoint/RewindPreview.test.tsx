@@ -374,6 +374,42 @@ describe('RewindPreview', () => {
     ).toBeInTheDocument();
   });
 
+  it('names a custom setting the checkpoint keeps as one, configuration, in its row, and says in its confirmation how many of its rows the rewind sets back', () => {
+    const base = readyCheckpoint();
+    const setting = {
+      ...base.objects[0],
+      objectApiName: 'Hier__c',
+      records: 2,
+      inBin: 0,
+      readOrder: 2,
+      customSetting: 'hierarchy' as const,
+    };
+    renderPreview(readyCheckpoint({ objects: [...base.objects, setting] }));
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Account', { toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } }),
+          diffObject('Hier__c', {
+            toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 },
+            toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+          }),
+        ],
+      }),
+    });
+
+    expect(rowCells('Hier__c')[0]).toBe('Hier__cCustom setting (configuration)');
+    expect(screen.getByTestId('checkpoint-preview-setting-Hier__c')).toHaveTextContent(
+      'Custom setting (configuration)',
+    );
+    expect(screen.queryByTestId('checkpoint-preview-setting-Account')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(
+      screen.getByText(
+        /, whoever made these changes\. Of them, 5 are rows of custom settings: configuration, set back as the checkpoint holds them\.$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('says in its confirmation only what the rewind does', () => {
     renderPreview();
     answerPreview({

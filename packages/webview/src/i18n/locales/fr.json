@@ -5434,7 +5434,8 @@
         "giveBack": "Rendre les valeurs",
         "bringBack": "Rétablir",
         "cannotUndo": "Impossible à défaire",
-        "recreate": "Recréer"
+        "recreate": "Recréer",
+        "customSetting": "Paramètre personnalisé (configuration)"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}} : {{formatted}} enregistrement supprimé pendant la création du point de contrôle revient avec les valeurs qu'il avait alors.",
@@ -5538,7 +5539,9 @@
         "carriers_one": "rétablit un instant {{formatted}} enregistrement qui avait emporté des enregistrements du point de contrôle, puis le supprime de nouveau",
         "carriers_other": "rétablit un instant {{formatted}} enregistrements qui avaient emporté des enregistrements du point de contrôle, puis les supprime de nouveau",
         "links_one": "remet {{formatted}} lien entre un fichier et un enregistrement comme il était",
-        "links_other": "remet {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient"
+        "links_other": "remet {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient",
+        "customSettings_one": "Parmi eux, {{formatted}} est une ligne d'un paramètre personnalisé : de la configuration, remise telle que le point de contrôle la garde.",
+        "customSettings_other": "Parmi eux, {{formatted}} sont des lignes de paramètres personnalisés : de la configuration, remises telles que le point de contrôle les garde."
       },
       "toRecreate_one": "{{formatted}} à recréer",
       "toRecreate_other": "{{formatted}} à recréer",

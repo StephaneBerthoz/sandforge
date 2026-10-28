@@ -19,12 +19,14 @@ import {
   CheckpointStoreError,
   defaultCheckpointLocksDir,
   indexFileOf,
+  notInBinFileOf,
   openCheckpointStore,
   recreatedFileOf,
   type CheckpointFolder,
 } from './OrgCheckpointStore.js';
 import {
   GoneForGood,
+  NotInBin,
   Recreated,
   SNAPSHOT_CHUNK_IDS,
   SnapshotIndex,
@@ -603,6 +605,38 @@ describe('records a rewind made again, under new Ids', () => {
 
     expect(none.empty).toBe(true);
     expect(none.remapped(made)).toBe(made);
+  });
+});
+
+describe('records the org answered are no longer in the recycle bin', () => {
+  it('keeps them by key, every object together, in a file of its owner’s alone, and reads none when none was refused', async () => {
+    const folder = await folderOf();
+    expect([...(await NotInBin.read(folder)).keys()]).toEqual([]);
+
+    await NotInBin.add(folder, 'ContentDocument', ['069xx0000000009AAA']);
+    await NotInBin.add(folder, 'Account', [accountId(4), accountId(5)]);
+    await NotInBin.add(folder, 'Account', []);
+
+    const held = await NotInBin.read(folder);
+    expect([...held.keys()]).toEqual([
+      '069xx0000000009',
+      accountId(4).slice(0, 15),
+      accountId(5).slice(0, 15),
+    ]);
+    expect(held.has('069xx0000000009AAA')).toBe(true);
+    expect(held.has(accountId(4).slice(0, 15))).toBe(true);
+    expect(held.has(accountId(6))).toBe(false);
+    if (POSIX) expect(statSync(notInBinFileOf(folder)).mode & 0o777).toBe(0o600);
+  });
+
+  it('leaves out a line a crash cut short, or one that names no record, and reads the others', async () => {
+    const folder = await folderOf();
+    await NotInBin.add(folder, 'Account', [accountId(4)]);
+    const file = notInBinFileOf(folder);
+    await appendFile(file, 'not a line\n{"objectApiName":"Account","id":"not an id"}\n');
+    await appendFile(file, '{"objectApiName":"Account","id":"001');
+
+    expect([...(await NotInBin.read(folder)).keys()]).toEqual([accountId(4).slice(0, 15)]);
   });
 });
 

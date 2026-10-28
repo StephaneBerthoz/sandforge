@@ -5434,7 +5434,8 @@
         "giveBack": "Devolver valores",
         "bringBack": "Recuperar",
         "cannotUndo": "No reversible",
-        "recreate": "Volver a crear"
+        "recreate": "Volver a crear",
+        "customSetting": "Configuración personalizada (datos de configuración)"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} registro eliminado mientras se creaba el punto de control vuelve con los valores que tenía entonces.",
@@ -5538,7 +5539,9 @@
         "carriers_one": "recupera un momento {{formatted}} registro que se había llevado registros del punto de control y luego lo elimina de nuevo",
         "carriers_other": "recupera un momento {{formatted}} registros que se habían llevado registros del punto de control y luego los elimina de nuevo",
         "links_one": "deja {{formatted}} vínculo entre un archivo y un registro como estaba",
-        "links_other": "deja {{formatted}} vínculos entre archivos y registros como estaban"
+        "links_other": "deja {{formatted}} vínculos entre archivos y registros como estaban",
+        "customSettings_one": "De ellos, {{formatted}} es una fila de una configuración personalizada: configuración, que vuelve a como la guarda el punto de control.",
+        "customSettings_other": "De ellos, {{formatted}} son filas de configuraciones personalizadas: configuración, que vuelve a como la guarda el punto de control."
       },
       "toRecreate_one": "{{formatted}} por volver a crear",
       "toRecreate_other": "{{formatted}} por volver a crear",

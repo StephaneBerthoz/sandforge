@@ -835,9 +835,9 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 17, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 18, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
-checkpoint once applied: 'baseline', about 9 records, 15 API requests, 4 s, 0.01 MB on this machine
+checkpoint once applied: 'baseline', about 9 records, 16 API requests, 4 s, 0.01 MB on this machine
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 accounts: run 1 (create)
 contacts: run 1 (create)
@@ -941,9 +941,9 @@ state: none on this machine
   create   contacts  Contact at most 6 to write
            not applied to this org yet; its dry run read the org before accounts writes: what it draws from those records is counted at most as the file gives it
 totals: 2 to create, 0 to replace, 0 to delete, 0 kept, 0 drifted, 0 blocked
-API requests: about 17, 14000 left; not counted: what contacts draws from the records accounts writes first
+API requests: about 18, 14000 left; not counted: what contacts draws from the records accounts writes first
 data storage: about 0.02 MB, 5 MB left
-checkpoint before the first write: 'case-flow before', about 0 records, 15 API requests, 4 s, 0.01 MB on this machine
+checkpoint before the first write: 'case-flow before', about 0 records, 16 API requests, 4 s, 0.01 MB on this machine
 warning: this machine keeps no state of case-flow on pool-1: records an earlier apply left there, from another machine or a cache that was not restored, cannot be told from the org’s own, and would be created twice
 checkpoint before the first write: taking 'case-flow before'
 accounts: run 1 (create)

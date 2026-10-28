@@ -427,6 +427,7 @@ export async function undoCheckpoint(
         deleted: outcome.deleted,
         ...(outcome.remade ? { remade: outcome.remade } : {}),
         ...(outcome.carriedAlone ? { carriedAlone: outcome.carriedAlone } : {}),
+        ...(outcome.wentAlong ? { wentAlong: outcome.wentAlong } : {}),
         restored: outcome.restored,
         undeleted: outcome.undeleted,
         ...(outcome.files ? { files: outcome.files } : {}),

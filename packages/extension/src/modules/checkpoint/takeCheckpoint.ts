@@ -725,9 +725,10 @@ async function countAll(
 }
 
 /**
- * What the counts tell of an object holding records beyond its records, for
- * the estimate: its recycle bin at T0, its records stamped since the change
- * reads' start, and its links to files when the take reads them.
+ * What the counts tell of an object beyond its records, for the estimate:
+ * its recycle bin at T0, and of one holding records, its records stamped
+ * since the change reads' start and its links to files when the take reads
+ * them.
  */
 type Recount = Pick<TakenObject, 'inBin' | 'stampedSince' | 'links'>;
 
@@ -745,11 +746,18 @@ function readsLinksOf(objectApiName: string, linkable: ReadonlySet<string> | und
 }
 
 /**
- * Count, for each object holding records, five counts a call, what the take
- * reads of it beyond its records: its recycle bin at T0, its records stamped
- * since the change reads' start, live or in the bin, and the links of its
- * records to files when the take reads them. A count the org does not
- * answer prices nothing more, or, for links, their read by the records' ids.
+ * Count, five counts a call, what the take reads of each object beyond its
+ * records: its recycle bin at T0, of an object holding no record too; and of
+ * one holding records, its records stamped since the change reads' start,
+ * live or in the bin, and the links of its records to files when the take
+ * reads them. A count the org does not answer prices nothing more, or, for
+ * links, their read by the records' ids.
+ *
+ * The bin of an object holding no record is the take's too: it reads every
+ * object's, and keeps each id. Seen on a scratch org whose bin held 64,792
+ * contacts and 11,739 products, none of either live: their pages of ids were
+ * 37 requests more than estimated, and 2.1 MB of the checkpoint left out of
+ * its size.
  *
  * @returns Per object, what was counted, and how many counts were asked.
  */
@@ -762,22 +770,20 @@ async function recountsOf(
 ): Promise<{ asked: number; of: Map<string, Recount> }> {
   const reads: Array<ObjectRead & { counts: keyof Recount }> = [];
   for (const { objectApiName, records } of objects) {
-    if (records === 0) continue;
     const object = sanitizeSoqlObjectName(objectApiName);
-    reads.push(
-      {
-        objectApiName: object,
-        soql: `SELECT COUNT() FROM ${object} WHERE IsDeleted = true AND SystemModstamp < ${soqlInstant(readFrom)}`,
-        scanAll: true,
-        counts: 'inBin',
-      },
-      {
-        objectApiName: object,
-        soql: `SELECT COUNT() FROM ${object} WHERE SystemModstamp >= ${changeReadsFrom(readFrom)}`,
-        scanAll: true,
-        counts: 'stampedSince',
-      },
-    );
+    reads.push({
+      objectApiName: object,
+      soql: `SELECT COUNT() FROM ${object} WHERE IsDeleted = true AND SystemModstamp < ${soqlInstant(readFrom)}`,
+      scanAll: true,
+      counts: 'inBin',
+    });
+    if (records === 0) continue;
+    reads.push({
+      objectApiName: object,
+      soql: `SELECT COUNT() FROM ${object} WHERE SystemModstamp >= ${changeReadsFrom(readFrom)}`,
+      scanAll: true,
+      counts: 'stampedSince',
+    });
     if (readsLinksOf(object, linkable)) reads.push({ ...linksCountRead(object), counts: 'links' });
   }
   const outcomes = await readStreams(reader, reads, () => undefined, signal);

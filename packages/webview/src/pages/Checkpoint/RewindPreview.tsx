@@ -369,6 +369,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const { t } = useTranslation();
   const orgName = org.alias || org.username;
   const { diff, automation, emails, estimate, refusal } = answer;
+  const settings = customSettingsOf(checkpoint);
   const undoCannotId = useId();
   const recreateId = useId();
   const [ticked, setTicked] = useState<Ticked>({
@@ -454,7 +455,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         <>
           <Numbers diff={diff} />
           <People diff={diff} checkpoint={checkpoint} org={org} />
-          <ObjectTable diff={diff} />
+          <ObjectTable diff={diff} settings={settings} />
         </>
       ) : (
         <p
@@ -638,7 +639,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         onClose={() => setConfirming(null)}
         onConfirm={confirmed}
         title={t('checkpoint.preview.confirm.title', { org: orgName, name: checkpoint.name })}
-        description={confirmDescription(t, diff, orgName, takenFrom)}
+        description={confirmDescription(t, diff, orgName, takenFrom, settings)}
         confirmText={orgName}
       />
     </div>
@@ -646,17 +647,43 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 };
 
 /**
+ * The custom settings a checkpoint keeps, by name: their rows are the org's
+ * configuration, which a rewind sets back as the checkpoint holds them.
+ */
+function customSettingsOf(checkpoint: Pick<OrgCheckpoint, 'objects'>): ReadonlySet<string> {
+  return new Set(
+    checkpoint.objects
+      .filter((object) => object.customSetting !== undefined)
+      .map((object) => object.objectApiName),
+  );
+}
+
+/** The rows of custom settings a rewind writes: deletes, gives back, brings back or makes again. */
+function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): number {
+  return diff.objects
+    .filter((object) => settings.has(object.objectApiName))
+    .map(rowOf)
+    .reduce(
+      (sum, row) => sum + row.toDelete + row.toGiveBack + row.toBringBack + row.toRecreate,
+      0,
+    );
+}
+
+/**
  * What the typed confirmation of a rewind says it does: to what moment it
  * returns the org, and only the parts of it that apply — the records it
  * deletes, gives back, brings back and makes again, those it brings back
  * for a moment to delete again, and the links between files and records it
- * removes, puts back or gives their sharing back — whoever made the changes.
+ * removes, puts back or gives their sharing back — whoever made the changes;
+ * then, of those records, the rows of custom settings: configuration, which
+ * the user named at the take, and which the rewind sets back too.
  */
 function confirmDescription(
   t: TFunction,
   diff: RewindDiff,
   orgName: string,
   takenFrom: string,
+  settings: ReadonlySet<string>,
 ): string {
   const totals = rewindTotals(diff);
   const parts: Array<[count: number, key: string]> = [
@@ -670,11 +697,18 @@ function confirmDescription(
   const changes = parts
     .filter(([count]) => count > 0)
     .map(([count, key]) => t(key, { count, formatted: formatNumber(count) }));
-  return t('checkpoint.preview.confirm.description', {
+  const description = t('checkpoint.preview.confirm.description', {
     org: orgName,
     date: takenFrom,
     changes: listWords(changes, t),
   });
+  const rows = settingRowsWritten(diff, settings);
+  return rows > 0
+    ? `${description} ${t('checkpoint.preview.confirm.customSettings', {
+        count: rows,
+        formatted: formatNumber(rows),
+      })}`
+    : description;
 }
 
 /** A box the user ticks to accept what the preview names. */
@@ -794,8 +828,14 @@ const People: React.FC<{ diff: RewindDiff; checkpoint: OrgCheckpoint; org: Sales
   );
 };
 
-/** Object by object: what a rewind deletes, gives back, brings back, makes again and cannot undo. */
-const ObjectTable: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
+/**
+ * Object by object: what a rewind deletes, gives back, brings back, makes
+ * again and cannot undo; a custom setting named as one, configuration.
+ */
+const ObjectTable: React.FC<{ diff: RewindDiff; settings: ReadonlySet<string> }> = ({
+  diff,
+  settings,
+}) => {
   const { t } = useTranslation();
   const rows = diff.objects.map(rowOf);
   // A column of its own only when the rewind makes any record again.
@@ -839,6 +879,14 @@ const ObjectTable: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
           >
             <th scope="row" className={`${cell} text-left font-mono font-normal break-all`}>
               {row.objectApiName}
+              {settings.has(row.objectApiName) && (
+                <span
+                  className="block font-sans text-text-secondary"
+                  data-testid={`checkpoint-preview-setting-${row.objectApiName}`}
+                >
+                  {t('checkpoint.preview.table.customSetting')}
+                </span>
+              )}
             </th>
             <td className={number}>{formatNumber(row.toDelete)}</td>
             <td className={number}>{formatNumber(row.toGiveBack)}</td>

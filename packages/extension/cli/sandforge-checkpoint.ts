@@ -86,6 +86,7 @@ import {
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
+import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 import { holdOutputWhole } from './wholeOutput.js';
@@ -1001,14 +1002,19 @@ function scopeFilesLines(files: CheckpointScopeFiles): string[] {
       "attachments) and each file's latest version, not its content; a rewind deletes the " +
       'files attached to them since and brings back those deleted since. A file attached to ' +
       "no record it holds, a user's own or a library's, is left as it is",
-    ...(files.addedToPicked.length > 0
-      ? [
-          `  added to the objects picked: ${files.addedToPicked.join(', ')} — without them a ` +
-            'rewind would leave the files attached since as they are',
-        ]
-      : []),
+    ...addedToPickedLines(files.addedToPicked),
     ...(files.queryAllFiles ? [] : [BLIND_SPOT_LINE]),
   ];
+}
+
+/** The objects of files a scope of picked objects holds though they were not picked, said; nothing when there are none. */
+function addedToPickedLines(added: readonly string[]): string[] {
+  return added.length > 0
+    ? [
+        `  added to the objects picked: ${added.join(', ')} — without them a rewind would leave ` +
+          'the files attached since as they are',
+      ]
+    : [];
 }
 
 /**
@@ -1021,8 +1027,15 @@ const BLIND_SPOT_LINE =
   'record of the checkpoint is attached to (in a library the user is not a member of, say) ' +
   'are not seen, nor counted among the files left; files attached to its records are seen';
 
-/** The lines a take prints once its checkpoint is kept. */
-export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
+/**
+ * The lines a take prints once its checkpoint is kept: of a checkpoint of
+ * picked objects, `picked` names those the take was asked for.
+ */
+export function takeLines(
+  checkpoint: OrgCheckpoint,
+  folder: string,
+  picked: readonly string[] = [],
+): string[] {
   const moved = checkpoint.movedWhileTaken;
   const movedTotal = moved.changed + moved.deleted + moved.created;
   return [
@@ -1045,7 +1058,7 @@ export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
       : []),
     ...withParentLine(checkpoint.objects),
     ...takenSettingsLines(checkpoint.objects),
-    ...(checkpoint.files ? takenFilesLines(checkpoint.files, orgOf(checkpoint)) : []),
+    ...(checkpoint.files ? takenFilesLines(checkpoint, checkpoint.files, picked) : []),
     `  it holds the records' values unencrypted, in files only you can read: ${folder}`,
   ];
 }
@@ -1060,18 +1073,37 @@ function takenSettingsLines(objects: readonly CheckpointObject[]): string[] {
   ];
 }
 
-/** What a take kept of the files attached to its records, and how it read their links. */
-function takenFilesLines(files: NonNullable<OrgCheckpoint['files']>, orgName: string): string[] {
+/**
+ * What a take kept of the files attached to its records, and how it read
+ * their links; as its estimate said them, the objects of files added to
+ * those picked, and, for a user without Query All Files, what of other
+ * users' files it does not see.
+ */
+function takenFilesLines(
+  checkpoint: OrgCheckpoint,
+  files: NonNullable<OrgCheckpoint['files']>,
+  picked: readonly string[],
+): string[] {
   const readByIds = files.readByIds ?? [];
+  const asked = new Set(picked.map((name) => name.toLowerCase()));
+  const held = new Set(checkpoint.objects.map(({ objectApiName }) => objectApiName.toLowerCase()));
+  const added =
+    checkpoint.scope.mode === 'picked'
+      ? HELD_WHEN_PICKED.filter(
+          (name) => held.has(name.toLowerCase()) && !asked.has(name.toLowerCase()),
+        )
+      : [];
   return [
     `  files: ${count(files.anchored)} attached to its records by ${count(files.links)} ` +
       'link(s): a rewind takes back what is attached to them since',
+    ...addedToPickedLines(added),
     ...(readByIds.length > 0
       ? [
-          `  the links of ${someOf(readByIds)} were read by lists of record Ids: ${orgName} ` +
-            'refused one query, or answered too late',
+          `  the links of ${someOf(readByIds)} were read by lists of record Ids: ` +
+            `${orgOf(checkpoint)} refused one query, or answered too late`,
         ]
       : []),
+    ...(checkpoint.takenBy.queryAllFiles === false ? [BLIND_SPOT_LINE] : []),
   ];
 }
 
@@ -1873,8 +1905,9 @@ export function rewindLines(
   const lines = [head[result.status]];
   if (tallies.deleted.done > 0) {
     lines.push(
-      `  deleted ${count(tallies.deleted.done)} record(s) created since the checkpoint (in the ` +
-        'recycle bin for up to 15 days)',
+      `  deleted ${count(tallies.deleted.done)} record(s) added since the checkpoint — created, ` +
+        'or brought back from the recycle bin they were in when it was taken — (in the recycle ' +
+        'bin for up to 15 days)',
     );
   }
   if (tallies.givenBack.done > 0) {
@@ -1963,12 +1996,17 @@ export function undoLines(
   };
   const tallies = talliesOf(result);
   const lines = [head[result.status]];
-  // What the rewind made again is deleted again, never sent back.
+  // What the rewind made again is deleted again, never sent back; what came
+  // back with a record goes with it, never sent on its own: counted, the
+  // feeds and histories that went with their records read as sends the undo
+  // never made.
   const remade = remadeDeleted(result);
-  const sentBack = tallies.deleted.done - remade;
+  const along = sumOf(result.wentAlong ?? [], (o) => o.count);
+  const sentBack = tallies.deleted.done - remade - along;
   if (sentBack > 0) {
     lines.push(
-      `  sent back to the recycle bin ${count(sentBack)} record(s) the rewind brought back`,
+      `  sent back to the recycle bin ${count(sentBack)} record(s) the rewind brought back` +
+        (along > 0 ? ', with what came back with them' : ''),
     );
   }
   if (remade > 0) {
@@ -2492,7 +2530,7 @@ async function take(
   const requests = taken.requests as CheckpointTakeRequests | undefined;
   const estimate = taken.estimate as CheckpointEstimate | undefined;
   const folder = store.folderOf(checkpoint.org.organizationId, checkpoint.checkpointId).dir;
-  for (const line of takeLines(checkpoint, folder)) say(line);
+  for (const line of takeLines(checkpoint, folder, asked.objects ?? [])) say(line);
   if (requests) say(requestsLine(requests, estimate));
   answerJson({
     checkpoint,
@@ -2772,7 +2810,9 @@ async function undoCounts(
   entry: CheckpointListEntry,
   checkpoint: OrgCheckpoint,
   rewindId: string,
-): Promise<{ bringBack: number; giveBack: number; remove: number; remade: number } | undefined> {
+): Promise<
+  { bringBack: number; giveBack: number; remove: number; along: number; remade: number } | undefined
+> {
   try {
     const folder = store.folderOf(entry.organizationId, entry.checkpointId);
     const plans = await undoPlansOf(folder, rewindId, checkpoint.objects);
@@ -2780,8 +2820,10 @@ async function undoCounts(
       return {
         bringBack: plans.bringBack.count,
         giveBack: plans.giveBack.count,
-        // What came back with a parent goes back to the bin with it.
-        remove: plans.remove.spool.count + plans.goesWithParent.count,
+        // What came back with a parent goes back to the bin with it, never
+        // sent on its own: not counted among what it sends.
+        remove: plans.remove.spool.count,
+        along: plans.goesWithParent.count,
         remade: plans.remade.keys.size,
       };
     } finally {
@@ -2836,6 +2878,7 @@ async function undo(
         ? `: it brings back ${count(counts.bringBack)} record(s) the rewind deleted, gives ` +
           `${count(counts.giveBack)} record(s) back the values they had before it, and sends ` +
           `${count(counts.remove - counts.remade)} record(s) it brought back to the recycle bin` +
+          (counts.along > 0 ? ', with what came back with them' : '') +
           (counts.remade > 0
             ? `, deleting again the ${count(counts.remade)} record(s) it made again`
             : '') +

@@ -230,6 +230,15 @@ export function recreatedFileOf(folder: CheckpointFolder): string {
   return join(folder.indexDir, 'recreated.ndjson');
 }
 
+/**
+ * Where a checkpoint keeps the records a rewind set out to bring back that
+ * the org answered are no longer in the recycle bin, though it still lists
+ * them as deleted: no read tells them from those it holds (P11).
+ */
+export function notInBinFileOf(folder: CheckpointFolder): string {
+  return join(folder.indexDir, 'notInBin.ndjson');
+}
+
 /** Where the ids of an object that were in the recycle bin when the take began are. */
 export function binFileOf(folder: CheckpointFolder, objectApiName: string): string {
   return join(folder.binDir, `${objectSegment(objectApiName)}.ids`);

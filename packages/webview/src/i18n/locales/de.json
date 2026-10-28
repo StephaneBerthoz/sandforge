@@ -5434,7 +5434,8 @@
         "giveBack": "Werte zurückgeben",
         "bringBack": "Zurückholen",
         "cannotUndo": "Nicht umkehrbar",
-        "recreate": "Neu anlegen"
+        "recreate": "Neu anlegen",
+        "customSetting": "Benutzerdefinierte Einstellung (Konfiguration)"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} Datensatz, der beim Erstellen des Prüfpunkts gelöscht wurde, kommt mit den Werten zurück, die er damals hatte.",
@@ -5538,7 +5539,9 @@
         "carriers_one": "holt {{formatted}} Datensatz, der Datensätze des Prüfpunkts mitgenommen hatte, kurz zurück und löscht ihn wieder",
         "carriers_other": "holt {{formatted}} Datensätze, die Datensätze des Prüfpunkts mitgenommen hatten, kurz zurück und löscht sie wieder",
         "links_one": "stellt {{formatted}} Verknüpfung zwischen einer Datei und einem Datensatz wieder so her, wie sie war",
-        "links_other": "stellt {{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wieder so her, wie sie waren"
+        "links_other": "stellt {{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wieder so her, wie sie waren",
+        "customSettings_one": "Davon ist {{formatted}} eine Zeile einer benutzerdefinierten Einstellung: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält.",
+        "customSettings_other": "Davon sind {{formatted}} Zeilen benutzerdefinierter Einstellungen: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält."
       },
       "toRecreate_one": "{{formatted}} neu anzulegen",
       "toRecreate_other": "{{formatted}} neu anzulegen",

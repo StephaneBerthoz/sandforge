@@ -5126,7 +5126,8 @@
         "giveBack": "値を戻す",
         "bringBack": "復元",
         "cannotUndo": "巻き戻し不可",
-        "recreate": "再作成"
+        "recreate": "再作成",
+        "customSetting": "カスタム設定 (設定データ)"
       },
       "detail": {
         "deletedWhileTaken_other": "{{object}}: チェックポイントの作成中に削除された {{formatted}} 件のレコードは、当時の値で戻ります。",
@@ -5201,7 +5202,8 @@
         "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元",
         "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成",
         "carriers_other": "チェックポイントのレコードを一緒に持っていったレコード {{formatted}} 件をいったん復元して再び削除",
-        "links_other": "ファイルとレコードの間のリンク {{formatted}} 件を当時の状態に戻す"
+        "links_other": "ファイルとレコードの間のリンク {{formatted}} 件を当時の状態に戻す",
+        "customSettings_other": "このうち {{formatted}} 件はカスタム設定の行です。設定データであり、チェックポイントが保持する状態に戻します。"
       },
       "toRecreate_other": "再作成 {{formatted}} 件",
       "toRecreateHint": "ごみ箱にもうないもの: 新しい Id",

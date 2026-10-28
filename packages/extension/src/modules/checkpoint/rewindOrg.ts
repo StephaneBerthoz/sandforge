@@ -272,6 +272,7 @@ import {
   type RewindPlanLeftReason,
 } from './rewindPlan.js';
 import {
+  NotInBin,
   Recreated,
   SNAPSHOT_CHUNK_IDS,
   SnapshotIndex,
@@ -424,6 +425,21 @@ const globalObjectsSchema = z
 
 /** What the org answers a read naming `IsDeleted` of an object that keeps no such field. */
 const NO_RECYCLE_BIN = /No such column 'IsDeleted'/;
+
+/**
+ * Whether the children of `objectApiName` in the recycle bin are read without
+ * a filter on `IsDeleted`, and told apart by it as they come: a file's links.
+ * The org refuses a read of links by their file that filters on any field but
+ * an id. Asked on a scratch org, through `queryAll`, of five files in the bin:
+ * `… WHERE ContentDocumentId IN (…) AND IsDeleted = true` answered
+ * "MALFORMED_QUERY: Implementation restriction: filtering on non-id fields is
+ * only permitted when filtering by ContentDocumentLink.LinkedEntityId using
+ * the equals operator."; `… WHERE ContentDocumentId IN (…)` answered their
+ * five links, each `IsDeleted` true.
+ */
+function filtersBinAfter(objectApiName: string): boolean {
+  return objectApiName.toLowerCase() === FILE_LINK_OBJECT.toLowerCase();
+}
 
 /**
  * A relationship whose children come back with a parent: the child object,
@@ -2772,6 +2788,9 @@ class Rewind {
     if (gone.length === 0) return outcome;
     const moved = new Set<string>();
     let notRemade = 0;
+    // Kept by the checkpoint whatever becomes of them here: a later preview
+    // takes them as stuck in the bin, and never counts them to bring back.
+    await this.keepNotInBin(objectApiName, gone);
     for (const id of gone) {
       if (!(await makesAgain(objectApiName, id))) {
         tally.mark('lost', objectApiName, id);
@@ -2813,6 +2832,23 @@ class Rewind {
       }),
       left: outcome.left.filter((id) => !moved.has(keyOf(id))),
     };
+  }
+
+  /**
+   * Keep in the checkpoint's folder the records of `objectApiName` the org
+   * answered are no longer in the recycle bin (`NotInBin`): best effort, a
+   * failure said, which only has a later rewind send them once more.
+   */
+  private async keepNotInBin(objectApiName: string, ids: readonly string[]): Promise<void> {
+    try {
+      await NotInBin.add(this.request.folder, objectApiName, ids);
+    } catch (err: unknown) {
+      this.notes.push(
+        `The ${objectApiName} records ${this.request.orgName} answered are no longer in the ` +
+          `recycle bin could not be kept with the checkpoint (${extractErrorMessage(err)}): a ` +
+          'later preview counts them to bring back again.',
+      );
+    }
   }
 
   /**
@@ -2866,8 +2902,10 @@ class Rewind {
           const reads = relations.map(({ child, field, persons }) => ({
             objectApiName: child,
             soql:
-              `SELECT Id, ${assertSoqlIdentifier(field)}${persons ? `, ${PERSON_ACCOUNT_FLAG}` : ''} ` +
-              `FROM ${assertSoqlIdentifier(child)} WHERE ${field} IN (${list}) AND IsDeleted = true`,
+              `SELECT Id, ${assertSoqlIdentifier(field)}${persons ? `, ${PERSON_ACCOUNT_FLAG}` : ''}` +
+              `${filtersBinAfter(child) ? ', IsDeleted' : ''} ` +
+              `FROM ${assertSoqlIdentifier(child)} WHERE ${field} IN (${list})` +
+              `${filtersBinAfter(child) ? '' : ' AND IsDeleted = true'}`,
             scanAll: true,
           }));
           const outcomes = await readStreams(reader, reads, (index, rows) => {
@@ -2875,6 +2913,7 @@ class Rewind {
             for (const row of rows) {
               const parent = row[field];
               if (typeof row.Id !== 'string' || typeof parent !== 'string') continue;
+              if (filtersBinAfter(child) && row.IsDeleted !== true) continue;
               const key = keyOf(row.Id);
               const root = rootOf.get(keyOf(parent));
               if (root === undefined || seen.has(key)) continue;
@@ -3129,17 +3168,22 @@ class Rewind {
       if (found.length === 0) continue;
       const rows = await this.whoChanged(verify.dir, name, found);
       const kept = this.keptOf(last, name);
-      // Gone for good when the rewind began, gone for good still: a record
-      // the bin keeps for good under a parent the rewind brought back reads
-      // as one to bring back once that parent is live, which no read tells.
+      // Gone for good when the rewind began: the preview it acted on named it
+      // among what can't be taken back, and nothing the rewind sends reaches
+      // it, so it is not counted among what still differs — every rewind of
+      // the checkpoint would otherwise end partial on it. Gone for good still,
+      // whatever the verify reads: a record the bin keeps for good under a
+      // parent the rewind brought back reads as one to bring back once that
+      // parent is live, which no read tells. One found gone for good only as
+      // the rewind ran — the org answered it is no longer in the recycle bin,
+      // which no read had told — is named.
       const goneBefore = new RecordKeySet();
-      if (fresh.dir !== verify.dir) {
-        for await (const row of rowsOf(classFileOf(fresh.dir, name, 'goneForGood'))) {
-          if (typeof row.Id === 'string') goneBefore.add(row.Id);
-        }
+      for await (const row of rowsOf(classFileOf(fresh.dir, name, 'goneForGood'))) {
+        if (typeof row.Id === 'string') goneBefore.add(row.Id);
       }
       for (const { cls, id } of found) {
-        if (cls === 'goneForGood' || goneBefore.has(id)) {
+        if (goneBefore.has(id)) continue;
+        if (cls === 'goneForGood') {
           add(name, 'goneForGood', id);
           continue;
         }
@@ -3181,8 +3225,9 @@ class Rewind {
         }
         // The org answered it is no longer in the recycle bin: gone for good
         // when the checkpoint cannot make it again, left as it is when making
-        // it again was not accepted.
-        if (BRICK_OF[cls] === 'undelete') {
+        // it again was not accepted. Read again once the org answered, it is
+        // one to make again: the checkpoint keeps that answer (`NotInBin`).
+        if (BRICK_OF[cls] === 'undelete' || cls === 'toRecreate') {
           if (tallies.some((tally) => tally.lost.get(name)?.has(id) === true)) {
             add(name, 'goneForGood', id);
             continue;

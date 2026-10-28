@@ -387,6 +387,19 @@ describe('takeBytes', () => {
     expect(counted).toBe(listed);
   });
 
+  it('counts each id of the recycle bin at T0 as bin/ keeps it, an object holding no record among them: the 77,624 ids a scratch org’s bin held took 2,173,472 bytes', () => {
+    const none = takeBytes({ objects: [{ records: 0 }, { records: 1 }] });
+
+    const withBin = takeBytes({
+      objects: [
+        { records: 0, inBin: 64_792 },
+        { records: 1, inBin: 77_624 - 64_792 },
+      ],
+    });
+
+    expect(withBin - none).toBe(2_173_472);
+  });
+
   it('says of an org shaped as gate G1’s about what the gate measured, within half of it either way', async () => {
     const { objects, leftOut } = shapedOrg(seeded(1));
     expect(objects.reduce((sum, object) => sum + object.records, 0)).toBe(64);

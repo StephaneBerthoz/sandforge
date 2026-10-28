@@ -5434,7 +5434,8 @@
         "giveBack": "Give back",
         "bringBack": "Bring back",
         "cannotUndo": "Cannot undo",
-        "recreate": "Make again"
+        "recreate": "Make again",
+        "customSetting": "Custom setting (configuration)"
       },
       "detail": {
         "deletedWhileTaken_one": "{{object}}: {{formatted}} record deleted while the checkpoint was taken comes back with the values it had then.",
@@ -5538,7 +5539,9 @@
         "carriers_one": "brings back for a moment {{formatted}} record that had taken records of the checkpoint along, then deletes it again",
         "carriers_other": "brings back for a moment {{formatted}} records that had taken records of the checkpoint along, then deletes them again",
         "links_one": "puts {{formatted}} link between a file and a record back as it was",
-        "links_other": "puts {{formatted}} links between files and records back as they were"
+        "links_other": "puts {{formatted}} links between files and records back as they were",
+        "customSettings_one": "Of them, {{formatted}} is a row of a custom setting: configuration, set back as the checkpoint holds it.",
+        "customSettings_other": "Of them, {{formatted}} are rows of custom settings: configuration, set back as the checkpoint holds them."
       },
       "toRecreate_one": "{{formatted}} to make again",
       "toRecreate_other": "{{formatted}} to make again",

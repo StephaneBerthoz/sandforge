@@ -225,6 +225,13 @@ describe('what came back with a record the rewind brought back', () => {
         undo.deleted.map(({ objectApiName, deleted }) => [objectApiName, deleted]),
       ),
     ).toEqual({ Account: 1, Contact: 1, Opportunity: 1, OpportunityLineItem: 1 });
+    // Of them, what went with the account, never sent on its own: what the
+    // undo's summary leaves out of what it sent.
+    expect(undo.wentAlong).toEqual([
+      { objectApiName: 'Contact', count: 1 },
+      { objectApiName: 'Opportunity', count: 1 },
+      { objectApiName: 'OpportunityLineItem', count: 1 },
+    ]);
 
     // Undeleted later, the account brings back everything its delete took.
     await t.org.undelete([account(1)]);
