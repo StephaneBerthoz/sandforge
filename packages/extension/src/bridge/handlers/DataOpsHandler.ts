@@ -112,7 +112,7 @@ import {
 } from '../../core/common/platformRecords.js';
 import { PIIDetector } from '../../core/precheck/PIIDetector.js';
 import { consultProductionGuard } from '../../core/precheck/consultProductionGuard.js';
-import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
+import { withGivenAnswer, type SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
 import type { WriteRun } from '../../modules/audit/auditTrail.js';
 import {
@@ -135,6 +135,16 @@ import { listLive } from './liveRun.js';
 import type { LiveRun } from './liveRun.js';
 import { payloadText, WritingOrgs } from './writingOrgs.js';
 import { backupMaxAgeDays } from '../../modules/dataops/backupRetention.js';
+import {
+  PIPELINE_MASKING_REFUSAL,
+  pipelineMaskingAsked,
+  pipelineMaskingRefusal,
+  pipelineMaskingTierRefusal,
+  type MaskingAsked,
+  type MaskingResult,
+  type PipelineMaskingOutcome,
+  type PipelineMaskingRequest,
+} from './anonymizePipeline.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -646,11 +656,43 @@ interface MaskingWork {
   progress: MaskingProgress;
 }
 
+/**
+ * Where a masking run says why it stopped and how it ended: on the channels
+ * the DataOps page listens on, for a run of the page; to the step, for a
+ * pipeline's, which no page waits on.
+ */
+interface MaskingReplies {
+  /** The request the run stands for, which its failure context and its snapshot name. */
+  origin: string;
+  /** Told why the run was refused, stopped or failed: the page's `dataops:error`. */
+  refused(err: unknown, options: { code?: string; extraPayload?: Record<string, unknown> }): void;
+  /** Given the run's result once it ended: the page's `dataops:anonymize:response`. */
+  ended(result: MaskingResult): void;
+  /**
+   * The pipeline a pipeline's run is a step of, which Live Operations names.
+   * Such a run is refused before the guard is asked for a field the org does
+   * not show, or for rules that mask nothing (`maskingNotCovered`).
+   */
+  pipeline?: { name: string };
+}
+
+/** What a masking run said when it was refused, stopped or failed (`MaskingReplies.refused`). */
+interface MaskingStop {
+  err: unknown;
+  code?: string;
+  extraPayload?: Record<string, unknown>;
+}
+
 /** The code of a resume refused because the checkpoint it names is not the one kept. */
 const NOTHING_TO_RESUME = 'NOTHING_TO_RESUME';
 
 /** The code of a request naming a template neither shipped nor saved. */
 const TEMPLATE_NOT_FOUND = 'TEMPLATE_NOT_FOUND';
+
+/** Why a request naming a template neither shipped nor saved is refused. */
+function templateNotFound(templateId: string): Error {
+  return new Error(`Template "${templateId}" not found.`);
+}
 
 /**
  * A row of an update whose answer never came back, as a checkpoint keeps it:
@@ -1182,22 +1224,13 @@ export class DataOpsHandler implements DomainHandler {
    * notification alone, and the page's request waited out its hour.
    */
   private refuseUnknownTemplate(
-    context:
-      | 'dataops:anonymize'
-      | 'dataops:anonymize:coverage'
-      | 'dataops:anonymize:preview'
-      | 'backup:objects',
+    context: 'dataops:anonymize:coverage' | 'dataops:anonymize:preview' | 'backup:objects',
     msg: InboundRequest,
     templateId: string,
   ): void {
-    sendHandlerError(
-      this.deps,
-      context,
-      'dataops:error',
-      msg,
-      new Error(`Template "${templateId}" not found.`),
-      { code: TEMPLATE_NOT_FOUND },
-    );
+    sendHandlerError(this.deps, context, 'dataops:error', msg, templateNotFound(templateId), {
+      code: TEMPLATE_NOT_FOUND,
+    });
   }
 
   /**
@@ -2697,10 +2730,11 @@ export class DataOpsHandler implements DomainHandler {
    * page listens on — the same as a declined confirmation, with the code the
    * frozen load refuses with — and record it in the audit trail, as the
    * guard's own refusals are.
+   *
+   * @param refused - Says the refusal where the run answers: the page's `dataops:error`.
    */
   private refuseWithoutGuard(
-    context: 'dataops:rollback' | 'dataops:anonymize',
-    msg: InboundRequest,
+    refused: MaskingReplies['refused'],
     operationId: string,
     failure: OperationFailureContext,
     run: WriteRun,
@@ -2711,14 +2745,7 @@ export class DataOpsHandler implements DomainHandler {
       source: undefined,
       code: PRODUCTION_GUARD_MISSING.code,
     });
-    sendHandlerError(
-      this.deps,
-      context,
-      'dataops:error',
-      msg,
-      new Error(PRODUCTION_GUARD_MISSING.message),
-      { code: PRODUCTION_GUARD_MISSING.code },
-    );
+    refused(new Error(PRODUCTION_GUARD_MISSING.message), { code: PRODUCTION_GUARD_MISSING.code });
     sendOperationFailed(this.deps, operationId, PRODUCTION_GUARD_MISSING.message, false, {
       context: failure,
       authored: true,
@@ -2838,7 +2865,13 @@ export class DataOpsHandler implements DomainHandler {
       // without it.
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
-        this.refuseWithoutGuard('dataops:rollback', msg, rollbackOpId, failure, run);
+        this.refuseWithoutGuard(
+          (err, options) =>
+            sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err, options),
+          rollbackOpId,
+          failure,
+          run,
+        );
         return;
       }
 
@@ -3437,17 +3470,227 @@ export class DataOpsHandler implements DomainHandler {
     return { taken: { operationId: snapshotId, totalRecords: outcome.totalRecords } };
   }
 
+  /**
+   * Why a pipeline's masking run would leave values it was asked to mask, or
+   * undefined when it masks every field its template names on the rows it
+   * reads: no rule of the template names an object of the run; a field it
+   * names is not one the object's describe lists — the org has none, or
+   * field-level security hides it from the user SandForge connects as, which
+   * a describe does not tell apart; or an object with rows has rules that
+   * mask none of its fields. An object with no row holds nothing to mask, and
+   * is not described.
+   *
+   * @param planned - The objects the run addresses.
+   * @param work - The run's objects with a rule, counted.
+   */
+  private async maskingNotCovered(
+    conn: Connection,
+    template: ListedAnonymizationTemplate,
+    planned: readonly string[],
+    work: readonly MaskingWork[],
+  ): Promise<{ code: string; message: string } | undefined> {
+    if (work.length === 0) {
+      return {
+        code: PIPELINE_MASKING_REFUSAL.masksNothing,
+        message:
+          `The template "${template.name}" has no rule for ${planned.join(', ')}: the step ` +
+          'would mask nothing. Choose an object its rules name, or another template. Nothing ' +
+          'was masked.',
+      };
+    }
+    const unseen: string[] = [];
+    const maskedNothing: string[] = [];
+    for (const w of work) {
+      if (w.tally.total === 0) continue;
+      const { rules, missing } = await this.maskedFields(
+        conn,
+        w.tally.objectApiName,
+        this.maskingRules(w.objectName, w.objectRules),
+        this.maskingRules(w.objectName, w.personRules),
+      );
+      unseen.push(...missing.map((field) => `${w.tally.objectApiName}.${field}`));
+      if (rules.length === 0 && missing.length === 0) maskedNothing.push(w.tally.objectApiName);
+    }
+    if (unseen.length > 0) {
+      return {
+        code: PIPELINE_MASKING_REFUSAL.fieldsUnseen,
+        message:
+          `The template "${template.name}" masks ${unseen.join(', ')}, which the org does not ` +
+          'show the user SandForge connects as: it has no such field, or field-level security ' +
+          'hides it. A pipeline masks every field its template names, or nothing: give that ' +
+          'user read and edit access, or take the rule out of the template. Nothing was masked.',
+      };
+    }
+    if (maskedNothing.length > 0) {
+      return {
+        code: PIPELINE_MASKING_REFUSAL.masksNothing,
+        message:
+          `The template "${template.name}" masks no field of ${maskedNothing.join(', ')} in ` +
+          'this org: the step would write nothing over its records. Choose an object its rules ' +
+          'name, or another template. Nothing was masked.',
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Mask an org for a pipeline's Anonymize step as a masking run of the
+   * DataOps page masks it, with nobody to watch it: the same run (`mask`),
+   * recorded in the audit trail as the page's, listed in Live Operations,
+   * held as writing to its org so that no checkpoint of it is taken
+   * meanwhile, and kept, when it stops short, where the page offers to
+   * resume it. Nothing takes a masking back: its snapshot, which a restore
+   * on the DataOps page writes back, is the way back. It resolves once the
+   * run has ended.
+   *
+   * Before anything is read of the org, it is refused: in an org SandForge
+   * does not know; in a production org, whatever the answer; in a sandbox
+   * marked Staging with no approval; for retries, a condition with no
+   * object, or a template neither shipped nor saved (`pipelineMaskingAsked`).
+   * Once its objects are counted, and before Production Guard is asked, it
+   * is refused for a field its template names that the org does not show,
+   * and for rules that mask nothing there (`maskingNotCovered`). Production
+   * Guard's question is answered by the request's answer (`withGivenAnswer`),
+   * and no modal opens: a masking run puts no other question. A snapshot of
+   * what it writes over is always taken, whole, before its first write, or
+   * nothing is masked.
+   *
+   * @param request - The org, the template, its scope, the pipeline and the Approval's answer.
+   * @param signal - The step's: aborted, the run stops as the page's Stop
+   *   stops it, at the next batch.
+   * @returns How the run ended: its result, whole, a cancelled one and one
+   *   whose rows the org refused included.
+   * @throws With a `code` (`PIPELINE_MASKING_REFUSAL`, or the page's) when the
+   *   run is refused before it writes or fails, and the `snapshot` it took
+   *   when it took one; a {@link StepCancelledError} when it was cancelled
+   *   before its first write.
+   */
+  async anonymizeForPipeline(
+    request: PipelineMaskingRequest,
+    signal?: AbortSignal,
+  ): Promise<PipelineMaskingOutcome> {
+    const org = this.deps.orgManager.getOrg(request.orgId);
+    if (!org) {
+      throw pipelineMaskingRefusal(
+        PIPELINE_MASKING_REFUSAL.orgUnknown,
+        `The org the masking writes to is not connected to SandForge (${request.orgId}): ` +
+          'connect it, or choose another. Nothing was masked.',
+      );
+    }
+    const tierRefusal = pipelineMaskingTierRefusal(
+      writeTier(org),
+      request.answer,
+      org.alias || org.username || request.orgId,
+    );
+    if (tierRefusal) throw tierRefusal;
+    const chosen = pipelineMaskingAsked(request, (id) => this.findTemplate(id) !== undefined);
+    if ('refusal' in chosen) throw chosen.refusal;
+
+    // No page waits on a pipeline's run, and nothing it says goes to one. Its
+    // id names its snapshot, kept under `backup:<id>-snapshot`: it holds no
+    // colon, which the keys of a backup's records add after the id.
+    const operationId = crypto.randomUUID();
+    let refusal: MaskingStop | undefined;
+    let ended: MaskingResult | undefined;
+    const replies: MaskingReplies = {
+      origin: 'pipeline:execute',
+      pipeline: request.pipeline,
+      refused: (err, options) => {
+        refusal ??= { err, ...options };
+        this.deps.log(
+          `[ERR] dataops:anonymize ${operationId} for the pipeline "${request.pipeline.name}": ` +
+            extractErrorMessage(err),
+        );
+      },
+      ended: (result) => {
+        ended = result;
+      },
+    };
+    await this.writing.during(request.orgId, () =>
+      withGivenAnswer(request.answer, () => this.mask(chosen.asked, operationId, replies, signal)),
+    );
+
+    // Set by the replies as the run went: read through their declared type,
+    // which the closures' assignments do not narrow.
+    const stopped = refusal as MaskingStop | undefined;
+    if (stopped) {
+      const message = extractErrorMessage(stopped.err);
+      const said = stopped.err as { code?: unknown } | undefined;
+      const code = stopped.code ?? (typeof said?.code === 'string' ? said.code : undefined);
+      const snapshot = stopped.extraPayload?.['snapshot'];
+      const details = {
+        ...(code !== undefined ? { code } : {}),
+        ...(snapshot !== undefined ? { snapshot } : {}),
+      };
+      if (code === ABORTED_BEFORE_START) {
+        throw Object.assign(new StepCancelledError(message), details);
+      }
+      throw Object.assign(new Error(message), details);
+    }
+    const result = ended as MaskingResult | undefined;
+    if (result === undefined) throw new Error('The masking run ended without a result.');
+    return { operationId, result };
+  }
+
   private async handleAnonymize(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsAnonymizePayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
-    const payload = parsed;
     // The id of the request, as a backup and a restore run under theirs: the
     // page's Stop names the run by it. A fresh id per run left the page, and
     // its Stop, nothing to name it with.
-    const operationId = msg.id;
+    await this.mask(parsed, msg.id, this.pageMaskingReplies(msg));
+  }
+
+  /** Where a masking run of the DataOps page answers: the channels the page listens on. */
+  private pageMaskingReplies(msg: InboundRequest): MaskingReplies {
+    return {
+      origin: msg.type,
+      refused: (err, options) =>
+        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, err, options),
+      ended: (result) => {
+        const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', result);
+        this.deps.broker.postToWebview(response);
+        this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
+        // The page shows a run's end through this notification and nothing
+        // else: a run that left records unmasked, for whatever reason, says so,
+        // as does one whose template named a field the org does not have.
+        if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+          sendNotification(
+            this.deps,
+            result.status === 'failure' ? 'error' : 'warning',
+            'Anonymize',
+            `${result.message}${result.errors[0] ? ` — e.g. ${result.errors[0].message}` : ''}`,
+          );
+        }
+      },
+    };
+  }
+
+  /**
+   * Mask an org as the template says, the DataOps page's run and a
+   * pipeline's alike: every object counted, the user's access to each field
+   * it writes checked, Production Guard consulted, the snapshot taken when
+   * asked, then the rows masked page by page, two hundred an update, with
+   * where the run got kept for a resume when it stops short. Each refusal and
+   * the run's end are recorded in the audit trail here, and said through
+   * `replies`.
+   *
+   * @param payload - The run as it was asked for.
+   * @param operationId - The id it runs under: its registry entry, its
+   *   checkpoint and the name of its snapshot.
+   * @param replies - Where the run says why it stopped and how it ended.
+   * @param signal - A pipeline step's: aborted, the run stops as the page's
+   *   Stop stops it.
+   */
+  private async mask(
+    payload: MaskingAsked,
+    operationId: string,
+    replies: MaskingReplies,
+    signal?: AbortSignal,
+  ): Promise<void> {
     // Follows the object in progress (see handleBackup).
-    const failure: OperationFailureContext = { module: 'dataops', operation: msg.type };
+    const failure: OperationFailureContext = { module: 'dataops', operation: replies.origin };
 
     // A template the user saved is applied the way one that ships is.
     const template = this.findTemplate(payload.templateId);
@@ -3515,6 +3758,11 @@ export class DataOpsHandler implements DomainHandler {
     // run writes nothing.
     const pending = this.deps.infraServices?.backgroundRegistry?.holdUntilStart(operationId);
     pending?.signal.addEventListener('abort', () => stop.abort(), { once: true });
+    // A pipeline's step stops the run as the page's Stop does: before its
+    // first write, nothing is written; after, at the next batch.
+    const onStepAbort = (): void => stop.abort();
+    if (signal?.aborted) stop.abort();
+    signal?.addEventListener('abort', onStepAbort, { once: true });
     /**
      * Stop a run the user stopped before its first write, as every write path
      * records such a stop and tells the page: under the code that says so.
@@ -3527,7 +3775,7 @@ export class DataOpsHandler implements DomainHandler {
         code: ABORTED_BEFORE_START,
       });
       const message = 'The masking run was cancelled before it wrote anything.';
-      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message), {
+      replies.refused(new Error(message), {
         code: ABORTED_BEFORE_START,
         ...(snapshot ? { extraPayload: { snapshot } } : {}),
       });
@@ -3550,11 +3798,7 @@ export class DataOpsHandler implements DomainHandler {
         ...(counted ? { ...totals, objects: maskingResultObjects(tallies) } : {}),
         ...(snapshot ? { snapshot } : {}),
       };
-      sendHandlerError(
-        this.deps,
-        'dataops:anonymize',
-        'dataops:error',
-        msg,
+      replies.refused(
         left
           ? new Error(
               `${reason} — ${totals.recordsProcessed} masked before it stopped; ` +
@@ -3636,12 +3880,17 @@ export class DataOpsHandler implements DomainHandler {
     try {
       const guard = this.deps.infraServices?.productionGuard;
       if (!guard) {
-        this.refuseWithoutGuard('dataops:anonymize', msg, operationId, failure, run);
+        this.refuseWithoutGuard(
+          (err, options) => replies.refused(err, options),
+          operationId,
+          failure,
+          run,
+        );
         return;
       }
       // Before anything is counted: an unknown template has nothing to count.
       if (!template) {
-        this.refuseUnknownTemplate('dataops:anonymize', msg, payload.templateId);
+        replies.refused(templateNotFound(payload.templateId), { code: TEMPLATE_NOT_FOUND });
         return;
       }
 
@@ -3657,11 +3906,7 @@ export class DataOpsHandler implements DomainHandler {
         ? [fingerprint, maskingFingerprint(template.rules, withPersons, where)]
         : [fingerprint];
       const refuseResume = (): void =>
-        sendHandlerError(
-          this.deps,
-          'dataops:anonymize',
-          'dataops:error',
-          msg,
+        replies.refused(
           new Error(
             'There is nothing to resume: the run has finished since, another run of this ' +
               'template has stopped since, or its rules have changed. Apply masks every record ' +
@@ -3779,6 +4024,28 @@ export class DataOpsHandler implements DomainHandler {
       }
       const grandTotal = tallies.reduce((sum, t) => sum + t.total, 0);
 
+      // A pipeline's run masks every field its template names on the rows it
+      // reads, or nothing: what the page's run ends partial on once it has
+      // masked the rest, nobody would see in a run nobody watches. Before the
+      // guard is asked and before anything is written.
+      if (replies.pipeline) {
+        const uncovered = await this.maskingNotCovered(conn, template, plannedObjects, work);
+        if (uncovered) {
+          recordWriteRun(this.deps, {
+            ...run,
+            outcome: 'stopped',
+            source: undefined,
+            code: uncovered.code,
+          });
+          replies.refused(new Error(uncovered.message), { code: uncovered.code });
+          sendOperationFailed(this.deps, operationId, uncovered.message, false, {
+            context: failure,
+            authored: true,
+          });
+          return;
+        }
+      }
+
       // Whether the user may write every object and field the run masks,
       // before anything is asked or written: checked object by object as the
       // run reached each one, a refusal stopped it after the objects before
@@ -3811,9 +4078,7 @@ export class DataOpsHandler implements DomainHandler {
           source: undefined,
           code: CRUD_FLS_DENIED,
         });
-        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(reason), {
-          code: CRUD_FLS_DENIED,
-        });
+        replies.refused(new Error(reason), { code: CRUD_FLS_DENIED });
         sendOperationFailed(this.deps, operationId, reason, false, {
           context: failure,
           authored: true,
@@ -3847,9 +4112,7 @@ export class DataOpsHandler implements DomainHandler {
       // asked and no setting turns off: the user's explicit consent.
       if (decision === 'declined') {
         const message = 'Operation cancelled by user (confirmation declined).';
-        sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, new Error(message), {
-          code: GUARD_REFUSAL.declined,
-        });
+        replies.refused(new Error(message), { code: GUARD_REFUSAL.declined });
         sendOperationFailed(this.deps, operationId, message, false, {
           context: failure,
           authored: true,
@@ -3878,7 +4141,7 @@ export class DataOpsHandler implements DomainHandler {
       // the guard, which may stop the run, and before the first write.
       if (payload.snapshot === true) {
         const kept = await this.snapshotBeforeMasking(conn, operationId, payload.orgId, work, {
-          origin: msg.type,
+          origin: replies.origin,
           stop: stop.signal,
         });
         // Stopped while the snapshot was read: the snapshot is not kept, and
@@ -3894,14 +4157,7 @@ export class DataOpsHandler implements DomainHandler {
             source: undefined,
             code: SNAPSHOT_NOT_TAKEN,
           });
-          sendHandlerError(
-            this.deps,
-            'dataops:anonymize',
-            'dataops:error',
-            msg,
-            new Error(kept.refused),
-            { code: SNAPSHOT_NOT_TAKEN },
-          );
+          replies.refused(new Error(kept.refused), { code: SNAPSHOT_NOT_TAKEN });
           sendOperationFailed(this.deps, operationId, kept.refused, kept.retryable, {
             context: failure,
             authored: true,
@@ -3915,7 +4171,9 @@ export class DataOpsHandler implements DomainHandler {
         }
       }
 
-      const description = `Anonymizing with ${template.name}`;
+      const description = replies.pipeline
+        ? `Pipeline anonymization with ${template.name}`
+        : `Anonymizing with ${template.name}`;
       sendOperationStarted(this.deps, operationId, 'dataops', description);
       unrecorded = true;
       begun = true;
@@ -4325,7 +4583,7 @@ export class DataOpsHandler implements DomainHandler {
         (fieldsNotFound.length > 0
           ? `${ranMessage} ${unseenFieldsSentence(fieldsNotFound)}`
           : ranMessage) + resumeHint;
-      const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
+      replies.ended({
         templateId: payload.templateId,
         status,
         recordsProcessed,
@@ -4339,19 +4597,6 @@ export class DataOpsHandler implements DomainHandler {
         ...(limitHit ? { stoppedAtApiLimit: true } : {}),
         ...(snapshot ? { snapshot } : {}),
       });
-      this.deps.broker.postToWebview(response);
-      this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
-      // The page shows a run's end through this notification and nothing
-      // else: a run that left records unmasked, for whatever reason, says so,
-      // as does one whose template named a field the org does not have.
-      if (recordsNotMasked > 0 || fieldsNotFound.length > 0) {
-        sendNotification(
-          this.deps,
-          status === 'failure' ? 'error' : 'warning',
-          'Anonymize',
-          `${message}${maskErrors[0] ? ` — e.g. ${maskErrors[0].message}` : ''}`,
-        );
-      }
     } catch (err: unknown) {
       // An error the org answered while a cancel was pending is still the
       // run's failure: only the loop, stopping at the cancel, says a run was
@@ -4372,6 +4617,7 @@ export class DataOpsHandler implements DomainHandler {
       if (begun && !checkpointSettled) settleCheckpoint();
       settleRun(runError);
       pending?.release();
+      signal?.removeEventListener('abort', onStepAbort);
     }
   }
 
