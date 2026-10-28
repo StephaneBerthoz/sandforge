@@ -16,6 +16,7 @@ const PHASE_KEYS: Readonly<Record<Exclude<RewindPhase, 'check'>, string>> = {
   bringBack: 'checkpoint.run.phase.bringBack',
   recreate: 'checkpoint.run.phase.recreate',
   giveBack: 'checkpoint.run.phase.giveBack',
+  links: 'checkpoint.run.phase.links',
   delete: 'checkpoint.run.phase.delete',
 };
 

@@ -89,15 +89,54 @@ export function carriersTotal(diff: Pick<RewindDiff, 'objects'>): number {
 }
 
 /**
- * Whether a rewind would write anything: delete, give back, bring back or
- * make again one record at least, or bring one back for a moment.
+ * The links between files and records a rewind writes: those added since it
+ * removes, those removed since it puts back, those whose sharing it gives
+ * back. None for a checkpoint that holds no files.
  */
-export function rewindWrites(diff: Pick<RewindDiff, 'objects'>): boolean {
+export function linkWrites(diff: Partial<Pick<RewindDiff, 'files'>>): number {
+  const files = diff.files;
+  return files === undefined ? 0 : files.unlink + files.relink + files.updateLinks;
+}
+
+/**
+ * Whether a rewind would write anything: delete, give back, bring back or
+ * make again one record at least, or bring one back for a moment, or write a
+ * link between a file and a record — which the rewind does on its own, a link
+ * added since to a file and a record that both stay being all that differs.
+ */
+export function rewindWrites(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): boolean {
   const totals = rewindTotals(diff);
   return (
     totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0 ||
-    carriersTotal(diff) > 0
+    carriersTotal(diff) > 0 ||
+    linkWrites(diff) > 0
   );
+}
+
+/** The object a Salesforce File is a record of, as a checkpoint that holds files holds it. */
+export const FILE_OBJECT = 'ContentDocument';
+
+/** The link between a file and a record, which a checkpoint holds with its file. */
+export const FILE_LINK_OBJECT = 'ContentDocumentLink';
+
+/**
+ * The files a rewind brings back from the recycle bin, which take file
+ * storage again once back: the records of {@link FILE_OBJECT} it brings back.
+ */
+export function filesBroughtBack(diff: Pick<RewindDiff, 'objects'>): number {
+  const files = diff.objects.find((object) => object.objectApiName === FILE_OBJECT);
+  return files === undefined ? 0 : rowOf(files).toBringBack;
+}
+
+/**
+ * The files a rewind leaves as they are, as no record of the checkpoint links
+ * to them: added since, kept; deleted since, left in the recycle bin.
+ */
+export function filesLeft(diff: Partial<Pick<RewindDiff, 'files'>>): number {
+  const files = diff.files;
+  return files === undefined ? 0 : files.outsideAdded + files.outsideDeleted;
 }
 
 /** The records a rewind makes again with new Ids, object by object: those the recycle bin no longer gives back. */
@@ -112,14 +151,19 @@ export function recreateLines(
 /**
  * Whether the org holds the checkpoint's state among the objects and fields
  * it holds: nothing to write, nothing a rewind cannot take back, nothing it
- * leaves unexplained, no field deleted since, and every object read. A record
- * touched since that holds its checkpoint values, and a field added since,
- * whose values a rewind leaves alone, do not make it differ.
+ * leaves unexplained, no field deleted since, every object read, and no file
+ * added or deleted since that no record of the checkpoint links to, which a
+ * rewind leaves as it is. A record touched since that holds its checkpoint
+ * values, and a field added since, whose values a rewind leaves alone, do not
+ * make it differ.
  */
-export function heldAsItWas(diff: Pick<RewindDiff, 'objects' | 'unread'>): boolean {
+export function heldAsItWas(
+  diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'files'>>,
+): boolean {
   return (
     diff.unread.length === 0 &&
     !rewindWrites(diff) &&
+    filesLeft(diff) === 0 &&
     diff.objects.every(
       (object) =>
         object.unexplained === 0 &&
@@ -224,17 +268,34 @@ export function outsideLines(diff: Pick<RewindDiff, 'objects'>): OutsideLine[] {
  * back, gives back values, then deletes. What the org runs as it writes is
  * read for these. An object whose records come back for a moment, to be
  * deleted again (`carriersOf`), is brought back and deleted, as the rewind
- * itself lists it: its automation runs on both.
+ * itself lists it: its automation runs on both. A link between a file and a
+ * record it removes is a delete of {@link FILE_LINK_OBJECT}, one it puts back
+ * an insert, one it gives its sharing back an update, as the rewind lists
+ * them: a trigger on links — a file attached updates its case — runs on each.
  */
-export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
+export function rewindSteps(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): ForgeRemovalSteps {
   const rows = diff.objects.map((object) => ({ ...rowOf(object), carriers: carriersOf(object) }));
+  const links = diff.files;
+  const linked = (step: string[], writes: number): string[] =>
+    writes > 0 ? [...step, FILE_LINK_OBJECT] : step;
   return {
     bringBack: rows
       .filter((row) => row.toBringBack + row.carriers > 0)
       .map((row) => row.objectApiName),
-    recreate: rows.filter((row) => row.toRecreate > 0).map((row) => row.objectApiName),
-    giveBack: rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
-    delete: rows.filter((row) => row.toDelete + row.carriers > 0).map((row) => row.objectApiName),
+    recreate: linked(
+      rows.filter((row) => row.toRecreate > 0).map((row) => row.objectApiName),
+      links?.relink ?? 0,
+    ),
+    giveBack: linked(
+      rows.filter((row) => row.toGiveBack > 0).map((row) => row.objectApiName),
+      links?.updateLinks ?? 0,
+    ),
+    delete: linked(
+      rows.filter((row) => row.toDelete + row.carriers > 0).map((row) => row.objectApiName),
+      links?.unlink ?? 0,
+    ),
   };
 }
 
@@ -243,15 +304,16 @@ export function rewindSteps(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalStep
 /**
  * The phases of a rewind as its run lists them, in the order it runs them:
  * it brings back from the recycle bin, makes again what the bin no longer
- * gives back, gives back values, deletes children first, then reads the org
- * again.
+ * gives back, gives back values, writes the links between files and records
+ * — those it puts back once both their ends are back, the others with them —
+ * deletes children first, then reads the org again.
  */
-export type RewindPhase = 'bringBack' | 'recreate' | 'giveBack' | 'delete' | 'check';
+export type RewindPhase = 'bringBack' | 'recreate' | 'giveBack' | 'links' | 'delete' | 'check';
 
 /** One phase of a rewind under way, and the records of the confirmed preview it acts on. */
 export interface RewindPhaseLine {
   phase: RewindPhase;
-  /** Records of the preview it acts on; 0 for the check. */
+  /** Records of the preview it acts on — links, for the links; 0 for the check. */
   count: number;
 }
 
@@ -260,12 +322,15 @@ export interface RewindPhaseLine {
  * preview the user confirmed gave nothing to is not listed; the check that
  * reads the org again always is.
  */
-export function rewindPhases(diff: Pick<RewindDiff, 'objects'>): RewindPhaseLine[] {
+export function rewindPhases(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): RewindPhaseLine[] {
   const totals = rewindTotals(diff);
   const acting: RewindPhaseLine[] = [
     { phase: 'bringBack', count: totals.toBringBack },
     { phase: 'recreate', count: totals.toRecreate },
     { phase: 'giveBack', count: totals.toGiveBack },
+    { phase: 'links', count: linkWrites(diff) },
     { phase: 'delete', count: totals.toDelete },
   ];
   return [...acting.filter((line) => line.count > 0), { phase: 'check', count: 0 }];

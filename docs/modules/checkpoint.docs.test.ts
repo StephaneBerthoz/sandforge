@@ -41,6 +41,7 @@ const REWIND = source(`${MODULE_DIR}/rewindOrg.ts`);
 const UNDO = source(`${MODULE_DIR}/undoCheckpoint.ts`);
 const JOURNAL = source(`${MODULE_DIR}/rewindJournal.ts`);
 const PREVIEW = source(`${MODULE_DIR}/previewCheckpoint.ts`);
+const ESTIMATE = source(`${MODULE_DIR}/rewindEstimate.ts`);
 const HANDLER = source('packages/extension/src/bridge/handlers/CheckpointHandler.ts');
 const EXTENSION_HANDLERS = source('packages/extension/src/bridge/ExtensionHandlers.ts');
 const EXTENSION = source('packages/extension/src/extension.ts');
@@ -517,6 +518,67 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).not.toContain('The rewind counts no emails');
   });
 
+  it('says a checkpoint holds the files attached to its records, what a rewind does to them and their links, what it leaves, and the file storage it holds a rewind and an undo to', () => {
+    // Anchors: the scope holds files by their document, the diff tells the
+    // links between files and records apart from the files no held record
+    // links to, and the preview, the rewind and the undo refuse what passes
+    // the org's file storage, saying nothing was written.
+    expect(SCOPE).toContain("export const FILE_OBJECT = 'ContentDocument';");
+    const filesDiff = /export interface RewindFilesDiff \{([\s\S]*?)\n\}/.exec(TYPES)?.[1] ?? '';
+    for (const field of ['unlink', 'relink', 'updateLinks', 'outsideAdded', 'outsideDeleted']) {
+      expect(filesDiff).toContain(`  ${field}: number;`);
+    }
+    expect(filesDiff).toContain('blindSpot?: true;');
+    expect(/export type CheckpointRefusalCode =[^;]*'FILE_STORAGE';/.test(TYPES)).toBe(true);
+    expect(PREVIEW).toContain('? fileStorageRefusal(');
+    expect(REWIND).toContain('const overStorage = fileStorageRefusal(');
+    expect(UNDO).toContain(
+      "fileStorageRefusal('undo', files, budget.fileStorage?.remaining, orgName)",
+    );
+    const storageWords = /const FILE_STORAGE_WORDS[\s\S]*?\n\};/.exec(ESTIMATE)?.[0] ?? '';
+    expect(storageWords.match(/done: 'Nothing was written\.'/g)).toHaveLength(2);
+    expect(storageWords).not.toContain('read');
+    const PAGE = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
+    for (const key of ['unlink', 'relink', 'updateLinks', 'outsideAdded', 'outsideDeleted']) {
+      expect(PAGE).toContain(`'checkpoint.preview.files.${key}'`);
+    }
+    expect(label('checkpoint.preview.files.outsideAdded_other')).toMatch(
+      /^Kept: .* as no record of this checkpoint links to them/,
+    );
+
+    const take = section(DOC, '## Taking a checkpoint');
+    expect(take).toContain(
+      'the files attached to the records it holds -- Salesforce Files, enhanced notes among ' +
+        'them, and classic attachments --',
+    );
+    expect(take).toContain("never a file's content, nor its versions");
+    expect(take).toContain(
+      "A user without **Query All Files** sees another user's file only through a record it " +
+        'is attached to, or by its Id',
+    );
+    const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'a link added since between a file and a record that both stay is removed, and the file stays',
+    );
+    expect(preview).toContain(
+      "A file added since that no record of the checkpoint links to -- a user's own, a " +
+        "library's -- is kept, and counted",
+    );
+    expect(preview).toContain('the files given a new version since, which keep it');
+    expect(preview).toContain(
+      'So it does when the files a rewind brings back from the recycle bin would take more ' +
+        'file storage than the org has left',
+    );
+    expect(section(DOC, '## Undo')).toContain('a link it removed is put back, under a new Id');
+    const leaves = section(DOC, '## What a rewind leaves as it is');
+    expect(leaves).toContain('**The content of files.**');
+    expect(leaves).toContain('A checkpoint taken before SandForge 1.70 holds no files');
+    // Files were out of a checkpoint's reach until 1.70: no page says so any more.
+    expect(DOC).not.toContain('File contents, file versions and attachments are not covered');
+    expect(DOC).not.toContain('Metadata, users, setup, files and what already left the org');
+    expect(helpAsPrinted()).not.toContain('metadata; files.');
+  });
+
   it('says the preview counts every reason a rewind cannot undo that the contract names, and the result names each kept', () => {
     // Anchor: the diff fills what a rewind cannot undo with each reason the
     // contract allows, and the verify names what it leaves for them kept,
@@ -904,6 +966,19 @@ describe('the README lines of the module', () => {
         .split('\n')
         .find((line) => line.startsWith('| **Checkpoints**'));
       expect(row).toContain('whoever did it; the rewind itself can be undone.');
+    }
+  });
+
+  it('says a rewind takes the files attached to the records back with them, never their content, in both READMEs', () => {
+    // Anchor: a checkpoint holds its files by their document.
+    expect(SCOPE).toContain("export const FILE_OBJECT = 'ContentDocument';");
+    for (const path of READMES) {
+      const text = source(path);
+      expect(text).toContain(
+        'It rewinds data, the files attached to the records it holds among them, not metadata, ' +
+          'users or the content of files',
+      );
+      expect(text).not.toContain('not metadata, users or files');
     }
   });
 

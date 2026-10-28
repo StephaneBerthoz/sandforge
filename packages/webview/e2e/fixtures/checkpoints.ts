@@ -367,6 +367,68 @@ export function plainPreview(
   };
 }
 
+/**
+ * What `checkpoint:preview` answers for a checkpoint that holds files, of
+ * picked objects, without Query All Files: a file attached since to an
+ * account deleted, one deleted since brought back, one renamed given its
+ * title back, one given a new version since; the links between files and
+ * records that stay — added, removed and changed since — two files no record
+ * of the checkpoint links to, kept, one left in the recycle bin, a file to
+ * delete attached outside the checkpoint too, and the file storage against
+ * what the org has left.
+ */
+export function previewWithFiles(checkpointId: string): CheckpointPreviewResponse['payload'] {
+  const MB = 1_048_576;
+  return {
+    diff: {
+      checkpointId,
+      previewId: 'pv-files',
+      readAt: daysFromNow(0),
+      objects: [
+        diffObject('Account', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          lastChangedBy: { [USERS.alice]: 1 },
+        }),
+        diffObject('ContentDocument', {
+          toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          cannotUndo: [{ reason: 'newFileVersion', count: 1 }],
+          outside: [{ objectApiName: 'ContentDocumentLink', count: 2, parents: 1 }],
+          lastChangedBy: { [USERS.alice]: 3 },
+        }),
+        diffObject('Attachment', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          lastChangedBy: { [USERS.alice]: 2 },
+        }),
+      ],
+      undoCannot: [],
+      unread: [],
+      userNames: { [USERS.alice]: 'Alice Martin' },
+      activeLastHour: [],
+      files: {
+        unlink: 1,
+        relink: 1,
+        updateLinks: 1,
+        outsideAdded: 2,
+        outsideDeleted: 1,
+        storage: { bringBack: 12 * MB, remaining: 40 * MB, undo: 3 * MB },
+        blindSpot: true,
+      },
+    },
+    automation: {
+      objectsRead: ['Account', 'ContentDocument', 'Attachment', 'ContentDocumentLink'],
+      objects: [],
+      unread: [],
+      conditionsNotRead: 0,
+      conditionsBound: 25,
+      requests: 3,
+    },
+    estimate: { records: 9, apiRequests: 40, apiRequestsLeft: 14_900, seconds: 12, bytes: 0 },
+  };
+}
+
 /** A preview of an org that holds its checkpoint's state: nothing to rewind. */
 export function nothingToRewind(checkpointId: string): CheckpointPreviewResponse['payload'] {
   return {

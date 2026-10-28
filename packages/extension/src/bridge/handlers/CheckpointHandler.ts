@@ -862,6 +862,7 @@ export class CheckpointHandler implements DomainHandler {
         leftOut: scope.leftOut,
         estimate: scope.estimate,
         ...(scope.refusal ? { refusal: scope.refusal } : {}),
+        ...(scope.files ? { files: scope.files } : {}),
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'SCOPE_ERROR');

@@ -359,7 +359,10 @@ describe('rewindOrg, of a checkpoint that holds files: file storage (P-A8)', () 
     if (outcome.rewound) return;
     expect(outcome.refusal.message).toContain('Bringing back 1 file takes 12 MB');
     expect(outcome.refusal.message).toContain('DEV-ED has 10 MB left');
-    expect(outcome.refusal.message).toContain('No record was read or written.');
+    // Refused once the rewind read the org afresh: nothing was written, and
+    // it does not say nothing was read.
+    expect(outcome.refusal.message).toMatch(/ Nothing was written\.$/);
+    expect(outcome.refusal.message).not.toContain('read');
     // No undelete went, no journal was opened.
     expect(t.org.soapCalls - sent).toBeLessThanOrEqual(2);
     expect(t.org.inBin('ContentDocument').map((row) => row.Id)).toEqual([fileId(1)]);

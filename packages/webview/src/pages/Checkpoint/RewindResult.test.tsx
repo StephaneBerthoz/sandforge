@@ -347,6 +347,92 @@ describe('RewindResult', () => {
     expect(screen.queryByTestId('checkpoint-result-carriers')).toBeNull();
   });
 
+  it('says what a rewind did to the links between files and records, only the parts that apply, and the links the org refused', () => {
+    renderResult(
+      rewindResult({
+        status: 'partial',
+        files: { unlinked: 2, relinked: 1, linksUpdated: 0, linksRefused: 1 },
+        residual: [
+          {
+            objectApiName: 'ContentDocumentLink',
+            reason: 'refused',
+            count: 1,
+            ids: [],
+            message: 'INSUFFICIENT_ACCESS_OR_READONLY: insufficient access rights on object id',
+          },
+        ],
+      }),
+    );
+    const section = screen.getByTestId('checkpoint-result-files');
+    expect(within(section).getByRole('heading').textContent).toBe(
+      'Links between files and records in DEV-SB',
+    );
+    expect(
+      within(section)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      '2 links added since removed: their files stay',
+      '1 link removed since put back, under a new Id',
+      '1 link DEV-SB refused to write',
+    ]);
+  });
+
+  it('says what an undo did to the links in the undo’s words: those the rewind put back removed again, those it removed put back', () => {
+    renderResult(
+      withoutUndo(
+        rewindResult({ files: { unlinked: 1, relinked: 2, linksUpdated: 1, linksRefused: 0 } }),
+      ),
+      'undo',
+    );
+    expect(
+      within(screen.getByTestId('checkpoint-result-files'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      '1 link the rewind put back, removed again',
+      '2 links the rewind removed, put back under new Ids',
+      '1 link given back the sharing it had before the rewind',
+    ]);
+  });
+
+  it('says nothing of links for a rewind that wrote none', () => {
+    renderResult(rewindResult());
+    expect(screen.queryByTestId('checkpoint-result-files')).toBeNull();
+  });
+
+  it('says a file left attached to what a rewind of a checkpoint that holds files deleted stays as the checkpoint holds it, never that it does not cover files', () => {
+    const deleted = [
+      deletedObject('Account', {
+        planned: 1,
+        deleted: 1,
+        filesLeft: { count: 1, names: ['Signed contract.pdf'] },
+      }),
+    ];
+    renderResult(
+      rewindResult({ deleted }),
+      'rewind',
+      caseCheckpoint({ files: { documents: 3, links: 4, anchored: 3 } }),
+    );
+    expect(screen.getByTestId('forge-removal-files-Account').textContent).toBe(
+      '1 file attached to them stays in DEV-SB: the checkpoint holds it, or it is attached to a record outside the checkpoint too: Signed contract.pdf',
+    );
+  });
+
+  it('says a file left attached to what a rewind of a checkpoint taken before files were held deleted stays as the checkpoint does not cover files', () => {
+    const deleted = [
+      deletedObject('Account', {
+        planned: 1,
+        deleted: 1,
+        filesLeft: { count: 1, names: ['Signed contract.pdf'] },
+      }),
+    ];
+    renderResult(rewindResult({ deleted }));
+    expect(screen.getByTestId('forge-removal-files-Account').textContent).toBe(
+      '1 file attached to them stays in DEV-SB, as the checkpoint does not cover files: Signed contract.pdf',
+    );
+  });
+
   it('says a partial rewind whose records still differ only as its parts list them', () => {
     renderResult(rewindResult({ status: 'partial' }));
     expect(headline()).toBe('DEV-SB is back at “Before UAT”, except what is listed below.');

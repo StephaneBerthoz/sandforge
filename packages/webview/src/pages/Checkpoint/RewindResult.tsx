@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import type {
   OrgCheckpoint,
+  RewindFilesResult,
   RewindRecreatedObject,
   RewindResidualReason,
   RewindResult as RewindOutcome,
@@ -205,6 +206,61 @@ const CarriersResult: React.FC<{
   );
 };
 
+/** What a rewind did to the links between files and records, by part, in the order it says them. */
+const REWIND_FILES_KEYS: ReadonlyArray<{ part: keyof RewindFilesResult; key: string }> = [
+  { part: 'unlinked', key: 'checkpoint.result.files.unlinked' },
+  { part: 'relinked', key: 'checkpoint.result.files.relinked' },
+  { part: 'linksUpdated', key: 'checkpoint.result.files.linksUpdated' },
+  { part: 'linksRefused', key: 'checkpoint.result.files.linksRefused' },
+];
+
+/**
+ * What an undo did to them: it removed the links the rewind put back, put
+ * back those it removed, and gave back the sharing from before the rewind.
+ */
+const UNDO_FILES_KEYS: ReadonlyArray<{ part: keyof RewindFilesResult; key: string }> = [
+  { part: 'unlinked', key: 'checkpoint.result.undo.files.unlinked' },
+  { part: 'relinked', key: 'checkpoint.result.undo.files.relinked' },
+  { part: 'linksUpdated', key: 'checkpoint.result.undo.files.linksUpdated' },
+  { part: 'linksRefused', key: 'checkpoint.result.files.linksRefused' },
+];
+
+/**
+ * What a rewind, or its undo, did to the links between files and records,
+ * only the parts that apply: the files themselves are among what it deleted
+ * and brought back, as `ContentDocument`.
+ */
+const FilesResult: React.FC<{ files: RewindFilesResult; kind: RunKind; orgName: string }> = ({
+  files,
+  kind,
+  orgName,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const lines = (kind === 'rewind' ? REWIND_FILES_KEYS : UNDO_FILES_KEYS).filter(
+    ({ part }) => files[part] > 0,
+  );
+  if (lines.length === 0) return null;
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-result-files"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.result.files.title', { org: orgName })}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {lines.map(({ part, key }) => (
+          <li key={part} data-testid={`checkpoint-result-files-${part}`}>
+            {t(key, { count: files[part], formatted: formatNumber(files[part]), org: orgName })}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
 /** Props for {@link RewindResult}. */
 export interface RewindResultProps {
   kind: RunKind;
@@ -357,8 +413,15 @@ export const RewindResult: React.FC<RewindResultProps> = ({
           result={{ status: deletedStatus(result.deleted, result.status), objects: result.deleted }}
           org={orgName}
           subject={rewinding ? 'rewind' : 'rewindUndo'}
+          // A checkpoint that holds files deletes those attached since: a
+          // file attached to what it deleted stays because the checkpoint
+          // holds it, or because it is attached outside it too.
+          {...(rewinding && checkpoint.files !== undefined
+            ? { filesLeftKey: 'runRemoval.rewind.resultFilesLeftHeld' }
+            : {})}
         />
       )}
+      {result.files && <FilesResult files={result.files} kind={kind} orgName={orgName} />}
 
       <p className="text-text-secondary" data-testid="checkpoint-result-requests">
         {t('checkpoint.result.requests', {

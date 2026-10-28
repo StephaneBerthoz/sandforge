@@ -7,11 +7,14 @@ import {
   changedDuringRewind,
   comparableFields,
   deletedStatus,
+  filesBroughtBack,
+  filesLeft,
   heldAsItWas,
   ignoredAfter,
   isIgnored,
   keptChangedSinceRewind,
   lastChangers,
+  linkWrites,
   outsideLines,
   recreateLines,
   remadeDeleted,
@@ -27,6 +30,7 @@ import {
   USERS,
   deletedObject,
   diffObject,
+  filesDiff,
   previewDiff,
   restoredObject,
   rewindResult,
@@ -109,6 +113,52 @@ describe('rewindPreviewFacts', () => {
       ),
     ).toBe(false);
     expect(heldAsItWas(previewDiff())).toBe(false);
+  });
+
+  it('counts a link between a file and a record among a rewind’s writes, on its own, and none for a checkpoint that holds no files', () => {
+    const links = (files: Partial<NonNullable<ReturnType<typeof filesDiff>['files']>>) =>
+      filesDiff({
+        unlink: 0,
+        relink: 0,
+        updateLinks: 0,
+        outsideAdded: 0,
+        outsideDeleted: 0,
+        ...files,
+      });
+    const quiet = (diff: ReturnType<typeof filesDiff>) => ({ ...diff, objects: [] });
+    expect(linkWrites(filesDiff())).toBe(4);
+    for (const one of [{ unlink: 1 }, { relink: 1 }, { updateLinks: 1 }]) {
+      expect(rewindWrites(quiet(links(one)))).toBe(true);
+    }
+    expect(rewindWrites(quiet(links({})))).toBe(false);
+    expect(linkWrites(previewDiff())).toBe(0);
+  });
+
+  it('does not hold the org as it was while files no record of the checkpoint links to were added or deleted since, which a rewind leaves', () => {
+    const files = (outsideAdded: number, outsideDeleted: number) => ({
+      ...filesDiff({ unlink: 0, relink: 0, updateLinks: 0, outsideAdded, outsideDeleted }),
+      objects: [],
+    });
+    expect(filesLeft(files(2, 1))).toBe(3);
+    expect(heldAsItWas(files(0, 0))).toBe(true);
+    expect(heldAsItWas(files(1, 0))).toBe(false);
+    expect(heldAsItWas(files(0, 1))).toBe(false);
+    expect(filesLeft(previewDiff())).toBe(0);
+  });
+
+  it('names the link between a file and a record among what each step writes, as the rewind lists it: removed a delete, put back an insert, given its sharing back an update', () => {
+    expect(rewindSteps(filesDiff())).toEqual({
+      bringBack: ['ContentDocument'],
+      recreate: ['ContentDocumentLink'],
+      giveBack: ['ContentDocument', 'ContentDocumentLink'],
+      delete: ['Account', 'ContentDocument', 'ContentDocumentLink'],
+    });
+    expect(rewindSteps(previewDiff()).delete).not.toContain('ContentDocumentLink');
+  });
+
+  it('counts the files a rewind brings back from the recycle bin, those its storage is measured on', () => {
+    expect(filesBroughtBack(filesDiff())).toBe(1);
+    expect(filesBroughtBack(previewDiff())).toBe(0);
   });
 
   it('names who last changed the records, every object together, the most first, by Id when unnamed', () => {
@@ -261,6 +311,16 @@ describe('what a rewind did', () => {
       { phase: 'bringBack', count: 1 },
       { phase: 'giveBack', count: 6 },
       { phase: 'delete', count: 8 },
+      { phase: 'check', count: 0 },
+    ]);
+  });
+
+  it('lists the links between files and records a rewind writes as a phase of their own, before it deletes', () => {
+    expect(rewindPhases(filesDiff())).toEqual([
+      { phase: 'bringBack', count: 1 },
+      { phase: 'giveBack', count: 1 },
+      { phase: 'links', count: 4 },
+      { phase: 'delete', count: 2 },
       { phase: 'check', count: 0 },
     ]);
   });

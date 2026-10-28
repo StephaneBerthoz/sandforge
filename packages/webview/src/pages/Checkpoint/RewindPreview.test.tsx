@@ -11,6 +11,7 @@ import {
   developerOrg,
   diffObject,
   fakeHost,
+  filesDiff,
   previewAnswer,
   previewDiff,
   readyCheckpoint,
@@ -312,6 +313,8 @@ describe('RewindPreview', () => {
       "Formulas, roll-ups, auto-numbers and the created and modified dates are the org's own: Rewind does not write them, and the last modified dates will show the rewind.",
       'Rewind changes data in DEV-SB only. What already left it (emails, callouts, outbound messages, platform events, data other systems pulled) stays sent.',
       'Metadata is not rewound: fields, flows, validation rules, layouts and permissions stay as they are. Compare Org covers metadata.',
+      // The diff holds no files: a checkpoint taken before they were held.
+      'This checkpoint holds no files — taken before SandForge 1.70, or of objects without them: files attached since stay, and the result names those attached to the records it deletes.',
     ]);
   });
 
@@ -565,6 +568,42 @@ describe('RewindPreview', () => {
     );
   });
 
+  it('lists a trigger on the links between files and records as a link the rewind removes fires it, and holds Rewind until it is accepted', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [diffObject('ContentDocument')],
+        files: {
+          unlink: 1,
+          relink: 0,
+          updateLinks: 0,
+          outsideAdded: 0,
+          outsideDeleted: 0,
+          storage: { bringBack: 0, undo: 0 },
+        },
+      }),
+      automation: {
+        ...AUTOMATION,
+        objectsRead: ['ContentDocumentLink'],
+        objects: [
+          {
+            objectApiName: 'ContentDocumentLink',
+            flows: [],
+            triggers: [{ name: 'FileAttachedToCase', events: ['afterDelete'] }],
+          },
+        ],
+      },
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-automation-delete-ContentDocumentLink').textContent,
+    ).toContain('FileAttachedToCase');
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Rewind even though DEV-SB runs automation' }),
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeEnabled();
+  });
+
   it('takes automation the org would not let be read for automation found', () => {
     renderPreview();
     answerPreview({
@@ -605,6 +644,33 @@ describe('RewindPreview', () => {
     );
     fireEvent.click(screen.getByRole('checkbox', { name: 'Delete these too' }));
     expect(screen.queryByTestId('checkpoint-preview-outside-otherwise')).toBeNull();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    confirmRewind();
+    expect(onRewind).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acceptOutside: true }),
+      expect.anything(),
+    );
+  });
+
+  it('says the files a rewind deletes that are attached outside the checkpoint too as files, and asks for them in a checkpoint of picked objects', () => {
+    const { onRewind } = renderPreview(readyCheckpoint({ scope: { mode: 'picked', leftOut: [] } }));
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('ContentDocument', {
+            toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+            outside: [{ objectApiName: 'ContentDocumentLink', count: 3, parents: 2 }],
+          }),
+        ],
+      }),
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-outside-ContentDocument-ContentDocumentLink')
+        .textContent,
+    ).toBe(
+      '2 files the rewind deletes are attached outside the checkpoint too — to a library, a group or a record of another object — by 3 links: deleting them removes them from there as well.',
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Delete these too' }));
     fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
     confirmRewind();
     expect(onRewind).toHaveBeenLastCalledWith(
@@ -769,6 +835,115 @@ describe('RewindPreview', () => {
     ).toEqual([
       '1 record deleted since cannot come back: the recycle bin no longer holds it, and the rewind cannot make it again — a file, whose body the checkpoint does not hold, or a record deleted while the checkpoint was taken (Case).',
     ]);
+    expect(screen.queryByTestId('checkpoint-preview-rewind')).toBeNull();
+  });
+
+  it('says what a rewind of a checkpoint that holds files does to their links and leaves of the org’s files, each in its words', () => {
+    renderPreview();
+    answerPreview({ diff: filesDiff() });
+    const section = screen.getByTestId('checkpoint-preview-files');
+    expect(within(section).getByRole('heading').textContent).toBe('Files and their links');
+    expect(
+      within(section)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      '1 link added since between a file and a record that both stay: removed. The file stays, no longer attached to that record.',
+      '2 links removed since between files and records that stay: put back, under new Ids — Salesforce keeps no removed link in the recycle bin.',
+      "1 link whose sharing changed since gets it back: who sees the file from the record, and with what access. A link to an account keeps its access, which Salesforce doesn't let change: only who sees the file is given back.",
+      "Kept: 2 files added since, as no record of this checkpoint links to them — a user's own, a library's.",
+      'Left in the recycle bin: 1 file deleted since, as no record of this checkpoint linked to it.',
+      'Bringing back 1 file from the recycle bin takes 12 MB of file storage again; DEV-SB has 40 MB left.',
+      'Undo would bring back the files this rewind deletes, taking 3 MB of file storage again.',
+    ]);
+    // The files themselves are the table's: deleted, brought back, given back.
+    expect(rowCells('ContentDocument')).toEqual(['ContentDocument', '1', '1', '1', '1']);
+  });
+
+  it('names a file given a new version among what a rewind cannot undo, and no line of a checkpoint without files', () => {
+    renderPreview();
+    answerPreview({ diff: filesDiff() });
+    const lines = within(screen.getByTestId('checkpoint-preview-cannot'))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent);
+    expect(lines[0]).toBe(
+      "1 file got a new version since: Salesforce deletes no version and won't make an older one the latest again, so the file keeps its new content. The content it had is still in its version history; its title is given back.",
+    );
+    expect(screen.queryByTestId('checkpoint-preview-cannot-filesNotHeld')).toBeNull();
+  });
+
+  it('says the file storage a rewind brings back takes without what is left when the org did not say, and what a user without Query All Files does not see', () => {
+    renderPreview();
+    answerPreview({
+      diff: filesDiff({
+        unlink: 0,
+        relink: 0,
+        updateLinks: 0,
+        outsideAdded: 0,
+        outsideDeleted: 0,
+        storage: { bringBack: 512_000, undo: 0 },
+        blindSpot: true,
+      }),
+    });
+    expect(
+      within(screen.getByTestId('checkpoint-preview-files'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Bringing back 1 file from the recycle bin takes 500 KB of file storage again; DEV-SB did not say how much it has left.',
+      "admin@example.com doesn't have Query All Files: the files of other users that no record of this checkpoint is attached to aren't seen, nor counted here.",
+    ]);
+  });
+
+  it('rewinds a checkpoint whose only difference is a link between a file and a record, saying so in its confirmation', () => {
+    const { onRewind } = renderPreview();
+    const diff = previewDiff({
+      objects: [diffObject('Account'), diffObject('ContentDocument')],
+      files: {
+        unlink: 1,
+        relink: 0,
+        updateLinks: 0,
+        outsideAdded: 0,
+        outsideDeleted: 0,
+        storage: { bringBack: 0, undo: 0 },
+      },
+    });
+    answerPreview({ diff });
+    expect(screen.queryByTestId('checkpoint-preview-nothing')).toBeNull();
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeEnabled();
+    fireEvent.click(rewind);
+    expect(
+      screen.getByText(
+        /: it puts 1 link between a file and a record back as it was, whoever made these changes\.$/,
+      ),
+    ).toBeInTheDocument();
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(expect.objectContaining({ previewId: 'pv-1' }), diff);
+  });
+
+  it('says what still differs, never that the org is as it was, when files no record of the checkpoint links to were added since', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [diffObject('ContentDocument')],
+        files: {
+          unlink: 0,
+          relink: 0,
+          updateLinks: 0,
+          outsideAdded: 2,
+          outsideDeleted: 0,
+          storage: { bringBack: 0, undo: 0 },
+        },
+      }),
+      automation: undefined,
+    });
+    expect(screen.getByTestId('checkpoint-preview-nothing').textContent).toBe(
+      'Nothing to rewind: what still differs is named below, and a rewind cannot put it back.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-files-outside-added').textContent).toBe(
+      "Kept: 2 files added since, as no record of this checkpoint links to them — a user's own, a library's.",
+    );
     expect(screen.queryByTestId('checkpoint-preview-rewind')).toBeNull();
   });
 

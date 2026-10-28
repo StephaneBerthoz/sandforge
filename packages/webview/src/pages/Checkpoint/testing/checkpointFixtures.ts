@@ -317,6 +317,44 @@ export function carriedDiff(): CheckpointPreviewResponse['payload']['diff'] {
   });
 }
 
+/**
+ * A diff of a checkpoint that holds files: a file attached since to an
+ * account of the checkpoint, deleted with it; one deleted since, brought back
+ * with its links; one whose title changed, given it back; one given a new
+ * version since; and the links between files and records that stay — one
+ * added since, two removed since, one whose sharing changed — with three
+ * files no record of the checkpoint links to, left, and the file storage the
+ * file brought back takes against what the org has left.
+ */
+export function filesDiff(
+  files: Partial<NonNullable<CheckpointPreviewResponse['payload']['diff']['files']>> = {},
+): CheckpointPreviewResponse['payload']['diff'] {
+  return previewDiff({
+    objects: [
+      diffObject('Account', {
+        toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+        lastChangedBy: { [USERS.alice]: 1 },
+      }),
+      diffObject('ContentDocument', {
+        toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+        toGiveBack: { records: 1, fields: 1, clearedLookups: 0 },
+        toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+        cannotUndo: [{ reason: 'newFileVersion', count: 1 }],
+        lastChangedBy: { [USERS.alice]: 2 },
+      }),
+    ],
+    files: {
+      unlink: 1,
+      relink: 2,
+      updateLinks: 1,
+      outsideAdded: 2,
+      outsideDeleted: 1,
+      storage: { bringBack: 12 * 1_048_576, remaining: 40 * 1_048_576, undo: 3 * 1_048_576 },
+      ...files,
+    },
+  });
+}
+
 /** What a rewind deleted of one object, nothing left unless `overrides` says so. */
 export function deletedObject(
   objectApiName: string,

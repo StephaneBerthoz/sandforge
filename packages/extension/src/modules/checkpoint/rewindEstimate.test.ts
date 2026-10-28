@@ -1350,7 +1350,7 @@ describe('the budget gate', () => {
       code: 'FILE_STORAGE',
       message:
         'Bringing back 12 files takes 12 MB of file storage; DEV-SB has 10 MB left. Free file ' +
-        'storage, then rewind again. No record was read or written.',
+        'storage, then rewind again. Nothing was written.',
     });
     expect(
       fileStorageRefusal('rewind', { files: 2, bytes: 10 * MB }, 10, 'DEV-SB'),
@@ -1358,8 +1358,8 @@ describe('the budget gate', () => {
     expect(fileStorageRefusal('rewind', { files: 1, bytes: 9 * MB }, 10, 'DEV-SB')).toBeUndefined();
     expect(fileStorageRefusal('undo', { files: 1, bytes: 300_000 }, 0, 'DEV-SB')?.message).toBe(
       'Bringing back 1 file takes 0.3 MB of file storage; DEV-SB has 0 MB left. Free file ' +
-        'storage, then undo the rewind again while the recycle bin still holds them. No record ' +
-        'was read or written.',
+        'storage, then undo the rewind again while the recycle bin still holds them. Nothing ' +
+        'was written.',
     );
     // An org that does not say, or nothing to bring back: nothing to hold.
     expect(

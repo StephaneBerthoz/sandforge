@@ -418,11 +418,14 @@ describe('sandforge-checkpoint take', () => {
 
     expect(code).toBe(0);
     const scope = JSON.parse(stdout) as Record<string, unknown>;
-    expect(Object.keys(scope).sort()).toEqual(['estimate', 'leftOut', 'mode', 'objects']);
+    expect(Object.keys(scope).sort()).toEqual(['estimate', 'files', 'leftOut', 'mode', 'objects']);
     expect(scope).toMatchObject({
       mode: 'everything',
       estimate: { records: 3, apiRequestsLeft: 14_900 },
     });
+    // What it would hold of the org's files, as the handler answers it: the
+    // memory org has no file, and its user no Query All Files.
+    expect(scope.files).toEqual({ held: false, queryAllFiles: false, addedToPicked: [] });
     expect(asked.filter((soql) => /SELECT Id, SystemModstamp/.test(soql))).toEqual([]);
     expect(await h.kept()).toEqual([]);
   });

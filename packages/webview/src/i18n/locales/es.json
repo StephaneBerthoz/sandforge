@@ -4586,7 +4586,9 @@
       "resultChanged_one": "{{formatted}} conservado, modificado por otra persona durante el retroceso",
       "resultChanged_other": "{{formatted}} conservados, modificados por otra persona durante el retroceso",
       "resultFilesLeft_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}, ya que el punto de control no cubre archivos: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que el punto de control no cubre archivos: {{names}}"
+      "resultFilesLeft_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}, ya que el punto de control no cubre archivos: {{names}}",
+      "resultFilesLeftHeld_one": "{{formatted}} archivo adjunto a ellos se queda en {{org}}: el punto de control lo contiene, o también está adjunto a un registro fuera del punto de control: {{names}}",
+      "resultFilesLeftHeld_other": "{{formatted}} archivos adjuntos a ellos se quedan en {{org}}: el punto de control los contiene, o también están adjuntos a un registro fuera del punto de control: {{names}}"
     },
     "rewindUndo": {
       "resultSuccess": "Cada registro que el retroceso recuperó o creó de nuevo está ahora en la papelera de {{org}}.",
@@ -5364,7 +5366,7 @@
       "pickedNone": "Elija los objetos que conserva el punto de control.",
       "pickedCount_one": "{{formatted}} objeto elegido",
       "pickedCount_other": "{{formatted}} objetos elegidos",
-      "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas, Chatter, objetos de historial y de logs, archivos.",
+      "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
       "seeLeftOut_one": "Ver el objeto que se deja fuera, y por qué",
       "seeLeftOut_other": "Ver los {{formatted}} objetos que se dejan fuera, y por qué",
       "beforeItRuns": "Antes de empezar",
@@ -5387,7 +5389,17 @@
       "taken": "«{{name}}» creado — {{records}} en {{objects}}, {{size}}",
       "moved_one": "{{formatted}} registro cambió durante la creación; un retroceso lo trata como modificado desde entonces.",
       "moved_other": "{{formatted}} registros cambiaron durante la creación; un retroceso los trata como modificados desde entonces.",
-      "done": "Hecho"
+      "done": "Hecho",
+      "filesHeld": "Archivos: guarda qué archivos están adjuntos a los registros que contiene — Archivos de Salesforce y archivos adjuntos clásicos — y la última versión de cada archivo, no su contenido. Un retroceso elimina los archivos que se les adjuntaron desde entonces, recupera los eliminados desde entonces y deja como está un archivo que no está adjunto a ningún registro que contiene, el de un usuario o el de una biblioteca.",
+      "filesNotHeld": "Los archivos no se guardan: un retroceso deja como están los archivos adjuntados desde entonces.",
+      "filesBlindSpot": "{{user}} no tiene Query All Files: los archivos de otros usuarios que no están adjuntos a ningún registro del punto de control — en una biblioteca de la que {{user}} no es miembro, por ejemplo — no se ven. Los archivos adjuntos a sus registros se ven de todos modos.",
+      "filesReadByIds": "Los vínculos de {{objects}} se leyeron por listas de Id de registros: {{org}} rechazó una sola consulta, o respondió demasiado tarde.",
+      "filesAdded_one": "{{objects}} se añade a los objetos que eligió: sin él, un retroceso dejaría como están los archivos adjuntados desde entonces.",
+      "filesAdded_other": "{{objects}} se añaden a los objetos que eligió: sin ellos, un retroceso dejaría como están los archivos adjuntados desde entonces.",
+      "filesKept_one": "{{formatted}} archivo está adjunto a sus registros ({{links}}): un retroceso deshace lo que se les adjunte desde entonces.",
+      "filesKept_other": "{{formatted}} archivos están adjuntos a sus registros ({{links}}): un retroceso deshace lo que se les adjunte desde entonces.",
+      "fileLinks_one": "{{formatted}} vínculo",
+      "fileLinks_other": "{{formatted}} vínculos"
     },
     "preview": {
       "title": "Retroceder {{org}} a «{{name}}» ({{date}})",
@@ -5449,8 +5461,8 @@
         "convertedLead_other": "{{formatted}} candidatos se convirtieron desde entonces: Salesforce no puede deshacer la conversión de un candidato. Lo que crearon las conversiones se elimina, y los candidatos siguen convertidos.",
         "activatedContract_one": "{{formatted}} contrato se activó desde entonces: Salesforce no lo devolverá a Borrador, así que sigue activado.",
         "activatedContract_other": "{{formatted}} contratos se activaron desde entonces: Salesforce no los devolverá a Borrador, así que siguen activados.",
-        "newFileVersion_one": "{{formatted}} archivo recibió una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que el archivo conserva su nuevo contenido y el anterior queda en su historial de versiones.",
-        "newFileVersion_other": "{{formatted}} archivos recibieron una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que los archivos conservan su nuevo contenido y el anterior de cada uno queda en su historial de versiones.",
+        "newFileVersion_one": "{{formatted}} archivo recibió una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que el archivo conserva su nuevo contenido. El que tenía sigue en su historial de versiones; su título se devuelve.",
+        "newFileVersion_other": "{{formatted}} archivos recibieron una nueva versión desde entonces: Salesforce no elimina ninguna versión ni vuelve a poner una anterior como la más reciente, así que los archivos conservan su nuevo contenido. El que tenía cada uno sigue en su historial de versiones; sus títulos se devuelven.",
         "fieldRemoved": "{{field}} se eliminó desde el punto de control: restáurelo desde Campos eliminados (en un plazo de 15 días) y luego vuelva a retroceder.",
         "fieldsAdded_one": "{{fields}} se añadió desde entonces: sus valores se quedan.",
         "fieldsAdded_other": "{{fields}} se añadieron desde entonces: sus valores se quedan.",
@@ -5458,7 +5470,8 @@
         "fieldsChanged_other": "Los tipos de {{fields}} cambiaron desde entonces: el retroceso los intenta campo por campo.",
         "computed": "Las fórmulas, los resúmenes acumulados, los números automáticos y las fechas de creación y modificación son de la org: el retroceso no los escribe, y las fechas de última modificación mostrarán el retroceso.",
         "leftTheOrg": "El retroceso solo cambia datos en {{org}}. Lo que ya salió de ella (correos electrónicos, callouts, mensajes salientes, eventos de plataforma, datos que otros sistemas obtuvieron) sigue enviado.",
-        "metadata": "Los metadatos no retroceden: campos, flujos, reglas de validación, formatos y permisos se quedan como están. Comparación cubre los metadatos."
+        "metadata": "Los metadatos no retroceden: campos, flujos, reglas de validación, formatos y permisos se quedan como están. Comparación cubre los metadatos.",
+        "filesNotHeld": "Este punto de control no contiene archivos — tomado antes de SandForge 1.70, o de objetos sin ellos: los archivos adjuntados desde entonces se quedan, y el resultado nombra los adjuntos a los registros que elimina."
       },
       "undoCannot": {
         "title": "Lo que Deshacer no podría recuperar",
@@ -5476,7 +5489,9 @@
         "parents_other": "{{formatted}} registros de {{object}} que el retroceso elimina",
         "everything": "Se van con los registros de los que dependen.",
         "accept": "Eliminarlos también",
-        "otherwise": "Sin esta casilla marcada, los registros de los que dependen se quedan y se nombran."
+        "otherwise": "Sin esta casilla marcada, los registros de los que dependen se quedan y se nombran.",
+        "files_one": "{{formatted}} archivo que el retroceso elimina también está adjunto fuera del punto de control — a una biblioteca, un grupo o un registro de otro objeto — por {{links}}: eliminarlo lo quita también de allí.",
+        "files_other": "{{formatted}} archivos que el retroceso elimina también están adjuntos fuera del punto de control — a una biblioteca, un grupo o un registro de otro objeto — por {{links}}: eliminarlos los quita también de allí."
       },
       "notCompared": "No comparados (usted lo eligió): {{fields}}",
       "automation": {
@@ -5512,7 +5527,9 @@
         "recreate_one": "crea de nuevo {{formatted}} registro que la papelera ya no contiene, con un Id nuevo",
         "recreate_other": "crea de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos",
         "carriers_one": "recupera un momento {{formatted}} registro que se había llevado registros del punto de control y luego lo elimina de nuevo",
-        "carriers_other": "recupera un momento {{formatted}} registros que se habían llevado registros del punto de control y luego los elimina de nuevo"
+        "carriers_other": "recupera un momento {{formatted}} registros que se habían llevado registros del punto de control y luego los elimina de nuevo",
+        "links_one": "deja {{formatted}} vínculo entre un archivo y un registro como estaba",
+        "links_other": "deja {{formatted}} vínculos entre archivos y registros como estaban"
       },
       "toRecreate_one": "{{formatted}} por volver a crear",
       "toRecreate_other": "{{formatted}} por volver a crear",
@@ -5525,6 +5542,26 @@
         "ifEmptiedTitle": "Si la papelera ya no los contiene",
         "ifEmptied": "Salesforce aún muestra como eliminado un registro vaciado de la papelera, durante minutos u horas, y solo dice que la papelera ya no lo contiene cuando el retroceso pide recuperarlo. Marcado, el retroceso lo crea entonces de nuevo a partir del punto de control, con un Id nuevo, junto con los registros que debían volver con él, y se ejecuta lo que la org ejecuta al crear un registro; sin marcar, los deja y los nombra.",
         "accept": "Crearlos de nuevo, con Id nuevos"
+      },
+      "files": {
+        "title": "Los archivos y sus vínculos",
+        "shareTypeFixed": "Un vínculo a una cuenta conserva su acceso, que Salesforce no deja cambiar: solo se devuelve quién ve el archivo.",
+        "undoStorage": "Deshacer recuperaría los archivos que este retroceso elimina, volviendo a ocupar {{size}} de almacenamiento de archivos.",
+        "blindSpot": "{{user}} no tiene Query All Files: los archivos de otros usuarios que no están adjuntos a ningún registro de este punto de control no se ven, ni se cuentan aquí.",
+        "unlink_one": "{{formatted}} vínculo añadido desde entonces entre un archivo y un registro que se quedan: se quita. El archivo se queda, ya no adjunto a ese registro.",
+        "unlink_other": "{{formatted}} vínculos añadidos desde entonces entre archivos y registros que se quedan: se quitan. Los archivos se quedan, ya no adjuntos a esos registros.",
+        "relink_one": "{{formatted}} vínculo quitado desde entonces entre un archivo y un registro que se quedan: se vuelve a poner, con un Id nuevo — Salesforce no guarda ningún vínculo quitado en la papelera.",
+        "relink_other": "{{formatted}} vínculos quitados desde entonces entre archivos y registros que se quedan: se vuelven a poner, con Id nuevos — Salesforce no guarda ningún vínculo quitado en la papelera.",
+        "updateLinks_one": "{{formatted}} vínculo cuyo uso compartido cambió desde entonces lo recupera: quién ve el archivo desde el registro, y con qué acceso.",
+        "updateLinks_other": "{{formatted}} vínculos cuyo uso compartido cambió desde entonces lo recuperan: quién ve el archivo desde el registro, y con qué acceso.",
+        "outsideAdded_one": "Se conserva: {{formatted}} archivo añadido desde entonces, ya que ningún registro de este punto de control está vinculado a él — el de un usuario, el de una biblioteca.",
+        "outsideAdded_other": "Se conservan: {{formatted}} archivos añadidos desde entonces, ya que ningún registro de este punto de control está vinculado a ellos — los de un usuario, los de una biblioteca.",
+        "outsideDeleted_one": "Se deja en la papelera: {{formatted}} archivo eliminado desde entonces, ya que ningún registro de este punto de control estaba vinculado a él.",
+        "outsideDeleted_other": "Se dejan en la papelera: {{formatted}} archivos eliminados desde entonces, ya que ningún registro de este punto de control estaba vinculado a ellos.",
+        "storage_one": "Recuperar {{formatted}} archivo de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; a {{org}} le quedan {{remaining}}.",
+        "storage_other": "Recuperar {{formatted}} archivos de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; a {{org}} le quedan {{remaining}}.",
+        "storageUnsaid_one": "Recuperar {{formatted}} archivo de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; {{org}} no dijo cuánto le queda.",
+        "storageUnsaid_other": "Recuperar {{formatted}} archivos de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; {{org}} no dijo cuánto le queda."
       }
     },
     "run": {
@@ -5540,7 +5577,9 @@
         "delete_other": "Eliminar {{formatted}} registros añadidos desde entonces, los hijos primero",
         "check": "Comprobar: leer {{org}} de nuevo",
         "recreate_one": "Crear de nuevo {{formatted}} registro que la papelera ya no contiene, con un Id nuevo",
-        "recreate_other": "Crear de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos"
+        "recreate_other": "Crear de nuevo {{formatted}} registros que la papelera ya no contiene, con Id nuevos",
+        "links_one": "Dejar {{formatted}} vínculo entre un archivo y un registro como estaba",
+        "links_other": "Dejar {{formatted}} vínculos entre archivos y registros como estaban"
       },
       "progress": "Progreso del retroceso",
       "undoProgress": "Progreso de Deshacer",
@@ -5636,7 +5675,15 @@
         "remade_one": "Eliminado de nuevo en {{org}}: {{formatted}} registro que el retroceso creó de nuevo, con lo que se fue con él",
         "remade_other": "Eliminados de nuevo en {{org}}: {{formatted}} registros que el retroceso creó de nuevo, con lo que se fue con ellos",
         "carriedAlone_one": "Devuelto solo a la papelera de {{org}}: {{formatted}} registro de {{object}} que había ido allí con un registro que el retroceso recuperó un momento, y que se queda allí. Vuelve solo, bajo el padre que le daba el punto de control.",
-        "carriedAlone_other": "Devueltos solos a la papelera de {{org}}: {{formatted}} registros de {{object}} que habían ido allí con un registro que el retroceso recuperó un momento, y que se queda allí. Vuelven solos, bajo el padre que les daba el punto de control."
+        "carriedAlone_other": "Devueltos solos a la papelera de {{org}}: {{formatted}} registros de {{object}} que habían ido allí con un registro que el retroceso recuperó un momento, y que se queda allí. Vuelven solos, bajo el padre que les daba el punto de control.",
+        "files": {
+          "unlinked_one": "{{formatted}} vínculo que el retroceso volvió a poner, quitado de nuevo",
+          "unlinked_other": "{{formatted}} vínculos que el retroceso volvió a poner, quitados de nuevo",
+          "relinked_one": "{{formatted}} vínculo que el retroceso quitó, vuelto a poner con un Id nuevo",
+          "relinked_other": "{{formatted}} vínculos que el retroceso quitó, vueltos a poner con Id nuevos",
+          "linksUpdated_one": "{{formatted}} vínculo que recuperó el uso compartido que tenía antes del retroceso",
+          "linksUpdated_other": "{{formatted}} vínculos que recuperaron el uso compartido que tenían antes del retroceso"
+        }
       },
       "recreated": {
         "title": "Creados de nuevo en {{org}}, con Id nuevos",
@@ -5648,6 +5695,17 @@
         "line_other": "{{object}}: {{formatted}} registros que el punto de control no contiene",
         "deletedAgain": "Eliminados de nuevo una vez que esos registros volvieron, con lo que volvió con ellos: en la papelera, como antes del retroceso.",
         "stopped": "Detenido antes de que el retroceso terminara: lo que aún no había eliminado de nuevo sigue en {{org}}. Un nuevo retroceso lo elimina, junto con lo que volvió con ello."
+      },
+      "files": {
+        "title": "Vínculos entre archivos y registros en {{org}}",
+        "unlinked_one": "{{formatted}} vínculo añadido desde entonces quitado: su archivo se queda",
+        "unlinked_other": "{{formatted}} vínculos añadidos desde entonces quitados: sus archivos se quedan",
+        "relinked_one": "{{formatted}} vínculo quitado desde entonces vuelto a poner, con un Id nuevo",
+        "relinked_other": "{{formatted}} vínculos quitados desde entonces vueltos a poner, con Id nuevos",
+        "linksUpdated_one": "{{formatted}} vínculo que recuperó su uso compartido",
+        "linksUpdated_other": "{{formatted}} vínculos que recuperaron su uso compartido",
+        "linksRefused_one": "{{formatted}} vínculo que {{org}} se negó a escribir",
+        "linksRefused_other": "{{formatted}} vínculos que {{org}} se negó a escribir"
       }
     },
     "undo": {

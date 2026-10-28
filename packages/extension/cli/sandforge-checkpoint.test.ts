@@ -26,6 +26,9 @@ import {
   rewindLines,
   rewindQuestion,
   rewindStepsOf,
+  scopeJson,
+  scopeLines,
+  takeLines,
   undoLines,
 } from './sandforge-checkpoint.js';
 
@@ -353,9 +356,21 @@ describe('parseArgs', () => {
       '--fail-on-change, the org differs',
       '4 unstable (someone else changed\nrecords during the rewind or the undo: left as they made them)',
       '130, 143, 129 Ctrl-C, SIGTERM or\nSIGHUP stopped it — run rewind again: it takes up from what still differs',
+      // What a checkpoint holds of files, and what it answers of them.
+      'A checkpoint holds the files attached to its records, Salesforce Files and classic attachments:',
+      'files?, {documents, links, anchored, readByIds?}',
+      'files, {held, queryAllFiles, addedToPicked}',
+      'diff.files, for a checkpoint that holds\n                     files: {unlink, relink, updateLinks, outsideAdded, outsideDeleted, storage:',
+      'files?: {unlinked, relinked, linksUpdated, linksRefused}',
+      'files to bring back taking more file storage than it has left',
+      'a file given a new version since, which keeps it',
+      'the files of a\ncheckpoint taken before SandForge 1.70, which holds none',
     ]) {
       expect(stdout).toContain(said);
     }
+    // Files were out of a checkpoint's reach until 1.70; they no longer are.
+    expect(stdout).not.toContain('metadata; files.');
+    expect(stdout).not.toContain('which a checkpoint doesn’t cover');
     // "In clear", a calque of the French "en clair", read as "clearly".
     expect(stdout).toContain(
       "A checkpoint holds the records' values as the org held them, personal data among them,\nunencrypted, in files only you can read",
@@ -1496,6 +1511,245 @@ describe('rewindLines, undoLines and resultJson', () => {
       broughtBack: 0,
       refused: 1,
     });
+  });
+});
+
+describe('files', () => {
+  const checkpoint = {
+    checkpointId: 'ck-20261022-160000-cccc',
+    name: 'Before UAT',
+    takenAt: '2026-10-20T14:05:31.000Z',
+    ignoredFields: [],
+  };
+  const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+  const MB = 1_048_576;
+  /** The files of a diff, nothing to do unless `patch` says so. */
+  const filesOf = (patch: Partial<NonNullable<RewindDiff['files']>> = {}): RewindDiff['files'] => ({
+    unlink: 0,
+    relink: 0,
+    updateLinks: 0,
+    outsideAdded: 0,
+    outsideDeleted: 0,
+    storage: { bringBack: 0, undo: 0 },
+    ...patch,
+  });
+  /**
+   * A diff of a checkpoint that holds files: a file attached since deleted, one
+   * deleted since brought back, one given a new version, the links of files
+   * and records that stay, and files no record of the checkpoint links to.
+   */
+  const withFiles = (): RewindDiff =>
+    diffOf(
+      [
+        object({
+          objectApiName: 'ContentDocument',
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toBringBack: { inBin: 1, withParent: 0, deletedWhileTaken: 0 },
+          cannotUndo: [{ reason: 'newFileVersion', count: 1 }],
+        }),
+      ],
+      {
+        files: filesOf({
+          unlink: 1,
+          relink: 2,
+          updateLinks: 1,
+          outsideAdded: 2,
+          outsideDeleted: 1,
+          storage: { bringBack: 12 * MB, remaining: 40 * MB, undo: 3 * MB },
+        }),
+      },
+    );
+
+  it('says the org differs for a link to remove, put back or give its sharing back, and for files no record of the checkpoint links to, on their own', () => {
+    for (const files of [
+      filesOf({ unlink: 1 }),
+      filesOf({ relink: 1 }),
+      filesOf({ updateLinks: 1 }),
+      filesOf({ outsideAdded: 1 }),
+      filesOf({ outsideDeleted: 1 }),
+    ]) {
+      const diff = diffOf([object({ objectApiName: 'ContentDocument' })], { files });
+      expect(orgDiffers(diff)).toBe(true);
+      expect(previewExitCode(diff, true)).toBe(3);
+    }
+    const same = diffOf([object({ objectApiName: 'ContentDocument' })], { files: filesOf() });
+    expect(orgDiffers(same)).toBe(false);
+    expect(previewLines('DEV-SB', checkpoint, { diff: same, estimate })).toContain(
+      "  DEV-SB is as it was at 'Before UAT' among the objects and fields it holds: nothing to rewind.",
+    );
+  });
+
+  it('says what a rewind does to the links between files and records, what it leaves of the org’s files, and the file storage it takes', () => {
+    const lines = previewLines('DEV-SB', checkpoint, { diff: withFiles(), estimate });
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        "  can't be taken back: ContentDocument 1 — files given a new version since: Salesforce deletes no version and won’t make an older one the latest again, so they keep their new content; the content each had is still in its version history, and their titles are given back",
+        '  links to remove: 1 added since between a file and a record that both stay — the file stays, no longer attached to that record',
+        '  links to put back: 2 removed since between a file and a record that both stay, each under a new Id: Salesforce keeps no removed link in the recycle bin',
+        "  links to give their sharing back: 1 — who sees the file from the record, and with what access; a link to an account keeps its access, which Salesforce doesn't let change",
+        "  kept: 2 file(s) added since, as no record of this checkpoint links to them (a user's own, a library's)",
+        '  left in the recycle bin: 1 file(s) deleted since, as no record of this checkpoint linked to them',
+        '  file storage: bringing back 1 file(s) takes 12 MB again; DEV-SB has 40 MB left',
+        '  undo would bring back the files this rewind deletes: 3 MB of file storage again',
+      ]),
+    );
+    // A user with Query All Files sees every file: no blind spot to say.
+    expect(lines.filter((line) => line.includes('Query All Files'))).toEqual([]);
+  });
+
+  it('says what a user without Query All Files does not see, and file storage the org did not say it has left', () => {
+    const diff = diffOf(
+      [
+        object({
+          objectApiName: 'ContentDocument',
+          toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+        }),
+      ],
+      { files: filesOf({ storage: { bringBack: 2 * MB, undo: 0 }, blindSpot: true }) },
+    );
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate });
+    expect(lines).toContain(
+      '  file storage: bringing back 2 file(s) takes 2 MB again; DEV-SB did not say how much it has left',
+    );
+    expect(lines).toContain(
+      "  the user the alias connects as doesn't have Query All Files: other users' files that no record of the checkpoint is attached to (in a library the user is not a member of, say) are not seen, nor counted among the files left; files attached to its records are seen",
+    );
+  });
+
+  it('says the files a rewind deletes that are attached outside the checkpoint too as files, never as records created under them', () => {
+    const diff = diffOf(
+      [
+        object({
+          objectApiName: 'ContentDocument',
+          toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+          outside: [{ objectApiName: 'ContentDocumentLink', count: 3, parents: 2 }],
+        }),
+      ],
+      { files: filesOf() },
+    );
+    const lines = previewLines('DEV-SB', checkpoint, { diff, estimate });
+    expect(lines).toContain(
+      '  also attached outside the checkpoint: 2 file(s) it deletes, by 3 link(s) to a library, a group or a record of another object — deleting them removes them from there as well',
+    );
+    expect(lines.filter((line) => line.includes('ContentDocumentLink created under'))).toEqual([]);
+  });
+
+  it('says nothing of files for a checkpoint taken before they were held', () => {
+    const lines = previewLines('DEV-SB', checkpoint, {
+      diff: diffOf([object({ toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } })]),
+      estimate,
+    });
+    expect(lines.filter((line) => /link|file/i.test(line))).toEqual([]);
+  });
+
+  it('names the link between a file and a record among what each step of a rewind writes, and refuses a trigger on links without --accept-automation', () => {
+    const diff = diffOf([object({ objectApiName: 'ContentDocument' })], {
+      files: filesOf({ unlink: 1, relink: 1, updateLinks: 1 }),
+    });
+    expect(rewindStepsOf(diff)).toMatchObject({
+      delete: ['ContentDocumentLink'],
+      recreate: ['ContentDocumentLink'],
+      giveBack: ['ContentDocumentLink'],
+    });
+    const onLinks = automation({ objects: [triggerOn('ContentDocumentLink', ['afterInsert'])] });
+    expect(
+      acceptanceRefusal('DEV-SB', { diff, automation: onLinks }, NOTHING_ACCEPTED)?.message,
+    ).toBe(
+      'DEV-SB: 1 flow(s), trigger(s) or rule(s) of ContentDocumentLink run as the rewind brings ' +
+        'records back, gives them their values back or deletes them. Rewind refused; give ' +
+        '--accept-automation to rewind all the same. No record was written.',
+    );
+    // A checkpoint that holds no files writes no link.
+    expect(rewindStepsOf(diffOf([object()])).delete).toEqual([]);
+  });
+
+  it('asks before a rewind that puts links between files and records back, saying how many', () => {
+    const diff = diffOf([object({ objectApiName: 'ContentDocument' })], {
+      files: filesOf({ unlink: 1, relink: 2 }),
+    });
+    expect(rewindQuestion('DEV-SB', checkpoint, diff)).toContain(
+      'and brings back 0 record(s) from the recycle bin, and puts 3 link(s) between files and records back as they were — whoever made these changes.',
+    );
+    expect(rewindQuestion('DEV-SB', checkpoint, diffOf([object()]))).not.toContain('link');
+  });
+
+  it('says what a rewind and an undo did to the links between files and records, each in its words, and answers it in --json', () => {
+    const files = { unlinked: 2, relinked: 1, linksUpdated: 1, linksRefused: 1 };
+    expect(rewindLines('DEV-SB', checkpoint, resultOf({ status: 'partial', files }))).toEqual(
+      expect.arrayContaining([
+        '  removed 2 link(s) added since between files and records: the files stay',
+        '  put back 1 link(s) removed since between files and records, under new Ids',
+        '  gave 1 link(s) between files and records their sharing back',
+        '  DEV-SB refused to write 1 link(s) between files and records',
+      ]),
+    );
+    expect(
+      undoLines('DEV-SB', checkpoint, resultOf({ files: { ...files, linksRefused: 0 } })),
+    ).toEqual(
+      expect.arrayContaining([
+        '  removed again 2 link(s) between files and records the rewind put back',
+        '  put back 1 link(s) between files and records the rewind removed, under new Ids',
+        '  gave 1 link(s) between files and records back the sharing they had before the rewind',
+      ]),
+    );
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf({ files })).files).toEqual(files);
+    expect(resultJson('undo', 'DEV-SB', checkpoint, resultOf({ files })).files).toEqual(files);
+    // A rewind that wrote no link says none, and answers none.
+    expect(rewindLines('DEV-SB', checkpoint, resultOf()).filter((l) => l.includes('link'))).toEqual(
+      [],
+    );
+    expect(resultJson('rewind', 'DEV-SB', checkpoint, resultOf())).not.toHaveProperty('files');
+  });
+
+  it('says before a take the files it keeps, the objects of files added to those picked, and what a user without Query All Files does not see; and answers them in --json', () => {
+    const scope = {
+      mode: 'picked' as const,
+      objects: [],
+      leftOut: [],
+      estimate,
+      files: { held: true, queryAllFiles: false, addedToPicked: ['ContentDocument', 'Attachment'] },
+    };
+    const lines = scopeLines('DEV-SB', scope);
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        "  files: it keeps which files are attached to its records (Salesforce Files, classic attachments) and each file's latest version, not its content; a rewind deletes the files attached to them since and brings back those deleted since. A file attached to no record it holds, a user's own or a library's, is left as it is",
+        '  added to the objects picked: ContentDocument, Attachment — without them a rewind would leave the files attached since as they are',
+        "  the user the alias connects as doesn't have Query All Files: other users' files that no record of the checkpoint is attached to (in a library the user is not a member of, say) are not seen, nor counted among the files left; files attached to its records are seen",
+      ]),
+    );
+    expect(scopeJson(scope).files).toEqual(scope.files);
+    expect(
+      scopeLines('DEV-SB', {
+        ...scope,
+        files: { held: false, queryAllFiles: true, addedToPicked: [] },
+      }),
+    ).toContain('  files: not kept — a rewind leaves the files attached since as they are');
+  });
+
+  it('says after a take the files it kept attached to its records, and the objects whose links it read by lists of Ids', () => {
+    const kept = {
+      checkpointId: 'ck-20261022-160000-cccc',
+      name: 'Before UAT',
+      org: { organizationId: '00D000000000001AAA', alias: 'DEV-SB', username: 'admin@example.com' },
+      readFrom: '2026-10-22T16:00:00.000Z',
+      takenAt: '2026-10-22T16:01:00.000Z',
+      objects: [],
+      scope: { mode: 'everything', leftOut: [] },
+      ignoredFields: [],
+      movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+      bytes: 2048,
+      expiresAt: null,
+      files: { documents: 9, links: 14, anchored: 7, readByIds: ['Case'] },
+    } as unknown as OrgCheckpoint;
+    expect(takeLines(kept, '/store/ck')).toEqual(
+      expect.arrayContaining([
+        '  files: 7 attached to its records by 14 link(s): a rewind takes back what is attached to them since',
+        '  the links of Case were read by lists of record Ids: DEV-SB refused one query, or answered too late',
+      ]),
+    );
+    const without = { ...kept };
+    delete without.files;
+    expect(takeLines(without, '/store/ck').filter((line) => line.includes('link'))).toEqual([]);
   });
 });
 

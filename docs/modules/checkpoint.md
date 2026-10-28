@@ -8,7 +8,7 @@ Before you start, know four things:
 
 - **It undoes everyone's work since the checkpoint**, not only SandForge's runs: every record created, changed or deleted since, in the objects the checkpoint holds, by any user, flow or integration. The preview says who last changed what before anything is written.
 - **Never on a production org.** A checkpoint is taken of, and a rewind writes to, a sandbox, a scratch org or a Developer Edition org only; the edition is read from the org itself as well as from SandForge's list of orgs, an edition it cannot tell counts as production, and no setting or flag lifts the refusal. The user SandForge connects as needs **View All Data and Modify All Data**: without them, a record the user cannot see would read as deleted.
-- **It rewinds data, not configuration.** Metadata, users, setup, files and what already left the org are out of its reach: [What a rewind leaves as it is](#what-a-rewind-leaves-as-it-is) lists them.
+- **It rewinds data, not configuration.** Metadata, users, setup, the content of files and what already left the org are out of its reach; the files attached to the records it holds are rewound with them, their content aside: [What a rewind leaves as it is](#what-a-rewind-leaves-as-it-is) lists what it leaves.
 - **A checkpoint holds the records' values unencrypted**, personal data among them, on this machine, readable by you alone, for 30 days unless you keep it: [Where checkpoints are kept](#where-checkpoints-are-kept).
 
 ## Quick Start
@@ -45,6 +45,7 @@ The moment worth keeping is often right after filling an org. The results of a S
 - **Refused before a record is read**, each with its reason: a production org; a user without View All Data and Modify All Data; another take, a rewind or an undo of the org, or a SandForge run writing to it; more records than the take's limit (500,000 unless the command line names another); more API requests than the org has left today.
 - **The take**: its moment is the moment it starts, read on the org's clock. It reads the objects children first, each record as it was when its object was read, and shows its progress, also in Monitor's Live Operations, with **Stop**. A stopped take keeps nothing. Once through, it says how many records it holds in how many objects and how much it takes on disk, and warns when records changed while it was being taken: a rewind treats them as changed since. Take checkpoints when nobody is working in the org.
 - **What it holds of each record**: the fields the user may create or edit, with its created and last modified dates and who set them, which are never written back; never a formula or a roll-up. Tasks and Events are read with the archived ones the platform hides from an ordinary query, so an activity archived since never reads as deleted. A person account's contact is never deleted, brought back nor given back on its own, as Salesforce allows none of it: its account alone is, compared whenever the contact moved.
+- **What it holds of files**: the files attached to the records it holds -- Salesforce Files, enhanced notes among them, and classic attachments -- with the records each is attached to, how it is shared from each, its title, description, owner and sharing settings, and its latest version and size; never a file's content, nor its versions. A file attached to no record it holds -- a user's own, a library's -- is never acted on: a rewind counts it and leaves it. With **Only the objects I pick**, the objects of files (`ContentDocument`, `Attachment`) are added to the objects picked, unless the command line's `--exclude-object` names them, and **Before it runs** says so: without them, a rewind would leave the files attached since. A user without **Query All Files** sees another user's file only through a record it is attached to, or by its Id: the files of other users that no record of the checkpoint is attached to, in a library the user is not a member of say, are not seen, and **Before it runs** says so. The take does not ask for Query All Files, which few admins hold. Once through, it says how many files are attached to its records, by how many links.
 
 ## The list
 
@@ -64,19 +65,20 @@ The page lists the checkpoints of the org it shows, newest first, read from this
 - **Three numbers**: **to delete**, the records added since -- created since, or brought back from the recycle bin since, which go back to it -- with what comes back with a parent and goes again; **to give back**, the records changed since; **to bring back**, the records deleted since. When the recycle bin no longer gives some back, a fourth: **to make again**, which come back with new Ids.
 - **Last changed by**, with how many records each person last changed, and **People working in the org in the last hour**. When the user SandForge connects as is among them, it says that testers who sign in as that user cannot be told apart from the rewind: ask them to stop first.
 - **What a rewind does, object by object**: Delete, Give back, Bring back, Make again when it makes any, and Cannot undo per object, then the details: the field values to give back; the lookups a deletion since cleared, which are given back; the records deleted while the checkpoint was taken, which come back with the values they had then; the records that come back with their parent record; the records the checkpoint does not hold that took records of it along when they were deleted since, which come back for a moment to bring those back, then go back to the recycle bin with what came back with them; the records touched since that hold their checkpoint values, with nothing to give back; and the records the checkpoint does not hold although they are dated before it, a load with back-dated creation dates say, which are left as they are -- a rewind deletes nothing it cannot prove was created since. An object that could not be read is named, and a rewind leaves it as it is: it is never taken for unchanged.
-- **What a rewind cannot undo**: the records deleted since that the recycle bin no longer holds, or keeps for good, and that the rewind cannot make again either -- a file, whose body the checkpoint does not hold, and a record deleted while the checkpoint was taken, whose values it does not hold; the leads converted since, which Salesforce cannot unconvert, left converted and never given back; the contracts activated since, which Salesforce will not set back to Draft, left activated and never given back; the records deleted since with a record created since that Salesforce does not undelete on its own, which their delete took along: Salesforce brings them back with that record only; the records deleted since with their parent, a record of an object the checkpoint does not hold: Salesforce brings them back with that parent only, and a checkpoint that holds its object brings them back; the fields deleted since, to restore from Deleted Fields within 15 days before rewinding again; the fields added since, whose values stay; the fields whose type changed, tried field by field; the values the org computes or keeps itself; what already left the org; metadata.
+- **What a rewind cannot undo**: the records deleted since that the recycle bin no longer holds, or keeps for good, and that the rewind cannot make again either -- a file, whose body the checkpoint does not hold, and a record deleted while the checkpoint was taken, whose values it does not hold; the files given a new version since, which keep it: Salesforce deletes no version and won't make an older one the latest again, so the content each had is still in its version history, and its title is given back; the leads converted since, which Salesforce cannot unconvert, left converted and never given back; the contracts activated since, which Salesforce will not set back to Draft, left activated and never given back; the records deleted since with a record created since that Salesforce does not undelete on its own, which their delete took along: Salesforce brings them back with that record only; the records deleted since with their parent, a record of an object the checkpoint does not hold: Salesforce brings them back with that parent only, and a checkpoint that holds its object brings them back; the fields deleted since, to restore from Deleted Fields within 15 days before rewinding again; the fields added since, whose values stay; the fields whose type changed, tried field by field; the values the org computes or keeps itself; what already left the org; metadata.
 - **What Undo could not bring back**, each reason in its own sentence: the records this rewind deletes in an object Salesforce undeletes only with its parent record, when that parent stays -- a product added since to an opportunity that existed at the checkpoint; and the records it deletes before a record they point at, which the rewind deletes next: Salesforce cannot bring them back after that. A case created since under an account created since is one: the case's account lookup forbids deleting an account that still has cases, as a scratch org showed, so the rewind deletes the case first, alone, and Salesforce cannot bring it back once the account is deleted after it. So is a record made while the checkpoint was taken, or brought back since, under a record the rewind deletes. The rewind is refused unless **Rewind even though Undo could not bring these back** is ticked, and so is `--accept-no-undo` on the command line. A record created since under a record the rewind deletes too, through a relationship whose delete takes it along, is not sent on its own: it goes with its parent, and Undo brings it back with it. Deleted on its own first, it would stay in the recycle bin for good once its parent was deleted after it.
 - **Made again, with new Ids**: the records deleted since that the recycle bin no longer gives back -- emptied from it, or kept there for good: one deleted on its own, then a record it hangs from or points at deleted after it, as a case then its account -- whose values the checkpoint holds. The rewind makes them again from the checkpoint, and every lookup the checkpoint holds that named one names its new Id. Anything outside Salesforce that names their old Ids -- an integration, a link, a report filter -- no longer finds them. The rewind is refused unless **Make them again, with new Ids** is ticked, and so is `--accept-recreate` on the command line. Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours: on a scratch org, five records emptied from it were still read there half an hour later, and no longer a day later, and no read tells such a record from one still in the bin -- a read by its Id answers the same for both. The preview counts it to bring back, and only the undelete's answer, that it is not in the recycle bin, tells it. So whenever the rewind brings records back, the preview offers the same box, under **If the recycle bin no longer holds them**, and `--accept-recreate` on the command line: ticked, a record Salesforce answers is no longer in the bin is made again in the same rewind, with the records that were to come back with it, as if the preview had counted them; unticked, it is left and named. That box holds the rewind only for the records the preview counts to make again.
-- **Also deleted with them, outside the checkpoint**: records of objects the checkpoint does not hold, created under records the rewind deletes, which their delete takes along. A checkpoint of everything people work in deletes them with the records they hang from; one of the objects you picked deletes them only when **Delete these too** is ticked, and otherwise keeps the records they hang from, named once the rewind is through.
+- **Also deleted with them, outside the checkpoint**: records of objects the checkpoint does not hold, created under records the rewind deletes, which their delete takes along. A checkpoint of everything people work in deletes them with the records they hang from; one of the objects you picked deletes them only when **Delete these too** is ticked, and otherwise keeps the records they hang from, named once the rewind is through. A file the rewind deletes that is attached outside the checkpoint too -- to a library, a group or a record of another object -- is said here as well, since deleting it removes it from there: unticked, in a checkpoint of the objects you picked, it stays, removed only from the checkpoint's records.
+- **Files and their links**, for a checkpoint that holds files: the files themselves are in the table, as `ContentDocument` -- added since and attached to a record of the checkpoint, deleted; deleted since, brought back with their links; their title and sharing settings given back -- and under it what the rewind does to the links between its files and its records, compared by the file and the record each ties: a link added since between a file and a record that both stay is removed, and the file stays; one removed since is put back, under a new Id, as Salesforce keeps no removed link in the recycle bin; one whose sharing changed gets it back -- who sees the file from the record, and with what access -- but for the access of a link to an account, which Salesforce does not let change. A file added since that no record of the checkpoint links to -- a user's own, a library's -- is kept, and counted; one deleted since is left in the recycle bin. Then the file storage the files it brings back take again -- a file in the recycle bin takes none, and its undelete counts it again -- against what the org has left, and what Undo would take again of the files the rewind deletes. Without Query All Files, it says that other users' files no record of the checkpoint is attached to are not seen, nor counted.
 - **Not compared (you chose)**: the fields **Stop comparing fields…** set aside, neither compared nor written back.
 - **What the org runs as the rewind writes**: the flows, Apex triggers, processes and workflow rules that run as it brings records back, gives them their values back and deletes them, `after undelete` triggers included. When any runs, or the org would not say, the rewind is refused unless **Rewind even though \<org\> runs automation** is ticked. Under it, the emails they send, per daily limit -- single emails, workflow emails -- about how many and by what, against what the org has left of each today; a Developer Edition, which sends 15 single emails a day, counts its email alerts among them.
 - **The cost**: about how long the rewind takes, and how many API requests of the ones the org has left today. Then: before it writes, Rewind keeps what it changes, so you can undo it for 15 days, and what it deletes comes back with the undo while the recycle bin holds it: 15 days, less if it fills.
 
-Three refusals no box lifts: a SandForge run writing to the org, more API requests than the org has left today, and more emails than it has left today of a daily limit -- past them, Salesforce refuses each record whose flow fails in the save, and the org's own emails stop for the rest of the day: turn off what sends them, or give the user a bypass that keeps it quiet; the preview says them, and **Rewind \<org\>…** stays off. When nothing differs, the preview reads that the org is as it was at the checkpoint among the objects and fields it holds: nothing to rewind.
+Three refusals no box lifts: a SandForge run writing to the org, more API requests than the org has left today, and more emails than it has left today of a daily limit -- past them, Salesforce refuses each record whose flow fails in the save, and the org's own emails stop for the rest of the day: turn off what sends them, or give the user a bypass that keeps it quiet; the preview says them, and **Rewind \<org\>…** stays off. So it does when the files a rewind brings back from the recycle bin would take more file storage than the org has left, both sizes said: free file storage, then rewind again. A checkpoint taken before SandForge 1.70 holds no files, and the panel's preview says so: a rewind to it leaves the files attached since as they are, as 1.69 did. When nothing differs, the preview reads that the org is as it was at the checkpoint among the objects and fields it holds: nothing to rewind.
 
 ## Rewinding
 
-**Rewind \<org\>…** asks for the org's alias, typed, under what the rewind does: it deletes the records added since, gives the records changed since their values from then back and brings back the records deleted since from the recycle bin, whoever made these changes. The rewind then reads the org again and acts on what you confirmed that still differs. What changed after the preview is left as it is and listed under **Changed since the preview**: rewind again to take it. A busy org never makes it loop, and it never does more than you confirmed.
+**Rewind \<org\>…** asks for the org's alias, typed, under what the rewind does: it deletes the records added since, gives the records changed since their values from then back, brings back the records deleted since from the recycle bin and puts the links between files and records back as they were, whoever made these changes. The rewind then reads the org again and acts on what you confirmed that still differs. What changed after the preview is left as it is and listed under **Changed since the preview**: rewind again to take it. A busy org never makes it loop, and it never does more than you confirmed.
 
 It runs in this order, shown on the page with its progress and **Stop the rewind**, and in Live Operations, whose Cancel stops it too:
 
@@ -85,6 +87,8 @@ It runs in this order, shown on the page with its progress and **Stop the rewind
 3. **Give back** the values of the records changed since, 2,000 records at a time, each chunk's current values read just before it is written. Only the fields the checkpoint compares, the org still has and the user may write are read and written, and only those that differ. A record whose update the org refuses for one field is sent again without that field, which keeps its value, and the result counts it. An order that was Draft at the checkpoint gets its status back first, alone.
 4. **Delete** the records added since, children first, into the recycle bin; a record created since under one it deletes goes with it, never on its own. What a record deleted by the rewind held in place -- an opportunity's price book and amount, while it had products added since -- is given back once the deletes are through.
 5. **Check**: the org is read again. When the first pass wrote anything, a second pass takes what it left, and what the user SandForge connects as or the org's Automated Process created or changed in answer: automation that set a field again on save, a record that came back with its parent and goes again.
+
+In a checkpoint that holds files, the files go with these steps as records of `ContentDocument`: brought back with their links, given their title and sharing settings back, and, added since, deleted 200 a call, never by a Bulk API job, their links with them. A link between a file and a record goes with them too: one removed since is put back once the file and the record it ties are both back -- one to a record made again names its new Id --, one whose sharing changed gets it back, and one added since is removed. The check reads the links again: what the platform did not bring back with a file or a record is put back, and named if it still differs. The page lists these links as a step of their own, before the deletes; the org runs what it runs on a link as it is removed or put back, and the preview lists it.
 
 Leaving the page does not stop the rewind: it goes on in the extension, as Live Operations shows. A window closed while it runs stops it, and leaves its journal: the next rewind to the checkpoint takes it up. A record someone else changes after the rewind began is left as they made it, and named. Where testers sign in as the user SandForge connects as, common on a Developer Edition or a scratch org, their changes during the rewind cannot be told from the rewind's own, and are rewound with the rest.
 
@@ -103,12 +107,13 @@ Leaving the page does not stop the rewind: it goes on in the extension, as Live 
 - Stopped part way: the org is between the checkpoint and now. **Rewind again** takes up the same journal, reads the org again and finishes from what still differs; Undo still returns the org to how it was before the rewind.
 - Ended before it was through: what it did is listed, and **Rewind again** takes up from what still differs.
 
-Any result but done offers **Rewind again**, which reads the org afresh for a new preview, and a rewind that wrote anything offers **Undo this rewind**, saying until when. Under it, per object, what was brought back, made again with new Ids, given back and deleted, what was refused, and the API requests the rewind used of the ones left today. Each rewind, and each undo, is recorded in Reports → Audit Trail.
+Any result but done offers **Rewind again**, which reads the org afresh for a new preview, and a rewind that wrote anything offers **Undo this rewind**, saying until when. Under it, per object, what was brought back, made again with new Ids, given back and deleted, what was refused, the links between files and records it removed, put back and gave their sharing back, and those the org refused, and the API requests the rewind used of the ones left today. A file attached to a record the rewind deleted stays when the checkpoint holds it, or when it is attached to a record outside the checkpoint too, and is named; a link to an account whose access changed keeps it, **Kept on purpose**. Each rewind, and each undo, is recorded in Reports → Audit Trail.
 
 ## Undo
 
 **Undo this rewind**, on the rewind's result and on the list's line of the org's last rewind, takes that rewind back from its journal: what it deleted comes back from the recycle bin, what it wrote over gets its values from before back, and what it brought back goes back to the recycle bin -- what came back with a record, a contact with its account or a product with its opportunity, goes with that record, never on its own, so that the record brought back later from the bin brings it back too. What it made again with new Ids goes to the recycle bin as well, said as deleted again, with what went with it, never as brought back: the checkpoint still knows it by its new Id, and a rewind after the undo brings it back from the bin rather than making it a third time. What the rewind brought back for a moment and deleted again stays in the recycle bin, with what went back there with it; a record of the checkpoint it had taken along goes back to the bin on its own, under the parent the checkpoint gave it, and comes back alone -- Salesforce refuses a lookup to a record in the bin -- and Undo says so. What anyone changed in the org since the rewind stays as it is, and is named.
 
+- Files: a file the rewind deleted comes back from the recycle bin with its links, and one it brought back goes back there; a link it removed is put back, under a new Id -- a link holds no more than its two ends and its sharing, so none is lost --, one it put back is removed, and one it gave its sharing back gets the sharing from before. The files it brings back take file storage again: an undo that would take more than the org has left is refused before it writes, both sizes said.
 - It asks for the org's alias, typed, and lists what it could not bring back. **Undo even though \<org\> runs automation as records are updated, deleted or brought back** is never ticked for you: without it, an org that runs automation as the undo writes refuses it, and says what runs. An undo whose writes would send more emails than the org has left today of a daily limit is refused, as a rewind is.
 - It is offered for the last rewind of an org, for 15 days after it, until it is undone: what the rewind deleted comes back while the recycle bin holds it, less long if the bin fills. Deleting the checkpoint, or its expiry, deletes the undo with it.
 - A stopped undo is offered again, and takes up what it left. Once an undo has gone through, the checkpoint's next rewind starts a journal of its own.
@@ -120,7 +125,8 @@ Any result but done offers **Rewind again**, which reads the org afresh for a ne
 - **Users and setup.** Users, profiles, permission set assignments, groups, queues, custom settings and custom metadata are out of scope. A user created since stays: Salesforce does not delete users.
 - **What has left the org.** Emails, text messages, notifications, outbound messages, callouts, platform events and data other systems pulled stay sent. What a rewind's or an undo's writes would send is counted first, per daily limit, and an act past what the org has left today is refused: a Developer Edition sends 15 single emails a day, its email alerts among them. What an Apex trigger sends is not read.
 - **The audit trail.** Field history, the Setup Audit Trail, login history, Chatter posts and tracked changes, the created and last modified dates and the auto-number counters keep the trace of the session and of the rewind: the last modified dates show the rewind, and new records never reuse the numbers of deleted ones.
-- **Files.** File contents, file versions and attachments are not covered: files added since stay, and the result names those attached to the records it deleted.
+- **The content of files.** A checkpoint holds the files attached to its records, their links and classic attachments, never their content: a file given a new version since keeps it, the content it had staying in its version history, and the content of a classic attachment replaced since stays; an enhanced note edited since keeps its new text, a new version of its file. A file purged from the recycle bin cannot come back. A file attached to no record of the checkpoint -- a user's own, a library's -- is left, and counted. A post that shared a file keeps its text without the file once the file goes: Chatter is out of scope. A public link to a file may not come back with it. Without Query All Files, other users' files that no record of the checkpoint is attached to are not seen. A checkpoint taken before SandForge 1.70 holds no files: files added since stay, and the result names those attached to the records it deleted.
+- **Documents of the Documents tab**, shared content kept in folders, as setup is: left out of every checkpoint.
 - **Approvals and queued automation.** Approval history, and automation scheduled or paused during the session, are not rewound.
 - **Records outside the checkpoint's objects** are never compared, except those the rewind's deletes take along, which the preview counts first.
 - **Atomicity.** A rewind is not a transaction and does not freeze the org: it converges, then verifies.
@@ -208,8 +214,8 @@ Commands:
             it and an undo cannot take back; writes nothing
   rewind    return the org to a checkpoint: bring back from the recycle bin the records deleted
             since, give the records changed since their values back, delete the records created
-            since — whoever made the changes; keep what it changes so it can be undone; then read
-            the org again
+            since, and put the files attached to its records back as they were — whoever made the
+            changes; keep what it changes so it can be undone; then read the org again
   undo      take back the org's last rewind: bring back what it deleted, give back what it wrote
             over, send back to the bin what it brought back; what anyone changed since the rewind
             stays, and is said
@@ -248,7 +254,9 @@ rewind:
                                  answers is no longer in the bin as it brings it back is left,
                                  named
   --accept-outside               (a checkpoint of picked objects) also delete the records outside it
-                                 created under records it deletes; without it those parents stay
+                                 created under records it deletes, and the files it deletes that are
+                                 attached outside it too; without it those parents stay, and those
+                                 files are only removed from its records
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
   --yes                          do not ask before writing; without it and with no terminal — a CI
                                  step — it stops at its question, exit 2, having written nothing
@@ -289,14 +297,23 @@ asks it back: such a record, with what was to come back with it, is made again t
 and named without --accept-recreate.
 A record the checkpoint does not hold that took records of it along when it was deleted since is
 brought back for a moment with them, then deleted again with what came back with it.
+A checkpoint holds the files attached to its records, Salesforce Files and classic attachments:
+which records each is attached to, its latest version and its size, never its content. A rewind
+deletes the files attached to them since, brings back those deleted since with their links,
+removes the links added since and puts back those removed since, under new Ids; a file
+attached to no record of the checkpoint, a user's own or a library's, is left and counted.
+Bringing files back from the recycle bin takes file storage again: a rewind or an undo that would
+take more than the org has left is refused before it writes. Without Query All Files, other
+users' files that no record of the checkpoint is attached to are not seen.
 What a rewind cannot undo: a file deleted since and no longer in the recycle bin, whose body the
-checkpoint does not hold, a lead converted since, a contract activated since, a record deleted
-with a parent created since that Salesforce does not undelete on its own, or with its parent of
-an object the checkpoint does not hold (preview counts them); a field added or removed since
-(preview names it); the values the org computes or keeps itself (formulas, roll-ups,
-auto-numbers, created and modified dates); what left the org (emails, callouts, outbound
-messages, platform events); metadata; files. A record the org refuses to put back, or to make
-again, is named by rewind, with its words.
+checkpoint does not hold, a file given a new version since, which keeps it, a lead converted
+since, a contract activated since, a record deleted with a parent created since that Salesforce
+does not undelete on its own, or with its parent of an object the checkpoint does not hold
+(preview counts them); a field added or removed since (preview names it); the values the org
+computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what
+left the org (emails, callouts, outbound messages, platform events); metadata; the files of a
+checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back,
+or to make again, is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -304,12 +321,15 @@ JSON (--json), one value on stdout:
                      (name, org, takenAt, records and bytes are null for a damaged checkpoint;
                      expiresAt is null for one kept until deleted)
   take               {checkpoint, requests?, estimate}: the checkpoint as kept (its
-                     checkpoint.json); requests, {total, byPhase}, the API requests the take sent
+                     checkpoint.json; files?, {documents, links, anchored, readByIds?}, for one
+                     that holds files); requests, {total, byPhase}, the API requests the take sent
                      the org, SOAP calls among them; estimate, what it said before reading a record
-  take --estimate    {mode, objects, leftOut, estimate, refusal?}: estimate.requestsByPhase splits
-                     the requests over a take's phases as requests.byPhase does: guard, scope,
-                     start, counts, bin, snapshot, stability; {mode, refusal} for a take refused
-                     before its scope is read (a production org, a user without the permissions)
+  take --estimate    {mode, objects, leftOut, estimate, refusal?, files?}:
+                     estimate.requestsByPhase splits the requests over a take's phases as
+                     requests.byPhase does: guard, scope, start, counts, bin, snapshot, stability;
+                     files, {held, queryAllFiles, addedToPicked}; {mode, refusal} for a take
+                     refused before its scope is read (a production org, a user without the
+                     permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
                       refusal?}: carriers, the records brought back for a moment and deleted
@@ -317,7 +337,10 @@ JSON (--json), one value on stdout:
                      as the extension answers them; refusal is the one a rewind would meet now;
                      emails, one per daily limit its writes send against: {limit, emails,
                      verdict, remaining?, max?, alertsCounted?, objects: [{objectApiName, write,
-                     records, perRecord, sentBy}]}
+                     records, perRecord, sentBy}]}; diff.files, for a checkpoint that holds
+                     files: {unlink, relink, updateLinks, outsideAdded, outsideDeleted, storage:
+                     {bringBack, remaining?, undo}, blindSpot?}, the links to remove, put back and
+                     give their sharing back, the files left, and file storage in bytes
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -329,7 +352,9 @@ JSON (--json), one value on stdout:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
                      before a record they point at, which the rewind deleted next; carriers, of
-                     what it brought back and deleted, the records brought back for a moment
+                     what it brought back and deleted, the records brought back for a moment;
+                     files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
+                     files and records it wrote, when it wrote one
   undo               as rewind, without recreated, cannotUndo, carriers and undo, with
                      carriedAlone?: [{object, count}], the records sent back to the recycle bin
                      on their own that had gone there with a record the rewind brought back for
@@ -344,12 +369,15 @@ delete: every checkpoint named is deleted); 1 refused before it read or wrote (a
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
 --max-total records, more API requests or emails than the org
-has left today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge
-run writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
+has left today, files to bring back taking more file storage than it has left, a checkpoint of
+the org before a refresh or of an expired scratch org, a SandForge run writing to it), or nothing
+done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes); 3 partial (rewind and undo: records still differ, each said with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
-records the rewind cannot take back or the checkpoint does not hold although they are dated before it, an object that
+links between files and records to remove, put back or give their sharing back, records the
+rewind cannot take back or the checkpoint does not hold although they are dated before it, files
+added or deleted since that no record of it is attached to, an object that
 could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
 records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
 SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches

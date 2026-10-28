@@ -25,6 +25,7 @@ import {
   dateTimeFormat,
   formatDate,
   formatDurationSec,
+  formatFileSize,
   formatNumber,
   formatStoredDate,
 } from '../../utils/formatters';
@@ -36,12 +37,16 @@ import {
 } from '../Forge/ForgeRemovalAutomation';
 import { roughSeconds, undoCannotReasonOf } from './checkpointFacts';
 import {
+  FILE_LINK_OBJECT,
+  FILE_OBJECT,
   REWIND_UNDO_DAYS,
   cannotUndoLines,
   carriersOf,
   carriersTotal,
+  filesBroughtBack,
   heldAsItWas,
   lastChangers,
+  linkWrites,
   outsideLines,
   recreateLines,
   rewindSteps,
@@ -473,6 +478,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 
       <Details diff={diff} />
       <Unread diff={diff} />
+      <Files diff={diff} orgName={orgName} username={org.username} />
       <CannotUndo diff={diff} orgName={orgName} writes={writes} />
 
       {diff.undoCannot.length > 0 && (
@@ -642,8 +648,9 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
 /**
  * What the typed confirmation of a rewind says it does: to what moment it
  * returns the org, and only the parts of it that apply — the records it
- * deletes, gives back, brings back and makes again, and those it brings back
- * for a moment to delete again — whoever made the changes.
+ * deletes, gives back, brings back and makes again, those it brings back
+ * for a moment to delete again, and the links between files and records it
+ * removes, puts back or gives their sharing back — whoever made the changes.
  */
 function confirmDescription(
   t: TFunction,
@@ -658,6 +665,7 @@ function confirmDescription(
     [totals.toBringBack, 'checkpoint.preview.confirm.bringBack'],
     [totals.toRecreate, 'checkpoint.preview.confirm.recreate'],
     [carriersTotal(diff), 'checkpoint.preview.confirm.carriers'],
+    [linkWrites(diff), 'checkpoint.preview.confirm.links'],
   ];
   const changes = parts
     .filter(([count]) => count > 0)
@@ -905,6 +913,118 @@ const Unread: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
 };
 
 /**
+ * What a rewind of a checkpoint that holds files does to the links between
+ * its files and its records, and what it leaves of the org's files, only the
+ * lines that apply: the links it removes, puts back and gives their sharing
+ * back; the files added or deleted since that no record of the checkpoint
+ * links to, left as they are; the file storage the files it brings back take
+ * against what the org has left, and what Undo would take again; and what the
+ * user cannot see without Query All Files. The files it deletes, brings back
+ * and gives their fields back are in the table, as `ContentDocument`.
+ */
+const Files: React.FC<{ diff: RewindDiff; orgName: string; username: string }> = ({
+  diff,
+  orgName,
+  username,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const files = diff.files;
+  if (files === undefined) return null;
+  const counted = (key: string, count: number, extra: Record<string, string> = {}): string =>
+    t(key, { count, formatted: formatNumber(count), ...extra });
+  const back = filesBroughtBack(diff);
+  const { storage } = files;
+  const lines: Array<{ id: string; text: string }> = [
+    ...(files.unlink > 0
+      ? [{ id: 'unlink', text: counted('checkpoint.preview.files.unlink', files.unlink) }]
+      : []),
+    ...(files.relink > 0
+      ? [{ id: 'relink', text: counted('checkpoint.preview.files.relink', files.relink) }]
+      : []),
+    // The org refuses to change the sharing type of a link to an account: a
+    // link of which only that changed is named once the rewind is through.
+    ...(files.updateLinks > 0
+      ? [
+          {
+            id: 'update-links',
+            text:
+              counted('checkpoint.preview.files.updateLinks', files.updateLinks) +
+              ' ' +
+              t('checkpoint.preview.files.shareTypeFixed'),
+          },
+        ]
+      : []),
+    ...(files.outsideAdded > 0
+      ? [
+          {
+            id: 'outside-added',
+            text: counted('checkpoint.preview.files.outsideAdded', files.outsideAdded),
+          },
+        ]
+      : []),
+    ...(files.outsideDeleted > 0
+      ? [
+          {
+            id: 'outside-deleted',
+            text: counted('checkpoint.preview.files.outsideDeleted', files.outsideDeleted),
+          },
+        ]
+      : []),
+    ...(back > 0 && storage.bringBack > 0
+      ? [
+          {
+            id: 'storage',
+            text:
+              storage.remaining === undefined
+                ? counted('checkpoint.preview.files.storageUnsaid', back, {
+                    size: formatFileSize(storage.bringBack),
+                    org: orgName,
+                  })
+                : counted('checkpoint.preview.files.storage', back, {
+                    size: formatFileSize(storage.bringBack),
+                    remaining: formatFileSize(storage.remaining),
+                    org: orgName,
+                  }),
+          },
+        ]
+      : []),
+    ...(storage.undo > 0
+      ? [
+          {
+            id: 'undo-storage',
+            text: t('checkpoint.preview.files.undoStorage', {
+              size: formatFileSize(storage.undo),
+            }),
+          },
+        ]
+      : []),
+    ...(files.blindSpot
+      ? [{ id: 'blind-spot', text: t('checkpoint.preview.files.blindSpot', { user: username }) }]
+      : []),
+  ];
+  if (lines.length === 0) return null;
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1"
+      data-testid="checkpoint-preview-files"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {t('checkpoint.preview.files.title')}
+      </h3>
+      <ul className="ml-4 list-disc">
+        {lines.map((line) => (
+          <li key={line.id} data-testid={`checkpoint-preview-files-${line.id}`}>
+            {line.text}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/**
  * What a rewind cannot undo, only the lines that apply: records the recycle
  * bin no longer holds and the like, by reason; the fields deleted, added or
  * changed since; and, when the rewind writes anything, what the org keeps
@@ -967,6 +1087,12 @@ const CannotUndo: React.FC<{ diff: RewindDiff; orgName: string; writes: boolean 
           { id: 'computed', text: t('checkpoint.preview.cannot.computed') },
           { id: 'left', text: t('checkpoint.preview.cannot.leftTheOrg', { org: orgName }) },
           { id: 'metadata', text: t('checkpoint.preview.cannot.metadata') },
+          // A checkpoint taken before files were held, or whose scope left
+          // them out, rewinds as SandForge 1.69 did: what was attached since
+          // stays.
+          ...(diff.files === undefined
+            ? [{ id: 'filesNotHeld', text: t('checkpoint.preview.cannot.filesNotHeld') }]
+            : []),
         ]
       : []),
   ];
@@ -990,6 +1116,17 @@ const CannotUndo: React.FC<{ diff: RewindDiff; orgName: string; writes: boolean 
     </section>
   );
 };
+
+/**
+ * Whether a line of what goes along outside the checkpoint is of files the
+ * rewind deletes that are attached outside it too: their links to a library,
+ * a group or a record of another object, which their deletion takes along.
+ */
+function isFileShared(
+  line: Pick<ReturnType<typeof outsideLines>[number], 'objectApiName' | 'outside'>,
+): boolean {
+  return line.objectApiName === FILE_OBJECT && line.outside === FILE_LINK_OBJECT;
+}
 
 /** Props for what a rewind's deletions take along outside the checkpoint. */
 interface OutsideBoxProps {
@@ -1030,12 +1167,24 @@ const OutsideBox: React.FC<OutsideBoxProps> = ({ lines, picked, checked, onChang
               key={`${line.objectApiName}-${line.outside}`}
               data-testid={`checkpoint-preview-outside-${line.objectApiName}-${line.outside}`}
             >
-              {t('checkpoint.preview.outside.line', {
-                count: line.count,
-                formatted: formatNumber(line.count),
-                outside: line.outside,
-                parents,
-              })}
+              {/* A file to delete attached outside the checkpoint too leaves
+                  it as well: its links there are what goes along, said as
+                  the file's, not as records created under it. */}
+              {isFileShared(line)
+                ? t('checkpoint.preview.outside.files', {
+                    count: line.parents,
+                    formatted: formatNumber(line.parents),
+                    links: t('checkpoint.take.fileLinks', {
+                      count: line.count,
+                      formatted: formatNumber(line.count),
+                    }),
+                  })
+                : t('checkpoint.preview.outside.line', {
+                    count: line.count,
+                    formatted: formatNumber(line.count),
+                    outside: line.outside,
+                    parents,
+                  })}
             </li>
           );
         })}

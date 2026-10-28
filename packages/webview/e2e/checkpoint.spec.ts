@@ -7,6 +7,7 @@ import { MOCK_ORGS, type MockOrg } from './fixtures';
 import {
   CHECKPOINT_ORG,
   daysFromNow,
+  deletedObject,
   everyListLine,
   listEntry,
   nothingToRewind,
@@ -14,6 +15,7 @@ import {
   partialOfEveryReason,
   plainPreview,
   previewOfEverything,
+  previewWithFiles,
   readyCheckpoint,
   restoredObject,
   rewindResult,
@@ -717,6 +719,126 @@ for (const theme of THEMES) {
       );
       await expect(page.getByTestId('checkpoint-result-rewind-again')).toBeVisible();
       await expectReadable(page, theme, '[data-testid="checkpoint-result"]');
+    });
+
+    test('says what a take keeps of files and cannot see without Query All Files, previews what a rewind does to the files and their links, and says what it did to them', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint({
+        checkpointId: 'ck-files',
+        scope: { mode: 'picked', leftOut: [] },
+        files: { documents: 6, links: 9, anchored: 5 },
+      });
+      const host = await openCheckpoints(page, theme, [listEntry(checkpoint)]);
+
+      // Before it runs: the files it keeps, the objects of files added to
+      // those picked, and what its user cannot see of other users' files.
+      await page.getByRole('button', { name: 'Take a checkpoint' }).click();
+      await host.answer(
+        'checkpoint:scope',
+        scopeAnswer({ files: { held: true, queryAllFiles: false, addedToPicked: [] } }),
+      );
+      await expect(page.getByTestId('checkpoint-files-held')).toContainText(
+        'it keeps which files are attached to the records it holds',
+      );
+      await expect(page.getByTestId('checkpoint-files-blind-spot')).toContainText(
+        `${CHECKPOINT_ORG.username} doesn't have Query All Files`,
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
+      await page.getByTestId('checkpoint-scope-picked').check();
+      await page.getByTestId('checkpoint-pick-Account').check();
+      await host.answer(
+        'checkpoint:scope',
+        scopeAnswer({
+          mode: 'picked',
+          objects: [scopeAnswer().objects[0]],
+          files: {
+            held: true,
+            queryAllFiles: false,
+            addedToPicked: ['ContentDocument', 'Attachment'],
+          },
+        }),
+      );
+      await expect(page.getByTestId('checkpoint-files-added')).toHaveText(
+        'ContentDocument and Attachment are added to the objects you picked: without them, a rewind would leave the files attached since as they are.',
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
+      await page.getByTestId('checkpoint-take-cancel').click();
+
+      // The preview: the files in the table, their links and what it leaves.
+      await page.getByTestId('checkpoint-rewind-ck-files').click();
+      await host.answer('checkpoint:preview', previewWithFiles('ck-files'));
+      const files = page.getByTestId('checkpoint-preview-files');
+      await expect(files.getByRole('heading')).toHaveText('Files and their links');
+      await expect(files.getByRole('listitem')).toHaveText([
+        '1 link added since between a file and a record that both stay: removed. The file stays, no longer attached to that record.',
+        '1 link removed since between a file and a record that both stay: put back, under a new Id — Salesforce keeps no removed link in the recycle bin.',
+        "1 link whose sharing changed since gets it back: who sees the file from the record, and with what access. A link to an account keeps its access, which Salesforce doesn't let change: only who sees the file is given back.",
+        "Kept: 2 files added since, as no record of this checkpoint links to them — a user's own, a library's.",
+        'Left in the recycle bin: 1 file deleted since, as no record of this checkpoint linked to it.',
+        `Bringing back 1 file from the recycle bin takes 12 MB of file storage again; ${ORG} has 40 MB left.`,
+        'Undo would bring back the files this rewind deletes, taking 3 MB of file storage again.',
+        `${CHECKPOINT_ORG.username} doesn't have Query All Files: the files of other users that no record of this checkpoint is attached to aren't seen, nor counted here.`,
+      ]);
+      await expect(page.getByTestId('checkpoint-preview-row-ContentDocument')).toHaveText(
+        ['ContentDocument', '2', '1', '1', '1'].join(''),
+      );
+      await expect(page.getByTestId('checkpoint-preview-cannot-newFileVersion')).toContainText(
+        '1 file got a new version since',
+      );
+      await expect(
+        page.getByTestId('checkpoint-preview-outside-ContentDocument-ContentDocumentLink'),
+      ).toHaveText(
+        '1 file the rewind deletes is attached outside the checkpoint too — to a library, a group or a record of another object — by 2 links: deleting it removes it from there as well.',
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-files"]');
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-outside"]');
+
+      // The rewind: the links are a step of their own.
+      await page.getByTestId('checkpoint-preview-rewind').click();
+      await expect(page.getByRole('dialog')).toContainText(
+        'puts 3 links between files and records back as they were',
+      );
+      await confirmTyped(page, ORG);
+      const started = await host.asked('checkpoint:rewind');
+      await expect(page.getByTestId('checkpoint-run-phase-links')).toHaveText(
+        'Put 3 links between files and records back as they were',
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-run-running"]');
+
+      await host.answer('checkpoint:rewind', {
+        result: rewindResult('ck-files', {
+          status: 'partial',
+          deleted: [
+            deletedObject('Account', {
+              planned: 1,
+              deleted: 1,
+              filesLeft: { count: 1, names: ['Signed contract.pdf'] },
+            }),
+          ],
+          files: { unlinked: 1, relinked: 1, linksUpdated: 0, linksRefused: 1 },
+          residual: [
+            {
+              objectApiName: 'ContentDocumentLink',
+              reason: 'kept',
+              count: 1,
+              ids: [],
+              message:
+                "Its sharing type stays as it is: Salesforce doesn't change the sharing type of a file's link to an account.",
+            },
+          ],
+        }),
+        operationId: started.id,
+      });
+      await expect(page.getByTestId('checkpoint-result-files').getByRole('listitem')).toHaveText([
+        '1 link added since removed: its file stays',
+        '1 link removed since put back, under a new Id',
+        `1 link ${ORG} refused to write`,
+      ]);
+      await expect(page.getByTestId('forge-removal-files-Account')).toHaveText(
+        `1 file attached to them stays in ${ORG}: the checkpoint holds it, or it is attached to a record outside the checkpoint too: Signed contract.pdf`,
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-result-files"]');
     });
 
     test('says an org holds its checkpoint’s state, gives the keyboard back to Rewind… on Back, and says a preview with nothing a rewind could write, after one that could not be read', async ({

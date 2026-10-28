@@ -575,6 +575,9 @@ describe('CheckpointHandler — the scope', () => {
       estimate: { records: 3, apiRequestsLeft: 4_999_000 },
       refusal: { code: 'RUN_WRITING' },
     });
+    // What it would hold of the org's files goes to the page with the rest:
+    // the take says the files it keeps, and what it cannot see of them.
+    expect(answer.payload.files).toEqual({ held: false, queryAllFiles: false, addedToPicked: [] });
     expect(
       (answer.payload.objects as Array<{ objectApiName: string }>)
         .map((o) => o.objectApiName)

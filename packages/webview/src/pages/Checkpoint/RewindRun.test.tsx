@@ -5,6 +5,7 @@ import '../../i18n';
 import {
   diffObject,
   fakeHost,
+  filesDiff,
   previewDiff,
   readyCheckpoint,
   rewindResult,
@@ -83,6 +84,22 @@ describe('RewindRun', () => {
       'Bring back 1 record deleted since',
       'Give 6 records their values back',
       'Delete 8 records added since, children first',
+      'Check: read DEV-SB again',
+    ]);
+  });
+
+  it('lists the links between files and records it puts back as they were, once it gave values back and before it deletes', () => {
+    renderRun(RUNNING, { kind: 'rewind', diff: filesDiff() });
+    const phases = screen.getByRole('list', { name: 'What the rewind does, in order' });
+    expect(
+      within(phases)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Bring back 1 record deleted since',
+      'Give 1 record its values back',
+      'Put 4 links between files and records back as they were',
+      'Delete 2 records added since, children first',
       'Check: read DEV-SB again',
     ]);
   });

@@ -2,6 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 import type {
+  CheckpointScopeFiles,
   CheckpointScopeMode,
   CheckpointScopeObject,
   CheckpointScopeResponse,
@@ -691,6 +692,7 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
             })}
           </p>
         )}
+        {answer.files && <ScopeFiles files={answer.files} username={username} />}
       </div>
     );
   }
@@ -700,6 +702,42 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
       <CardHeader title={t('checkpoint.take.beforeItRuns')} />
       <CardBody>{body}</CardBody>
     </Card>
+  );
+};
+
+/**
+ * What a take holds of the org's files, said before it runs: the files
+ * attached to the records it holds, with what it keeps of them and what it
+ * leaves; the objects of files added to the ones picked, without which a
+ * rewind would leave the files attached since; and, for a user without Query
+ * All Files, what of other users' files it cannot see. A scope that holds no
+ * file says so: a rewind to it leaves files as SandForge 1.69 did.
+ */
+const ScopeFiles: React.FC<{ files: CheckpointScopeFiles; username: string }> = ({
+  files,
+  username,
+}) => {
+  const { t } = useTranslation();
+  if (!files.held) {
+    return <p data-testid="checkpoint-files-not-held">{t('checkpoint.take.filesNotHeld')}</p>;
+  }
+  return (
+    <>
+      <p data-testid="checkpoint-files-held">{t('checkpoint.take.filesHeld')}</p>
+      {files.addedToPicked.length > 0 && (
+        <p data-testid="checkpoint-files-added">
+          {t('checkpoint.take.filesAdded', {
+            count: files.addedToPicked.length,
+            objects: listWords(files.addedToPicked, t),
+          })}
+        </p>
+      )}
+      {!files.queryAllFiles && (
+        <p data-testid="checkpoint-files-blind-spot">
+          {t('checkpoint.take.filesBlindSpot', { user: username })}
+        </p>
+      )}
+    </>
   );
 };
 
@@ -764,6 +802,9 @@ const TakeResult: React.FC<{ checkpoint: OrgCheckpoint; onDone: () => void }> = 
   const objects = objectsWithRecords(checkpoint);
   const { changed, deleted, created } = checkpoint.movedWhileTaken;
   const moved = changed + deleted + created;
+  // The files attached to its records, which a rewind acts on: absent when
+  // its scope left files out.
+  const files = checkpoint.files;
   const recordsHeldText = t('checkpoint.list.records', {
     count: records,
     formatted: formatNumber(records),
@@ -788,6 +829,23 @@ const TakeResult: React.FC<{ checkpoint: OrgCheckpoint; onDone: () => void }> = 
           })}
         </span>
       </p>
+      {files && (
+        <p className="text-sm text-text-primary" data-testid="checkpoint-taken-files">
+          {t('checkpoint.take.filesKept', {
+            count: files.anchored,
+            formatted: formatNumber(files.anchored),
+            links: t('checkpoint.take.fileLinks', {
+              count: files.links,
+              formatted: formatNumber(files.links),
+            }),
+          })}
+          {(files.readByIds?.length ?? 0) > 0 &&
+            ` ${t('checkpoint.take.filesReadByIds', {
+              objects: listWords(files.readByIds ?? [], t),
+              org: checkpoint.org.alias ?? checkpoint.org.username,
+            })}`}
+        </p>
+      )}
       {moved > 0 && (
         <p
           className="flex items-start gap-2 text-sm text-text-primary"

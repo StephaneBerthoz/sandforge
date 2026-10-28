@@ -5,6 +5,7 @@ import type {
   CheckpointListEntry,
   CheckpointLeftOutObject,
   CheckpointRefusal,
+  CheckpointScopeFiles,
   CheckpointScopeMode,
   CheckpointScopeObject,
   CheckpointTakeRequests,
@@ -177,7 +178,8 @@ export interface CheckpointListResponse extends BaseMessage {
 
 /**
  * `checkpoint:scope:response`. Extension -> WebView. With the refusal a take
- * would meet before reading, when it would meet one.
+ * would meet before reading, when it would meet one, and what it would hold
+ * of the org's files, absent for a take refused before its scope is read.
  */
 export interface CheckpointScopeResponse extends BaseMessage {
   type: 'checkpoint:scope:response';
@@ -188,6 +190,7 @@ export interface CheckpointScopeResponse extends BaseMessage {
     leftOut: CheckpointLeftOutObject[];
     estimate: CheckpointEstimate;
     refusal?: CheckpointRefusal;
+    files?: CheckpointScopeFiles;
   };
 }
 

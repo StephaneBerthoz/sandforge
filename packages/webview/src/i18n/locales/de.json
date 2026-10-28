@@ -4586,7 +4586,9 @@
       "resultChanged_one": "{{formatted}} behalten, während des Zurücksetzens von jemand anderem geändert",
       "resultChanged_other": "{{formatted}} behalten, während des Zurücksetzens von jemand anderem geändert",
       "resultFilesLeft_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}"
+      "resultFilesLeft_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}, da der Prüfpunkt keine Dateien umfasst: {{names}}",
+      "resultFilesLeftHeld_one": "{{formatted}} an sie angehängte Datei bleibt in {{org}}: Der Prüfpunkt enthält sie, oder sie ist auch an einen Datensatz außerhalb des Prüfpunkts angehängt: {{names}}",
+      "resultFilesLeftHeld_other": "{{formatted}} an sie angehängte Dateien bleiben in {{org}}: Der Prüfpunkt enthält sie, oder sie sind auch an einen Datensatz außerhalb des Prüfpunkts angehängt: {{names}}"
     },
     "rewindUndo": {
       "resultSuccess": "Jeder Datensatz, den das Zurücksetzen zurückgeholt oder neu angelegt hat, ist jetzt im Papierkorb von {{org}}.",
@@ -5364,7 +5366,7 @@
       "pickedNone": "Wählen Sie die Objekte, die der Prüfpunkt aufbewahrt.",
       "pickedCount_one": "{{formatted}} Objekt ausgewählt",
       "pickedCount_other": "{{formatted}} Objekte ausgewählt",
-      "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, Chatter, Verlaufs- und Protokollobjekte, Dateien.",
+      "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
       "seeLeftOut_one": "Das ausgelassene Objekt und den Grund anzeigen",
       "seeLeftOut_other": "Die {{formatted}} ausgelassenen Objekte und die Gründe anzeigen",
       "beforeItRuns": "Vor dem Start",
@@ -5387,7 +5389,17 @@
       "taken": "„{{name}}“ erstellt — {{records}}, {{objects}}, {{size}}",
       "moved_one": "{{formatted}} Datensatz hat sich während der Erstellung geändert; ein Zurücksetzen behandelt ihn als seitdem geändert.",
       "moved_other": "{{formatted}} Datensätze haben sich während der Erstellung geändert; ein Zurücksetzen behandelt sie als seitdem geändert.",
-      "done": "Fertig"
+      "done": "Fertig",
+      "filesHeld": "Dateien: Er bewahrt auf, welche Dateien an die Datensätze angehängt sind, die er enthält — Salesforce-Dateien und klassische Anhänge —, und die neueste Version jeder Datei, nicht ihren Inhalt. Ein Zurücksetzen löscht die seitdem an sie angehängten Dateien, holt die seitdem gelöschten zurück und lässt eine Datei, die an keinen seiner Datensätze angehängt ist, wie sie ist: die eines Benutzers oder einer Bibliothek.",
+      "filesNotHeld": "Dateien werden nicht aufbewahrt: Ein Zurücksetzen lässt die seitdem angehängten Dateien, wie sie sind.",
+      "filesBlindSpot": "{{user}} hat Query All Files nicht: Dateien anderer Benutzer, die an keinen Datensatz des Prüfpunkts angehängt sind — etwa in einer Bibliothek, deren Mitglied {{user}} nicht ist —, werden nicht gesehen. Die an Datensätze des Prüfpunkts angehängten Dateien werden trotzdem gesehen.",
+      "filesReadByIds": "Die Verknüpfungen von {{objects}} wurden über Listen von Datensatz-Ids gelesen: {{org}} hat eine einzelne Abfrage abgelehnt oder zu spät geantwortet.",
+      "filesAdded_one": "{{objects}} wird zu den ausgewählten Objekten hinzugefügt: Ohne es würde ein Zurücksetzen die seitdem angehängten Dateien lassen, wie sie sind.",
+      "filesAdded_other": "{{objects}} werden zu den ausgewählten Objekten hinzugefügt: Ohne sie würde ein Zurücksetzen die seitdem angehängten Dateien lassen, wie sie sind.",
+      "filesKept_one": "{{formatted}} Datei ist an seine Datensätze angehängt ({{links}}): Ein Zurücksetzen nimmt zurück, was seitdem an sie angehängt wird.",
+      "filesKept_other": "{{formatted}} Dateien sind an seine Datensätze angehängt ({{links}}): Ein Zurücksetzen nimmt zurück, was seitdem an sie angehängt wird.",
+      "fileLinks_one": "{{formatted}} Verknüpfung",
+      "fileLinks_other": "{{formatted}} Verknüpfungen"
     },
     "preview": {
       "title": "{{org}} auf „{{name}}“ zurücksetzen ({{date}})",
@@ -5449,8 +5461,8 @@
         "convertedLead_other": "{{formatted}} Leads wurden seitdem konvertiert: Salesforce kann die Konvertierung eines Leads nicht aufheben. Was die Konvertierungen erstellt haben, wird gelöscht, und die Leads bleiben konvertiert.",
         "activatedContract_one": "{{formatted}} Vertrag wurde seitdem aktiviert: Salesforce setzt ihn nicht auf Entwurf zurück, er bleibt also aktiviert.",
         "activatedContract_other": "{{formatted}} Verträge wurden seitdem aktiviert: Salesforce setzt sie nicht auf Entwurf zurück, sie bleiben also aktiviert.",
-        "newFileVersion_one": "{{formatted}} Datei hat seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Datei behält also ihren neuen Inhalt; der vorherige bleibt in ihrem Versionsverlauf.",
-        "newFileVersion_other": "{{formatted}} Dateien haben seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Dateien behalten also ihren neuen Inhalt; der vorherige bleibt jeweils in ihrem Versionsverlauf.",
+        "newFileVersion_one": "{{formatted}} Datei hat seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Datei behält also ihren neuen Inhalt. Der vorherige bleibt in ihrem Versionsverlauf; ihr Titel wird zurückgegeben.",
+        "newFileVersion_other": "{{formatted}} Dateien haben seitdem eine neue Version erhalten: Salesforce löscht keine Version und macht keine ältere wieder zur neuesten, die Dateien behalten also ihren neuen Inhalt. Der vorherige bleibt jeweils in ihrem Versionsverlauf; ihre Titel werden zurückgegeben.",
         "fieldRemoved": "{{field}} wurde seit dem Prüfpunkt gelöscht: Stellen Sie das Feld unter „Gelöschte Felder“ wieder her (innerhalb von 15 Tagen) und setzen Sie dann erneut zurück.",
         "fieldsAdded_one": "{{fields}} wurde seitdem hinzugefügt: Seine Werte bleiben.",
         "fieldsAdded_other": "{{fields}} wurden seitdem hinzugefügt: Ihre Werte bleiben.",
@@ -5458,7 +5470,8 @@
         "fieldsChanged_other": "Die Typen von {{fields}} haben sich seitdem geändert: Das Zurücksetzen versucht sie Feld für Feld.",
         "computed": "Formeln, Rollups, automatische Nummern sowie Erstellungs- und Änderungsdaten verwaltet die Org selbst: Das Zurücksetzen schreibt sie nicht, und die Daten der letzten Änderung zeigen das Zurücksetzen.",
         "leftTheOrg": "Das Zurücksetzen ändert nur Daten in {{org}}. Was {{org}} schon verlassen hat (E-Mails, Callouts, ausgehende Nachrichten, Plattformereignisse, Daten, die andere Systeme abgerufen haben), bleibt gesendet.",
-        "metadata": "Metadaten werden nicht zurückgesetzt: Felder, Flows, Validierungsregeln, Layouts und Berechtigungen bleiben, wie sie sind. Vergleich deckt Metadaten ab."
+        "metadata": "Metadaten werden nicht zurückgesetzt: Felder, Flows, Validierungsregeln, Layouts und Berechtigungen bleiben, wie sie sind. Vergleich deckt Metadaten ab.",
+        "filesNotHeld": "Dieser Prüfpunkt enthält keine Dateien — vor SandForge 1.70 erstellt oder von Objekten ohne sie: Seitdem angehängte Dateien bleiben, und das Ergebnis nennt die an gelöschte Datensätze angehängten."
       },
       "undoCannot": {
         "title": "Was das Rückgängigmachen nicht zurückholen könnte",
@@ -5476,7 +5489,9 @@
         "parents_other": "{{formatted}} {{object}}-Datensätzen, die das Zurücksetzen löscht",
         "everything": "Sie gehen mit den Datensätzen, an denen sie hängen.",
         "accept": "Diese ebenfalls löschen",
-        "otherwise": "Ohne dieses Häkchen bleiben die Datensätze, an denen sie hängen, und werden genannt."
+        "otherwise": "Ohne dieses Häkchen bleiben die Datensätze, an denen sie hängen, und werden genannt.",
+        "files_one": "{{formatted}} Datei, die das Zurücksetzen löscht, ist auch außerhalb des Prüfpunkts angehängt — an eine Bibliothek, eine Gruppe oder einen Datensatz eines anderen Objekts — über {{links}}: Das Löschen entfernt sie auch dort.",
+        "files_other": "{{formatted}} Dateien, die das Zurücksetzen löscht, sind auch außerhalb des Prüfpunkts angehängt — an eine Bibliothek, eine Gruppe oder einen Datensatz eines anderen Objekts — über {{links}}: Das Löschen entfernt sie auch dort."
       },
       "notCompared": "Nicht verglichen (Ihre Wahl): {{fields}}",
       "automation": {
@@ -5512,7 +5527,9 @@
         "recreate_one": "legt {{formatted}} Datensatz, den der Papierkorb nicht mehr enthält, mit einer neuen Id neu an",
         "recreate_other": "legt {{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu an",
         "carriers_one": "holt {{formatted}} Datensatz, der Datensätze des Prüfpunkts mitgenommen hatte, kurz zurück und löscht ihn wieder",
-        "carriers_other": "holt {{formatted}} Datensätze, die Datensätze des Prüfpunkts mitgenommen hatten, kurz zurück und löscht sie wieder"
+        "carriers_other": "holt {{formatted}} Datensätze, die Datensätze des Prüfpunkts mitgenommen hatten, kurz zurück und löscht sie wieder",
+        "links_one": "stellt {{formatted}} Verknüpfung zwischen einer Datei und einem Datensatz wieder so her, wie sie war",
+        "links_other": "stellt {{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wieder so her, wie sie waren"
       },
       "toRecreate_one": "{{formatted}} neu anzulegen",
       "toRecreate_other": "{{formatted}} neu anzulegen",
@@ -5525,6 +5542,26 @@
         "ifEmptiedTitle": "Wenn der Papierkorb sie nicht mehr enthält",
         "ifEmptied": "Salesforce führt einen aus dem Papierkorb geleerten Datensatz noch Minuten bis Stunden als gelöscht und sagt erst, wenn das Zurücksetzen ihn zurückholen will, dass der Papierkorb ihn nicht mehr enthält. Angehakt legt das Zurücksetzen ihn dann aus dem Prüfpunkt neu an, mit neuer Id, ebenso die Datensätze, die mit ihm zurückkommen sollten, und es läuft, was die Org beim Anlegen eines Datensatzes ausführt; nicht angehakt lässt es sie und nennt sie.",
         "accept": "Neu anlegen, mit neuen Ids"
+      },
+      "files": {
+        "title": "Dateien und ihre Verknüpfungen",
+        "shareTypeFixed": "Eine Verknüpfung zu einem Account behält ihren Zugriff, den Salesforce nicht ändern lässt: Nur wer die Datei sieht, wird zurückgegeben.",
+        "undoStorage": "Das Rückgängigmachen würde die Dateien zurückholen, die dieses Zurücksetzen löscht, und wieder {{size}} Dateispeicher belegen.",
+        "blindSpot": "{{user}} hat Query All Files nicht: Dateien anderer Benutzer, die an keinen Datensatz dieses Prüfpunkts angehängt sind, werden nicht gesehen und hier nicht gezählt.",
+        "unlink_one": "{{formatted}} seitdem hinzugefügte Verknüpfung zwischen einer Datei und einem Datensatz, die beide bleiben: entfernt. Die Datei bleibt, nicht mehr an diesen Datensatz angehängt.",
+        "unlink_other": "{{formatted}} seitdem hinzugefügte Verknüpfungen zwischen Dateien und Datensätzen, die bleiben: entfernt. Die Dateien bleiben, nicht mehr an diese Datensätze angehängt.",
+        "relink_one": "{{formatted}} seitdem entfernte Verknüpfung zwischen einer Datei und einem Datensatz, die beide bleiben: wiederhergestellt, mit einer neuen Id — Salesforce behält keine entfernte Verknüpfung im Papierkorb.",
+        "relink_other": "{{formatted}} seitdem entfernte Verknüpfungen zwischen Dateien und Datensätzen, die bleiben: wiederhergestellt, mit neuen Ids — Salesforce behält keine entfernte Verknüpfung im Papierkorb.",
+        "updateLinks_one": "{{formatted}} Verknüpfung, deren Freigabe sich seitdem geändert hat, erhält sie zurück: wer die Datei vom Datensatz aus sieht, und mit welchem Zugriff.",
+        "updateLinks_other": "{{formatted}} Verknüpfungen, deren Freigabe sich seitdem geändert hat, erhalten sie zurück: wer die Datei vom Datensatz aus sieht, und mit welchem Zugriff.",
+        "outsideAdded_one": "Behalten: {{formatted}} seitdem hinzugefügte Datei, da kein Datensatz dieses Prüfpunkts mit ihr verknüpft ist — die eines Benutzers, einer Bibliothek.",
+        "outsideAdded_other": "Behalten: {{formatted}} seitdem hinzugefügte Dateien, da kein Datensatz dieses Prüfpunkts mit ihnen verknüpft ist — die eines Benutzers, einer Bibliothek.",
+        "outsideDeleted_one": "Im Papierkorb gelassen: {{formatted}} seitdem gelöschte Datei, da kein Datensatz dieses Prüfpunkts mit ihr verknüpft war.",
+        "outsideDeleted_other": "Im Papierkorb gelassen: {{formatted}} seitdem gelöschte Dateien, da kein Datensatz dieses Prüfpunkts mit ihnen verknüpft war.",
+        "storage_one": "{{formatted}} Datei aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat noch {{remaining}}.",
+        "storage_other": "{{formatted}} Dateien aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat noch {{remaining}}.",
+        "storageUnsaid_one": "{{formatted}} Datei aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat nicht gesagt, wie viel noch frei ist.",
+        "storageUnsaid_other": "{{formatted}} Dateien aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat nicht gesagt, wie viel noch frei ist."
       }
     },
     "run": {
@@ -5540,7 +5577,9 @@
         "delete_other": "{{formatted}} seitdem hinzugekommene Datensätze löschen, untergeordnete zuerst",
         "check": "Prüfen: {{org}} erneut lesen",
         "recreate_one": "{{formatted}} Datensatz, den der Papierkorb nicht mehr enthält, mit einer neuen Id neu anlegen",
-        "recreate_other": "{{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu anlegen"
+        "recreate_other": "{{formatted}} Datensätze, die der Papierkorb nicht mehr enthält, mit neuen Ids neu anlegen",
+        "links_one": "{{formatted}} Verknüpfung zwischen einer Datei und einem Datensatz wiederherstellen, wie sie war",
+        "links_other": "{{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wiederherstellen, wie sie waren"
       },
       "progress": "Fortschritt des Zurücksetzens",
       "undoProgress": "Fortschritt des Rückgängigmachens",
@@ -5636,7 +5675,15 @@
         "remade_one": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegter Datensatz, mit dem, was mit ihm ging",
         "remade_other": "In {{org}} wieder gelöscht: {{formatted}} vom Zurücksetzen neu angelegte Datensätze, mit dem, was mit ihnen ging",
         "carriedAlone_one": "Allein in den Papierkorb von {{org}} zurückgeschickt: {{formatted}} {{object}}-Datensatz, der mit einem Datensatz dorthin gegangen war, den das Zurücksetzen kurz zurückgeholt hatte und der dort bleibt. Er kommt allein zurück, unter dem übergeordneten Datensatz, den der Prüfpunkt ihm gab.",
-        "carriedAlone_other": "Allein in den Papierkorb von {{org}} zurückgeschickt: {{formatted}} {{object}}-Datensätze, die mit einem Datensatz dorthin gegangen waren, den das Zurücksetzen kurz zurückgeholt hatte und der dort bleibt. Sie kommen allein zurück, unter dem übergeordneten Datensatz, den der Prüfpunkt ihnen gab."
+        "carriedAlone_other": "Allein in den Papierkorb von {{org}} zurückgeschickt: {{formatted}} {{object}}-Datensätze, die mit einem Datensatz dorthin gegangen waren, den das Zurücksetzen kurz zurückgeholt hatte und der dort bleibt. Sie kommen allein zurück, unter dem übergeordneten Datensatz, den der Prüfpunkt ihnen gab.",
+        "files": {
+          "unlinked_one": "{{formatted}} vom Zurücksetzen wiederhergestellte Verknüpfung wieder entfernt",
+          "unlinked_other": "{{formatted}} vom Zurücksetzen wiederhergestellte Verknüpfungen wieder entfernt",
+          "relinked_one": "{{formatted}} vom Zurücksetzen entfernte Verknüpfung wiederhergestellt, mit einer neuen Id",
+          "relinked_other": "{{formatted}} vom Zurücksetzen entfernte Verknüpfungen wiederhergestellt, mit neuen Ids",
+          "linksUpdated_one": "{{formatted}} Verknüpfung hat die Freigabe von vor dem Zurücksetzen zurückerhalten",
+          "linksUpdated_other": "{{formatted}} Verknüpfungen haben die Freigabe von vor dem Zurücksetzen zurückerhalten"
+        }
       },
       "recreated": {
         "title": "In {{org}} neu angelegt, mit neuen Ids",
@@ -5648,6 +5695,17 @@
         "line_other": "{{object}}: {{formatted}} Datensätze, die der Prüfpunkt nicht enthält",
         "deletedAgain": "Wieder gelöscht, sobald diese Datensätze zurück waren, mit dem, was mit ihnen zurückkam: im Papierkorb, wie vor dem Zurücksetzen.",
         "stopped": "Gestoppt, bevor das Zurücksetzen fertig war: Was davon noch nicht wieder gelöscht war, ist noch in {{org}}. Erneutes Zurücksetzen löscht es, mit dem, was mit ihm zurückkam."
+      },
+      "files": {
+        "title": "Verknüpfungen zwischen Dateien und Datensätzen in {{org}}",
+        "unlinked_one": "{{formatted}} seitdem hinzugefügte Verknüpfung entfernt: Ihre Datei bleibt",
+        "unlinked_other": "{{formatted}} seitdem hinzugefügte Verknüpfungen entfernt: Ihre Dateien bleiben",
+        "relinked_one": "{{formatted}} seitdem entfernte Verknüpfung wiederhergestellt, mit einer neuen Id",
+        "relinked_other": "{{formatted}} seitdem entfernte Verknüpfungen wiederhergestellt, mit neuen Ids",
+        "linksUpdated_one": "{{formatted}} Verknüpfung hat ihre Freigabe zurückerhalten",
+        "linksUpdated_other": "{{formatted}} Verknüpfungen haben ihre Freigabe zurückerhalten",
+        "linksRefused_one": "{{formatted}} Verknüpfung, deren Schreiben {{org}} abgelehnt hat",
+        "linksRefused_other": "{{formatted}} Verknüpfungen, deren Schreiben {{org}} abgelehnt hat"
       }
     },
     "undo": {

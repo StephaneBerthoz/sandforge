@@ -92,9 +92,10 @@ describe('TakeCheckpoint', () => {
     // The objects holding the most records come first.
     const rows = within(screen.getByTestId('checkpoint-object-list')).getAllByRole('listitem');
     expect(rows[0].textContent).toBe('Contact2,012 records');
+    // Files are held now: what stays out of them is the Documents tab.
     expect(
       screen.getByText(
-        'Left out: users, permissions, setup, custom settings, Chatter, history and log objects, files.',
+        'Left out: users, permissions, setup, custom settings, Chatter, history and log objects, the documents of the Documents tab.',
       ),
     ).toBeInTheDocument();
     expect(
@@ -125,6 +126,67 @@ describe('TakeCheckpoint', () => {
       '2 fields are hidden from admin@example.com by field-level security: Rewind will not put them back.',
     );
     expect(screen.getByTestId('checkpoint-take-start')).toBeEnabled();
+  });
+
+  it('says before it runs the files it keeps with the records, what it keeps of them and what it leaves', () => {
+    renderTake();
+    answerScope({ files: { held: true, queryAllFiles: true, addedToPicked: [] } });
+    expect(screen.getByTestId('checkpoint-files-held').textContent).toBe(
+      "Files: it keeps which files are attached to the records it holds — Salesforce Files and classic attachments — and each file's latest version, not its content. A rewind deletes the files attached to them since, brings back those deleted since, and leaves as it is a file attached to no record it holds, a user's own or a library's.",
+    );
+    // A user with Query All Files sees every file: no blind spot to say.
+    expect(screen.queryByTestId('checkpoint-files-blind-spot')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-files-added')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-files-not-held')).toBeNull();
+  });
+
+  it('says what a user without Query All Files cannot see of other users’ files, by the user’s name', () => {
+    renderTake();
+    answerScope({ files: { held: true, queryAllFiles: false, addedToPicked: [] } });
+    expect(screen.getByTestId('checkpoint-files-blind-spot').textContent).toBe(
+      "admin@example.com doesn't have Query All Files: the files of other users that no record of the checkpoint is attached to — in a library admin@example.com isn't a member of, say — aren't seen. The files attached to its records are seen all the same.",
+    );
+  });
+
+  it('names the objects of files added to the ones picked, without which a rewind would leave the files attached since', () => {
+    renderTake();
+    answerScope();
+    fireEvent.click(screen.getByTestId('checkpoint-scope-picked'));
+    fireEvent.click(screen.getByTestId('checkpoint-pick-Account'));
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    act(() =>
+      host.current?.answer('checkpoint:scope', 'checkpoint:scope:response', {
+        ...scopeAnswer({ mode: 'picked' }),
+        objects: scopeAnswer().objects.slice(0, 1),
+        files: {
+          held: true,
+          queryAllFiles: true,
+          addedToPicked: ['ContentDocument', 'Attachment'],
+        },
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-files-added').textContent).toBe(
+      'ContentDocument and Attachment are added to the objects you picked: without them, a rewind would leave the files attached since as they are.',
+    );
+  });
+
+  it('says a scope that holds no file keeps none, with no blind spot to say', () => {
+    renderTake();
+    answerScope({ files: { held: false, queryAllFiles: false, addedToPicked: [] } });
+    expect(screen.getByTestId('checkpoint-files-not-held').textContent).toBe(
+      'Files are not kept: a rewind leaves the files attached since as they are.',
+    );
+    expect(screen.queryByTestId('checkpoint-files-blind-spot')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-files-held')).toBeNull();
+  });
+
+  it('says nothing of files when the scope does not say what it holds of them', () => {
+    renderTake();
+    answerScope();
+    expect(screen.queryByTestId('checkpoint-files-not-held')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-files-held')).toBeNull();
   });
 
   it('says a checkpoint kept until it is deleted is kept so', () => {
@@ -393,9 +455,43 @@ describe('TakeCheckpoint', () => {
       '“Before UAT” taken — 2,412 records in 2 objects, 2.3 MB',
     );
     expect(screen.queryByTestId('checkpoint-moved')).toBeNull();
+    // Its scope held no file: nothing of files to say.
+    expect(screen.queryByTestId('checkpoint-taken-files')).toBeNull();
     expect(onTaken).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('checkpoint-take-done'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('says the files it kept attached to its records, by how many links, and the objects whose links it read by lists of Ids', () => {
+    renderTake();
+    answerScope();
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    act(() =>
+      host.current?.answer('checkpoint:take', 'checkpoint:take:response', {
+        checkpoint: taken({
+          files: { documents: 9, links: 14, anchored: 7, readByIds: ['Case', 'Contact'] },
+        }),
+        operationId: 'op',
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-taken-files').textContent).toBe(
+      '7 files are attached to its records (14 links): a rewind takes back what is attached to them since. The links of Case and Contact were read by lists of record Ids: DEV-SB refused one query, or answered too late.',
+    );
+  });
+
+  it('says one file kept by one link in the singular', () => {
+    renderTake();
+    answerScope();
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    act(() =>
+      host.current?.answer('checkpoint:take', 'checkpoint:take:response', {
+        checkpoint: taken({ files: { documents: 1, links: 1, anchored: 1 } }),
+        operationId: 'op',
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-taken-files').textContent).toBe(
+      '1 file is attached to its records (1 link): a rewind takes back what is attached to them since.',
+    );
   });
 
   it('warns of the records that moved while it was taken', () => {

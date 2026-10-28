@@ -619,7 +619,7 @@ describe('the preview of a checkpoint that holds files — file storage (T10)', 
       code: 'FILE_STORAGE',
       message:
         'Bringing back 2 files takes 12 MB of file storage; DEV-ED has 10 MB left. Free file ' +
-        'storage, then rewind again. No record was read or written.',
+        'storage, then rewind again. Nothing was written.',
     });
   });
 

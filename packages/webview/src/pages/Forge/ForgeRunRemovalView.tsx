@@ -389,6 +389,12 @@ export interface ForgeRunRemovalResultProps {
   org: string;
   /** What it took back: a Forge run unless said. */
   subject?: RemovalSubject;
+  /**
+   * What the files it leaves are said not to have come with, when the
+   * subject's own words would be false: a rewind to a checkpoint that holds
+   * files leaves only those the checkpoint holds, or attached outside it.
+   */
+  filesLeftKey?: string;
 }
 
 /**
@@ -404,6 +410,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
   result,
   org,
   subject = 'run',
+  filesLeftKey = FILES_LEFT_KEYS[subject],
 }) => {
   const { t } = useTranslation();
   const headingId = useId();
@@ -454,7 +461,7 @@ export const ForgeRunRemovalResult: React.FC<ForgeRunRemovalResultProps> = ({
                 data-testid={`forge-removal-files-${object.objectApiName}`}
                 className="ml-3 mt-0.5 wrap-break-word"
               >
-                {counted(t, FILES_LEFT_KEYS[subject], object.filesLeft.count, {
+                {counted(t, filesLeftKey, object.filesLeft.count, {
                   org,
                   names:
                     object.filesLeft.names.join(', ') +

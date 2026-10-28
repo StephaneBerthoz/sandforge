@@ -4586,7 +4586,9 @@
       "resultChanged_one": "{{formatted}} conservé, modifié par quelqu'un d'autre pendant le retour arrière",
       "resultChanged_other": "{{formatted}} conservés, modifiés par quelqu'un d'autre pendant le retour arrière",
       "resultFilesLeft_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}}, le point de contrôle ne couvrant pas les fichiers : {{names}}",
-      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le point de contrôle ne couvrant pas les fichiers : {{names}}"
+      "resultFilesLeft_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}}, le point de contrôle ne couvrant pas les fichiers : {{names}}",
+      "resultFilesLeftHeld_one": "{{formatted}} fichier joint à ces enregistrements reste dans {{org}} : le point de contrôle le contient, ou il est joint aussi à un enregistrement hors du point de contrôle : {{names}}",
+      "resultFilesLeftHeld_other": "{{formatted}} fichiers joints à ces enregistrements restent dans {{org}} : le point de contrôle les contient, ou ils sont joints aussi à un enregistrement hors du point de contrôle : {{names}}"
     },
     "rewindUndo": {
       "resultSuccess": "Chaque enregistrement rétabli ou recréé par le retour arrière est maintenant dans la corbeille de {{org}}.",
@@ -5364,7 +5366,7 @@
       "pickedNone": "Choisissez les objets que le point de contrôle conserve.",
       "pickedCount_one": "{{formatted}} objet choisi",
       "pickedCount_other": "{{formatted}} objets choisis",
-      "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés, Chatter, objets d'historique et de journal, fichiers.",
+      "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
       "seeLeftOut_one": "Voir l'objet laissé de côté, et pourquoi",
       "seeLeftOut_other": "Voir les {{formatted}} objets laissés de côté, et pourquoi",
       "beforeItRuns": "Avant le lancement",
@@ -5387,7 +5389,17 @@
       "taken": "« {{name}} » créé — {{records}} dans {{objects}}, {{size}}",
       "moved_one": "{{formatted}} enregistrement a changé pendant la création ; un retour arrière le traite comme modifié depuis.",
       "moved_other": "{{formatted}} enregistrements ont changé pendant la création ; un retour arrière les traite comme modifiés depuis.",
-      "done": "Terminé"
+      "done": "Terminé",
+      "filesHeld": "Fichiers : il garde quels fichiers sont joints aux enregistrements qu'il contient — Fichiers Salesforce et pièces jointes classiques — et la dernière version de chaque fichier, pas son contenu. Un retour arrière supprime les fichiers qui leur ont été joints depuis, rétablit ceux supprimés depuis, et laisse tel quel un fichier joint à aucun enregistrement qu'il contient, celui d'un utilisateur ou d'une bibliothèque.",
+      "filesNotHeld": "Les fichiers ne sont pas gardés : un retour arrière laisse tels quels les fichiers joints depuis.",
+      "filesBlindSpot": "{{user}} n'a pas Query All Files : les fichiers d'autres utilisateurs joints à aucun enregistrement du point de contrôle — dans une bibliothèque dont {{user}} n'est pas membre, par exemple — ne sont pas vus. Les fichiers joints à ses enregistrements sont vus malgré tout.",
+      "filesReadByIds": "Les liens de {{objects}} ont été lus par listes d'Id d'enregistrements : {{org}} a refusé une seule requête, ou a répondu trop tard.",
+      "filesAdded_one": "{{objects}} est ajouté aux objets que vous avez choisis : sans lui, un retour arrière laisserait tels quels les fichiers joints depuis.",
+      "filesAdded_other": "{{objects}} sont ajoutés aux objets que vous avez choisis : sans eux, un retour arrière laisserait tels quels les fichiers joints depuis.",
+      "filesKept_one": "{{formatted}} fichier est joint à ses enregistrements ({{links}}) : un retour arrière reprend ce qui leur est joint depuis.",
+      "filesKept_other": "{{formatted}} fichiers sont joints à ses enregistrements ({{links}}) : un retour arrière reprend ce qui leur est joint depuis.",
+      "fileLinks_one": "{{formatted}} lien",
+      "fileLinks_other": "{{formatted}} liens"
     },
     "preview": {
       "title": "Faire revenir {{org}} à « {{name}} » ({{date}})",
@@ -5449,8 +5461,8 @@
         "convertedLead_other": "{{formatted}} pistes ont été converties depuis : Salesforce ne peut pas annuler la conversion d'une piste. Ce que les conversions ont créé est supprimé, et les pistes restent converties.",
         "activatedContract_one": "{{formatted}} contrat a été activé depuis : Salesforce ne le remettra pas en Brouillon, il reste donc activé.",
         "activatedContract_other": "{{formatted}} contrats ont été activés depuis : Salesforce ne les remettra pas en Brouillon, ils restent donc activés.",
-        "newFileVersion_one": "{{formatted}} fichier a reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une version plus ancienne la plus récente, le fichier garde donc son nouveau contenu, et l'ancien reste dans l'historique de ses versions.",
-        "newFileVersion_other": "{{formatted}} fichiers ont reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une version plus ancienne la plus récente, les fichiers gardent donc leur nouveau contenu, et l'ancien reste dans l'historique des versions de chacun.",
+        "newFileVersion_one": "{{formatted}} fichier a reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une plus ancienne la plus récente, le fichier garde donc son nouveau contenu. Celui qu'il avait reste dans l'historique de ses versions ; son titre est rendu.",
+        "newFileVersion_other": "{{formatted}} fichiers ont reçu une nouvelle version depuis : Salesforce ne supprime aucune version et ne refait pas d'une plus ancienne la plus récente, les fichiers gardent donc leur nouveau contenu. Celui de chacun reste dans l'historique de ses versions ; leurs titres sont rendus.",
         "fieldRemoved": "{{field}} a été supprimé depuis le point de contrôle : restaurez-le depuis les champs supprimés (dans les 15 jours), puis faites revenir l'org à ce point de nouveau.",
         "fieldsAdded_one": "{{fields}} a été ajouté depuis : ses valeurs restent.",
         "fieldsAdded_other": "{{fields}} ont été ajoutés depuis : leurs valeurs restent.",
@@ -5458,7 +5470,8 @@
         "fieldsChanged_other": "Les types de {{fields}} ont changé depuis : le retour arrière les tente champ par champ.",
         "computed": "Les formules, les cumuls, les numérotations automatiques et les dates de création et de modification appartiennent à l'org : le retour arrière ne les écrit pas, et les dates de dernière modification montreront le retour arrière.",
         "leftTheOrg": "Le retour arrière ne change que les données de {{org}}. Ce qui en est déjà sorti (e-mails, callouts, messages sortants, événements de plateforme, données que d'autres systèmes ont lues) reste envoyé.",
-        "metadata": "Les métadonnées ne reviennent pas en arrière : champs, Flows, règles de validation, présentations et autorisations restent tels quels. Comparaison couvre les métadonnées."
+        "metadata": "Les métadonnées ne reviennent pas en arrière : champs, Flows, règles de validation, présentations et autorisations restent tels quels. Comparaison couvre les métadonnées.",
+        "filesNotHeld": "Ce point de contrôle ne contient aucun fichier — pris avant SandForge 1.70, ou d'objets sans eux : les fichiers joints depuis restent, et le résultat nomme ceux joints aux enregistrements qu'il supprime."
       },
       "undoCannot": {
         "title": "Ce que l'annulation ne pourrait pas rétablir",
@@ -5476,7 +5489,9 @@
         "parents_other": "{{formatted}} enregistrements {{object}} que le retour arrière supprime",
         "everything": "Ils partent avec les enregistrements dont ils dépendent.",
         "accept": "Les supprimer aussi",
-        "otherwise": "Sans cette case cochée, les enregistrements dont ils dépendent restent, et sont nommés."
+        "otherwise": "Sans cette case cochée, les enregistrements dont ils dépendent restent, et sont nommés.",
+        "files_one": "{{formatted}} fichier que le retour arrière supprime est joint aussi hors du point de contrôle — à une bibliothèque, un groupe ou un enregistrement d'un autre objet — par {{links}} : le supprimer l'en retire aussi.",
+        "files_other": "{{formatted}} fichiers que le retour arrière supprime sont joints aussi hors du point de contrôle — à une bibliothèque, un groupe ou un enregistrement d'un autre objet — par {{links}} : les supprimer les en retire aussi."
       },
       "notCompared": "Non comparés (votre choix) : {{fields}}",
       "automation": {
@@ -5512,7 +5527,9 @@
         "recreate_one": "recrée {{formatted}} enregistrement que la corbeille ne contient plus, avec un nouvel Id",
         "recreate_other": "recrée {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id",
         "carriers_one": "rétablit un instant {{formatted}} enregistrement qui avait emporté des enregistrements du point de contrôle, puis le supprime de nouveau",
-        "carriers_other": "rétablit un instant {{formatted}} enregistrements qui avaient emporté des enregistrements du point de contrôle, puis les supprime de nouveau"
+        "carriers_other": "rétablit un instant {{formatted}} enregistrements qui avaient emporté des enregistrements du point de contrôle, puis les supprime de nouveau",
+        "links_one": "remet {{formatted}} lien entre un fichier et un enregistrement comme il était",
+        "links_other": "remet {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient"
       },
       "toRecreate_one": "{{formatted}} à recréer",
       "toRecreate_other": "{{formatted}} à recréer",
@@ -5525,6 +5542,26 @@
         "ifEmptiedTitle": "Si la corbeille ne les contient plus",
         "ifEmptied": "Salesforce indique encore comme supprimé un enregistrement vidé de la corbeille, pendant des minutes ou des heures, et ne dit que la corbeille ne le contient plus qu'au moment où le retour arrière le lui redemande. Coché, le retour arrière le recrée alors à partir du point de contrôle, avec un nouvel Id, ainsi que les enregistrements qui devaient revenir avec lui, en exécutant ce que l'org exécute à la création d'un enregistrement ; décoché, il les laisse et les nomme.",
         "accept": "Les recréer, avec de nouveaux Id"
+      },
+      "files": {
+        "title": "Les fichiers et leurs liens",
+        "shareTypeFixed": "Un lien à un compte garde son accès, que Salesforce ne laisse pas changer : seul qui voit le fichier est rendu.",
+        "undoStorage": "L'annulation rétablirait les fichiers que ce retour arrière supprime, reprenant {{size}} de stockage de fichiers.",
+        "blindSpot": "{{user}} n'a pas Query All Files : les fichiers d'autres utilisateurs joints à aucun enregistrement de ce point de contrôle ne sont pas vus, ni comptés ici.",
+        "unlink_one": "{{formatted}} lien ajouté depuis entre un fichier et un enregistrement qui restent : retiré. Le fichier reste, sans être joint à cet enregistrement.",
+        "unlink_other": "{{formatted}} liens ajoutés depuis entre des fichiers et des enregistrements qui restent : retirés. Les fichiers restent, sans être joints à ces enregistrements.",
+        "relink_one": "{{formatted}} lien retiré depuis entre un fichier et un enregistrement qui restent : remis, sous un nouvel Id — Salesforce ne garde aucun lien retiré dans la corbeille.",
+        "relink_other": "{{formatted}} liens retirés depuis entre des fichiers et des enregistrements qui restent : remis, sous de nouveaux Id — Salesforce ne garde aucun lien retiré dans la corbeille.",
+        "updateLinks_one": "{{formatted}} lien dont le partage a changé depuis le retrouve : qui voit le fichier depuis l'enregistrement, et avec quel accès.",
+        "updateLinks_other": "{{formatted}} liens dont le partage a changé depuis le retrouvent : qui voit le fichier depuis l'enregistrement, et avec quel accès.",
+        "outsideAdded_one": "Gardé : {{formatted}} fichier ajouté depuis, aucun enregistrement de ce point de contrôle n'y étant lié — celui d'un utilisateur, d'une bibliothèque.",
+        "outsideAdded_other": "Gardés : {{formatted}} fichiers ajoutés depuis, aucun enregistrement de ce point de contrôle n'y étant lié — ceux d'un utilisateur, d'une bibliothèque.",
+        "outsideDeleted_one": "Laissé dans la corbeille : {{formatted}} fichier supprimé depuis, aucun enregistrement de ce point de contrôle n'y étant lié.",
+        "outsideDeleted_other": "Laissés dans la corbeille : {{formatted}} fichiers supprimés depuis, aucun enregistrement de ce point de contrôle n'y étant lié.",
+        "storage_one": "Rétablir {{formatted}} fichier depuis la corbeille reprend {{size}} de stockage de fichiers ; il en reste {{remaining}} à {{org}}.",
+        "storage_other": "Rétablir {{formatted}} fichiers depuis la corbeille reprend {{size}} de stockage de fichiers ; il en reste {{remaining}} à {{org}}.",
+        "storageUnsaid_one": "Rétablir {{formatted}} fichier depuis la corbeille reprend {{size}} de stockage de fichiers ; {{org}} n'a pas dit combien il lui en reste.",
+        "storageUnsaid_other": "Rétablir {{formatted}} fichiers depuis la corbeille reprend {{size}} de stockage de fichiers ; {{org}} n'a pas dit combien il lui en reste."
       }
     },
     "run": {
@@ -5540,7 +5577,9 @@
         "delete_other": "Supprimer {{formatted}} enregistrements ajoutés depuis, les enfants d'abord",
         "check": "Vérifier : relire {{org}}",
         "recreate_one": "Recréer {{formatted}} enregistrement que la corbeille ne contient plus, avec un nouvel Id",
-        "recreate_other": "Recréer {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id"
+        "recreate_other": "Recréer {{formatted}} enregistrements que la corbeille ne contient plus, avec de nouveaux Id",
+        "links_one": "Remettre {{formatted}} lien entre un fichier et un enregistrement comme il était",
+        "links_other": "Remettre {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient"
       },
       "progress": "Progression du retour arrière",
       "undoProgress": "Progression de l'annulation",
@@ -5636,7 +5675,15 @@
         "remade_one": "Supprimé de nouveau dans {{org}} : {{formatted}} enregistrement recréé par le retour arrière, avec ce qui est parti avec lui",
         "remade_other": "Supprimés de nouveau dans {{org}} : {{formatted}} enregistrements recréés par le retour arrière, avec ce qui est parti avec eux",
         "carriedAlone_one": "Renvoyé seul à la corbeille de {{org}} : {{formatted}} enregistrement {{object}} qui y était parti avec un enregistrement que le retour arrière a rétabli un instant, et qui y reste. Il revient seul, sous le parent que lui donnait le point de contrôle.",
-        "carriedAlone_other": "Renvoyés seuls à la corbeille de {{org}} : {{formatted}} enregistrements {{object}} qui y étaient partis avec un enregistrement que le retour arrière a rétabli un instant, et qui y reste. Ils reviennent seuls, sous le parent que leur donnait le point de contrôle."
+        "carriedAlone_other": "Renvoyés seuls à la corbeille de {{org}} : {{formatted}} enregistrements {{object}} qui y étaient partis avec un enregistrement que le retour arrière a rétabli un instant, et qui y reste. Ils reviennent seuls, sous le parent que leur donnait le point de contrôle.",
+        "files": {
+          "unlinked_one": "{{formatted}} lien remis par le retour arrière, retiré de nouveau",
+          "unlinked_other": "{{formatted}} liens remis par le retour arrière, retirés de nouveau",
+          "relinked_one": "{{formatted}} lien retiré par le retour arrière, remis sous un nouvel Id",
+          "relinked_other": "{{formatted}} liens retirés par le retour arrière, remis sous de nouveaux Id",
+          "linksUpdated_one": "{{formatted}} lien qui a retrouvé le partage qu'il avait avant le retour arrière",
+          "linksUpdated_other": "{{formatted}} liens qui ont retrouvé le partage qu'ils avaient avant le retour arrière"
+        }
       },
       "recreated": {
         "title": "Recréés dans {{org}}, avec de nouveaux Id",
@@ -5648,6 +5695,17 @@
         "line_other": "{{object}} : {{formatted}} enregistrements que le point de contrôle ne contient pas",
         "deletedAgain": "Supprimés de nouveau une fois ces enregistrements revenus, avec ce qui est revenu avec eux : dans la corbeille, comme avant le retour arrière.",
         "stopped": "Arrêté avant la fin du retour arrière : ce qu'il n'en avait pas encore supprimé de nouveau est toujours dans {{org}}. Un nouveau retour arrière le supprime, avec ce qui est revenu avec lui."
+      },
+      "files": {
+        "title": "Liens entre fichiers et enregistrements dans {{org}}",
+        "unlinked_one": "{{formatted}} lien ajouté depuis retiré : son fichier reste",
+        "unlinked_other": "{{formatted}} liens ajoutés depuis retirés : leurs fichiers restent",
+        "relinked_one": "{{formatted}} lien retiré depuis remis, sous un nouvel Id",
+        "relinked_other": "{{formatted}} liens retirés depuis remis, sous de nouveaux Id",
+        "linksUpdated_one": "{{formatted}} lien qui a retrouvé son partage",
+        "linksUpdated_other": "{{formatted}} liens qui ont retrouvé leur partage",
+        "linksRefused_one": "{{formatted}} lien que {{org}} a refusé d'écrire",
+        "linksRefused_other": "{{formatted}} liens que {{org}} a refusé d'écrire"
       }
     },
     "undo": {

@@ -2002,15 +2002,21 @@ export function budgetRefusal(
   };
 }
 
-/** What each act that brings files back from the recycle bin says it does, and what to do. */
+/**
+ * What each act that brings files back from the recycle bin says it does, and
+ * what to do. The refusal comes once the act has read the org — the preview
+ * its records, the rewind its fresh diff, the undo the files it would bring
+ * back — and before its first write: nothing was written, which is all it
+ * can say.
+ */
 const FILE_STORAGE_WORDS: Readonly<Record<'rewind' | 'undo', { then: string; done: string }>> = {
   rewind: {
     then: 'Free file storage, then rewind again.',
-    done: 'No record was read or written.',
+    done: 'Nothing was written.',
   },
   undo: {
     then: 'Free file storage, then undo the rewind again while the recycle bin still holds them.',
-    done: 'No record was read or written.',
+    done: 'Nothing was written.',
   },
 };
 

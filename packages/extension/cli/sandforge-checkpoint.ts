@@ -50,6 +50,7 @@ import {
   type CheckpointListEntry,
   type CheckpointObject,
   type CheckpointRefusal,
+  type CheckpointScopeFiles,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
   type CheckpointTakeRequests,
@@ -98,8 +99,8 @@ Commands:
             it and an undo cannot take back; writes nothing
   rewind    return the org to a checkpoint: bring back from the recycle bin the records deleted
             since, give the records changed since their values back, delete the records created
-            since — whoever made the changes; keep what it changes so it can be undone; then read
-            the org again
+            since, and put the files attached to its records back as they were — whoever made the
+            changes; keep what it changes so it can be undone; then read the org again
   undo      take back the org's last rewind: bring back what it deleted, give back what it wrote
             over, send back to the bin what it brought back; what anyone changed since the rewind
             stays, and is said
@@ -138,7 +139,9 @@ rewind:
                                  answers is no longer in the bin as it brings it back is left,
                                  named
   --accept-outside               (a checkpoint of picked objects) also delete the records outside it
-                                 created under records it deletes; without it those parents stay
+                                 created under records it deletes, and the files it deletes that are
+                                 attached outside it too; without it those parents stay, and those
+                                 files are only removed from its records
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
   --yes                          do not ask before writing; without it and with no terminal — a CI
                                  step — it stops at its question, exit 2, having written nothing
@@ -179,14 +182,23 @@ asks it back: such a record, with what was to come back with it, is made again t
 and named without --accept-recreate.
 A record the checkpoint does not hold that took records of it along when it was deleted since is
 brought back for a moment with them, then deleted again with what came back with it.
+A checkpoint holds the files attached to its records, Salesforce Files and classic attachments:
+which records each is attached to, its latest version and its size, never its content. A rewind
+deletes the files attached to them since, brings back those deleted since with their links,
+removes the links added since and puts back those removed since, under new Ids; a file
+attached to no record of the checkpoint, a user's own or a library's, is left and counted.
+Bringing files back from the recycle bin takes file storage again: a rewind or an undo that would
+take more than the org has left is refused before it writes. Without Query All Files, other
+users' files that no record of the checkpoint is attached to are not seen.
 What a rewind cannot undo: a file deleted since and no longer in the recycle bin, whose body the
-checkpoint does not hold, a lead converted since, a contract activated since, a record deleted
-with a parent created since that Salesforce does not undelete on its own, or with its parent of
-an object the checkpoint does not hold (preview counts them); a field added or removed since
-(preview names it); the values the org computes or keeps itself (formulas, roll-ups,
-auto-numbers, created and modified dates); what left the org (emails, callouts, outbound
-messages, platform events); metadata; files. A record the org refuses to put back, or to make
-again, is named by rewind, with its words.
+checkpoint does not hold, a file given a new version since, which keeps it, a lead converted
+since, a contract activated since, a record deleted with a parent created since that Salesforce
+does not undelete on its own, or with its parent of an object the checkpoint does not hold
+(preview counts them); a field added or removed since (preview names it); the values the org
+computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what
+left the org (emails, callouts, outbound messages, platform events); metadata; the files of a
+checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back,
+or to make again, is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -194,12 +206,15 @@ JSON (--json), one value on stdout:
                      (name, org, takenAt, records and bytes are null for a damaged checkpoint;
                      expiresAt is null for one kept until deleted)
   take               {checkpoint, requests?, estimate}: the checkpoint as kept (its
-                     checkpoint.json); requests, {total, byPhase}, the API requests the take sent
+                     checkpoint.json; files?, {documents, links, anchored, readByIds?}, for one
+                     that holds files); requests, {total, byPhase}, the API requests the take sent
                      the org, SOAP calls among them; estimate, what it said before reading a record
-  take --estimate    {mode, objects, leftOut, estimate, refusal?}: estimate.requestsByPhase splits
-                     the requests over a take's phases as requests.byPhase does: guard, scope,
-                     start, counts, bin, snapshot, stability; {mode, refusal} for a take refused
-                     before its scope is read (a production org, a user without the permissions)
+  take --estimate    {mode, objects, leftOut, estimate, refusal?, files?}:
+                     estimate.requestsByPhase splits the requests over a take's phases as
+                     requests.byPhase does: guard, scope, start, counts, bin, snapshot, stability;
+                     files, {held, queryAllFiles, addedToPicked}; {mode, refusal} for a take
+                     refused before its scope is read (a production org, a user without the
+                     permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
                       refusal?}: carriers, the records brought back for a moment and deleted
@@ -207,7 +222,10 @@ JSON (--json), one value on stdout:
                      as the extension answers them; refusal is the one a rewind would meet now;
                      emails, one per daily limit its writes send against: {limit, emails,
                      verdict, remaining?, max?, alertsCounted?, objects: [{objectApiName, write,
-                     records, perRecord, sentBy}]}
+                     records, perRecord, sentBy}]}; diff.files, for a checkpoint that holds
+                     files: {unlink, relink, updateLinks, outsideAdded, outsideDeleted, storage:
+                     {bringBack, remaining?, undo}, blindSpot?}, the links to remove, put back and
+                     give their sharing back, the files left, and file storage in bytes
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -219,7 +237,9 @@ JSON (--json), one value on stdout:
                      status success, partial, unstable, failure or cancelled; result as the
                      extension answers it; undo.cannot's reason deletedBeforeParent: deleted
                      before a record they point at, which the rewind deleted next; carriers, of
-                     what it brought back and deleted, the records brought back for a moment
+                     what it brought back and deleted, the records brought back for a moment;
+                     files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
+                     files and records it wrote, when it wrote one
   undo               as rewind, without recreated, cannotUndo, carriers and undo, with
                      carriedAlone?: [{object, count}], the records sent back to the recycle bin
                      on their own that had gone there with a record the rewind brought back for
@@ -234,12 +254,15 @@ delete: every checkpoint named is deleted); 1 refused before it read or wrote (a
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
 --max-total records, more API requests or emails than the org
-has left today, a checkpoint of the org before a refresh or of an expired scratch org, a SandForge
-run writing to it), or nothing done; 2 a bad command line, a --checkpoint name several checkpoints
+has left today, files to bring back taking more file storage than it has left, a checkpoint of
+the org before a refresh or of an expired scratch org, a SandForge run writing to it), or nothing
+done; 2 a bad command line, a --checkpoint name several checkpoints
 have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes); 3 partial (rewind and undo: records still differ, each said with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
-records the rewind cannot take back or the checkpoint does not hold although they are dated before it, an object that
+links between files and records to remove, put back or give their sharing back, records the
+rewind cannot take back or the checkpoint does not hold although they are dated before it, files
+added or deleted since that no record of it is attached to, an object that
 could not be read; delete: some were kept, each said with why); 4 unstable (someone else changed
 records during the rewind or the undo: left as they made them); 130, 143, 129 Ctrl-C, SIGTERM or
 SIGHUP stopped it — run rewind again: it takes up from what still differs, and undo still reaches
@@ -724,7 +747,7 @@ const FIELD_LEFT_OUT_WORDS: Readonly<Record<string, string>> = {
   fls: 'hidden from the user SandForge connects as by field-level security: Rewind won’t put them back',
   encrypted:
     'encrypted, and the user SandForge connects as can’t view encrypted data: Rewind won’t touch them',
-  base64: 'files and binary values, which a checkpoint doesn’t cover',
+  base64: 'the content of files and other binary values, which a checkpoint doesn’t hold',
   compound: 'compound fields, kept through the fields they are made of',
 };
 
@@ -833,13 +856,14 @@ export function listEntryJson(entry: CheckpointListEntry): Record<string, unknow
   };
 }
 
-/** What a take's scope answers: what it would hold and cost. */
+/** What a take's scope answers: what it would hold and cost, and what it would hold of the org's files. */
 export interface ScopeAnswer {
   mode: CheckpointScopeMode;
   objects: CheckpointScopeObject[];
   leftOut: CheckpointLeftOutObject[];
   estimate: CheckpointEstimate;
   refusal?: CheckpointRefusal;
+  files?: CheckpointScopeFiles;
 }
 
 /**
@@ -884,9 +908,45 @@ export function scopeLines(orgName: string, scope: ScopeAnswer): string[] {
     ...leftOutLines(scope.leftOut),
     ...fieldsLeftOutLines(scope.objects),
     ...withParentLine(scope.objects),
+    ...(scope.files ? scopeFilesLines(scope.files) : []),
     ...(scope.refusal ? [`refused: ${scope.refusal.message}`] : []),
   ];
 }
+
+/**
+ * What a take would hold of the org's files, said before it reads a record:
+ * the files attached to the records it holds, what it keeps of them and what
+ * it leaves; the objects of files added to those picked; and, for a user
+ * without Query All Files, what of other users' files it cannot see.
+ */
+function scopeFilesLines(files: CheckpointScopeFiles): string[] {
+  if (!files.held) {
+    return ['  files: not kept — a rewind leaves the files attached since as they are'];
+  }
+  return [
+    '  files: it keeps which files are attached to its records (Salesforce Files, classic ' +
+      "attachments) and each file's latest version, not its content; a rewind deletes the " +
+      'files attached to them since and brings back those deleted since. A file attached to ' +
+      "no record it holds, a user's own or a library's, is left as it is",
+    ...(files.addedToPicked.length > 0
+      ? [
+          `  added to the objects picked: ${files.addedToPicked.join(', ')} — without them a ` +
+            'rewind would leave the files attached since as they are',
+        ]
+      : []),
+    ...(files.queryAllFiles ? [] : [BLIND_SPOT_LINE]),
+  ];
+}
+
+/**
+ * What a user without Query All Files does not see of the org's files, as
+ * the take and the preview say it: another user's file is read only by its
+ * id or through a record it is attached to.
+ */
+const BLIND_SPOT_LINE =
+  "  the user the alias connects as doesn't have Query All Files: other users' files that no " +
+  'record of the checkpoint is attached to (in a library the user is not a member of, say) ' +
+  'are not seen, nor counted among the files left; files attached to its records are seen';
 
 /** The lines a take prints once its checkpoint is kept. */
 export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
@@ -911,7 +971,23 @@ export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
       ? [`  not compared, nor written back (you chose): ${checkpoint.ignoredFields.join(', ')}`]
       : []),
     ...withParentLine(checkpoint.objects),
+    ...(checkpoint.files ? takenFilesLines(checkpoint.files, orgOf(checkpoint)) : []),
     `  it holds the records' values unencrypted, in files only you can read: ${folder}`,
+  ];
+}
+
+/** What a take kept of the files attached to its records, and how it read their links. */
+function takenFilesLines(files: NonNullable<OrgCheckpoint['files']>, orgName: string): string[] {
+  const readByIds = files.readByIds ?? [];
+  return [
+    `  files: ${count(files.anchored)} attached to its records by ${count(files.links)} ` +
+      'link(s): a rewind takes back what is attached to them since',
+    ...(readByIds.length > 0
+      ? [
+          `  the links of ${someOf(readByIds)} were read by lists of record Ids: ${orgName} ` +
+            'refused one query, or answered too late',
+        ]
+      : []),
   ];
 }
 
@@ -975,17 +1051,37 @@ export function previewTotals(diff: Pick<RewindDiff, 'objects'>): PreviewTotals 
 }
 
 /**
+ * The links between files and records a rewind writes: those added since it
+ * removes, those removed since it puts back, those whose sharing it gives
+ * back. None for a checkpoint that holds no files.
+ */
+export function linkWritesOf(diff: Partial<Pick<RewindDiff, 'files'>>): number {
+  const files = diff.files;
+  return files === undefined ? 0 : files.unlink + files.relink + files.updateLinks;
+}
+
+/** The files added or deleted since that no record of the checkpoint links to, which a rewind leaves. */
+function filesLeftOf(diff: Partial<Pick<RewindDiff, 'files'>>): number {
+  const files = diff.files;
+  return files === undefined ? 0 : files.outsideAdded + files.outsideDeleted;
+}
+
+/**
  * Whether the org differs from the checkpoint, among the objects and fields
  * it holds: records a rewind would delete, give back, bring back or make
- * again; records
- * it cannot take back, or that the checkpoint does not hold although they are
- * dated before it; or an object that could not be read, which is never taken
- * for one that did not change.
+ * again; links between its files and its records to remove, put back or give
+ * their sharing back; records it cannot take back, or that the checkpoint does
+ * not hold although they are dated before it; files added or deleted since
+ * that no record of it links to, which a rewind leaves; or an object that
+ * could not be read, which is never taken for one that did not change.
  */
-export function orgDiffers(diff: Pick<RewindDiff, 'objects' | 'unread'>): boolean {
+export function orgDiffers(
+  diff: Pick<RewindDiff, 'objects' | 'unread'> & Partial<Pick<RewindDiff, 'files'>>,
+): boolean {
   const totals = previewTotals(diff);
   return (
     totals.toDelete + totals.toGiveBack + totals.toBringBack + totals.toRecreate > 0 ||
+    linkWritesOf(diff) + filesLeftOf(diff) > 0 ||
     diff.objects.some((object) => cannotUndoOf(object) > 0 || object.unexplained > 0) ||
     diff.unread.length > 0
   );
@@ -1004,6 +1100,10 @@ const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
   deletedWithParentOutside:
     'deleted with their parent, a record of an object the checkpoint does not hold: they come ' +
     'back with that parent only, which a checkpoint that holds its object brings back',
+  newFileVersion:
+    'files given a new version since: Salesforce deletes no version and won’t make an older ' +
+    'one the latest again, so they keep their new content; the content each had is still in ' +
+    'its version history, and their titles are given back',
 };
 
 /**
@@ -1252,12 +1352,19 @@ export function previewLines(
   }
   for (const object of diff.objects) {
     for (const outside of object.outside) {
+      // A file to delete attached outside the checkpoint too leaves it as
+      // well: said as files, not as records created under them.
       lines.push(
-        `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
-          `${outside.objectApiName} created under ${count(outside.parents)} ${object.objectApiName}`,
+        object.objectApiName === FILE_OBJECT && outside.objectApiName === FILE_LINK_OBJECT
+          ? `  also attached outside the checkpoint: ${count(outside.parents)} file(s) it deletes, ` +
+              `by ${count(outside.count)} link(s) to a library, a group or a record of another ` +
+              'object — deleting them removes them from there as well'
+          : `  also deleted with them, outside the checkpoint: ${count(outside.count)} ` +
+              `${outside.objectApiName} created under ${count(outside.parents)} ${object.objectApiName}`,
       );
     }
   }
+  lines.push(...previewFilesLines(orgName, diff));
   const notCompared = diff.objects.flatMap((o) =>
     o.notCompared.map((f) => `${o.objectApiName}.${f}`),
   );
@@ -1290,6 +1397,76 @@ export function previewLines(
   if (answer.emails) lines.push(...emailLines(orgName, answer.emails));
   lines.push(estimateLine(answer.estimate));
   if (answer.refusal) lines.push(`  a rewind now would be refused: ${answer.refusal.message}`);
+  return lines;
+}
+
+/** The object a Salesforce File is a record of, as a checkpoint that holds files holds it. */
+const FILE_OBJECT = 'ContentDocument';
+
+/** The link between a file and a record, which a checkpoint holds with its file. */
+const FILE_LINK_OBJECT = 'ContentDocumentLink';
+
+/**
+ * What a rewind of a checkpoint that holds files does to the links between
+ * its files and its records, and leaves of the org's files: the links it
+ * removes, puts back and gives their sharing back, the files no record of the
+ * checkpoint links to, the file storage what it brings back takes and what
+ * Undo would take again, and what a user without Query All Files cannot see.
+ * Nothing for a checkpoint that holds no files.
+ */
+function previewFilesLines(orgName: string, diff: Pick<RewindDiff, 'objects' | 'files'>): string[] {
+  const files = diff.files;
+  if (files === undefined) return [];
+  const lines: string[] = [];
+  if (files.unlink > 0) {
+    lines.push(
+      `  links to remove: ${count(files.unlink)} added since between a file and a record that ` +
+        'both stay — the file stays, no longer attached to that record',
+    );
+  }
+  if (files.relink > 0) {
+    lines.push(
+      `  links to put back: ${count(files.relink)} removed since between a file and a record ` +
+        'that both stay, each under a new Id: Salesforce keeps no removed link in the recycle bin',
+    );
+  }
+  if (files.updateLinks > 0) {
+    lines.push(
+      `  links to give their sharing back: ${count(files.updateLinks)} — who sees the file from ` +
+        "the record, and with what access; a link to an account keeps its access, which Salesforce doesn't let change",
+    );
+  }
+  if (files.outsideAdded > 0) {
+    lines.push(
+      `  kept: ${count(files.outsideAdded)} file(s) added since, as no record of this checkpoint ` +
+        "links to them (a user's own, a library's)",
+    );
+  }
+  if (files.outsideDeleted > 0) {
+    lines.push(
+      `  left in the recycle bin: ${count(files.outsideDeleted)} file(s) deleted since, as no ` +
+        'record of this checkpoint linked to them',
+    );
+  }
+  const fileRow = diff.objects.find((object) => object.objectApiName === FILE_OBJECT);
+  const back = fileRow === undefined ? 0 : toBringBackOf(fileRow);
+  const { storage } = files;
+  if (back > 0 && storage.bringBack > 0) {
+    lines.push(
+      `  file storage: bringing back ${count(back)} file(s) takes ${megabytes(storage.bringBack)} ` +
+        'again; ' +
+        (storage.remaining === undefined
+          ? `${orgName} did not say how much it has left`
+          : `${orgName} has ${megabytes(storage.remaining)} left`),
+    );
+  }
+  if (storage.undo > 0) {
+    lines.push(
+      `  undo would bring back the files this rewind deletes: ${megabytes(storage.undo)} of file ` +
+        'storage again',
+    );
+  }
+  if (files.blindSpot) lines.push(BLIND_SPOT_LINE);
   return lines;
 }
 
@@ -1337,20 +1514,34 @@ export function previewExitCode(
  * set back to Draft first, which the platform deletes no other way — and the
  * records it brings back for a moment, then deletes again.
  */
-export function rewindStepsOf(diff: Pick<RewindDiff, 'objects'>): ForgeRemovalSteps {
+export function rewindStepsOf(
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+): ForgeRemovalSteps {
   // What comes back for a moment is brought back and deleted, as the rewind
   // itself lists it: its automation runs on both.
   const deleted = diff.objects
     .filter((o) => toDeleteOf(o) + carriersOf(o) > 0)
     .map((o) => o.objectApiName);
+  // A link between a file and a record removed is a delete, one put back an
+  // insert, one given its sharing back an update, as the rewind lists them:
+  // a trigger on links runs on each.
+  const links = diff.files;
+  const linked = (step: string[], writes: number): string[] =>
+    writes > 0 ? [...step, FILE_LINK_OBJECT] : step;
   return {
     bringBack: diff.objects
       .filter((o) => toBringBackOf(o) + carriersOf(o) > 0)
       .map((o) => o.objectApiName),
-    recreate: diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
-    giveBack: diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
+    recreate: linked(
+      diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
+      links?.relink ?? 0,
+    ),
+    giveBack: linked(
+      diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
+      links?.updateLinks ?? 0,
+    ),
     setToDraft: deleted.filter((name) => name === 'Order'),
-    delete: deleted,
+    delete: linked(deleted, links?.unlink ?? 0),
   };
 }
 
@@ -1411,7 +1602,10 @@ export function acceptanceRefusal(
   const fired = firedOnRemovalStepsOf(automation, steps);
   if (fired.length === 0 && !blindedBy(automation.unread)) return undefined;
   const objects = [...new Set(fired.map((each) => each.objectApiName))];
-  const makes = (steps.recreate ?? []).length > 0 ? 'makes them again, ' : '';
+  // A link put back is an insert of a link, no record made again.
+  const makes = (steps.recreate ?? []).some((name) => name !== FILE_LINK_OBJECT)
+    ? 'makes them again, '
+    : '';
   const what =
     fired.length > 0
       ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
@@ -1429,7 +1623,7 @@ export function acceptanceRefusal(
 export function rewindQuestion(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'name' | 'takenAt'>,
-  diff: Pick<RewindDiff, 'objects'>,
+  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
 ): string {
   const totals = previewTotals(diff);
   const remade =
@@ -1443,11 +1637,16 @@ export function rewindQuestion(
       ? `, with ${count(carriers)} record(s) brought back for a moment that had taken records ` +
         'of the checkpoint along, then deleted again'
       : '';
+  const links = linkWritesOf(diff);
+  const linked =
+    links > 0
+      ? `, and puts ${count(links)} link(s) between files and records back as they were`
+      : '';
   return (
     `Rewind ${orgName} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
     `record(s) created since ${when(checkpoint.takenAt)}, gives ${count(totals.toGiveBack)} ` +
     `record(s) their values from then back, and brings back ${count(totals.toBringBack)} ` +
-    `record(s) from the recycle bin${carried}${remade} — whoever made these changes. What it changes is ` +
+    `record(s) from the recycle bin${carried}${remade}${linked} — whoever made these changes. What it changes is ` +
     `kept, so it can be undone. Type ${orgName} to rewind it:`
   );
 }
@@ -1625,6 +1824,7 @@ export function rewindLines(
       `  made again ${count(remade.done)} record(s) the recycle bin no longer held, with new Ids`,
     );
   }
+  lines.push(...linksLines('rewind', orgName, result));
   lines.push(...followingLines('rewind', result, names));
   if (result.undo) {
     lines.push(
@@ -1714,8 +1914,46 @@ export function undoLines(
       `  kept ${count(kept)} record(s) changed since the rewind: undo leaves them as they are now`,
     );
   }
+  lines.push(...linksLines('undo', orgName, result));
   lines.push(...followingLines('undo', result, {}));
   lines.push(requestsUsedLine(result));
+  return lines;
+}
+
+/**
+ * What a rewind, or its undo, did to the links between files and records,
+ * the parts that apply: an undo removed again what the rewind put back, put
+ * back what it removed and gave back the sharing from before it.
+ */
+function linksLines(
+  act: 'rewind' | 'undo',
+  orgName: string,
+  result: Pick<RewindResult, 'files'>,
+): string[] {
+  const files = result.files;
+  if (files === undefined) return [];
+  const said =
+    act === 'rewind'
+      ? {
+          unlinked: 'removed {n} link(s) added since between files and records: the files stay',
+          relinked: 'put back {n} link(s) removed since between files and records, under new Ids',
+          linksUpdated: 'gave {n} link(s) between files and records their sharing back',
+        }
+      : {
+          unlinked: 'removed again {n} link(s) between files and records the rewind put back',
+          relinked:
+            'put back {n} link(s) between files and records the rewind removed, under new Ids',
+          linksUpdated:
+            'gave {n} link(s) between files and records back the sharing they had before the rewind',
+        };
+  const lines = (['unlinked', 'relinked', 'linksUpdated'] as const)
+    .filter((part) => files[part] > 0)
+    .map((part) => `  ${said[part].replace('{n}', count(files[part]))}`);
+  if (files.linksRefused > 0) {
+    lines.push(
+      `  ${orgName} refused to write ${count(files.linksRefused)} link(s) between files and records`,
+    );
+  }
   return lines;
 }
 
@@ -1825,6 +2063,7 @@ export function resultJson(
           })),
         }
       : {}),
+    ...(result.files ? { files: { ...result.files } } : {}),
     ...(result.undo
       ? {
           undo: {
@@ -2131,6 +2370,7 @@ async function take(
       leftOut: answered.leftOut,
       estimate: answered.estimate,
       ...(answered.refusal ? { refusal: answered.refusal } : {}),
+      ...(answered.files ? { files: answered.files } : {}),
     };
     for (const line of scopeLines(args.org, scope)) say(line);
     answerJson(scopeJson(scope));

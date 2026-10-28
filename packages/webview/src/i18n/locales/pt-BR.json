@@ -4586,7 +4586,9 @@
       "resultChanged_one": "{{formatted}} mantido, alterado por outra pessoa durante o retrocesso",
       "resultChanged_other": "{{formatted}} mantidos, alterados por outra pessoa durante o retrocesso",
       "resultFilesLeft_one": "{{formatted}} arquivo anexado a eles fica em {{org}}, pois o ponto de verificação não abrange arquivos: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois o ponto de verificação não abrange arquivos: {{names}}"
+      "resultFilesLeft_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}, pois o ponto de verificação não abrange arquivos: {{names}}",
+      "resultFilesLeftHeld_one": "{{formatted}} arquivo anexado a eles fica em {{org}}: o ponto de verificação o contém, ou ele também está anexado a um registro fora do ponto de verificação: {{names}}",
+      "resultFilesLeftHeld_other": "{{formatted}} arquivos anexados a eles ficam em {{org}}: o ponto de verificação os contém, ou eles também estão anexados a um registro fora do ponto de verificação: {{names}}"
     },
     "rewindUndo": {
       "resultSuccess": "Todo registro que o retrocesso recuperou ou recriou está agora na lixeira de {{org}}.",
@@ -5364,7 +5366,7 @@
       "pickedNone": "Escolha os objetos que o ponto de verificação guarda.",
       "pickedCount_one": "{{formatted}} objeto escolhido",
       "pickedCount_other": "{{formatted}} objetos escolhidos",
-      "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas, Chatter, objetos de histórico e de log, arquivos.",
+      "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
       "seeLeftOut_one": "Ver o objeto deixado de fora, e por quê",
       "seeLeftOut_other": "Ver os {{formatted}} objetos deixados de fora, e por quê",
       "beforeItRuns": "Antes de começar",
@@ -5387,7 +5389,17 @@
       "taken": "“{{name}}” criado — {{records}} em {{objects}}, {{size}}",
       "moved_one": "{{formatted}} registro mudou durante a criação; um retrocesso o trata como alterado desde então.",
       "moved_other": "{{formatted}} registros mudaram durante a criação; um retrocesso os trata como alterados desde então.",
-      "done": "Concluído"
+      "done": "Concluído",
+      "filesHeld": "Arquivos: ele guarda quais arquivos estão anexados aos registros que contém — Arquivos do Salesforce e anexos clássicos — e a versão mais recente de cada arquivo, não o conteúdo. Um retrocesso exclui os arquivos anexados a eles desde então, recupera os excluídos desde então e deixa como está um arquivo não anexado a nenhum registro que ele contém, o de um usuário ou o de uma biblioteca.",
+      "filesNotHeld": "Os arquivos não são guardados: um retrocesso deixa como estão os arquivos anexados desde então.",
+      "filesBlindSpot": "{{user}} não tem Query All Files: os arquivos de outros usuários não anexados a nenhum registro do ponto de verificação — em uma biblioteca da qual {{user}} não é membro, por exemplo — não são vistos. Os arquivos anexados aos registros dele são vistos mesmo assim.",
+      "filesReadByIds": "Os vínculos de {{objects}} foram lidos por listas de Ids de registros: {{org}} recusou uma única consulta, ou respondeu tarde demais.",
+      "filesAdded_one": "{{objects}} é adicionado aos objetos que você escolheu: sem ele, um retrocesso deixaria como estão os arquivos anexados desde então.",
+      "filesAdded_other": "{{objects}} são adicionados aos objetos que você escolheu: sem eles, um retrocesso deixaria como estão os arquivos anexados desde então.",
+      "filesKept_one": "{{formatted}} arquivo está anexado aos registros dele ({{links}}): um retrocesso desfaz o que for anexado a eles desde então.",
+      "filesKept_other": "{{formatted}} arquivos estão anexados aos registros dele ({{links}}): um retrocesso desfaz o que for anexado a eles desde então.",
+      "fileLinks_one": "{{formatted}} vínculo",
+      "fileLinks_other": "{{formatted}} vínculos"
     },
     "preview": {
       "title": "Retroceder {{org}} para “{{name}}” ({{date}})",
@@ -5449,8 +5461,8 @@
         "convertedLead_other": "{{formatted}} leads foram convertidos desde então: o Salesforce não pode desfazer a conversão de um lead. O que as conversões criaram é excluído, e os leads continuam convertidos.",
         "activatedContract_one": "{{formatted}} contrato foi ativado desde então: o Salesforce não o volta para Rascunho, então ele continua ativado.",
         "activatedContract_other": "{{formatted}} contratos foram ativados desde então: o Salesforce não os volta para Rascunho, então eles continuam ativados.",
-        "newFileVersion_one": "{{formatted}} arquivo recebeu uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então o arquivo mantém o novo conteúdo, e o anterior fica no histórico de versões dele.",
-        "newFileVersion_other": "{{formatted}} arquivos receberam uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então os arquivos mantêm o novo conteúdo, e o anterior de cada um fica no histórico de versões dele.",
+        "newFileVersion_one": "{{formatted}} arquivo recebeu uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então o arquivo mantém o novo conteúdo. O que ele tinha continua no histórico de versões dele; o título dele é devolvido.",
+        "newFileVersion_other": "{{formatted}} arquivos receberam uma nova versão desde então: o Salesforce não exclui nenhuma versão nem volta a definir uma anterior como a mais recente, então os arquivos mantêm o novo conteúdo. O que cada um tinha continua no histórico de versões dele; os títulos deles são devolvidos.",
         "fieldRemoved": "{{field}} foi excluído desde o ponto de verificação: restaure-o em Campos excluídos (em até 15 dias) e depois retroceda de novo.",
         "fieldsAdded_one": "{{fields}} foi adicionado desde então: os valores dele ficam.",
         "fieldsAdded_other": "{{fields}} foram adicionados desde então: os valores deles ficam.",
@@ -5458,7 +5470,8 @@
         "fieldsChanged_other": "Os tipos de {{fields}} mudaram desde então: o retrocesso tenta campo por campo.",
         "computed": "Fórmulas, resumos de totalização, numerações automáticas e as datas de criação e de modificação são da org: o retrocesso não as grava, e as datas da última modificação vão mostrar o retrocesso.",
         "leftTheOrg": "O retrocesso muda dados apenas em {{org}}. O que já saiu dela (e-mails, callouts, mensagens de saída, eventos de plataforma, dados que outros sistemas obtiveram) continua enviado.",
-        "metadata": "Os metadados não retrocedem: campos, fluxos, regras de validação, layouts e permissões ficam como estão. A Comparação cobre os metadados."
+        "metadata": "Os metadados não retrocedem: campos, fluxos, regras de validação, layouts e permissões ficam como estão. A Comparação cobre os metadados.",
+        "filesNotHeld": "Este ponto de verificação não contém arquivos — criado antes do SandForge 1.70, ou de objetos sem eles: os arquivos anexados desde então ficam, e o resultado nomeia os anexados aos registros que ele exclui."
       },
       "undoCannot": {
         "title": "O que Desfazer não conseguiria recuperar",
@@ -5476,7 +5489,9 @@
         "parents_other": "{{formatted}} registros de {{object}} que o retrocesso exclui",
         "everything": "Eles saem com os registros de que dependem.",
         "accept": "Excluí-los também",
-        "otherwise": "Sem esta caixa marcada, os registros de que dependem ficam e são nomeados."
+        "otherwise": "Sem esta caixa marcada, os registros de que dependem ficam e são nomeados.",
+        "files_one": "{{formatted}} arquivo que o retrocesso exclui também está anexado fora do ponto de verificação — a uma biblioteca, um grupo ou um registro de outro objeto — por {{links}}: excluí-lo o remove de lá também.",
+        "files_other": "{{formatted}} arquivos que o retrocesso exclui também estão anexados fora do ponto de verificação — a uma biblioteca, um grupo ou um registro de outro objeto — por {{links}}: excluí-los os remove de lá também."
       },
       "notCompared": "Não comparados (você escolheu): {{fields}}",
       "automation": {
@@ -5512,7 +5527,9 @@
         "recreate_one": "recria {{formatted}} registro que a lixeira não contém mais, com um Id novo",
         "recreate_other": "recria {{formatted}} registros que a lixeira não contém mais, com Ids novos",
         "carriers_one": "recupera por um momento {{formatted}} registro que tinha levado registros do ponto de verificação junto e depois o exclui de novo",
-        "carriers_other": "recupera por um momento {{formatted}} registros que tinham levado registros do ponto de verificação junto e depois os exclui de novo"
+        "carriers_other": "recupera por um momento {{formatted}} registros que tinham levado registros do ponto de verificação junto e depois os exclui de novo",
+        "links_one": "deixa {{formatted}} vínculo entre um arquivo e um registro como estava",
+        "links_other": "deixa {{formatted}} vínculos entre arquivos e registros como estavam"
       },
       "toRecreate_one": "{{formatted}} a recriar",
       "toRecreate_other": "{{formatted}} a recriar",
@@ -5525,6 +5542,26 @@
         "ifEmptiedTitle": "Se a lixeira não os contém mais",
         "ifEmptied": "O Salesforce ainda mostra como excluído um registro esvaziado da lixeira, por minutos ou horas, e só diz que a lixeira não o contém mais quando o retrocesso pede para recuperá-lo. Marcado, o retrocesso então o recria a partir do ponto de verificação, com um Id novo, junto com os registros que deviam voltar com ele, executando o que a org executa ao criar um registro; desmarcado, ele os deixa e os nomeia.",
         "accept": "Recriá-los, com Ids novos"
+      },
+      "files": {
+        "title": "Os arquivos e seus vínculos",
+        "shareTypeFixed": "Um vínculo a uma conta mantém o acesso, que o Salesforce não deixa mudar: só quem vê o arquivo é devolvido.",
+        "undoStorage": "Desfazer recuperaria os arquivos que este retrocesso exclui, voltando a ocupar {{size}} do armazenamento de arquivos.",
+        "blindSpot": "{{user}} não tem Query All Files: os arquivos de outros usuários não anexados a nenhum registro deste ponto de verificação não são vistos, nem contados aqui.",
+        "unlink_one": "{{formatted}} vínculo adicionado desde então entre um arquivo e um registro que ficam: removido. O arquivo fica, não mais anexado a esse registro.",
+        "unlink_other": "{{formatted}} vínculos adicionados desde então entre arquivos e registros que ficam: removidos. Os arquivos ficam, não mais anexados a esses registros.",
+        "relink_one": "{{formatted}} vínculo removido desde então entre um arquivo e um registro que ficam: recolocado, com um Id novo — o Salesforce não guarda nenhum vínculo removido na lixeira.",
+        "relink_other": "{{formatted}} vínculos removidos desde então entre arquivos e registros que ficam: recolocados, com Ids novos — o Salesforce não guarda nenhum vínculo removido na lixeira.",
+        "updateLinks_one": "{{formatted}} vínculo cujo compartilhamento mudou desde então o recupera: quem vê o arquivo a partir do registro, e com qual acesso.",
+        "updateLinks_other": "{{formatted}} vínculos cujo compartilhamento mudou desde então o recuperam: quem vê o arquivo a partir do registro, e com qual acesso.",
+        "outsideAdded_one": "Mantido: {{formatted}} arquivo adicionado desde então, pois nenhum registro deste ponto de verificação está vinculado a ele — o de um usuário, o de uma biblioteca.",
+        "outsideAdded_other": "Mantidos: {{formatted}} arquivos adicionados desde então, pois nenhum registro deste ponto de verificação está vinculado a eles — os de um usuário, os de uma biblioteca.",
+        "outsideDeleted_one": "Deixado na lixeira: {{formatted}} arquivo excluído desde então, pois nenhum registro deste ponto de verificação estava vinculado a ele.",
+        "outsideDeleted_other": "Deixados na lixeira: {{formatted}} arquivos excluídos desde então, pois nenhum registro deste ponto de verificação estava vinculado a eles.",
+        "storage_one": "Recuperar {{formatted}} arquivo da lixeira volta a ocupar {{size}} do armazenamento de arquivos; restam {{remaining}} a {{org}}.",
+        "storage_other": "Recuperar {{formatted}} arquivos da lixeira volta a ocupar {{size}} do armazenamento de arquivos; restam {{remaining}} a {{org}}.",
+        "storageUnsaid_one": "Recuperar {{formatted}} arquivo da lixeira volta a ocupar {{size}} do armazenamento de arquivos; {{org}} não disse quanto ainda tem.",
+        "storageUnsaid_other": "Recuperar {{formatted}} arquivos da lixeira volta a ocupar {{size}} do armazenamento de arquivos; {{org}} não disse quanto ainda tem."
       }
     },
     "run": {
@@ -5540,7 +5577,9 @@
         "delete_other": "Excluir {{formatted}} registros adicionados desde então, os filhos primeiro",
         "check": "Verificar: ler {{org}} de novo",
         "recreate_one": "Recriar {{formatted}} registro que a lixeira não contém mais, com um Id novo",
-        "recreate_other": "Recriar {{formatted}} registros que a lixeira não contém mais, com Ids novos"
+        "recreate_other": "Recriar {{formatted}} registros que a lixeira não contém mais, com Ids novos",
+        "links_one": "Deixar {{formatted}} vínculo entre um arquivo e um registro como estava",
+        "links_other": "Deixar {{formatted}} vínculos entre arquivos e registros como estavam"
       },
       "progress": "Progresso do retrocesso",
       "undoProgress": "Progresso de Desfazer",
@@ -5636,7 +5675,15 @@
         "remade_one": "Excluído de novo em {{org}}: {{formatted}} registro que o retrocesso recriou, com o que foi junto com ele",
         "remade_other": "Excluídos de novo em {{org}}: {{formatted}} registros que o retrocesso recriou, com o que foi junto com eles",
         "carriedAlone_one": "Devolvido sozinho à lixeira de {{org}}: {{formatted}} registro de {{object}} que tinha ido para lá com um registro que o retrocesso recuperou por um momento, e que fica lá. Ele volta sozinho, sob o pai que o ponto de verificação lhe dava.",
-        "carriedAlone_other": "Devolvidos sozinhos à lixeira de {{org}}: {{formatted}} registros de {{object}} que tinham ido para lá com um registro que o retrocesso recuperou por um momento, e que fica lá. Eles voltam sozinhos, sob o pai que o ponto de verificação lhes dava."
+        "carriedAlone_other": "Devolvidos sozinhos à lixeira de {{org}}: {{formatted}} registros de {{object}} que tinham ido para lá com um registro que o retrocesso recuperou por um momento, e que fica lá. Eles voltam sozinhos, sob o pai que o ponto de verificação lhes dava.",
+        "files": {
+          "unlinked_one": "{{formatted}} vínculo que o retrocesso recolocou, removido de novo",
+          "unlinked_other": "{{formatted}} vínculos que o retrocesso recolocou, removidos de novo",
+          "relinked_one": "{{formatted}} vínculo que o retrocesso removeu, recolocado com um Id novo",
+          "relinked_other": "{{formatted}} vínculos que o retrocesso removeu, recolocados com Ids novos",
+          "linksUpdated_one": "{{formatted}} vínculo que recuperou o compartilhamento que tinha antes do retrocesso",
+          "linksUpdated_other": "{{formatted}} vínculos que recuperaram o compartilhamento que tinham antes do retrocesso"
+        }
       },
       "recreated": {
         "title": "Recriados em {{org}}, com Ids novos",
@@ -5648,6 +5695,17 @@
         "line_other": "{{object}}: {{formatted}} registros que o ponto de verificação não contém",
         "deletedAgain": "Excluídos de novo assim que esses registros voltaram, com o que voltou com eles: na lixeira, como antes do retrocesso.",
         "stopped": "Interrompido antes do fim do retrocesso: o que deles ainda não tinha sido excluído de novo continua em {{org}}. Um novo retrocesso o exclui, com o que voltou junto."
+      },
+      "files": {
+        "title": "Vínculos entre arquivos e registros em {{org}}",
+        "unlinked_one": "{{formatted}} vínculo adicionado desde então removido: o arquivo dele fica",
+        "unlinked_other": "{{formatted}} vínculos adicionados desde então removidos: os arquivos deles ficam",
+        "relinked_one": "{{formatted}} vínculo removido desde então recolocado, com um Id novo",
+        "relinked_other": "{{formatted}} vínculos removidos desde então recolocados, com Ids novos",
+        "linksUpdated_one": "{{formatted}} vínculo que recuperou o compartilhamento",
+        "linksUpdated_other": "{{formatted}} vínculos que recuperaram o compartilhamento",
+        "linksRefused_one": "{{formatted}} vínculo que {{org}} recusou gravar",
+        "linksRefused_other": "{{formatted}} vínculos que {{org}} recusou gravar"
       }
     },
     "undo": {

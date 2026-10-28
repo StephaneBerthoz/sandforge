@@ -4586,7 +4586,9 @@
       "resultChanged_one": "{{formatted}} kept, changed by someone else during the rewind",
       "resultChanged_other": "{{formatted}} kept, changed by someone else during the rewind",
       "resultFilesLeft_one": "{{formatted}} file attached to them stays in {{org}}, as the checkpoint does not cover files: {{names}}",
-      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the checkpoint does not cover files: {{names}}"
+      "resultFilesLeft_other": "{{formatted}} files attached to them stay in {{org}}, as the checkpoint does not cover files: {{names}}",
+      "resultFilesLeftHeld_one": "{{formatted}} file attached to them stays in {{org}}: the checkpoint holds it, or it is attached to a record outside the checkpoint too: {{names}}",
+      "resultFilesLeftHeld_other": "{{formatted}} files attached to them stay in {{org}}: the checkpoint holds them, or they are attached to a record outside the checkpoint too: {{names}}"
     },
     "rewindUndo": {
       "resultSuccess": "Every record the rewind brought back or made again is in the recycle bin of {{org}} now.",
@@ -5364,7 +5366,7 @@
       "pickedNone": "Pick the objects the checkpoint keeps.",
       "pickedCount_one": "{{formatted}} object picked",
       "pickedCount_other": "{{formatted}} objects picked",
-      "leftOutAlways": "Left out: users, permissions, setup, custom settings, Chatter, history and log objects, files.",
+      "leftOutAlways": "Left out: users, permissions, setup, custom settings, Chatter, history and log objects, the documents of the Documents tab.",
       "seeLeftOut_one": "See the object left out, and why",
       "seeLeftOut_other": "See the {{formatted}} objects left out, and why",
       "beforeItRuns": "Before it runs",
@@ -5387,7 +5389,17 @@
       "taken": "“{{name}}” taken — {{records}} in {{objects}}, {{size}}",
       "moved_one": "{{formatted}} record changed while it was being taken; a rewind treats it as changed since.",
       "moved_other": "{{formatted}} records changed while it was being taken; a rewind treats them as changed since.",
-      "done": "Done"
+      "done": "Done",
+      "filesHeld": "Files: it keeps which files are attached to the records it holds — Salesforce Files and classic attachments — and each file's latest version, not its content. A rewind deletes the files attached to them since, brings back those deleted since, and leaves as it is a file attached to no record it holds, a user's own or a library's.",
+      "filesNotHeld": "Files are not kept: a rewind leaves the files attached since as they are.",
+      "filesBlindSpot": "{{user}} doesn't have Query All Files: the files of other users that no record of the checkpoint is attached to — in a library {{user}} isn't a member of, say — aren't seen. The files attached to its records are seen all the same.",
+      "filesReadByIds": "The links of {{objects}} were read by lists of record Ids: {{org}} refused one query, or answered too late.",
+      "filesAdded_one": "{{objects}} is added to the objects you picked: without it, a rewind would leave the files attached since as they are.",
+      "filesAdded_other": "{{objects}} are added to the objects you picked: without them, a rewind would leave the files attached since as they are.",
+      "filesKept_one": "{{formatted}} file is attached to its records ({{links}}): a rewind takes back what is attached to them since.",
+      "filesKept_other": "{{formatted}} files are attached to its records ({{links}}): a rewind takes back what is attached to them since.",
+      "fileLinks_one": "{{formatted}} link",
+      "fileLinks_other": "{{formatted}} links"
     },
     "preview": {
       "title": "Rewind {{org}} to “{{name}}” ({{date}})",
@@ -5449,8 +5461,8 @@
         "convertedLead_other": "{{formatted}} leads were converted since: Salesforce cannot unconvert a lead. What the conversions made is deleted, and the leads stay converted.",
         "activatedContract_one": "{{formatted}} contract was activated since: Salesforce will not set it back to Draft, so it stays activated.",
         "activatedContract_other": "{{formatted}} contracts were activated since: Salesforce will not set them back to Draft, so they stay activated.",
-        "newFileVersion_one": "{{formatted}} file was given a new version since: Salesforce neither deletes a version nor sets an older one back as the latest, so the file keeps its new content, and the one it had stays in its version history.",
-        "newFileVersion_other": "{{formatted}} files were given a new version since: Salesforce neither deletes a version nor sets an older one back as the latest, so the files keep their new content, and the one each had stays in its version history.",
+        "newFileVersion_one": "{{formatted}} file got a new version since: Salesforce deletes no version and won't make an older one the latest again, so the file keeps its new content. The content it had is still in its version history; its title is given back.",
+        "newFileVersion_other": "{{formatted}} files got a new version since: Salesforce deletes no version and won't make an older one the latest again, so the files keep their new content. The content each had is still in its version history; their titles are given back.",
         "fieldRemoved": "{{field}} was deleted since the checkpoint: restore it from Deleted Fields (within 15 days), then rewind again.",
         "fieldsAdded_one": "{{fields}} was added since: its values stay.",
         "fieldsAdded_other": "{{fields}} were added since: their values stay.",
@@ -5458,7 +5470,8 @@
         "fieldsChanged_other": "The types of {{fields}} changed since: Rewind tries them field by field.",
         "computed": "Formulas, roll-ups, auto-numbers and the created and modified dates are the org's own: Rewind does not write them, and the last modified dates will show the rewind.",
         "leftTheOrg": "Rewind changes data in {{org}} only. What already left it (emails, callouts, outbound messages, platform events, data other systems pulled) stays sent.",
-        "metadata": "Metadata is not rewound: fields, flows, validation rules, layouts and permissions stay as they are. Compare Org covers metadata."
+        "metadata": "Metadata is not rewound: fields, flows, validation rules, layouts and permissions stay as they are. Compare Org covers metadata.",
+        "filesNotHeld": "This checkpoint holds no files — taken before SandForge 1.70, or of objects without them: files attached since stay, and the result names those attached to the records it deletes."
       },
       "undoCannot": {
         "title": "What Undo could not bring back",
@@ -5476,7 +5489,9 @@
         "parents_other": "{{formatted}} {{object}} records the rewind deletes",
         "everything": "They go with the records they hang from.",
         "accept": "Delete these too",
-        "otherwise": "Unless the box is ticked, the records they hang from stay, and are named."
+        "otherwise": "Unless the box is ticked, the records they hang from stay, and are named.",
+        "files_one": "{{formatted}} file the rewind deletes is attached outside the checkpoint too — to a library, a group or a record of another object — by {{links}}: deleting it removes it from there as well.",
+        "files_other": "{{formatted}} files the rewind deletes are attached outside the checkpoint too — to a library, a group or a record of another object — by {{links}}: deleting them removes them from there as well."
       },
       "notCompared": "Not compared (you chose): {{fields}}",
       "automation": {
@@ -5512,7 +5527,9 @@
         "recreate_one": "makes {{formatted}} record the recycle bin no longer holds again, with a new Id",
         "recreate_other": "makes {{formatted}} records the recycle bin no longer holds again, with new Ids",
         "carriers_one": "brings back for a moment {{formatted}} record that had taken records of the checkpoint along, then deletes it again",
-        "carriers_other": "brings back for a moment {{formatted}} records that had taken records of the checkpoint along, then deletes them again"
+        "carriers_other": "brings back for a moment {{formatted}} records that had taken records of the checkpoint along, then deletes them again",
+        "links_one": "puts {{formatted}} link between a file and a record back as it was",
+        "links_other": "puts {{formatted}} links between files and records back as they were"
       },
       "toRecreate_one": "{{formatted}} to make again",
       "toRecreate_other": "{{formatted}} to make again",
@@ -5525,6 +5542,26 @@
         "ifEmptiedTitle": "If the recycle bin no longer holds them",
         "ifEmptied": "Salesforce still lists a record emptied from the recycle bin as deleted, for minutes to hours, and says the bin no longer holds it only once the rewind asks for it back. Ticked, the rewind then makes it again from the checkpoint, with a new Id, and the records that were to come back with it too, running what the org runs as a record is created; unticked, it leaves them, and names them.",
         "accept": "Make them again, with new Ids"
+      },
+      "files": {
+        "title": "Files and their links",
+        "shareTypeFixed": "A link to an account keeps its access, which Salesforce doesn't let change: only who sees the file is given back.",
+        "undoStorage": "Undo would bring back the files this rewind deletes, taking {{size}} of file storage again.",
+        "blindSpot": "{{user}} doesn't have Query All Files: the files of other users that no record of this checkpoint is attached to aren't seen, nor counted here.",
+        "unlink_one": "{{formatted}} link added since between a file and a record that both stay: removed. The file stays, no longer attached to that record.",
+        "unlink_other": "{{formatted}} links added since between files and records that stay: removed. The files stay, no longer attached to those records.",
+        "relink_one": "{{formatted}} link removed since between a file and a record that both stay: put back, under a new Id — Salesforce keeps no removed link in the recycle bin.",
+        "relink_other": "{{formatted}} links removed since between files and records that stay: put back, under new Ids — Salesforce keeps no removed link in the recycle bin.",
+        "updateLinks_one": "{{formatted}} link whose sharing changed since gets it back: who sees the file from the record, and with what access.",
+        "updateLinks_other": "{{formatted}} links whose sharing changed since get it back: who sees the file from the record, and with what access.",
+        "outsideAdded_one": "Kept: {{formatted}} file added since, as no record of this checkpoint links to it — a user's own, a library's.",
+        "outsideAdded_other": "Kept: {{formatted}} files added since, as no record of this checkpoint links to them — a user's own, a library's.",
+        "outsideDeleted_one": "Left in the recycle bin: {{formatted}} file deleted since, as no record of this checkpoint linked to it.",
+        "outsideDeleted_other": "Left in the recycle bin: {{formatted}} files deleted since, as no record of this checkpoint linked to them.",
+        "storage_one": "Bringing back {{formatted}} file from the recycle bin takes {{size}} of file storage again; {{org}} has {{remaining}} left.",
+        "storage_other": "Bringing back {{formatted}} files from the recycle bin takes {{size}} of file storage again; {{org}} has {{remaining}} left.",
+        "storageUnsaid_one": "Bringing back {{formatted}} file from the recycle bin takes {{size}} of file storage again; {{org}} did not say how much it has left.",
+        "storageUnsaid_other": "Bringing back {{formatted}} files from the recycle bin takes {{size}} of file storage again; {{org}} did not say how much it has left."
       }
     },
     "run": {
@@ -5540,7 +5577,9 @@
         "delete_other": "Delete {{formatted}} records added since, children first",
         "check": "Check: read {{org}} again",
         "recreate_one": "Make again {{formatted}} record the recycle bin no longer holds, with a new Id",
-        "recreate_other": "Make again {{formatted}} records the recycle bin no longer holds, with new Ids"
+        "recreate_other": "Make again {{formatted}} records the recycle bin no longer holds, with new Ids",
+        "links_one": "Put {{formatted}} link between a file and a record back as it was",
+        "links_other": "Put {{formatted}} links between files and records back as they were"
       },
       "progress": "Progress of the rewind",
       "undoProgress": "Progress of the undo",
@@ -5636,7 +5675,15 @@
         "remade_one": "Deleted again in {{org}}: {{formatted}} record the rewind made again, with what went with it",
         "remade_other": "Deleted again in {{org}}: {{formatted}} records the rewind made again, with what went with them",
         "carriedAlone_one": "Back in the recycle bin of {{org}} on its own: {{formatted}} {{object}} record that had gone there with a record the rewind brought back for a moment, which stays there. It comes back alone, under the parent the checkpoint gave it.",
-        "carriedAlone_other": "Back in the recycle bin of {{org}} on their own: {{formatted}} {{object}} records that had gone there with a record the rewind brought back for a moment, which stays there. They come back alone, under the parent the checkpoint gave them."
+        "carriedAlone_other": "Back in the recycle bin of {{org}} on their own: {{formatted}} {{object}} records that had gone there with a record the rewind brought back for a moment, which stays there. They come back alone, under the parent the checkpoint gave them.",
+        "files": {
+          "unlinked_one": "{{formatted}} link the rewind put back, removed again",
+          "unlinked_other": "{{formatted}} links the rewind put back, removed again",
+          "relinked_one": "{{formatted}} link the rewind removed, put back under a new Id",
+          "relinked_other": "{{formatted}} links the rewind removed, put back under new Ids",
+          "linksUpdated_one": "{{formatted}} link given back the sharing it had before the rewind",
+          "linksUpdated_other": "{{formatted}} links given back the sharing they had before the rewind"
+        }
       },
       "recreated": {
         "title": "Made again in {{org}}, with new Ids",
@@ -5648,6 +5695,17 @@
         "line_other": "{{object}}: {{formatted}} records the checkpoint does not hold",
         "deletedAgain": "Deleted again once those records were back, with what came back with them: in the recycle bin, as before the rewind.",
         "stopped": "Stopped before the rewind was through: what of them it had not deleted again yet is still in {{org}}. Rewind again deletes it, with what came back with it."
+      },
+      "files": {
+        "title": "Links between files and records in {{org}}",
+        "unlinked_one": "{{formatted}} link added since removed: its file stays",
+        "unlinked_other": "{{formatted}} links added since removed: their files stay",
+        "relinked_one": "{{formatted}} link removed since put back, under a new Id",
+        "relinked_other": "{{formatted}} links removed since put back, under new Ids",
+        "linksUpdated_one": "{{formatted}} link given its sharing back",
+        "linksUpdated_other": "{{formatted}} links given their sharing back",
+        "linksRefused_one": "{{formatted}} link {{org}} refused to write",
+        "linksRefused_other": "{{formatted}} links {{org}} refused to write"
       }
     },
     "undo": {
