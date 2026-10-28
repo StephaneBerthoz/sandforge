@@ -58,6 +58,9 @@ const VERSION_GONE = {
   message: 'The version is no longer in the org: it went with its article.',
 };
 
+/** The filter that reads archived versions, which no other read shows: see {@link versionsOf}. */
+const ARCHIVED = " AND IsLatestVersion = false AND PublishStatus = 'Archived'";
+
 /** Why a version is never sent by a Bulk API job. */
 const NOT_BY_JOB = 'An article version is deleted through its article, over REST.';
 
@@ -142,9 +145,11 @@ async function describedAsItsArticle(org: RemovalOrg, versionObject: string): Pr
 /**
  * Of an article version object, the versions `ids` names and the article of
  * each, then every version of those articles: the latest, and the archived
- * ones, which only a read on `IsLatestVersion = false` with a filter on the
- * article gives (P2: a read by the article and `PublishStatus = 'Archived'`
- * gave none).
+ * ones, which only a read on `IsLatestVersion = false` gives (P2: a read by
+ * the article and `PublishStatus = 'Archived'` gave none). The org takes
+ * that filter only with a filter on `Id` or `KnowledgeArticleId` (P2) and on
+ * `PublishStatus = 'Archived'`: without the second, `MALFORMED_QUERY`, every
+ * version of the removal refused before any article was deleted (G-F2).
  */
 async function versionsOf(
   org: RemovalOrg,
@@ -166,7 +171,7 @@ async function versionsOf(
     }
   };
   // A version archived since the run is read by its id on `IsLatestVersion = false` alone.
-  for (const latest of ['', ' AND IsLatestVersion = false']) {
+  for (const latest of ['', ARCHIVED]) {
     for (const list of idLists(ids)) {
       const answer = await org.query(
         `SELECT Id, KnowledgeArticleId FROM ${object} WHERE Id IN (${list})${latest}`,
@@ -175,7 +180,7 @@ async function versionsOf(
     }
   }
   const articles = [...new Set(articleOf.values())];
-  for (const latest of ['', ' AND IsLatestVersion = false']) {
+  for (const latest of ['', ARCHIVED]) {
     for (const list of idLists(articles)) {
       const answer = await org.query(
         `SELECT Id, KnowledgeArticleId FROM ${object} WHERE KnowledgeArticleId IN (${list})${latest}`,

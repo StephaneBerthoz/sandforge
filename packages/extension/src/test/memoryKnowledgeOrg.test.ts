@@ -3,6 +3,7 @@ import {
   ARTICLE,
   ARTICLE_VERSION,
   CASE_ARTICLE,
+  ARCHIVED_FILTER_REFUSAL,
   LATEST_FILTER_REFUSAL,
   MemoryKnowledgeOrg,
   VERSION_DELETE_REFUSAL,
@@ -46,7 +47,7 @@ async function versionRow(org: MemoryKnowledgeOrg, id: string): Promise<MemoryRo
   const columns = 'Id, KnowledgeArticleId, PublishStatus, VersionNumber, IsLatestVersion';
   const latest = await org.query(`SELECT ${columns} FROM ${ARTICLE_VERSION} WHERE Id = '${id}'`);
   const archived = await org.query(
-    `SELECT ${columns} FROM ${ARTICLE_VERSION} WHERE Id = '${id}' AND IsLatestVersion = false`,
+    `SELECT ${columns} FROM ${ARTICLE_VERSION} WHERE Id = '${id}' AND IsLatestVersion = false AND PublishStatus = 'Archived'`,
   );
   return latest.records[0] ?? archived.records[0];
 }
@@ -150,6 +151,21 @@ describe('MemoryKnowledgeOrg', () => {
     ).rejects.toMatchObject({ errorCode: LATEST_FILTER_REFUSAL.errorCode });
   });
 
+  it("refuses a read of archived versions by their id with no filter on PublishStatus = 'Archived' (G-F2)", async () => {
+    const org = new MemoryKnowledgeOrg();
+    const id = await inserted(org);
+    await publication(org, id, 'Online');
+    await publication(org, id, 'Draft');
+
+    await expect(
+      org.query(`SELECT Id FROM ${ARTICLE_VERSION} WHERE Id = '${id}' AND IsLatestVersion = false`),
+    ).rejects.toMatchObject({ errorCode: ARCHIVED_FILTER_REFUSAL.errorCode });
+    const read = await org.query(
+      `SELECT Id FROM ${ARTICLE_VERSION} WHERE Id = '${id}' AND IsLatestVersion = false AND PublishStatus = 'Archived'`,
+    );
+    expect(read.records.map((row) => row.Id)).toEqual([id]);
+  });
+
   it('refuses the delete of a version, a draft or an online one, and deletes nothing (P2.3, P2.5)', async () => {
     const org = new MemoryKnowledgeOrg();
     const draft = await inserted(org);
@@ -177,7 +193,7 @@ describe('MemoryKnowledgeOrg', () => {
     expect(answer.success).toBe(true);
     for (const version of [id, draft]) {
       const read = await org.queryAll(
-        `SELECT Id FROM ${ARTICLE_VERSION} WHERE Id = '${version}' AND IsLatestVersion = false`,
+        `SELECT Id FROM ${ARTICLE_VERSION} WHERE Id = '${version}' AND IsLatestVersion = false AND PublishStatus = 'Archived'`,
       );
       expect(read.records).toEqual([]);
       expect(

@@ -27,7 +27,8 @@
  *   (P2.4).
  * - A read sees the latest versions alone; an archived one only on
  *   `IsLatestVersion = false`, which the org refuses without a filter on `Id`
- *   or `KnowledgeArticleId` (P2.4).
+ *   or `KnowledgeArticleId` (P2.4), and without one on
+ *   `PublishStatus = 'Archived'` (G-F2).
  * - A `CaseArticle` is created with the article's id, never the version's;
  *   the platform fills the version it was linked at, and counts the link on
  *   the article and the version (P3.2). It goes with its case, `IsDeleted` in
@@ -77,6 +78,13 @@ export const LATEST_FILTER_REFUSAL = {
   message:
     'Implementation restriction: When filtering by isLatestVersion=false, you must include a ' +
     'filter on Id or KnowledgeArticleId',
+};
+
+/** What the org answers a read of archived versions with no filter on their status (G-F2). */
+export const ARCHIVED_FILTER_REFUSAL = {
+  errorCode: 'MALFORMED_QUERY',
+  message:
+    "Implementation restriction: When filtering by isLatestVersion=false, you also filter by PublishStatus = 'archived'",
 };
 
 /** The fields of a version as a base turned on afresh describes them (P1). */
@@ -534,6 +542,9 @@ export class MemoryKnowledgeOrg extends MemoryRemovalOrg {
     const archived = /\bIsLatestVersion\s*=\s*false\b/i.test(soql);
     if (archived && !/\b(?:Id|KnowledgeArticleId)\s*(?:=|IN\b)/i.test(soql)) {
       return orgError(LATEST_FILTER_REFUSAL.errorCode, LATEST_FILTER_REFUSAL.message);
+    }
+    if (archived && !/\bPublishStatus\s*=\s*'Archived'/i.test(soql)) {
+      return orgError(ARCHIVED_FILTER_REFUSAL.errorCode, ARCHIVED_FILTER_REFUSAL.message);
     }
     return undefined;
   }
