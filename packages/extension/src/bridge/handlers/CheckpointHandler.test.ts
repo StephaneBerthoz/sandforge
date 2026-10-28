@@ -620,6 +620,96 @@ describe('CheckpointHandler — the scope', () => {
   });
 });
 
+/** The handler's org with a list custom setting of two rows, and its user's Customize Application. */
+class SettingsTestOrg extends HandlerTestOrg {
+  constructor() {
+    super();
+    this.changeSchema('Endpoints__c', [
+      ...STAMP_FIELDS,
+      { ...writable('Name'), nillable: false },
+      writable('Value__c'),
+    ]);
+    clock = LONG_AGO;
+    this.add('Endpoints__c', { Id: id('a0B', 1), Name: 'Billing', Value__c: 'https://a.example' });
+    this.add('Endpoints__c', { Id: id('a0B', 2), Name: 'Shipping', Value__c: 'https://b.example' });
+    clock = T0;
+    this.all('UserPermissionAccess')[0].PermissionsCustomizeApplication = true;
+  }
+
+  override async describeGlobal(): Promise<unknown> {
+    const global = (await super.describeGlobal()) as { sobjects: unknown[] };
+    return {
+      sobjects: [
+        ...global.sobjects,
+        {
+          name: 'Endpoints__c',
+          label: 'Endpoints',
+          queryable: true,
+          createable: true,
+          updateable: true,
+          deletable: true,
+          layoutable: true,
+          customSetting: true,
+        },
+      ],
+    };
+  }
+}
+
+describe('CheckpointHandler — custom settings', () => {
+  it('offers the org’s custom settings with the scope, and holds those the request names', async () => {
+    const h = harness({ org: new SettingsTestOrg() });
+
+    await h.send('wv-scope-1', 'checkpoint:scope', { orgId: REGISTERED, mode: 'everything' });
+    await h.send('wv-scope-2', 'checkpoint:scope', {
+      orgId: REGISTERED,
+      mode: 'everything',
+      customSettings: ['Endpoints__c'],
+    });
+
+    const offered = [
+      { objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list', records: 2 },
+    ];
+    const none = answerOf(h, 'wv-scope-1').payload;
+    const one = answerOf(h, 'wv-scope-2').payload;
+    expect(none.customSettings).toEqual(offered);
+    expect(one.customSettings).toEqual(offered);
+    expect(
+      (none.objects as Array<{ objectApiName: string }>).map((o) => o.objectApiName),
+    ).not.toContain('Endpoints__c');
+    expect(one.objects).toContainEqual(
+      expect.objectContaining({ objectApiName: 'Endpoints__c', customSetting: 'list', records: 2 }),
+    );
+  });
+
+  it('takes the custom settings its request names, each kept with its kind', async () => {
+    const h = harness({ org: new SettingsTestOrg() });
+
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, customSettings: 'all' });
+
+    const answer = answerOf(h, 'wv-take-1');
+    expect(answer.type).toBe('checkpoint:take:response');
+    const checkpoint = answer.payload.checkpoint as {
+      objects: Array<{ objectApiName: string; customSetting?: string }>;
+    };
+    expect(checkpoint.objects).toContainEqual(
+      expect.objectContaining({ objectApiName: 'Endpoints__c', customSetting: 'list' }),
+    );
+  });
+
+  it('refuses a take that names a custom setting by anything but its API name, before reaching the org', async () => {
+    const h = harness({ org: new SettingsTestOrg() });
+
+    await h.send('wv-take-1', 'checkpoint:take', { ...TAKE, customSettings: ['Account'] });
+
+    expect(answerOf(h, 'wv-take-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'INVALID_PAYLOAD' },
+    });
+    expect(getJsforceConnection).not.toHaveBeenCalled();
+  });
+});
+
 describe('CheckpointHandler — what a take is asked beside its scope', () => {
   it('refuses a take past the limit its request names before reading a record, and keeps nothing', async () => {
     const h = harness();

@@ -14,7 +14,10 @@
  * - history, sharing rows, feeds and change events: the org's own
  *   bookkeeping, which it writes as records change, and which a rewind would
  *   only fight;
- * - custom settings, which are configuration;
+ * - custom settings, which are configuration — an integration's endpoint, a
+ *   switch an admin flipped — unless the take names them, in either mode: a
+ *   rewind sets them back as the checkpoint holds them, whoever changed them
+ *   since, so none is held unasked (`customSettings`);
  * - big objects, external objects, Data Cloud objects, Knowledge article
  *   versions and platform events, which neither the recycle bin nor an
  *   update reaches as it reaches a record;
@@ -40,7 +43,12 @@
  */
 
 import * as z from 'zod';
-import { isFileBodiedObject } from '@sandforge/shared';
+import {
+  isFileBodiedObject,
+  type CheckpointCustomSettingKind,
+  type CheckpointCustomSettings,
+  type CheckpointObject,
+} from '@sandforge/shared';
 import { excludedByDescribe, isNeverCopiedWhenPicked } from '../forge/excludedObjects.js';
 import type { CheckpointDescribe } from './checkpointFields.js';
 
@@ -81,8 +89,10 @@ export type ScopeLeftOutReason =
   | 'changeEvent'
   /** A big object, an external or Data Cloud object, a Knowledge version or a platform event. */
   | 'unsupportedKind'
-  /** A custom setting: configuration. */
+  /** A custom setting the take did not name: configuration. */
   | 'customSetting'
+  /** Named as a custom setting, and the org has no custom setting of that name. */
+  | 'notCustomSetting'
   /** A document of the Documents tab: shared content kept in folders. */
   | 'files'
   /** A file's version or link: held with its file, `ContentDocument`. */
@@ -134,6 +144,8 @@ export interface ScopeRequest {
   objects?: readonly string[];
   /** Objects to leave out, in either mode. */
   excluded?: readonly string[];
+  /** The custom settings to hold, by name, or `all`, in either mode; none unless given. */
+  customSettings?: Readonly<CheckpointCustomSettings>;
 }
 
 /** A file, as the org names its object: held, and its versions and links with it. */
@@ -212,12 +224,15 @@ const WORKED_WITHOUT_LAYOUT: ReadonlySet<string> = new Set(
  * Why a checkpoint leaves `object` out, or nothing when it may hold it. The
  * most telling reason first: a feed is said to be a feed, not setup, though
  * every copy leaves it out too. An object picked by name is held though the
- * org gives it no layout: the person asked for it.
+ * org gives it no layout: the person asked for it. So is a custom setting
+ * the take names, which needs only that its user may write its rows: the
+ * global describe flags it, and no other rule reads it as setup.
  */
 function leftOutReason(
   object: GlobalObject,
   described: DescribedOut,
   mode: CheckpointScopeMode,
+  namedSetting: boolean,
 ): ScopeLeftOutReason | undefined {
   const name = object.name.toLowerCase();
   if (CHATTER_OBJECTS.has(name) || name.endsWith('feed')) return 'chatter';
@@ -225,7 +240,10 @@ function leftOutReason(
   if (name.endsWith('share')) return 'sharing';
   if (name.endsWith('changeevent')) return 'changeEvent';
   if (UNSUPPORTED_SUFFIXES.some((suffix) => name.endsWith(suffix))) return 'unsupportedKind';
-  if (object.customSetting === true) return 'customSetting';
+  if (object.customSetting === true) {
+    if (!namedSetting) return 'customSetting';
+    return writableData(object) ? undefined : 'notWritable';
+  }
   if (HELD_WITH_FILES.has(name)) return 'heldWithFiles';
   // Every copy leaves both out, a file for its body: a checkpoint holds
   // their records and none of their bodies. A file is held though the data
@@ -260,13 +278,50 @@ function byName<T extends { objectApiName: string }>(a: T, b: T): number {
   return a.objectApiName < b.objectApiName ? -1 : a.objectApiName > b.objectApiName ? 1 : 0;
 }
 
+/** The value of {@link ScopeRequest.customSettings} that names every custom setting of the org. */
+export const ALL_CUSTOM_SETTINGS = 'all';
+
+/** Whether a global describe lists `object` as a custom setting. */
+export function isCustomSetting(object: Pick<GlobalObject, 'customSetting'>): boolean {
+  return object.customSetting === true;
+}
+
+/**
+ * The custom settings `request` names, by the names the org gives them, in
+ * lower case; and the names given that are no custom setting of the org.
+ */
+function namedSettings(
+  globalObjects: readonly GlobalObject[],
+  named: Readonly<CheckpointCustomSettings> | undefined,
+): { held: Set<string>; unknown: string[] } {
+  const settings = globalObjects.filter(isCustomSetting);
+  if (named === undefined) return { held: new Set(), unknown: [] };
+  if (named === ALL_CUSTOM_SETTINGS) {
+    return { held: new Set(settings.map((object) => object.name.toLowerCase())), unknown: [] };
+  }
+  const known = new Set(settings.map((object) => object.name.toLowerCase()));
+  const held = new Set<string>();
+  const unknown: string[] = [];
+  for (const name of named) {
+    const key = name.toLowerCase();
+    if (held.has(key) || unknown.some((other) => other.toLowerCase() === key)) continue;
+    if (known.has(key)) held.add(key);
+    else unknown.push(name);
+  }
+  return { held, unknown };
+}
+
 /**
  * The objects a checkpoint describes, and those it leaves out already, from
  * the org's global describe.
  *
  * In `everything` mode every object the global describe lists is either a
  * candidate or left out with its reason; in `picked` mode, every object
- * picked. The same rules hold in both: a feed picked by name is still a feed.
+ * picked. The same rules hold in both: a feed picked by name is still a feed,
+ * and a custom setting is held only when the request names it among its
+ * custom settings, which in `picked` mode adds it to the objects picked. A
+ * custom setting picked as an object and not named so is left out: the
+ * opt-in is the custom settings' own.
  *
  * @param toolingObjects - The names the org's Tooling API serves; none when it could not say.
  */
@@ -283,7 +338,11 @@ export function scopeCandidates(
   };
   const excluded = new Set((request.excluded ?? []).map((name) => name.toLowerCase()));
   const byLowerName = new Map(globalObjects.map((object) => [object.name.toLowerCase(), object]));
-  const leftOut: ScopeLeftOut[] = [];
+  const settings = namedSettings(globalObjects, request.customSettings);
+  const leftOut: ScopeLeftOut[] = settings.unknown.map((objectApiName) => ({
+    objectApiName,
+    reason: 'notCustomSetting',
+  }));
   const candidates: string[] = [];
   const asked: GlobalObject[] = [];
   const addedToPicked: string[] = [];
@@ -307,19 +366,66 @@ export function scopeCandidates(
       asked.push(object);
       addedToPicked.push(object.name);
     }
+    for (const key of settings.held) {
+      const object = byLowerName.get(key);
+      if (seen.has(key) || object === undefined) continue;
+      seen.add(key);
+      asked.push(object);
+    }
   } else {
     asked.push(...byLowerName.values());
   }
   for (const object of asked) {
-    const reason = excluded.has(object.name.toLowerCase())
+    const key = object.name.toLowerCase();
+    const reason = excluded.has(key)
       ? 'excludedByUser'
-      : leftOutReason(object, described, request.mode);
+      : leftOutReason(object, described, request.mode, settings.held.has(key));
     if (reason === undefined) candidates.push(object.name);
     else leftOut.push({ objectApiName: object.name, reason });
   }
   candidates.sort();
   leftOut.sort(byName);
   return { mode: request.mode, candidates, leftOut, addedToPicked };
+}
+
+/**
+ * What kind of custom setting `described` is: a list when its `Name` is
+ * required, a hierarchy otherwise. Both kinds carry `SetupOwnerId` (P-C2: a
+ * hierarchy and a list deployed side by side both described it, polymorphic,
+ * createable and updateable), so its presence tells nothing. A list's row is
+ * known by its name, which it must have — `nillable false`, 38 characters,
+ * on the list probed — and a hierarchy's by its owner, its name optional —
+ * `nillable true`, 80 characters, on the hierarchy probed. The describe is
+ * read already, where the kind as the metadata gives it
+ * (`CustomObject.customSettingsType`, through the Tooling API) would cost a
+ * request per custom setting. A describe that lists no `Name`, which every
+ * custom object has, is read as a list.
+ */
+export function customSettingKindOf(
+  described: Pick<CheckpointDescribe, 'fields'>,
+): CheckpointCustomSettingKind {
+  const name = described.fields.find((field) => field.name === 'Name');
+  return name?.nillable === true ? 'hierarchy' : 'list';
+}
+
+/**
+ * The field that tells the rows of a custom setting apart, which no two
+ * live rows share: a hierarchy's owner — the org, a profile or a user — and
+ * a list's name, compared as the org compares it, case and all (P-C2: a list
+ * refused `Billing` twice and took `billing` beside it).
+ */
+export function customSettingKeyOf(kind: CheckpointCustomSettingKind): string {
+  return kind === 'hierarchy' ? 'SetupOwnerId' : 'Name';
+}
+
+/**
+ * Whether a checkpoint holds a custom setting: every act on it then asks for
+ * Customize Application (`checkpointGuard`).
+ */
+export function holdsCustomSettings(checkpoint: {
+  objects: ReadonlyArray<Pick<CheckpointObject, 'customSetting'>>;
+}): boolean {
+  return checkpoint.objects.some((object) => object.customSetting !== undefined);
 }
 
 /** An object a checkpoint holds. */

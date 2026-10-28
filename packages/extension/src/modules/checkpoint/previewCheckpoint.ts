@@ -50,7 +50,12 @@ import type { Connection } from 'jsforce';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
 import { guardCheckpoint } from './checkpointGuard.js';
-import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
+import {
+  FILE_LINK_OBJECT,
+  FILE_OBJECT,
+  FILE_VERSION_OBJECT,
+  holdsCustomSettings,
+} from './checkpointScope.js';
 import { compositeReader, type CompositeReader } from './compositeQueries.js';
 import {
   newFolderId,
@@ -248,6 +253,7 @@ export async function previewCheckpoint(
     registered: request.registered,
     username: request.username,
     organizationId: checkpoint.org.organizationId,
+    customSettings: holdsCustomSettings(checkpoint),
   });
   if (!guard.allowed) return { previewed: false, refusal: guard.refusal };
 

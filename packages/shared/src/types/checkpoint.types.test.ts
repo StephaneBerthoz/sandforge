@@ -2,6 +2,7 @@ import { describe, it, expect, expectTypeOf } from 'vitest';
 import type * as z from 'zod';
 
 import type {
+  CheckpointCustomSettingKind,
   CheckpointEstimate,
   CheckpointLeftOutFieldReason,
   CheckpointOrgTier,
@@ -17,6 +18,7 @@ import type {
 import type { ForgeUndoObjectResult, ForgeUndoStatus } from './forge.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
 import {
+  checkpointCustomSettingKindSchema,
   checkpointLeftOutFieldReasonSchema,
   checkpointOrgTierSchema,
   checkpointReadModeSchema,
@@ -45,6 +47,9 @@ describe('the checkpoint file and its schema', () => {
       z.infer<typeof checkpointLeftOutFieldReasonSchema>
     >().toEqualTypeOf<CheckpointLeftOutFieldReason>();
     expectTypeOf<z.infer<typeof checkpointStatusSchema>>().toEqualTypeOf<CheckpointStatus>();
+    expectTypeOf<
+      z.infer<typeof checkpointCustomSettingKindSchema>
+    >().toEqualTypeOf<CheckpointCustomSettingKind>();
     expect(checkpointReadModeSchema.options).toEqual(['query', 'scanAllLive']);
   });
 

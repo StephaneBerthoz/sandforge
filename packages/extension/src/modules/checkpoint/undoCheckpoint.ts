@@ -56,7 +56,7 @@ import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
 import { guardCheckpoint } from './checkpointGuard.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
 import { checkpointEmails, emailsRefusal, writtenByUndo } from './rewindEmails.js';
-import { FILE_LINK_OBJECT, FILE_OBJECT } from './checkpointScope.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT, holdsCustomSettings } from './checkpointScope.js';
 import { budgetRefusal, fileStorageRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
 import { rewoundObjects, undoPlansOf, type SpooledUndoPlans } from './rewindJournal.js';
 import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
@@ -281,6 +281,7 @@ export async function undoCheckpoint(
     registered: request.registered,
     username: request.username,
     organizationId: checkpoint.org.organizationId,
+    customSettings: holdsCustomSettings(checkpoint),
   });
   if (!guard.allowed) return { undone: false, refusal: guard.refusal };
   const locked = deps.store.lock(checkpoint.org.organizationId, 'undo', checkpoint.checkpointId);

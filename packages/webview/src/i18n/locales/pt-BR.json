@@ -5366,7 +5366,16 @@
       "pickedNone": "Escolha os objetos que o ponto de verificação guarda.",
       "pickedCount_one": "{{formatted}} objeto escolhido",
       "pickedCount_other": "{{formatted}} objetos escolhidos",
-      "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
+      "leftOutAlways": "Deixados de fora: usuários, permissões, configuração, configurações personalizadas que você não escolher, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
+      "leftOutAlwaysWithSettings": "Deixados de fora: usuários, permissões, configuração, Chatter, objetos de histórico e de log, documentos da guia Documentos.",
+      "customSettings": {
+        "title_one": "Configuração personalizada ({{formatted}})",
+        "title_other": "Configurações personalizadas ({{formatted}})",
+        "hint": "Configuração, deixada de fora a menos que você a escolha: um retrocesso devolve cada linha de uma configuração personalizada escolhida ao que o ponto de verificação guarda, quem quer que a tenha mudado desde então — o endpoint de uma integração, a chave de um administrador. Guardá-las exige a permissão Personalizar aplicativo.",
+        "selectAll": "Selecionar todas",
+        "hierarchy": "Hierarquia",
+        "list": "Lista"
+      },
       "seeLeftOut_one": "Ver o objeto deixado de fora, e por quê",
       "seeLeftOut_other": "Ver os {{formatted}} objetos deixados de fora, e por quê",
       "beforeItRuns": "Antes de começar",

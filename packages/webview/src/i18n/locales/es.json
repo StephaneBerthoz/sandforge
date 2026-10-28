@@ -5366,7 +5366,16 @@
       "pickedNone": "Elija los objetos que conserva el punto de control.",
       "pickedCount_one": "{{formatted}} objeto elegido",
       "pickedCount_other": "{{formatted}} objetos elegidos",
-      "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
+      "leftOutAlways": "Se dejan fuera: usuarios, permisos, configuración, configuraciones personalizadas salvo las que elija, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
+      "leftOutAlwaysWithSettings": "Se dejan fuera: usuarios, permisos, configuración, Chatter, objetos de historial y de logs, documentos de la ficha Documentos.",
+      "customSettings": {
+        "title_one": "Configuración personalizada ({{formatted}})",
+        "title_other": "Configuraciones personalizadas ({{formatted}})",
+        "hint": "Configuración, que se deja fuera salvo que la elija: un retroceso devuelve cada fila de una configuración personalizada elegida a como la guarda el punto de control, la haya cambiado quien la haya cambiado desde entonces — el endpoint de una integración, el interruptor de un administrador. Guardarlas requiere el permiso Personalizar aplicación.",
+        "selectAll": "Seleccionar todas",
+        "hierarchy": "Jerarquía",
+        "list": "Lista"
+      },
       "seeLeftOut_one": "Ver el objeto que se deja fuera, y por qué",
       "seeLeftOut_other": "Ver los {{formatted}} objetos que se dejan fuera, y por qué",
       "beforeItRuns": "Antes de empezar",

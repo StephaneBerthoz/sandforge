@@ -74,6 +74,23 @@
  * **What is brought back** goes parents first: the checkpoint's reading order
  * is children first, and the undelete follows the order it is given.
  *
+ * **A row of a custom setting** is brought back, and given its values, only
+ * once no live row holds its key: a hierarchy's owner — the org, a profile, a
+ * user — or a list's name. Salesforce refuses the undelete of a hierarchy's
+ * row whose owner another row holds (`DUPLICATE_VALUE`), but takes a list's
+ * row back over another of the same name, and the list then holds two rows
+ * of one name (P-C2), of which Apex reads one. So a row whose key a live row
+ * made, changed or brought back since holds — read from the fresh diff, as
+ * the row came to the bin and as that row is now — waits: this pass deletes
+ * that row, or gives it its own key back, and the second brings the row
+ * back, the key free; the rewind deletes the duplicate first rather than
+ * give the live row the checkpoint's values, so the row keeps its Id and a
+ * fresh preview finds nothing to rewind. A row still waiting after the
+ * second pass is left in the bin, named (`keyTaken`), the row holding its
+ * key left as someone made it. A row made again is not held back: the org
+ * refuses an insert of a key taken, for both kinds (`DUPLICATE_VALUE`, and
+ * `FIELD_INTEGRITY_EXCEPTION` for a list), and the second pass makes it.
+ *
  * **What is made again** — records the recycle bin no longer gives back,
  * which come back with new Ids — goes parents first too, once what is brought
  * back is back: a record made again names its parent by the Id the parent has
@@ -114,7 +131,7 @@ import {
   fileLinkLineSchema,
   type FileLinkClass,
 } from './checkpointFiles.js';
-import { FILE_LINK_OBJECT, FILE_OBJECT } from './checkpointScope.js';
+import { FILE_LINK_OBJECT, FILE_OBJECT, customSettingKeyOf } from './checkpointScope.js';
 import { CHECKPOINT_FILE_MODE, makePrivateDir } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, spooledRows } from './orgStreams.js';
 import { classFileOf } from './rewindDiff.js';
@@ -223,7 +240,10 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   it points at that the pass deletes next, which leaves it in the recycle
  *   bin for good, and that Undo couldn't bring it back was not accepted;
  * - `recreateNotAccepted`: the recycle bin no longer gives it back, it would
- *   be made again with a new Id, and that its Id is new was not accepted.
+ *   be made again with a new Id, and that its Id is new was not accepted;
+ * - `keyTaken`: a row of a custom setting to bring back, whose owner or name
+ *   a live row made, changed or brought back since holds: brought back by the
+ *   next pass, once that row is gone, and left in the bin by the last.
  */
 export type RewindPlanLeftReason =
   | 'changedSincePreview'
@@ -232,7 +252,8 @@ export type RewindPlanLeftReason =
   | 'holdsLeft'
   | 'noUndoNotAccepted'
   | 'beforeParentNotAccepted'
-  | 'recreateNotAccepted';
+  | 'recreateNotAccepted'
+  | 'keyTaken';
 
 /** The reasons, each as a flag of the records left for it. */
 const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
@@ -243,6 +264,7 @@ const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
   noUndoNotAccepted: 16,
   beforeParentNotAccepted: 32,
   recreateNotAccepted: 64,
+  keyTaken: 128,
 };
 
 /** Records of one object a plan left for one reason. */
@@ -293,6 +315,12 @@ export interface RewindPlanObject {
   givenBackNextPass: number;
   /** Records confirmed that no longer differ, or no longer as confirmed. */
   skipped: number;
+  /**
+   * Rows of a custom setting not brought back, a live row holding their
+   * owner or name: the next pass brings them back once it is gone. Absent
+   * when there is none.
+   */
+  keyTaken?: number;
 }
 
 /** What one pass of a rewind is made from. */
@@ -530,6 +558,54 @@ class LeftTally {
         ((a.by ?? '') < (b.by ?? '') ? -1 : (a.by ?? '') > (b.by ?? '') ? 1 : 0),
     );
   }
+}
+
+/**
+ * A custom setting's key, as its rows are told apart by it: an owner by its
+ * id's first fifteen characters, a name as it is, case and all.
+ */
+function settingKeyOf(field: string, value: unknown): string | undefined {
+  if (typeof value !== 'string' || value === '') return undefined;
+  return field === 'SetupOwnerId' && RECORD_ID.test(value) ? value.slice(0, 15) : value;
+}
+
+/**
+ * The rows of a custom setting a pass does not bring back, by id: those to
+ * bring back, of `classes` in the plan's folder, whose key — as the row came
+ * to the recycle bin, which the undelete brings it back with — a live row
+ * holds that the fresh diff read stamped since. A row live and unchanged
+ * since the checkpoint holds the key it held then, beside the row to bring
+ * back: the checkpoint held both, as they are put back.
+ */
+async function keyTakenOf(
+  object: CheckpointObject,
+  freshDir: string,
+  dir: string,
+  classes: readonly ActedClass[],
+): Promise<RecordKeySet> {
+  const waiting = new RecordKeySet();
+  if (object.customSetting === undefined) return waiting;
+  const wanted = customSettingKeyOf(object.customSetting).toLowerCase();
+  const field = object.fields.find((name) => name.toLowerCase() === wanted);
+  if (field === undefined) return waiting;
+  const back = new RecordKeySet();
+  for (const cls of classes) {
+    const file = classFileOf(dir, object.objectApiName, cls);
+    for await (const row of rowsOf(file)) back.add(idOf(row, file));
+  }
+  if (back.size === 0) return waiting;
+  const taken = new Set<string>();
+  for await (const row of rowsOf(liveSpoolOf(freshDir, object.objectApiName))) {
+    const key = settingKeyOf(field, row[field]);
+    if (key !== undefined) taken.add(key);
+  }
+  if (taken.size === 0) return waiting;
+  for await (const row of rowsOf(deletedSpoolOf(freshDir, object.objectApiName))) {
+    if (typeof row.Id !== 'string' || !back.has(row.Id)) continue;
+    const key = settingKeyOf(field, row[field]);
+    if (key !== undefined && taken.has(key)) waiting.add(row.Id);
+  }
+  return waiting;
 }
 
 /** The counts of an object's plan, as they fill. */
@@ -926,6 +1002,24 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     }
   }
 
+  // ─── The rows of custom settings whose key a live row holds ───
+  const waiting = new Map<string, RecordKeySet>();
+  for (const object of objects) {
+    const held = await keyTakenOf(object, freshDir, dir, ['inBin', 'deletedWhileTaken']);
+    if (held.size === 0) continue;
+    waiting.set(object.objectApiName, held);
+    const tally = countsOf(object.objectApiName);
+    tally.broughtBack -= held.size;
+    tally.keyTaken = held.size;
+    for (const cls of ['inBin', 'deletedWhileTaken'] as const) {
+      const file = classFileOf(dir, object.objectApiName, cls);
+      for await (const row of rowsOf(file)) {
+        const id = idOf(row, file);
+        if (held.has(id)) left.add(object.objectApiName, 'keyTaken', id);
+      }
+    }
+  }
+
   // ─── What is given back before the deletions, and after ───
   const first = new IdSpoolWriter(`${dir}/giveBackFirst`);
   const last = new IdSpoolWriter(`${dir}/giveBackAfter`);
@@ -953,8 +1047,11 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     }
     const tally = countsOf(name);
     const by = new Set<string>();
+    const keyTaken = waiting.get(name);
     for await (const row of rowsOf(file)) {
       const id = idOf(row, file);
+      // Still in the bin: given its values by the pass that brings it back.
+      if (keyTaken?.has(id) === true) continue;
       const holder = holdersNow.flagsOf(id);
       const child = childOfDeleted.has(id);
       if (holder > 0) {
@@ -976,9 +1073,13 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   const back = new IdSpoolWriter(`${dir}/bringBack`);
   const made = new IdSpoolWriter(`${dir}/recreate`);
   for (const object of parentsFirst) {
+    const keyTaken = waiting.get(object.objectApiName);
     for (const cls of ['carrier', 'inBin', 'deletedWhileTaken'] as const) {
       const file = classFileOf(dir, object.objectApiName, cls);
-      for await (const row of rowsOf(file)) await back.add(object.objectApiName, idOf(row, file));
+      for await (const row of rowsOf(file)) {
+        const id = idOf(row, file);
+        if (keyTaken?.has(id) !== true) await back.add(object.objectApiName, id);
+      }
     }
     const file = classFileOf(dir, object.objectApiName, 'toRecreate');
     for await (const row of rowsOf(file)) await made.add(object.objectApiName, idOf(row, file));

@@ -5366,7 +5366,16 @@
       "pickedNone": "Pick the objects the checkpoint keeps.",
       "pickedCount_one": "{{formatted}} object picked",
       "pickedCount_other": "{{formatted}} objects picked",
-      "leftOutAlways": "Left out: users, permissions, setup, custom settings, Chatter, history and log objects, the documents of the Documents tab.",
+      "leftOutAlways": "Left out: users, permissions, setup, custom settings unless you pick them, Chatter, history and log objects, the documents of the Documents tab.",
+      "leftOutAlwaysWithSettings": "Left out: users, permissions, setup, Chatter, history and log objects, the documents of the Documents tab.",
+      "customSettings": {
+        "title_one": "Custom setting ({{formatted}})",
+        "title_other": "Custom settings ({{formatted}})",
+        "hint": "Configuration, left out unless you pick it: a rewind sets each row of a custom setting picked back as the checkpoint holds it, whoever changed it since — an integration's endpoint, an admin's switch. Keeping them needs Customize Application.",
+        "selectAll": "Select all",
+        "hierarchy": "Hierarchy",
+        "list": "List"
+      },
       "seeLeftOut_one": "See the object left out, and why",
       "seeLeftOut_other": "See the {{formatted}} objects left out, and why",
       "beforeItRuns": "Before it runs",

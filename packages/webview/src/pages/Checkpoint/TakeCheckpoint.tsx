@@ -2,6 +2,8 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 import type {
+  CheckpointCustomSettingKind,
+  CheckpointScopeCustomSetting,
   CheckpointScopeFiles,
   CheckpointScopeMode,
   CheckpointScopeObject,
@@ -101,6 +103,11 @@ export interface TakeCheckpointProps {
  * before any record is read, what the take would be refused (a production
  * org, a user without View All Data and Modify All Data, too many records, too
  * few API requests left today, a SandForge run writing to the org).
+ *
+ * The org's custom settings are offered apart, none picked: configuration a
+ * rewind sets back whoever changed it since. Picked, they are held in either
+ * mode, and the scope of the choice is asked with them, which a user without
+ * Customize Application is refused.
  */
 export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, onTaken }) => {
   const { t } = useTranslation();
@@ -113,15 +120,24 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
   const [mode, setMode] = useState<CheckpointScopeMode>('everything');
   const [picked, setPicked] = useState<string[]>([]);
   const settledPicks = useSettled(picked, PICKS_SETTLE_MS);
+  const [settings, setSettings] = useState<string[]>([]);
+  const settledSettings = useSettled(settings, PICKS_SETTLE_MS);
+  // Named only once one is picked: a scope that names none is the one of 1.69.
+  const withSettings = settledSettings.length > 0 ? { customSettings: settledSettings } : {};
 
   const everything = useBridgeQuery<ScopeAnswer>(
     'checkpoint:scope',
     { orgId: org.id, mode: 'everything' },
     { timeoutMs: SCOPE_TIMEOUT_MS },
   );
+  const everythingWithSettings = useBridgeQuery<ScopeAnswer>(
+    'checkpoint:scope',
+    { orgId: org.id, mode: 'everything', ...withSettings },
+    { timeoutMs: SCOPE_TIMEOUT_MS, skip: mode !== 'everything' || settledSettings.length === 0 },
+  );
   const pickedScope = useBridgeQuery<ScopeAnswer>(
     'checkpoint:scope',
-    { orgId: org.id, mode: 'picked', objects: settledPicks },
+    { orgId: org.id, mode: 'picked', objects: settledPicks, ...withSettings },
     { timeoutMs: SCOPE_TIMEOUT_MS, skip: mode !== 'picked' || settledPicks.length === 0 },
   );
 
@@ -151,28 +167,38 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
   useFocusOnChange(headingRef, phase, { onMount: true });
 
   // The scope a take of the current choice reads: the picks' own once they
-  // have settled and been answered, never an earlier pick's.
+  // have settled and been answered, never an earlier pick's; the same for the
+  // custom settings picked.
+  const settingsSettled = settledSettings === settings;
   const picksAnswered =
     mode === 'picked' &&
     settledPicks === picked &&
+    settingsSettled &&
     picked.length > 0 &&
     !pickedScope.loading &&
     pickedScope.data !== null;
+  const everythingQuery = settings.length > 0 ? everythingWithSettings : everything;
   const answer: ScopeAnswer | null =
     mode === 'everything'
-      ? everything.loading
+      ? everythingQuery.loading || (settings.length > 0 && !settingsSettled)
         ? null
-        : everything.data
+        : everythingQuery.data
       : picksAnswered
         ? pickedScope.data
         : null;
-  // What "Only the objects I pick" offers is the scope of everything: when
-  // that could not be read there is nothing to pick from, and its failure is
-  // the one to say.
+  // What "Only the objects I pick" and the custom settings offer is the scope
+  // of everything: when that could not be read there is nothing to pick
+  // from, and its failure is the one to say.
   const scopeQuery =
-    mode === 'everything' || (everything.data === null && everything.error !== null)
+    everything.data === null && everything.error !== null
       ? everything
-      : pickedScope;
+      : mode === 'everything'
+        ? everythingQuery
+        : pickedScope;
+  const offered: CheckpointScopeCustomSetting[] =
+    everything.data && !refusedBeforeScope(everything.data)
+      ? (everything.data.customSettings ?? [])
+      : [];
   const nameValid = isCheckpointName(name);
   const canTake =
     answer !== null && answer.refusal === undefined && nameValid && !take.loading && !taken;
@@ -184,6 +210,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
       name: name.trim(),
       mode,
       ...(mode === 'picked' ? { objects: picked } : {}),
+      ...(settings.length > 0 ? { customSettings: settings } : {}),
       keepDays: keep ? 0 : CHECKPOINT_KEEP_DAYS,
     });
   };
@@ -269,7 +296,14 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
                 onPick={setPicked}
               />
             )}
-            <p className="text-xs text-text-secondary">{t('checkpoint.take.leftOutAlways')}</p>
+            {offered.length > 0 && (
+              <CustomSettings offered={offered} picked={settings} onPick={setSettings} />
+            )}
+            <p className="text-xs text-text-secondary" data-testid="checkpoint-left-out-always">
+              {settings.length > 0
+                ? t('checkpoint.take.leftOutAlwaysWithSettings')
+                : t('checkpoint.take.leftOutAlways')}
+            </p>
             {answer && answer.leftOut.length > 0 && (
               <details className="text-xs text-text-primary" data-testid="checkpoint-left-out">
                 <summary className="cursor-pointer">
@@ -296,7 +330,11 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             username={org.username}
             answer={answer}
             keep={keep}
-            reading={scopeQuery.loading || (mode === 'picked' && settledPicks !== picked)}
+            reading={
+              scopeQuery.loading ||
+              (mode === 'picked' && settledPicks !== picked) ||
+              (settings.length > 0 && !settingsSettled)
+            }
             nothingPicked={mode === 'picked' && picked.length === 0}
             error={scopeQuery.error}
             errorCode={scopeQuery.errorCode}
@@ -552,6 +590,95 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
         {list}
       </details>
     </div>
+  );
+};
+
+/** What each kind of custom setting is called beside its name. */
+const KIND_KEYS: Readonly<Record<CheckpointCustomSettingKind, string>> = {
+  hierarchy: 'checkpoint.take.customSettings.hierarchy',
+  list: 'checkpoint.take.customSettings.list',
+};
+
+/** Props for the custom settings a take may hold. */
+interface CustomSettingsProps {
+  /** Every custom setting the org lists. */
+  offered: readonly CheckpointScopeCustomSetting[];
+  picked: string[];
+  onPick: (picked: string[]) => void;
+}
+
+/**
+ * The org's custom settings, folded, none picked: each with its kind and its
+ * rows when the org said them, and one box that picks them all. A rewind sets
+ * back the rows of those picked as the checkpoint holds them, whoever changed
+ * them since — an integration's endpoint, an admin's switch.
+ */
+const CustomSettings: React.FC<CustomSettingsProps> = ({ offered, picked, onPick }) => {
+  const { t } = useTranslation();
+  const hintId = useId();
+  const everyOne = offered.every((setting) => picked.includes(setting.objectApiName));
+  const toggle = (objectApiName: string): void => {
+    onPick(
+      picked.includes(objectApiName)
+        ? picked.filter((name) => name !== objectApiName)
+        : [...picked, objectApiName],
+    );
+  };
+  return (
+    <details className="text-xs text-text-primary" data-testid="checkpoint-custom-settings">
+      <summary className="cursor-pointer">
+        {t('checkpoint.take.customSettings.title', {
+          count: offered.length,
+          formatted: formatNumber(offered.length),
+        })}
+      </summary>
+      <div className="mt-1 flex flex-col gap-1">
+        <p id={hintId} className="text-text-secondary">
+          {t('checkpoint.take.customSettings.hint')}
+        </p>
+        <label className="flex cursor-pointer items-center gap-2 px-2 py-1">
+          <input
+            type="checkbox"
+            checked={everyOne}
+            aria-describedby={hintId}
+            onChange={() => onPick(everyOne ? [] : offered.map((setting) => setting.objectApiName))}
+            data-testid="checkpoint-custom-settings-all"
+          />
+          <span>{t('checkpoint.take.customSettings.selectAll')}</span>
+        </label>
+        <ul
+          className="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded-sm border border-subtle p-1"
+          data-testid="checkpoint-custom-setting-list"
+        >
+          {offered.map((setting) => (
+            <li key={setting.objectApiName}>
+              <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1">
+                <input
+                  type="checkbox"
+                  checked={picked.includes(setting.objectApiName)}
+                  aria-describedby={hintId}
+                  onChange={() => toggle(setting.objectApiName)}
+                  data-testid={`checkpoint-custom-setting-${setting.objectApiName}`}
+                />
+                <span className="flex-1">{setting.label}</span>
+                {setting.label !== setting.objectApiName && (
+                  <span className="font-mono">{setting.objectApiName}</span>
+                )}
+                {setting.kind !== undefined && <span>{t(KIND_KEYS[setting.kind])}</span>}
+                {setting.records !== undefined && (
+                  <span>
+                    {t('checkpoint.list.records', {
+                      count: setting.records,
+                      formatted: formatNumber(setting.records),
+                    })}
+                  </span>
+                )}
+              </label>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
   );
 };
 

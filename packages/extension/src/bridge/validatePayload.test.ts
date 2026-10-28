@@ -783,6 +783,34 @@ describe('checkpoint:* payloads', () => {
     }
   });
 
+  it('takes custom settings named by their API names, or all of them, in either mode, and nothing else', () => {
+    for (const customSettings of [
+      ['App_Config__c'],
+      ['acme__Switches__c', 'App_Config__c'],
+      'all',
+    ]) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ customSettings })).success).toBe(true);
+      expect(
+        checkpointScopePayloadSchema.safeParse({
+          orgId: 'org-1',
+          mode: 'picked',
+          objects: ['Account'],
+          customSettings,
+        }).success,
+      ).toBe(true);
+    }
+    for (const customSettings of [
+      [],
+      ['Account'],
+      ['App_Config__c', 'app_config__c'],
+      ['App_Config__c WHERE Id != null'],
+      'everything',
+      'All',
+    ]) {
+      expect(checkpointTakePayloadSchema.safeParse(take({ customSettings })).success).toBe(false);
+    }
+  });
+
   it('takes the objects to leave out and the limit of records the command line names, each checked', () => {
     const asked = { excluded: ['Case', 'Task'], maxTotal: 250_000 };
     expect(checkpointTakePayloadSchema.safeParse(take(asked)).success).toBe(true);

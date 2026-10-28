@@ -947,7 +947,9 @@ describe('takeCheckpoint — the scope', () => {
     expect(checkpoint.scope.leftOut).toEqual([
       {
         objectApiName: 'Config__c',
-        reason: 'Custom settings are left out: they are configuration.',
+        reason:
+          'Custom settings are left out unless you pick them as custom settings: they are ' +
+          'configuration, which a rewind sets back.',
       },
       {
         objectApiName: 'FeedItem',
@@ -998,6 +1000,215 @@ describe('takeCheckpoint — the scope', () => {
       { objectApiName: 'Nope__c', reason: 'The org has no object of this name.' },
     ]);
     expect(snapshotReads(h.sent)).toEqual(['Contact', 'Account']);
+  });
+});
+
+/**
+ * Two custom settings as P-C2 found them deployed side by side: both with
+ * `SetupOwnerId`, polymorphic over the org, a profile and a user; a
+ * hierarchy's `Name` optional, a list's required.
+ */
+const SETTING_FIELDS: Record<string, unknown[]> = {
+  App_Switches__c: [
+    ...STAMP_FIELDS,
+    writable('Name', 'string', { length: 80 }),
+    writable('SetupOwnerId', 'reference', { referenceTo: ['Organization', 'Profile', 'User'] }),
+    writable('Value__c'),
+  ],
+  Endpoints__c: [
+    ...STAMP_FIELDS,
+    writable('Name', 'string', { nillable: false, length: 38 }),
+    writable('SetupOwnerId', 'reference', { referenceTo: ['Organization', 'Profile', 'User'] }),
+    writable('Value__c'),
+  ],
+};
+
+/** A harness whose org lists both custom settings, a row in each, and its user's Customize Application. */
+function settingsHarness(customizeApplication = true): Harness {
+  const h = harness(
+    {},
+    {
+      ...DATA_OBJECTS,
+      App_Switches__c: { customSetting: true },
+      Endpoints__c: { customSetting: true },
+    },
+  );
+  for (const [name, fields] of Object.entries(SETTING_FIELDS)) h.org.changeSchema(name, fields);
+  h.org.all('UserPermissionAccess')[0].PermissionsCustomizeApplication = customizeApplication;
+  seed(h.org);
+  clock = LONG_AGO;
+  h.org.add('App_Switches__c', { Id: 'a0A000000000001AAA', SetupOwnerId: ORG_ID, Value__c: 'on' });
+  h.org.add('Endpoints__c', {
+    Id: 'a0B000000000001AAA',
+    Name: 'Billing',
+    SetupOwnerId: ORG_ID,
+    Value__c: 'https://billing.example.com',
+  });
+  h.org.add('Endpoints__c', {
+    Id: 'a0B000000000002AAA',
+    Name: 'Shipping',
+    SetupOwnerId: ORG_ID,
+    Value__c: 'https://shipping.example.com',
+  });
+  clock = T0;
+  return h;
+}
+
+/** The statements that asked the user's permissions. */
+function permissionReads(asked: readonly string[]): string[] {
+  return asked.filter((what) => what.includes('FROM UserPermissionAccess'));
+}
+
+const LEFT_OUT_UNLESS_PICKED =
+  'Custom settings are left out unless you pick them as custom settings: they are ' +
+  'configuration, which a rewind sets back.';
+
+describe('takeCheckpoint — custom settings', () => {
+  it('leaves every custom setting out when none is named, in either mode, one picked as an object among them, and never asks for Customize Application', async () => {
+    const everything = settingsHarness(false);
+    const all = taken(await takeCheckpoint(everything.deps, request())).checkpoint;
+    expect(all.objects.map((object) => object.objectApiName)).not.toContain('Endpoints__c');
+    expect(all.objects.some((object) => object.customSetting !== undefined)).toBe(false);
+    expect(all.scope.leftOut).toEqual(
+      expect.arrayContaining([
+        { objectApiName: 'App_Switches__c', reason: LEFT_OUT_UNLESS_PICKED },
+        { objectApiName: 'Endpoints__c', reason: LEFT_OUT_UNLESS_PICKED },
+      ]),
+    );
+    expect(permissionReads(everything.org.asked).join(' ')).not.toContain(
+      'PermissionsCustomizeApplication',
+    );
+
+    const picked = settingsHarness(false);
+    const some = taken(
+      await takeCheckpoint(
+        picked.deps,
+        request({ mode: 'picked', objects: ['Account', 'Endpoints__c'] }),
+      ),
+    ).checkpoint;
+    expect(some.objects.map((object) => object.objectApiName)).toEqual(['Account']);
+    expect(some.scope.leftOut).toContainEqual({
+      objectApiName: 'Endpoints__c',
+      reason: LEFT_OUT_UNLESS_PICKED,
+    });
+    expect(snapshotReads(picked.sent)).toEqual(['Account']);
+  });
+
+  it('holds the custom settings named, each with its kind, in everything people work in, and names one the org does not have', async () => {
+    const h = settingsHarness();
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(
+        h.deps,
+        request({ customSettings: ['endpoints__c', 'App_Switches__c', 'Nope__c'] }),
+      ),
+    );
+
+    const settings = checkpoint.objects.filter((object) => object.customSetting !== undefined);
+    expect(
+      settings.map(({ objectApiName, customSetting, records }) => ({
+        objectApiName,
+        customSetting,
+        records,
+      })),
+    ).toEqual([
+      { objectApiName: 'App_Switches__c', customSetting: 'hierarchy', records: 1 },
+      { objectApiName: 'Endpoints__c', customSetting: 'list', records: 2 },
+    ]);
+    expect(settings.find((object) => object.objectApiName === 'Endpoints__c')?.fields).toEqual(
+      expect.arrayContaining(['Name', 'SetupOwnerId', 'Value__c']),
+    );
+    expect(
+      checkpoint.objects.find((object) => object.objectApiName === 'Account'),
+    ).not.toHaveProperty('customSetting');
+    expect(checkpoint.scope.leftOut).toContainEqual({
+      objectApiName: 'Nope__c',
+      reason: 'Picked as a custom setting: the org has no custom setting of this name.',
+    });
+    expect(snapshotReads(h.sent)).toEqual(
+      expect.arrayContaining(['App_Switches__c', 'Endpoints__c']),
+    );
+    expect(permissionReads(h.org.asked)[0]).toContain('PermissionsCustomizeApplication');
+  });
+
+  it('adds every custom setting to the objects picked when all are asked for, unless one is left out by name', async () => {
+    const h = settingsHarness();
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(
+        h.deps,
+        request({
+          mode: 'picked',
+          objects: ['Account'],
+          customSettings: 'all',
+          excluded: ['App_Switches__c'],
+        }),
+      ),
+    );
+
+    expect(
+      checkpoint.objects.map((object) => [object.objectApiName, object.customSetting]),
+    ).toEqual([
+      ['Account', undefined],
+      ['Endpoints__c', 'list'],
+    ]);
+    expect(checkpoint.scope.leftOut).toContainEqual({
+      objectApiName: 'App_Switches__c',
+      reason: 'Left out as asked.',
+    });
+  });
+
+  it('refuses a take that names custom settings by a user without Customize Application, before reading anything of the org but the guard’s, and keeps nothing', async () => {
+    const h = settingsHarness(false);
+
+    const outcome = await takeCheckpoint(h.deps, request({ customSettings: ['Endpoints__c'] }));
+
+    expect(outcome).toMatchObject({ taken: false, refusal: { code: 'PERMISSIONS' } });
+    expect(outcome.taken ? '' : outcome.refusal.message).toBe(
+      "tester@example.com needs Customize Application to keep and rewind custom settings, and doesn't " +
+        'have it: View All Custom Settings lets a user read them, never write them. Leave the ' +
+        'custom settings out of the checkpoint, or give the user Customize Application. No record ' +
+        'was read or written.',
+    );
+    expect(h.org.asked).not.toContain('describeGlobal');
+    expect(h.sent).toEqual([]);
+    expect(checkpointFolders(h.root)).toEqual([]);
+
+    // The same user, given it, takes the checkpoint.
+    h.org.all('UserPermissionAccess')[0].PermissionsCustomizeApplication = true;
+    const granted = taken(
+      await takeCheckpoint(h.deps, request({ customSettings: ['Endpoints__c'] })),
+    );
+    expect(granted.checkpoint.objects.map((object) => object.objectApiName)).toContain(
+      'Endpoints__c',
+    );
+  });
+
+  it('offers every custom setting the org lists to pick from, with its kind and rows, held or not, and costs the take nothing for those it does not hold', async () => {
+    const h = settingsHarness();
+
+    const none = await scopeCheckpoint(h.deps, request());
+    const one = await scopeCheckpoint(h.deps, request({ customSettings: ['Endpoints__c'] }));
+
+    const offered = [
+      {
+        objectApiName: 'App_Switches__c',
+        label: 'App_Switches__c label',
+        kind: 'hierarchy',
+        records: 1,
+      },
+      { objectApiName: 'Endpoints__c', label: 'Endpoints__c label', kind: 'list', records: 2 },
+    ];
+    expect(none.customSettings).toEqual(offered);
+    expect(one.customSettings).toEqual(offered);
+    expect(none.objects.map((object) => object.objectApiName)).not.toContain('Endpoints__c');
+    expect(one.objects.find((object) => object.objectApiName === 'Endpoints__c')).toMatchObject({
+      customSetting: 'list',
+      records: 2,
+    });
+    // What the offer reads beside the scope is no request of the take's.
+    expect(one.estimate.records - none.estimate.records).toBe(2);
+    expect(readsRecords(h.org.asked)).toEqual([]);
   });
 });
 

@@ -1145,6 +1145,29 @@ function objectsMatchMode(payload: { mode: CheckpointScopeMode; objects?: string
   return payload.mode === 'picked' ? payload.objects !== undefined : payload.objects === undefined;
 }
 
+/**
+ * The custom settings a take is asked to hold: `all` of the org's, or each
+ * by its API name, which ends in `__c` as every custom object's does — an
+ * `Account` named so would be left out as no custom setting, beside the
+ * `Account` the take holds.
+ */
+const checkpointCustomSettingsSchema = z.union([
+  z.literal('all'),
+  z
+    .array(
+      sfApiNameSchema.refine(
+        (name) => name.toLowerCase().endsWith('__c'),
+        "A custom setting's API name ends in __c",
+      ),
+    )
+    .min(1)
+    .max(MAX_CHECKPOINT_OBJECTS)
+    .refine(
+      (names) => new Set(names.map((name) => name.toLowerCase())).size === names.length,
+      'A custom setting is named twice',
+    ),
+]);
+
 const OBJECTS_MATCH_MODE = {
   path: ['objects'],
   message: 'Name the objects with "picked", and none with "everything"',
@@ -1164,6 +1187,7 @@ export const checkpointScopePayloadSchema = z
     mode: checkpointScopeModeSchema,
     objects: checkpointObjectsSchema.optional(),
     excluded: checkpointObjectsSchema.optional(),
+    customSettings: checkpointCustomSettingsSchema.optional(),
     maxTotal: checkpointMaxTotalSchema.optional(),
   })
   .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
@@ -1174,6 +1198,7 @@ export const checkpointTakePayloadSchema = z
     mode: checkpointScopeModeSchema,
     objects: checkpointObjectsSchema.optional(),
     excluded: checkpointObjectsSchema.optional(),
+    customSettings: checkpointCustomSettingsSchema.optional(),
     maxTotal: checkpointMaxTotalSchema.optional(),
     keepDays: z.number().int().min(0).max(MAX_CHECKPOINT_KEEP_DAYS),
     ignoredFields: checkpointIgnoredFieldsSchema.optional(),

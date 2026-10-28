@@ -334,3 +334,114 @@ describe('guardCheckpoint: a user who sees and may put back every record', () =>
     );
   });
 });
+
+describe('guardCheckpoint: custom settings', () => {
+  const CUSTOMIZE = 'PermissionsCustomizeApplication';
+
+  it('refuses an act that keeps or writes custom settings by a user without Customize Application, saying what lifts it, and lets the same user through with it', async () => {
+    for (const act of ACTS) {
+      const without = orgSaying({ id: ORG_ID, sandbox: true });
+      const holding = orgSaying({
+        id: ORG_ID,
+        sandbox: true,
+        permissions: { ...BOTH, [CUSTOMIZE]: true },
+      });
+
+      const lacking = await guardCheckpoint(without.conn, {
+        ...asking(act, SANDBOX),
+        customSettings: true,
+      });
+      const having = await guardCheckpoint(holding.conn, {
+        ...asking(act, SANDBOX),
+        customSettings: true,
+      });
+
+      expect(lacking).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+      expect(lacking.allowed === false && lacking.refusal.message).toBe(
+        `${USER} needs Customize Application to keep and rewind custom settings, and doesn't ` +
+          'have it: View All Custom Settings lets a user read them, never write them. ' +
+          (act === 'take'
+            ? 'Leave the custom settings out of the checkpoint, or give the user Customize ' +
+              'Application.'
+            : 'This checkpoint holds custom settings: give the user Customize Application.') +
+          ' No record was read or written.',
+      );
+      expect(having).toMatchObject({ allowed: true });
+      expect(without.asked.filter((soql) => soql.includes('UserPermissionAccess'))).toEqual([
+        `SELECT PermissionsViewAllData, PermissionsModifyAllData, ${CUSTOMIZE}, ` +
+          'PermissionsQueryAllFiles FROM UserPermissionAccess',
+      ]);
+    }
+  });
+
+  it('takes View All Custom Settings for no lift: it reads custom settings and never writes them', async () => {
+    const { conn } = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      permissions: { ...BOTH, PermissionsViewAllCustomSettings: true, [CUSTOMIZE]: false },
+    });
+
+    const answer = await guardCheckpoint(conn, {
+      ...asking('rewind', SANDBOX),
+      customSettings: true,
+    });
+
+    expect(answer).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+  });
+
+  it('asks nothing more of an act that holds no custom setting: a user without Customize Application passes, and the statement does not name it', async () => {
+    for (const customSettings of [undefined, false]) {
+      const { conn, asked } = orgSaying({ id: ORG_ID, sandbox: true, permissions: BOTH });
+
+      const answer = await guardCheckpoint(conn, {
+        ...asking('rewind', SANDBOX),
+        ...(customSettings !== undefined ? { customSettings } : {}),
+      });
+
+      expect(answer).toMatchObject({ allowed: true });
+      expect(asked.join(' ')).not.toContain(CUSTOMIZE);
+    }
+  });
+
+  it('still asks for Customize Application of an org that does not know Query All Files', async () => {
+    const lacking = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      unknownFields: ['PermissionsQueryAllFiles'],
+    });
+    const having = orgSaying({
+      id: ORG_ID,
+      sandbox: true,
+      permissions: { ...BOTH, [CUSTOMIZE]: true },
+      unknownFields: ['PermissionsQueryAllFiles'],
+    });
+
+    const refused = await guardCheckpoint(lacking.conn, {
+      ...asking('take', SANDBOX),
+      customSettings: true,
+    });
+    const allowed = await guardCheckpoint(having.conn, {
+      ...asking('take', SANDBOX),
+      customSettings: true,
+    });
+
+    expect(refused).toMatchObject({ allowed: false, refusal: { code: 'PERMISSIONS' } });
+    expect(allowed).toMatchObject({ allowed: true, queryAllFiles: false });
+    expect(having.asked.filter((soql) => soql.includes('UserPermissionAccess'))[1]).toBe(
+      `SELECT PermissionsViewAllData, PermissionsModifyAllData, ${CUSTOMIZE} FROM UserPermissionAccess`,
+    );
+  });
+
+  it('refuses for want of View All Data and Modify All Data first, as they refuse any act', async () => {
+    const { conn } = orgSaying({ id: ORG_ID, sandbox: true, permissions: {} });
+
+    const answer = await guardCheckpoint(conn, {
+      ...asking('take', SANDBOX),
+      customSettings: true,
+    });
+
+    expect(answer.allowed === false && answer.refusal.message).toContain(
+      "doesn't have them. No record was read or written.",
+    );
+  });
+});

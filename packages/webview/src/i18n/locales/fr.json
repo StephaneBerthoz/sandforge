@@ -5366,7 +5366,16 @@
       "pickedNone": "Choisissez les objets que le point de contrôle conserve.",
       "pickedCount_one": "{{formatted}} objet choisi",
       "pickedCount_other": "{{formatted}} objets choisis",
-      "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
+      "leftOutAlways": "Laissés de côté : utilisateurs, autorisations, configuration, paramètres personnalisés sauf ceux que vous choisissez, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
+      "leftOutAlwaysWithSettings": "Laissés de côté : utilisateurs, autorisations, configuration, Chatter, objets d'historique et de journal, documents de l'onglet Documents.",
+      "customSettings": {
+        "title_one": "Paramètre personnalisé ({{formatted}})",
+        "title_other": "Paramètres personnalisés ({{formatted}})",
+        "hint": "De la configuration, laissée de côté sauf si vous la choisissez : un retour arrière remet chaque ligne d'un paramètre personnalisé choisi telle que le point de contrôle la garde, quel que soit l'auteur du changement — le point de terminaison d'une intégration, l'interrupteur d'un administrateur. Les garder demande l'autorisation Personnaliser l'application.",
+        "selectAll": "Tout sélectionner",
+        "hierarchy": "Hiérarchie",
+        "list": "Liste"
+      },
       "seeLeftOut_one": "Voir l'objet laissé de côté, et pourquoi",
       "seeLeftOut_other": "Voir les {{formatted}} objets laissés de côté, et pourquoi",
       "beforeItRuns": "Avant le lancement",

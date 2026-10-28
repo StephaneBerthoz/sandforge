@@ -30,6 +30,12 @@
  *   rest as created since. Its pages are put down compressed as they come,
  *   never plain first. Each object's index is written from its file once
  *   read, and must hold as many rows as the read kept.
+ * - A custom setting is held only when the take names it, in either mode, and
+ *   the guard then asks for Customize Application too: a rewind sets its rows
+ *   back, whoever changed them since. Each is held with its kind, a hierarchy
+ *   or a list, which the rewind reads to bring back no row over another of the
+ *   same owner or name. The scope offers every custom setting the org lists,
+ *   with its kind and rows, to pick from.
  * - The files follow the snapshot, once it is indexed: the links of its
  *   records to files, read through the records, and each file a link names,
  *   read by its id (`checkpointFiles.ts`). A file another user owns is seen
@@ -59,11 +65,14 @@ import {
   checkpointIgnoredFieldsSchema,
   checkpointNameSchema,
   sanitizeSoqlObjectName,
+  type CheckpointCustomSettingKind,
+  type CheckpointCustomSettings,
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointObject,
   type CheckpointFiles,
   type CheckpointRefusal,
+  type CheckpointScopeCustomSetting,
   type CheckpointScopeFiles,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
@@ -113,7 +122,9 @@ import { compressedSnapshotFiles } from './compressedSnapshotFiles.js';
 import {
   FILE_LINK_OBJECT,
   FILE_OBJECT,
+  customSettingKindOf,
   globalObjectSchema,
+  isCustomSetting,
   resolveScope,
   scopeCandidates,
   withoutRefusedReads,
@@ -257,6 +268,8 @@ export interface TakeRequest {
   objects?: readonly string[];
   /** Objects to leave out, in either mode. */
   excluded?: readonly string[];
+  /** The custom settings to hold, by name, or `all`, in either mode; none unless given. */
+  customSettings?: Readonly<CheckpointCustomSettings>;
   /** What it is called; the date and time of T0 by default. */
   name?: string;
   /** Days until it expires; 0 keeps it until it is deleted. */
@@ -344,6 +357,8 @@ export interface TakeScope {
   refusal?: CheckpointRefusal;
   /** What it would hold of the org's files, and what it could not see of them; absent for a take refused before its scope is read. */
   files?: CheckpointScopeFiles;
+  /** Every custom setting the org lists, held or not, to pick from; absent for a take refused before its scope is read. */
+  customSettings?: CheckpointScopeCustomSetting[];
 }
 
 /** Why a take ended without a checkpoint: it was stopped. Nothing of it is kept. */
@@ -372,7 +387,10 @@ const LEFT_OUT_WORDS: Readonly<Record<ScopeLeftOutReason, string>> = {
   unsupportedKind:
     'Left out: neither the recycle bin nor an update reaches this kind of object as it ' +
     'reaches a record.',
-  customSetting: 'Custom settings are left out: they are configuration.',
+  customSetting:
+    'Custom settings are left out unless you pick them as custom settings: they are ' +
+    'configuration, which a rewind sets back.',
+  notCustomSetting: 'Picked as a custom setting: the org has no custom setting of this name.',
   files:
     'Documents of the Documents tab are left out: they are shared content kept in folders, as ' +
     'setup is.',
@@ -460,6 +478,8 @@ interface Described {
   label: string;
   describe: CheckpointDescribe;
   capture: ObjectCapture;
+  /** Its kind, when it is a custom setting the take holds. */
+  customSetting?: CheckpointCustomSettingKind;
 }
 
 /** The scope read from the org's describes: what a take would hold, before any count. */
@@ -478,6 +498,8 @@ interface DescribedScope {
    * when it holds none.
    */
   linkable?: ReadonlySet<string>;
+  /** Every custom setting the global describe lists, with its label, held or not. */
+  settings: Array<{ objectApiName: string; label: string }>;
 }
 
 /** Whether `name` names a file's object, whatever its case. */
@@ -571,6 +593,7 @@ async function describeScope(
       mode: request.mode,
       ...(request.objects ? { objects: request.objects } : {}),
       ...(request.excluded ? { excluded: request.excluded } : {}),
+      ...(request.customSettings ? { customSettings: request.customSettings } : {}),
     },
     tooling,
   );
@@ -613,6 +636,8 @@ async function describeScope(
   const labels = new Map(
     global.sobjects.map((object: GlobalObject) => [object.name, labelOf(object)]),
   );
+  const settings = global.sobjects.filter(isCustomSetting);
+  const settingNames = new Set(settings.map((object) => object.name));
   const all = [...describes.values()];
   const objects: Described[] = [];
   for (const scoped of scope.objects) {
@@ -623,6 +648,9 @@ async function describeScope(
       label: labels.get(scoped.objectApiName) ?? scoped.objectApiName,
       describe,
       capture: await objectCapture(describe, all, { viewsEncryptedData: encrypted }),
+      ...(settingNames.has(scoped.objectApiName)
+        ? { customSetting: customSettingKindOf(describe) }
+        : {}),
     });
   }
   return {
@@ -634,6 +662,7 @@ async function describeScope(
     ...(linkable !== undefined && objects.some(({ scoped }) => isFileObject(scoped.objectApiName))
       ? { linkable }
       : {}),
+    settings: settings.map((object) => ({ objectApiName: object.name, label: labelOf(object) })),
   };
 }
 
@@ -770,7 +799,7 @@ async function recountsOf(
  * counts and the print it has then.
  */
 function entryOf(
-  { scoped, capture }: Pick<Planned, 'scoped' | 'capture'>,
+  { scoped, capture, customSetting }: Pick<Planned, 'scoped' | 'capture' | 'customSetting'>,
   records: number,
   inBin: number,
   fingerprint: string,
@@ -787,6 +816,7 @@ function entryOf(
     fingerprint,
     fields: capture.fields,
     leftOutFields: capture.leftOutFields,
+    ...(customSetting !== undefined ? { customSetting } : {}),
   };
 }
 
@@ -935,14 +965,77 @@ function guardConnectionOf(org: TakeOrg): Pick<Connection, 'query'> {
 
 /** The scope's objects as the take's answer lists them, before anything is read. */
 function scopeObjectsOf(plan: Plan): CheckpointScopeObject[] {
-  return plan.objects.map(({ scoped, label, capture, records }) => ({
+  return plan.objects.map(({ scoped, label, capture, records, customSetting }) => ({
     objectApiName: scoped.objectApiName,
     label,
     ...(scoped.namespace !== undefined ? { namespace: scoped.namespace } : {}),
     records,
     undeletable: capture.undeletable,
     leftOutFields: capture.leftOutFields,
+    ...(customSetting !== undefined ? { customSetting } : {}),
   }));
+}
+
+/** Whether a take is asked to hold any custom setting: its guard asks for Customize Application. */
+function namesCustomSettings(request: Pick<TakeRequest, 'customSettings'>): boolean {
+  const named = request.customSettings;
+  return named !== undefined && (named === 'all' || named.length > 0);
+}
+
+/**
+ * Every custom setting the org lists, to pick from, with its kind and rows:
+ * those the plan holds as it read them, the others described and counted
+ * here, 25 describes and 5 counts a composite. A custom setting the org
+ * would not describe or count is offered without what it would not say.
+ * Asked by the scope alone: a take reads only those it holds.
+ */
+async function offeredSettings(
+  org: TakeOrg,
+  reader: CompositeReader,
+  scope: DescribedScope,
+  plan: Plan,
+  signal: AbortSignal | undefined,
+): Promise<CheckpointScopeCustomSetting[]> {
+  const held = new Map(plan.objects.map((object) => [object.scoped.objectApiName, object]));
+  const others = scope.settings.filter(({ objectApiName }) => !held.has(objectApiName));
+  // A describe that never reached the org leaves the offer without kinds,
+  // never the scope without an answer: none of these is held.
+  let describes = new Map<string, CheckpointDescribe>();
+  if (others.length > 0) {
+    try {
+      ({ describes } = await describeAll(
+        org,
+        reader,
+        others.map(({ objectApiName }) => objectApiName),
+      ));
+    } catch (err: unknown) {
+      if (stopped(err, signal)) throw err;
+    }
+  }
+  const counted = others.filter(({ objectApiName }) => describes.has(objectApiName));
+  const answers = await countRecords(
+    reader,
+    counted.map(({ objectApiName }) => ({ objectApiName, readMode: 'query' as const })),
+    signal,
+  );
+  const records = new Map<string, number>();
+  answers.forEach((answer, at) => {
+    if ('count' in answer) records.set(counted[at].objectApiName, answer.count);
+  });
+  return scope.settings.map(({ objectApiName, label }): CheckpointScopeCustomSetting => {
+    const planned = held.get(objectApiName);
+    if (planned?.customSetting !== undefined) {
+      return { objectApiName, label, kind: planned.customSetting, records: planned.records };
+    }
+    const describe = describes.get(objectApiName);
+    const count = records.get(objectApiName);
+    return {
+      objectApiName,
+      label,
+      ...(describe !== undefined ? { kind: customSettingKindOf(describe) } : {}),
+      ...(count !== undefined ? { records: count } : {}),
+    };
+  });
 }
 
 /** An estimate of nothing: a take refused before its scope was read. */
@@ -967,6 +1060,7 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
     orgName: request.orgName,
     registered: request.registered,
     username: request.username,
+    customSettings: namesCustomSettings(request),
   });
   if (!guard.allowed) return { ...empty, refusal: guard.refusal };
   const holder = deps.store.heldBy(guard.org.id);
@@ -989,6 +1083,7 @@ export async function scopeCheckpoint(deps: TakeDeps, request: TakeRequest): Pro
         queryAllFiles: guard.queryAllFiles,
         addedToPicked: scope.addedToPicked,
       },
+      customSettings: await offeredSettings(deps.org, reader, scope, plan, deps.signal),
     };
     const refusal =
       holder !== undefined
@@ -1279,7 +1374,12 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
   // What the request names is checked before the org is asked anything.
   const ignoredFields = checkpointIgnoredFieldsSchema.parse([...(request.ignoredFields ?? [])]);
   const named = request.name === undefined ? undefined : checkpointNameSchema.parse(request.name);
-  for (const objectApiName of [...(request.objects ?? []), ...(request.excluded ?? [])]) {
+  const settings = request.customSettings === 'all' ? [] : (request.customSettings ?? []);
+  for (const objectApiName of [
+    ...(request.objects ?? []),
+    ...(request.excluded ?? []),
+    ...settings,
+  ]) {
     sanitizeSoqlObjectName(objectApiName);
   }
   const keepDays = request.keepDays ?? DEFAULT_KEEP_DAYS;
@@ -1299,6 +1399,7 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     orgName: request.orgName,
     registered: request.registered,
     username: request.username,
+    customSettings: namesCustomSettings(request),
   });
   if (!guard.allowed) return { taken: false, refusal: guard.refusal };
   const organizationId = guard.org.id;

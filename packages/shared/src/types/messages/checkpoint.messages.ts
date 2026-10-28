@@ -5,6 +5,7 @@ import type {
   CheckpointListEntry,
   CheckpointLeftOutObject,
   CheckpointRefusal,
+  CheckpointScopeCustomSetting,
   CheckpointScopeFiles,
   CheckpointScopeMode,
   CheckpointScopeObject,
@@ -27,6 +28,15 @@ import type { ForgeTargetAutomation } from '../forge.types.js';
  * rewind deletes, gives back and brings back is what its preview confirmed that
  * the org still differs by when it starts.
  */
+
+/**
+ * The custom settings a take holds, named, or `all` the org has: none by
+ * default, in either mode. They are configuration — an integration's
+ * endpoint, a switch an admin flipped — that a rewind sets back as the
+ * checkpoint holds it, so none is held unless asked for. A name that is no
+ * custom setting of the org is left out, named.
+ */
+export type CheckpointCustomSettings = string[] | 'all';
 
 /**
  * `checkpoint:list`. WebView -> Extension. The checkpoints kept on this
@@ -52,6 +62,8 @@ export interface CheckpointScopeRequest extends BaseMessage {
     objects?: string[];
     /** Objects to leave out, in either mode. */
     excluded?: string[];
+    /** Custom settings to hold, by name, or `all` of them, in either mode: {@link CheckpointCustomSettings}. */
+    customSettings?: CheckpointCustomSettings;
     /** The records the take would hold at most, all objects together; 500,000 unless given. */
     maxTotal?: number;
   };
@@ -71,6 +83,8 @@ export interface CheckpointTakeRequest extends BaseMessage {
     objects?: string[];
     /** Objects to leave out, in either mode. */
     excluded?: string[];
+    /** Custom settings to hold, in either mode: {@link CheckpointCustomSettings}. */
+    customSettings?: CheckpointCustomSettings;
     /**
      * The records it holds at most, all objects together; 500,000 unless
      * given. Past it, the take is refused before a record is read.
@@ -178,8 +192,9 @@ export interface CheckpointListResponse extends BaseMessage {
 
 /**
  * `checkpoint:scope:response`. Extension -> WebView. With the refusal a take
- * would meet before reading, when it would meet one, and what it would hold
- * of the org's files, absent for a take refused before its scope is read.
+ * would meet before reading, when it would meet one, what it would hold of
+ * the org's files, and the custom settings it may be asked to hold, both
+ * absent for a take refused before its scope is read.
  */
 export interface CheckpointScopeResponse extends BaseMessage {
   type: 'checkpoint:scope:response';
@@ -191,6 +206,11 @@ export interface CheckpointScopeResponse extends BaseMessage {
     estimate: CheckpointEstimate;
     refusal?: CheckpointRefusal;
     files?: CheckpointScopeFiles;
+    /**
+     * Every custom setting the org lists, held or not, to pick from by name;
+     * absent for a take refused before its scope is read.
+     */
+    customSettings?: CheckpointScopeCustomSetting[];
   };
 }
 

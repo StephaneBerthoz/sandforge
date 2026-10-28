@@ -841,6 +841,44 @@ for (const theme of THEMES) {
       await expectReadable(page, theme, '[data-testid="checkpoint-result-files"]');
     });
 
+    test('offers the org’s custom settings folded, none ticked, each with its kind and rows, and asks the scope and the take with those ticked', async ({
+      page,
+    }) => {
+      const host = await openCheckpoints(page, theme, []);
+      await page.getByRole('button', { name: 'Take a checkpoint' }).click();
+      const offered = [
+        {
+          objectApiName: 'App_Switches__c',
+          label: 'Switches',
+          kind: 'hierarchy' as const,
+          records: 3,
+        },
+        { objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list' as const, records: 2 },
+      ];
+      await host.answer('checkpoint:scope', scopeAnswer({ customSettings: offered }));
+
+      const settings = page.getByTestId('checkpoint-custom-settings');
+      await expect(settings).not.toHaveAttribute('open', '');
+      await settings.getByText('Custom settings (2)').click();
+      await expect(page.getByTestId('checkpoint-custom-setting-Endpoints__c')).not.toBeChecked();
+      await expect(page.getByTestId('checkpoint-custom-setting-list')).toContainText('Hierarchy');
+      await expectReadable(page, theme, '[data-testid="checkpoint-custom-settings"]');
+
+      await page.getByTestId('checkpoint-custom-setting-Endpoints__c').check();
+      await expect(page.getByTestId('checkpoint-left-out-always')).toHaveText(
+        'Left out: users, permissions, setup, Chatter, history and log objects, the documents of the Documents tab.',
+      );
+      const scope = await host.answer('checkpoint:scope', scopeAnswer({ customSettings: offered }));
+      expect(scope.payload).toEqual({
+        orgId: CHECKPOINT_ORG.id,
+        mode: 'everything',
+        customSettings: ['Endpoints__c'],
+      });
+      await page.getByTestId('checkpoint-take-start').click();
+      const take = await host.asked('checkpoint:take');
+      expect(take.payload).toMatchObject({ mode: 'everything', customSettings: ['Endpoints__c'] });
+    });
+
     test('says an org holds its checkpoint’s state, gives the keyboard back to Rewind… on Back, and says a preview with nothing a rewind could write, after one that could not be read', async ({
       page,
     }) => {

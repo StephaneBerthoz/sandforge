@@ -213,7 +213,12 @@ import {
   type FileLinkLine,
 } from './checkpointFiles.js';
 import { guardCheckpoint } from './checkpointGuard.js';
-import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
+import {
+  FILE_LINK_OBJECT,
+  FILE_OBJECT,
+  FILE_VERSION_OBJECT,
+  holdsCustomSettings,
+} from './checkpointScope.js';
 import {
   SHARE_TYPE_WORDS,
   USER_LINK_WORDS,
@@ -364,6 +369,10 @@ const KEPT_WORDS: Readonly<Partial<Record<RewindPlanLeftReason, string>>> = {
   beforeParentNotAccepted:
     "Kept: Undo couldn't bring it back once deleted before a record it points at, which the " +
     'rewind deletes next, and that was not accepted.',
+  keyTaken:
+    'Kept in the recycle bin: a row of this custom setting made or changed since holds its ' +
+    'owner or its name, and brought back beside it the setting would hold two. It comes back ' +
+    'once that row is gone.',
 };
 
 /**
@@ -1322,6 +1331,7 @@ export async function rewindOrg(deps: RewindDeps, request: RewindRequest): Promi
     registered: request.registered,
     username: request.username,
     organizationId: checkpoint.org.organizationId,
+    customSettings: holdsCustomSettings(checkpoint),
   });
   if (!guard.allowed) return { rewound: false, refusal: guard.refusal };
   const locked = deps.store.lock(checkpoint.org.organizationId, 'rewind', checkpoint.checkpointId);

@@ -200,7 +200,12 @@ import {
   readModeOf,
   type CheckpointDescribe,
 } from './checkpointFields.js';
-import { FILE_LINK_OBJECT, FILE_OBJECT, FILE_VERSION_OBJECT } from './checkpointScope.js';
+import {
+  FILE_LINK_OBJECT,
+  FILE_OBJECT,
+  FILE_VERSION_OBJECT,
+  customSettingKeyOf,
+} from './checkpointScope.js';
 import { fileLinkClassFileOf } from './checkpointFiles.js';
 import { outsideOfFiles, readFileAnchors, tellFiles, type FileAnchors } from './fileLinksDiff.js';
 import { fingerprintOf, schemaDrift, type ObjectFingerprint } from './checkpointFingerprint.js';
@@ -763,13 +768,21 @@ async function fieldsNowOf(
  * parent, and those whose parent's delete a live record refuses, which tell
  * what a rewind deletes before a record it points at; on a contact of an org
  * with person accounts, the flag and the account, which tell a person
- * account's contact; and who last changed each record, when. Never a field
- * gone since: a read that names one is refused whole.
+ * account's contact; of a custom setting, the owner of a hierarchy's row or
+ * the name of a list's, which tell a row to bring back from one made since
+ * that holds it now (`rewindPlan`); and who last changed each record, when.
+ * Never a field gone since: a read that names one is refused whole.
  */
 function changeReadFields(object: CheckpointObject, gone: ReadonlySet<string>): string[] {
   const fields = [...object.cascadeParents, ...(object.restrictParents ?? [])].filter(
     (field) => !gone.has(field.toLowerCase()),
   );
+  if (object.customSetting !== undefined) {
+    const key = heldField(object.fields, customSettingKeyOf(object.customSetting));
+    if (key !== undefined && !gone.has(key.toLowerCase()) && !fields.includes(key)) {
+      fields.push(key);
+    }
+  }
   // A file's latest version and size, which tell a new version since and
   // what bringing it back takes of the org's file storage.
   if (isFile(object.objectApiName)) {

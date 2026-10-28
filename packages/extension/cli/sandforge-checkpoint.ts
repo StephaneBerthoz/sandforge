@@ -44,12 +44,15 @@ import {
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
   firedOnRemovalStepsOf,
+  type CheckpointCustomSettingKind,
+  type CheckpointCustomSettings,
   type CheckpointEmails,
   type CheckpointEstimate,
   type CheckpointLeftOutObject,
   type CheckpointListEntry,
   type CheckpointObject,
   type CheckpointRefusal,
+  type CheckpointScopeCustomSetting,
   type CheckpointScopeFiles,
   type CheckpointScopeMode,
   type CheckpointScopeObject,
@@ -114,6 +117,10 @@ take:
   --object <ApiName>             an object to keep; repeat for more (default: every object people
                                  work in, empty ones included, setup and log objects left out)
   --exclude-object <ApiName>     leave an object out; repeat for more
+  --custom-setting <ApiName|all> keep a custom setting, or all of them, which a checkpoint leaves
+                                 out unless named: a rewind sets their rows back, an integration's
+                                 endpoint or an admin's switch among them; repeat for more; needs
+                                 Customize Application
   --ignore-field <Object.Field>  do not compare a field, nor write it back (one your automation sets
                                  on every save); repeat for more
   --max-total <n>                refuse, before reading, more than <n> records (default: ${DEFAULT_MAX_TOTAL})
@@ -158,7 +165,9 @@ Options:
   --help                         this text
 
 A production org is refused before anything is read or written, exit 1. No flag lifts it.
-The user the alias connects as needs View All Data and Modify All Data.
+The user the alias connects as needs View All Data and Modify All Data, and Customize
+Application for a checkpoint that keeps custom settings: View All Custom Settings reads them,
+never writes them.
 A checkpoint holds the records' values as the org held them, personal data among them,
 unencrypted, in files only you can read (on Windows: in your user profile). Expired checkpoints
 are deleted as any command starts, each named.
@@ -182,6 +191,9 @@ asks it back: such a record, with what was to come back with it, is made again t
 and named without --accept-recreate.
 A record the checkpoint does not hold that took records of it along when it was deleted since is
 brought back for a moment with them, then deleted again with what came back with it.
+A custom setting is kept only when --custom-setting names it. A rewind brings a row of one back
+only once no other row holds its owner (a hierarchy: the org's default, a profile, a user) or
+its name (a list): it deletes the row made since first, then brings the row back with its Id.
 A checkpoint holds the files attached to its records, Salesforce Files and classic attachments:
 which records each is attached to, its latest version and its size, never its content. A rewind
 deletes the files attached to them since, brings back those deleted since with their links,
@@ -209,12 +221,14 @@ JSON (--json), one value on stdout:
                      checkpoint.json; files?, {documents, links, anchored, readByIds?}, for one
                      that holds files); requests, {total, byPhase}, the API requests the take sent
                      the org, SOAP calls among them; estimate, what it said before reading a record
-  take --estimate    {mode, objects, leftOut, estimate, refusal?, files?}:
+  take --estimate    {mode, objects, leftOut, estimate, refusal?, files?, customSettings?}:
                      estimate.requestsByPhase splits the requests over a take's phases as
                      requests.byPhase does: guard, scope, start, counts, bin, snapshot, stability;
-                     files, {held, queryAllFiles, addedToPicked}; {mode, refusal} for a take
-                     refused before its scope is read (a production org, a user without the
-                     permissions)
+                     files, {held, queryAllFiles, addedToPicked}; customSettings, every custom
+                     setting of the org, kept or not, [{objectApiName, label, kind?, records?}],
+                     kind hierarchy or list, and objects[].customSetting for one kept; {mode,
+                     refusal} for a take refused before its scope is read (a production org, a
+                     user without the permissions)
   preview            {checkpoint: {id, name, takenAt, org}, toDelete, toGiveBack, toBringBack,
                       toRecreate, carriers, differs, diff, estimate, automation?, emails?,
                       refusal?}: carriers, the records brought back for a moment and deleted
@@ -293,6 +307,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--name',
       '--object',
       '--exclude-object',
+      '--custom-setting',
       '--ignore-field',
       '--max-total',
       '--keep-days',
@@ -334,6 +349,7 @@ const FLAG_OF_FIELD: Readonly<Record<string, string>> = {
   name: '--name',
   objects: '--object',
   excluded: '--exclude-object',
+  customSettings: '--custom-setting',
   ignoredFields: '--ignore-field',
   maxTotal: '--max-total',
   keepDays: '--keep-days',
@@ -345,6 +361,7 @@ export interface TakeAsked {
   mode: CheckpointScopeMode;
   objects?: string[];
   excluded?: string[];
+  customSettings?: CheckpointCustomSettings;
   ignoredFields?: string[];
   maxTotal?: number;
   keepDays: number;
@@ -487,6 +504,9 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
       const named = orgNamed();
       const objects = values('--object');
       const excluded = values('--exclude-object');
+      // `all` names every custom setting of the org, those named beside it among them.
+      const settings = values('--custom-setting');
+      const customSettings = settings.includes('all') ? ('all' as const) : settings;
       const ignoredFields = values('--ignore-field');
       const maxTotal = wholeNumber('--max-total');
       const take: TakeAsked = {
@@ -494,6 +514,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         mode: objects.length > 0 ? 'picked' : 'everything',
         ...(objects.length > 0 ? { objects } : {}),
         ...(excluded.length > 0 ? { excluded } : {}),
+        ...(customSettings.length > 0 ? { customSettings } : {}),
         ...(ignoredFields.length > 0 ? { ignoredFields } : {}),
         ...(maxTotal !== undefined ? { maxTotal } : {}),
         keepDays: wholeNumber('--keep-days') ?? DEFAULT_KEEP_DAYS,
@@ -864,6 +885,7 @@ export interface ScopeAnswer {
   estimate: CheckpointEstimate;
   refusal?: CheckpointRefusal;
   files?: CheckpointScopeFiles;
+  customSettings?: CheckpointScopeCustomSetting[];
 }
 
 /**
@@ -909,7 +931,58 @@ export function scopeLines(orgName: string, scope: ScopeAnswer): string[] {
     ...fieldsLeftOutLines(scope.objects),
     ...withParentLine(scope.objects),
     ...(scope.files ? scopeFilesLines(scope.files) : []),
+    ...customSettingsLines(scope),
     ...(scope.refusal ? [`refused: ${scope.refusal.message}`] : []),
+  ];
+}
+
+/** A custom setting as a line names it: its name, kind and rows, as far as the org said them. */
+function settingWords(setting: {
+  objectApiName: string;
+  kind?: CheckpointCustomSettingKind;
+  records?: number;
+}): string {
+  const rows =
+    setting.records === undefined
+      ? undefined
+      : `${count(setting.records)} ${setting.records === 1 ? 'row' : 'rows'}`;
+  const said = [setting.kind, rows].filter((part) => part !== undefined);
+  return said.length > 0 ? `${setting.objectApiName} (${said.join(', ')})` : setting.objectApiName;
+}
+
+/** A custom setting a take keeps, as a line names it. */
+function keptSettingWords(
+  object: Pick<CheckpointScopeObject, 'objectApiName' | 'customSetting' | 'records'>,
+): string {
+  return settingWords({
+    objectApiName: object.objectApiName,
+    ...(object.customSetting !== undefined ? { kind: object.customSetting } : {}),
+    records: object.records,
+  });
+}
+
+/**
+ * The custom settings a take would keep, which a rewind sets back as it
+ * holds them, and those of the org it leaves out, with the flag that keeps
+ * them; nothing for an org that has none.
+ */
+function customSettingsLines(scope: ScopeAnswer): string[] {
+  const kept = scope.objects.filter((object) => object.customSetting !== undefined);
+  const held = new Set(kept.map((object) => object.objectApiName));
+  const others = (scope.customSettings ?? []).filter((setting) => !held.has(setting.objectApiName));
+  return [
+    ...(kept.length > 0
+      ? [
+          `  custom settings kept: ${someOf(kept.map(keptSettingWords))} — a rewind sets their rows ` +
+            'back as the checkpoint holds them, whoever changed them since',
+        ]
+      : []),
+    ...(others.length > 0
+      ? [
+          `  custom settings not kept: ${someOf(others.map(settingWords))} — ` +
+            '--custom-setting <ApiName|all> keeps them',
+        ]
+      : []),
   ];
 }
 
@@ -971,8 +1044,19 @@ export function takeLines(checkpoint: OrgCheckpoint, folder: string): string[] {
       ? [`  not compared, nor written back (you chose): ${checkpoint.ignoredFields.join(', ')}`]
       : []),
     ...withParentLine(checkpoint.objects),
+    ...takenSettingsLines(checkpoint.objects),
     ...(checkpoint.files ? takenFilesLines(checkpoint.files, orgOf(checkpoint)) : []),
     `  it holds the records' values unencrypted, in files only you can read: ${folder}`,
+  ];
+}
+
+/** The custom settings a take kept, each with its kind and rows; nothing when it kept none. */
+function takenSettingsLines(objects: readonly CheckpointObject[]): string[] {
+  const kept = objects.filter((object) => object.customSetting !== undefined);
+  if (kept.length === 0) return [];
+  return [
+    `  custom settings kept: ${someOf(kept.map(keptSettingWords))} — a rewind sets their rows back ` +
+      'as the checkpoint holds them',
   ];
 }
 
@@ -2353,6 +2437,7 @@ async function take(
       mode: asked.mode,
       ...(asked.objects ? { objects: asked.objects } : {}),
       ...(asked.excluded ? { excluded: asked.excluded } : {}),
+      ...(asked.customSettings ? { customSettings: asked.customSettings } : {}),
       ...(asked.maxTotal !== undefined ? { maxTotal: asked.maxTotal } : {}),
     };
     const answer = await host.request({
@@ -2371,6 +2456,7 @@ async function take(
       estimate: answered.estimate,
       ...(answered.refusal ? { refusal: answered.refusal } : {}),
       ...(answered.files ? { files: answered.files } : {}),
+      ...(answered.customSettings ? { customSettings: answered.customSettings } : {}),
     };
     for (const line of scopeLines(args.org, scope)) say(line);
     answerJson(scopeJson(scope));

@@ -5366,7 +5366,16 @@
       "pickedNone": "Wählen Sie die Objekte, die der Prüfpunkt aufbewahrt.",
       "pickedCount_one": "{{formatted}} Objekt ausgewählt",
       "pickedCount_other": "{{formatted}} Objekte ausgewählt",
-      "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
+      "leftOutAlways": "Ausgelassen: Benutzer, Berechtigungen, Setup, benutzerdefinierte Einstellungen, außer Sie wählen sie aus, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
+      "leftOutAlwaysWithSettings": "Ausgelassen: Benutzer, Berechtigungen, Setup, Chatter, Verlaufs- und Protokollobjekte, Dokumente der Registerkarte Dokumente.",
+      "customSettings": {
+        "title_one": "Benutzerdefinierte Einstellung ({{formatted}})",
+        "title_other": "Benutzerdefinierte Einstellungen ({{formatted}})",
+        "hint": "Konfiguration, ausgelassen, außer Sie wählen sie aus: Ein Zurücksetzen setzt jede Zeile einer gewählten benutzerdefinierten Einstellung so zurück, wie der Prüfpunkt sie hält, wer sie auch seitdem geändert hat — den Endpunkt einer Integration, den Schalter eines Administrators. Sie zu behalten erfordert die Berechtigung „Anwendung anpassen“.",
+        "selectAll": "Alle auswählen",
+        "hierarchy": "Hierarchie",
+        "list": "Liste"
+      },
       "seeLeftOut_one": "Das ausgelassene Objekt und den Grund anzeigen",
       "seeLeftOut_other": "Die {{formatted}} ausgelassenen Objekte und die Gründe anzeigen",
       "beforeItRuns": "Vor dem Start",

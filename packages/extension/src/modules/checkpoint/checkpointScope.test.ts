@@ -4,6 +4,9 @@ import { MemoryRemovalOrg, type MemoryChild } from '../../test/memoryRemovalOrg'
 import type { CheckpointDescribe } from './checkpointFields';
 import {
   childrenFirst,
+  customSettingKeyOf,
+  customSettingKindOf,
+  holdsCustomSettings,
   namespaceOf,
   resolveScope,
   scopeCandidates,
@@ -251,6 +254,124 @@ describe('scopeCandidates', () => {
 
     expect(candidates).toEqual([]);
     expect(reasons(leftOut)).toEqual({ Thing__c: 'notWritable' });
+  });
+});
+
+describe('scopeCandidates: custom settings', () => {
+  const SETTINGS: GlobalObject[] = [
+    data('Account'),
+    data('App_Config__c', { customSetting: true }),
+    data('acme__Switches__c', { customSetting: true, layoutable: false }),
+    data('Read_Only__c', { customSetting: true, createable: false }),
+    data('Invoice__c'),
+  ];
+
+  it('holds none unless named, in either mode, one picked as an object among them', () => {
+    const everything = scopeCandidates(SETTINGS, { mode: 'everything' });
+    const picked = scopeCandidates(SETTINGS, {
+      mode: 'picked',
+      objects: ['Account', 'App_Config__c'],
+    });
+
+    expect(everything.candidates).toEqual(['Account', 'Invoice__c']);
+    expect(reasons(everything.leftOut)).toEqual({
+      App_Config__c: 'customSetting',
+      Read_Only__c: 'customSetting',
+      acme__Switches__c: 'customSetting',
+    });
+    expect(picked.candidates).toEqual(['Account']);
+    expect(reasons(picked.leftOut)).toEqual({ App_Config__c: 'customSetting' });
+  });
+
+  it('holds those named, by any case, in everything people work in, though the org gives one no layout, and only when its user may write their rows', () => {
+    const { candidates, leftOut } = scopeCandidates(SETTINGS, {
+      mode: 'everything',
+      customSettings: ['app_config__c', 'acme__Switches__c', 'Read_Only__c'],
+    });
+
+    expect(candidates).toEqual(['Account', 'App_Config__c', 'Invoice__c', 'acme__Switches__c']);
+    expect(reasons(leftOut)).toEqual({ Read_Only__c: 'notWritable' });
+  });
+
+  it('adds those named to the objects picked, and every one of the org’s for all, unless left out by name', () => {
+    const named = scopeCandidates(SETTINGS, {
+      mode: 'picked',
+      objects: ['Account'],
+      customSettings: ['App_Config__c'],
+    });
+    const all = scopeCandidates(SETTINGS, {
+      mode: 'picked',
+      objects: ['Account'],
+      customSettings: 'all',
+      excluded: ['App_Config__c'],
+    });
+
+    expect(named.candidates).toEqual(['Account', 'App_Config__c']);
+    expect(named.addedToPicked).toEqual([]);
+    expect(all.candidates).toEqual(['Account', 'acme__Switches__c']);
+    expect(reasons(all.leftOut)).toEqual({
+      App_Config__c: 'excludedByUser',
+      Read_Only__c: 'notWritable',
+    });
+  });
+
+  it('names a custom setting the org does not have, or an object named as one that is none, and holds nothing for it', () => {
+    const { candidates, leftOut } = scopeCandidates(SETTINGS, {
+      mode: 'picked',
+      objects: ['Account'],
+      customSettings: ['Ghost__c', 'Invoice__c', 'ghost__c'],
+    });
+
+    expect(candidates).toEqual(['Account']);
+    expect(leftOut).toEqual([
+      { objectApiName: 'Ghost__c', reason: 'notCustomSetting' },
+      { objectApiName: 'Invoice__c', reason: 'notCustomSetting' },
+    ]);
+  });
+});
+
+describe('customSettingKindOf', () => {
+  /** A custom setting's describe with `Name` as given, and `SetupOwnerId` as both kinds have it. */
+  const setting = (name: Record<string, unknown> | undefined): CheckpointDescribe => ({
+    name: 'Setting__c',
+    fields: [
+      { name: 'Id', type: 'id' },
+      ...(name ? [{ name: 'Name', type: 'string', ...name }] : []),
+      {
+        name: 'SetupOwnerId',
+        type: 'reference',
+        referenceTo: ['Organization', 'Profile', 'User'],
+        createable: true,
+        updateable: true,
+        nillable: true,
+      },
+    ],
+  });
+
+  it('reads a hierarchy from its optional Name and a list from its required one, both carrying SetupOwnerId as P-C2 found them', () => {
+    expect(customSettingKindOf(setting({ nillable: true, length: 80 }))).toBe('hierarchy');
+    // Told by its SetupOwnerId, as the design first had it, this list would
+    // read as a hierarchy, its rows then brought back over a row of their name.
+    expect(customSettingKindOf(setting({ nillable: false, length: 38 }))).toBe('list');
+  });
+
+  it('reads a describe that says nothing of its Name as a list', () => {
+    expect(customSettingKindOf(setting({}))).toBe('list');
+    expect(customSettingKindOf(setting(undefined))).toBe('list');
+  });
+
+  it('tells rows of a hierarchy apart by their owner and rows of a list by their name', () => {
+    expect(customSettingKeyOf('hierarchy')).toBe('SetupOwnerId');
+    expect(customSettingKeyOf('list')).toBe('Name');
+  });
+});
+
+describe('holdsCustomSettings', () => {
+  it('says a checkpoint holds custom settings only when one of its objects is held as one', () => {
+    expect(holdsCustomSettings({ objects: [{}, { customSetting: 'list' }] })).toBe(true);
+    expect(holdsCustomSettings({ objects: [{ customSetting: 'hierarchy' }] })).toBe(true);
+    expect(holdsCustomSettings({ objects: [{}, {}] })).toBe(false);
+    expect(holdsCustomSettings({ objects: [] })).toBe(false);
   });
 });
 

@@ -55,6 +55,15 @@ export type CheckpointReadMode = 'query' | 'scanAllLive';
 export type CheckpointLeftOutFieldReason = 'fls' | 'encrypted' | 'base64' | 'compound';
 
 /**
+ * What kind of custom setting an object is: a hierarchy, one row for the org's
+ * default and one per profile or user, each known by its owner
+ * (`SetupOwnerId`), or a list, its rows known by their names. Both carry
+ * `SetupOwnerId` (P-C2), so a list is told by the `Name` its describe makes
+ * required, which a hierarchy names itself.
+ */
+export type CheckpointCustomSettingKind = 'hierarchy' | 'list';
+
+/**
  * Where a take stands. A checkpoint is usable once `ready`; one left `taking`
  * by a take that never ended, or `failed`, is listed and can only be deleted.
  */
@@ -188,6 +197,14 @@ export interface CheckpointObject {
   /** The fields the snapshot holds, by API name. */
   fields: string[];
   leftOutFields: CheckpointLeftOutField[];
+  /**
+   * Set when the object is a custom setting the take was asked to hold by
+   * name, with its kind: a rewind brings one of its rows back only once no
+   * other row holds its name or its owner, and every act on the checkpoint
+   * asks for Customize Application. Absent for any other object, and from a
+   * checkpoint taken before custom settings could be held.
+   */
+  customSetting?: CheckpointCustomSettingKind;
 }
 
 /**
@@ -310,6 +327,21 @@ export interface CheckpointScopeObject {
   undeletable: boolean;
   /** Fields the snapshot would leave out, said before the take. */
   leftOutFields: CheckpointLeftOutField[];
+  /** Its kind, when it is a custom setting the take was asked to hold by name. */
+  customSetting?: CheckpointCustomSettingKind;
+}
+
+/**
+ * A custom setting of the org, as a take offers it: held only when named,
+ * in either mode. Its kind and rows are absent when the org would not
+ * describe or count it.
+ */
+export interface CheckpointScopeCustomSetting {
+  objectApiName: string;
+  label: string;
+  kind?: CheckpointCustomSettingKind;
+  /** Its rows now. */
+  records?: number;
 }
 
 /**
@@ -367,7 +399,8 @@ export interface CheckpointEstimate {
  * the guards say it: a production org or an unknown edition (`PRODUCTION`,
  * which nothing lifts), an org other than the checkpoint's own
  * (`OTHER_ORG`), an expired scratch org, a user without View All Data and
- * Modify All Data (`PERMISSIONS`), a SandForge run or another take, rewind or
+ * Modify All Data, or without Customize Application where custom settings
+ * are held (`PERMISSIONS`), a SandForge run or another take, rewind or
  * undo writing to the org (`RUN_WRITING`), more API requests than the org has
  * left today, more records than the take's limit, automation not accepted,
  * deletions Undo could not bring back not accepted (`NO_UNDO`), records to

@@ -1753,6 +1753,149 @@ describe('files', () => {
   });
 });
 
+describe('custom settings', () => {
+  const estimate = { records: 4, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+
+  it('keeps the custom settings each --custom-setting names, or all of them, in either mode', () => {
+    const named = parseArgs(
+      argv(
+        'take',
+        '--org',
+        'DEV-SB',
+        '--custom-setting',
+        'Endpoints__c',
+        '--custom-setting',
+        'acme__Switches__c',
+      ),
+    );
+    const all = parseArgs(
+      argv(
+        'take',
+        '--org',
+        'DEV-SB',
+        '--object',
+        'Account',
+        '--custom-setting',
+        'Endpoints__c',
+        '--custom-setting',
+        'all',
+      ),
+    );
+    const none = parseArgs(argv('take', '--org', 'DEV-SB'));
+
+    expect(named).toMatchObject({
+      take: { mode: 'everything', customSettings: ['Endpoints__c', 'acme__Switches__c'] },
+    });
+    expect(all).toMatchObject({
+      take: { mode: 'picked', objects: ['Account'], customSettings: 'all' },
+    });
+    expect(none.command === 'take' && 'customSettings' in none.take).toBe(false);
+  });
+
+  it('refuses, before any org is reached, a custom setting not named by its API name, one named twice, and a misspelt flag', () => {
+    const cases: Array<[string[], string]> = [
+      [
+        ['--custom-setting', 'Account'],
+        "--custom-setting: A custom setting's API name ends in __c",
+      ],
+      [
+        ['--custom-setting', 'Endpoints__c', '--custom-setting', 'endpoints__c'],
+        '--custom-setting: A custom setting is named twice',
+      ],
+      [['--custom-setting'], '--custom-setting wants a value'],
+    ];
+    for (const [flags, said] of cases) {
+      const { code, stderr } = refused('take', '--org', 'DEV-SB', ...flags);
+      expect(code, flags.join(' ')).toBe(2);
+      expect(stderr).toContain(said);
+    }
+    const misspelt = refused('take', '--org', 'DEV-SB', '--custom-settings', 'Endpoints__c');
+    expect(misspelt.code).toBe(2);
+    expect(misspelt.stderr).toContain('--custom-settings');
+  });
+
+  it('documents the flag and the permission it needs', () => {
+    const { stdout } = refused('take', '--help');
+    expect(stdout).toContain(
+      '--custom-setting <ApiName|all> keep a custom setting, or all of them',
+    );
+    expect(stdout).toContain(
+      'and Customize\nApplication for a checkpoint that keeps custom settings',
+    );
+  });
+
+  it('says before a take the custom settings it keeps, with their kinds and rows, and those it leaves with the flag that keeps them; and answers them in --json', () => {
+    const scope = {
+      mode: 'everything' as const,
+      objects: [
+        {
+          objectApiName: 'Endpoints__c',
+          label: 'Endpoints',
+          records: 2,
+          undeletable: true,
+          leftOutFields: [],
+          customSetting: 'list' as const,
+        },
+      ],
+      leftOut: [],
+      estimate,
+      customSettings: [
+        {
+          objectApiName: 'App_Switches__c',
+          label: 'Switches',
+          kind: 'hierarchy' as const,
+          records: 3,
+        },
+        { objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list' as const, records: 2 },
+        { objectApiName: 'Hidden__c', label: 'Hidden' },
+      ],
+    };
+
+    expect(scopeLines('DEV-SB', scope)).toEqual(
+      expect.arrayContaining([
+        '  custom settings kept: Endpoints__c (list, 2 rows) — a rewind sets their rows back as the checkpoint holds them, whoever changed them since',
+        '  custom settings not kept: App_Switches__c (hierarchy, 3 rows), Hidden__c — --custom-setting <ApiName|all> keeps them',
+      ]),
+    );
+    expect(scopeJson(scope).customSettings).toEqual(scope.customSettings);
+    const empty = scopeLines('DEV-SB', { ...scope, objects: [], customSettings: [] });
+    expect(empty.filter((line) => line.includes('custom setting'))).toEqual([]);
+  });
+
+  it('says after a take the custom settings it kept, and nothing of them when it kept none', () => {
+    const kept = {
+      checkpointId: 'ck-20261022-160000-cccc',
+      name: 'Before UAT',
+      org: { organizationId: '00D000000000001AAA', alias: 'DEV-SB', username: 'admin@example.com' },
+      readFrom: '2026-10-22T16:00:00.000Z',
+      takenAt: '2026-10-22T16:01:00.000Z',
+      objects: [
+        { objectApiName: 'Account', records: 4, leftOutFields: [], undeletable: true },
+        {
+          objectApiName: 'App_Switches__c',
+          records: 1,
+          leftOutFields: [],
+          undeletable: true,
+          customSetting: 'hierarchy',
+        },
+      ],
+      scope: { mode: 'everything', leftOut: [] },
+      ignoredFields: [],
+      movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+      bytes: 2048,
+      expiresAt: null,
+    } as unknown as OrgCheckpoint;
+
+    expect(takeLines(kept, '/store/ck')).toContain(
+      '  custom settings kept: App_Switches__c (hierarchy, 1 row) — a rewind sets their rows back as the checkpoint holds them',
+    );
+    const none = { ...kept, objects: [kept.objects[0]] } as OrgCheckpoint;
+    expect(takeLines(none, '/store/ck').filter((line) => line.includes('custom setting'))).toEqual(
+      [],
+    );
+  });
+});
+
 describe('resultExitCode', () => {
   it('ends a rewind or an undo 0 done, 3 partial, 4 unstable, 1 when nothing went through, and with the code of the signal that stopped it', () => {
     expect(resultExitCode('success')).toBe(0);

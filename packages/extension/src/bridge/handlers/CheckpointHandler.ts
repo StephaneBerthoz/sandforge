@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import type {
   AuditOutcome,
+  CheckpointCustomSettings,
   CheckpointListEntry,
   CheckpointRefusal,
   CheckpointRefusalCode,
@@ -529,8 +530,9 @@ export class CheckpointHandler implements DomainHandler {
 
   /**
    * What a take of the registered org is asked, beside what it is called and
-   * kept: its scope, the objects left out of it and the limit of its records,
-   * which the command line names (`--exclude-object`, `--max-total`).
+   * kept: its scope, the objects left out of it, the custom settings it holds
+   * by name and the limit of its records, which the command line names
+   * (`--exclude-object`, `--custom-setting`, `--max-total`).
    */
   private takeRequestOf(
     org: SalesforceOrg,
@@ -538,11 +540,12 @@ export class CheckpointHandler implements DomainHandler {
       mode: CheckpointScopeMode;
       objects?: readonly string[];
       excluded?: readonly string[];
+      customSettings?: CheckpointCustomSettings;
       maxTotal?: number;
     },
   ): TakeRequest {
     const expires = org.metadata?.expirationDate;
-    const { mode, objects, excluded, maxTotal } = scope;
+    const { mode, objects, excluded, customSettings, maxTotal } = scope;
     return {
       orgId: org.id,
       orgName: nameOf(org),
@@ -556,6 +559,7 @@ export class CheckpointHandler implements DomainHandler {
       mode,
       ...(objects !== undefined ? { objects } : {}),
       ...(excluded !== undefined ? { excluded } : {}),
+      ...(customSettings !== undefined ? { customSettings } : {}),
       ...(maxTotal !== undefined ? { maxTotal } : {}),
     };
   }
@@ -863,6 +867,7 @@ export class CheckpointHandler implements DomainHandler {
         estimate: scope.estimate,
         ...(scope.refusal ? { refusal: scope.refusal } : {}),
         ...(scope.files ? { files: scope.files } : {}),
+        ...(scope.customSettings ? { customSettings: scope.customSettings } : {}),
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'SCOPE_ERROR');
@@ -905,6 +910,7 @@ export class CheckpointHandler implements DomainHandler {
       mode: CheckpointScopeMode;
       objects?: string[];
       excluded?: string[];
+      customSettings?: CheckpointCustomSettings;
       maxTotal?: number;
       keepDays: number;
       ignoredFields?: string[];

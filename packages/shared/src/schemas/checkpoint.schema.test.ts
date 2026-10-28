@@ -112,6 +112,21 @@ describe('orgCheckpointSchema', () => {
     ).toBe(false);
   });
 
+  it('keeps the kind of a custom setting held by name, which a read that dropped it would rewind as any object, and refuses a kind it does not know', () => {
+    for (const customSetting of ['hierarchy', 'list']) {
+      const setting = withContact({ customSetting });
+      const parsed = orgCheckpointSchema.parse(setting);
+      expect(parsed.objects[0].customSetting).toBe(customSetting);
+      expect(parsed).toEqual(setting);
+    }
+    expect(orgCheckpointSchema.parse(readyCheckpoint()).objects[0]).not.toHaveProperty(
+      'customSetting',
+    );
+    expect(orgCheckpointSchema.safeParse(withContact({ customSetting: 'protected' })).success).toBe(
+      false,
+    );
+  });
+
   it('reads a checkpoint kept until it is deleted, and one with its last rewind', () => {
     expect(orgCheckpointSchema.safeParse(checkpointWith({ expiresAt: null })).success).toBe(true);
     const rewound = checkpointWith({

@@ -93,6 +93,7 @@ export const checkpointLeftOutFieldReasonSchema = z.enum([
   'compound',
 ]);
 export const checkpointStatusSchema = z.enum(['taking', 'ready', 'failed']);
+export const checkpointCustomSettingKindSchema = z.enum(['hierarchy', 'list']);
 
 const checkpointObjectSchema = z.object({
   objectApiName: apiNameSchema,
@@ -109,6 +110,9 @@ const checkpointObjectSchema = z.object({
   leftOutFields: z
     .array(z.object({ field: apiNameSchema, reason: checkpointLeftOutFieldReasonSchema }))
     .max(5000),
+  // Absent for any object but a custom setting held by name, and from a
+  // checkpoint taken before custom settings could be held.
+  customSetting: checkpointCustomSettingKindSchema.optional(),
 });
 
 /**

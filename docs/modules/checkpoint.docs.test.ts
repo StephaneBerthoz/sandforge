@@ -299,6 +299,7 @@ describe('docs/modules/checkpoint.md', () => {
     const said: Record<string, string> = {
       excludedByUser: "an object the command line's `--exclude-object` names",
       notFound: 'an object picked that the org does not have',
+      notCustomSetting: 'a custom setting picked that the org does not have',
       chatter: 'Chatter posts, comments and their attachments',
       history: 'history, sharing and change-event objects',
       sharing: 'history, sharing and change-event objects',

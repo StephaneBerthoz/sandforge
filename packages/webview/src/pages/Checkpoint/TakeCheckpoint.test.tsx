@@ -95,7 +95,7 @@ describe('TakeCheckpoint', () => {
     // Files are held now: what stays out of them is the Documents tab.
     expect(
       screen.getByText(
-        'Left out: users, permissions, setup, custom settings, Chatter, history and log objects, the documents of the Documents tab.',
+        'Left out: users, permissions, setup, custom settings unless you pick them, Chatter, history and log objects, the documents of the Documents tab.',
       ),
     ).toBeInTheDocument();
     expect(
@@ -514,5 +514,167 @@ describe('TakeCheckpoint', () => {
     fireEvent.click(screen.getByTestId('checkpoint-take-cancel'));
     expect(onClose).toHaveBeenCalled();
     expect(host.current?.sent('checkpoint:take')).toEqual([]);
+  });
+});
+
+describe('TakeCheckpoint — custom settings', () => {
+  const OFFERED = [
+    { objectApiName: 'App_Switches__c', label: 'Switches', kind: 'hierarchy' as const, records: 3 },
+    { objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list' as const, records: 1 },
+    { objectApiName: 'acme__Hidden__c', label: 'acme__Hidden__c' },
+  ];
+
+  beforeEach(() => {
+    host.current = fakeHost();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 9, 22, 14, 0, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Let the boxes ticked rest, as the picks do before their scope is asked. */
+  const settle = (): void =>
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+  it('offers the org’s custom settings folded, none ticked, each with its kind and rows, and offers nothing for an org that has none', () => {
+    renderTake();
+    answerScope({ customSettings: OFFERED });
+
+    const list = screen.getByTestId('checkpoint-custom-settings');
+    expect(list).not.toHaveAttribute('open');
+    expect(within(list).getByText('Custom settings (3)')).toBeInTheDocument();
+    const rows = within(screen.getByTestId('checkpoint-custom-setting-list')).getAllByRole(
+      'listitem',
+    );
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'SwitchesApp_Switches__cHierarchy3 records',
+      'EndpointsEndpoints__cList1 record',
+      'acme__Hidden__c',
+    ]);
+    for (const setting of OFFERED) {
+      expect(
+        screen.getByTestId(`checkpoint-custom-setting-${setting.objectApiName}`),
+      ).not.toBeChecked();
+    }
+    expect(screen.getByTestId('checkpoint-custom-settings-all')).not.toBeChecked();
+  });
+
+  it('offers no custom setting when the scope lists none', () => {
+    renderTake();
+    answerScope({ customSettings: [] });
+    expect(screen.queryByTestId('checkpoint-custom-settings')).toBeNull();
+    answerScope();
+    expect(screen.queryByTestId('checkpoint-custom-settings')).toBeNull();
+  });
+
+  it('asks the scope of everything with the custom settings ticked once they rest, and takes them', () => {
+    renderTake();
+    answerScope({ customSettings: OFFERED });
+
+    fireEvent.click(screen.getByTestId('checkpoint-custom-setting-Endpoints__c'));
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+    // The sentence of what stays out no longer names custom settings.
+    expect(screen.getByTestId('checkpoint-left-out-always').textContent).toBe(
+      'Left out: users, permissions, setup, Chatter, history and log objects, the documents of the Documents tab.',
+    );
+    expect(host.current?.sent('checkpoint:scope')).toHaveLength(1);
+    settle();
+    expect(host.current?.lastPayload('checkpoint:scope')).toEqual({
+      orgId: 'org-dev',
+      mode: 'everything',
+      customSettings: ['Endpoints__c'],
+    });
+    answerScope({ customSettings: OFFERED });
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).toEqual({
+      orgId: 'org-dev',
+      name: 'Oct 22, 2026, 2:00 PM',
+      mode: 'everything',
+      customSettings: ['Endpoints__c'],
+      keepDays: 30,
+    });
+  });
+
+  it('ticks every custom setting at once, and untick them all to take none, which sends no custom setting', () => {
+    renderTake();
+    answerScope({ customSettings: OFFERED });
+
+    fireEvent.click(screen.getByTestId('checkpoint-custom-settings-all'));
+    for (const setting of OFFERED) {
+      expect(
+        screen.getByTestId(`checkpoint-custom-setting-${setting.objectApiName}`),
+      ).toBeChecked();
+    }
+    settle();
+    expect(host.current?.lastPayload('checkpoint:scope')).toMatchObject({
+      customSettings: ['App_Switches__c', 'Endpoints__c', 'acme__Hidden__c'],
+    });
+
+    fireEvent.click(screen.getByTestId('checkpoint-custom-settings-all'));
+    settle();
+    // The scope of everything, answered already, is the choice's again.
+    expect(screen.getByTestId('checkpoint-take-start')).toBeEnabled();
+    expect(screen.getByTestId('checkpoint-left-out-always').textContent).toMatch(
+      /custom settings unless you pick them/,
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).not.toHaveProperty('customSettings');
+  });
+
+  it('asks the scope of the objects picked with the custom settings ticked', () => {
+    renderTake();
+    answerScope({ customSettings: OFFERED });
+    fireEvent.click(screen.getByTestId('checkpoint-scope-picked'));
+    fireEvent.click(screen.getByTestId('checkpoint-pick-Account'));
+    fireEvent.click(screen.getByTestId('checkpoint-custom-setting-App_Switches__c'));
+    settle();
+
+    expect(host.current?.lastPayload('checkpoint:scope')).toEqual({
+      orgId: 'org-dev',
+      mode: 'picked',
+      objects: ['Account'],
+      customSettings: ['App_Switches__c'],
+    });
+    act(() =>
+      host.current?.answer(
+        'checkpoint:scope',
+        'checkpoint:scope:response',
+        scopeAnswer({ mode: 'picked', customSettings: OFFERED }),
+      ),
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-take-start'));
+    expect(host.current?.lastPayload('checkpoint:take')).toMatchObject({
+      mode: 'picked',
+      objects: ['Account'],
+      customSettings: ['App_Switches__c'],
+    });
+  });
+
+  it('says the refusal of a user without Customize Application, offers no take, and keeps the boxes to untick', () => {
+    renderTake();
+    answerScope({ customSettings: OFFERED });
+    fireEvent.click(screen.getByTestId('checkpoint-custom-setting-Endpoints__c'));
+    settle();
+    const message =
+      "admin@example.com needs Customize Application to keep and rewind custom settings, and doesn't have it: View All Custom Settings lets a user read them, never write them. Leave the custom settings out of the checkpoint, or give the user Customize Application. No record was read or written.";
+    act(() =>
+      host.current?.answer('checkpoint:scope', 'checkpoint:scope:response', {
+        orgId: 'org-dev',
+        mode: 'everything',
+        objects: [],
+        leftOut: [],
+        estimate: { records: 0, apiRequests: 0, apiRequestsLeft: 0, seconds: 0, bytes: 0 },
+        refusal: { code: 'PERMISSIONS', message },
+      }),
+    );
+
+    expect(screen.getByTestId('checkpoint-refusal').textContent).toBe(message);
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('checkpoint-custom-setting-Endpoints__c'));
+    settle();
+    expect(screen.getByTestId('checkpoint-take-start')).toBeEnabled();
   });
 });

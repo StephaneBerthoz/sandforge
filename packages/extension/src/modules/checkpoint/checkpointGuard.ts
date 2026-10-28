@@ -31,6 +31,16 @@
  * act asks, the preview too: it writes nothing, but without View All Data it
  * would tell records the user cannot see as deleted since.
  *
+ * Custom settings. A checkpoint that holds custom settings — a take that
+ * names any, an act on a checkpoint that holds one — asks for Customize
+ * Application too, in the same statement. View All Custom Settings lets a
+ * user read them and never write them (P-C2-perm: a Standard User given it
+ * read every row and was refused each insert and update,
+ * `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`, its own hierarchy row among them),
+ * so a rewind could not put back what the take held. Whether Modify All Data
+ * alone lets a user write them was not probed: the rule may refuse a user who
+ * could have, never the other way. An act that holds none asks nothing more.
+ *
  * Query All Files is read in the same statement, and its absence refuses
  * nothing. Without it, a user with View All Data still does not see a file
  * someone else owns in a read of the files that names no id, even linked to
@@ -67,6 +77,12 @@ interface CheckpointGuardBase {
   registered: OrgTypeAndEdition | undefined;
   /** The user SandForge connects as, as a refusal names them. */
   username: string;
+  /**
+   * Whether the act keeps or writes custom settings: a take that names any,
+   * an act on a checkpoint that holds one (`holdsCustomSettings`). Customize
+   * Application is then asked too.
+   */
+  customSettings?: boolean;
 }
 
 /** A take, which has no checkpoint yet, or an act on a checkpoint, of the org it names. */
@@ -101,6 +117,9 @@ const PERMISSIONS = [
 
 /** Query All Files, as `UserPermissionAccess` names it: read with the two, refusing nothing. */
 const QUERY_ALL_FILES = 'PermissionsQueryAllFiles';
+
+/** Customize Application, as `UserPermissionAccess` names it: asked where custom settings are held. */
+const CUSTOMIZE_APPLICATION = 'PermissionsCustomizeApplication';
 
 /** What a refusal says the guard did not do. */
 const NOTHING_DONE = 'No record was read or written.';
@@ -149,20 +168,46 @@ const NEEDS: Readonly<Record<CheckpointAct, string>> = {
 };
 
 /**
+ * What a refusal for want of Customize Application says, act by act, beside
+ * what lifts it.
+ */
+const CUSTOMIZE_LIFTS: Readonly<Record<CheckpointAct, string>> = {
+  take: 'Leave the custom settings out of the checkpoint, or give the user Customize Application.',
+  preview: 'This checkpoint holds custom settings: give the user Customize Application.',
+  rewind: 'This checkpoint holds custom settings: give the user Customize Application.',
+  undo: 'This checkpoint holds custom settings: give the user Customize Application.',
+};
+
+/** The refusal of an act that keeps or writes custom settings, the user lacking Customize Application. */
+function customizeRefusal(request: CheckpointGuardRequest): CheckpointGuardResult {
+  return refused(
+    'PERMISSIONS',
+    `${request.username} needs Customize Application to keep and rewind custom settings, and ` +
+      "doesn't have it: View All Custom Settings lets a user read them, never write them. " +
+      `${CUSTOMIZE_LIFTS[request.act]} ${NOTHING_DONE}`,
+  );
+}
+
+/**
  * The permissions of the two the running user lacks, by the names a person
- * reads, and whether the user has Query All Files; or why the two could not
- * be read.
+ * reads, whether the user has Query All Files, and, when `customize` asks,
+ * whether they have Customize Application; or why the two could not be read.
  *
  * Query All Files is asked in the statement that asks the two. An org that
  * refuses that statement is asked the two alone, and its user is then taken
  * for one without Query All Files: a field the org does not know would
  * otherwise refuse every checkpoint of it, for a permission that refuses
- * none.
+ * none. Customize Application is asked in both statements, and only when
+ * custom settings are held: a statement that asks it of an act that holds
+ * none would be one more field the org could refuse.
  */
 async function permissionsOf(
   conn: Pick<Connection, 'query'>,
-): Promise<{ missing: string[]; queryAllFiles: boolean } | { unread: string }> {
-  const two = PERMISSIONS.map((p) => p.field);
+  customize: boolean,
+): Promise<
+  { missing: string[]; queryAllFiles: boolean; customizeApplication: boolean } | { unread: string }
+> {
+  const asked = [...PERMISSIONS.map((p) => p.field), ...(customize ? [CUSTOMIZE_APPLICATION] : [])];
   const read = async (fields: readonly string[]): Promise<Record<string, unknown> | undefined> => {
     const answer = await conn.query<Record<string, unknown>>(
       `SELECT ${fields.join(', ')} FROM UserPermissionAccess`,
@@ -171,10 +216,10 @@ async function permissionsOf(
   };
   let row: Record<string, unknown> | undefined;
   try {
-    row = await read([...two, QUERY_ALL_FILES]);
+    row = await read([...asked, QUERY_ALL_FILES]);
   } catch {
     try {
-      row = await read(two);
+      row = await read(asked);
     } catch (err: unknown) {
       return { unread: err instanceof Error ? err.message : String(err) };
     }
@@ -182,6 +227,7 @@ async function permissionsOf(
   return {
     missing: PERMISSIONS.filter((p) => row?.[p.field] !== true).map((p) => p.label),
     queryAllFiles: row?.[QUERY_ALL_FILES] === true,
+    customizeApplication: row?.[CUSTOMIZE_APPLICATION] === true,
   };
 }
 
@@ -225,7 +271,8 @@ export async function guardCheckpoint(
     );
   }
 
-  const held = await permissionsOf(conn);
+  const customize = request.customSettings === true;
+  const held = await permissionsOf(conn, customize);
   const opening = `${NEEDS[request.act]} see and put back what everyone changed.`;
   if ('unread' in held) {
     return refused(
@@ -243,6 +290,7 @@ export async function guardCheckpoint(
       `${opening} ${request.username} doesn't have ${lacking}. ${NOTHING_DONE}`,
     );
   }
+  if (customize && !held.customizeApplication) return customizeRefusal(request);
 
   return { allowed: true, org, tier: tierOf(registered, org), queryAllFiles: held.queryAllFiles };
 }
