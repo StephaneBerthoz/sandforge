@@ -3869,6 +3869,8 @@
     "unfavorite": "お気に入りから削除",
     "favoriteModule": "{{module}}をお気に入りに登録",
     "lastOp": "最後の操作",
+    "lastCheckpoint": "{{org}} の最新のチェックポイント: {{age}}",
+    "lastCheckpointTitle": "「{{name}}」、{{date}} に作成",
     "openFull": "フル UI を開く",
     "running": "実行中...",
     "newOrg": "新規組織...",

@@ -519,10 +519,19 @@ export function activate(context: vscode.ExtensionContext): void {
     // Read from the CLI's own files, no process started: the launcher asks
     // only while no org is registered.
     () => countCliOrgs(os.homedir()),
+    // The line under Checkpoints, read from this machine's store by the
+    // Checkpoints handler, whose modules load on its first request: the
+    // sweep the first view starts (step 7) loads them as well.
+    (orgId) => handlers.latestCheckpointOf(orgId),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,
     sidebarProvider,
+  );
+  // A checkpoint taken, changed or deleted in this window shows in the line at
+  // once, not when what was read of it runs out.
+  const unsubCheckpointsChanged = handlers.onCheckpointsChanged(() =>
+    sidebarProvider.checkpointsChanged(),
   );
 
   // 10b. Proactive org validation — refresh expired tokens once per window so
@@ -680,6 +689,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // the extension goes away.
     { dispose: () => backgroundRegistry.dispose() },
     { dispose: unsubOrgChange },
+    { dispose: unsubCheckpointsChanged },
     { dispose: () => orgManager.dispose() },
     { dispose: () => offlineManager.dispose() },
     { dispose: () => liveOperationTracker.dispose() },

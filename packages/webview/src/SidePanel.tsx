@@ -33,7 +33,12 @@ import { BrandMark } from './components/ui/BrandMark';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
 import { orgTypeLabel } from './utils/orgFormatters';
-import { formatRelativeTimeI18n } from './utils/formatters';
+import {
+  dateTimeFormat,
+  formatRelativeTime,
+  formatRelativeTimeI18n,
+  formatStoredDate,
+} from './utils/formatters';
 import { useVSCodeApi } from './hooks/useVSCodeApi';
 import { useRecentOpsFeed } from './hooks/useRecentOpsFeed';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
@@ -42,6 +47,7 @@ import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
 import { getPersistedItem, setPersistedItem } from './utils/webviewStorage';
 import { orgToFill } from './utils/orgToFill';
+import { isDevelopmentOrg } from '@sandforge/shared';
 import type { OrgListResponse, OrgPageAction } from '@sandforge/shared';
 
 /**
@@ -234,6 +240,8 @@ interface ModuleRowProps {
   favorite: boolean;
   onOpen: () => void;
   onToggleFavorite: () => void;
+  /** The id of a line under the row that describes its button, which keeps the module's name. */
+  describedBy?: string;
 }
 
 /** One module of the launcher's lists: its button, and its favourite star. */
@@ -243,6 +251,7 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
   favorite,
   onOpen,
   onToggleFavorite,
+  describedBy,
 }) => {
   const { t } = useTranslation();
   return (
@@ -262,6 +271,7 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
         )}
         onClick={onOpen}
         aria-current={active ? 'page' : undefined}
+        aria-describedby={describedBy}
         data-testid={`sidepanel-nav-${item.id}`}
       >
         <span className={cn('shrink-0', item.accent)}>{item.icon}</span>
@@ -291,6 +301,81 @@ const ModuleRow: React.FC<ModuleRowProps> = ({
         <Star className={cn('w-3 h-3', favorite && 'fill-current')} />
       </button>
     </div>
+  );
+};
+
+/** The latest checkpoint of an org that can be rewound to, as the extension names it. */
+interface LastCheckpoint {
+  checkpointId: string;
+  name: string;
+  /** When its take ended, on the org's clock. */
+  takenAt: string;
+}
+
+/** The extension's answer for the line under Checkpoints: the org asked about, and its checkpoint, if any. */
+interface LastCheckpointAnswer {
+  orgId: string;
+  checkpoint?: LastCheckpoint;
+}
+
+/**
+ * How often the line under Checkpoints is asked again while a sandbox,
+ * scratch or Developer Edition org is selected: its age moves on, and a
+ * checkpoint taken from the command line or another window shows. The
+ * extension answers from what it read within the last minute.
+ */
+const LAST_CHECKPOINT_REFRESH_MS = 60_000;
+
+/** The id of the line under Checkpoints, which describes the row's button. */
+const LAST_CHECKPOINT_LINE_ID = 'sidepanel-last-checkpoint';
+
+/** The answer `sidebar:lastCheckpoint` carries, or undefined when it is not one. */
+function lastCheckpointAnswerOf(payload: unknown): LastCheckpointAnswer | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const { orgId, checkpoint } = payload as Record<string, unknown>;
+  if (typeof orgId !== 'string') return undefined;
+  if (checkpoint === undefined) return { orgId };
+  if (typeof checkpoint !== 'object' || checkpoint === null) return undefined;
+  const { checkpointId, name, takenAt } = checkpoint as Record<string, unknown>;
+  if (typeof checkpointId !== 'string' || typeof name !== 'string' || typeof takenAt !== 'string') {
+    return undefined;
+  }
+  return { orgId, checkpoint: { checkpointId, name, takenAt } };
+}
+
+/** Props for {@link LastCheckpointLine}. */
+interface LastCheckpointLineProps {
+  orgName: string;
+  checkpoint: LastCheckpoint;
+}
+
+/**
+ * A reminder under Checkpoints: when the selected org's latest checkpoint was
+ * taken, its name and date in the title. Not a control of its own: the row
+ * above opens the page, and its button is described by this line. The age is
+ * read from the org's clock, which may run ahead of this machine's: a take
+ * that ended "in 5 seconds" is said to have ended now.
+ */
+const LastCheckpointLine: React.FC<LastCheckpointLineProps> = ({ orgName, checkpoint }) => {
+  const { t } = useTranslation();
+  const takenAt = Date.parse(checkpoint.takenAt);
+  const age =
+    formatStoredDate(Math.min(takenAt, Date.now()), (d) => formatRelativeTime(d)) ??
+    t('common.dateUnknown');
+  const date =
+    formatStoredDate(checkpoint.takenAt, (d) =>
+      dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(d),
+    ) ?? t('common.dateUnknown');
+  return (
+    <p
+      id={LAST_CHECKPOINT_LINE_ID}
+      // Under the row's label: its padding, its icon and the gap after it.
+      className="pl-9 pr-2.5 pb-1 text-[11px] leading-tight text-text-secondary line-clamp-2 break-words"
+      title={t('sidePanel.lastCheckpointTitle', { name: checkpoint.name, date })}
+      data-testid="sidepanel-last-checkpoint"
+    >
+      {t('sidePanel.lastCheckpoint', { org: orgName, age })}
+    </p>
   );
 };
 
@@ -382,6 +467,13 @@ export const SidePanel: React.FC = () => {
    * org is registered; null until it says.
    */
   const [cliOrgCount, setCliOrgCount] = useState<number | null>(null);
+  /**
+   * The extension's last answer for the line under Checkpoints. Shown only
+   * while it is of the org selected: an answer for the org before is let be.
+   */
+  const [lastCheckpoint, setLastCheckpoint] = useState<LastCheckpointAnswer | null>(null);
+  /** Moved on each minute, so the line's age is written again. */
+  const [, setAgeTick] = useState(0);
   /** Whether the Advanced modules are shown, kept for the next time the view opens. */
   const [advancedOpen, setAdvancedOpen] = useState(
     () => getPersistedItem(ADVANCED_OPEN_KEY) === 'true',
@@ -505,10 +597,39 @@ export const SidePanel: React.FC = () => {
       if (msg.type === 'sidebar:cliOrgs' && typeof msg.payload?.count === 'number') {
         setCliOrgCount(msg.payload.count);
       }
+      if (msg.type === 'sidebar:lastCheckpoint') {
+        const answer = lastCheckpointAnswerOf(msg.payload);
+        if (answer) setLastCheckpoint(answer);
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [vscodeApi]);
+
+  /**
+   * The line under Checkpoints is asked of the org selected, when it is one a
+   * checkpoint can be taken of: never of a production org. Asked again each
+   * minute while it stays selected.
+   */
+  const lastCheckpointOffered = selectedOrg !== undefined && isDevelopmentOrg(selectedOrg);
+  useEffect(() => {
+    if (!lastCheckpointOffered || selectedOrgId === null) return;
+    const ask = (): void =>
+      vscodeApi.postMessage({
+        type: 'sidebar:requestLastCheckpoint',
+        payload: { orgId: selectedOrgId },
+      });
+    ask();
+    const timer = setInterval(() => {
+      setAgeTick((tick) => tick + 1);
+      ask();
+    }, LAST_CHECKPOINT_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [lastCheckpointOffered, selectedOrgId, vscodeApi]);
+  const shownCheckpoint =
+    lastCheckpointOffered && lastCheckpoint?.orgId === selectedOrgId
+      ? lastCheckpoint.checkpoint
+      : undefined;
 
   /**
    * Send navigation message to extension host via vscode API. The launcher's
@@ -1018,16 +1139,27 @@ export const SidePanel: React.FC = () => {
           aria-label={t('sidePanel.modules', 'Modules')}
           data-testid="sidepanel-modules"
         >
-          {PRIMARY_MODULES.map((item) => (
-            <ModuleRow
-              key={item.id}
-              item={item}
-              active={activeRoute === item.id}
-              favorite={favorites.includes(item.id)}
-              onOpen={() => navigate(item.id)}
-              onToggleFavorite={() => toggleFavorite(item.id)}
-            />
-          ))}
+          {PRIMARY_MODULES.map((item) => {
+            const line = item.id === 'checkpoint' && selectedOrg ? shownCheckpoint : undefined;
+            return (
+              <React.Fragment key={item.id}>
+                <ModuleRow
+                  item={item}
+                  active={activeRoute === item.id}
+                  favorite={favorites.includes(item.id)}
+                  onOpen={() => navigate(item.id)}
+                  onToggleFavorite={() => toggleFavorite(item.id)}
+                  describedBy={line ? LAST_CHECKPOINT_LINE_ID : undefined}
+                />
+                {line && selectedOrg && (
+                  <LastCheckpointLine
+                    orgName={selectedOrg.alias || selectedOrg.username}
+                    checkpoint={line}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
         </nav>
       </div>
 

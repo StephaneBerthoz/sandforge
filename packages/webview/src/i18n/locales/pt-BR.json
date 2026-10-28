@@ -4099,6 +4099,8 @@
     "unfavorite": "Remover dos favoritos",
     "favoriteModule": "{{module}} nos favoritos",
     "lastOp": "Última operação",
+    "lastCheckpoint": "Último ponto de verificação de {{org}}: {{age}}",
+    "lastCheckpointTitle": "“{{name}}”, criado em {{date}}",
     "openFull": "Abrir interface completa",
     "running": "Executando...",
     "newOrg": "Nova organização...",

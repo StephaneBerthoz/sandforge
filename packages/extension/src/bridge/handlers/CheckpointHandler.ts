@@ -12,6 +12,7 @@ import type {
   RewindStatus,
   SalesforceOrg,
 } from '@sandforge/shared';
+import { isDevelopmentOrg } from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -105,6 +106,9 @@ const RETRYABLE_REFUSALS: ReadonlySet<CheckpointRefusalCode> = new Set([
   'API_BUDGET',
   'EMAILS',
 ]);
+
+/** An org's latest checkpoint that can be rewound to, as the side bar's line names it. */
+export type LatestUsableCheckpoint = Pick<OrgCheckpoint, 'checkpointId' | 'name' | 'takenAt'>;
 
 /** Where a run's file names the org it writes to, as a checkpoint's org is compared with it. */
 interface RunFiles {
@@ -272,6 +276,8 @@ export class CheckpointHandler implements DomainHandler {
    * preview as it was read: see {@link rewindFromPreviewsAnswered}.
    */
   private previewsAnswered?: Map<string, RewindDiff>;
+  /** Told each time the checkpoints kept on this machine change: see {@link onCheckpointsChanged}. */
+  private readonly changeListeners = new Set<() => void>();
 
   /**
    * @param deps - Injected handler dependencies.
@@ -383,6 +389,7 @@ export class CheckpointHandler implements DomainHandler {
       for (const org of swept.skipped) {
         this.deps.log(`[INFO] Checkpoints of ${org} not swept: a take, a rewind or an undo runs`);
       }
+      if (swept.checkpoints.length > 0) this.checkpointsChanged();
     } catch (err: unknown) {
       this.deps.log(`[WARN] Expired checkpoints were not removed: ${extractErrorMessage(err)}`);
     }
@@ -398,6 +405,53 @@ export class CheckpointHandler implements DomainHandler {
     if (before === undefined || !ORGANIZATION_ID.test(before)) return 0;
     const store = await this.openedStore();
     return (await store.list({ organizationId: before })).length;
+  }
+
+  /**
+   * The registered org's latest checkpoint that can be rewound to, by the
+   * rule the Home tile lists them by (`usableCheckpoints`): taken to its end,
+   * neither of the org a sandbox was before its refresh nor of a scratch org
+   * that has expired. Read from this machine, never from the org. Nothing for
+   * an org SandForge does not know, nor for a production org, of which none is
+   * ever taken.
+   */
+  async latestUsableOf(orgId: string): Promise<LatestUsableCheckpoint | undefined> {
+    const org = this.deps.orgManager.getOrg(orgId);
+    if (!org || !isDevelopmentOrg(org)) return undefined;
+    const store = await this.openedStore();
+    const latest = (await this.listOfOrg(store, orgId)).find(
+      (entry) => entry.valid && entry.checkpoint !== undefined,
+    )?.checkpoint;
+    return latest
+      ? { checkpointId: latest.checkpointId, name: latest.name, takenAt: latest.takenAt }
+      : undefined;
+  }
+
+  /**
+   * Call `listener` each time a checkpoint is kept, changed or deleted on
+   * this machine by this window: a take kept, a rename, a Keep, a change of
+   * the fields compared, a deletion, the sweep of those past their date. A
+   * rewind and its undo leave what the side bar names of a checkpoint as it
+   * was, and tell nothing.
+   *
+   * @returns What stops the calls.
+   */
+  onCheckpointsChanged(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  /** Tell the listeners the checkpoints kept have changed: one that throws stops neither the others nor the request. */
+  private checkpointsChanged(): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener();
+      } catch (err: unknown) {
+        this.deps.log(`[WARN] A listener of the checkpoints failed: ${extractErrorMessage(err)}`);
+      }
+    }
   }
 
   // ─── What every request goes through ───────────────────────────────────────
@@ -586,6 +640,28 @@ export class CheckpointHandler implements DomainHandler {
   }
 
   /**
+   * The checkpoints of a registered org, those of every Organization Id it
+   * was: ids are named by when the take began, so newest first, across them.
+   */
+  private async listOfOrg(
+    store: OrgCheckpointStore,
+    orgId: string,
+  ): Promise<CheckpointListEntry[]> {
+    const refreshedAt = (organizationId: string): string | undefined =>
+      this.refreshedAt(organizationId);
+    const lists = await Promise.all(
+      this.organizationIdsOf(orgId).map((organizationId) =>
+        store.list({ organizationId, refreshedAt }),
+      ),
+    );
+    return lists
+      .flat()
+      .sort((a, b) =>
+        a.checkpointId < b.checkpointId ? 1 : a.checkpointId > b.checkpointId ? -1 : 0,
+      );
+  }
+
+  /**
    * The registered org a checkpoint is of: the one registered with its
    * Organization Id, its alias first, or the one that answered as it last.
    */
@@ -742,24 +818,10 @@ export class CheckpointHandler implements DomainHandler {
     if (parsed === null) return;
     try {
       const store = await this.openedStore();
-      const refreshedAt = (organizationId: string): string | undefined =>
-        this.refreshedAt(organizationId);
-      let checkpoints: CheckpointListEntry[];
-      if (parsed?.orgId === undefined) {
-        checkpoints = await store.list({ refreshedAt });
-      } else {
-        const lists = await Promise.all(
-          this.organizationIdsOf(parsed.orgId).map((organizationId) =>
-            store.list({ organizationId, refreshedAt }),
-          ),
-        );
-        // Ids are named by when the take began: newest first, across the orgs it was.
-        checkpoints = lists
-          .flat()
-          .sort((a, b) =>
-            a.checkpointId < b.checkpointId ? 1 : a.checkpointId > b.checkpointId ? -1 : 0,
-          );
-      }
+      const checkpoints =
+        parsed?.orgId === undefined
+          ? await store.list({ refreshedAt: (organizationId) => this.refreshedAt(organizationId) })
+          : await this.listOfOrg(store, parsed.orgId);
       this.respond(msg, 'checkpoint:list:response', { checkpoints });
     } catch (err: unknown) {
       this.fail(msg, err, 'LIST_ERROR');
@@ -921,6 +983,7 @@ export class CheckpointHandler implements DomainHandler {
         ...(outcome.requests ? { requests: outcome.requests } : {}),
         estimate: outcome.estimate,
       });
+      this.checkpointsChanged();
       sendOperationCompleted(this.deps, operationId, {
         status: 'success',
         objects: checkpoint.objects.length,
@@ -1312,6 +1375,7 @@ export class CheckpointHandler implements DomainHandler {
         );
       }
       this.respond(msg, 'checkpoint:delete:response', { deleted });
+      if (deleted.length > 0) this.checkpointsChanged();
     } catch (err: unknown) {
       this.fail(msg, err, 'DELETE_ERROR');
     }
@@ -1394,6 +1458,7 @@ export class CheckpointHandler implements DomainHandler {
         throw err;
       }
       this.respond(msg, `checkpoint:${what}:response`, { checkpoint });
+      this.checkpointsChanged();
     } catch (err: unknown) {
       this.fail(msg, err, 'CHANGE_ERROR');
     }

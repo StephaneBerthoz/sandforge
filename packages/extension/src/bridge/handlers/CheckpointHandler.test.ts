@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BaseMessage, ForgeTargetAutomation, SalesforceOrg, UUID } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeTargetAutomation,
+  OrgCheckpoint,
+  SalesforceOrg,
+  UUID,
+} from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 
 import { CheckpointHandler, type WindowWriters } from './CheckpointHandler.js';
@@ -1445,5 +1451,137 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     const reused = await run(true);
 
     expect(reused).toBeLessThan(fresh);
+  });
+});
+
+// ─── The side bar's line under Checkpoints ───────────────────────────────────
+
+/** A later id than any take of these tests makes: the list names it first. */
+const LATER_ID = 'ck-20991231-235959-zzzz';
+
+/** Keep beside `checkpointId` another checkpoint of its org, its file as `changes` makes it. */
+async function keptBeside(
+  h: Harness,
+  checkpointId: string,
+  changes: Partial<OrgCheckpoint>,
+): Promise<void> {
+  const first = (await h.store.read(checkpointId))?.checkpoint;
+  if (!first) throw new Error('the first checkpoint is not kept');
+  await h.store.create(ORG_ID, LATER_ID);
+  await h.store.write({ ...first, checkpointId: LATER_ID, ...changes });
+}
+
+describe('CheckpointHandler — the side bar’s line', () => {
+  it('names the registered org’s latest checkpoint that can be rewound to, read from this machine alone', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    const takenAt = (await h.store.read(checkpointId))?.checkpoint?.takenAt;
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+    const sent = h.org.requests + h.org.soapCalls;
+    // A later take that failed: it can only be deleted.
+    await keptBeside(h, checkpointId, { name: 'After UAT', status: 'failed' });
+
+    expect(await h.handler.latestUsableOf(REGISTERED)).toEqual({
+      checkpointId,
+      name: 'Before UAT',
+      takenAt,
+    });
+
+    await h.store.update(LATER_ID, (checkpoint) => ({
+      ...checkpoint,
+      status: 'ready',
+      takenAt: '2026-10-22T15:00:00.000Z',
+    }));
+    expect(await h.handler.latestUsableOf(REGISTERED)).toEqual({
+      checkpointId: LATER_ID,
+      name: 'After UAT',
+      takenAt: '2026-10-22T15:00:00.000Z',
+    });
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+    expect(h.org.requests + h.org.soapCalls).toBe(sent);
+  });
+
+  it('names nothing for an org with none, a production org, an org it does not know, nor a sandbox refreshed since', async () => {
+    const h = harness();
+    expect(await h.handler.latestUsableOf(REGISTERED)).toBeUndefined();
+    await taken(h);
+    // The same Organization Id, registered as a production org: the type alone differs.
+    h.orgManager.addOrg(
+      registered({
+        id: 'org-prod' as UUID,
+        alias: 'PROD',
+        orgType: 'Production',
+        safetyTier: OrgSafetyTier.CRITICAL,
+      }),
+    );
+
+    expect(await h.handler.latestUsableOf('org-prod')).toBeUndefined();
+    // Control: the sandbox's entry names it.
+    expect(await h.handler.latestUsableOf(REGISTERED)).toMatchObject({ name: 'Before UAT' });
+    expect(await h.handler.latestUsableOf('org-unknown')).toBeUndefined();
+
+    h.detector.observe(REGISTERED, { organizationId: REFRESHED_ORG_ID }, 'connection');
+    expect(await h.handler.latestUsableOf(REGISTERED)).toBeUndefined();
+  });
+
+  it('tells its listeners each time a take is kept, a checkpoint is changed or deleted, or the sweep removes one, and not when nothing changed', async () => {
+    const h = harness();
+    const told = vi.fn();
+    const stop = h.handler.onCheckpointsChanged(told);
+
+    const checkpointId = await taken(h);
+    expect(told).toHaveBeenCalledTimes(1);
+
+    await h.send('wv-rename-1', 'checkpoint:rename', { checkpointId, name: 'Clean baseline' });
+    expect(told).toHaveBeenCalledTimes(2);
+    expect(await h.handler.latestUsableOf(REGISTERED)).toMatchObject({ name: 'Clean baseline' });
+
+    // Nothing deleted, nothing swept: nothing to tell.
+    await h.send('wv-delete-0', 'checkpoint:delete', {
+      checkpointIds: ['ck-20261022-140000-zzzz'],
+    });
+    await h.handler.sweep();
+    expect(told).toHaveBeenCalledTimes(2);
+
+    await h.send('wv-delete-1', 'checkpoint:delete', { checkpointIds: [checkpointId] });
+    expect(told).toHaveBeenCalledTimes(3);
+    expect(await h.handler.latestUsableOf(REGISTERED)).toBeUndefined();
+
+    const second = await taken(h, 'wv-take-2');
+    expect(told).toHaveBeenCalledTimes(4);
+    await h.store.update(second, (checkpoint) => ({
+      ...checkpoint,
+      expiresAt: '2026-10-01T00:00:00.000Z',
+    }));
+    await h.handler.sweep();
+    expect(told).toHaveBeenCalledTimes(5);
+
+    stop();
+    await taken(h, 'wv-take-3');
+    expect(told).toHaveBeenCalledTimes(5);
+  });
+
+  it('tells nothing of a take refused, and a listener that throws stops neither the others nor the take', async () => {
+    const refused = harness({
+      org: new HandlerTestOrg({ sandbox: false, edition: 'Enterprise Edition' }),
+      registered: registered({ orgType: 'Production' }),
+    });
+    const toldOfRefused = vi.fn();
+    refused.handler.onCheckpointsChanged(toldOfRefused);
+    await refused.send('wv-take-1', 'checkpoint:take', TAKE);
+    expect(answerOf(refused, 'wv-take-1').type).toBe('checkpoint:error');
+    expect(toldOfRefused).not.toHaveBeenCalled();
+
+    const h = harness();
+    const told = vi.fn();
+    h.handler.onCheckpointsChanged(() => {
+      throw new Error('the side bar is gone');
+    });
+    h.handler.onCheckpointsChanged(told);
+    await taken(h);
+    expect(told).toHaveBeenCalledTimes(1);
+    expect(h.logs).toContainEqual(
+      expect.stringContaining('A listener of the checkpoints failed: the side bar is gone'),
+    );
   });
 });

@@ -176,6 +176,7 @@ import { WebviewStateSync } from './bridge/WebviewStateSync';
 import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
 import { MODULE_COMMANDS } from './composition/moduleCommands';
 import type { SidebarViewProvider } from './providers/SidebarViewProvider';
+import { ExtensionHandlers } from './bridge/ExtensionHandlers';
 import type { StatusBarOrg } from './extension';
 import type { MessageBrokerOptions } from './bridge/MessageBroker';
 
@@ -349,6 +350,57 @@ describe('extension', () => {
     }
   });
 
+  it('answers the sidebar’s line under Checkpoints, and tells it again when this window’s checkpoints change', async () => {
+    let changed: (() => void) | undefined;
+    const onCheckpointsChanged = vi
+      .spyOn(ExtensionHandlers.prototype, 'onCheckpointsChanged')
+      .mockImplementation((listener) => {
+        changed = listener;
+        return () => undefined;
+      });
+    try {
+      activate(createContext());
+
+      const vscode = await import('vscode');
+      const provider = vi.mocked(vscode.window.registerWebviewViewProvider).mock
+        .calls[0][1] as unknown as SidebarViewProvider;
+      let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
+      const postMessage = vi.fn();
+      const mockView = {
+        webview: {
+          options: undefined,
+          html: '',
+          cspSource: 'https://test.csp.source',
+          onDidReceiveMessage: vi.fn((handler: (message: Record<string, unknown>) => void) => {
+            messageHandler = handler;
+            return { dispose: vi.fn() };
+          }),
+          postMessage,
+          asWebviewUri: vi.fn((uri: { toString: () => string }) => ({
+            toString: () => String(uri),
+          })),
+        },
+        onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+      };
+      provider.resolveWebviewView(mockView as never, undefined, undefined);
+      const lines = () =>
+        postMessage.mock.calls
+          .map(([message]) => message as { type: string; payload: unknown })
+          .filter((message) => message.type === 'sidebar:lastCheckpoint');
+
+      // An org SandForge does not know has no line: answered without reading the store.
+      messageHandler?.({ type: 'sidebar:requestLastCheckpoint', payload: { orgId: 'org-x' } });
+      await vi.waitFor(() => expect(lines()).toHaveLength(1));
+      expect(lines()[0].payload).toEqual({ orgId: 'org-x' });
+
+      changed?.();
+      await vi.waitFor(() => expect(lines()).toHaveLength(2));
+      expect(lines()[1].payload).toEqual({ orgId: 'org-x' });
+    } finally {
+      onCheckpointsChanged.mockRestore();
+    }
+  });
+
   it('should register the openOrgInBrowser command (and no native orgs tree)', async () => {
     const context = createContext();
 
@@ -491,10 +543,11 @@ describe('extension', () => {
     // + openOrgInBrowser command + AI token budget reset command
     // + the two Frozen dataset salt commands (copy, use)
     // + statusBar + panelManager + stateSync + backgroundRegistry + orgChange unsub
+    // + checkpoints-changed unsub (the sidebar's line under Checkpoints)
     // + orgManager + offlineManager + liveOperationTracker
     // + performanceTracker + sandbox refresh detection + pipeline triggers
-    // + the context the walkthrough's Connect step completes on = 40
-    expect(context.subscriptions.length).toBe(40);
+    // + the context the walkthrough's Connect step completes on = 41
+    expect(context.subscriptions.length).toBe(41);
   });
 
   it('tells the editor at activation that no org is registered yet, which Get Started reads', async () => {

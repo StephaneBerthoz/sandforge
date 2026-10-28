@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type * as vscode from 'vscode';
-import { SidebarViewProvider } from './SidebarViewProvider';
+import {
+  LAST_CHECKPOINT_CACHE_MS,
+  SidebarViewProvider,
+  type SidebarLastCheckpoint,
+} from './SidebarViewProvider';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
 import { MessageBroker } from '../bridge/MessageBroker';
 
@@ -345,6 +349,172 @@ describe('SidebarViewProvider', () => {
       brokeredProvider.dispose();
 
       expect(broker.panelCount).toBe(0);
+    });
+  });
+
+  describe('the line under Checkpoints', () => {
+    const CHECKPOINT: SidebarLastCheckpoint = {
+      checkpointId: 'ck-20261028-120000-0001',
+      name: 'Before UAT',
+      takenAt: '2026-10-28T12:00:00.000Z',
+    };
+    /** What the store holds, by registered org: a take or a deletion changes it. */
+    let held: Map<string, SidebarLastCheckpoint>;
+    let getter: ReturnType<
+      typeof vi.fn<(orgId: string) => Promise<SidebarLastCheckpoint | undefined>>
+    >;
+    let lineProvider: SidebarViewProvider;
+
+    /** A provider whose line is read by `read`. */
+    function providerReading(
+      read: (orgId: string) => Promise<SidebarLastCheckpoint | undefined>,
+    ): SidebarViewProvider {
+      return new SidebarViewProvider(
+        extensionUri,
+        uriJoinPath,
+        executeCommand,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        read,
+      );
+    }
+
+    /** The answers the view `view` was posted for the line, in order. */
+    function answers(view: Record<string, unknown> = mockWebview): unknown[] {
+      return vi
+        .mocked(view.postMessage as (message: { type: string; payload: unknown }) => void)
+        .mock.calls.map(([message]) => message)
+        .filter((message) => message.type === 'sidebar:lastCheckpoint')
+        .map((message) => message.payload);
+    }
+
+    /** Ask the line of `orgId` as the sidebar does, and give back the answer it gets. */
+    async function ask(orgId: string, view: Record<string, unknown> = mockWebview) {
+      const before = answers(view).length;
+      messageHandler!({ type: 'sidebar:requestLastCheckpoint', payload: { orgId } });
+      await vi.waitFor(() => expect(answers(view)).toHaveLength(before + 1));
+      return answers(view)[before];
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.parse('2026-10-28T14:00:00.000Z'));
+      held = new Map();
+      getter = vi.fn((orgId: string) => Promise.resolve(held.get(orgId)));
+      lineProvider = providerReading(getter);
+      lineProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('answers the org’s latest checkpoint the store holds, and no checkpoint for an org with none', async () => {
+      held.set('org-1', CHECKPOINT);
+
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      expect(await ask('org-2')).toEqual({ orgId: 'org-2' });
+      expect(getter.mock.calls.map(([orgId]) => orgId)).toEqual(['org-1', 'org-2']);
+
+      // A request that names no org reads nothing.
+      messageHandler!({ type: 'sidebar:requestLastCheckpoint', payload: {} });
+      messageHandler!({ type: 'sidebar:requestLastCheckpoint', payload: { orgId: 7 } });
+      expect(getter).toHaveBeenCalledTimes(2);
+    });
+
+    it('answers from what it read within the minute, and reads the store again once the minute is over', async () => {
+      // The clock as the read begins: waiting for an answer moves it on.
+      const readAt = Date.now();
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1' });
+      // A take from the command line: this window is told nothing of it.
+      held.set('org-1', CHECKPOINT);
+
+      vi.setSystemTime(readAt + LAST_CHECKPOINT_CACHE_MS - 1);
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1' });
+      expect(getter).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(readAt + LAST_CHECKPOINT_CACHE_MS);
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      expect(getter).toHaveBeenCalledTimes(2);
+      expect(LAST_CHECKPOINT_CACHE_MS).toBe(60_000);
+    });
+
+    it('reads again at once, and tells the org the sidebar shows, when the checkpoints change in this window', async () => {
+      // Nothing asked yet: nothing to tell, nothing read.
+      lineProvider.checkpointsChanged();
+      expect(getter).not.toHaveBeenCalled();
+      expect(answers()).toEqual([]);
+
+      await ask('org-2');
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1' });
+      held.set('org-1', CHECKPOINT);
+
+      lineProvider.checkpointsChanged();
+
+      // Told without asking, within the minute what was read would last.
+      await vi.waitFor(() => expect(answers()).toHaveLength(3));
+      expect(answers()[2]).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      // The other org's read is let go too: asked again, it is read again.
+      await ask('org-2');
+      expect(getter.mock.calls.map(([orgId]) => orgId)).toEqual([
+        'org-2',
+        'org-1',
+        'org-1',
+        'org-2',
+      ]);
+    });
+
+    it('keeps what it read across views: VS Code recreates the view at each reveal', async () => {
+      held.set('org-1', CHECKPOINT);
+      await ask('org-1');
+
+      const revealed = createMockView();
+      lineProvider.resolveWebviewView(revealed as never, {} as never, {} as never);
+
+      const view = revealed.webview as Record<string, unknown>;
+      expect(await ask('org-1', view)).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      expect(getter).toHaveBeenCalledTimes(1);
+    });
+
+    it('neither keeps nor answers a read the checkpoints changed under: the read the change began answers', async () => {
+      let finishStale: (checkpoint: SidebarLastCheckpoint | undefined) => void = () => undefined;
+      getter.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishStale = resolve;
+          }),
+      );
+      messageHandler!({ type: 'sidebar:requestLastCheckpoint', payload: { orgId: 'org-1' } });
+      await vi.waitFor(() => expect(getter).toHaveBeenCalledTimes(1));
+      // A take kept while the store was being listed.
+      held.set('org-1', CHECKPOINT);
+      lineProvider.checkpointsChanged();
+      await vi.waitFor(() => expect(answers()).toHaveLength(1));
+      expect(answers()[0]).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+
+      // The read begun before the take ends now, on the store before it.
+      finishStale(undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(answers()).toHaveLength(1);
+
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      expect(getter).toHaveBeenCalledTimes(2);
+    });
+
+    it('answers no checkpoint when the store cannot be read, and reads it again the next time', async () => {
+      held.set('org-1', CHECKPOINT);
+      getter.mockRejectedValueOnce(new Error('The checkpoints cannot be kept in the store'));
+
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1' });
+      expect(await ask('org-1')).toEqual({ orgId: 'org-1', checkpoint: CHECKPOINT });
+      expect(getter).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -58,7 +58,7 @@ import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
-import { CheckpointHandler } from './handlers/CheckpointHandler.js';
+import { CheckpointHandler, type LatestUsableCheckpoint } from './handlers/CheckpointHandler.js';
 import type { DetectedSandboxRefresh } from '../modules/monitor/SandboxRefreshDetector.js';
 import type { OrgCheckpointStore } from '../modules/checkpoint/OrgCheckpointStore.js';
 import { secretStorageSaltKeeper } from '../modules/frozendataset/FrozenSalt.js';
@@ -482,6 +482,24 @@ export class ExtensionHandlers {
    */
   checkpointsKeptBefore(refresh: DetectedSandboxRefresh): Promise<number> {
     return this.checkpointHandler.keptBefore(refresh);
+  }
+
+  /**
+   * The registered org's latest checkpoint that can be rewound to, read from
+   * this machine: the side bar's line under Checkpoints names it.
+   */
+  latestCheckpointOf(orgId: string): Promise<LatestUsableCheckpoint | undefined> {
+    return this.checkpointHandler.latestUsableOf(orgId);
+  }
+
+  /**
+   * Call `listener` each time this window keeps, changes or deletes a
+   * checkpoint: the side bar reads its line again.
+   *
+   * @returns What stops the calls.
+   */
+  onCheckpointsChanged(listener: () => void): () => void {
+    return this.checkpointHandler.onCheckpointsChanged(listener);
   }
 
   /**

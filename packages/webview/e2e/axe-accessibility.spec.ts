@@ -5501,6 +5501,52 @@ for (const theme of SCANNED_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Side panel with a checkpoint of the selected sandbox: the line under Checkpoints', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'sidepanel', theme);
+      await page.getByTestId('sidepanel-root').waitFor({ timeout: 10_000 });
+      await bridge.stream([
+        {
+          type: 'org:list:response',
+          payload: { orgs: MOCK_ORGS, selectedOrgId: DEV_SANDBOX.id },
+        },
+      ]);
+      // Asked on the raw lane, of the org selected: unenveloped, which
+      // `bridge.waitForMessage` does not see.
+      const asked = await page.waitForFunction(
+        () =>
+          ((window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? []).find(
+            (m) => (m as { type?: unknown }).type === 'sidebar:requestLastCheckpoint',
+          ),
+        undefined,
+        { timeout: 10_000 },
+      );
+      expect(((await asked.jsonValue()) as { payload: unknown }).payload).toEqual({
+        orgId: DEV_SANDBOX.id,
+      });
+      await bridge.stream([
+        {
+          type: 'sidebar:lastCheckpoint',
+          payload: {
+            orgId: DEV_SANDBOX.id,
+            checkpoint: {
+              checkpointId: 'ck-20261028-120000-0001',
+              name: 'Before UAT',
+              takenAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+            },
+          },
+        },
+      ]);
+      const sentence = `Last checkpoint of ${DEV_SANDBOX.alias}: 2 hours ago`;
+      await expect(page.getByTestId('sidepanel-last-checkpoint')).toHaveText(sentence);
+      const row = page.getByTestId('sidepanel-nav-checkpoint');
+      await expect(row).toHaveAccessibleName('Checkpoints');
+      await expect(row).toHaveAccessibleDescription(sentence);
+
+      await expectReadable(page, theme);
+    });
+
     test.describe('in German, in a sidebar column about 125 pixels wide', () => {
       test.use({ locale: 'de-DE', viewport: { width: 215, height: 900 } });
 

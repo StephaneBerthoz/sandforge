@@ -179,6 +179,8 @@ describe('sidebar entry', () => {
     // Positive control: the walk reads the keys the sidebar is known to render.
     expect(used.get('nav.seed')).toBe('SidePanel.tsx');
     expect(used.get('home.opStatus.failed')).toBe('SidePanel.tsx');
+    expect(used.get('sidePanel.lastCheckpoint')).toBe('SidePanel.tsx');
+    expect(used.get('sidePanel.lastCheckpointTitle')).toBe('SidePanel.tsx');
     const namespaces: readonly string[] = SIDEPANEL_LOCALE_NAMESPACES;
     const outside = [...used]
       .filter(([key]) => !namespaces.includes(key.split('.')[0]))

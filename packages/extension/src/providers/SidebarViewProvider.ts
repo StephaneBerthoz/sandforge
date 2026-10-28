@@ -12,6 +12,25 @@ import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
 
+/** The latest checkpoint of an org that can be rewound to, as the line under Checkpoints names it. */
+export interface SidebarLastCheckpoint {
+  checkpointId: string;
+  name: string;
+  /** When its take ended, on the org's clock. */
+  takenAt: string;
+}
+
+/**
+ * How long the line under Checkpoints is answered from what was read last,
+ * without reading the store again: VS Code recreates the view at every
+ * reveal, and the sidebar asks at each, at each change of org, and every
+ * minute. A checkpoint taken, changed or deleted in this window clears it at
+ * once. One taken from the command line or another window shows at the
+ * sidebar's first ask after it has run out: within two minutes, since the
+ * ask a minute after the read may come just before.
+ */
+export const LAST_CHECKPOINT_CACHE_MS = 60_000;
+
 /**
  * A message the provider posts straight to the sidebar webview, outside the
  * broker envelope. Each channel names the payload it carries: the org list
@@ -34,6 +53,11 @@ export type SidebarOutboundMessage =
       type: 'sidebar:cliOrgs';
       /** How many orgs the Salesforce CLI holds that SandForge could import. */
       payload: { count: number };
+    }
+  | {
+      type: 'sidebar:lastCheckpoint';
+      /** The org asked about, and its latest usable checkpoint: none, no line. */
+      payload: { orgId: string; checkpoint?: SidebarLastCheckpoint };
     }
   | {
       id: string;
@@ -73,6 +97,21 @@ export class SidebarViewProvider {
   private brokerRegistration?: vscode.Disposable;
   /** Subscription to the current view's `onDidDispose`. */
   private viewDisposeSubscription?: vscode.Disposable;
+  /**
+   * The line under Checkpoints last read for each org, with when its read
+   * began. Kept across views: the view is recreated at every reveal.
+   */
+  private readonly lastCheckpoints = new Map<
+    string,
+    { readAt: number; checkpoint?: SidebarLastCheckpoint }
+  >();
+  /**
+   * Raised each time the checkpoints change: a read begun before is not kept,
+   * since it may have listed the store before the change.
+   */
+  private lastCheckpointGeneration = 0;
+  /** The org the sidebar last asked the line of: the one told again when the checkpoints change. */
+  private lastCheckpointOrg?: string;
 
   constructor(
     private extensionUri: vscode.Uri,
@@ -98,6 +137,11 @@ export class SidebarViewProvider {
      * only while no org is registered, for the launcher's first card.
      */
     private cliOrgCounter?: () => Promise<number>,
+    /**
+     * The registered org's latest checkpoint that can be rewound to, read
+     * from this machine's store: nothing for a production org.
+     */
+    private lastCheckpointGetter?: (orgId: string) => Promise<SidebarLastCheckpoint | undefined>,
   ) {}
 
   /**
@@ -215,6 +259,14 @@ export class SidebarViewProvider {
         }
       }
 
+      // The line under Checkpoints, of the org selected.
+      if (type === 'sidebar:requestLastCheckpoint') {
+        const orgId = payload?.orgId;
+        if (typeof orgId === 'string' && orgId !== '') {
+          void this.answerLastCheckpoint(orgId);
+        }
+      }
+
       // Launcher dropdown "open in browser" action — the command owns the
       // org lookup, URL validation, and error surfacing.
       if (type === 'sidebar:openOrgInBrowser') {
@@ -231,6 +283,51 @@ export class SidebarViewProvider {
     if (this.view) {
       void this.view.webview.postMessage(message);
     }
+  }
+
+  /**
+   * The checkpoints kept on this machine have changed in this window: what
+   * was read of them is let go, and the org the sidebar shows is told again.
+   */
+  checkpointsChanged(): void {
+    this.lastCheckpoints.clear();
+    this.lastCheckpointGeneration++;
+    if (this.view && this.lastCheckpointOrg !== undefined) {
+      void this.answerLastCheckpoint(this.lastCheckpointOrg);
+    }
+  }
+
+  /**
+   * Answer the line under Checkpoints for `orgId`: from what was read within
+   * {@link LAST_CHECKPOINT_CACHE_MS}, else from the store. A read that fails
+   * answers no checkpoint, and is not kept: the next request reads again.
+   */
+  private async answerLastCheckpoint(orgId: string): Promise<void> {
+    const getter = this.lastCheckpointGetter;
+    if (!getter) return;
+    this.lastCheckpointOrg = orgId;
+    const kept = this.lastCheckpoints.get(orgId);
+    let checkpoint: SidebarLastCheckpoint | undefined;
+    if (kept !== undefined && Date.now() - kept.readAt < LAST_CHECKPOINT_CACHE_MS) {
+      checkpoint = kept.checkpoint;
+    } else {
+      const generation = this.lastCheckpointGeneration;
+      const readAt = Date.now();
+      let failed = false;
+      try {
+        checkpoint = await getter(orgId);
+      } catch {
+        failed = true;
+      }
+      // The checkpoints changed while this read listed them: it may be of
+      // the store before, and the read the change began answers in its place.
+      if (generation !== this.lastCheckpointGeneration) return;
+      if (!failed) this.lastCheckpoints.set(orgId, { readAt, checkpoint });
+    }
+    this.postMessage({
+      type: 'sidebar:lastCheckpoint',
+      payload: checkpoint ? { orgId, checkpoint } : { orgId },
+    });
   }
 
   /**
