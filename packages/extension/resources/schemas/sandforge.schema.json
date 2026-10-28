@@ -2,9 +2,24 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "version": { "type": "number", "const": 1 },
-    "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
-    "description": { "type": "string", "maxLength": 2000 },
+    "version": {
+      "type": "number",
+      "const": 1,
+      "markdownDescription": "The version of the file’s format: `1`, at the top of the file. A file written for a later SandForge is refused, and so is a file without it.",
+      "description": "The version of the file’s format: `1`, at the top of the file. A file written for a later SandForge is refused, and so is a file without it."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "markdownDescription": "The name of the environment: lower-case letters, digits and dashes, starting with a letter, 63 characters at most. Its state is kept under it for each org, so an environment renamed starts with none.",
+      "description": "The name of the environment: lower-case letters, digits and dashes, starting with a letter, 63 characters at most. Its state is kept under it for each org, so an environment renamed starts with none."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "markdownDescription": "What the environment is for, for those who read the file. 2,000 characters at most.",
+      "description": "What the environment is for, for those who read the file. 2,000 characters at most."
+    },
     "targets": {
       "default": {},
       "type": "object",
@@ -14,22 +29,45 @@
           "minItems": 1,
           "maxItems": 3,
           "type": "array",
-          "items": { "type": "string", "enum": ["scratch", "developer", "sandbox"] }
+          "items": {
+            "type": "string",
+            "enum": ["scratch", "developer", "sandbox"],
+            "markdownDescription": "The kinds of org an apply may write to, each once: `scratch`, `developer` (a Developer Edition org) and `sandbox`; `scratch` and `developer` by default. A sandbox is written to only once it is listed under `sandboxes` too. A scratch org says it is a sandbox, as a sandbox does: only the sf CLI tells them apart, by the Dev Hub `sf org display` names for it, so one logged in with an auth URL alone is taken for a sandbox.",
+            "description": "The kinds of org an apply may write to, each once: `scratch`, `developer` (a Developer Edition org) and `sandbox`; `scratch` and `developer` by default. A sandbox is written to only once it is listed under `sandboxes` too. A scratch org says it is a sandbox, as a sandbox does: only the sf CLI tells them apart, by the Dev Hub `sf org display` names for it, so one logged in with an auth URL alone is taken for a sandbox."
+          },
+          "markdownDescription": "The kinds of org an apply may write to, each once: `scratch`, `developer` (a Developer Edition org) and `sandbox`; `scratch` and `developer` by default. A sandbox is written to only once it is listed under `sandboxes` too. A scratch org says it is a sandbox, as a sandbox does: only the sf CLI tells them apart, by the Dev Hub `sf org display` names for it, so one logged in with an auth URL alone is taken for a sandbox.",
+          "description": "The kinds of org an apply may write to, each once: `scratch`, `developer` (a Developer Edition org) and `sandbox`; `scratch` and `developer` by default. A sandbox is written to only once it is listed under `sandboxes` too. A scratch org says it is a sandbox, as a sandbox does: only the sf CLI tells them apart, by the Dev Hub `sf org display` names for it, so one logged in with an auth URL alone is taken for a sandbox."
         },
         "sandboxes": {
           "default": [],
           "maxItems": 50,
           "type": "array",
-          "items": { "type": "string", "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
+          "items": {
+            "type": "string",
+            "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$",
+            "markdownDescription": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh.",
+            "description": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh."
+          },
+          "markdownDescription": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh.",
+          "description": "The Organization Ids (`00D…`, 15 or 18 characters) of the sandboxes an apply may write to, with `sandbox` among the `kinds`, 50 at most; none by default. Nothing Salesforce says tells a sandbox holding a client’s records from a developer’s, so each one is listed and reviewed with the file. A refresh changes the Id: a sandbox is listed again after each refresh."
         },
         "protect": {
           "default": [],
           "maxItems": 50,
           "type": "array",
-          "items": { "type": "string", "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
+          "items": {
+            "type": "string",
+            "pattern": "^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$",
+            "markdownDescription": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default.",
+            "description": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default."
+          },
+          "markdownDescription": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default.",
+          "description": "Organization Ids (`00D…`, 15 or 18 characters) the file refuses whatever else it says, as a shared sandbox nobody may fill. 50 at most; none by default."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "markdownDescription": "The orgs an apply may write to: the kinds of org, the sandboxes by their Organization Id, and the orgs refused whatever else the file says. Scratch orgs and Developer Edition orgs unless it says otherwise. A production org is refused whatever it says, before anything is read, and no flag lifts it.",
+      "description": "The orgs an apply may write to: the kinds of org, the sandboxes by their Organization Id, and the orgs refused whatever else the file says. Scratch orgs and Developer Edition orgs unless it says otherwise. A production org is refused whatever it says, before anything is read, and no flag lifts it."
     },
     "orgs": {
       "default": {},
@@ -44,27 +82,44 @@
               {
                 "type": "object",
                 "properties": {
-                  "env": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" }
+                  "env": {
+                    "type": "string",
+                    "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                    "markdownDescription": "The name of the variable that holds the alias, in upper-case letters, digits and underscores, as `SF_UAT_ALIAS`. The file holds no secret: never a password or a token.",
+                    "description": "The name of the variable that holds the alias, in upper-case letters, digits and underscores, as `SF_UAT_ALIAS`. The file holds no secret: never a password or a token."
+                  }
                 },
                 "required": ["env"],
                 "additionalProperties": false
               }
-            ]
+            ],
+            "markdownDescription": "The sf CLI alias of the org, or `{ env: NAME }`, the variable that holds it, so each pipeline points the role at its own org. `--alias <role>=<alias>` on the command line wins over it, and an unset variable refuses every command but `validate`, exit `2`. An alias holds no space and does not start with `-`. Credentials stay with the sf CLI: log the org in there.",
+            "description": "The sf CLI alias of the org, or `{ env: NAME }`, the variable that holds it, so each pipeline points the role at its own org. `--alias <role>=<alias>` on the command line wins over it, and an unset variable refuses every command but `validate`, exit `2`. An alias holds no space and does not start with `-`. Credentials stay with the sf CLI: log the org in there."
           }
         },
         "required": ["alias"],
-        "additionalProperties": false
-      }
+        "additionalProperties": false,
+        "markdownDescription": "An org the resources read from, by its `alias`: a forge resource that names this role as its `source` clones from it.",
+        "description": "An org the resources read from, by its `alias`: a forge resource that names this role as its `source` clones from it."
+      },
+      "markdownDescription": "The orgs the resources read from, by a role of your choosing: a forge resource names one as its `source`. A role is lower-case letters, digits and dashes, and none is shaped like a secret; 20 roles at most. The org to fill is never here: `--org` names it, on every command that reaches an org. None by default.",
+      "description": "The orgs the resources read from, by a role of your choosing: a forge resource names one as its `source`. A role is lower-case letters, digits and dashes, and none is shaped like a secret; 20 roles at most. The org to fill is never here: `--org` names it, on every command that reaches an org. None by default."
     },
     "checkpoint": {
       "type": "object",
       "properties": {
-        "before": { "type": "boolean" },
+        "before": {
+          "type": "boolean",
+          "markdownDescription": "`true`: a checkpoint of the org before the first write of the first apply, taken once, which `destroy --rewind` returns the org to. `false`, the default, takes none. A file with a mask resource takes none, exit `2`: it would hold in clear the values the masking writes over, and `destroy --rewind` would put them back.",
+          "description": "`true`: a checkpoint of the org before the first write of the first apply, taken once, which `destroy --rewind` returns the org to. `false`, the default, takes none. A file with a mask resource takes none, exit `2`: it would hold in clear the values the masking writes over, and `destroy --rewind` would put them back."
+        },
         "after": {
           "anyOf": [
             { "type": "boolean", "const": false },
             { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
-          ]
+          ],
+          "markdownDescription": "The name of a checkpoint taken once an apply ended `0`, and taken again by each apply that writes: `reset` returns the org to it between two test suites, and `plan` compares the whole org with it. A name is lower-case letters, digits and dashes. `false`, as leaving it out, takes none.",
+          "description": "The name of a checkpoint taken once an apply ended `0`, and taken again by each apply that writes: `reset` returns the org to it between two test suites, and `plan` compares the whole org with it. A name is lower-case letters, digits and dashes. `false`, as leaving it out, takes none."
         },
         "ignoreFields": {
           "maxItems": 1000,
@@ -72,11 +127,17 @@
           "items": {
             "type": "string",
             "maxLength": 161,
-            "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$"
-          }
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$",
+            "markdownDescription": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default.",
+            "description": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default."
+          },
+          "markdownDescription": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default.",
+          "description": "Fields the checkpoints neither compare nor write back, each once and named with its object, as `Case.Last_Touched__c`: what your automation sets on every save. 1,000 at most; none by default."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "markdownDescription": "Checkpoints of the org’s data the environment takes, with `sandforge-checkpoint`: `before` its first write, `after` an apply. Kept in `checkpoints/` of the journal directory, outside the repository, they hold the records’ values in clear. The checkpoint’s own guard refuses a production org and a user without View All Data and Modify All Data, before the first write. None unless asked.",
+      "description": "Checkpoints of the org’s data the environment takes, with `sandforge-checkpoint`: `before` its first write, `after` an apply. Kept in `checkpoints/` of the journal directory, outside the repository, they hold the records’ values in clear. The checkpoint’s own guard refuses a production org and a user without View All Data and Modify All Data, before the first write. None unless asked."
     },
     "masking": {
       "default": {},
@@ -95,7 +156,9 @@
                 "fieldPattern": {
                   "type": "string",
                   "maxLength": 170,
-                  "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$"
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$",
+                  "markdownDescription": "The field the rule masks, named with its object, as `Contact.Email`. 170 characters at most.",
+                  "description": "The field the rule masks, named with its object, as `Contact.Email`. 170 characters at most."
                 },
                 "ruleType": {
                   "type": "string",
@@ -108,27 +171,61 @@
                     "preserve_format",
                     "constant",
                     "truncate"
-                  ]
+                  ],
+                  "markdownDescription": "How the field is masked: `fake` writes a made-up value, an email under `example.invalid`; `mask` writes `*` over its characters but the last `maskKeepLast`; `hash` writes a pseudonym, the same value giving the same pseudonym across the run; `nullify` empties it; `shuffle` reorders its characters; `preserve_format` writes `x` for each letter and `0` for each digit; `constant` writes `constantValue`; `truncate` keeps `truncateLength` characters. No rule carries a salt: the run draws its own key.",
+                  "description": "How the field is masked: `fake` writes a made-up value, an email under `example.invalid`; `mask` writes `*` over its characters but the last `maskKeepLast`; `hash` writes a pseudonym, the same value giving the same pseudonym across the run; `nullify` empties it; `shuffle` reorders its characters; `preserve_format` writes `x` for each letter and `0` for each digit; `constant` writes `constantValue`; `truncate` keeps `truncateLength` characters. No rule carries a salt: the run draws its own key."
                 },
                 "config": {
                   "type": "object",
                   "properties": {
-                    "constantValue": { "type": "string", "maxLength": 255 },
-                    "maskKeepLast": { "type": "integer", "minimum": 0, "maximum": 255 },
-                    "truncateLength": { "type": "integer", "minimum": 1, "maximum": 255 },
-                    "truncateKeep": { "type": "string", "enum": ["first", "last"] }
+                    "constantValue": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "markdownDescription": "With `constant`: the value written over the field, 1 to 255 characters. A `constant` rule is refused without it.",
+                      "description": "With `constant`: the value written over the field, 1 to 255 characters. A `constant` rule is refused without it."
+                    },
+                    "maskKeepLast": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255,
+                      "markdownDescription": "With `mask`: how many characters at the end it leaves as they are, 0 to 255, as `4` for a phone number’s last four. None by default.",
+                      "description": "With `mask`: how many characters at the end it leaves as they are, 0 to 255, as `4` for a phone number’s last four. None by default."
+                    },
+                    "truncateLength": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 255,
+                      "markdownDescription": "With `truncate`: how many characters it keeps, 1 to 255. A `truncate` rule is refused without it.",
+                      "description": "With `truncate`: how many characters it keeps, 1 to 255. A `truncate` rule is refused without it."
+                    },
+                    "truncateKeep": {
+                      "type": "string",
+                      "enum": ["first", "last"],
+                      "markdownDescription": "With `truncate`: which end it keeps the characters of, `first` or `last`; `last` by default, since the first characters of a name or an address are the ones that identify. `first` keeps a postal code’s region.",
+                      "description": "With `truncate`: which end it keeps the characters of, `first` or `last`; `last` by default, since the first characters of a name or an address are the ones that identify. `first` keeps a postal code’s region."
+                    }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "markdownDescription": "The settings the rule’s method takes, and only those: `constantValue` for `constant`, `maskKeepLast` for `mask`, `truncateLength` and `truncateKeep` for `truncate`. A setting of another method is refused. None by default.",
+                  "description": "The settings the rule’s method takes, and only those: `constantValue` for `constant`, `maskKeepLast` for `mask`, `truncateLength` and `truncateKeep` for `truncate`. A setting of another method is refused. None by default."
                 }
               },
               "required": ["fieldPattern", "ruleType"],
-              "additionalProperties": false
-            }
+              "additionalProperties": false,
+              "markdownDescription": "The rules of the set, each a field and the method that masks it: one at least, 200 at most. Held to what the DataOps panel’s save refuses: a field given two rules, and a setting its method does not take.",
+              "description": "The rules of the set, each a field and the method that masks it: one at least, 200 at most. Held to what the DataOps panel’s save refuses: a field given two rules, and a setting its method does not take."
+            },
+            "markdownDescription": "The rules of the set, each a field and the method that masks it: one at least, 200 at most. Held to what the DataOps panel’s save refuses: a field given two rules, and a setting its method does not take.",
+            "description": "The rules of the set, each a field and the method that masks it: one at least, 200 at most. Held to what the DataOps panel’s save refuses: a field given two rules, and a setting its method does not take."
           }
         },
         "required": ["rules"],
-        "additionalProperties": false
-      }
+        "additionalProperties": false,
+        "markdownDescription": "A set of DataOps rules, as the DataOps panel saves a template’s: what a mask resource whose `rules` names this set masks with.",
+        "description": "A set of DataOps rules, as the DataOps panel saves a template’s: what a mask resource whose `rules` names this set masks with."
+      },
+      "markdownDescription": "Named sets of DataOps rules, which a mask resource names by the set’s name. A name is lower-case letters, digits and dashes, and none is shaped like a secret. None by default.",
+      "description": "Named sets of DataOps rules, which a mask resource names by the set’s name. A name is lower-case letters, digits and dashes, and none is shaped like a secret. None by default."
     },
     "resources": {
       "type": "object",
@@ -138,18 +235,44 @@
           {
             "type": "object",
             "properties": {
-              "kind": { "type": "string", "const": "seed" },
+              "kind": {
+                "type": "string",
+                "const": "seed",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
               "dependsOn": {
                 "maxItems": 50,
                 "type": "array",
-                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                  "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+                },
+                "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
               },
               "accept": {
                 "type": "object",
-                "properties": { "automation": { "type": "boolean" } },
-                "additionalProperties": false
+                "properties": {
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing.",
+                    "description": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default.",
+                "description": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default."
               },
-              "template": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "template": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "markdownDescription": "The id of one of Seed’s built-in templates, those of its gallery: `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` or `prebuilt-sales-cloud-starter`. It goes without `objects` and `relations`: the template brings its own. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote.",
+                "description": "The id of one of Seed’s built-in templates, those of its gallery: `prebuilt-crm-starter`, `prebuilt-leads-activities-starter`, `prebuilt-minimal-demo`, `prebuilt-service-cloud-starter` or `prebuilt-sales-cloud-starter`. It goes without `objects` and `relations`: the template brings its own. Its content, not its id, is what the state compares: a SandForge whose template changed replaces what the old one wrote."
+              },
               "objects": {
                 "minItems": 1,
                 "maxItems": 100,
@@ -160,17 +283,35 @@
                     "object": {
                       "type": "string",
                       "maxLength": 80,
-                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "The object it writes, by its API name, as `Account` or `Invoice__c`.",
+                      "description": "The object it writes, by its API name, as `Account` or `Invoice__c`."
                     },
-                    "count": { "type": "integer", "exclusiveMinimum": 0, "maximum": 1000000 },
+                    "count": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000000,
+                      "markdownDescription": "How many records of the object it writes, 1 to 1,000,000.",
+                      "description": "How many records of the object it writes, 1 to 1,000,000."
+                    },
                     "fields": {
                       "maxItems": 500,
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "fieldApiName": { "type": "string", "minLength": 1 },
-                          "fieldType": { "type": "string", "minLength": 1 },
+                          "fieldApiName": {
+                            "type": "string",
+                            "minLength": 1,
+                            "markdownDescription": "The API name of the field the rule fills, as `LastName` or `Region__c`.",
+                            "description": "The API name of the field the rule fills, as `LastName` or `Region__c`."
+                          },
+                          "fieldType": {
+                            "type": "string",
+                            "minLength": 1,
+                            "markdownDescription": "The field’s type, as the Seed panel saves it, as `string` or `phone`; optional. An `ai_generate` rule is checked against it: AI Data Generation writes text, so the rule is refused on any type but `string`, `textarea` and `encryptedstring`.",
+                            "description": "The field’s type, as the Seed panel saves it, as `string` or `phone`; optional. An `ai_generate` rule is checked against it: AI Data Generation writes text, so the rule is refused on any type but `string`, `textarea` and `encryptedstring`."
+                          },
                           "ruleType": {
                             "type": "string",
                             "enum": [
@@ -184,51 +325,124 @@
                               "faker",
                               "regex",
                               "from_csv"
-                            ]
+                            ],
+                            "markdownDescription": "How the field’s values are made: `static`, `staticValue` on every record; `random`, a whole number from `minValue` to `maxValue`; `sequence`, `sequencePrefix` then a number counted from `sequenceStart` by `sequenceStep`; `formula`, the text of `formula`; `reference`, a record of `referenceObject` the run wrote; `picklist_random`, one of `picklistValues`; `faker`, a value `fakerMethod` draws; `regex`, `regexPattern` with each `#` a digit; `ai_generate`, AI Data Generation, for which the command line that applies the file has no AI key, so give such a field `faker`; `from_csv`, a column of a CSV the Seed panel uploads, which a file has none of.",
+                            "description": "How the field’s values are made: `static`, `staticValue` on every record; `random`, a whole number from `minValue` to `maxValue`; `sequence`, `sequencePrefix` then a number counted from `sequenceStart` by `sequenceStep`; `formula`, the text of `formula`; `reference`, a record of `referenceObject` the run wrote; `picklist_random`, one of `picklistValues`; `faker`, a value `fakerMethod` draws; `regex`, `regexPattern` with each `#` a digit; `ai_generate`, AI Data Generation, for which the command line that applies the file has no AI key, so give such a field `faker`; `from_csv`, a column of a CSV the Seed panel uploads, which a file has none of."
                           },
                           "config": {
                             "type": "object",
                             "properties": {
-                              "staticValue": { "type": ["string", "number", "boolean"] },
-                              "fakerMethod": { "type": "string" },
-                              "fakerLocale": { "type": "string" },
+                              "staticValue": {
+                                "type": ["string", "number", "boolean"],
+                                "markdownDescription": "With `static`: the value written on every record, text, a number, or `true` or `false`.",
+                                "description": "With `static`: the value written on every record, text, a number, or `true` or `false`."
+                              },
+                              "fakerMethod": {
+                                "type": "string",
+                                "markdownDescription": "With `faker`: what is drawn, as `lastName`, `email`, `phone`, `company` or `futureDate`, or its faker.js name, as `person.lastName`. A method SandForge does not generate is refused before the first record is written.",
+                                "description": "With `faker`: what is drawn, as `lastName`, `email`, `phone`, `company` or `futureDate`, or its faker.js name, as `person.lastName`. A method SandForge does not generate is refused before the first record is written."
+                              },
+                              "fakerLocale": {
+                                "type": "string",
+                                "markdownDescription": "With `faker`: the locale this rule draws in, as `fr_FR`, in place of the resource’s `locale`.",
+                                "description": "With `faker`: the locale this rule draws in, as `fr_FR`, in place of the resource’s `locale`."
+                              },
                               "sequenceStart": {
                                 "type": "integer",
                                 "minimum": -9007199254740991,
-                                "maximum": 9007199254740991
+                                "maximum": 9007199254740991,
+                                "markdownDescription": "With `sequence`: the number of the first record, `1` by default.",
+                                "description": "With `sequence`: the number of the first record, `1` by default."
                               },
                               "sequenceStep": {
                                 "type": "integer",
                                 "minimum": -9007199254740991,
-                                "maximum": 9007199254740991
+                                "maximum": 9007199254740991,
+                                "markdownDescription": "With `sequence`: what each record adds to the number, `1` by default.",
+                                "description": "With `sequence`: what each record adds to the number, `1` by default."
                               },
-                              "sequencePrefix": { "type": "string" },
-                              "formula": { "type": "string" },
-                              "referenceObject": { "type": "string" },
-                              "referenceField": { "type": "string" },
-                              "picklistValues": { "type": "array", "items": { "type": "string" } },
-                              "regexPattern": { "type": "string" },
-                              "csvColumn": { "type": "string" },
-                              "minValue": { "type": "number" },
-                              "maxValue": { "type": "number" },
+                              "sequencePrefix": {
+                                "type": "string",
+                                "markdownDescription": "With `sequence`: the text written before the number, as `INV-`; none by default.",
+                                "description": "With `sequence`: the text written before the number, as `INV-`; none by default."
+                              },
+                              "formula": {
+                                "type": "string",
+                                "markdownDescription": "With `formula`: the value written on every record, as it is written here.",
+                                "description": "With `formula`: the value written on every record, as it is written here."
+                              },
+                              "referenceObject": {
+                                "type": "string",
+                                "markdownDescription": "With `reference`, which needs it: the object the field points at, one of its records the run wrote, drawn at random.",
+                                "description": "With `reference`, which needs it: the object the field points at, one of its records the run wrote, drawn at random."
+                              },
+                              "referenceField": {
+                                "type": "string",
+                                "markdownDescription": "Kept as the Seed panel saves it: a run does not read it.",
+                                "description": "Kept as the Seed panel saves it: a run does not read it."
+                              },
+                              "picklistValues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "markdownDescription": "With `picklist_random`, which needs one at least: the values drawn from, one at random for each record.",
+                                  "description": "With `picklist_random`, which needs one at least: the values drawn from, one at random for each record."
+                                },
+                                "markdownDescription": "With `picklist_random`, which needs one at least: the values drawn from, one at random for each record.",
+                                "description": "With `picklist_random`, which needs one at least: the values drawn from, one at random for each record."
+                              },
+                              "regexPattern": {
+                                "type": "string",
+                                "markdownDescription": "With `regex`, which needs it: the shape of the value, each `#` a digit and every other character written as it is, as `INV-####`. A pattern in regex syntax, without `#`, is written as it is.",
+                                "description": "With `regex`, which needs it: the shape of the value, each `#` a digit and every other character written as it is, as `INV-####`. A pattern in regex syntax, without `#`, is written as it is."
+                              },
+                              "csvColumn": {
+                                "type": "string",
+                                "markdownDescription": "With `from_csv`, which needs it: the column of the CSV the Seed panel uploads. A file has no CSV: from the command line the field is left empty.",
+                                "description": "With `from_csv`, which needs it: the column of the CSV the Seed panel uploads. A file has no CSV: from the command line the field is left empty."
+                              },
+                              "minValue": {
+                                "type": "number",
+                                "markdownDescription": "With `random`, or a `faker` method that draws a number: the smallest value, `0` by default.",
+                                "description": "With `random`, or a `faker` method that draws a number: the smallest value, `0` by default."
+                              },
+                              "maxValue": {
+                                "type": "number",
+                                "markdownDescription": "With `random`, or a `faker` method that draws a number: the largest value, `1000` by default.",
+                                "description": "With `random`, or a `faker` method that draws a number: the largest value, `1000` by default."
+                              },
                               "minLength": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 9007199254740991
+                                "maximum": 9007199254740991,
+                                "markdownDescription": "With `ai_generate`: the shortest value AI Data Generation is asked for.",
+                                "description": "With `ai_generate`: the shortest value AI Data Generation is asked for."
                               },
                               "maxLength": {
                                 "type": "integer",
                                 "exclusiveMinimum": 0,
-                                "maximum": 9007199254740991
+                                "maximum": 9007199254740991,
+                                "markdownDescription": "With `ai_generate` or `faker`: the longest value written; a longer one is cut to it.",
+                                "description": "With `ai_generate` or `faker`: the longest value written; a longer one is cut to it."
                               },
-                              "aiPrompt": { "type": "string" }
+                              "aiPrompt": {
+                                "type": "string",
+                                "markdownDescription": "With `ai_generate`: what AI Data Generation is asked for the field. The command line that applies the file has no AI key: give such a field a `faker` rule.",
+                                "description": "With `ai_generate`: what AI Data Generation is asked for the field. The command line that applies the file has no AI key: give such a field a `faker` rule."
+                              }
                             },
-                            "additionalProperties": false
+                            "additionalProperties": false,
+                            "markdownDescription": "The settings the rule’s `ruleType` reads, each named after it below. None by default.",
+                            "description": "The settings the rule’s `ruleType` reads, each named after it below. None by default."
                           }
                         },
                         "required": ["fieldApiName", "ruleType", "config"],
-                        "additionalProperties": false
-                      }
+                        "additionalProperties": false,
+                        "markdownDescription": "Seed’s field rules for the object, as the Seed panel saves them: each a field, a `ruleType` and the `config` it reads. 500 at most.",
+                        "description": "Seed’s field rules for the object, as the Seed panel saves them: each a field, a `ruleType` and the `config` it reads. 500 at most."
+                      },
+                      "markdownDescription": "Seed’s field rules for the object, as the Seed panel saves them: each a field, a `ruleType` and the `config` it reads. 500 at most.",
+                      "description": "Seed’s field rules for the object, as the Seed panel saves them: each a field, a `ruleType` and the `config` it reads. 500 at most."
                     },
                     "recordTypes": {
                       "minItems": 1,
@@ -237,14 +451,28 @@
                       "items": {
                         "type": "string",
                         "maxLength": 80,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
-                      }
+                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                        "markdownDescription": "The record types its records take, by API name (DeveloperName), several taking turns at random: 1 to 20. One the object does not have, or the running user may not use, is refused before anything is written. Without it, the running user’s default. Accounts given a person account’s record type are written as person accounts.",
+                        "description": "The record types its records take, by API name (DeveloperName), several taking turns at random: 1 to 20. One the object does not have, or the running user may not use, is refused before anything is written. Without it, the running user’s default. Accounts given a person account’s record type are written as person accounts."
+                      },
+                      "markdownDescription": "The record types its records take, by API name (DeveloperName), several taking turns at random: 1 to 20. One the object does not have, or the running user may not use, is refused before anything is written. Without it, the running user’s default. Accounts given a person account’s record type are written as person accounts.",
+                      "description": "The record types its records take, by API name (DeveloperName), several taking turns at random: 1 to 20. One the object does not have, or the running user may not use, is refused before anything is written. Without it, the running user’s default. Accounts given a person account’s record type are written as person accounts."
                     },
-                    "batchSize": { "type": "integer", "exclusiveMinimum": 0, "maximum": 10000 }
+                    "batchSize": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 10000,
+                      "markdownDescription": "How many records one REST API call writes, 1 to 10,000; `200` by default. An object of more than 200 records goes in a Bulk API 2.0 job instead, unless an active duplicate rule of the org watches it.",
+                      "description": "How many records one REST API call writes, 1 to 10,000; `200` by default. An object of more than 200 records goes in a Bulk API 2.0 job instead, unless an active duplicate rule of the org watches it."
+                    }
                   },
                   "required": ["object", "count"],
-                  "additionalProperties": false
-                }
+                  "additionalProperties": false,
+                  "markdownDescription": "The objects it writes, in this order, each listed once with its count: 1 to 100. A resource names its `objects` or a built-in `template`, not both.",
+                  "description": "The objects it writes, in this order, each listed once with its count: 1 to 100. A resource names its `objects` or a built-in `template`, not both."
+                },
+                "markdownDescription": "The objects it writes, in this order, each listed once with its count: 1 to 100. A resource names its `objects` or a built-in `template`, not both.",
+                "description": "The objects it writes, in this order, each listed once with its count: 1 to 100. A resource names its `objects` or a built-in `template`, not both."
               },
               "relations": {
                 "maxItems": 100,
@@ -255,7 +483,9 @@
                     "lookup": {
                       "type": "string",
                       "maxLength": 161,
-                      "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$"
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*\\.[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "The lookup the relation fills, named with its object, as `Contact.AccountId`: the child object is one this resource writes.",
+                      "description": "The lookup the relation fills, named with its object, as `Contact.AccountId`: the child object is one this resource writes."
                     },
                     "parents": {
                       "type": "object",
@@ -263,99 +493,231 @@
                         "object": {
                           "type": "string",
                           "maxLength": 80,
-                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                          "markdownDescription": "The parent object, by its API name, as `Account`. Given here, or after the resource in `from`, as `from: accounts.Account`; both, they name the same object.",
+                          "description": "The parent object, by its API name, as `Account`. Given here, or after the resource in `from`, as `from: accounts.Account`; both, they name the same object."
                         },
                         "existing": {
                           "type": "object",
                           "properties": {
-                            "where": { "type": "string", "minLength": 1, "maxLength": 2000 },
-                            "limit": { "type": "integer", "exclusiveMinimum": 0, "maximum": 2000 }
+                            "where": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000,
+                              "markdownDescription": "A SOQL condition, without `WHERE`, selecting the parents, as `Name = 'CI account'`; every record of the object without it. 2,000 characters at most.",
+                              "description": "A SOQL condition, without `WHERE`, selecting the parents, as `Name = 'CI account'`; every record of the object without it. 2,000 characters at most."
+                            },
+                            "limit": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 2000,
+                              "markdownDescription": "How many parents it reads at most, 1 to 2,000.",
+                              "description": "How many parents it reads at most, 1 to 2,000."
+                            }
                           },
                           "required": ["limit"],
-                          "additionalProperties": false
+                          "additionalProperties": false,
+                          "markdownDescription": "Parents the org already holds, read as the run starts: those `where` selects, `limit` of them at most. How one resource hangs its records from another’s by a value they share; `from` does it by their ids.",
+                          "description": "Parents the org already holds, read as the run starts: those `where` selects, `limit` of them at most. How one resource hangs its records from another’s by a value they share; `from` does it by their ids."
                         },
                         "from": {
                           "type": "string",
                           "maxLength": 144,
-                          "pattern": "^[a-z][a-z0-9-]{0,62}(?:\\.[A-Za-z][A-Za-z0-9_]*)?$"
+                          "pattern": "^[a-z][a-z0-9-]{0,62}(?:\\.[A-Za-z][A-Za-z0-9_]*)?$",
+                          "markdownDescription": "Another resource of this file, a seed, a forge or a frozen one, whose records are the parents, by the ids its last run created: `accounts`, or `accounts.Account` with the object. This resource then runs after it and is taken back before it, and is replaced when it runs again. A name that is no resource of the file, or the resource itself, is refused.",
+                          "description": "Another resource of this file, a seed, a forge or a frozen one, whose records are the parents, by the ids its last run created: `accounts`, or `accounts.Account` with the object. This resource then runs after it and is taken back before it, and is replaced when it runs again. A name that is no resource of the file, or the resource itself, is refused."
                         },
-                        "limit": { "type": "integer", "exclusiveMinimum": 0, "maximum": 2000 }
+                        "limit": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 2000,
+                          "markdownDescription": "With `from`: how many of its records it draws at most, the first created first, 1 to 2,000. A resource that created more than that of the object refuses the relation without it.",
+                          "description": "With `from`: how many of its records it draws at most, the first created first, 1 to 2,000. A resource that created more than that of the object refuses the relation without it."
+                        }
                       },
-                      "additionalProperties": false
+                      "additionalProperties": false,
+                      "markdownDescription": "Where the parents come from: the records of `object` this resource writes; with `existing`, records the org already holds; with `from`, the records another resource of the file created, by their ids. Not `existing` and `from` both.",
+                      "description": "Where the parents come from: the records of `object` this resource writes; with `existing`, records the org already holds; with `from`, the records another resource of the file created, by their ids. Not `existing` and `from` both."
                     },
                     "distribution": {
                       "oneOf": [
                         {
                           "type": "object",
                           "properties": {
-                            "mode": { "type": "string", "const": "perParent" },
-                            "count": { "type": "integer", "exclusiveMinimum": 0, "maximum": 1000 }
+                            "mode": {
+                              "type": "string",
+                              "const": "perParent",
+                              "markdownDescription": "How the children are spread: `perParent`, `count` for each parent; `range`, from `min` to `max`, at random; `ratio`, `ratio` per parent on average.",
+                              "description": "How the children are spread: `perParent`, `count` for each parent; `range`, from `min` to `max`, at random; `ratio`, `ratio` per parent on average."
+                            },
+                            "count": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 1000,
+                              "markdownDescription": "How many children each parent gets, 1 to 1,000.",
+                              "description": "How many children each parent gets, 1 to 1,000."
+                            }
                           },
                           "required": ["mode", "count"],
-                          "additionalProperties": false
+                          "additionalProperties": false,
+                          "markdownDescription": "`perParent`: each parent gets `count` children.",
+                          "description": "`perParent`: each parent gets `count` children."
                         },
                         {
                           "type": "object",
                           "properties": {
-                            "mode": { "type": "string", "const": "range" },
-                            "min": { "type": "integer", "minimum": 0, "maximum": 1000 },
-                            "max": { "type": "integer", "exclusiveMinimum": 0, "maximum": 1000 }
+                            "mode": {
+                              "type": "string",
+                              "const": "range",
+                              "markdownDescription": "How the children are spread: `range`, from `min` to `max`, at random; `perParent`, `count` for each parent; `ratio`, `ratio` per parent on average.",
+                              "description": "How the children are spread: `range`, from `min` to `max`, at random; `perParent`, `count` for each parent; `ratio`, `ratio` per parent on average."
+                            },
+                            "min": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000,
+                              "markdownDescription": "The fewest children a parent gets, 0 to 1,000, and not above `max`.",
+                              "description": "The fewest children a parent gets, 0 to 1,000, and not above `max`."
+                            },
+                            "max": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 1000,
+                              "markdownDescription": "The most children a parent gets, 1 to 1,000.",
+                              "description": "The most children a parent gets, 1 to 1,000."
+                            }
                           },
                           "required": ["mode", "min", "max"],
-                          "additionalProperties": false
+                          "additionalProperties": false,
+                          "markdownDescription": "`range`: each parent gets from `min` to `max` children, drawn at random.",
+                          "description": "`range`: each parent gets from `min` to `max` children, drawn at random."
                         },
                         {
                           "type": "object",
                           "properties": {
-                            "mode": { "type": "string", "const": "ratio" },
-                            "ratio": { "type": "number", "minimum": 0.01, "maximum": 1000 }
+                            "mode": {
+                              "type": "string",
+                              "const": "ratio",
+                              "markdownDescription": "How the children are spread: `ratio`, `ratio` per parent on average; `perParent`, `count` for each parent; `range`, from `min` to `max`, at random.",
+                              "description": "How the children are spread: `ratio`, `ratio` per parent on average; `perParent`, `count` for each parent; `range`, from `min` to `max`, at random."
+                            },
+                            "ratio": {
+                              "type": "number",
+                              "minimum": 0.01,
+                              "maximum": 1000,
+                              "markdownDescription": "How many children per parent on average, 0.01 to 1,000, spread evenly: `0.5` gives a child to every other parent.",
+                              "description": "How many children per parent on average, 0.01 to 1,000, spread evenly: `0.5` gives a child to every other parent."
+                            }
                           },
                           "required": ["mode", "ratio"],
-                          "additionalProperties": false
+                          "additionalProperties": false,
+                          "markdownDescription": "`ratio`: the children are spread evenly, `ratio` per parent on average.",
+                          "description": "`ratio`: the children are spread evenly, `ratio` per parent on average."
                         }
-                      ]
+                      ],
+                      "markdownDescription": "How many children each parent gets: `mode: perParent` with `count`, the same for each; `range` with `min` and `max`, drawn for each; or `ratio` with `ratio`, an average spread evenly.",
+                      "description": "How many children each parent gets: `mode: perParent` with `count`, the same for each; `range` with `min` and `max`, drawn for each; or `ratio` with `ratio`, an average spread evenly."
                     }
                   },
                   "required": ["lookup", "parents", "distribution"],
-                  "additionalProperties": false
-                }
+                  "additionalProperties": false,
+                  "markdownDescription": "How the records it writes hang from parents: each a lookup, where its parents come from, and how many children each gets. 100 at most. They go with `objects`: a built-in `template` brings its own.",
+                  "description": "How the records it writes hang from parents: each a lookup, where its parents come from, and how many children each gets. 100 at most. They go with `objects`: a built-in `template` brings its own."
+                },
+                "markdownDescription": "How the records it writes hang from parents: each a lookup, where its parents come from, and how many children each gets. 100 at most. They go with `objects`: a built-in `template` brings its own.",
+                "description": "How the records it writes hang from parents: each a lookup, where its parents come from, and how many children each gets. 100 at most. They go with `objects`: a built-in `template` brings its own."
               },
-              "locale": { "type": "string", "pattern": "^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$" },
-              "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+              "locale": {
+                "type": "string",
+                "pattern": "^[a-z]{2,3}(?:_[A-Za-z0-9]{2,4}){0,2}$",
+                "markdownDescription": "The country the names, addresses and phone numbers are drawn for: `en_US`, `fr_FR`, `de_DE`, `es_ES`, `ja_JP` or `pt_BR`. Without it, the org’s default locale, or the nearest SandForge has names for.",
+                "description": "The country the names, addresses and phone numbers are drawn for: `en_US`, `fr_FR`, `de_DE`, `es_ES`, `ja_JP` or `pt_BR`. Without it, the org’s default locale, or the nearest SandForge has names for."
+              },
+              "seed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295,
+                "markdownDescription": "The seed the draws are made with, 0 to 4,294,967,295: the same seed writes the same names, companies, values and children per parent again. Without it, the run draws one, and the state keeps it.",
+                "description": "The seed the draws are made with, 0 to 4,294,967,295: the same seed writes the same names, companies, values and children per parent again. Without it, the run draws one, and the state keeps it."
+              }
             },
             "required": ["kind"],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "markdownDescription": "A seed resource: records Seed generates, from one of its built-in templates (`template`) or from the objects, counts and field rules the file gives (`objects`, with `relations`), written by `sandforge-seed` and taken back by its own removal. `seed` keeps the draws, so the same file writes the same records again.",
+            "description": "A seed resource: records Seed generates, from one of its built-in templates (`template`) or from the objects, counts and field rules the file gives (`objects`, with `relations`), written by `sandforge-seed` and taken back by its own removal. `seed` keeps the draws, so the same file writes the same records again."
           },
           {
             "type": "object",
             "properties": {
-              "kind": { "type": "string", "const": "forge" },
+              "kind": {
+                "type": "string",
+                "const": "forge",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
               "dependsOn": {
                 "maxItems": 50,
                 "type": "array",
-                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                  "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+                },
+                "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
               },
               "accept": {
                 "type": "object",
                 "properties": {
-                  "automation": { "type": "boolean" },
-                  "realData": { "type": "boolean" }
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing. The clone that writes the resource is given it too.",
+                    "description": "`true` gives the removals of this resource the `--accept-automation` of the command line, reviewed in the file: the `apply` of a `replace` or a `delete`, and a `destroy`, take its records back although the org runs flows, Apex triggers, processes or workflow rules as they go. Without it, `false` by default, such a removal deletes nothing. The clone that writes the resource is given it too."
+                  },
+                  "realData": {
+                    "type": "boolean",
+                    "markdownDescription": "`true`: clone a source that is a production org without anonymizing it, real people’s data written as read into an org built for tests. Without it, `false` by default, such a source is refused unless the resource gives `anonymize`. Emails and phone numbers are neutralized either way, unless `keepContactPoints: true`.",
+                    "description": "`true`: clone a source that is a production org without anonymizing it, real people’s data written as read into an org built for tests. Without it, `false` by default, such a source is refused unless the resource gives `anonymize`. Emails and phone numbers are neutralized either way, unless `keepContactPoints: true`."
+                  }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default.",
+                "description": "Acceptances reviewed in the file, the flags a command line would be given: a pipeline has nobody to ask. None by default."
               },
-              "source": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                "markdownDescription": "The org role it clones from: a key of the file’s `orgs`, never the org to fill. A role the file does not declare is refused, with the roles it has. The source is known by its Organization Id: its role’s alias pointed at another org replaces the resource.",
+                "description": "The org role it clones from: a key of the file’s `orgs`, never the org to fill. A role the file does not declare is refused, with the roles it has. The source is known by its Organization Id: its role’s alias pointed at another org replaces the resource."
+              },
               "record": {
                 "type": "object",
                 "properties": {
-                  "id": { "type": "string", "pattern": "^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$" },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$",
+                    "markdownDescription": "The record’s id in the source, 15 or 18 letters and digits, for a source that lives on. A scratch org made again gives the same record another id: name it by `object` and `where` then, which `id` goes without.",
+                    "description": "The record’s id in the source, 15 or 18 letters and digits, for a source that lives on. A scratch org made again gives the same record another id: name it by `object` and `where` then, which `id` goes without."
+                  },
                   "object": {
                     "type": "string",
                     "maxLength": 80,
-                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                    "markdownDescription": "With `where`: the object of the record, by its API name, as `Case`.",
+                    "description": "With `where`: the object of the record, by its API name, as `Case`."
                   },
-                  "where": { "type": "string", "minLength": 1, "maxLength": 512 }
+                  "where": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "markdownDescription": "With `object`: a SOQL condition, without `WHERE`, its source answers with exactly one row, as `Subject = 'Login fails'`. Read at each plan: no row, or more than one, blocks the resource with the count. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
+                    "description": "With `object`: a SOQL condition, without `WHERE`, its source answers with exactly one row, as `Subject = 'Login fails'`. Read at each plan: no row, or more than one, blocks the resource with the count. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+                  }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "markdownDescription": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record` or `tables`, not both.",
+                "description": "The record it clones, and what discovery reaches from it: by its `id`, or by its `object` and a `where` its source answers with exactly one row, read at each plan. A resource clones a `record` or `tables`, not both."
               },
               "tables": {
                 "minItems": 1,
@@ -367,30 +729,79 @@
                     "object": {
                       "type": "string",
                       "maxLength": 80,
-                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "markdownDescription": "The object of the table, by its API name, as `Account`.",
+                      "description": "The object of the table, by its API name, as `Account`."
                     },
-                    "where": { "type": "string", "minLength": 1, "maxLength": 512 }
+                    "where": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "markdownDescription": "A SOQL condition, without `WHERE`, selecting the rows it clones; every row without it. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
+                      "description": "A SOQL condition, without `WHERE`, selecting the rows it clones; every row without it. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+                    }
                   },
                   "required": ["object"],
-                  "additionalProperties": false
-                }
+                  "additionalProperties": false,
+                  "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both.",
+                  "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both."
+                },
+                "markdownDescription": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both.",
+                "description": "Whole tables it clones, each under its condition, the first the one discovery starts from: 1 to 50, each object once. A resource clones a `record` or `tables`, not both."
               },
               "template": {
                 "type": "object",
                 "properties": {
-                  "file": { "type": "string", "minLength": 1, "maxLength": 500 },
-                  "id": { "type": "string", "minLength": 1, "maxLength": 200 }
+                  "file": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "markdownDescription": "The project’s templates file, from the folder of the file, as `.sandforge/forge-templates.json`: never absolute, and never up out of that folder with `..`.",
+                    "description": "The project’s templates file, from the folder of the file, as `.sandforge/forge-templates.json`: never absolute, and never up out of that folder with `..`."
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "markdownDescription": "The id of the template in that file. One it does not hold is refused, with the ids it holds.",
+                    "description": "The id of the template in that file. One it does not hold is refused, with the ids it holds."
+                  }
                 },
                 "required": ["file", "id"],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "markdownDescription": "A template the Forge panel’s Template tab saved, by its templates `file` and its `id`: its decisions, exclusions, filters and mappings. The resource’s depth, caps, anonymization and contact points apply over it.",
+                "description": "A template the Forge panel’s Template tab saved, by its templates `file` and its `id`: its decisions, exclusions, filters and mappings. The resource’s depth, caps, anonymization and contact points apply over it."
               },
-              "depth": { "type": "string", "enum": ["direct", "full", "custom"] },
-              "customDepth": { "type": "integer", "exclusiveMinimum": 0, "maximum": 10 },
-              "maxNodes": { "type": "integer", "minimum": 10, "maximum": 500 },
+              "depth": {
+                "type": "string",
+                "enum": ["direct", "full", "custom"],
+                "markdownDescription": "How many levels of relationships discovery follows from the record or the first table: `direct`, one; `full`, 5; `custom`, `customDepth`. `custom` unless the resource or its template says otherwise.",
+                "description": "How many levels of relationships discovery follows from the record or the first table: `direct`, one; `full`, 5; `custom`, `customDepth`. `custom` unless the resource or its template says otherwise."
+              },
+              "customDepth": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 10,
+                "markdownDescription": "With `depth: custom`: how many levels discovery goes, 1 to 10; `3` unless the resource or its template says otherwise. Refused with another depth.",
+                "description": "With `depth: custom`: how many levels discovery goes, 1 to 10; `3` unless the resource or its template says otherwise. Refused with another depth."
+              },
+              "maxNodes": {
+                "type": "integer",
+                "minimum": 10,
+                "maximum": 500,
+                "markdownDescription": "The most objects discovery takes into the clone, 10 to 500; `50` by default. A parent an object requires is taken past it.",
+                "description": "The most objects discovery takes into the clone, 10 to 500; `50` by default. A parent an object requires is taken past it."
+              },
               "anonymize": {
                 "type": "object",
                 "properties": {
-                  "presetId": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "presetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "markdownDescription": "The preset picked in Forge’s Review, as a template keeps it, as `preset:gdpr-default`: where the methods came from. The clone reads `rules` and `fields`, not it.",
+                    "description": "The preset picked in Forge’s Review, as a template keeps it, as `preset:gdpr-default`: where the methods came from. The clone reads `rules` and `fields`, not it."
+                  },
                   "rules": {
                     "type": "object",
                     "propertyNames": {
@@ -410,8 +821,12 @@
                         "preserve_format",
                         "age_band",
                         "generalize"
-                      ]
-                    }
+                      ],
+                      "markdownDescription": "The method the fields of the category are anonymized by: `fake`, `mask`, `hash`, `nullify`, `redact`, `shuffle`, `truncate`, `preserve_format`, `age_band` or `generalize`.",
+                      "description": "The method the fields of the category are anonymized by: `fake`, `mask`, `hash`, `nullify`, `redact`, `shuffle`, `truncate`, `preserve_format`, `age_band` or `generalize`."
+                    },
+                    "markdownDescription": "The method of each category of personal field, as `{ name: fake, email: fake }`: `email`, `phone`, `name`, `address`, `ssn_id`, `financial` and `other`.",
+                    "description": "The method of each category of personal field, as `{ name: fake, email: fake }`: `email`, `phone`, `name`, `address`, `ssn_id`, `financial` and `other`."
                   },
                   "fields": {
                     "maxItems": 2000,
@@ -422,7 +837,9 @@
                         "objectApiName": {
                           "type": "string",
                           "maxLength": 80,
-                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                          "markdownDescription": "The object, by its API name, as `Contact`.",
+                          "description": "The object, by its API name, as `Contact`."
                         },
                         "fieldNames": {
                           "maxItems": 500,
@@ -430,39 +847,87 @@
                           "items": {
                             "type": "string",
                             "maxLength": 80,
-                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
-                          }
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "markdownDescription": "The fields of the object anonymized, by their API names, none included: 500 at most.",
+                            "description": "The fields of the object anonymized, by their API names, none included: 500 at most."
+                          },
+                          "markdownDescription": "The fields of the object anonymized, by their API names, none included: 500 at most.",
+                          "description": "The fields of the object anonymized, by their API names, none included: 500 at most."
                         }
                       },
                       "required": ["objectApiName", "fieldNames"],
-                      "additionalProperties": false
-                    }
+                      "additionalProperties": false,
+                      "markdownDescription": "The personal fields anonymized on each object, as Forge’s Review left them, among those discovery finds personal on it, never another; an object it does not name keeps discovery’s choice. 2,000 at most.",
+                      "description": "The personal fields anonymized on each object, as Forge’s Review left them, among those discovery finds personal on it, never another; an object it does not name keeps discovery’s choice. 2,000 at most."
+                    },
+                    "markdownDescription": "The personal fields anonymized on each object, as Forge’s Review left them, among those discovery finds personal on it, never another; an object it does not name keeps discovery’s choice. 2,000 at most.",
+                    "description": "The personal fields anonymized on each object, as Forge’s Review left them, among those discovery finds personal on it, never another; an object it does not name keeps discovery’s choice. 2,000 at most."
                   }
                 },
                 "required": ["rules"],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "markdownDescription": "Forge’s anonymization, as a template holds it: the method of each category of personal field (`rules`), and the personal fields of each object (`fields`). A source that is a production org is refused without it or `accept: { realData: true }`, and an `anonymize` that sets no method counts as none.",
+                "description": "Forge’s anonymization, as a template holds it: the method of each category of personal field (`rules`), and the personal fields of each object (`fields`). A source that is a production org is refused without it or `accept: { realData: true }`, and an `anonymize` that sets no method counts as none."
               },
-              "keepContactPoints": { "type": "boolean" },
-              "maxTotal": { "type": "integer", "exclusiveMinimum": 0, "maximum": 1000000 }
+              "keepContactPoints": {
+                "type": "boolean",
+                "markdownDescription": "`true`: emails and phone numbers are written as read. Without it, `false` by default, the clone neutralizes them before writing, emails under `.invalid` and phone numbers in a fictional range, whatever the source.",
+                "description": "`true`: emails and phone numbers are written as read. Without it, `false` by default, the clone neutralizes them before writing, emails under `.invalid` and phone numbers in a fictional range, whatever the source."
+              },
+              "maxTotal": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000000,
+                "markdownDescription": "The most records a run of it may write, 1 to 1,000,000; `10,000` by default. The plan’s dry run is held to it, and each run to its plan’s count below it: a source that grew between the plan and the run is refused before its first write.",
+                "description": "The most records a run of it may write, 1 to 1,000,000; `10,000` by default. The plan’s dry run is held to it, and each run to its plan’s count below it: a source that grew between the plan and the run is refused before its first write."
+              }
             },
             "required": ["kind", "source"],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "markdownDescription": "A forge resource: records `sandforge-clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, or whole `tables`; taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`.",
+            "description": "A forge resource: records `sandforge-clone` clones from the org a role of `orgs` names (`source`) into the org to fill, one `record` and what discovery reaches from it, or whole `tables`; taken back by the clone’s own removal. A source that is a production org is refused unless the resource gives `anonymize` or `accept: { realData: true }`."
           },
           {
             "type": "object",
             "properties": {
-              "kind": { "type": "string", "const": "frozen" },
+              "kind": {
+                "type": "string",
+                "const": "frozen",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
               "dependsOn": {
                 "maxItems": 50,
                 "type": "array",
-                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                  "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+                },
+                "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
               },
               "accept": {
                 "type": "object",
-                "properties": { "automation": { "type": "boolean" } },
-                "additionalProperties": false
+                "properties": {
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "A Frozen load and its removal take no acceptance of automation: what the org runs as its records are written, it runs unasked. `true` here is warned of, and changes nothing.",
+                    "description": "A Frozen load and its removal take no acceptance of automation: what the org runs as its records are written, it runs unasked. `true` here is warned of, and changes nothing."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file. A frozen resource takes none: see `automation`.",
+                "description": "Acceptances reviewed in the file. A frozen resource takes none: see `automation`."
               },
-              "config": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "config": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "markdownDescription": "The project’s Frozen configuration, as the Frozen panel saves it, from the folder of the file, as `frozen/claims.frozen.json`: committed with the project, it holds no record. Held to Frozen’s own schema, strict, and to no key shaped like a secret: a load never reads the salt. Never absolute, and never up out of that folder with `..`.",
+                "description": "The project’s Frozen configuration, as the Frozen panel saves it, from the folder of the file, as `frozen/claims.frozen.json`: committed with the project, it holds no record. Held to Frozen’s own schema, strict, and to no key shaped like a secret: a load never reads the salt. Never absolute, and never up out of that folder with `..`."
+              },
               "dataset": {
                 "type": "object",
                 "properties": {
@@ -472,36 +937,77 @@
                       {
                         "type": "object",
                         "properties": {
-                          "env": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" }
+                          "env": {
+                            "type": "string",
+                            "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                            "markdownDescription": "The name of the variable that holds the dataset’s path, in upper-case letters, digits and underscores, as `SANDFORGE_CLAIMS_DATASET`. The file holds no secret: never a password or a token.",
+                            "description": "The name of the variable that holds the dataset’s path, in upper-case letters, digits and underscores, as `SANDFORGE_CLAIMS_DATASET`. The file holds no secret: never a password or a token."
+                          }
                         },
                         "required": ["env"],
                         "additionalProperties": false
                       }
-                    ]
+                    ],
+                    "markdownDescription": "The dataset’s folder, by its path from the root, as `/data/claims`, or `{ env: NAME }`, the variable that holds it, where the pipeline downloaded it. It lives outside the repository: one inside the repository that holds the file is refused, exit `2`. A dataset moved keeps the resource: what it is known by is its digest.",
+                    "description": "The dataset’s folder, by its path from the root, as `/data/claims`, or `{ env: NAME }`, the variable that holds it, where the pipeline downloaded it. It lives outside the repository: one inside the repository that holds the file is refused, exit `2`. A dataset moved keeps the resource: what it is known by is its digest."
                   },
-                  "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
-                  "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+                  "version": {
+                    "type": "string",
+                    "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                    "markdownDescription": "The dataset’s version, as its manifest stamps it, as `1.4.0`.",
+                    "description": "The dataset’s version, as its manifest stamps it, as `1.4.0`."
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "markdownDescription": "The dataset’s digest, as `sandforge-frozen --json` gives it: `sha256:` and 64 hexadecimal digits, over the files a load reads, the same wherever the folder is moved.",
+                    "description": "The dataset’s digest, as `sandforge-frozen --json` gives it: `sha256:` and 64 hexadecimal digits, over the files a load reads, the same wherever the folder is moved."
+                  }
                 },
                 "required": ["path", "version", "digest"],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "markdownDescription": "The dataset it loads: where it is (`path`), pinned by its `version` and its `digest`. A dataset whose version or digest is not the file’s blocks the resource, both named: what was reviewed is what is loaded.",
+                "description": "The dataset it loads: where it is (`path`), pinned by its `version` and its `digest`. A dataset whose version or digest is not the file’s blocks the resource, both named: what was reviewed is what is loaded."
               }
             },
             "required": ["kind", "config", "dataset"],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "markdownDescription": "A frozen resource: a Frozen Dataset a person froze beforehand, extracted, pseudonymized and checked, loaded by `sandforge-frozen` and taken back by its own removal. Its configuration is committed (`config`); its dataset is not, and is pinned by its version and its digest (`dataset`).",
+            "description": "A frozen resource: a Frozen Dataset a person froze beforehand, extracted, pseudonymized and checked, loaded by `sandforge-frozen` and taken back by its own removal. Its configuration is committed (`config`); its dataset is not, and is pinned by its version and its digest (`dataset`)."
           },
           {
             "type": "object",
             "properties": {
-              "kind": { "type": "string", "const": "mask" },
+              "kind": {
+                "type": "string",
+                "const": "mask",
+                "markdownDescription": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does.",
+                "description": "What the resource is, and the script that applies it: `seed`, records Seed generates; `forge`, records cloned from an org of `orgs`; `frozen`, a Frozen Dataset loaded; `mask`, records the org already holds, masked with DataOps rules. The keys a resource takes follow from it. A kind this SandForge does not apply is refused, with the kinds it does."
+              },
               "dependsOn": {
                 "maxItems": 50,
                 "type": "array",
-                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" }
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,62}$",
+                  "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                  "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
+                },
+                "markdownDescription": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default.",
+                "description": "Resources of this file applied before this one, and destroyed after it, by their names, 50 at most. A name that is no resource of the file, the resource itself and a circle of dependencies are refused. When one of them runs again with new records, this one is replaced too. None by default."
               },
               "accept": {
                 "type": "object",
-                "properties": { "automation": { "type": "boolean" } },
-                "additionalProperties": false
+                "properties": {
+                  "automation": {
+                    "type": "boolean",
+                    "markdownDescription": "A DataOps masking takes no acceptance of automation: what the org runs as its records are written, it runs unasked. `true` here is warned of, and changes nothing.",
+                    "description": "A DataOps masking takes no acceptance of automation: what the org runs as its records are written, it runs unasked. `true` here is warned of, and changes nothing."
+                  }
+                },
+                "additionalProperties": false,
+                "markdownDescription": "Acceptances reviewed in the file. A mask resource takes none: see `automation`.",
+                "description": "Acceptances reviewed in the file. A mask resource takes none: see `automation`."
               },
               "rules": {
                 "anyOf": [
@@ -509,21 +1015,46 @@
                   {
                     "type": "object",
                     "properties": {
-                      "template": { "type": "string", "pattern": "^tpl-[a-z0-9-]{1,60}$" }
+                      "template": {
+                        "type": "string",
+                        "pattern": "^tpl-[a-z0-9-]{1,60}$",
+                        "markdownDescription": "The id of a DataOps template that ships: `tpl-gdpr-standard`, `tpl-ccpa-california`, `tpl-hipaa-health` or `tpl-sandbox-scrub`.",
+                        "description": "The id of a DataOps template that ships: `tpl-gdpr-standard`, `tpl-ccpa-california`, `tpl-hipaa-health` or `tpl-sandbox-scrub`."
+                      }
                     },
                     "required": ["template"],
                     "additionalProperties": false
                   }
-                ]
+                ],
+                "markdownDescription": "The DataOps rules it masks with: a set of the file’s `masking`, by its name, as `rules: contact-points`, or a template that ships, as `rules: { template: tpl-gdpr-standard }`. A name that is no set of the file is refused, with the sets it has.",
+                "description": "The DataOps rules it masks with: a set of the file’s `masking`, by its name, as `rules: contact-points`, or a template that ships, as `rules: { template: tpl-gdpr-standard }`. A name that is no set of the file is refused, with the sets it has."
               },
-              "object": { "type": "string", "maxLength": 80, "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
-              "where": { "type": "string", "minLength": 1, "maxLength": 512 }
+              "object": {
+                "type": "string",
+                "maxLength": 80,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "markdownDescription": "The object it masks, by its API name, as `Contact`. Without it, every object its rules mask, Account’s person accounts among them where the org has them. A rule set with no rule for it is refused before any org is reached, exit `2`: a run would mask nothing.",
+                "description": "The object it masks, by its API name, as `Contact`. Without it, every object its rules mask, Account’s person accounts among them where the org has them. A rule set with no rule for it is refused before any org is reached, exit `2`: a run would mask nothing."
+              },
+              "where": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "markdownDescription": "With `object`: a SOQL condition, without `WHERE`, selecting the records it masks, as `Email != null`; every record of the object without it. Select them by a field its rules leave as it is: once masked, records selected by a field the rules write over read as gone. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`.",
+                "description": "With `object`: a SOQL condition, without `WHERE`, selecting the records it masks, as `Email != null`; every record of the object without it. Select them by a field its rules leave as it is: once masked, records selected by a field the rules write over read as gone. 512 characters at most, with no comment marker (`--`, `/*`, `*/`), no `;` at its end, and not starting with `-`."
+              }
             },
             "required": ["kind", "rules"],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "markdownDescription": "A mask resource: records the org already holds, a sandbox copied from production, masked by `sandforge-dataops` with DataOps rules, after a snapshot of the values it writes over, kept on this machine. It creates no record, and `destroy` never unmasks: it deletes the snapshots. Putting the values back is `sandforge-dataops anonymize --restore`, before a destroy.",
+            "description": "A mask resource: records the org already holds, a sandbox copied from production, masked by `sandforge-dataops` with DataOps rules, after a snapshot of the values it writes over, kept on this machine. It creates no record, and `destroy` never unmasks: it deletes the snapshots. Putting the values back is `sandforge-dataops anonymize --restore`, before a destroy."
           }
-        ]
-      }
+        ],
+        "markdownDescription": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen` or `mask`, says what it is and which keys it takes.",
+        "description": "A resource of the environment: its `kind`, `seed`, `forge`, `frozen` or `mask`, says what it is and which keys it takes."
+      },
+      "markdownDescription": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen` or `mask`, and the keys that kind takes. Applied in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most.",
+      "description": "What the environment holds, by name: each resource says its `kind`, `seed`, `forge`, `frozen` or `mask`, and the keys that kind takes. Applied in the order `dependsOn` and `from` give, and destroyed the other way. A name is lower-case letters, digits and dashes, and none is shaped like a secret; 100 resources at most."
     }
   },
   "required": ["version", "name", "resources"],
