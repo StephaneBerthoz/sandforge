@@ -21,6 +21,7 @@ const BOSS = fakeId('003', 3);
 const REPORT = fakeId('003', 4);
 const OPPORTUNITY = fakeId('006', 1);
 const PRODUCT_LINE = fakeId('00k', 1);
+const FEED_ITEM = fakeId('0D5', 1);
 
 const RELATIONSHIPS: Record<string, MemoryChild[]> = {
   Account: [
@@ -169,6 +170,65 @@ describe('MemoryRemovalOrg', () => {
       await expect(org.query('SELECT Id FROM ContentDocumentLink')).rejects.toMatchObject({
         errorCode: 'MALFORMED_QUERY',
       });
+    });
+
+    it('refuses a user without View All Data a read of feed items by anything but their Id, in the org’s words, and reads them so with it', async () => {
+      const org = new MemoryRemovalOrg();
+      const permissions = { Id: '0Up000000000001AAA', PermissionsViewAllData: false };
+      org.add('UserPermissionAccess', permissions, WHEN);
+      org.add('Account', { Id: ACCOUNT, Name: 'Acme' }, WHEN);
+      org.add('FeedItem', { Id: FEED_ITEM, ParentId: ACCOUNT }, WHEN);
+      const byParent =
+        `SELECT Id, ParentId FROM FeedItem WHERE ParentId IN ('${ACCOUNT}') ` +
+        'AND CreatedDate >= 2026-10-01T00:00:00.000Z';
+
+      await expect(org.query(byParent)).rejects.toMatchObject({
+        errorCode: 'MALFORMED_QUERY',
+        message: 'Implementation restriction: FeedItem requires a filter by Id',
+      });
+      await expect(org.queryAll('SELECT Id FROM FeedItem')).rejects.toMatchObject({
+        errorCode: 'MALFORMED_QUERY',
+      });
+      // A composite answers it in its subrequest, as the org did.
+      const composite = (await org.request({
+        method: 'POST',
+        url: '/services/data/v66.0/composite',
+        body: {
+          compositeRequest: [
+            {
+              method: 'GET',
+              url: `/services/data/v66.0/query?q=${encodeURIComponent(byParent)}`,
+              referenceId: 'q0',
+            },
+          ],
+        },
+      })) as { compositeResponse: MemorySubAnswer[] };
+      expect(composite.compositeResponse).toEqual([
+        expect.objectContaining({
+          httpStatusCode: 400,
+          body: [
+            {
+              errorCode: 'MALFORMED_QUERY',
+              message: 'Implementation restriction: FeedItem requires a filter by Id',
+            },
+          ],
+        }),
+      ]);
+      expect(
+        (await org.query(`SELECT Id, ParentId FROM FeedItem WHERE Id IN ('${FEED_ITEM}')`)).records,
+      ).toEqual([{ Id: FEED_ITEM, ParentId: ACCOUNT }]);
+
+      org.edit('UserPermissionAccess', permissions.Id, { PermissionsViewAllData: true });
+      expect((await org.query(byParent)).records).toEqual([{ Id: FEED_ITEM, ParentId: ACCOUNT }]);
+    });
+
+    it('reads feed items by their parent for an org whose user it holds no permissions of, as the fake’s user always read them', async () => {
+      const org = new MemoryRemovalOrg();
+      org.add('FeedItem', { Id: FEED_ITEM, ParentId: ACCOUNT }, WHEN);
+
+      const answer = await org.query(`SELECT Id FROM FeedItem WHERE ParentId = '${ACCOUNT}'`);
+
+      expect(answer.records).toEqual([{ Id: FEED_ITEM }]);
     });
   });
 

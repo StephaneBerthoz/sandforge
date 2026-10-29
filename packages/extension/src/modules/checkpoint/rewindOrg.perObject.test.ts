@@ -391,6 +391,111 @@ describe('what a delete takes along out of sight', () => {
   });
 });
 
+/**
+ * The fields of an org whose accounts hold feed items, which a delete of an
+ * account takes along: a feed item hangs from a record of any of many
+ * objects.
+ */
+const WITH_FEED: Record<string, unknown[]> = {
+  ...FIELDS,
+  FeedItem: [
+    ...STAMP_FIELDS,
+    writable('Body'),
+    writable('ParentId', 'reference', { referenceTo: ['Account', 'Contact', 'Opportunity'] }),
+  ],
+};
+
+const FEED_CHILDREN: Record<string, MemoryChild[]> = {
+  ...CHILDREN,
+  Account: [
+    ...CHILDREN.Account,
+    { childSObject: 'FeedItem', field: 'ParentId', cascadeDelete: true },
+  ],
+};
+
+const FEED_ITEM = '0D5000000000001AAA';
+
+describe('what a delete takes along of a record’s feed', () => {
+  /**
+   * A checkpoint of `objects`, taken object by object or with View All Data
+   * and Modify All Data, then an account created since with a feed item
+   * under it, and with a contact too when told.
+   */
+  async function withFeed(
+    perObject: boolean,
+    objects: readonly string[] = PICKED,
+    withContact = false,
+  ): Promise<Taken> {
+    const org = new RewindTestOrg({ fields: WITH_FEED, children: FEED_CHILDREN });
+    const t = await taken(
+      (held) => {
+        baseRecords(held);
+        if (perObject) heldObjectByObject(held, HELD);
+      },
+      org,
+      objects,
+    );
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(4), Name: 'New one', LastModifiedById: COLLEAGUE });
+    t.org.add('FeedItem', { Id: FEED_ITEM, Body: 'Posted', ParentId: account(4) });
+    if (withContact) {
+      t.org.add('Contact', { Id: contact(5), LastName: 'Under it', AccountId: account(4) });
+    }
+    return t;
+  }
+
+  const outsideOf = (diff: RewindDiff, objectApiName: string) =>
+    diff.objects.find((o) => o.objectApiName === objectApiName)?.outside;
+
+  it('reads the accounts to delete, names the feed items under them out of sight, never reading them, and deletes them only once that is accepted', async () => {
+    const t = await withFeed(true);
+
+    const diff = await previewed(t);
+
+    // Read by their parent, the org refuses a user without View All Data
+    // the feed items whole, and the account could not be read.
+    expect(diff.unread).toEqual([]);
+    expect(diff.unseen).toEqual([{ objectApiName: 'Account', children: ['FeedItem'], records: 1 }]);
+    expect(outsideOf(diff, 'Account')).toEqual([]);
+    expect(diff.objects.find((o) => o.objectApiName === 'Account')?.toDelete.createdSince).toBe(1);
+
+    const refused = await rewound(t, diff.previewId);
+    expect(refused).toMatchObject({ rewound: false, refusal: { code: 'UNSEEN' } });
+    expect(t.org.all('FeedItem').map((row) => row.Id)).toEqual([FEED_ITEM]);
+
+    const accepted = resultOf(
+      await rewound(t, diff.previewId, { request: { acceptUnseen: true } }),
+    );
+    expect(accepted.status).toBe('success');
+    expect(t.org.all('Account').map((row) => row.Id)).not.toContain(account(4));
+    expect(t.org.all('FeedItem')).toEqual([]);
+  });
+
+  it('reads and counts the feed items outside the checkpoint with View All Data and Modify All Data, naming nothing out of sight: the negative control', async () => {
+    const t = await withFeed(false);
+
+    const diff = await previewed(t);
+
+    expect(diff.unread).toEqual([]);
+    expect(diff).not.toHaveProperty('unseen');
+    expect(outsideOf(diff, 'Account')).toEqual([
+      { objectApiName: 'FeedItem', count: 1, parents: 1 },
+    ]);
+  });
+
+  it('still reads, object by object, a child outside the checkpoint the user holds whole, the contacts of a checkpoint of accounts alone', async () => {
+    const t = await withFeed(true, ['Account'], true);
+
+    const diff = await previewed(t);
+
+    expect(diff.unread).toEqual([]);
+    expect(outsideOf(diff, 'Account')).toEqual([
+      { objectApiName: 'Contact', count: 1, parents: 1 },
+    ]);
+    expect(diff.unseen).toEqual([{ objectApiName: 'Account', children: ['FeedItem'], records: 1 }]);
+  });
+});
+
 describe('what a rewind object by object costs', () => {
   it('sends exactly what the estimate counts when there is nothing to write, the reads of the user’s permissions among them', async () => {
     const t = await takenObjectByObject();

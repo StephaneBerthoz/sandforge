@@ -2100,6 +2100,10 @@ async function* deletedFirst(previewDir: string, told: Told): AsyncGenerator<str
  * second may be from before it, and the deletion keeps it with its parent, so
  * the count starts at the next second.
  *
+ * Read object by object, an object the user is not proven to see whole
+ * (`ActAccess.unseenOf`) is not read: {@link unseenUnder} names it, and a read
+ * would count only what the user sees, or be refused.
+ *
  * @throws When the org would not describe the object, or read what hangs from it.
  */
 async function outsideOf(
@@ -2119,7 +2123,18 @@ async function outsideOf(
   );
   if (cascades.length === 0) return [];
   const workedIn = await worked();
-  const relationships = cascades.filter((relationship) => workedIn.has(relationship.childSObject));
+  const workedUnder = cascades.filter((relationship) => workedIn.has(relationship.childSObject));
+  if (workedUnder.length === 0) return [];
+  // A Standard User given View All and Modify All on Account read the feed
+  // items under the accounts to delete by their parent, and the org answered
+  // "Implementation restriction: FeedItem requires a filter by Id": the
+  // account could not be read. With View All Data, the org reads them so.
+  const unseen = new Set(
+    await context.access.unseenOf([
+      ...new Set(workedUnder.map(({ childSObject }) => childSObject)),
+    ]),
+  );
+  const relationships = workedUnder.filter(({ childSObject }) => !unseen.has(childSObject));
   if (relationships.length === 0) return [];
 
   const t1 = Date.parse(input.checkpoint.takenAt);
@@ -2219,9 +2234,9 @@ async function outsideOf(
  * (`ActAccess.unseenOf`) — tasks and events always, which have no View All.
  * A delete takes along every record that hangs from it so, seen or not: a
  * private task of another user under an account created since goes with
- * it, uncounted by {@link outsideOf} and by the deletion's own check of
- * dependents, which read what the user sees. None with View All Data and
- * Modify All Data.
+ * it, uncounted: {@link outsideOf} does not read such an object, and the
+ * deletion's own check of dependents reads what the user sees. None with
+ * View All Data and Modify All Data.
  *
  * @throws When the org would not describe the object, or what hangs from it.
  */

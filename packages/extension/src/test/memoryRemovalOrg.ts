@@ -64,7 +64,10 @@
  * A statement it cannot read throws (`memorySoql.ts`), so one it cannot read
  * never passes for one that selects nothing. A semi-join, `Field IN (SELECT
  * Column FROM Object [WHERE …])`, is read as the list of what its inner
- * statement selects, from the rows the outer one sees.
+ * statement selects, from the rows the outer one sees. A read of a record's
+ * feed by anything but its Id is refused, as the org refuses it, to a user
+ * its `UserPermissionAccess` row says lacks View All Data
+ * ({@link FEED_ITEM_REFUSAL}).
  *
  * What a subclass changes of what the org does — which rows a statement
  * sees, which it refuses, what follows a delete or an undelete — goes through
@@ -256,6 +259,23 @@ const PAGE_SIZE = 2_000;
 
 /** The prefix of a cursor's locator in a next page's address. */
 const LOCATOR_PREFIX = '01gMEM';
+
+/**
+ * The org's answer to a read of a record's feed (`FeedItem`) by anything but
+ * its Id, from a user without View All Data: refused whole, live, of a
+ * Standard User given View All and Modify All on Account who read the feed
+ * items under accounts by their `ParentId`. With View All Data the org reads
+ * them so.
+ */
+export const FEED_ITEM_REFUSAL = {
+  errorCode: 'MALFORMED_QUERY',
+  message: 'Implementation restriction: FeedItem requires a filter by Id',
+} as const;
+
+/** Whether `soql` filters by the record's own Id: `Id =` or `Id IN`, never a lookup ending in Id. */
+function filtersById(soql: string): boolean {
+  return /\bWHERE\b[\s\S]*\bId\s*(?:=|IN\b)/i.test(soql);
+}
 
 /** The key the org knows a record by: its id's first fifteen characters. */
 function keyOf(id: string): string {
@@ -621,6 +641,15 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return undefined;
   }
 
+  /**
+   * Whether the session's user has View All Data, as the org's
+   * `UserPermissionAccess` says: so when the org holds no such row, as the
+   * fake's user always had.
+   */
+  protected viewsAllData(): boolean {
+    return this.all('UserPermissionAccess').at(0)?.PermissionsViewAllData !== false;
+  }
+
   /** Called with each record a delete sends to the recycle bin, what cascades included, once it is there. */
   protected removed(_objectApiName: string, _row: MemoryRow): void {}
 
@@ -652,6 +681,13 @@ export class MemoryRemovalOrg implements RemovalOrg {
     const statement = parseSoql(this.withSemiJoinsRead(soql, scanAll));
     const refusal = this.refuseRead.get(statement.object);
     if (refusal) throw orgError(refusal.errorCode, refusal.message);
+    if (
+      statement.object.toLowerCase() === 'feeditem' &&
+      !filtersById(soql) &&
+      !this.viewsAllData()
+    ) {
+      throw orgError(FEED_ITEM_REFUSAL.errorCode, FEED_ITEM_REFUSAL.message);
+    }
     const refused = this.statementRefusal(statement.object, soql);
     if (refused) throw refused;
     for (const field of this.missingFields.get(statement.object) ?? []) {
