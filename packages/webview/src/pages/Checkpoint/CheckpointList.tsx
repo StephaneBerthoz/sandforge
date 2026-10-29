@@ -17,7 +17,12 @@ import {
   formatRelativeTime,
   formatStoredDate,
 } from '../../utils/formatters';
-import { CHECKPOINT_NAME_MAX, isCheckpointName, recordsHeld } from './checkpointFacts';
+import {
+  CHECKPOINT_NAME_MAX,
+  isCheckpointName,
+  recordsHeld,
+  takenPerObject,
+} from './checkpointFacts';
 
 /**
  * Why a checkpoint listed can only be deleted, as each row says it. A
@@ -65,11 +70,13 @@ function nameOf(entry: CheckpointListEntry): string {
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
  * takes and how long it is kept, and Rewind…, which opens what a rewind to it
- * would do. Beneath, what the store says of it: that it expires within days,
- * with Keep; that records deleted before a date can no longer come back once
- * it is older than the recycle bin keeps them; and, on the checkpoint of the
- * org's last rewind, when that rewind was made and until when Undo can take
- * it back. One that cannot be rewound to says why, and can only be deleted.
+ * would do. Beneath, what the store says of it: that it was taken with View
+ * All and Modify All per object, its user having no View All Data and Modify
+ * All Data; that it expires within days, with Keep; that records deleted
+ * before a date can no longer come back once it is older than the recycle
+ * bin keeps them; and, on the checkpoint of the org's last rewind, when that
+ * rewind was made and until when Undo can take it back. One that cannot be
+ * rewound to says why, and can only be deleted.
  */
 export const CheckpointList: React.FC<CheckpointListProps> = ({
   entries,
@@ -315,7 +322,8 @@ interface RowLinesProps {
 
 /**
  * The lines beneath a checkpoint that can be rewound to, only those that
- * apply, each with what it offers: it expires within days, and Keep keeps
+ * apply, each with what it offers: it was taken object by object, holding
+ * only what its user saw whole; it expires within days, and Keep keeps
  * it; records deleted before a date can no longer come back with their Id,
  * once it is older than the recycle bin's fifteen days; the org's last
  * rewind was made to it, and Undo takes it back until a date, sooner if the
@@ -335,9 +343,15 @@ const RowLines: React.FC<RowLinesProps> = ({ entry, nameId, onKeep, onUndo }) =>
   const undoUntil = entry.undo ? formatStoredDate(entry.undo.until, (d) => formatDate(d)) : null;
   const rewoundAt = checkpoint.lastRewind?.endedAt;
   const rewoundOn = rewoundAt ? formatStoredDate(rewoundAt, (d) => formatDate(d)) : null;
-  if (expiresIn === null && reachSince === null && undoUntil === null) return null;
+  const perObject = takenPerObject(checkpoint);
+  if (!perObject && expiresIn === null && reachSince === null && undoUntil === null) return null;
   return (
     <div className="flex flex-col gap-1 text-xs text-text-primary">
+      {perObject && (
+        <p data-testid={`checkpoint-per-object-${checkpointId}`}>
+          {t('checkpoint.list.access.perObject')}
+        </p>
+      )}
       {expiresIn !== null && (
         <p
           className="flex flex-wrap items-center gap-2"

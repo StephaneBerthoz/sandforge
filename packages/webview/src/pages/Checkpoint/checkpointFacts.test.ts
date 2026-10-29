@@ -1,15 +1,45 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CHECKPOINT_NAME_MAX,
+  LEFT_OUT_FOR_ACCESS,
+  heldPerObject,
   isCheckpointName,
+  leftOutForAccess,
   objectsWithRecords,
   recordsHeld,
   refusedBeforeScope,
   roughSeconds,
+  takenPerObject,
   undoCannotReasonOf,
   usableCheckpoints,
 } from './checkpointFacts';
-import { listEntry, readyCheckpoint, scopeAnswer } from './testing/checkpointFixtures';
+import {
+  listEntry,
+  perObjectScope,
+  readyCheckpoint,
+  scopeAnswer,
+} from './testing/checkpointFixtures';
+
+/** The extension's checkpoint module, whose words the page reads. */
+const MODULE = join(__dirname, '..', '..', '..', '..', 'extension', 'src', 'modules', 'checkpoint');
+
+/** The members of a union of string literals, as `export type NAME = | 'a' | 'b';` declares it. */
+function unionOf(source: string, name: string): string[] {
+  const body = new RegExp(`export type ${name} =([\\s\\S]*?);`).exec(source)?.[1];
+  if (body === undefined) throw new Error(`${name} is gone: re-point this test`);
+  return [...body.matchAll(/'(\w+)'/g)].map((match) => match[1]);
+}
+
+/** The first literal of each reason of the take's `LEFT_OUT_WORDS`, by reason. */
+function leftOutWords(source: string): Map<string, string> {
+  const block = /const LEFT_OUT_WORDS[^=]*= \{([\s\S]*?)\n\};/.exec(source)?.[1];
+  if (block === undefined) throw new Error('LEFT_OUT_WORDS is gone: re-point this test');
+  return new Map(
+    [...block.matchAll(/^ {2}(\w+):\s*(['"])(.*?)\2/gm)].map((match) => [match[1], match[3]]),
+  );
+}
 
 describe('checkpointFacts', () => {
   it('reads an entry of what Undo could not bring back that names no reason as one of the first, as entries made before the second say it', () => {
@@ -51,6 +81,68 @@ describe('checkpointFacts', () => {
       ),
     ).toBe(false);
     expect(refusedBeforeScope(scopeAnswer({ objects: [], leftOut: [] }))).toBe(false);
+  });
+
+  it('tells an object left out for its user’s permissions by the words the take opens its reason with', () => {
+    expect(
+      leftOutForAccess({
+        reason:
+          'Without View All Data and Modify All Data, tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.',
+      }),
+    ).toBe(true);
+    expect(leftOutForAccess({ reason: 'Chatter posts are left out.' })).toBe(false);
+    // The same words further on in a reason are no opening.
+    expect(
+      leftOutForAccess({ reason: 'Left out: without View All Data and Modify All Data, no.' }),
+    ).toBe(false);
+  });
+
+  it('reads the opening off every reason the take gives for a user’s permissions, and off no other', () => {
+    const access = unionOf(
+      readFileSync(join(MODULE, 'checkpointAccess.ts'), 'utf8'),
+      'AccessLeftOutReason',
+    );
+    // Positive control: the seven reasons of a take without View All Data and Modify All Data.
+    expect([...access].sort()).toEqual([
+      'activities',
+      'catalog',
+      'filesNotProven',
+      'noModifyAll',
+      'noViewAll',
+      'parentNotSeen',
+      'settingNotProven',
+    ]);
+    const words = leftOutWords(readFileSync(join(MODULE, 'takeCheckpoint.ts'), 'utf8'));
+    expect(words.size).toBeGreaterThan(access.length);
+    for (const reason of access) expect(words.has(reason), reason).toBe(true);
+    for (const [reason, said] of words) {
+      expect({ reason, opens: said.startsWith(LEFT_OUT_FOR_ACCESS) }).toEqual({
+        reason,
+        opens: access.includes(reason),
+      });
+    }
+  });
+
+  it('says a scope is held per object when an object is held so, or one is left out for its user’s permissions alone', () => {
+    expect(heldPerObject(perObjectScope())).toBe(true);
+    // Every object left out: the take is refused, and it is still one per object.
+    expect(heldPerObject(perObjectScope({ objects: [] }))).toBe(true);
+    const [account] = scopeAnswer().objects;
+    expect(
+      heldPerObject(scopeAnswer({ objects: [{ ...account, access: 'parent' }], leftOut: [] })),
+    ).toBe(true);
+    // With View All Data and Modify All Data, or from an answer that does not say.
+    expect(heldPerObject(scopeAnswer())).toBe(false);
+    expect(heldPerObject(scopeAnswer({ objects: [{ ...account, access: 'org' }] }))).toBe(false);
+  });
+
+  it('says a checkpoint was taken per object when its user lacked View All Data or Modify All Data', () => {
+    const { takenBy } = readyCheckpoint();
+    expect(takenPerObject({ takenBy })).toBe(false);
+    expect(
+      takenPerObject({ takenBy: { ...takenBy, viewAllData: false, modifyAllData: false } }),
+    ).toBe(true);
+    expect(takenPerObject({ takenBy: { ...takenBy, modifyAllData: false } })).toBe(true);
   });
 
   it('says an estimate of time to ten seconds under a minute and to the minute above', () => {

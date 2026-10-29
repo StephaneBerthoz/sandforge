@@ -53,6 +53,7 @@ import {
   rewindTotals,
   rewindWrites,
   rowOf,
+  unseenChildren,
   type CannotUndoLine,
 } from './rewindPreviewFacts';
 
@@ -73,14 +74,18 @@ const DAY_MS = 86_400_000;
 
 /**
  * The refusals the preview's boxes lift: what the org runs as a rewind
- * writes, the records Undo could not bring back, and the records made again
- * with new Ids. Any other the preview names — a SandForge run writing to the
- * org, too few API requests left today — holds the rewind whatever is ticked.
+ * writes, the records Undo could not bring back, the records made again with
+ * new Ids, and what the deletions take along out of the user's sight. Any
+ * other the preview names — a SandForge run writing to the org, too few API
+ * requests left today — holds the rewind whatever is ticked.
  */
-const LIFTED_BY: Partial<Record<CheckpointRefusalCode, 'automation' | 'noUndo' | 'recreate'>> = {
+const LIFTED_BY: Partial<
+  Record<CheckpointRefusalCode, 'automation' | 'noUndo' | 'recreate' | 'unseen'>
+> = {
   AUTOMATION: 'automation',
   NO_UNDO: 'noUndo',
   RECREATE: 'recreate',
+  UNSEEN: 'unseen',
 };
 
 /** What the preview's automation section says, as a rewind writes. */
@@ -153,8 +158,8 @@ export interface RewindAcceptances {
   acceptOutside: boolean;
   /**
    * Delete records whose delete takes along what the user, read object by
-   * object, is not proven to see (`RewindDiff.unseen`). The preview offers no
-   * box for it: such a rewind is refused (`UNSEEN`), and says why.
+   * object, is not proven to see (`RewindDiff.unseen`): unaccepted, such a
+   * rewind is refused (`UNSEEN`), writing nothing.
    */
   acceptUnseen: boolean;
 }
@@ -181,6 +186,7 @@ interface Ticked {
   noUndo: boolean;
   recreate: boolean;
   outside: boolean;
+  unseen: boolean;
 }
 
 /**
@@ -196,15 +202,20 @@ interface Ticked {
  * into a column and the objects into a total, and counts nothing itself.
  *
  * What Undo could not bring back, the records the recycle bin no longer gives
- * back, which the rewind makes again with new Ids, and the automation the org
- * runs as the rewind writes, are each accepted with a box before Rewind can be
- * pressed;
+ * back, which the rewind makes again with new Ids, the automation the org
+ * runs as the rewind writes, and, for a user without View All Data and Modify
+ * All Data, what the rewind's deletions take along that the user is not
+ * proven to see, are each accepted with a box before Rewind can be pressed;
  * in a checkpoint of
  * picked objects, the records outside it that its deletions take along go
  * only when their box is ticked, and their parents stay otherwise. A box is
  * ticked for the preview it was read with: read again, the org may differ.
  * Rewind then asks for the org's name, typed, under what it deletes, gives
  * back and brings back, as every removal that deletes does.
+ *
+ * Read object by object, the preview says so: what another user deleted
+ * since stays in the recycle bin, and an object the user no longer holds
+ * whole is among those it could not read, named with the user.
  */
 export const RewindPreview: React.FC<RewindPreviewProps> = ({
   org,
@@ -380,11 +391,13 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const settings = customSettingsOf(checkpoint);
   const undoCannotId = useId();
   const recreateId = useId();
+  const unseenId = useId();
   const [ticked, setTicked] = useState<Ticked>({
     automation: false,
     noUndo: false,
     recreate: false,
     outside: false,
+    unseen: false,
   });
   // What Rewind accepted as it was pressed, while the org's name is typed.
   const [confirming, setConfirming] = useState<RewindAcceptances | null>(null);
@@ -411,6 +424,9 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     (fired.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
   const outside = outsideLines(diff);
   const remade = recreateLines(diff);
+  // Read object by object: what the deletions take along out of the user's
+  // sight, which no read counts.
+  const unseen = diff.unseen ?? [];
   // Salesforce lists a record emptied from the bin as deleted: only the
   // undelete's answer says it is gone. The box is offered whenever records
   // come back, and required only for those counted to make again.
@@ -425,6 +441,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     !refused &&
     (diff.undoCannot.length === 0 || ticked.noUndo) &&
     (remade.length === 0 || ticked.recreate) &&
+    (unseen.length === 0 || ticked.unseen) &&
     (!automationFound || ticked.automation);
 
   const rewind = (): void => {
@@ -437,7 +454,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       // A checkpoint of everything people work in takes them along, as the
       // preview said: only a checkpoint of picked objects asks.
       acceptOutside: outside.length > 0 && (!picked || ticked.outside),
-      acceptUnseen: false,
+      acceptUnseen: unseen.length > 0 && ticked.unseen,
     });
   };
   const confirmed = (): void => {
@@ -459,6 +476,11 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       {refusal && (
         <p role="alert" className="text-sm font-medium" data-testid="checkpoint-preview-refusal">
           {refusal.message}
+        </p>
+      )}
+      {diff.access.kind === 'perObject' && (
+        <p data-testid="checkpoint-preview-per-object">
+          {t('checkpoint.preview.access.perObject', { user: org.username })}
         </p>
       )}
 
@@ -574,6 +596,41 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </section>
       )}
 
+      {unseen.length > 0 && (
+        <section
+          aria-labelledby={unseenId}
+          className="flex flex-col gap-1.5"
+          data-testid="checkpoint-preview-unseen"
+        >
+          <h3 id={unseenId} className="text-sm font-semibold">
+            {t('checkpoint.preview.unseen.title')}
+          </h3>
+          <ul className="ml-4 list-disc">
+            {unseen.map((line) => (
+              <li
+                key={line.objectApiName}
+                data-testid={`checkpoint-preview-unseen-${line.objectApiName}`}
+              >
+                {t('checkpoint.preview.unseen.line', {
+                  count: line.records,
+                  formatted: formatNumber(line.records),
+                  object: line.objectApiName,
+                  user: org.username,
+                  children: listWords(line.children, t),
+                })}
+              </li>
+            ))}
+          </ul>
+          <p>{t('checkpoint.preview.unseen.why', { user: org.username })}</p>
+          <Box
+            checked={ticked.unseen}
+            onChange={(value) => tick('unseen', value)}
+            label={t('checkpoint.preview.unseen.accept', { user: org.username })}
+            testId="checkpoint-preview-accept-unseen"
+          />
+        </section>
+      )}
+
       {outside.length > 0 && (
         <OutsideBox
           lines={outside}
@@ -659,7 +716,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         onClose={() => setConfirming(null)}
         onConfirm={confirmed}
         title={t('checkpoint.preview.confirm.title', { org: orgName, name: checkpoint.name })}
-        description={confirmDescription(t, diff, orgName, takenFrom, settings)}
+        description={confirmDescription(t, diff, orgName, takenFrom, settings, org.username)}
         confirmText={orgName}
       />
     </div>
@@ -696,7 +753,9 @@ function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): nu
  * for a moment to delete again, and the links between files and records it
  * removes, puts back or gives their sharing back — whoever made the changes;
  * then, of those records, the rows of custom settings: configuration, which
- * the user named at the take, and which the rewind sets back too.
+ * the user named at the take, and which the rewind sets back too; and, read
+ * object by object, what its deletions take along that `user` can't see,
+ * which no number counts.
  */
 function confirmDescription(
   t: TFunction,
@@ -704,6 +763,7 @@ function confirmDescription(
   orgName: string,
   takenFrom: string,
   settings: ReadonlySet<string>,
+  user: string,
 ): string {
   const totals = rewindTotals(diff);
   const parts: Array<[count: number, key: string]> = [
@@ -723,12 +783,21 @@ function confirmDescription(
     changes: listWords(changes, t),
   });
   const rows = settingRowsWritten(diff, settings);
-  return rows > 0
-    ? `${description} ${t('checkpoint.preview.confirm.customSettings', {
-        count: rows,
-        formatted: formatNumber(rows),
-      })}`
-    : description;
+  const unseen = unseenChildren(diff);
+  return [
+    description,
+    ...(rows > 0
+      ? [
+          t('checkpoint.preview.confirm.customSettings', {
+            count: rows,
+            formatted: formatNumber(rows),
+          }),
+        ]
+      : []),
+    ...(unseen.length > 0
+      ? [t('checkpoint.preview.confirm.unseen', { user, children: listWords(unseen, t) })]
+      : []),
+  ].join(' ');
 }
 
 /** A box the user ticks to accept what the preview names. */

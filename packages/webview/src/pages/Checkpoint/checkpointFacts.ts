@@ -1,4 +1,5 @@
 import type {
+  CheckpointLeftOutObject,
   CheckpointListEntry,
   CheckpointRefusal,
   CheckpointScopeResponse,
@@ -65,6 +66,44 @@ export function refusedBeforeScope<T extends ScopeFacts>(
   answer: T,
 ): answer is T & { refusal: CheckpointRefusal } {
   return answer.refusal !== undefined && answer.objects.length === 0 && answer.leftOut.length === 0;
+}
+
+/**
+ * How the extension opens the reason of an object a take leaves out for its
+ * user's permissions alone: the user has no View All Data and Modify All
+ * Data, and nothing else proves they see and put back every record of it
+ * (`LEFT_OUT_WORDS` in the extension's takeCheckpoint.ts, each of whose
+ * permission reasons opens so, and no other). The scope's answer names a
+ * reason in words only, so the page tells these apart by them.
+ */
+export const LEFT_OUT_FOR_ACCESS = 'Without View All Data and Modify All Data,';
+
+/** Whether an object a scope left out was left out for its user's permissions: see {@link LEFT_OUT_FOR_ACCESS}. */
+export function leftOutForAccess(object: Pick<CheckpointLeftOutObject, 'reason'>): boolean {
+  return object.reason.startsWith(LEFT_OUT_FOR_ACCESS);
+}
+
+/**
+ * Whether a take would hold its objects with View All and Modify All per
+ * object, its user having no View All Data and Modify All Data: an object it
+ * holds says how its user holds it whole (`access`), and one it leaves out
+ * for that alone says why. A scope that holds none, every object left out,
+ * is one too.
+ */
+export function heldPerObject(answer: Pick<ScopeFacts, 'objects' | 'leftOut'>): boolean {
+  return (
+    answer.objects.some((object) => object.access === 'object' || object.access === 'parent') ||
+    answer.leftOut.some(leftOutForAccess)
+  );
+}
+
+/**
+ * Whether a checkpoint was taken by a user without View All Data and Modify
+ * All Data, each of its objects held with View All and Modify All on it, or
+ * on what it hangs from: the file says it of its user.
+ */
+export function takenPerObject(checkpoint: Pick<OrgCheckpoint, 'takenBy'>): boolean {
+  return !checkpoint.takenBy.viewAllData || !checkpoint.takenBy.modifyAllData;
 }
 
 /**

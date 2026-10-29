@@ -3,7 +3,14 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import '../../i18n';
 import type { OrgCheckpoint } from '@sandforge/shared';
-import { developerOrg, fakeHost, readyCheckpoint, scopeAnswer } from './testing/checkpointFixtures';
+import {
+  LEFT_OUT_FOR_ACCESS,
+  developerOrg,
+  fakeHost,
+  perObjectScope,
+  readyCheckpoint,
+  scopeAnswer,
+} from './testing/checkpointFixtures';
 
 const host = vi.hoisted(() => ({
   current: null as null | import('./testing/checkpointFixtures').FakeHost,
@@ -676,5 +683,136 @@ describe('TakeCheckpoint — custom settings', () => {
     fireEvent.click(screen.getByTestId('checkpoint-custom-setting-Endpoints__c'));
     settle();
     expect(screen.getByTestId('checkpoint-take-start')).toBeEnabled();
+  });
+});
+
+describe('TakeCheckpoint — View All and Modify All per object', () => {
+  beforeEach(() => {
+    host.current = fakeHost();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 9, 22, 14, 0, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Let the boxes ticked rest, as they do before their scope is asked. */
+  const settle = (): void =>
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+  it('says before it runs that a user without View All Data and Modify All Data holds only what they hold whole, per object, and what their rewind leaves', () => {
+    renderTake();
+    answerScope(perObjectScope());
+    expect(screen.getByTestId('checkpoint-access-per-object').textContent).toBe(
+      "admin@example.com doesn't have View All Data and Modify All Data: the checkpoint holds only the objects admin@example.com has View All and Modify All on, per object — or, for an object with no permissions of its own, on every record it hangs from — and leaves out the others, tasks and events, products and price books, files and custom settings always. A rewind by admin@example.com leaves what another user deleted since in the recycle bin.",
+    );
+    // Within the card the take is asked from, before its button.
+    expect(
+      within(screen.getByTestId('checkpoint-before-it-runs')).getByTestId(
+        'checkpoint-access-per-object',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('checkpoint-take-start')).toBeEnabled();
+  });
+
+  it('says nothing of permissions per object to a user with View All Data and Modify All Data', () => {
+    renderTake();
+    const [account] = scopeAnswer().objects;
+    answerScope({ objects: [{ ...account, access: 'org' }] });
+    expect(screen.queryByTestId('checkpoint-access-per-object')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-left-out-access')).toBeNull();
+  });
+
+  it('lists the objects left out for the user’s permissions apart, each with why, and what any checkpoint leaves out under its own summary', () => {
+    renderTake();
+    answerScope(perObjectScope());
+    const access = screen.getByTestId('checkpoint-left-out-access');
+    expect(access.querySelector('summary')?.textContent).toBe(
+      'See the 5 objects left out for the permissions of admin@example.com, and why',
+    );
+    expect(
+      within(access)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      `Task — ${LEFT_OUT_FOR_ACCESS.activities}`,
+      `Event — ${LEFT_OUT_FOR_ACCESS.activities}`,
+      `Opportunity — ${LEFT_OUT_FOR_ACCESS.noModifyAll}`,
+      `OpportunityLineItem — ${LEFT_OUT_FOR_ACCESS.parentNotSeen}`,
+      `Product2 — ${LEFT_OUT_FOR_ACCESS.catalog}`,
+    ]);
+    const others = screen.getByTestId('checkpoint-left-out');
+    expect(others.querySelector('summary')?.textContent).toBe('See the object left out, and why');
+    expect(
+      within(others)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['FeedItem — Chatter posts are left out.']);
+  });
+
+  it('names an object the user’s permissions leave out, looked for by name among the objects to pick, with why it can’t be picked', () => {
+    renderTake();
+    answerScope(perObjectScope());
+    fireEvent.click(screen.getByTestId('checkpoint-scope-picked'));
+    // Not looked for, the list offers only what can be picked.
+    expect(screen.queryByTestId('checkpoint-pick-not-held-Task')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('checkpoint-object-filter'), { target: { value: 'task' } });
+    const task = screen.getByTestId('checkpoint-pick-not-held-Task');
+    expect(task.textContent).toBe(`Task — can't be picked${LEFT_OUT_FOR_ACCESS.activities}`);
+    // Named, never offered: there is no box to tick for it.
+    expect(within(task).queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-pick-Task')).toBeNull();
+    expect(screen.queryByText('No object matches.')).toBeNull();
+
+    // An object the org has none of is still said not to match.
+    fireEvent.change(screen.getByTestId('checkpoint-object-filter'), { target: { value: 'zzz' } });
+    expect(screen.getByText('No object matches.')).toBeInTheDocument();
+
+    // What any checkpoint leaves out is not named so: it is no object to pick.
+    fireEvent.change(screen.getByTestId('checkpoint-object-filter'), { target: { value: 'feed' } });
+    expect(screen.queryByTestId('checkpoint-pick-not-held-FeedItem')).toBeNull();
+  });
+
+  it('says before a custom setting is ticked that one refuses the take of a user without View All Data and Modify All Data, and names it before Start once ticked', () => {
+    const offered = [
+      { objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list' as const, records: 1 },
+    ];
+    renderTake();
+    answerScope(perObjectScope({ customSettings: offered }));
+    const note = screen.getByTestId('checkpoint-custom-settings-per-object');
+    expect(note.textContent).toBe(
+      "admin@example.com doesn't have View All Data and Modify All Data: a custom setting ticked refuses the take, as no permission on an object proves who sees and writes every row.",
+    );
+    // Read with each box, as its hint is.
+    const box = screen.getByTestId('checkpoint-custom-setting-Endpoints__c');
+    expect(box.getAttribute('aria-describedby')?.split(' ')).toContain(note.id);
+    expect(screen.getByTestId('checkpoint-custom-settings-all')).toHaveAccessibleDescription(
+      expect.stringContaining('a custom setting ticked refuses the take'),
+    );
+
+    fireEvent.click(box);
+    settle();
+    const message =
+      "admin@example.com doesn't have View All Data and Modify All Data, and the checkpoint can't hold Endpoints__c, asked for by name. Endpoints__c: Without View All Data and Modify All Data, custom settings are left out: no permission on an object proves the user sees and writes every row. Leave it out, or give the user View All Data and Modify All Data. No record was read.";
+    answerScope(
+      perObjectScope({ customSettings: offered, refusal: { code: 'PERMISSIONS', message } }),
+    );
+    expect(screen.getByTestId('checkpoint-refusal').textContent).toBe(message);
+    expect(screen.getByTestId('checkpoint-take-start')).toBeDisabled();
+    expect(host.current?.sent('checkpoint:take')).toEqual([]);
+  });
+
+  it('says no such thing of custom settings to a user with View All Data and Modify All Data', () => {
+    renderTake();
+    answerScope({
+      customSettings: [{ objectApiName: 'Endpoints__c', label: 'Endpoints', kind: 'list' }],
+    });
+    expect(screen.queryByTestId('checkpoint-custom-settings-per-object')).toBeNull();
+    expect(
+      screen.getByTestId('checkpoint-custom-setting-Endpoints__c').getAttribute('aria-describedby'),
+    ).not.toContain(' ');
   });
 });

@@ -254,6 +254,51 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DOC).toContain("**Production orgs, and any org other than the checkpoint's own**");
   });
 
+  it('says what the panel shows a user without View All Data and Modify All Data: the objects its permissions leave out, the take per object, the box of what goes out of sight, and the list’s line', () => {
+    // Anchor: the preview's box is what it sends as acceptUnseen and holds
+    // Rewind until it is ticked; the take tells what the user's permissions
+    // leave out by the scope's words, and the list a checkpoint by its file.
+    const preview = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
+    expect(preview).toContain('acceptUnseen: unseen.length > 0 && ticked.unseen,');
+    expect(preview).toContain('(unseen.length === 0 || ticked.unseen) &&');
+    const facts = source('packages/webview/src/pages/Checkpoint/checkpointFacts.ts');
+    expect(facts).toContain(
+      "export const LEFT_OUT_FOR_ACCESS = 'Without View All Data and Modify All Data,';",
+    );
+    expect(facts).toContain(
+      'return !checkpoint.takenBy.viewAllData || !checkpoint.takenBy.modifyAllData;',
+    );
+
+    const take = section(DOC, '## Taking a checkpoint');
+    expect(take).toContain(
+      "    - What the user's permissions do not prove, for a user without View All Data and " +
+        'Modify All Data',
+    );
+    expect(take).toContain(
+      "such an object typed in the filter is named under the objects to pick, with why it can't " +
+        'be picked',
+    );
+    expect(take).toContain(
+      'that one ticked refuses the take; ticked all the same, the refusal names it before ' +
+        `**${label('checkpoint.take.start')}**`,
+    );
+    expect(take).toContain(
+      'the checkpoint holds only the objects the user has View All and Modify All on, per ' +
+        'object, and that a rewind by that user leaves what another user deleted since in the ' +
+        'recycle bin',
+    );
+    expect(section(DOC, '## The list')).toContain(
+      '- Taken with View All and Modify All per object, for a checkpoint whose user had no View ' +
+        'All Data and Modify All Data',
+    );
+    const shown = section(DOC, '## The preview');
+    expect(shown).toContain(`- **${label('checkpoint.preview.unseen.title')}**`);
+    expect(shown).toContain(
+      `**${label('checkpoint.preview.unseen.accept').replace('{{user}}', '\\<user\\>')}**`,
+    );
+    expect(shown).toContain('as `--accept-unseen` accepts it on the command line');
+  });
+
   it("reads the edition from the org and from SandForge's list of orgs, which it names as such", () => {
     // Positive control: the guard asks the registry first, then the org itself.
     expect(GUARD).toContain(
@@ -1094,6 +1139,32 @@ describe('the README lines of the module', () => {
         .split('\n')
         .find((line) => line.startsWith('| **Checkpoints**'));
       expect(row).toContain('whoever did it; the rewind itself can be undone.');
+    }
+  });
+
+  it('promises a rewind puts back what anyone changed only with View All Data and Modify All Data, in both READMEs', () => {
+    // Anchor: read object by object, what another user deleted since stays
+    // in the recycle bin, never tried nor made again.
+    expect(DIFF).toContain(
+      "...(byOther > 0 ? [{ reason: 'deletedByOther' as const, count: byOther }] : []),",
+    );
+    for (const path of READMES) {
+      const text = source(path);
+      expect(section(text, '## Modules')).toContain(
+        'brings back what was deleted — with View All Data and Modify All Data, whoever did it;',
+      );
+      expect(section(text, '## Rewind an org to a checkpoint')).toContain(
+        'whoever changed it since — you, your testers, flows or integrations — when the user ' +
+          'SandForge connects as has View All Data and Modify All Data.',
+      );
+      expect(section(text, '## Documentation')).toContain(
+        'rewind the org whoever changed it since (with View All Data and Modify All Data)',
+      );
+      // Every line that promises it says for whom it holds.
+      const unqualified = text
+        .split('\n')
+        .filter((line) => /\bwhoever\b/.test(line) && !line.includes('View All Data'));
+      expect({ path, unqualified }).toEqual({ path, unqualified: [] });
     }
   });
 

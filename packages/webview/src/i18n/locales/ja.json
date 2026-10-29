@@ -5202,7 +5202,10 @@
       "binReach": "{{date}} より前に削除されたレコードは、同じ Id ではもう戻せません。ごみ箱が保持するのは 15 日間で、いっぱいになるとそれより短くなります。巻き戻しは、これらを新しい Id で再作成します。",
       "rewound": "{{date}} に巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
       "rewoundUndated": "巻き戻しました。{{until}} まで元に戻せます。ごみ箱がいっぱいになると、それより早く戻せなくなります。",
-      "stopComparing": "項目の比較をやめる…"
+      "stopComparing": "項目の比較をやめる…",
+      "access": {
+        "perObject": "View All Data と Modify All Data なしで、オブジェクトごとの View All と Modify All で作成されました。ユーザーが全体を参照できたオブジェクトだけを保持します。"
+      }
     },
     "rename": {
       "title": "「{{name}}」の名前を変更"
@@ -5270,7 +5273,13 @@
       "filesReadByIds": "{{objects}} のリンクはレコード Id のリストで読み取りました。{{org}} が 1 回のクエリを拒否したか、応答が遅すぎたためです。",
       "filesAdded_other": "{{objects}} を選択したオブジェクトに追加します。追加しないと、巻き戻しでその後に添付されたファイルがそのまま残ります。",
       "filesKept_other": "{{formatted}} 件のファイルがレコードに添付されています ({{links}})。巻き戻しは、その後の添付の変更を戻します。",
-      "fileLinks_other": "リンク {{formatted}} 件"
+      "fileLinks_other": "リンク {{formatted}} 件",
+      "access": {
+        "perObject": "{{user}} には View All Data と Modify All Data がありません。チェックポイントは、{{user}} がオブジェクトごとに View All と Modify All を持つオブジェクト (独自の権限を持たないオブジェクトは、親のすべてのレコードで持つもの) だけを保持し、それ以外は対象外にします。ToDo と行動、商品と価格表、ファイル、カスタム設定は常に対象外です。{{user}} が巻き戻すと、その後に別のユーザーが削除したものはごみ箱に残ります。",
+        "seeLeftOut_other": "{{user}} の権限により対象外の {{formatted}} 個のオブジェクトとその理由を表示",
+        "cannotPick": "選択できません",
+        "settings": "{{user}} には View All Data と Modify All Data がありません。カスタム設定を選択すると作成は拒否されます。オブジェクトの権限では、すべての行を誰が参照し書き込めるかを証明できないためです。"
+      }
     },
     "preview": {
       "title": "{{org}} を「{{name}}」({{date}}) に巻き戻す",
@@ -5375,7 +5384,8 @@
         "recreate_other": "ごみ箱にもうないレコード {{formatted}} 件を新しい Id で再作成",
         "carriers_other": "チェックポイントのレコードを一緒に持っていったレコード {{formatted}} 件をいったん復元して再び削除",
         "links_other": "ファイルとレコードの間のリンク {{formatted}} 件を当時の状態に戻す",
-        "customSettings_other": "このうち {{formatted}} 件はカスタム設定の行です。設定データであり、チェックポイントが保持する状態に戻します。"
+        "customSettings_other": "このうち {{formatted}} 件はカスタム設定の行です。設定データであり、チェックポイントが保持する状態に戻します。",
+        "unseen": "削除するレコードの下にある {{children}} のうち {{user}} に見えないものも、数えずに削除します。"
       },
       "toRecreate_other": "再作成 {{formatted}} 件",
       "toRecreateHint": "ごみ箱にもうないもの: 新しい Id",
@@ -5399,6 +5409,15 @@
         "outsideDeleted_other": "ごみ箱に残します: その後に削除されたファイル {{formatted}} 件。このチェックポイントのどのレコードにもリンクされていなかったためです。",
         "storage_other": "ファイル {{formatted}} 件をごみ箱から復元すると、ファイルストレージを再び {{size}} 使います。{{org}} の残りは {{remaining}} です。",
         "storageUnsaid_other": "ファイル {{formatted}} 件をごみ箱から復元すると、ファイルストレージを再び {{size}} 使います。{{org}} は残りの容量を返しませんでした。"
+      },
+      "access": {
+        "perObject": "{{user}} には View All Data と Modify All Data がありません。このプレビューは、チェックポイントの各オブジェクトを、そのオブジェクトの View All と Modify All で読み取りました。巻き戻しでは、その後に別のユーザーが削除したものはごみ箱に残り、{{user}} が全体を保持しなくなったオブジェクトは読み取れなかったものとしてそのまま残します。"
+      },
+      "unseen": {
+        "title": "見えないまま一緒に削除されるもの",
+        "line_other": "その後に追加された {{object}} の {{formatted}} 件のレコードを削除すると、その下にある {{children}} のうち {{user}} に見えないものも削除されます。巻き戻しではその件数を数えられません。",
+        "why": "View All Data と Modify All Data がないと、{{user}} がこれらのオブジェクトのすべてのレコードを参照できることは証明できません (ToDo と行動には View All がありません)。巻き戻しで削除するレコードにぶら下がるそれらのレコードは、数えられないまま一緒に削除され、元に戻す操作ではそれと一緒に戻るものが戻ります。",
+        "accept": "{{user}} に見えないものも含めて削除する"
       }
     },
     "run": {

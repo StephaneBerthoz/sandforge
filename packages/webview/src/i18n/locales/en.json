@@ -5499,7 +5499,10 @@
       "binReach": "Records deleted before {{date}} cannot come back with their Id: the recycle bin keeps them 15 days, less if it fills. A rewind makes them again, with new Ids.",
       "rewound": "Rewound on {{date}}: it can be undone until {{until}}, sooner if the recycle bin fills.",
       "rewoundUndated": "Rewound: it can be undone until {{until}}, sooner if the recycle bin fills.",
-      "stopComparing": "Stop comparing fields…"
+      "stopComparing": "Stop comparing fields…",
+      "access": {
+        "perObject": "Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole."
+      }
     },
     "rename": {
       "title": "Rename “{{name}}”"
@@ -5581,7 +5584,14 @@
       "filesKept_one": "{{formatted}} file is attached to its records ({{links}}): a rewind takes back what is attached to them since.",
       "filesKept_other": "{{formatted}} files are attached to its records ({{links}}): a rewind takes back what is attached to them since.",
       "fileLinks_one": "{{formatted}} link",
-      "fileLinks_other": "{{formatted}} links"
+      "fileLinks_other": "{{formatted}} links",
+      "access": {
+        "perObject": "{{user}} doesn't have View All Data and Modify All Data: the checkpoint holds only the objects {{user}} has View All and Modify All on, per object — or, for an object with no permissions of its own, on every record it hangs from — and leaves out the others, tasks and events, products and price books, files and custom settings always. A rewind by {{user}} leaves what another user deleted since in the recycle bin.",
+        "seeLeftOut_one": "See the object left out for the permissions of {{user}}, and why",
+        "seeLeftOut_other": "See the {{formatted}} objects left out for the permissions of {{user}}, and why",
+        "cannotPick": "can't be picked",
+        "settings": "{{user}} doesn't have View All Data and Modify All Data: a custom setting ticked refuses the take, as no permission on an object proves who sees and writes every row."
+      }
     },
     "preview": {
       "title": "Rewind {{org}} to “{{name}}” ({{date}})",
@@ -5721,7 +5731,8 @@
         "links_one": "puts {{formatted}} link between a file and a record back as it was",
         "links_other": "puts {{formatted}} links between files and records back as they were",
         "customSettings_one": "Of them, {{formatted}} is a row of a custom setting: configuration, set back as the checkpoint holds it.",
-        "customSettings_other": "Of them, {{formatted}} are rows of custom settings: configuration, set back as the checkpoint holds them."
+        "customSettings_other": "Of them, {{formatted}} are rows of custom settings: configuration, set back as the checkpoint holds them.",
+        "unseen": "It also deletes, uncounted, what {{user}} can't see under the records it deletes, in {{children}}."
       },
       "toRecreate_one": "{{formatted}} to make again",
       "toRecreate_other": "{{formatted}} to make again",
@@ -5754,6 +5765,16 @@
         "storage_other": "Bringing back {{formatted}} files from the recycle bin takes {{size}} of file storage again; {{org}} has {{remaining}} left.",
         "storageUnsaid_one": "Bringing back {{formatted}} file from the recycle bin takes {{size}} of file storage again; {{org}} did not say how much it has left.",
         "storageUnsaid_other": "Bringing back {{formatted}} files from the recycle bin takes {{size}} of file storage again; {{org}} did not say how much it has left."
+      },
+      "access": {
+        "perObject": "{{user}} doesn't have View All Data and Modify All Data: this preview read each object of the checkpoint with View All and Modify All on it. A rewind leaves what another user deleted since in the recycle bin, and leaves as it is an object {{user}} no longer holds whole, among those it could not read."
+      },
+      "unseen": {
+        "title": "Also deleted with them, out of sight",
+        "line_one": "Deleting {{formatted}} {{object}} record added since also deletes what {{user}} can't see under it in {{children}}: Rewind can't count those.",
+        "line_other": "Deleting {{formatted}} {{object}} records added since also deletes what {{user}} can't see under them in {{children}}: Rewind can't count those.",
+        "why": "Without View All Data and Modify All Data, nothing proves {{user}} sees every record of those objects — tasks and events have no View All. What of theirs hangs from the records the rewind deletes goes with them, uncounted, and Undo brings back what comes back with them.",
+        "accept": "Delete them all the same, with what {{user}} can't see under them"
       }
     },
     "run": {

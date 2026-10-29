@@ -5499,7 +5499,10 @@
       "binReach": "Os registros excluídos antes de {{date}} não podem mais voltar com o seu Id: a lixeira os guarda por 15 dias, menos se encher. Um retrocesso os recria, com Ids novos.",
       "rewound": "Retrocesso feito em {{date}}: pode ser desfeito até {{until}}, antes se a lixeira encher.",
       "rewoundUndated": "Retrocesso feito: pode ser desfeito até {{until}}, antes se a lixeira encher.",
-      "stopComparing": "Parar de comparar campos…"
+      "stopComparing": "Parar de comparar campos…",
+      "access": {
+        "perObject": "Criado com View All e Modify All objeto por objeto, sem View All Data e Modify All Data: só guarda os objetos que o seu usuário via inteiros."
+      }
     },
     "rename": {
       "title": "Renomear “{{name}}”"
@@ -5581,7 +5584,14 @@
       "filesKept_one": "{{formatted}} arquivo está anexado aos registros dele ({{links}}): um retrocesso desfaz o que for anexado a eles desde então.",
       "filesKept_other": "{{formatted}} arquivos estão anexados aos registros dele ({{links}}): um retrocesso desfaz o que for anexado a eles desde então.",
       "fileLinks_one": "{{formatted}} vínculo",
-      "fileLinks_other": "{{formatted}} vínculos"
+      "fileLinks_other": "{{formatted}} vínculos",
+      "access": {
+        "perObject": "{{user}} não tem View All Data e Modify All Data: o ponto de verificação só guarda os objetos em que {{user}} tem View All e Modify All, objeto por objeto — ou, para um objeto sem permissões próprias, em cada registro de que ele depende —, e deixa os outros de fora, sempre as tarefas e eventos, os produtos e catálogos de preços, os arquivos e as configurações personalizadas. Um retrocesso feito por {{user}} deixa na lixeira o que outro usuário excluiu desde então.",
+        "seeLeftOut_one": "Ver o objeto deixado de fora pelas permissões de {{user}}, e por quê",
+        "seeLeftOut_other": "Ver os {{formatted}} objetos deixados de fora pelas permissões de {{user}}, e por quê",
+        "cannotPick": "não pode ser escolhido",
+        "settings": "{{user}} não tem View All Data e Modify All Data: uma configuração personalizada marcada faz a criação ser recusada, pois nenhuma permissão em um objeto prova quem vê e grava cada linha."
+      }
     },
     "preview": {
       "title": "Retroceder {{org}} para “{{name}}” ({{date}})",
@@ -5721,7 +5731,8 @@
         "links_one": "deixa {{formatted}} vínculo entre um arquivo e um registro como estava",
         "links_other": "deixa {{formatted}} vínculos entre arquivos e registros como estavam",
         "customSettings_one": "Destes, {{formatted}} é uma linha de uma configuração personalizada: configuração, que volta ao que o ponto de verificação guarda.",
-        "customSettings_other": "Destes, {{formatted}} são linhas de configurações personalizadas: configuração, que volta ao que o ponto de verificação guarda."
+        "customSettings_other": "Destes, {{formatted}} são linhas de configurações personalizadas: configuração, que volta ao que o ponto de verificação guarda.",
+        "unseen": "Ele também exclui, sem contar, o que {{user}} não consegue ver sob os registros que exclui, em {{children}}."
       },
       "toRecreate_one": "{{formatted}} a recriar",
       "toRecreate_other": "{{formatted}} a recriar",
@@ -5754,6 +5765,16 @@
         "storage_other": "Recuperar {{formatted}} arquivos da lixeira volta a ocupar {{size}} do armazenamento de arquivos; restam {{remaining}} a {{org}}.",
         "storageUnsaid_one": "Recuperar {{formatted}} arquivo da lixeira volta a ocupar {{size}} do armazenamento de arquivos; {{org}} não disse quanto ainda tem.",
         "storageUnsaid_other": "Recuperar {{formatted}} arquivos da lixeira volta a ocupar {{size}} do armazenamento de arquivos; {{org}} não disse quanto ainda tem."
+      },
+      "access": {
+        "perObject": "{{user}} não tem View All Data e Modify All Data: esta prévia leu cada objeto do ponto de verificação com View All e Modify All nesse objeto. Um retrocesso deixa na lixeira o que outro usuário excluiu desde então, e deixa como está um objeto que {{user}} já não tem inteiro, entre os que não pôde ler."
+      },
+      "unseen": {
+        "title": "Também excluídos com eles, sem aparecer",
+        "line_one": "Excluir {{formatted}} registro de {{object}} adicionado desde então também exclui o que {{user}} não consegue ver sob ele em {{children}}: o retrocesso não consegue contar isso.",
+        "line_other": "Excluir {{formatted}} registros de {{object}} adicionados desde então também exclui o que {{user}} não consegue ver sob eles em {{children}}: o retrocesso não consegue contar isso.",
+        "why": "Sem View All Data e Modify All Data, nada prova que {{user}} vê cada registro desses objetos — tarefas e eventos não têm View All. O que deles depende dos registros que o retrocesso exclui vai com eles sem ser contado, e Desfazer recupera o que volta com eles.",
+        "accept": "Excluí-los mesmo assim, com o que {{user}} não consegue ver sob eles"
       }
     },
     "run": {

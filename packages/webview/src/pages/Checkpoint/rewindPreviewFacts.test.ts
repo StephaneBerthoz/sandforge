@@ -25,6 +25,7 @@ import {
   rewindTotals,
   rewindWrites,
   rowOf,
+  unseenChildren,
 } from './rewindPreviewFacts';
 import {
   USERS,
@@ -314,6 +315,21 @@ describe('rewindPreviewFacts', () => {
     expect(outsideLines(diff)).toEqual([
       { objectApiName: 'Account', outside: 'Opportunity', count: 50, parents: 3 },
     ]);
+  });
+
+  it('names once each object whose records the deletions take along out of the user’s sight, in the order the diff first names it', () => {
+    expect(
+      unseenChildren(
+        previewDiff({
+          unseen: [
+            { objectApiName: 'Contact', children: ['Event', 'Task'], records: 5 },
+            { objectApiName: 'Account', children: ['Task', 'acme__Visit__c'], records: 1 },
+          ],
+        }),
+      ),
+    ).toEqual(['Event', 'Task', 'acme__Visit__c']);
+    // Read with View All Data and Modify All Data, or before they were told.
+    expect(unseenChildren(previewDiff())).toEqual([]);
   });
 
   it('names the objects each step of a rewind writes: brought back, given back, deleted', () => {

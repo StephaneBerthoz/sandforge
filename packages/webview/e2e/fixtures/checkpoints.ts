@@ -220,6 +220,96 @@ export function scopeAnswer(
   };
 }
 
+/** The opening the take gives each reason it leaves an object out for its user's permissions. */
+const WITHOUT_BOTH = 'Without View All Data and Modify All Data,';
+
+/**
+ * What `checkpoint:scope` answers a user without View All Data and Modify
+ * All Data who has View All and Modify All on accounts and contacts: those
+ * two held, each by its own permissions, and, in the extension's words,
+ * tasks, events, opportunities, their products and products left out for the
+ * user's permissions, beside a feed left out as any checkpoint leaves it.
+ */
+export function perObjectScope(): CheckpointScopeResponse['payload'] {
+  const [account, contact] = scopeAnswer().objects;
+  const activities = `${WITHOUT_BOTH} tasks and events are left out: Salesforce has no View All for activities, and a private one linked to no record stays out of sight.`;
+  return scopeAnswer({
+    objects: [
+      { ...account, access: 'object' },
+      { ...contact, access: 'object', leftOutFields: [] },
+    ],
+    leftOut: [
+      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
+      { objectApiName: 'Task', reason: activities },
+      { objectApiName: 'Event', reason: activities },
+      {
+        objectApiName: 'Opportunity',
+        reason: `${WITHOUT_BOTH} an object is held only with View All and Modify All on it, and the user SandForge connects as has View All on this one, not Modify All: a rewind could not put back what others changed.`,
+      },
+      {
+        objectApiName: 'OpportunityLineItem',
+        reason: `${WITHOUT_BOTH} an object with no permissions of its own is held only when the user has View All and Modify All on every record it hangs from, which is not proven here (Opportunity, which OpportunityId names, is not held whole).`,
+      },
+      {
+        objectApiName: 'Product2',
+        reason: `${WITHOUT_BOTH} products and price books are left out: Salesforce has no View All or Modify All for them.`,
+      },
+    ],
+    estimate: {
+      records: 2412,
+      apiRequests: 64,
+      apiRequestsLeft: 14_997,
+      seconds: 30,
+      bytes: 2_300_000,
+    },
+  });
+}
+
+/**
+ * A checkpoint of contacts, cases and accounts, taken by a user without View
+ * All Data and Modify All Data, each object held by its own permissions.
+ */
+export function perObjectCheckpoint(): OrgCheckpoint {
+  const checkpoint = readyCheckpoint({ checkpointId: 'ck-per-object', name: 'Before my tests' });
+  return {
+    ...checkpoint,
+    takenBy: { ...checkpoint.takenBy, viewAllData: false, modifyAllData: false },
+    objects: checkpoint.objects
+      .filter((object) => object.objectApiName !== 'OpportunityLineItem')
+      .map((object) => ({ ...object, access: 'object' as const })),
+  };
+}
+
+/**
+ * What `checkpoint:preview` answers the user of {@link perObjectCheckpoint},
+ * read object by object: contacts and accounts created since, whose delete
+ * takes along tasks and events the user is not proven to see; an account
+ * another user deleted since, left in the recycle bin; and the cases, which
+ * the user no longer holds whole, not read.
+ */
+export function perObjectPreview(checkpointId: string): CheckpointPreviewResponse['payload'] {
+  const answer = plainPreview(checkpointId, 'pv-per-object');
+  const [contact, account] = answer.diff.objects;
+  return {
+    ...answer,
+    diff: {
+      ...answer.diff,
+      objects: [contact, { ...account, cannotUndo: [{ reason: 'deletedByOther', count: 1 }] }],
+      unread: [
+        {
+          objectApiName: 'Case',
+          reason: `${CHECKPOINT_ORG.username} no longer has View All and Modify All on Case`,
+        },
+      ],
+      access: { kind: 'perObject', requests: 4 },
+      unseen: [
+        { objectApiName: 'Contact', children: ['Event', 'Task'], records: 5 },
+        { objectApiName: 'Account', children: ['Task'], records: 3 },
+      ],
+    },
+  };
+}
+
 /** One object of a diff with nothing to do, unless `overrides` says otherwise. */
 export function diffObject(
   objectApiName: string,

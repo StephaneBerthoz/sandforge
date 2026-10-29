@@ -5499,7 +5499,10 @@
       "binReach": "Los registros eliminados antes del {{date}} ya no pueden volver con su Id: la papelera los guarda 15 días, menos si se llena. Un retroceso los crea de nuevo, con Id nuevos.",
       "rewound": "Retroceso hecho el {{date}}: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
       "rewoundUndated": "Retroceso hecho: se puede deshacer hasta el {{until}}, antes si la papelera se llena.",
-      "stopComparing": "Dejar de comparar campos…"
+      "stopComparing": "Dejar de comparar campos…",
+      "access": {
+        "perObject": "Creado con View All y Modify All objeto por objeto, sin View All Data y Modify All Data: solo guarda los objetos que su usuario veía enteros."
+      }
     },
     "rename": {
       "title": "Cambiar el nombre de «{{name}}»"
@@ -5581,7 +5584,14 @@
       "filesKept_one": "{{formatted}} archivo está adjunto a sus registros ({{links}}): un retroceso deshace lo que se les adjunte desde entonces.",
       "filesKept_other": "{{formatted}} archivos están adjuntos a sus registros ({{links}}): un retroceso deshace lo que se les adjunte desde entonces.",
       "fileLinks_one": "{{formatted}} vínculo",
-      "fileLinks_other": "{{formatted}} vínculos"
+      "fileLinks_other": "{{formatted}} vínculos",
+      "access": {
+        "perObject": "{{user}} no tiene View All Data y Modify All Data: el punto de control solo guarda los objetos sobre los que {{user}} tiene View All y Modify All, objeto por objeto — o, para un objeto sin permisos propios, sobre cada registro del que depende —, y deja fuera los demás, siempre las tareas y eventos, los productos y listas de precios, los archivos y las configuraciones personalizadas. Un retroceso hecho por {{user}} deja en la papelera lo que otro usuario eliminó desde entonces.",
+        "seeLeftOut_one": "Ver el objeto que se deja fuera por los permisos de {{user}}, y por qué",
+        "seeLeftOut_other": "Ver los {{formatted}} objetos que se dejan fuera por los permisos de {{user}}, y por qué",
+        "cannotPick": "no se puede elegir",
+        "settings": "{{user}} no tiene View All Data y Modify All Data: una configuración personalizada marcada hace rechazar la creación, porque ningún permiso sobre un objeto prueba quién ve y escribe cada fila."
+      }
     },
     "preview": {
       "title": "Retroceder {{org}} a «{{name}}» ({{date}})",
@@ -5721,7 +5731,8 @@
         "links_one": "deja {{formatted}} vínculo entre un archivo y un registro como estaba",
         "links_other": "deja {{formatted}} vínculos entre archivos y registros como estaban",
         "customSettings_one": "De ellos, {{formatted}} es una fila de una configuración personalizada: configuración, que vuelve a como la guarda el punto de control.",
-        "customSettings_other": "De ellos, {{formatted}} son filas de configuraciones personalizadas: configuración, que vuelve a como la guarda el punto de control."
+        "customSettings_other": "De ellos, {{formatted}} son filas de configuraciones personalizadas: configuración, que vuelve a como la guarda el punto de control.",
+        "unseen": "También elimina, sin contarlo, lo que {{user}} no puede ver bajo los registros que elimina, en {{children}}."
       },
       "toRecreate_one": "{{formatted}} por volver a crear",
       "toRecreate_other": "{{formatted}} por volver a crear",
@@ -5754,6 +5765,16 @@
         "storage_other": "Recuperar {{formatted}} archivos de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; a {{org}} le quedan {{remaining}}.",
         "storageUnsaid_one": "Recuperar {{formatted}} archivo de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; {{org}} no dijo cuánto le queda.",
         "storageUnsaid_other": "Recuperar {{formatted}} archivos de la papelera vuelve a ocupar {{size}} de almacenamiento de archivos; {{org}} no dijo cuánto le queda."
+      },
+      "access": {
+        "perObject": "{{user}} no tiene View All Data y Modify All Data: esta vista previa leyó cada objeto del punto de control con View All y Modify All sobre ese objeto. Un retroceso deja en la papelera lo que otro usuario eliminó desde entonces, y deja como está un objeto que {{user}} ya no tiene entero, entre los que no pudo leer."
+      },
+      "unseen": {
+        "title": "También se eliminan con ellos, sin verse",
+        "line_one": "Eliminar {{formatted}} registro de {{object}} añadido desde entonces también elimina lo que {{user}} no puede ver bajo él en {{children}}: el retroceso no puede contarlo.",
+        "line_other": "Eliminar {{formatted}} registros de {{object}} añadidos desde entonces también elimina lo que {{user}} no puede ver bajo ellos en {{children}}: el retroceso no puede contarlo.",
+        "why": "Sin View All Data y Modify All Data, nada prueba que {{user}} vea cada registro de esos objetos — las tareas y eventos no tienen View All. Lo que de ellos depende de los registros que el retroceso elimina se va con ellos sin contarse, y Deshacer recupera lo que vuelve con ellos.",
+        "accept": "Eliminarlos de todos modos, con lo que {{user}} no puede ver bajo ellos"
       }
     },
     "run": {

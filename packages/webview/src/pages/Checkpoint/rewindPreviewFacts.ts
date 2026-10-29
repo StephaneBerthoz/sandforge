@@ -273,6 +273,17 @@ export function outsideLines(diff: Pick<RewindDiff, 'objects'>): OutsideLine[] {
 }
 
 /**
+ * Read object by object, the objects whose records a rewind's deletions take
+ * along out of its user's sight (`RewindDiff.unseen`), each once, in the
+ * order the diff first names them: what its typed confirmation says goes
+ * with what it deletes, uncounted. None for a diff read with View All Data
+ * and Modify All Data, or before they were told.
+ */
+export function unseenChildren(diff: Partial<Pick<RewindDiff, 'unseen'>>): string[] {
+  return [...new Set((diff.unseen ?? []).flatMap((line) => line.children))];
+}
+
+/**
  * The objects each step of a rewind writes, in the order it writes them: it
  * brings back from the recycle bin, makes again what the bin no longer gives
  * back, gives back values, then deletes. What the org runs as it writes is

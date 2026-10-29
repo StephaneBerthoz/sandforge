@@ -383,6 +383,100 @@ describe('RewindPreview', () => {
     expect(unread.textContent).toContain('Case — The org refused the query.');
   });
 
+  it('says a preview read object by object so, and names an object the user no longer holds whole among those it could not read, with the user', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        access: { kind: 'perObject', requests: 4 },
+        unread: [
+          {
+            objectApiName: 'Opportunity',
+            reason: 'admin@example.com no longer has View All and Modify All on Opportunity',
+          },
+        ],
+      }),
+    });
+    expect(screen.getByTestId('checkpoint-preview-per-object').textContent).toBe(
+      "admin@example.com doesn't have View All Data and Modify All Data: this preview read each object of the checkpoint with View All and Modify All on it. A rewind leaves what another user deleted since in the recycle bin, and leaves as it is an object admin@example.com no longer holds whole, among those it could not read.",
+    );
+    const unread = screen.getByTestId('checkpoint-preview-unread');
+    expect(within(unread).getByRole('heading').textContent).toBe(
+      '1 object could not be read: a rewind leaves it as it is',
+    );
+    expect(within(unread).getByRole('listitem').textContent).toBe(
+      'Opportunity — admin@example.com no longer has View All and Modify All on Opportunity',
+    );
+  });
+
+  it('says nothing of a read object by object when the user has View All Data and Modify All Data', () => {
+    renderPreview();
+    answerPreview();
+    expect(screen.queryByTestId('checkpoint-preview-per-object')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-preview-unseen')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-preview-accept-unseen')).toBeNull();
+  });
+
+  it('says, read object by object, what the deletions take along that the user can’t see, in the refusal’s words, and holds Rewind until it is accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        access: { kind: 'perObject', requests: 4 },
+        unseen: [
+          { objectApiName: 'Contact', children: ['Event', 'Task'], records: 5 },
+          { objectApiName: 'Account', children: ['Task'], records: 1 },
+        ],
+      }),
+    });
+    const section = screen.getByTestId('checkpoint-preview-unseen');
+    expect(within(section).getByRole('heading', { level: 3 }).textContent).toBe(
+      'Also deleted with them, out of sight',
+    );
+    expect(screen.getByTestId('checkpoint-preview-unseen-Contact').textContent).toBe(
+      "Deleting 5 Contact records added since also deletes what admin@example.com can't see under them in Event and Task: Rewind can't count those.",
+    );
+    expect(screen.getByTestId('checkpoint-preview-unseen-Account').textContent).toBe(
+      "Deleting 1 Account record added since also deletes what admin@example.com can't see under it in Task: Rewind can't count those.",
+    );
+    expect(section.textContent).toContain(
+      'Without View All Data and Modify All Data, nothing proves admin@example.com sees every record of those objects — tasks and events have no View All.',
+    );
+    // Named by its section, as the page's other boxes are.
+    expect(section).toHaveAccessibleName('Also deleted with them, out of sight');
+
+    const rewind = screen.getByTestId('checkpoint-preview-rewind');
+    expect(rewind).toBeDisabled();
+    const box = screen.getByRole('checkbox', {
+      name: "Delete them all the same, with what admin@example.com can't see under them",
+    });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    expect(rewind).toBeEnabled();
+    fireEvent.click(rewind);
+    // The typed confirmation says it too: no number counts them.
+    expect(screen.getByRole('dialog').textContent).toContain(
+      "It also deletes, uncounted, what admin@example.com can't see under the records it deletes, in Event and Task.",
+    );
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptUnseen: true, acceptNoUndo: false }),
+      expect.anything(),
+    );
+  });
+
+  it('holds Rewind again once its box of what goes out of sight is unticked', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        access: { kind: 'perObject', requests: 4 },
+        unseen: [{ objectApiName: 'Account', children: ['Task'], records: 3 }],
+      }),
+    });
+    const box = screen.getByTestId('checkpoint-preview-accept-unseen');
+    fireEvent.click(box);
+    fireEvent.click(box);
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+  });
+
   it('rewinds with what the preview read, nothing more to accept, once the org’s name is typed', () => {
     const { onRewind } = renderPreview();
     answerPreview();

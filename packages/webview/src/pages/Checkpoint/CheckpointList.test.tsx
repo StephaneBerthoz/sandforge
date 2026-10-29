@@ -211,6 +211,27 @@ describe('CheckpointList', () => {
     expect(screen.queryByTestId(`checkpoint-expires-${ID}`)).toBeNull();
     expect(screen.queryByTestId(`checkpoint-bin-reach-${ID}`)).toBeNull();
     expect(screen.queryByTestId(`checkpoint-rewound-${ID}`)).toBeNull();
+    // Taken with View All Data and Modify All Data, as before 1.70.
+    expect(screen.queryByTestId(`checkpoint-per-object-${ID}`)).toBeNull();
+  });
+
+  it('says a checkpoint taken without View All Data and Modify All Data was taken with View All and Modify All per object', () => {
+    const checkpoint = readyCheckpoint();
+    renderList([
+      listEntry(
+        readyCheckpoint({
+          takenBy: { ...checkpoint.takenBy, viewAllData: false, modifyAllData: false },
+          objects: checkpoint.objects.map((object) => ({ ...object, access: 'object' })),
+        }),
+      ),
+    ]);
+    expect(screen.getByTestId(`checkpoint-per-object-${ID}`).textContent).toBe(
+      'Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole.',
+    );
+    // Within its row, beneath its facts.
+    expect(
+      within(screen.getByTestId(`checkpoint-row-${ID}`)).getByTestId(`checkpoint-per-object-${ID}`),
+    ).toBeInTheDocument();
   });
 
   it('says a checkpoint expires within days, and keeps it from that line', () => {

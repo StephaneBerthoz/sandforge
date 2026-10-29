@@ -5499,7 +5499,10 @@
       "binReach": "Les enregistrements supprimés avant le {{date}} ne peuvent plus revenir avec leur Id : la corbeille les garde 15 jours, moins si elle se remplit. Un retour arrière les recrée, avec de nouveaux Id.",
       "rewound": "Retour arrière fait le {{date}} : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
       "rewoundUndated": "Retour arrière fait : il peut être annulé jusqu'au {{until}}, plus tôt si la corbeille se remplit.",
-      "stopComparing": "Ne plus comparer des champs…"
+      "stopComparing": "Ne plus comparer des champs…",
+      "access": {
+        "perObject": "Pris avec View All et Modify All objet par objet, sans View All Data et Modify All Data : il ne garde que les objets que son utilisateur voyait en entier."
+      }
     },
     "rename": {
       "title": "Renommer « {{name}} »"
@@ -5581,7 +5584,14 @@
       "filesKept_one": "{{formatted}} fichier est joint à ses enregistrements ({{links}}) : un retour arrière reprend ce qui leur est joint depuis.",
       "filesKept_other": "{{formatted}} fichiers sont joints à ses enregistrements ({{links}}) : un retour arrière reprend ce qui leur est joint depuis.",
       "fileLinks_one": "{{formatted}} lien",
-      "fileLinks_other": "{{formatted}} liens"
+      "fileLinks_other": "{{formatted}} liens",
+      "access": {
+        "perObject": "{{user}} n'a pas View All Data et Modify All Data : le point de contrôle ne garde que les objets sur lesquels {{user}} a View All et Modify All, objet par objet — ou, pour un objet sans autorisations propres, sur chaque enregistrement dont il dépend — et laisse les autres de côté, les tâches et événements, les produits et catalogues de prix, les fichiers et paramètres personnalisés toujours. Un retour arrière fait par {{user}} laisse dans la corbeille ce qu'un autre utilisateur a supprimé depuis.",
+        "seeLeftOut_one": "Voir l'objet laissé de côté pour les autorisations de {{user}}, et pourquoi",
+        "seeLeftOut_other": "Voir les {{formatted}} objets laissés de côté pour les autorisations de {{user}}, et pourquoi",
+        "cannotPick": "ne peut pas être choisi",
+        "settings": "{{user}} n'a pas View All Data et Modify All Data : un paramètre personnalisé coché fait refuser la création, car aucune autorisation sur un objet ne prouve qui voit et écrit chaque ligne."
+      }
     },
     "preview": {
       "title": "Faire revenir {{org}} à « {{name}} » ({{date}})",
@@ -5721,7 +5731,8 @@
         "links_one": "remet {{formatted}} lien entre un fichier et un enregistrement comme il était",
         "links_other": "remet {{formatted}} liens entre des fichiers et des enregistrements comme ils étaient",
         "customSettings_one": "Parmi eux, {{formatted}} est une ligne d'un paramètre personnalisé : de la configuration, remise telle que le point de contrôle la garde.",
-        "customSettings_other": "Parmi eux, {{formatted}} sont des lignes de paramètres personnalisés : de la configuration, remises telles que le point de contrôle les garde."
+        "customSettings_other": "Parmi eux, {{formatted}} sont des lignes de paramètres personnalisés : de la configuration, remises telles que le point de contrôle les garde.",
+        "unseen": "Il supprime aussi, sans le compter, ce que {{user}} ne peut pas voir sous les enregistrements qu'il supprime, dans {{children}}."
       },
       "toRecreate_one": "{{formatted}} à recréer",
       "toRecreate_other": "{{formatted}} à recréer",
@@ -5754,6 +5765,16 @@
         "storage_other": "Rétablir {{formatted}} fichiers depuis la corbeille reprend {{size}} de stockage de fichiers ; il en reste {{remaining}} à {{org}}.",
         "storageUnsaid_one": "Rétablir {{formatted}} fichier depuis la corbeille reprend {{size}} de stockage de fichiers ; {{org}} n'a pas dit combien il lui en reste.",
         "storageUnsaid_other": "Rétablir {{formatted}} fichiers depuis la corbeille reprend {{size}} de stockage de fichiers ; {{org}} n'a pas dit combien il lui en reste."
+      },
+      "access": {
+        "perObject": "{{user}} n'a pas View All Data et Modify All Data : cet aperçu a lu chaque objet du point de contrôle avec View All et Modify All sur cet objet. Un retour arrière laisse dans la corbeille ce qu'un autre utilisateur a supprimé depuis, et laisse tel quel un objet que {{user}} ne détient plus en entier, parmi ceux qu'il n'a pas pu lire."
+      },
+      "unseen": {
+        "title": "Supprimés aussi avec eux, hors de vue",
+        "line_one": "Supprimer {{formatted}} enregistrement {{object}} ajouté depuis supprime aussi ce que {{user}} ne peut pas voir sous lui dans {{children}} : le retour arrière ne peut pas le compter.",
+        "line_other": "Supprimer {{formatted}} enregistrements {{object}} ajoutés depuis supprime aussi ce que {{user}} ne peut pas voir sous eux dans {{children}} : le retour arrière ne peut pas le compter.",
+        "why": "Sans View All Data et Modify All Data, rien ne prouve que {{user}} voit chaque enregistrement de ces objets — les tâches et événements n'ont pas de View All. Ce qui, dans ces objets, dépend des enregistrements que le retour arrière supprime part avec eux sans être compté, et l'annulation rétablit ce qui revient avec eux.",
+        "accept": "Les supprimer quand même, avec ce que {{user}} ne peut pas voir sous eux"
       }
     },
     "run": {

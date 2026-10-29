@@ -5499,7 +5499,10 @@
       "binReach": "Vor dem {{date}} gelöschte Datensätze können nicht mehr mit ihrer Id zurückkommen: Der Papierkorb behält sie 15 Tage, weniger, wenn er sich füllt. Ein Zurücksetzen legt sie mit neuen Ids neu an.",
       "rewound": "Zurückgesetzt am {{date}}: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
       "rewoundUndated": "Zurückgesetzt: Es kann bis {{until}} rückgängig gemacht werden, früher, wenn sich der Papierkorb füllt.",
-      "stopComparing": "Felder nicht mehr vergleichen…"
+      "stopComparing": "Felder nicht mehr vergleichen…",
+      "access": {
+        "perObject": "Mit View All und Modify All Objekt für Objekt erstellt, ohne View All Data und Modify All Data: Er hält nur die Objekte, die sein Benutzer ganz sah."
+      }
     },
     "rename": {
       "title": "„{{name}}“ umbenennen"
@@ -5581,7 +5584,14 @@
       "filesKept_one": "{{formatted}} Datei ist an seine Datensätze angehängt ({{links}}): Ein Zurücksetzen nimmt zurück, was seitdem an sie angehängt wird.",
       "filesKept_other": "{{formatted}} Dateien sind an seine Datensätze angehängt ({{links}}): Ein Zurücksetzen nimmt zurück, was seitdem an sie angehängt wird.",
       "fileLinks_one": "{{formatted}} Verknüpfung",
-      "fileLinks_other": "{{formatted}} Verknüpfungen"
+      "fileLinks_other": "{{formatted}} Verknüpfungen",
+      "access": {
+        "perObject": "{{user}} hat View All Data und Modify All Data nicht: Der Prüfpunkt hält nur die Objekte, für die {{user}} View All und Modify All hat, Objekt für Objekt — oder, für ein Objekt ohne eigene Berechtigungen, für jeden Datensatz, an dem es hängt —, und lässt die anderen aus, Aufgaben und Ereignisse, Produkte und Preisbücher, Dateien und benutzerdefinierte Einstellungen immer. Ein Zurücksetzen durch {{user}} lässt im Papierkorb, was ein anderer Benutzer seitdem gelöscht hat.",
+        "seeLeftOut_one": "Das wegen der Berechtigungen von {{user}} ausgelassene Objekt und den Grund anzeigen",
+        "seeLeftOut_other": "Die {{formatted}} wegen der Berechtigungen von {{user}} ausgelassenen Objekte und die Gründe anzeigen",
+        "cannotPick": "kann nicht ausgewählt werden",
+        "settings": "{{user}} hat View All Data und Modify All Data nicht: Eine angehakte benutzerdefinierte Einstellung lässt die Erstellung ablehnen, da keine Berechtigung auf einem Objekt belegt, wer jede Zeile sieht und schreibt."
+      }
     },
     "preview": {
       "title": "{{org}} auf „{{name}}“ zurücksetzen ({{date}})",
@@ -5721,7 +5731,8 @@
         "links_one": "stellt {{formatted}} Verknüpfung zwischen einer Datei und einem Datensatz wieder so her, wie sie war",
         "links_other": "stellt {{formatted}} Verknüpfungen zwischen Dateien und Datensätzen wieder so her, wie sie waren",
         "customSettings_one": "Davon ist {{formatted}} eine Zeile einer benutzerdefinierten Einstellung: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält.",
-        "customSettings_other": "Davon sind {{formatted}} Zeilen benutzerdefinierter Einstellungen: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält."
+        "customSettings_other": "Davon sind {{formatted}} Zeilen benutzerdefinierter Einstellungen: Konfiguration, so zurückgesetzt, wie der Prüfpunkt sie hält.",
+        "unseen": "Es löscht auch, ungezählt, was {{user}} unter den Datensätzen, die es löscht, in {{children}} nicht sehen kann."
       },
       "toRecreate_one": "{{formatted}} neu anzulegen",
       "toRecreate_other": "{{formatted}} neu anzulegen",
@@ -5754,6 +5765,16 @@
         "storage_other": "{{formatted}} Dateien aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat noch {{remaining}}.",
         "storageUnsaid_one": "{{formatted}} Datei aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat nicht gesagt, wie viel noch frei ist.",
         "storageUnsaid_other": "{{formatted}} Dateien aus dem Papierkorb zurückzuholen belegt wieder {{size}} Dateispeicher; {{org}} hat nicht gesagt, wie viel noch frei ist."
+      },
+      "access": {
+        "perObject": "{{user}} hat View All Data und Modify All Data nicht: Diese Vorschau hat jedes Objekt des Prüfpunkts mit View All und Modify All auf diesem Objekt gelesen. Ein Zurücksetzen lässt im Papierkorb, was ein anderer Benutzer seitdem gelöscht hat, und lässt ein Objekt, das {{user}} nicht mehr ganz hält, wie es ist, unter denen, die es nicht lesen konnte."
+      },
+      "unseen": {
+        "title": "Mit ihnen ebenfalls gelöscht, außer Sicht",
+        "line_one": "Das Löschen von {{formatted}} seitdem hinzugekommenen {{object}}-Datensatz löscht auch, was {{user}} darunter in {{children}} nicht sehen kann: Das Zurücksetzen kann das nicht zählen.",
+        "line_other": "Das Löschen von {{formatted}} seitdem hinzugekommenen {{object}}-Datensätzen löscht auch, was {{user}} darunter in {{children}} nicht sehen kann: Das Zurücksetzen kann das nicht zählen.",
+        "why": "Ohne View All Data und Modify All Data belegt nichts, dass {{user}} jeden Datensatz dieser Objekte sieht — Aufgaben und Ereignisse haben kein View All. Was davon an den Datensätzen hängt, die das Zurücksetzen löscht, geht ungezählt mit ihnen, und das Rückgängigmachen holt zurück, was mit ihnen zurückkommt.",
+        "accept": "Trotzdem löschen, mit dem, was {{user}} darunter nicht sehen kann"
       }
     },
     "run": {

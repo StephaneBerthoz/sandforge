@@ -35,7 +35,9 @@ import {
 import {
   CHECKPOINT_KEEP_DAYS,
   CHECKPOINT_NAME_MAX,
+  heldPerObject,
   isCheckpointName,
+  leftOutForAccess,
   objectsWithRecords,
   recordsHeld,
   refusedBeforeScope,
@@ -101,8 +103,16 @@ export interface TakeCheckpointProps {
  * Nothing is read from the org's records until the take is asked for: the
  * scope reads its describes and counts only, and the extension refuses there,
  * before any record is read, what the take would be refused (a production
- * org, a user without View All Data and Modify All Data, too many records, too
- * few API requests left today, a SandForge run writing to the org).
+ * org, a user without View All Data and Modify All Data who has View All and
+ * Modify All on none of its objects, or on an object asked for by name, too
+ * many records, too few API requests left today, a SandForge run writing to
+ * the org).
+ *
+ * A user without View All Data and Modify All Data takes a checkpoint of the
+ * objects they hold whole, with View All and Modify All per object: Before it
+ * runs says so, the objects left out for their permissions are listed apart,
+ * each with why, and one looked for by name among the objects to pick is
+ * named there with why it cannot be, rather than missing from the list.
  *
  * The org's custom settings are offered apart, none picked: configuration a
  * rewind sets back whoever changed it since. Picked, they are held in either
@@ -195,10 +205,19 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
       : mode === 'everything'
         ? everythingQuery
         : pickedScope;
-  const offered: CheckpointScopeCustomSetting[] =
-    everything.data && !refusedBeforeScope(everything.data)
-      ? (everything.data.customSettings ?? [])
-      : [];
+  const everythingRead =
+    everything.data && !refusedBeforeScope(everything.data) ? everything.data : null;
+  const offered: CheckpointScopeCustomSetting[] = everythingRead?.customSettings ?? [];
+  // Without View All Data and Modify All Data, the objects held whole per
+  // object: the scope of everything says it before any pick, the current
+  // choice's once answered.
+  const perObject =
+    (everythingRead !== null && heldPerObject(everythingRead)) ||
+    (answer !== null && heldPerObject(answer));
+  // What the current choice leaves out for the user's permissions, said
+  // apart from what any checkpoint leaves out.
+  const leftOutForRights = answer?.leftOut.filter(leftOutForAccess) ?? [];
+  const leftOutOtherwise = answer?.leftOut.filter((object) => !leftOutForAccess(object)) ?? [];
   const nameValid = isCheckpointName(name);
   const canTake =
     answer !== null && answer.refusal === undefined && nameValid && !take.loading && !taken;
@@ -288,40 +307,48 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
               <span>{t('checkpoint.take.picked')}</span>
             </label>
 
-            {everything.data && !refusedBeforeScope(everything.data) && (
+            {everythingRead && (
               <ScopeObjects
-                answer={everything.data}
+                answer={everythingRead}
                 picking={mode === 'picked'}
                 picked={picked}
                 onPick={setPicked}
               />
             )}
             {offered.length > 0 && (
-              <CustomSettings offered={offered} picked={settings} onPick={setSettings} />
+              <CustomSettings
+                offered={offered}
+                picked={settings}
+                onPick={setSettings}
+                perObject={perObject}
+                username={org.username}
+              />
             )}
             <p className="text-xs text-text-secondary" data-testid="checkpoint-left-out-always">
               {settings.length > 0
                 ? t('checkpoint.take.leftOutAlwaysWithSettings')
                 : t('checkpoint.take.leftOutAlways')}
             </p>
-            {answer && answer.leftOut.length > 0 && (
-              <details className="text-xs text-text-primary" data-testid="checkpoint-left-out">
-                <summary className="cursor-pointer">
-                  {t('checkpoint.take.seeLeftOut', {
-                    count: answer.leftOut.length,
-                    formatted: formatNumber(answer.leftOut.length),
-                  })}
-                </summary>
-                <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
-                  {answer.leftOut.map((object) => (
-                    <li key={object.objectApiName}>
-                      <span className="font-mono">{object.objectApiName}</span>
-                      {' — '}
-                      {object.reason}
-                    </li>
-                  ))}
-                </ul>
-              </details>
+            {leftOutOtherwise.length > 0 && (
+              <LeftOut
+                objects={leftOutOtherwise}
+                summary={t('checkpoint.take.seeLeftOut', {
+                  count: leftOutOtherwise.length,
+                  formatted: formatNumber(leftOutOtherwise.length),
+                })}
+                testId="checkpoint-left-out"
+              />
+            )}
+            {leftOutForRights.length > 0 && (
+              <LeftOut
+                objects={leftOutForRights}
+                summary={t('checkpoint.take.access.seeLeftOut', {
+                  count: leftOutForRights.length,
+                  formatted: formatNumber(leftOutForRights.length),
+                  user: org.username,
+                })}
+                testId="checkpoint-left-out-access"
+              />
             )}
           </fieldset>
 
@@ -329,6 +356,7 @@ export const TakeCheckpoint: React.FC<TakeCheckpointProps> = ({ org, onClose, on
             orgName={orgName}
             username={org.username}
             answer={answer}
+            perObject={perObject}
             keep={keep}
             reading={
               scopeQuery.loading ||
@@ -432,6 +460,9 @@ interface ScopeObjectsProps {
  * records, the empty ones it holds so that what is created there later is
  * caught, those of each managed package — and, with "Only the objects I
  * pick", the same objects to pick from: only those a checkpoint can hold.
+ * An object its user's permissions leave out, looked for by name, is named
+ * under them with why it can't be picked: one missing from the list would
+ * read as one the org does not have.
  */
 const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, onPick }) => {
   const { t } = useTranslation();
@@ -464,6 +495,15 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
       )
     : ordered;
   const listed = matching.slice(0, LISTED_OBJECTS);
+  const notHeld =
+    picking && needle
+      ? answer.leftOut
+          .filter(
+            (object) =>
+              leftOutForAccess(object) && object.objectApiName.toLowerCase().includes(needle),
+          )
+          .slice(0, LISTED_OBJECTS)
+      : [];
 
   const toggle = (object: CheckpointScopeObject): void => {
     onPick(
@@ -540,8 +580,22 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
             </li>
           );
         })}
+        {notHeld.map((object) => (
+          <li
+            key={object.objectApiName}
+            className="flex flex-col gap-0.5 px-2 py-1 text-xs text-text-primary"
+            data-testid={`checkpoint-pick-not-held-${object.objectApiName}`}
+          >
+            <span>
+              <span className="font-mono">{object.objectApiName}</span>
+              {' — '}
+              {t('checkpoint.take.access.cannotPick')}
+            </span>
+            <span className="text-text-secondary">{object.reason}</span>
+          </li>
+        ))}
       </ul>
-      {matching.length === 0 && (
+      {matching.length === 0 && notHeld.length === 0 && (
         <p className="text-xs text-text-secondary">{t('checkpoint.take.noMatch')}</p>
       )}
       {matching.length > listed.length && (
@@ -593,6 +647,26 @@ const ScopeObjects: React.FC<ScopeObjectsProps> = ({ answer, picking, picked, on
   );
 };
 
+/** Objects a scope leaves out, folded under `summary`, each with why in the extension's words. */
+const LeftOut: React.FC<{
+  objects: ScopeAnswer['leftOut'];
+  summary: string;
+  testId: string;
+}> = ({ objects, summary, testId }) => (
+  <details className="text-xs text-text-primary" data-testid={testId}>
+    <summary className="cursor-pointer">{summary}</summary>
+    <ul className="mt-1 flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+      {objects.map((object) => (
+        <li key={object.objectApiName}>
+          <span className="font-mono">{object.objectApiName}</span>
+          {' — '}
+          {object.reason}
+        </li>
+      ))}
+    </ul>
+  </details>
+);
+
 /** What each kind of custom setting is called beside its name. */
 const KIND_KEYS: Readonly<Record<CheckpointCustomSettingKind, string>> = {
   hierarchy: 'checkpoint.take.customSettings.hierarchy',
@@ -605,17 +679,32 @@ interface CustomSettingsProps {
   offered: readonly CheckpointScopeCustomSetting[];
   picked: string[];
   onPick: (picked: string[]) => void;
+  /** The user has no View All Data and Modify All Data: a custom setting ticked refuses the take. */
+  perObject: boolean;
+  username: string;
 }
 
 /**
  * The org's custom settings, folded, none picked: each with its kind and its
  * rows when the org said them, and one box that picks them all. A rewind sets
  * back the rows of those picked as the checkpoint holds them, whoever changed
- * them since — an integration's endpoint, an admin's switch.
+ * them since — an integration's endpoint, an admin's switch. For a user
+ * without View All Data and Modify All Data, it says before any is ticked
+ * that one ticked refuses the take: no permission on an object proves who
+ * sees and writes every row. Ticked all the same, the refusal names it
+ * before the take is asked for.
  */
-const CustomSettings: React.FC<CustomSettingsProps> = ({ offered, picked, onPick }) => {
+const CustomSettings: React.FC<CustomSettingsProps> = ({
+  offered,
+  picked,
+  onPick,
+  perObject,
+  username,
+}) => {
   const { t } = useTranslation();
   const hintId = useId();
+  const accessId = useId();
+  const describedBy = perObject ? `${hintId} ${accessId}` : hintId;
   const everyOne = offered.every((setting) => picked.includes(setting.objectApiName));
   const toggle = (objectApiName: string): void => {
     onPick(
@@ -636,11 +725,16 @@ const CustomSettings: React.FC<CustomSettingsProps> = ({ offered, picked, onPick
         <p id={hintId} className="text-text-secondary">
           {t('checkpoint.take.customSettings.hint')}
         </p>
+        {perObject && (
+          <p id={accessId} data-testid="checkpoint-custom-settings-per-object">
+            {t('checkpoint.take.access.settings', { user: username })}
+          </p>
+        )}
         <label className="flex cursor-pointer items-center gap-2 px-2 py-1">
           <input
             type="checkbox"
             checked={everyOne}
-            aria-describedby={hintId}
+            aria-describedby={describedBy}
             onChange={() => onPick(everyOne ? [] : offered.map((setting) => setting.objectApiName))}
             data-testid="checkpoint-custom-settings-all"
           />
@@ -656,7 +750,7 @@ const CustomSettings: React.FC<CustomSettingsProps> = ({ offered, picked, onPick
                 <input
                   type="checkbox"
                   checked={picked.includes(setting.objectApiName)}
-                  aria-describedby={hintId}
+                  aria-describedby={describedBy}
                   onChange={() => toggle(setting.objectApiName)}
                   data-testid={`checkpoint-custom-setting-${setting.objectApiName}`}
                 />
@@ -688,6 +782,8 @@ interface BeforeItRunsProps {
   username: string;
   /** The scope of the current choice, once answered. */
   answer: ScopeAnswer | null;
+  /** Its user has no View All Data and Modify All Data: it holds what they hold whole, per object. */
+  perObject: boolean;
   keep: boolean;
   /** The scope of the current choice is being read. */
   reading: boolean;
@@ -703,12 +799,16 @@ interface BeforeItRunsProps {
  * API requests against what the org has left today, room on this machine and
  * how long it is kept; that it holds the values in clear; the objects whose
  * deleted records come back only with their parent; the fields it cannot
- * hold; and, when the extension would refuse the take, why.
+ * hold; for a user without View All Data and Modify All Data, that it holds
+ * what they hold whole with View All and Modify All per object, and what a
+ * rewind of theirs then leaves; and, when the extension would refuse the
+ * take, why.
  */
 const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
   orgName,
   username,
   answer,
+  perObject,
   keep,
   reading,
   nothingPicked,
@@ -796,6 +896,11 @@ const BeforeItRuns: React.FC<BeforeItRunsProps> = ({
         </p>
         <p>{t('checkpoint.take.inClear')}</p>
         <p>{t('checkpoint.take.askToStop', { org: orgName })}</p>
+        {perObject && (
+          <p data-testid="checkpoint-access-per-object">
+            {t('checkpoint.take.access.perObject', { user: username })}
+          </p>
+        )}
         {withParent.length > 0 && (
           <p data-testid="checkpoint-with-parent">
             {t('checkpoint.take.withParent', { objects: listWords(withParent, t) })}

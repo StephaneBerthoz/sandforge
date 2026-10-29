@@ -209,6 +209,63 @@ export function scopeAnswer(
   };
 }
 
+/**
+ * Why a scope leaves out an object for its user's permissions, in the
+ * extension's words (`LEFT_OUT_WORDS` of takeCheckpoint.ts): a task, an
+ * object the user has View All on and not Modify All, and a product.
+ */
+export const LEFT_OUT_FOR_ACCESS = {
+  activities:
+    'Without View All Data and Modify All Data, tasks and events are left out: Salesforce has ' +
+    'no View All for activities, and a private one linked to no record stays out of sight.',
+  noModifyAll:
+    'Without View All Data and Modify All Data, an object is held only with View All and ' +
+    'Modify All on it, and the user SandForge connects as has View All on this one, not ' +
+    'Modify All: a rewind could not put back what others changed.',
+  catalog:
+    'Without View All Data and Modify All Data, products and price books are left out: ' +
+    'Salesforce has no View All or Modify All for them.',
+  parentNotSeen:
+    'Without View All Data and Modify All Data, an object with no permissions of its own is ' +
+    'held only when the user has View All and Modify All on every record it hangs from, which ' +
+    'is not proven here (Opportunity, which OpportunityId names, is not held whole).',
+} as const;
+
+/**
+ * What `checkpoint:scope` answers a user without View All Data and Modify
+ * All Data who has View All and Modify All on accounts and contacts, held
+ * by their own permissions; tasks, events, opportunities, their products and
+ * products left out for the user's permissions, beside a feed left out as
+ * any checkpoint leaves it.
+ */
+export function perObjectScope(
+  overrides: Partial<CheckpointScopeResponse['payload']> = {},
+): CheckpointScopeResponse['payload'] {
+  const [account, contact] = scopeAnswer().objects;
+  return scopeAnswer({
+    objects: [
+      { ...account, access: 'object' },
+      { ...contact, access: 'object' },
+    ],
+    leftOut: [
+      { objectApiName: 'FeedItem', reason: 'Chatter posts are left out.' },
+      { objectApiName: 'Task', reason: LEFT_OUT_FOR_ACCESS.activities },
+      { objectApiName: 'Event', reason: LEFT_OUT_FOR_ACCESS.activities },
+      { objectApiName: 'Opportunity', reason: LEFT_OUT_FOR_ACCESS.noModifyAll },
+      { objectApiName: 'OpportunityLineItem', reason: LEFT_OUT_FOR_ACCESS.parentNotSeen },
+      { objectApiName: 'Product2', reason: LEFT_OUT_FOR_ACCESS.catalog },
+    ],
+    estimate: {
+      records: 2412,
+      apiRequests: 64,
+      apiRequestsLeft: 14_997,
+      seconds: 30,
+      bytes: 2_300_000,
+    },
+    ...overrides,
+  });
+}
+
 /** The users a preview names, by fake Id: two the org gave a name, one it did not. */
 export const USERS = {
   alice: '005xx0000020001AAA',

@@ -13,6 +13,9 @@ import {
   nothingToRewind,
   nothingToWrite,
   partialOfEveryReason,
+  perObjectCheckpoint,
+  perObjectPreview,
+  perObjectScope,
   plainPreview,
   previewOfEverything,
   previewWithFiles,
@@ -887,6 +890,82 @@ for (const theme of THEMES) {
       await page.getByTestId('checkpoint-take-start').click();
       const take = await host.asked('checkpoint:take');
       expect(take.payload).toMatchObject({ mode: 'everything', customSettings: ['Endpoints__c'] });
+    });
+
+    test('takes a checkpoint per object for a user without View All Data and Modify All Data, names what its permissions leave out, lists it so, and holds its rewind until what goes out of sight is ticked, by the keyboard', async ({
+      page,
+    }) => {
+      const checkpoint = perObjectCheckpoint();
+      const host = await openCheckpoints(page, theme, [listEntry(checkpoint)]);
+      await expect(page.getByTestId('checkpoint-per-object-ck-per-object')).toHaveText(
+        'Taken with View All and Modify All per object, without View All Data and Modify All Data: it holds only the objects its user saw whole.',
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-list"]');
+
+      // The take: what it holds per object, and what the permissions leave out.
+      await page.getByRole('button', { name: 'Take a checkpoint' }).click();
+      await host.answer('checkpoint:scope', perObjectScope());
+      await expect(page.getByTestId('checkpoint-access-per-object')).toContainText(
+        `${CHECKPOINT_ORG.username} doesn't have View All Data and Modify All Data: the checkpoint holds only the objects ${CHECKPOINT_ORG.username} has View All and Modify All on, per object`,
+      );
+      const leftOut = page.getByTestId('checkpoint-left-out-access');
+      await leftOut.locator('summary').click();
+      await expect(leftOut.getByRole('listitem')).toHaveCount(5);
+      await expect(leftOut).toContainText(
+        'Task — Without View All Data and Modify All Data, tasks and events are left out',
+      );
+      await expect(page.getByTestId('checkpoint-left-out')).toContainText('FeedItem');
+      await expectReadable(page, theme, '[data-testid="checkpoint-before-it-runs"]');
+      await page.getByTestId('checkpoint-scope-picked').check();
+      await page.getByTestId('checkpoint-object-filter').fill('task');
+      await expect(page.getByTestId('checkpoint-pick-not-held-Task')).toContainText(
+        "Task — can't be picked",
+      );
+      await expectReadable(page, theme, '[data-testid="checkpoint-object-list"]');
+      await page.getByTestId('checkpoint-take-cancel').click();
+
+      // The preview: read object by object, and what goes out of sight.
+      await page.getByTestId('checkpoint-rewind-ck-per-object').click();
+      await host.answer('checkpoint:preview', perObjectPreview('ck-per-object'));
+      await expect(page.getByTestId('checkpoint-preview-per-object')).toContainText(
+        'this preview read each object of the checkpoint with View All and Modify All on it',
+      );
+      await expect(page.getByTestId('checkpoint-preview-unread')).toContainText(
+        `Case — ${CHECKPOINT_ORG.username} no longer has View All and Modify All on Case`,
+      );
+      await expect(page.getByTestId('checkpoint-preview-cannot-deletedByOther')).toContainText(
+        '1 record deleted since by another user stays in the recycle bin',
+      );
+      await expect(page.getByTestId('checkpoint-preview-unseen-Contact')).toHaveText(
+        `Deleting 5 Contact records added since also deletes what ${CHECKPOINT_ORG.username} can't see under them in Event and Task: Rewind can't count those.`,
+      );
+      const rewind = page.getByTestId('checkpoint-preview-rewind');
+      await expect(rewind).toBeDisabled();
+      await expectReadable(page, theme, '[data-testid="checkpoint-preview-unseen"]');
+
+      const box = page.getByRole('checkbox', {
+        name: `Delete them all the same, with what ${CHECKPOINT_ORG.username} can't see under them`,
+      });
+      await box.focus();
+      await page.keyboard.press('Space');
+      await expect(box).toBeChecked();
+      await expect(rewind).toBeEnabled();
+      await rewind.click();
+      await expect(page.getByRole('dialog')).toContainText(
+        `It also deletes, uncounted, what ${CHECKPOINT_ORG.username} can't see under the records it deletes, in Event and Task.`,
+      );
+      await expectReadable(page, theme, '[role="dialog"]');
+      await confirmTyped(page, ORG);
+      const started = await host.asked('checkpoint:rewind');
+      expect(started.payload).toEqual({
+        checkpointId: 'ck-per-object',
+        previewId: 'pv-per-object',
+        acceptAutomation: false,
+        acceptNoUndo: false,
+        acceptRecreate: false,
+        acceptOutside: false,
+        acceptUnseen: true,
+      });
     });
 
     test('says an org holds its checkpoint’s state, gives the keyboard back to Rewind… on Back, and says a preview with nothing a rewind could write, after one that could not be read', async ({
