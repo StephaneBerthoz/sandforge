@@ -5,6 +5,7 @@ import {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunCreatedRecords,
   forgeRunCreatedSome,
@@ -421,6 +422,30 @@ describe('a run whose ids are in its journal', () => {
       ),
     ).toEqual([]);
     expect(forgeRunCountsLeft(inTheJournal({ journalGone: true }))).toEqual([]);
+  });
+
+  it('counts every record a run created whatever its removals took, for a removal of them all again', () => {
+    const tookAll = {
+      removedAt: '2026-10-14T11:00:00.000Z',
+      deleted: 0,
+      alreadyGone: 60_000,
+      kept: 0,
+      refused: 0,
+    };
+    // Its removal found them all gone: nothing is left to take...
+    expect(forgeRunCountsLeft(inTheJournal({ undo: tookAll }))).toEqual([]);
+    // ...and every one it created is counted, children first.
+    expect(forgeRunCountsCreated(inTheJournal({ undo: tookAll }))).toEqual([
+      { objectApiName: 'Contact', count: 50_000 },
+      { objectApiName: 'Account', count: 10_000 },
+    ]);
+    const removedOnce = { ...accountsThenContacts(), undo: mark(0), removalLeft: [] };
+    expect(forgeRunCountsCreated(removedOnce)).toEqual([
+      { objectApiName: 'Contact', count: 3 },
+      { objectApiName: 'Account', count: 2 },
+    ]);
+    // The journal that held its ids is gone: none can be counted.
+    expect(forgeRunCountsCreated(inTheJournal({ journalGone: true }))).toEqual([]);
   });
 
   it('counts the records an entry holds the ids of as their ids say', () => {

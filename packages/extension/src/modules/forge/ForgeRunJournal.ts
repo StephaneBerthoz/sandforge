@@ -729,16 +729,19 @@ export class ForgeRunJournal {
    * The records the part `part` of the journal `journalId` created that its
    * removals have not taken (`keepLeft`), as a removal takes them, read from
    * the journal a page at a time (`JournalPart`): what {@link idsOf} and
-   * {@link leftOf} give whole, holding no id. Undefined when the journal is
-   * gone or is not that run's, and for a journal of 1.50, read whole. `close`
-   * lets the journal's file go, once the removal is through.
+   * {@link leftOf} give whole, holding no id. With `all`, every record the
+   * part created, whatever its removals took: once an undo of a checkpoint's
+   * rewind brought back what a removal had found gone. Undefined when the
+   * journal is gone or is not that run's, and for a journal of 1.50, read
+   * whole. `close` lets the journal's file go, once the removal is through.
    */
   async recordsOf(
     journalId: string,
     part: number,
+    all = false,
   ): Promise<{ records: RunRecords; close: () => void } | undefined> {
     if (!(await this.head(journalId))) return undefined;
-    const left = await this.leftKeysOf(journalId, part);
+    const left = all ? undefined : await this.leftKeysOf(journalId, part);
     const file = this.deps.openRunFile(this.filePath(journalId));
     const read = JournalPart.read(file, part);
     if (!read) {

@@ -549,7 +549,17 @@ export interface SeedRunRemovalInfo {
   left: Array<{ objectApiName: string; count: number }>;
   /** What the removals of it did, once one took some. */
   removed?: ForgeUndoMark;
-  /** Why no removal can run now; absent when one can. */
+  /**
+   * Once a removal marked it: what it created, per object, in the order a
+   * removal takes them — what a removal asked to take every record again
+   * (`again`) sets out to take, once an undo of a checkpoint's rewind
+   * brought back records that removal had found gone.
+   */
+  createdByObject?: Array<{ objectApiName: string; count: number }>;
+  /**
+   * Why no removal can run now; absent when one can. Once removals took all
+   * it created, why none taking every record again could.
+   */
   refusal?: { code: SeedRemovalRefusalCode; message: string };
   /**
    * Set for a scenario's seed that kept its companion file: the pack it was

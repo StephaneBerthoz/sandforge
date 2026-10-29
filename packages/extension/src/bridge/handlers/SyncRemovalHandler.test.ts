@@ -1021,6 +1021,109 @@ describe('SyncRemovalHandler', () => {
     });
   });
 
+  describe('sync:remove again, once an undo brought back what a removal found gone', () => {
+    /** The user a checkpoint's rewind and its undo ran as. */
+    const REWINDER = fakeId('005', 7);
+    const remove = (payload: Record<string, unknown> = {}) =>
+      handler.handle(buildMsg('sync:remove', { runId: 'run-1', ...payload }));
+    const answers = (): SyncRemovalResult[] =>
+      posted<BaseMessage & { payload: { result: SyncRemovalResult } }>('sync:remove:response').map(
+        (m) => m.payload.result,
+      );
+    const live = (): string[] =>
+      [...org.all('ContentDocument'), ...org.all('Account')].map((r) => r.Id);
+
+    // A rewind deleted what the run created; its removal then found it all
+    // gone; the rewind's undo brought it back five minutes later, dated anew
+    // as its user's.
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    beforeEach(async () => {
+      for (const [object, id] of [
+        ['ContentDocument', DOC],
+        ['Account', A1],
+        ['Account', A2],
+      ] as const) {
+        org.trash(object, id, REWINDER);
+      }
+      await remove();
+      expect(answers()[0]).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'ContentDocument', deleted: 0, alreadyGone: 1 },
+          { objectApiName: 'Account', deleted: 0, alreadyGone: 2 },
+        ],
+      });
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      for (const id of [DOC, A1, A2]) org.untrash(id, REWINDER);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+    });
+
+    it('was refused as removed already, everything back in the target, and lists what taking it all again would take', async () => {
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-1' }));
+      expect(info()).toMatchObject({
+        left: [],
+        removed: { deleted: 0, alreadyGone: 3 },
+        createdByObject: [
+          { objectApiName: 'ContentDocument', count: 1 },
+          { objectApiName: 'Account', count: 2 },
+        ],
+      });
+      expect(info()?.refusal).toBeUndefined();
+
+      await remove();
+
+      expect(errors()[0].payload.code).toBe('ALREADY_REMOVED');
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([A1, A2, DOC].sort());
+    });
+
+    it('reads everything again and keeps it as changed since the run, then removes it with the changed ones included', async () => {
+      await remove({ again: true });
+
+      expect(errors()).toEqual([]);
+      expect(answers()[0]).toMatchObject({
+        status: 'failure',
+        objects: [
+          { objectApiName: 'ContentDocument', planned: 1, deleted: 0, keptChanged: 1 },
+          { objectApiName: 'Account', planned: 2, deleted: 0, keptChanged: 2 },
+        ],
+      });
+      expect(answers()[0].leftBy).toBeUndefined();
+      expect(org.deletes).toEqual([]);
+
+      await remove({ again: true, includeChanged: true });
+
+      expect(answers()[1]).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'ContentDocument', planned: 1, deleted: 1 },
+          { objectApiName: 'Account', planned: 2, deleted: 2 },
+        ],
+      });
+      expect(live()).toEqual([]);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      await handler.handle(buildMsg('sync:removal:info', { runId: 'run-1' }));
+      expect(info()).toMatchObject({
+        left: [],
+        removed: { deleted: 3, alreadyGone: 0, kept: 0, refused: 0 },
+      });
+    });
+
+    it('refuses a request whose again is not a boolean, removing nothing', async () => {
+      await remove({ again: 1, includeChanged: true });
+
+      expect(errors()[0].payload.code).toBe('INVALID_PAYLOAD');
+      expect(answers()).toEqual([]);
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([A1, A2, DOC].sort());
+    });
+  });
+
   describe('sync:earlier-copies', () => {
     const copies = () =>
       posted<BaseMessage & { payload: { copies: unknown } }>('sync:earlier-copies:response')[0]

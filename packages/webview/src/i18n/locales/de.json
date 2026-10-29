@@ -4725,6 +4725,7 @@
     "removeDescription": "Löscht aus {{org}} die Datensätze, die dieser Durchlauf erstellt hat, untergeordnete vor ihren übergeordneten; sie landen in ihrem Papierkorb. Datensätze, mit denen der Durchlauf verknüpft hat und die {{org}} schon enthielt, bleiben erhalten, ebenso ein Datensatz, von dem in {{org}} verbleibende Datensätze abhängen. Ein Datensatz, der seit dem Ende des Durchlaufs geändert wurde oder von dem seitdem hinzugefügte Datensätze abhängen, bleibt erhalten, sofern Sie ihn unten nicht einbeziehen.",
     "removeIncludeChanged": "Auch die seit dem Durchlauf geänderten Datensätze entfernen, samt dem, was ihnen seitdem hinzugefügt wurde",
     "removeSweep": "Zuerst aufräumen: auch zurücknehmen, was die Automatisierung des Ziels während des Durchlaufs als dessen Benutzer erstellt hat — ein solcher Datensatz hält dann keinen Datensatz des Durchlaufs mehr zurück",
+    "removeAgainNote": "Jeder Datensatz, den dieser Durchlauf erstellt hat, wird erneut gelesen, auch die, die sein Entfernen bereits gelöscht vorfand. Das Rückgängigmachen vom {{date}} hat sie zurückgebracht und als Änderung seines Benutzers datiert: Sie gelten als seit dem Durchlauf geändert und bleiben, sofern Sie unten nicht auch die seitdem geänderten Datensätze entfernen.",
     "stopRefused": "Entfernen konnte nicht gestoppt werden",
     "stopRefusedDetail": "Das Entfernen läuft nicht mehr, oder es wurde nicht aus diesem Fenster gestartet.",
     "stopping": "Wird gestoppt: Das Entfernen endet, sobald der laufende Aufruf beantwortet ist. Was bis dahin entfernt wurde, wird aufgeführt; der Rest bleibt in der Org, und ein späteres Entfernen nimmt ihn mit.",
@@ -4853,7 +4854,9 @@
       "leftSome": "das Zurücksetzen hat Datensätze übrig gelassen: Öffnen Sie das Entfernen, um zu sehen, was übrig ist",
       "undone": "am {{date}} rückgängig gemacht",
       "outside": "Nicht zurückgesetzt: {{objects}}, außerhalb des Prüfpunkts",
-      "badge": "Zurückgesetzt"
+      "badge": "Zurückgesetzt",
+      "undoneAfterRemoval": "Seine Datensätze kamen mit dem Rückgängigmachen vom {{date}} zurück, nach seinem Entfernen",
+      "removeAgain": "Erneut entfernen"
     }
   },
   "grappe": {

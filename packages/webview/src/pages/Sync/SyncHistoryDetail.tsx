@@ -255,7 +255,13 @@ export const SyncHistoryDetail: React.FC<SyncHistoryDetailProps> = ({ rewound })
       </div>
 
       {/* What the run created, and its removal. */}
-      {result.created && <SyncRunRemoval runId={result.created.runId} testId="history-removal" />}
+      {result.created && (
+        <SyncRunRemoval
+          runId={result.created.runId}
+          testId="history-removal"
+          {...(rewound ? { rewound } : {})}
+        />
+      )}
 
       {/* Config snapshot summary */}
       <div className="flex flex-col gap-(--sf-space-1)">

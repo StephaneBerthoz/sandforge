@@ -81,8 +81,16 @@ export function removalAuditObjects(
  * What a cancel kept it from reaching is counted too, so the run stays
  * offered for those (`removalTookAll`).
  *
+ * A removal that took every record the run created again (`again`) — an
+ * undo of a checkpoint's rewind brought back what a removal had found gone —
+ * counts them all once more: its counts stand alone, and it marks the run
+ * even when it took none, every one kept as changed since or refused, so the
+ * run is offered for those, and no longer said to have nothing left. Stopped
+ * before it took any, it leaves the run as it found it.
+ *
  * @param planned - How many records the removal set out to take.
  * @param earlier - The mark the removals before this one left on the run.
+ * @param again - Whether it set out to take every record the run created.
  * @returns Nothing when the removal took no record: it leaves the run, and
  *   its mark, as it found them.
  */
@@ -90,16 +98,22 @@ export function removalMark(
   result: Pick<ForgeUndoResult, 'status' | 'objects' | 'finishedAt'>,
   planned: number,
   earlier?: ForgeUndoMark,
+  again = false,
 ): ForgeUndoMark | undefined {
   const sum = (count: (o: ForgeUndoObjectResult) => number): number =>
     result.objects.reduce((total, o) => total + count(o), 0);
   const deleted = sum((o) => o.deleted);
   const alreadyGone = sum((o) => o.alreadyGone);
-  if (deleted + alreadyGone === 0) return undefined;
   const kept = sum((o) => o.keptChanged + o.keptDependents);
   const refused = sum((o) => o.refused);
   // Not seen is not gone: the run stays offered for them, to a user who sees them.
   const notVisible = sum((o) => o.notVisible ?? 0);
+  if (deleted + alreadyGone === 0) {
+    if (!again || result.status === 'cancelled' || kept + refused + notVisible === 0) {
+      return undefined;
+    }
+  }
+  const before = again ? undefined : earlier;
   // A removal that ended settled every record it set out to take; one
   // cancelled left the rest where they were.
   const notReached =
@@ -108,8 +122,8 @@ export function removalMark(
       : 0;
   return {
     removedAt: result.finishedAt,
-    deleted: (earlier?.deleted ?? 0) + deleted,
-    alreadyGone: (earlier?.alreadyGone ?? 0) + alreadyGone,
+    deleted: (before?.deleted ?? 0) + deleted,
+    alreadyGone: (before?.alreadyGone ?? 0) + alreadyGone,
     kept,
     refused,
     ...(notReached > 0 ? { notReached } : {}),

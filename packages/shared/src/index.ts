@@ -208,6 +208,7 @@ export {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunCreatedRecords,
   forgeRunCreatedSome,
@@ -220,6 +221,7 @@ export {
 } from './utils/forge-run-records.js';
 export {
   REWOUND_MARGIN_MS,
+  backAfterRemoval,
   rewoundMarkOf,
   type RewoundMark,
   type RewoundMarkKind,

@@ -5,7 +5,12 @@ import type {
   CheckpointRewindListed,
   CheckpointRewindUndone,
 } from '../types/checkpoint.types.js';
-import { REWOUND_MARGIN_MS, rewoundMarkOf, type RewoundRun } from './rewound-marks.js';
+import {
+  REWOUND_MARGIN_MS,
+  backAfterRemoval,
+  rewoundMarkOf,
+  type RewoundRun,
+} from './rewound-marks.js';
 
 /*
  * A checkpoint taken from 10:00 to 10:05, org clock, and a rewind to it from
@@ -192,5 +197,49 @@ describe('rewoundMarkOf', () => {
 
     expect(rewoundMarkOf({ ...between, startedAt: 'yesterday' }, [rewind()], NOW)).toBeUndefined();
     expect(rewoundMarkOf(between, [rewind({ endedAt: 'never' })], NOW)).toBeUndefined();
+  });
+});
+
+describe('backAfterRemoval', () => {
+  // A seed between the take and the rewind, which deleted its records at
+  // 12:00 to 12:10; on this machine's clock the rewind ended at 12:09.
+  const between = run(ms(at('11:00')), ms(at('11:05')));
+  const undone = rewoundMarkOf(between, [rewind(), undo({ undoneAt: at('14:00') })], NOW);
+
+  it('says the records came back when the undo ended after a removal the rewind had ended before', () => {
+    // The removal at 13:00 found them gone; the undo at 14:00 brought them back.
+    expect(backAfterRemoval(undone, at('13:00'))).toBe(true);
+  });
+
+  it('says nothing came back when the removal ended after the undo, or before the rewind', () => {
+    // Removed at 15:00, after the undo: it took the records the undo brought back.
+    expect(backAfterRemoval(undone, at('15:00'))).toBe(false);
+    // Removed at 11:30, before the rewind: the removal deleted them itself,
+    // and the undo of a rewind that found them gone brings none back.
+    expect(backAfterRemoval(undone, at('11:30'))).toBe(false);
+    // Within two minutes of the rewind's end, the removal reads as after it.
+    expect(backAfterRemoval(undone, new Date(END - M).toISOString())).toBe(true);
+    expect(backAfterRemoval(undone, new Date(END - M - 1).toISOString())).toBe(false);
+  });
+
+  it('says nothing came back without an undo, a removal, or dates that read', () => {
+    const kept = rewoundMarkOf(between, [rewind()], NOW);
+
+    expect(kept?.undoneAt).toBeUndefined();
+    expect(backAfterRemoval(kept, at('13:00'))).toBe(false);
+    expect(backAfterRemoval(undone, undefined)).toBe(false);
+    expect(backAfterRemoval(undefined, at('13:00'))).toBe(false);
+    expect(backAfterRemoval(undone, 'yesterday')).toBe(false);
+  });
+
+  it('says nothing came back once a later rewind that was not undone took the run back again', () => {
+    const later = rewind({
+      rewindId: 'rw-20261028-150000-bbbb',
+      startedAt: at('15:00'),
+      endedAt: at('15:10'),
+    });
+    const again = rewoundMarkOf(between, [rewind(), undo({ undoneAt: at('14:00') }), later], NOW);
+
+    expect(backAfterRemoval(again, at('13:00'))).toBe(false);
   });
 });

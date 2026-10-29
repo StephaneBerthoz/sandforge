@@ -99,6 +99,14 @@ export interface SyncRunRemovalInput {
   org: RemovalOrg;
   /** Remove the records changed since the run too, and what was added to them since. */
   includeChanged: boolean;
+  /**
+   * Take every record and file the run created, not what its removals left
+   * (`syncRemovalPlan`): an undo of a checkpoint's rewind brought back what a
+   * removal had found gone. Each is read before it is deleted, as ever; the
+   * undo dated them anew, so they read as changed since the run unless
+   * `includeChanged`.
+   */
+  again?: boolean;
   /** Where what the removals of the run did is kept. */
   store: SyncRemovalStateStore;
   /** The configuration that ran; absent from the command line, which saves none. */
@@ -239,7 +247,8 @@ function objectsTaken(objects: readonly ForgeUndoObjectResult[]): string[] {
  */
 export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRunRemovalOutcome> {
   const { run, includeChanged } = input;
-  const plan = syncRemovalPlan(run);
+  const again = input.again === true;
+  const plan = syncRemovalPlan(run, again);
   const planned = plan.reduce((sum, object) => sum + object.ids.length, 0);
   const back = syncRestorePlan(run);
   const plannedBack = back.reduce((sum, object) => sum + object.ids.length, 0);
@@ -370,7 +379,8 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
       stoppedForUndeletable: true,
     };
   }
-  const leftBy = run.removal?.undo?.removedAt;
+  // One taking every record again picks up after no removal: it read them all.
+  const leftBy = again ? undefined : run.removal?.undo?.removedAt;
   let result: SyncRemovalResult = {
     runId: run.runId,
     status: withUndelete(
@@ -391,10 +401,14 @@ export async function removeSyncRun(input: SyncRunRemovalInput): Promise<SyncRun
   // creations it did not take, which the next removal sets out to take, with
   // what it wrote to them and when it ran, which the next one reads as its
   // doing, not as changes since the run.
-  const mark = removalMark(result, planned, run.removal?.undo);
+  const mark = removalMark(result, planned, run.removal?.undo, again);
   const gone = new Set(outcome.gone);
+  // Taking every record again, what it left is what is left, though it took
+  // none: what an earlier removal left no longer says it.
   const left =
-    gone.size > 0 ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id))) : undefined;
+    gone.size > 0 || (again && mark)
+      ? plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)))
+      : undefined;
   // What its undeletes dated anew of the records it gives back is its own
   // doing, as what it wrote is: kept with the stamps of its writes.
   const ownStamps = { ...restamped, ...outcome.stamps };

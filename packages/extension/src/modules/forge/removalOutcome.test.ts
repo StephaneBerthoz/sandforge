@@ -240,4 +240,80 @@ describe('removalMark', () => {
       ).toBeUndefined();
     }
   });
+
+  describe('of a removal that took every record the run created again', () => {
+    /** The removal before it found the run's three records gone: a rewind had deleted them. */
+    const earlier = {
+      removedAt: '2026-09-30T08:00:00.000Z',
+      deleted: 0,
+      alreadyGone: 3,
+      kept: 0,
+      refused: 0,
+    };
+
+    it('counts afresh what it took, never adding it to what the earlier removals took', () => {
+      expect(
+        removalMark(
+          {
+            status: 'success',
+            finishedAt: '2026-09-30T10:00:00.000Z',
+            objects: [object({ deleted: 3 })],
+          },
+          3,
+          earlier,
+          true,
+        ),
+      ).toEqual({
+        removedAt: '2026-09-30T10:00:00.000Z',
+        deleted: 3,
+        alreadyGone: 0,
+        kept: 0,
+        refused: 0,
+      });
+      // Taking what was left, it adds to them.
+      expect(
+        removalMark(
+          {
+            status: 'success',
+            finishedAt: '2026-09-30T10:00:00.000Z',
+            objects: [object({ deleted: 3 })],
+          },
+          3,
+          earlier,
+        ),
+      ).toMatchObject({ deleted: 3, alreadyGone: 3 });
+    });
+
+    it('marks the run though it took none, every record kept as changed since, so they stay offered', () => {
+      const mark = removalMark(
+        {
+          status: 'failure',
+          finishedAt: '2026-09-30T10:00:00.000Z',
+          objects: [object({ keptChanged: 3 })],
+        },
+        3,
+        earlier,
+        true,
+      );
+
+      expect(mark).toEqual({
+        removedAt: '2026-09-30T10:00:00.000Z',
+        deleted: 0,
+        alreadyGone: 0,
+        kept: 3,
+        refused: 0,
+      });
+    });
+
+    it('leaves the run as it found it when stopped before it settled any record', () => {
+      expect(
+        removalMark(
+          { status: 'cancelled', finishedAt: '2026-09-30T10:00:00.000Z', objects: [] },
+          3,
+          earlier,
+          true,
+        ),
+      ).toBeUndefined();
+    });
+  });
 });

@@ -189,6 +189,13 @@ export interface SeedRemoveRequest extends BaseMessage {
      * its user, that the run did not write.
      */
     sweep?: boolean;
+    /**
+     * Take every record the run created, not what its removals left: an undo
+     * of a checkpoint's rewind brought back records its removal had found
+     * gone (`backAfterRemoval`). Each is read before it is deleted, as ever;
+     * the undo dated them anew, so they read as changed since the run.
+     */
+    again?: boolean;
   };
 }
 

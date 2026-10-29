@@ -9,6 +9,12 @@ import { formatStoredDate } from '../../utils/formatters';
 export interface RewoundMarkProps {
   /** The mark of the run, as `useRewoundMarks` gives it. */
   mark: RewoundMarkOf;
+  /**
+   * The undo came after the run's removal, which had found its records gone
+   * (`backAfterRemoval`): the undo brought them back, and the line says so
+   * rather than that the rewind was undone.
+   */
+  undoneAfterRemoval?: boolean;
   testId: string;
   className?: string;
 }
@@ -30,8 +36,17 @@ const MAIN_KEYS: Record<RewoundMarkOf['kind'], string> = {
  *
  * Told by dates: a run close to the checkpoint or to the rewind reads as
  * rewound in part, and the run's removal preview counts what is left of it.
+ *
+ * An undo after the run's removal brought back what that removal had found
+ * gone: the line said nothing was left while the records were back in the
+ * org. It says they came back, and the history offers to remove them again.
  */
-export const RewoundMark: React.FC<RewoundMarkProps> = ({ mark, testId, className }) => {
+export const RewoundMark: React.FC<RewoundMarkProps> = ({
+  mark,
+  undoneAfterRemoval = false,
+  testId,
+  className,
+}) => {
   const { t } = useTranslation();
   const dated = (iso: string): string =>
     formatStoredDate(iso, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown');
@@ -39,7 +54,14 @@ export const RewoundMark: React.FC<RewoundMarkProps> = ({ mark, testId, classNam
     t(MAIN_KEYS[mark.kind], { date: dated(mark.at), name: mark.checkpointName }),
     ...(mark.leftSome ? [t('runResults.rewound.leftSome')] : []),
     ...(mark.undoneAt !== undefined
-      ? [t('runResults.rewound.undone', { date: dated(mark.undoneAt) })]
+      ? [
+          t(
+            undoneAfterRemoval
+              ? 'runResults.rewound.undoneAfterRemoval'
+              : 'runResults.rewound.undone',
+            { date: dated(mark.undoneAt) },
+          ),
+        ]
       : []),
     ...(mark.outside.length > 0
       ? [t('runResults.rewound.outside', { objects: mark.outside.join(', ') })]

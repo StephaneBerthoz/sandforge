@@ -993,6 +993,12 @@ describe('the rewound runs the histories mark', () => {
     expect(marks).toContain('**Rewound in part**');
   });
 
+  it('names the mark of a run whose records came back after its removal, and what its history offers then', () => {
+    expect(marks).toContain(`**${named('runResults.rewound.undoneAfterRemoval')}**`);
+    expect(marks).toContain(`**${label('runResults.rewound.removeAgain')}**`);
+    expect(MARKS).toContain('export function backAfterRemoval(');
+  });
+
   it('gives the margin around each bound the marks are told by', () => {
     expect(constant(MARKS, 'REWOUND_MARGIN_MS')).toBe(2 * 60_000);
     expect(marks).toContain('two minutes either side of each');

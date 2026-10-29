@@ -11052,6 +11052,51 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Forge recent runs, one whose records an undo brought back after its removal, removed again', async ({
+      page,
+    }) => {
+      // Its removal on the 23rd at 10:00, after the rewind, found its records
+      // gone; the rewind's undo at 11:00 brought them back.
+      const removed = {
+        ...FORGE_REMOVABLE_RUN,
+        undo: {
+          removedAt: '2026-09-23T10:00:00.000Z',
+          deleted: 0,
+          alreadyGone: 4,
+          kept: 0,
+          refused: 0,
+        },
+        removalLeft: [],
+      };
+      await openPanel(bridge, page, 'forge', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('forge:history:list', { timeout: 10_000 });
+      await answerAll(page, 'forge:history:list', 'forge:history:list:response', {
+        history: [removed],
+      });
+      await bridge.waitForMessage('checkpoint:rewinds', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:rewinds', 'checkpoint:rewinds:response', {
+        rewinds: rewindLedgerOf(QA_SANDBOX.id),
+      });
+      const mark = page.getByTestId(`forge-history-rewound-${FORGE_REMOVABLE_RUN.forgeId}`);
+      await expect(mark).toContainText('Its records came back with the undo of');
+      const again = page.getByTestId(`forge-history-remove-again-${FORGE_REMOVABLE_RUN.forgeId}`);
+      await again.scrollIntoViewIfNeeded();
+      await expectReadable(page, theme);
+
+      await again.click();
+      const dialog = page.getByRole('dialog', {
+        name: `Remove this run's records from ${QA_SANDBOX.alias}`,
+      });
+      await dialog.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(dialog.getByTestId('forge-removal-again-note')).toContainText(
+        'Every record this run created is read again',
+      );
+      await expect(dialog.getByTestId('forge-removal-plan')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
     test('Seed earlier seeds, one another window is writing', async ({ page }) => {
       await openPanel(bridge, page, 'seed', theme);
       await bridge.seedOrgs(MOCK_ORGS);

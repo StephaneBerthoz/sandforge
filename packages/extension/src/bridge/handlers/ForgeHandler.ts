@@ -32,6 +32,7 @@ import {
   forgeRemovalPlanCountsLeft,
   forgeRemovalPlanLeft,
   forgeRemovalPlanOf,
+  forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunCreatedRecords,
   forgeRunRecordsLeft,
@@ -357,10 +358,15 @@ const undoPayloadSchema = z.object({
   forgeId: z.string().min(1).max(200),
   includeChanged: z.boolean().optional(),
   sweep: z.boolean().optional(),
+  // Every record the run created: an undo brought back what a removal found gone.
+  again: z.boolean().optional(),
 });
 // The run alone: what its removal deletes is read from the history, as the
-// removal reads it.
-const undoAutomationPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) });
+// removal reads it — every record it created, `again`.
+const undoAutomationPayloadSchema = z.object({
+  forgeId: z.string().min(1).max(200),
+  again: z.boolean().optional(),
+});
 // The run alone, as for its removal: what a sweep looks at is read from the history.
 const undoSweepPayloadSchema = z.object({ forgeId: z.string().min(1).max(200) });
 // The run and the record, never an address: the page opened is built here,
@@ -3606,6 +3612,13 @@ export class ForgeHandler implements DomainHandler {
    * needs the run's id map, which only the history holds: one asked of a run
    * the history dropped is refused. Asked of a run whose records were all
    * removed already, the sweep runs alone.
+   *
+   * Asked `again`, the removal takes every record the run created rather
+   * than what its removals left: an undo of a checkpoint's rewind brought
+   * back what a removal had found gone, and the run, marked as having none
+   * left, was refused as removed already. Each is read before it is deleted,
+   * as ever, and the undo dated them anew: they are kept as changed since
+   * the run unless `includeChanged`.
    */
   private async handleUndo(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(undoPayloadSchema, msg, 'forge:undo:error', this.deps);
@@ -3613,6 +3626,7 @@ export class ForgeHandler implements DomainHandler {
     const { forgeId } = parsed;
     const includeChanged = parsed.includeChanged === true;
     const sweep = parsed.sweep === true;
+    const again = parsed.again === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     let entry = this.loadHistory().find((e) => e.forgeId === forgeId);
@@ -3686,8 +3700,8 @@ export class ForgeHandler implements DomainHandler {
         // The ids of a run past the bound are read from its journal a page at
         // a time, unless its removals took everything already.
         plan = [];
-        if (forgeRunCountsLeft(entry).length > 0) {
-          const read = await this.journalRecordsOf(inJournal, entry.undo);
+        if (again || forgeRunCountsLeft(entry).length > 0) {
+          const read = await this.journalRecordsOf(inJournal, entry.undo, again);
           if ('gone' in read) {
             refuse(read.gone, JOURNAL_GONE);
             return;
@@ -3698,7 +3712,7 @@ export class ForgeHandler implements DomainHandler {
       } else {
         // What earlier removals left, when one did: a removal that ended
         // partial marked the run, and the next one was refused as done already.
-        plan = forgeRunRecordsLeft(entry);
+        plan = again ? forgeRunCreatedRecords(entry) : forgeRunRecordsLeft(entry);
       }
     } else if (kept) {
       if (sweep) {
@@ -3719,8 +3733,8 @@ export class ForgeHandler implements DomainHandler {
           : {}),
       };
       const { inJournal } = kept;
-      if (inJournal && forgeRemovalPlanCountsLeft(kept).length > 0) {
-        const read = await this.journalRecordsOf(inJournal, kept.undo);
+      if (inJournal && (again || forgeRemovalPlanCountsLeft(kept).length > 0)) {
+        const read = await this.journalRecordsOf(inJournal, kept.undo, again);
         if ('gone' in read) {
           refuse(read.gone, JOURNAL_GONE);
           return;
@@ -3728,7 +3742,9 @@ export class ForgeHandler implements DomainHandler {
         plan = read.records;
         close = read.close;
       } else {
-        plan = forgeRemovalPlanLeft(kept);
+        plan = again
+          ? kept.objects.map(({ objectApiName, ids }) => ({ objectApiName, ids: [...ids] }))
+          : forgeRemovalPlanLeft(kept);
       }
     } else {
       refuse('This run is no longer in the Forge history.', 'NOT_FOUND');
@@ -3758,7 +3774,14 @@ export class ForgeHandler implements DomainHandler {
       this.removing.add(forgeId);
       const pending = this.deps.infraServices?.backgroundRegistry?.holdUntilStart(msg.id);
       try {
-        await this.removeRun(msg, run, plan, includeChanged, sweep ? entry : undefined, pending);
+        await this.removeRun(
+          msg,
+          run,
+          plan,
+          { includeChanged, again },
+          sweep ? entry : undefined,
+          pending,
+        );
       } finally {
         this.removing.delete(forgeId);
         pending?.release();
@@ -3771,22 +3794,24 @@ export class ForgeHandler implements DomainHandler {
   /**
    * The records a removal of a run past the bound takes, read from the part
    * of its journal the run names a page at a time — what the part created,
-   * less what its removals took — and what lets the journal go once the
-   * removal is through. `gone` when the journal cannot be read. A journal of
-   * 1.50, which keeps its records in lines of a page each, is read whole.
+   * less what its removals took, or all it created, `again` — and what lets
+   * the journal go once the removal is through. `gone` when the journal
+   * cannot be read. A journal of 1.50, which keeps its records in lines of a
+   * page each, is read whole.
    */
   private async journalRecordsOf(
     inJournal: { journalId: string; part: number } | undefined,
     undo: ForgeRemovalPlan['undo'],
+    again = false,
   ): Promise<
     { records: ForgeRunObjectRecords[] | RunRecords; close: () => void } | { gone: string }
   > {
     const journal = this.runJournal;
     if (!journal || !inJournal) return { gone: JOURNAL_GONE_MESSAGE };
     try {
-      const read = await journal.recordsOf(inJournal.journalId, inJournal.part);
+      const read = await journal.recordsOf(inJournal.journalId, inJournal.part, again);
       if (read) return read;
-      const whole = await this.planRecordsOf({ inJournal, ...(undo ? { undo } : {}) });
+      const whole = await this.planRecordsOf({ inJournal, ...(undo ? { undo } : {}) }, again);
       return 'gone' in whole ? whole : { records: whole.records, close: () => {} };
     } catch (err: unknown) {
       logger.warn(`Forge run journal could not be read: ${extractErrorMessage(err)}`);
@@ -3883,12 +3908,13 @@ export class ForgeHandler implements DomainHandler {
   /**
    * What a removal takes now of a run the history dropped whose plan keeps
    * its ids in its journal: what the part created, less what its removals
-   * took. `gone` when the journal cannot be read.
+   * took, or all it created, `again`. `gone` when the journal cannot be read.
    */
   private async planRecordsOf(
     plan: Pick<ForgeRemovalPlan, 'undo'> & {
       inJournal: Pick<NonNullable<ForgeRemovalPlan['inJournal']>, 'journalId' | 'part'>;
     },
+    again = false,
   ): Promise<{ records: ForgeRunObjectRecords[] } | { gone: string }> {
     const journal = this.runJournal;
     if (!journal) return { gone: JOURNAL_GONE_MESSAGE };
@@ -3896,12 +3922,16 @@ export class ForgeHandler implements DomainHandler {
       const { journalId, part } = plan.inJournal;
       const ids = await journal.idsOf(journalId, part);
       if (!ids) return { gone: JOURNAL_GONE_MESSAGE };
+      const created = {
+        idRemapTable: ids.table,
+        idRemapExisting: ids.existing,
+        idRemapCreated: ids.createdByObject,
+      };
+      if (again) return { records: forgeRunCreatedRecords(created) };
       const left = await journal.leftOf(journalId, part);
       return {
         records: forgeRunRecordsLeft({
-          idRemapTable: ids.table,
-          idRemapExisting: ids.existing,
-          idRemapCreated: ids.createdByObject,
+          ...created,
           ...(plan.undo ? { undo: plan.undo } : {}),
           ...(left ? { removalLeft: left } : {}),
         }),
@@ -4770,6 +4800,9 @@ export class ForgeHandler implements DomainHandler {
    * the guard's question too (`pending`). Under an id of its own, only Live
    * Operations could.
    *
+   * @param asked - Whether the records changed since the run go too, and
+   *   whether `plan` is every record the run created (`again`) rather than
+   *   what its removals left.
    * @param sweepOf - The run's history entry, when a sweep was asked.
    * @param pending - The hold on the request's id while the guard asks.
    */
@@ -4777,10 +4810,11 @@ export class ForgeHandler implements DomainHandler {
     msg: InboundRequest,
     entry: RunToRemove,
     plan: ForgeRunObjectRecords[] | RunRecords,
-    includeChanged: boolean,
+    asked: { includeChanged: boolean; again: boolean },
     sweepOf?: ForgeExecutionResult,
     pending?: PendingStart,
   ): Promise<void> {
+    const { includeChanged, again } = asked;
     const { forgeId, targetOrgId } = entry;
     const total = recordsIn(plan);
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
@@ -4980,8 +5014,9 @@ export class ForgeHandler implements DomainHandler {
       if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
       const sweepResult = sweepMade.result;
       // A removal after one that marked the run takes what that one left:
-      // the result and the audit trail say so, with when it ended.
-      const leftBy = entry.undo?.removedAt;
+      // the result and the audit trail say so, with when it ended. One taking
+      // every record again picks up after none.
+      const leftBy = again ? undefined : entry.undo?.removedAt;
       // What a call of the run may have written before its answer was lost:
       // in the org maybe, under ids no one knows, and out of this removal's reach.
       const unreachable = entry.unreachable;
@@ -5021,7 +5056,7 @@ export class ForgeHandler implements DomainHandler {
       // take — offered while there are any — with what it wrote to them and
       // when it ran, which the next one reads as its doing, not as changes
       // since the run.
-      const mark = removalMark(result, total, entry.undo);
+      const mark = removalMark(result, total, entry.undo, again);
       const swept =
         sweepResult && sweepMarkOf(sweepResult, new Date().toISOString(), sweepOf?.sweep);
       const stamped = Object.keys(outcome.stamps).length > 0;
@@ -5032,7 +5067,11 @@ export class ForgeHandler implements DomainHandler {
         // Of a run whose ids are in its journal, what is left is kept beside
         // the journal, read again a page at a time, and counted on its entry
         // and its plan, which hold no id; so is what the removal stamped.
-        const taken = outcome.objects.some((object) => object.deleted + object.alreadyGone > 0);
+        // Taking every record again, what it left is what is left, though it
+        // took none: what an earlier removal left no longer says it.
+        const taken =
+          outcome.objects.some((object) => object.deleted + object.alreadyGone > 0) ||
+          (again && mark !== undefined);
         if (taken) {
           leftCounts = await this.runJournal
             ?.keepLeftPages(inJournal.journalId, inJournal.part, outcome.left())
@@ -5048,7 +5087,7 @@ export class ForgeHandler implements DomainHandler {
               logger.warn(`Forge removal stamps not kept: ${extractErrorMessage(err)}`);
             });
         }
-      } else if (outcome.gone.length > 0 && !isRunRecords(plan)) {
+      } else if ((outcome.gone.length > 0 || (again && mark)) && !isRunRecords(plan)) {
         const gone = new Set(outcome.gone);
         left = plan.flatMap(({ ids }) => ids.filter((id) => !gone.has(id)));
       }
@@ -6076,7 +6115,8 @@ export class ForgeHandler implements DomainHandler {
    * types the org's name: what fires before and after a delete, and as an
    * activated order is set back to Draft for its delete. The objects are the
    * ones the run's entry in the history says are left, as the removal takes
-   * them; the request names the run alone. Read only.
+   * them — those of every record it created, `again`; the request names the
+   * run alone. Read only.
    */
   private async handleUndoAutomation(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(
@@ -6108,7 +6148,9 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
     // Its objects, counted: a run past the bound counts them without its ids.
-    const objects = forgeRunCountsLeft(entry).map((object) => object.objectApiName);
+    const objects = (
+      parsed.again === true ? forgeRunCountsCreated(entry) : forgeRunCountsLeft(entry)
+    ).map((object) => object.objectApiName);
     const targetOrgId = entry.targetOrgId;
     try {
       const automation = await new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout(

@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import type { SeedRunRemovalInfo } from '@sandforge/shared';
+import { backAfterRemoval, type SeedRunRemovalInfo } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -100,6 +100,9 @@ export const SeedRunHistory: React.FC = () => {
                 ...(run.running || run.runningElsewhere ? {} : { endedAt: run.endedAt }),
                 ...(run.objects ? { objects: run.objects } : {}),
               });
+              // Its removal found them gone, and the rewind's undo brought them
+              // back: the line said nothing was left, and offered nothing.
+              const back = backAfterRemoval(mark, run.removed?.removedAt);
               return (
                 <li
                   key={run.runId}
@@ -203,12 +206,20 @@ export const SeedRunHistory: React.FC = () => {
                     )}
                   </div>
                   {mark && (
-                    <RewoundMark mark={mark} testId={`seed-run-history-rewound-${run.runId}`} />
+                    <RewoundMark
+                      mark={mark}
+                      undoneAfterRemoval={back}
+                      testId={`seed-run-history-rewound-${run.runId}`}
+                    />
                   )}
                   {shown && !run.running && !run.runningElsewhere && (
                     <PartBoundary data-testid="seed-removal-failed">
                       <Suspense fallback={<div aria-busy="true" />}>
-                        <SeedRunRemoval runId={run.runId} onAnswered={list.refetch} />
+                        <SeedRunRemoval
+                          runId={run.runId}
+                          onAnswered={list.refetch}
+                          {...(mark ? { rewound: mark } : {})}
+                        />
                       </Suspense>
                     </PartBoundary>
                   )}

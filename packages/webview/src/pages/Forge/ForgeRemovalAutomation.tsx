@@ -231,6 +231,8 @@ export interface ForgeRemovalAutomationProps {
   org: string;
   /** The org it wrote to, by its id in the registry: the user the command names is its. */
   targetOrgId: string | undefined;
+  /** The removal takes every record the run created (`again`): read on the objects of each. */
+  again?: boolean;
 }
 
 /**
@@ -254,6 +256,7 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   forgeId,
   org,
   targetOrgId,
+  again = false,
 }) => {
   const read = useBridgeMutation<RemovalAutomationAnswer>('forge:undo-automation:request', {
     responseType: 'forge:undo-automation:response',
@@ -267,16 +270,16 @@ export const ForgeRemovalAutomation: React.FC<ForgeRemovalAutomationProps> = ({
   const [lastRead, setLastRead] = useState<RemovalAutomationAnswer | null>(null);
   useEffect(() => {
     setLastRead(null);
-    if (forgeId) mutate({ forgeId });
+    if (forgeId) mutate({ forgeId, ...(again ? { again: true } : {}) });
     else reset();
-  }, [forgeId, mutate, reset]);
+  }, [forgeId, again, mutate, reset]);
   useEffect(() => {
     if (read.data) setLastRead(read.data);
   }, [read.data]);
   const answer = read.data ?? lastRead;
   const readAgain = useCallback(() => {
-    if (forgeId) mutate({ forgeId });
-  }, [forgeId, mutate]);
+    if (forgeId) mutate({ forgeId, ...(again ? { again: true } : {}) });
+  }, [forgeId, again, mutate]);
 
   if (!forgeId) return null;
   const shown =

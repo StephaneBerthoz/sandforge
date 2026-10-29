@@ -4725,6 +4725,7 @@
     "removeDescription": "Elimina de {{org}} los registros que creó esta ejecución, los hijos antes que sus padres; van a su papelera de reciclaje. Los registros a los que se vinculó la ejecución, que {{org}} ya tenía, se conservan, igual que un registro del que dependen registros que se quedan en {{org}}. Un registro modificado desde que terminó la ejecución, o del que dependen registros añadidos desde entonces, se conserva salvo que lo incluyas abajo.",
     "removeIncludeChanged": "Eliminar también los registros modificados desde la ejecución, y lo que se les añadió desde entonces",
     "removeSweep": "Barrer primero: recuperar también lo que la automatización del destino creó durante la ejecución, como su usuario — así ese registro ya no retiene ningún registro de la ejecución",
+    "removeAgainNote": "Se vuelve a leer cada registro que creó esta ejecución, también los que su eliminación encontró ya eliminados. El deshacer del {{date}} los trajo de vuelta y los fechó como un cambio de su usuario: se leen como modificados desde la ejecución y se quedan, salvo que abajo elimine también los registros modificados desde entonces.",
     "stopRefused": "No se pudo detener la eliminación",
     "stopRefusedDetail": "La eliminación ya no está en curso, o no se inició desde esta ventana.",
     "stopping": "Deteniendo: la eliminación termina en cuanto responde la llamada en curso. Lo que quitó hasta entonces se lista; el resto se queda en la org, y una eliminación posterior lo quita.",
@@ -4853,7 +4854,9 @@
       "leftSome": "el retroceso dejó registros: abra su eliminación para ver lo que queda",
       "undone": "retroceso deshecho el {{date}}",
       "outside": "No retrocedido: {{objects}}, fuera del punto de control",
-      "badge": "Retrocedida"
+      "badge": "Retrocedida",
+      "undoneAfterRemoval": "Sus registros volvieron con el deshacer del {{date}}, después de su eliminación",
+      "removeAgain": "Eliminar de nuevo"
     }
   },
   "grappe": {

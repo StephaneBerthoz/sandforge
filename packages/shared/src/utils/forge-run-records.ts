@@ -252,6 +252,32 @@ export function forgeRunCountsLeft(entry: ForgeRunCounted): ForgeRemovalLeftCoun
 }
 
 /**
+ * Per object, every record a run created, counted, in the order a removal
+ * takes them, whatever its removals took: what a removal asked to take every
+ * record again (`again`) sets out to take, once an undo of a checkpoint's
+ * rewind brought back records a removal had found gone. Nothing once the
+ * journal a run kept its ids in is gone.
+ *
+ * @param entry - A run's history entry.
+ */
+export function forgeRunCountsCreated(
+  entry: Omit<ForgeRunCounted, 'undo' | 'removalLeft' | 'removalLeftByObject'>,
+): ForgeRemovalLeftCount[] {
+  if (!entry.remapInJournal) {
+    return forgeRunCreatedRecords(entry).map(({ objectApiName, ids }) => ({
+      objectApiName,
+      count: ids.length,
+    }));
+  }
+  if (entry.journalGone) return [];
+  // Children before their parents: the reverse of the order the run wrote them.
+  return [...(entry.idRemapByObject ?? [])]
+    .reverse()
+    .filter(({ created }) => created > 0)
+    .map(({ objectApiName, created }) => ({ objectApiName, count: created }));
+}
+
+/**
  * What a removal takes now of a run the history dropped, counted, from its
  * kept plan: {@link forgeRunCountsLeft} read from the plan.
  *

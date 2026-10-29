@@ -225,6 +225,37 @@ describe('what the target runs as the removal of a Sync run takes it back', () =
     });
   });
 
+  it('reads what fires on deleting every record the run created when the removal takes them all again', async () => {
+    // Its removal found what it created gone: none of it is left to delete.
+    await creations.updateRemoval('run-all', (state) => ({
+      ...state,
+      undo: {
+        removedAt: new Date().toISOString(),
+        deleted: 0,
+        alreadyGone: 2,
+        kept: 0,
+        refused: 0,
+      },
+      removalLeft: [],
+    }));
+    handler.setTargetAutomation(targetReader().reader);
+
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all' }));
+    await handler.handle(buildMsg('sync:remove:automation', { runId: 'run-all', again: true }));
+
+    const [left, again] = posted<BaseMessage & { payload: AutomationAnswer }>(
+      'sync:remove:automation:response',
+    ).map((m) => m.payload);
+    expect(left?.steps.delete).toEqual([]);
+    expect(firedOnRemovalStepsOf(left!.automation, left!.steps).map((f) => f.name)).not.toContain(
+      'OrderGuard',
+    );
+    expect(again?.steps).toMatchObject({ setToDraft: ['Order'], delete: ['Order', 'Account'] });
+    expect(firedOnRemovalStepsOf(again!.automation, again!.steps).map((f) => f.name)).toContain(
+      'OrderGuard',
+    );
+  });
+
   it('gives nothing back of what the run wrote over once its backup is gone', async () => {
     store.delete(`backup:${BACKUP}`);
     handler.setTargetAutomation(targetReader().reader);

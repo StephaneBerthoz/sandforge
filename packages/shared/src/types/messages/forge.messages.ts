@@ -142,6 +142,13 @@ export interface ForgeUndoRequest extends BaseMessage {
      * of a run whose records were all removed already, the sweep alone runs.
      */
     sweep?: boolean;
+    /**
+     * Take every record the run created, not what its removals left: an undo
+     * of a checkpoint's rewind brought back records its removal had found
+     * gone (`backAfterRemoval`). Each is read before it is deleted, as ever;
+     * the undo dated them anew, so they read as changed since the run.
+     */
+    again?: boolean;
   };
 }
 
@@ -276,7 +283,8 @@ export interface ForgeAutomationRequest extends BaseMessage {
  */
 export interface ForgeUndoAutomationRequest extends BaseMessage {
   type: 'forge:undo-automation:request';
-  payload: { forgeId: string };
+  /** `again`: on the objects of every record the run created, as `forge:undo` takes them `again`. */
+  payload: { forgeId: string; again?: boolean };
 }
 
 /**

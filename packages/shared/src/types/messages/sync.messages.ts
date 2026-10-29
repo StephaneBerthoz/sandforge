@@ -322,6 +322,13 @@ export interface SyncRemoveRequest extends BaseMessage {
      * its user, that the run did not write.
      */
     sweep?: boolean;
+    /**
+     * Take every record and file the run created, not what its removals
+     * left: an undo of a checkpoint's rewind brought back records its removal
+     * had found gone (`backAfterRemoval`). Each is read before it is deleted,
+     * as ever; the undo dated them anew, so they read as changed since the run.
+     */
+    again?: boolean;
   };
 }
 
@@ -354,7 +361,8 @@ export interface SyncRemoveSweepErrorResponse extends BaseMessage {
  */
 export interface SyncRemoveAutomationRequest extends BaseMessage {
   type: 'sync:remove:automation';
-  payload: { runId: string };
+  /** `again`: on the objects of every record the run created, as `sync:remove` takes them `again`. */
+  payload: { runId: string; again?: boolean };
 }
 
 /**

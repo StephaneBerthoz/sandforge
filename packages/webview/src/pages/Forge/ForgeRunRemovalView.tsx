@@ -13,6 +13,7 @@ import type {
 } from '@sandforge/shared';
 import {
   forgeRemovalPlanCountsLeft,
+  forgeRunCountsCreated,
   forgeRunCountsLeft,
   forgeRunLinkedKeptCount,
 } from '@sandforge/shared';
@@ -228,6 +229,20 @@ function isKeptPlan(run: RemovableRun | ForgeRemovalPlan): run is ForgeRemovalPl
   return 'objects' in run && Array.isArray(run.objects);
 }
 
+/**
+ * Every record a run created, counted per object in the order a removal takes
+ * them, whatever its removals took: what a removal taking them all again sets
+ * out to take. Nothing for a plan kept of a run whose ids are in its journal,
+ * which counts what is left of them alone.
+ */
+export function forgeRunCountsCreatedOf(
+  run: RemovableRun | ForgeRemovalPlan,
+): Array<{ objectApiName: string; count: number }> {
+  if (!isKeptPlan(run)) return forgeRunCountsCreated(run);
+  if (run.inJournal) return [];
+  return run.objects.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length }));
+}
+
 /** Props for {@link ForgeRunRemovalConfirm}. */
 export interface ForgeRunRemovalConfirmProps {
   /**
@@ -246,6 +261,13 @@ export interface ForgeRunRemovalConfirmProps {
    */
   sweep?: boolean;
   onSweepChange?: (sweep: boolean) => void;
+  /**
+   * The removal takes every record the run created again, as `forge:undo`
+   * does asked `again` (`backAfterRemoval`): when the undo that brought them
+   * back ended, written as the panel writes its dates. Absent, it takes what
+   * the run's removals left.
+   */
+  againAfter?: string;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -262,6 +284,10 @@ export interface ForgeRunRemovalConfirmProps {
  * target's automation created during the run, as its user, that the run's id
  * map does not hold — listed once ticked, before the org's name is typed. A
  * run the history dropped keeps no id map, and is offered none.
+ *
+ * Asked to take every record the run created again — an undo of a rewind
+ * brought back what its removal found gone — it lists them all, and says the
+ * undo dated them as changed since the run: they stay unless included.
  */
 export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   run,
@@ -270,15 +296,23 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
   onIncludeChangedChange,
   sweep = false,
   onSweepChange,
+  againAfter,
   onClose,
   onConfirm,
 }) => {
   const { t } = useTranslation();
+  const again = againAfter !== undefined;
   // Counted, as a run whose ids are in its journal counts them.
   const plan = useMemo(
     () =>
-      run ? (isKeptPlan(run) ? forgeRemovalPlanCountsLeft(run) : forgeRunCountsLeft(run)) : [],
-    [run],
+      run
+        ? again
+          ? forgeRunCountsCreatedOf(run)
+          : isKeptPlan(run)
+            ? forgeRemovalPlanCountsLeft(run)
+            : forgeRunCountsLeft(run)
+        : [],
+    [run, again],
   );
   const linked = run ? (isKeptPlan(run) ? run.linked : forgeRunLinkedKeptCount(run)) : 0;
   const sweepOffered =
@@ -292,17 +326,27 @@ export const ForgeRunRemovalConfirm: React.FC<ForgeRunRemovalConfirmProps> = ({
       description={t('runRemoval.removeDescription', { org })}
       confirmText={org}
     >
+      {again && (
+        <p data-testid="forge-removal-again-note">
+          {t('runRemoval.removeAgainNote', { date: againAfter })}
+        </p>
+      )}
       <ForgeRunRemovalPlan
         plan={plan}
         linked={linked}
-        {...(run?.undo
+        {...(run?.undo && !again
           ? {
               leftBy:
                 formatStoredDate(run.undo.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'),
             }
           : {})}
       />
-      <ForgeRemovalAutomation forgeId={run?.forgeId} org={org} targetOrgId={run?.targetOrgId} />
+      <ForgeRemovalAutomation
+        forgeId={run?.forgeId}
+        org={org}
+        targetOrgId={run?.targetOrgId}
+        again={again}
+      />
       <label className="flex items-center gap-2 mt-2 cursor-pointer">
         <input
           type="checkbox"

@@ -206,3 +206,34 @@ export function rewoundMarkOf(
     outside,
   };
 }
+
+/**
+ * Whether the records a run's removal found gone came back since, with the
+ * undo of the rewind that had deleted them: the run's line said nothing was
+ * left to remove while its records were back in the org, and no removal would
+ * take them, refused as done already. Its history then offers a removal of
+ * every record the run created (`again`), which reads each as any removal
+ * does: the undo dated them anew, by its user, so they read as changed since
+ * the run and stay unless included.
+ *
+ * True when the rewind the mark names was undone after the run's last
+ * removal ended, and had ended before that removal, two minutes either side
+ * (`REWOUND_MARGIN_MS`): a removal made before the rewind deleted the run's
+ * records itself, and the undo of a rewind that found them gone brings none
+ * back.
+ *
+ * @param mark - The run's mark (`rewoundMarkOf`), on this machine's clock.
+ * @param removedAt - When the run's last removal ended, on this machine's
+ *   clock (`ForgeUndoMark.removedAt`); absent before any removal marked it.
+ */
+export function backAfterRemoval(
+  mark: Pick<RewoundMark, 'at' | 'undoneAt'> | undefined,
+  removedAt: string | undefined,
+): boolean {
+  if (mark?.undoneAt === undefined || removedAt === undefined) return false;
+  const removed = Date.parse(removedAt);
+  const undone = Date.parse(mark.undoneAt);
+  const rewound = Date.parse(mark.at);
+  if (![removed, undone, rewound].every(Number.isFinite)) return false;
+  return undone > removed && rewound - REWOUND_MARGIN_MS <= removed;
+}

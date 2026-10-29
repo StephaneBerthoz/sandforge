@@ -6,11 +6,12 @@ import type {
   ForgeRemovalSteps,
   ForgeSweepListing,
   ForgeTargetAutomation,
+  RewoundMark,
   SyncRemovalRefusalCode,
   SyncRemovalResult,
   SyncRunRemovalInfo,
 } from '@sandforge/shared';
-import { firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
+import { backAfterRemoval, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import { formatNumber, formatStoredDate } from '../../utils/formatters';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -107,13 +108,15 @@ const STEP_KEYS: Readonly<Record<Exclude<ForgeRemovalStep, 'delete'>, string>> =
  * order back to Draft, then before and after each delete. A removal brought
  * records back from the recycle bin, and nothing said what their
  * `after undelete` triggers would run. Read again when the user asks; the
- * read shown stays until the answer lands.
+ * read shown stays until the answer lands. A removal of every record the run
+ * created (`again`) reads what fires on the objects of each.
  */
-const SyncRemovalAutomation: React.FC<{ runId: string; org: string; targetOrgId: string }> = ({
-  runId,
-  org,
-  targetOrgId,
-}) => {
+const SyncRemovalAutomation: React.FC<{
+  runId: string;
+  org: string;
+  targetOrgId: string;
+  again: boolean;
+}> = ({ runId, org, targetOrgId, again }) => {
   const read = useBridgeMutation<AutomationAnswer>('sync:remove:automation', {
     responseType: 'sync:remove:automation:response',
     errorType: 'sync:remove:automation:error',
@@ -125,12 +128,15 @@ const SyncRemovalAutomation: React.FC<{ runId: string; org: string; targetOrgId:
   const [lastRead, setLastRead] = useState<AutomationAnswer | null>(null);
   useEffect(() => {
     setLastRead(null);
-    mutate({ runId });
-  }, [runId, mutate]);
+    mutate({ runId, ...(again ? { again: true } : {}) });
+  }, [runId, again, mutate]);
   useEffect(() => {
     if (read.data) setLastRead(read.data);
   }, [read.data]);
-  const readAgain = useCallback(() => mutate({ runId }), [runId, mutate]);
+  const readAgain = useCallback(
+    () => mutate({ runId, ...(again ? { again: true } : {}) }),
+    [runId, again, mutate],
+  );
   const answer = read.data ?? lastRead;
   const shown: RemovalAutomationShown | undefined =
     answer && answer.runId === runId
@@ -317,6 +323,8 @@ export interface SyncRunRemovalProps {
   runId: string;
   /** Test id of the card. */
   testId?: string;
+  /** The mark of the rewind that took the run back, when one did: see {@link backAfterRemoval}. */
+  rewound?: RewoundMark;
 }
 
 /**
@@ -338,8 +346,14 @@ export interface SyncRunRemovalProps {
  * is offered, and the card says why. A removal under way can be stopped from the
  * card, as from Live Operations, between two calls to the org; what it left
  * is offered again.
+ *
+ * A run whose removal found what it created gone — a checkpoint's rewind had
+ * deleted it — and whose rewind was undone since has it back in the target,
+ * and its card said nothing was left: it says so, and offers to remove again
+ * every record and file the run created, the undo having dated them as
+ * changed since the run, which stay unless included.
  */
-export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId }) => {
+export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId, rewound }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
@@ -390,7 +404,16 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
   const putBack = kept.putBack ?? [];
   /** What the run deleted that a removal brings back from the recycle bin now, per object. */
   const bringBack = kept.bringBack ?? [];
-  const offered = kept.left.length > 0 || putBack.length > 0 || bringBack.length > 0;
+  // Every record the run created, offered again once an undo brought back
+  // what its removal found gone; what is left otherwise.
+  const again =
+    backAfterRemoval(rewound, kept.removed?.removedAt) && (kept.createdByObject ?? []).length > 0;
+  const undoneOn =
+    again && rewound?.undoneAt !== undefined
+      ? (formatStoredDate(rewound.undoneAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
+      : undefined;
+  const removing = again ? (kept.createdByObject ?? []) : kept.left;
+  const offered = removing.length > 0 || putBack.length > 0 || bringBack.length > 0;
   const kind = kindOf(kept);
   const words = KIND_KEYS[kind];
   const keptUntil =
@@ -420,10 +443,14 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
           setSweep(false);
           setConfirming(true);
         }}
-        data-testid="sync-removal-remove"
+        data-testid={again ? 'sync-removal-remove-again' : 'sync-removal-remove'}
         className="self-start text-[11px]"
       >
-        {kept.removed ? t('runRemoval.sync.removeLeft') : t(words.remove)}
+        {again
+          ? t('runResults.rewound.removeAgain')
+          : kept.removed
+            ? t('runRemoval.sync.removeLeft')
+            : t(words.remove)}
       </Button>
     );
   }
@@ -433,6 +460,7 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       runId,
       ...(includeChanged ? { includeChanged: true } : {}),
       ...(sweep ? { sweep: true } : {}),
+      ...(again ? { again: true } : {}),
     });
     setConfirming(false);
   };
@@ -493,6 +521,11 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
       )}
       {kept.removed && removedOn !== undefined && (
         <ForgeRunRemovalMark mark={kept.removed} date={removedOn} />
+      )}
+      {undoneOn !== undefined && (
+        <p className="text-[11px] text-text-primary" data-testid="sync-removal-back">
+          {t('runResults.rewound.undoneAfterRemoval', { date: undoneOn })}
+        </p>
       )}
       {action}
       {removal.loading && (
@@ -633,14 +666,24 @@ export const SyncRunRemoval: React.FC<SyncRunRemovalProps> = ({ runId, testId })
             ))}
           </ul>
         )}
-        {kept.left.length > 0 && (
+        {undoneOn !== undefined && (
+          <p data-testid="sync-removal-again-note">
+            {t('runRemoval.removeAgainNote', { date: undoneOn })}
+          </p>
+        )}
+        {removing.length > 0 && (
           <ForgeRunRemovalPlan
-            plan={kept.left}
+            plan={removing}
             linked={0}
-            {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
+            {...(removedOn !== undefined && !again ? { leftBy: removedOn } : {})}
           />
         )}
-        <SyncRemovalAutomation runId={runId} org={org} targetOrgId={kept.targetOrgId} />
+        <SyncRemovalAutomation
+          runId={runId}
+          org={org}
+          targetOrgId={kept.targetOrgId}
+          again={again}
+        />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input
             type="checkbox"

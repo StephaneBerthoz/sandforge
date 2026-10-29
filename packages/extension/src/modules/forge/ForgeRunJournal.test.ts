@@ -376,6 +376,25 @@ describe("a run's journal", () => {
     next?.close();
   });
 
+  it('hands a removal every record a part created, whatever its removals took, once asked for them all again', async () => {
+    const { deps } = memoryDisk();
+    const journal = new ForgeRunJournal(deps);
+    await runThatWrote(journal, 'run-again');
+    // Its removal found them all gone, and left none.
+    await journal.keepLeft('run-again', 0, []);
+    const left = await journal.recordsOf('run-again', 0);
+    expect(left?.records.objects).toEqual([]);
+    left?.close();
+
+    const all = await journal.recordsOf('run-again', 0, true);
+
+    expect(all?.records.objects).toEqual([
+      { objectApiName: 'Contact', count: 1 },
+      { objectApiName: 'Account', count: 2 },
+    ]);
+    all?.close();
+  });
+
   it('keeps beside the journal what removals of a part stamped, over what earlier ones did, and drops it with the journal', async () => {
     const { deps, files } = memoryDisk();
     const journal = new ForgeRunJournal(deps);

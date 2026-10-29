@@ -338,9 +338,23 @@ export class SyncRemovalHandler implements DomainHandler {
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
       ...(again.length > 0 ? { writtenAgain: again } : {}),
     };
-    if (plan.length === 0 && back.length === 0 && bringBack.length === 0) return info;
-    const refusal = this.refusalOf(run, plan, [...back, ...bringBack]);
-    return refusal ? { ...info, refusal } : info;
+    // Once a removal marked it: what one taking every record again would
+    // take, should an undo of a rewind have brought back what it found gone.
+    const every = run.removal?.undo ? syncRemovalPlan(run, true) : [];
+    const listed: SyncRunRemovalInfo =
+      every.length > 0
+        ? {
+            ...info,
+            createdByObject: every.map(({ objectApiName, ids }) => ({
+              objectApiName,
+              count: ids.length,
+            })),
+          }
+        : info;
+    const offered = plan.length > 0 || back.length > 0 || bringBack.length > 0 ? plan : every;
+    if (offered.length === 0 && back.length === 0 && bringBack.length === 0) return listed;
+    const refusal = this.refusalOf(run, offered, [...back, ...bringBack]);
+    return refusal ? { ...listed, refusal } : listed;
   }
 
   /**
@@ -360,13 +374,14 @@ export class SyncRemovalHandler implements DomainHandler {
    * The objects each step of a removal of the run writes, as the removal
    * takes them: what it brings back from the recycle bin, what it gives back
    * of what the backup store keeps, the activated orders it sets back to
-   * Draft and what it deletes — files and records alike.
+   * Draft and what it deletes — files and records alike, every one it
+   * created, `again`.
    */
-  private removalStepsOf(run: SyncRunKept): ForgeRemovalSteps {
+  private removalStepsOf(run: SyncRunKept, again = false): ForgeRemovalSteps {
     const names = (objects: ReadonlyArray<{ objectApiName: string }>): string[] => [
       ...new Set(objects.map(({ objectApiName }) => objectApiName)),
     ];
-    const deleted = names(syncRemovalPlan(run));
+    const deleted = names(syncRemovalPlan(run, again));
     return {
       bringBack: names(syncUndeletePlan(run)),
       giveBack: names(this.keptBack(syncRestorePlan(run)).kept),
@@ -752,7 +767,7 @@ export class SyncRemovalHandler implements DomainHandler {
         );
         return;
       }
-      const steps = this.removalStepsOf(run);
+      const steps = this.removalStepsOf(run, parsed.again === true);
       const objects = [...new Set(Object.values(steps).flat())];
       const reader = this.targetAutomation;
       const automation = await new TimeoutManager(REMOVAL_AUTOMATION_TIMEOUT_MS).withTimeout(
@@ -924,8 +939,9 @@ export class SyncRemovalHandler implements DomainHandler {
       this.refuse(msg, RUNNING_ELSEWHERE, 'RUNNING');
       return;
     }
+    const again = parsed.again === true;
     if (
-      syncRemovalPlan(run).length === 0 &&
+      syncRemovalPlan(run, again).length === 0 &&
       syncRestorePlan(run).length === 0 &&
       syncUndeletePlan(run).length === 0
     ) {
@@ -965,7 +981,11 @@ export class SyncRemovalHandler implements DomainHandler {
         msg,
         store,
         run,
-        { includeChanged: parsed.includeChanged === true, sweep: parsed.sweep === true },
+        {
+          includeChanged: parsed.includeChanged === true,
+          sweep: parsed.sweep === true,
+          again,
+        },
         pending,
       );
     } finally {
@@ -974,16 +994,19 @@ export class SyncRemovalHandler implements DomainHandler {
     }
   }
 
-  /** The removal once the request names a run whose creations can be removed. */
+  /**
+   * The removal once the request names a run whose creations can be removed:
+   * what its removals left, or, `again`, every record and file it created.
+   */
   private async removeRun(
     msg: InboundRequest,
     store: SyncRunCreations,
     run: SyncRunKept,
-    asked: { includeChanged: boolean; sweep: boolean },
+    asked: { includeChanged: boolean; sweep: boolean; again: boolean },
     pending: PendingStart | undefined,
   ): Promise<void> {
-    const { includeChanged } = asked;
-    const plan = syncRemovalPlan(run);
+    const { includeChanged, again } = asked;
+    const plan = syncRemovalPlan(run, again);
     // What it gives back, and what it brings back from the recycle bin: both
     // write to records the run did not create, judged as one.
     const back = [...syncRestorePlan(run), ...syncUndeletePlan(run)];
@@ -1096,6 +1119,7 @@ export class SyncRemovalHandler implements DomainHandler {
         run,
         org: removalOrg(conn, 'sync:remove'),
         includeChanged,
+        ...(again ? { again } : {}),
         store,
         configs: this.configs,
         // What it took leaves the configuration's pairs, kept beside the runs.

@@ -1826,6 +1826,96 @@ describe('forge:undo', () => {
     expect(history()[0].undo).toBeUndefined();
     expect(tracker.getAll()[0]).toMatchObject({ status: 'failed' });
   });
+
+  describe('again, once an undo brought back what a removal found gone', () => {
+    const CREATED = [id('003', 2), id('003', 1), id('001', 1)];
+    const answers = (): ForgeUndoResult[] =>
+      posted<BaseMessage & { payload: { result: ForgeUndoResult } }>('forge:undo:response').map(
+        (m) => m.payload.result,
+      );
+    const live = (): string[] =>
+      [...(org.rows.get('Account') ?? []), ...(org.rows.get('Contact') ?? [])].map((r) => r.Id);
+
+    // A rewind deleted what the run created; its removal then found it all
+    // gone; the rewind's undo brought it back, dated anew.
+    beforeEach(async () => {
+      const taken = new Map([...org.rows].map(([object, rows]) => [object, [...rows]]));
+      for (const object of ['Account', 'Contact']) org.rows.set(object, []);
+      for (const recordId of CREATED) org.bin.add(recordId);
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+      expect(answers()[0]).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', deleted: 0, alreadyGone: 2 },
+          { objectApiName: 'Account', deleted: 0, alreadyGone: 1 },
+        ],
+      });
+      for (const [object, rows] of taken) {
+        org.rows.set(
+          object,
+          rows.map((row) => ({ ...row, LastModifiedDate: AFTER_RUN })),
+        );
+      }
+      org.bin.clear();
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+    });
+
+    it('was refused as removed already, the records back in the org', async () => {
+      expect(history()[0].undo).toMatchObject({ deleted: 0, alreadyGone: 3 });
+
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1' }));
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['ALREADY_REMOVED']);
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...CREATED].sort());
+    });
+
+    it('reads every record again, keeps them as changed since the run, and leaves them offered', async () => {
+      await handler.handle(buildMsg('forge:undo', { forgeId: 'forge-1', again: true }));
+
+      expect(errors()).toEqual([]);
+      expect(answers()[0]).toMatchObject({
+        status: 'failure',
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 0, keptChanged: 2 },
+          { objectApiName: 'Account', planned: 1, deleted: 0, keptChanged: 1 },
+        ],
+      });
+      expect(answers()[0].leftBy).toBeUndefined();
+      expect(org.deletes).toEqual([]);
+      // What is left is what came back, and the run offers it again.
+      expect(history()[0].undo).toMatchObject({ deleted: 0, alreadyGone: 0, kept: 3 });
+      expect(forgeRunRecordsLeft(history()[0])).toEqual([
+        { objectApiName: 'Contact', ids: [id('003', 2), id('003', 1)] },
+        { objectApiName: 'Account', ids: [id('001', 1)] },
+      ]);
+    });
+
+    it('removes every record again with the changed ones included, counted afresh', async () => {
+      await handler.handle(
+        buildMsg('forge:undo', { forgeId: 'forge-1', again: true, includeChanged: true }),
+      );
+
+      expect(org.deletes).toEqual([
+        { object: 'Contact', ids: [id('003', 2), id('003', 1)] },
+        { object: 'Account', ids: [id('001', 1)] },
+      ]);
+      expect(live()).toEqual([]);
+      expect(history()[0].undo).toMatchObject({ deleted: 3, alreadyGone: 0, kept: 0, refused: 0 });
+      expect(forgeRunRecordsLeft(history()[0])).toEqual([]);
+    });
+
+    it('refuses a request whose again is not a boolean, removing nothing', async () => {
+      await handler.handle(
+        buildMsg('forge:undo', { forgeId: 'forge-1', again: 'true', includeChanged: true }),
+      );
+
+      expect(errors().map((e) => e.payload.code)).toEqual(['INVALID_PAYLOAD']);
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...CREATED].sort());
+    });
+  });
 });
 
 describe('forge:undo-automation', () => {
@@ -1897,6 +1987,43 @@ describe('forge:undo-automation', () => {
     expect(response?.payload).toMatchObject({ forgeId: 'forge-1', drafted: ['Order'] });
     // Read only: nothing was removed.
     expect(mockGetConn).not.toHaveBeenCalled();
+  });
+
+  it('reads the objects of every record the run created when its removal takes them all again', async () => {
+    const entry = (store.get<ForgeExecutionResult[]>('forge:history') ?? [])[0];
+    store.set(
+      'forge:history',
+      [
+        {
+          ...entry,
+          // Its removal found them all gone: nothing is left to delete.
+          undo: {
+            removedAt: '2026-09-20T12:00:00.000Z',
+            deleted: 0,
+            alreadyGone: 4,
+            kept: 0,
+            refused: 0,
+          },
+          removalLeft: [],
+        },
+      ],
+      'forge',
+    );
+
+    await handler.handle(buildMsg('forge:undo-automation:request', { forgeId: 'forge-1' }));
+    await handler.handle(
+      buildMsg('forge:undo-automation:request', { forgeId: 'forge-1', again: true }),
+    );
+
+    expect(reader.read.mock.calls.map(([, objects]) => [...objects].sort())).toEqual([
+      [],
+      ['Account', 'Contact', 'Order'],
+    ]);
+    expect(
+      posted<BaseMessage & { payload: { drafted: string[] } }>(
+        'forge:undo-automation:response',
+      ).map((m) => m.payload.drafted),
+    ).toEqual([[], ['Order']]);
   });
 
   it('refuses a run the history no longer holds, and reads nothing', async () => {

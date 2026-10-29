@@ -435,6 +435,13 @@ export interface SyncRunRemovalInfo {
   /** What the removals of it did, once one took some. */
   removed?: ForgeUndoMark;
   /**
+   * Once a removal marked it: what it created, per object, in the order a
+   * removal hands them over — what a removal asked to take every record
+   * again (`again`) sets out to take, once an undo of a checkpoint's rewind
+   * brought back records that removal had found gone.
+   */
+  createdByObject?: Array<{ objectApiName: string; count: number }>;
+  /**
    * The later runs of the same target, not removed, that wrote records this
    * run still has to take back or give back, newest first: until each is
    * removed, this run's removal reads those records as changed since it, and
@@ -449,7 +456,10 @@ export interface SyncRunRemovalInfo {
     /** Set when the later one is a Real-Time session, which no configuration names. */
     realtime?: true;
   }>;
-  /** Why no removal can run now; absent when one can. */
+  /**
+   * Why no removal can run now; absent when one can. Once removals took all
+   * it created, why none taking every record again could.
+   */
   refusal?: { code: SyncRemovalRefusalCode; message: string };
 }
 

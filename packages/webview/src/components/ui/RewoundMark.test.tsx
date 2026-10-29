@@ -69,6 +69,22 @@ describe('RewoundMark', () => {
     );
   });
 
+  it('says the records came back after the run’s removal, rather than that the rewind was undone', () => {
+    const undone = { ...MARK, undoneAt: '2026-10-28T13:00:00.000Z' };
+    const { rerender } = render(<RewoundMark mark={undone} undoneAfterRemoval testId="mark" />);
+
+    expect(screen.getByTestId('mark').textContent).toBe(
+      [
+        `Rewound on ${shown(MARK.at)} to “Before UAT”`,
+        `Its records came back with the undo of ${shown('2026-10-28T13:00:00.000Z')}, after its removal`,
+      ].join(' · '),
+    );
+
+    rerender(<RewoundMark mark={undone} testId="mark" />);
+    expect(screen.getByTestId('mark').textContent).toContain('undone on');
+    expect(screen.getByTestId('mark').textContent).not.toContain('came back');
+  });
+
   it('is written in the interface language', async () => {
     i18n.addResourceBundle('fr', 'translation', fr);
     await act(async () => {

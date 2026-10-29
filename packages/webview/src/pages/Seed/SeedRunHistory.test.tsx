@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 import type { BaseMessage, SalesforceOrg, SeedRunRemovalInfo } from '@sandforge/shared';
 import '../../i18n';
 
@@ -317,5 +317,119 @@ describe('SeedRunHistory', () => {
     expect((await screen.findByTestId('scenario-tests-stale')).textContent).toContain(
       'its test file names cases that are gone',
     );
+  });
+
+  describe('a seed whose removal found its records gone, a rewind having deleted them', () => {
+    // The seed of the 17th at 08:00; a checkpoint taken at 07:00; its rewind
+    // from 10:00 to 10:10 deleted the seed's account; the seed's removal at
+    // 11:00 found it gone.
+    const REMOVED: SeedRunRemovalInfo = {
+      ...RUNS[1],
+      objects: ['Account'],
+      removed: {
+        removedAt: '2026-10-17T11:00:00.000Z',
+        deleted: 0,
+        alreadyGone: 1,
+        kept: 0,
+        refused: 0,
+      },
+      createdByObject: [{ objectApiName: 'Account', count: 1 }],
+    };
+    const REWIND = {
+      kind: 'rewind',
+      rewindId: 'rw-20261017-100000-aaaa',
+      checkpointId: 'ck-20261017-070000-aaaa',
+      checkpointName: 'Before UAT',
+      organizationId: '00D000000000001AAA',
+      mode: 'picked',
+      objects: ['Account'],
+      readFrom: '2026-10-17T07:00:00.000Z',
+      takenAt: '2026-10-17T07:05:00.000Z',
+      startedAt: '2026-10-17T10:00:00.000Z',
+      endedAt: '2026-10-17T10:10:00.000Z',
+      status: 'success',
+      totals: { deleted: 1, restored: 0, undeleted: 0, recreated: 0 },
+      orgIds: ['org-dev'],
+    };
+    const undoAt = (undoneAt: string) => ({
+      kind: 'undo',
+      rewindId: REWIND.rewindId,
+      checkpointId: REWIND.checkpointId,
+      organizationId: REWIND.organizationId,
+      status: 'success',
+      undoneAt,
+      orgIds: ['org-dev'],
+    });
+
+    /** The history, the seed and the ledger read, the seed opened onto its removal. */
+    async function opened(run: SeedRunRemovalInfo, undoneAt: string): Promise<HTMLElement> {
+      render(<SeedRunHistory />);
+      answer('seed:removal:list', 'seed:removal:list:response', { runs: [run] });
+      answer('checkpoint:rewinds', 'checkpoint:rewinds:response', {
+        rewinds: [REWIND, undoAt(undoneAt)],
+      });
+      fireEvent.click(screen.getByTestId('seed-run-history-toggle-op-1'));
+      await waitFor(() => expect(sentAll('seed:removal:info')).toHaveLength(1));
+      answer('seed:removal:info', 'seed:removal:info:response', { info: run });
+      return screen.getByTestId('seed-run-history-rewound-op-1');
+    }
+
+    it('says the undo of the rewind brought its records back after the removal, and offers to remove them again', async () => {
+      const mark = await opened(REMOVED, '2026-10-17T12:00:00.000Z');
+
+      // It said "undone on" a date and nothing was left to remove, the
+      // account back in the org.
+      expect(mark.textContent).toContain('Its records came back with the undo of');
+      expect(mark.textContent).not.toContain('undone on');
+      const again = await screen.findByTestId('seed-removal-remove-again');
+      expect(again.textContent).toBe('Remove again');
+
+      fireEvent.click(again);
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByTestId('seed-removal-again-note').textContent).toContain(
+        'Every record this run created is read again',
+      );
+      expect(within(dialog).getByTestId('forge-removal-plan-Account').textContent).toBe(
+        'Account: 1 record',
+      );
+      // Every record again: no word of what an earlier removal left.
+      expect(within(dialog).queryByTestId('forge-removal-left-by')).toBeNull();
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('seed:remove').pop()?.payload).toEqual({ runId: 'op-1', again: true });
+    });
+
+    it('offers nothing again when the undo came before the removal, which then took the records back', async () => {
+      const mark = await opened(
+        { ...REMOVED, removed: { ...REMOVED.removed!, deleted: 1, alreadyGone: 0 } },
+        '2026-10-17T10:30:00.000Z',
+      );
+
+      expect(mark.textContent).toContain('undone on');
+      expect(mark.textContent).not.toContain('came back');
+      await screen.findByTestId('seed-removal');
+      expect(screen.queryByTestId('seed-removal-remove-again')).toBeNull();
+      expect(screen.queryByTestId('seed-removal-remove')).toBeNull();
+    });
+
+    it('offers nothing again when the removal came before the rewind, and deleted the records itself', async () => {
+      const mark = await opened(
+        {
+          ...REMOVED,
+          removed: {
+            ...REMOVED.removed!,
+            removedAt: '2026-10-17T09:00:00.000Z',
+            deleted: 1,
+            alreadyGone: 0,
+          },
+        },
+        '2026-10-17T12:00:00.000Z',
+      );
+
+      expect(mark.textContent).toContain('undone on');
+      await screen.findByTestId('seed-removal');
+      expect(screen.queryByTestId('seed-removal-remove-again')).toBeNull();
+    });
   });
 });

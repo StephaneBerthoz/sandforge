@@ -4725,6 +4725,7 @@
     "removeDescription": "Supprime de {{org}} les enregistrements créés par cette exécution, les enfants avant leurs parents ; ils vont dans sa corbeille. Les enregistrements auxquels l'exécution s'est liée, que {{org}} contenait déjà, sont conservés, de même qu'un enregistrement dont dépendent des enregistrements qui restent dans {{org}}. Un enregistrement modifié depuis la fin de l'exécution, ou dont dépendent des enregistrements ajoutés depuis, est conservé, sauf si vous l'incluez ci-dessous.",
     "removeIncludeChanged": "Supprimer aussi les enregistrements modifiés depuis l'exécution, et ce qui leur a été ajouté depuis",
     "removeSweep": "Balayer d'abord : reprendre aussi ce que l'automatisation de la cible a créé pendant l'exécution, au nom de son utilisateur — un tel enregistrement ne retient alors plus aucun enregistrement de l'exécution",
+    "removeAgainNote": "Chaque enregistrement créé par cette exécution est relu, y compris ceux que son retrait avait trouvés déjà supprimés. L’annulation du {{date}} les a ramenés et datés comme une modification de son utilisateur : ils se lisent comme modifiés depuis l’exécution, et restent sauf si vous retirez aussi, ci-dessous, les enregistrements modifiés depuis.",
     "stopRefused": "Impossible d'arrêter la suppression",
     "stopRefusedDetail": "La suppression n'est plus en cours, ou elle n'a pas été lancée depuis cette fenêtre.",
     "stopping": "Arrêt en cours : la suppression s'arrête dès que l'appel en cours a répondu. Ce qu'elle a supprimé jusque-là est listé ; le reste demeure dans l'org, et une suppression le prendra plus tard.",
@@ -4853,7 +4854,9 @@
       "leftSome": "le retour arrière a laissé des enregistrements : ouvrez le retrait pour voir ce qui reste",
       "undone": "retour arrière annulé le {{date}}",
       "outside": "Non repris : {{objects}}, hors du point de contrôle",
-      "badge": "Retour arrière"
+      "badge": "Retour arrière",
+      "undoneAfterRemoval": "Ses enregistrements sont revenus avec l’annulation du {{date}}, après son retrait",
+      "removeAgain": "Retirer à nouveau"
     }
   },
   "grappe": {

@@ -842,10 +842,13 @@ export class OverwritesRead {
  * record it hangs on, which would leave it to whoever owns it — then each
  * object in the reverse of the order the run wrote them, children before
  * their parents as far as the run knows, the last record written first.
- * Less what earlier removals took.
+ * Less what earlier removals took — unless `again`: every record and file the
+ * run created, once an undo of a checkpoint's rewind brought back what a
+ * removal had found gone, which no removal would otherwise take.
  */
 export function syncRemovalPlan(
   run: Pick<SyncRunKept, 'created' | 'removal'>,
+  again = false,
 ): Array<{ objectApiName: string; ids: string[] }> {
   const files = SYNC_FILE_OBJECTS.flatMap((name) =>
     run.created.filter((object) => object.objectApiName === name),
@@ -855,6 +858,7 @@ export function syncRemovalPlan(
     objectApiName,
     ids: [...ids].reverse(),
   }));
+  if (again) return ordered.filter(({ ids }) => ids.length > 0);
   return forgeRemovalPlanLeft({
     objects: ordered,
     undo: run.removal?.undo,

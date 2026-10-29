@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type {
   BaseMessage,
   ForgeTargetAutomation,
+  RewoundMark,
   SalesforceOrg,
   SyncRemovalResult,
   SyncRunRemovalInfo,
@@ -827,5 +828,77 @@ describe('SyncRunRemoval', () => {
       "Not kept, encrypted: Contact.Tax__c. The run's user cannot view encrypted data, and read " +
         'their values from before masked: a removal leaves them as the run wrote them.',
     );
+  });
+
+  describe('a run whose removal found what it created gone, a rewind having deleted it', () => {
+    /** Its removal at 11:00 found it all gone: nothing is left. */
+    const REMOVED: SyncRunRemovalInfo = {
+      ...KEPT,
+      left: [],
+      removed: {
+        removedAt: '2026-10-14T11:00:00.000Z',
+        deleted: 0,
+        alreadyGone: 3,
+        kept: 0,
+        refused: 0,
+      },
+      createdByObject: KEPT.left,
+    };
+    /** The rewind that deleted it ended at 10:10, and was undone at `undoneAt`. */
+    const rewound = (undoneAt: string): RewoundMark => ({
+      kind: 'rewound',
+      rewindId: 'rw-20261014-100000-aaaa',
+      checkpointId: 'ck-20261014-070000-aaaa',
+      checkpointName: 'Before UAT',
+      at: '2026-10-14T10:10:00.000Z',
+      leftSome: false,
+      undoneAt,
+      outside: [],
+    });
+
+    it('says the undo brought it back after the removal, and removes it all again, the automation read on it all', () => {
+      render(<SyncRunRemoval runId="run-1" rewound={rewound('2026-10-14T12:00:00.000Z')} />);
+      answer('sync:removal:info', 'sync:removal:info:response', { info: REMOVED });
+
+      expect(screen.getByTestId('sync-removal-back').textContent).toMatch(
+        /^Its records came back with the undo of .*, after its removal$/,
+      );
+      const again = screen.getByTestId('sync-removal-remove-again');
+      expect(again.textContent).toBe('Remove again');
+      fireEvent.click(again);
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByTestId('sync-removal-again-note').textContent).toContain(
+        'they read as changed since the run, and stay unless you also remove the records changed since',
+      );
+      expect(within(dialog).getByTestId('forge-removal-plan-Account').textContent).toBe(
+        'Account: 2 records',
+      );
+      expect(within(dialog).queryByTestId('forge-removal-left-by')).toBeNull();
+      expect(sentAll('sync:remove:automation').pop()?.payload).toEqual({
+        runId: 'run-1',
+        again: true,
+      });
+      fireEvent.click(screen.getByTestId('sync-removal-include-changed'));
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sentAll('sync:remove').pop()?.payload).toEqual({
+        runId: 'run-1',
+        includeChanged: true,
+        again: true,
+      });
+    });
+
+    it('offers nothing again when the undo came before the removal', () => {
+      render(<SyncRunRemoval runId="run-1" rewound={rewound('2026-10-14T10:30:00.000Z')} />);
+      answer('sync:removal:info', 'sync:removal:info:response', {
+        info: { ...REMOVED, removed: { ...REMOVED.removed!, deleted: 3, alreadyGone: 0 } },
+      });
+
+      expect(screen.queryByTestId('sync-removal-back')).toBeNull();
+      expect(screen.queryByTestId('sync-removal-remove-again')).toBeNull();
+      expect(screen.queryByTestId('sync-removal-remove')).toBeNull();
+    });
   });
 });

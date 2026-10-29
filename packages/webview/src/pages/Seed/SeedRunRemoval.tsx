@@ -1,8 +1,10 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Trash2 } from 'lucide-react';
+import { backAfterRemoval } from '@sandforge/shared';
 import type {
   ForgeSweepListing,
+  RewoundMark,
   SeedRemovalRefusalCode,
   SeedRemovalResult,
   SeedRunRemovalInfo,
@@ -114,6 +116,8 @@ export interface SeedRunRemovalProps {
   runId: string;
   /** Told once per answer to a removal, a refusal included: the list of earlier seeds reads again. */
   onAnswered?: () => void;
+  /** The mark of the rewind that took the run back, when one did: see {@link backAfterRemoval}. */
+  rewound?: RewoundMark;
 }
 
 /**
@@ -133,8 +137,14 @@ export interface SeedRunRemovalProps {
  * offered, and the card says why. A removal under way can be stopped from the
  * card, as from Live Operations, between two calls to the org; what it left is
  * offered again.
+ *
+ * A seed whose removal found its records gone — a checkpoint's rewind had
+ * deleted them — and whose rewind was undone since has them back in the org,
+ * and its card said nothing was left: it offers to remove again every record
+ * the seed created, and says that the undo dated them as changed since the
+ * seed, which stay unless included.
  */
-export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswered }) => {
+export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswered, rewound }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const [confirming, setConfirming] = useState(false);
@@ -187,9 +197,18 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
   const removedOn = kept.removed
     ? (formatStoredDate(kept.removed.removedAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
     : undefined;
+  // Every record the seed created, offered again once an undo brought back
+  // what its removal found gone; what is left otherwise.
+  const again =
+    backAfterRemoval(rewound, kept.removed?.removedAt) && (kept.createdByObject ?? []).length > 0;
+  const undoneOn =
+    again && rewound?.undoneAt !== undefined
+      ? (formatStoredDate(rewound.undoneAt, 'yyyy-MM-dd HH:mm') ?? t('common.dateUnknown'))
+      : undefined;
+  const offered = again || kept.left.length > 0;
 
   let action: React.ReactNode = null;
-  if (kept.left.length > 0 && kept.refusal) {
+  if (offered && kept.refusal) {
     action = (
       <div className="flex flex-col gap-0.5" data-testid="seed-removal-refused">
         <p className="text-[11px] text-text-primary">
@@ -198,7 +217,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         <p className="text-[10px] text-text-secondary wrap-break-word">{kept.refusal.message}</p>
       </div>
     );
-  } else if (kept.left.length > 0) {
+  } else if (offered) {
     action = (
       <Button
         variant="secondary"
@@ -211,10 +230,14 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
           setSweep(false);
           setConfirming(true);
         }}
-        data-testid="seed-removal-remove"
+        data-testid={again ? 'seed-removal-remove-again' : 'seed-removal-remove'}
         className="self-start text-[11px]"
       >
-        {kept.removed ? t('runRemoval.sync.removeLeft') : t('runRemoval.sync.remove')}
+        {again
+          ? t('runResults.rewound.removeAgain')
+          : kept.removed
+            ? t('runRemoval.sync.removeLeft')
+            : t('runRemoval.sync.remove')}
       </Button>
     );
   }
@@ -224,6 +247,7 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
       runId,
       ...(includeChanged ? { includeChanged: true } : {}),
       ...(sweep ? { sweep: true } : {}),
+      ...(again ? { again: true } : {}),
     });
     setConfirming(false);
   };
@@ -289,10 +313,15 @@ export const SeedRunRemoval: React.FC<SeedRunRemovalProps> = ({ runId, onAnswere
         description={t('seed.removal.removeDescription', { org })}
         confirmText={org}
       >
+        {undoneOn !== undefined && (
+          <p data-testid="seed-removal-again-note">
+            {t('runRemoval.removeAgainNote', { date: undoneOn })}
+          </p>
+        )}
         <ForgeRunRemovalPlan
-          plan={kept.left}
+          plan={again ? (kept.createdByObject ?? []) : kept.left}
           linked={0}
-          {...(removedOn !== undefined ? { leftBy: removedOn } : {})}
+          {...(removedOn !== undefined && !again ? { leftBy: removedOn } : {})}
         />
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
           <input

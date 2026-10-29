@@ -4725,6 +4725,7 @@
     "removeDescription": "Exclui de {{org}} os registros que esta execução criou, os filhos antes dos pais; eles vão para a lixeira dela. Os registros aos quais a execução se vinculou, que {{org}} já tinha, são mantidos, assim como um registro do qual dependem registros que ficam em {{org}}. Um registro alterado desde o fim da execução, ou do qual dependem registros adicionados desde então, é mantido, a menos que você o inclua abaixo.",
     "removeIncludeChanged": "Remover também os registros alterados desde a execução, e o que foi adicionado a eles desde então",
     "removeSweep": "Varrer primeiro: recuperar também o que a automação do destino criou durante a execução, como o usuário dela — assim esse registro não retém mais nenhum registro da execução",
+    "removeAgainNote": "Cada registro que esta execução criou é lido de novo, inclusive os que sua remoção encontrou já excluídos. O desfazer de {{date}} os trouxe de volta e os datou como uma alteração do seu usuário: eles são lidos como alterados desde a execução e ficam, a menos que você remova também, abaixo, os registros alterados desde então.",
     "stopRefused": "Não foi possível parar a remoção",
     "stopRefusedDetail": "A remoção não está mais em andamento, ou não foi iniciada nesta janela.",
     "stopping": "Parando: a remoção termina assim que a chamada em andamento for respondida. O que ela removeu até então é listado; o resto fica na org, e uma remoção posterior o remove.",
@@ -4853,7 +4854,9 @@
       "leftSome": "o retrocesso deixou registros: abra a remoção para ver o que resta",
       "undone": "retrocesso desfeito em {{date}}",
       "outside": "Não retrocedido: {{objects}}, fora do ponto de verificação",
-      "badge": "Retrocedida"
+      "badge": "Retrocedida",
+      "undoneAfterRemoval": "Seus registros voltaram com o desfazer de {{date}}, depois da sua remoção",
+      "removeAgain": "Remover novamente"
     }
   },
   "grappe": {

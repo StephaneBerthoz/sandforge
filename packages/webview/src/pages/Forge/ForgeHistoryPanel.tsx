@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eraser, Play, RotateCcw, Trash2 } from 'lucide-react';
-import { forgeRemovalPlanCountsLeft, forgeRunCountsLeft } from '@sandforge/shared';
+import {
+  backAfterRemoval,
+  forgeRemovalPlanCountsLeft,
+  forgeRunCountsLeft,
+} from '@sandforge/shared';
 import type {
   ForgeConfig,
   ForgeRemovalPlan,
   ForgeResumeRunRequest,
   ForgeUndoResult,
+  RewoundMark as RewoundMarkOf,
   RewoundRun,
 } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
@@ -28,6 +33,7 @@ import {
   ForgeRunRemovalMark,
   ForgeRunRemovalResult,
   ForgeRunRemovalRunning,
+  forgeRunCountsCreatedOf,
 } from './ForgeRunRemovalView';
 import { ForgeRunSweepMark } from './ForgeRemovalSweep';
 
@@ -154,6 +160,12 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   );
   const [includeChanged, setIncludeChanged] = useState(false);
   const [sweep, setSweep] = useState(false);
+  /**
+   * When the undo that brought back what the confirmed run's removal found
+   * gone ended, as the panel writes it: the removal takes every record the
+   * run created again. Null for a removal of what is left.
+   */
+  const [againAfter, setAgainAfter] = useState<string | null>(null);
   /** The run the last removal was asked for: its answer shows under it. */
   const [removingId, setRemovingId] = useState<string | null>(null);
   const removal = useBridgeMutation<UndoAnswer>('forge:undo', {
@@ -178,12 +190,29 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
   );
   const confirmingOrg = (confirming && orgLabel(confirming.targetOrgId)) ?? '';
   const markOf = useRewoundMarks(entries.length === 0 && olderRuns.length === 0);
+  /** The mark of the rewind that took a run back, when one did. */
+  const marked = (run: ForgeExecutionResult | ForgeRemovalPlan): RewoundMarkOf | undefined => {
+    const facts = rewoundRunOf(run);
+    return facts ? markOf(facts) : undefined;
+  };
+  /**
+   * Whether an undo brought back what the run's removal found gone, and the
+   * records it created can be counted for a removal of them all again.
+   */
+  const backAgain = (
+    run: ForgeExecutionResult | ForgeRemovalPlan,
+    mark: RewoundMarkOf | undefined,
+  ): boolean =>
+    backAfterRemoval(mark, run.undo?.removedAt) && forgeRunCountsCreatedOf(run).length > 0;
   /** A run's mark, under its line: a rewind took it back. */
   const rewoundOf = (run: ForgeExecutionResult | ForgeRemovalPlan): React.ReactNode => {
-    const facts = rewoundRunOf(run);
-    const mark = facts ? markOf(facts) : undefined;
+    const mark = marked(run);
     return mark ? (
-      <RewoundMark mark={mark} testId={`forge-history-rewound-${run.forgeId}`} />
+      <RewoundMark
+        mark={mark}
+        undoneAfterRemoval={backAgain(run, mark)}
+        testId={`forge-history-rewound-${run.forgeId}`}
+      />
     ) : null;
   };
 
@@ -227,6 +256,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
       forgeId: confirming.forgeId,
       includeChanged,
       ...(sweep ? { sweep: true } : {}),
+      ...(againAfter !== null ? { again: true } : {}),
     });
     setConfirming(null);
   };
@@ -251,6 +281,13 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         date={shown(entry.undo.removedAt) ?? t('common.dateUnknown')}
       />
     ) : null;
+    const rewound = marked(entry);
+    // Its removal found its records gone, and the rewind's undo brought them
+    // back: the run said nothing was left, and offered no removal of them.
+    const undoneOn =
+      backAgain(entry, rewound) && rewound?.undoneAt !== undefined
+        ? (shown(rewound.undoneAt) ?? t('common.dateUnknown'))
+        : undefined;
     let action: React.ReactNode = null;
     if (entry.journalGone) {
       // Its ids were in its journal, which is gone: said, and nothing offered.
@@ -275,6 +312,26 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           </p>
         );
       }
+    } else if (undoneOn !== undefined && org) {
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Trash2 size={11} />}
+          loading={mine && removal.loading}
+          disabled={removal.loading}
+          onClick={() => {
+            setIncludeChanged(false);
+            setSweep(false);
+            setAgainAfter(undoneOn);
+            setConfirming(entry);
+          }}
+          data-testid={`forge-history-remove-again-${entry.forgeId}`}
+          className="self-start text-[11px]"
+        >
+          {t('runResults.rewound.removeAgain')}
+        </Button>
+      );
     } else if (keptPlan || removable.has(entry.forgeId)) {
       action = org ? (
         <Button
@@ -286,6 +343,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           onClick={() => {
             setIncludeChanged(false);
             setSweep(false);
+            setAgainAfter(null);
             setConfirming(entry);
           }}
           data-testid={`forge-history-remove-${entry.forgeId}`}
@@ -314,6 +372,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
           onClick={() => {
             setIncludeChanged(false);
             setSweep(true);
+            setAgainAfter(null);
             setConfirming(entry);
           }}
           data-testid={`forge-history-sweep-${entry.forgeId}`}
@@ -502,6 +561,7 @@ export const ForgeHistoryPanel: React.FC<ForgeHistoryPanelProps> = ({
         onIncludeChangedChange={setIncludeChanged}
         sweep={sweep}
         onSweepChange={setSweep}
+        {...(againAfter !== null ? { againAfter } : {})}
         onClose={() => setConfirming(null)}
         onConfirm={confirmRemoval}
       />

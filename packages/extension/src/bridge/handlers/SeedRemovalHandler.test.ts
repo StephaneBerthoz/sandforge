@@ -675,4 +675,122 @@ describe('SeedRemovalHandler', () => {
       expect(answer()?.status).toBe('success');
     });
   });
+
+  describe('seed:remove again, once an undo brought back what a removal found gone', () => {
+    /** The user a checkpoint's rewind and its undo ran as. */
+    const REWINDER = fakeId('005', 7);
+    const ALL = [A1, C1, C2];
+    const answers = (): SeedRemovalResult[] =>
+      posted<BaseMessage & { payload: { result: SeedRemovalResult } }>('seed:remove:response').map(
+        (m) => m.payload.result,
+      );
+    const lastInfo = (): SeedRunRemovalInfo | null | undefined =>
+      posted<BaseMessage & { payload: { info: SeedRunRemovalInfo | null } }>(
+        'seed:removal:info:response',
+      ).at(-1)?.payload.info;
+    const live = (): string[] => [...org.all('Account'), ...org.all('Contact')].map((r) => r.Id);
+
+    // A rewind deleted the seed's records; its removal then found them all
+    // gone; the rewind's undo brought them back, dated anew as its user's.
+    beforeEach(async () => {
+      for (const [object, id] of [
+        ['Contact', C1],
+        ['Contact', C2],
+        ['Account', A1],
+      ] as const) {
+        org.trash(object, id, REWINDER);
+      }
+      await remove();
+      expect(answers()[0]).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', deleted: 0, alreadyGone: 2 },
+          { objectApiName: 'Account', deleted: 0, alreadyGone: 1 },
+        ],
+      });
+      for (const id of [A1, C1, C2]) org.untrash(id, REWINDER);
+      vi.mocked(deps.broker.postToWebview).mockClear();
+      org.deletes.length = 0;
+    });
+
+    it('was refused as removed already, every record back in the org: what was left was taken as all of it', async () => {
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+      // The line says nothing is left to remove...
+      expect(lastInfo()).toMatchObject({ left: [], removed: { deleted: 0, alreadyGone: 3 } });
+      // ...and the removal, asked without `again`, takes what was left: none.
+      await remove();
+
+      expect(errors()[0].payload.code).toBe('ALREADY_REMOVED');
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...ALL].sort());
+    });
+
+    it('lists what a removal of every record again would take, the contacts first', async () => {
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+
+      expect(lastInfo()?.createdByObject).toEqual([
+        { objectApiName: 'Contact', count: 2 },
+        { objectApiName: 'Account', count: 1 },
+      ]);
+      expect(lastInfo()?.refusal).toBeUndefined();
+    });
+
+    it('reads every record again and keeps them as changed since the seed, the undo having dated them anew', async () => {
+      await remove({ again: true });
+
+      expect(errors()).toEqual([]);
+      expect(answers()[0]).toMatchObject({
+        status: 'failure',
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 0, keptChanged: 2 },
+          { objectApiName: 'Account', planned: 1, deleted: 0, keptChanged: 1 },
+        ],
+      });
+      // One taking every record again picks up after no removal.
+      expect(answers()[0].leftBy).toBeUndefined();
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...ALL].sort());
+
+      // The line now says what is left, and offers it, changed since.
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+      expect(lastInfo()).toMatchObject({
+        left: [
+          { objectApiName: 'Contact', count: 2 },
+          { objectApiName: 'Account', count: 1 },
+        ],
+        removed: { deleted: 0, alreadyGone: 0, kept: 3 },
+      });
+      await remove({ includeChanged: true });
+      expect(answers()[1]).toMatchObject({ status: 'success', includeChanged: true });
+      expect(live()).toEqual([]);
+    });
+
+    it('removes every record again with the changed ones included, counted afresh', async () => {
+      await remove({ again: true, includeChanged: true });
+
+      expect(answers()[0]).toMatchObject({
+        status: 'success',
+        objects: [
+          { objectApiName: 'Contact', planned: 2, deleted: 2 },
+          { objectApiName: 'Account', planned: 1, deleted: 1 },
+        ],
+      });
+      expect(live()).toEqual([]);
+      await handler.handle(buildMsg('seed:removal:info', { runId: 'op-1' }));
+      // Three records, removed once each: never three found gone and three deleted.
+      expect(lastInfo()).toMatchObject({
+        left: [],
+        removed: { deleted: 3, alreadyGone: 0, kept: 0, refused: 0 },
+      });
+    });
+
+    it('refuses a request whose again is not a boolean, removing nothing', async () => {
+      await remove({ again: 'yes', includeChanged: true });
+
+      expect(errors()[0].payload.code).toBe('INVALID_PAYLOAD');
+      expect(answers()).toEqual([]);
+      expect(org.deletes).toEqual([]);
+      expect(live().sort()).toEqual([...ALL].sort());
+    });
+  });
 });

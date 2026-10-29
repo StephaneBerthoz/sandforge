@@ -249,9 +249,23 @@ export class SeedRemovalHandler implements DomainHandler {
       left: plan.map(({ objectApiName, ids }) => ({ objectApiName, count: ids.length })),
       ...(run.removal?.undo ? { removed: run.removal.undo } : {}),
     };
-    if (plan.length === 0) return info;
-    const refusal = this.refusalOf(run, plan);
-    return refusal ? { ...info, refusal } : info;
+    // Once a removal marked it: what one taking every record again would
+    // take, should an undo of a rewind have brought back what it found gone.
+    const every = run.removal?.undo ? syncRemovalPlan(run, true) : [];
+    const listed: SeedRunRemovalInfo =
+      every.length > 0
+        ? {
+            ...info,
+            createdByObject: every.map(({ objectApiName, ids }) => ({
+              objectApiName,
+              count: ids.length,
+            })),
+          }
+        : info;
+    const offered = plan.length > 0 ? plan : every;
+    if (offered.length === 0) return listed;
+    const refusal = this.refusalOf(run, offered);
+    return refusal ? { ...listed, refusal } : listed;
   }
 
   /**
@@ -693,7 +707,8 @@ export class SeedRemovalHandler implements DomainHandler {
       );
       return;
     }
-    if (syncRemovalPlan(run).length === 0) {
+    const again = parsed.again === true;
+    if (syncRemovalPlan(run, again).length === 0) {
       if (run.removal?.undo) {
         this.refuse(
           msg,
@@ -736,7 +751,11 @@ export class SeedRemovalHandler implements DomainHandler {
         msg,
         store,
         run,
-        { includeChanged: parsed.includeChanged === true, sweep: parsed.sweep === true },
+        {
+          includeChanged: parsed.includeChanged === true,
+          sweep: parsed.sweep === true,
+          again,
+        },
         pending,
       );
     } finally {
@@ -745,16 +764,19 @@ export class SeedRemovalHandler implements DomainHandler {
     }
   }
 
-  /** The removal once the request names a run whose records can be removed. */
+  /**
+   * The removal once the request names a run whose records can be removed:
+   * what its removals left, or, `again`, every record it created.
+   */
   private async removeRun(
     msg: InboundRequest,
     store: SeedRunCreations,
     run: SyncRunKept,
-    asked: { includeChanged: boolean; sweep: boolean },
+    asked: { includeChanged: boolean; sweep: boolean; again: boolean },
     pending: PendingStart | undefined,
   ): Promise<void> {
-    const { includeChanged } = asked;
-    const plan = syncRemovalPlan(run);
+    const { includeChanged, again } = asked;
+    const plan = syncRemovalPlan(run, again);
     const total = plan.reduce((sum, object) => sum + object.ids.length, 0);
     const orgId = run.targetOrgId;
 
@@ -848,6 +870,7 @@ export class SeedRemovalHandler implements DomainHandler {
         run,
         org: removalOrg(conn, 'seed:remove'),
         includeChanged,
+        ...(again ? { again } : {}),
         store,
         ...(sweepFirst ? { sweep: sweepFirst } : {}),
         onUndeletable: undeletableAsker(this.deps, orgId, 'seed:remove'),

@@ -781,6 +781,117 @@ describe('ForgeHistoryPanel — removing the records a run created', () => {
     expect(within(entry).queryByRole('button', { name: /Remove/ })).toBeNull();
     expect(screen.queryByTestId('forge-history-remove-unrecorded-forge-removable')).toBeNull();
   });
+
+  describe('a run whose removal found its records gone, a rewind having deleted them', () => {
+    /** The run of 14 February at 17:02; its removal at 13:00 the next day found them all gone. */
+    const REMOVED: ForgeExecutionResult = {
+      ...REMOVABLE_RUN,
+      undo: {
+        removedAt: '2026-02-15T13:00:00.000Z',
+        deleted: 0,
+        alreadyGone: 3,
+        kept: 0,
+        refused: 0,
+      },
+      removalLeft: [],
+    };
+    /** The ledger: a checkpoint taken the morning of the run, rewound at 10:00 the next day, undone at `undoneAt`. */
+    function ledger(undoneAt: string): void {
+      const request = sent('checkpoint:rewinds');
+      if (!request) throw new Error("no 'checkpoint:rewinds' was sent");
+      const rewindId = 'rw-20260215-100000-aaaa';
+      const checkpointId = 'ck-20260214-080000-aaaa';
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-rewinds',
+              type: 'checkpoint:rewinds:response',
+              timestamp: Date.now(),
+              correlationId: request.id,
+              payload: {
+                rewinds: [
+                  {
+                    kind: 'rewind',
+                    rewindId,
+                    checkpointId,
+                    checkpointName: 'Sprint start',
+                    organizationId: '00D000000000001AAA',
+                    mode: 'everything',
+                    objects: ['Account', 'Contact'],
+                    readFrom: '2026-02-14T08:00:00.000Z',
+                    takenAt: '2026-02-14T08:05:00.000Z',
+                    startedAt: '2026-02-15T10:00:00.000Z',
+                    endedAt: '2026-02-15T10:10:00.000Z',
+                    status: 'success',
+                    totals: { deleted: 3, restored: 0, undeleted: 0, recreated: 0 },
+                    orgIds: [DEV.id],
+                  },
+                  {
+                    kind: 'undo',
+                    rewindId,
+                    checkpointId,
+                    organizationId: '00D000000000001AAA',
+                    status: 'success',
+                    undoneAt,
+                    orgIds: [DEV.id],
+                  },
+                ],
+              },
+            },
+          }),
+        );
+      });
+    }
+
+    it('says the undo brought them back after its removal, and removes every record it created again', () => {
+      render(<ForgeHistoryPanel entries={[REMOVED]} error={null} onReuseConfig={vi.fn()} />);
+      ledger('2026-02-15T14:00:00.000Z');
+
+      expect(screen.getByTestId('forge-history-rewound-forge-removable').textContent).toContain(
+        'Its records came back with the undo of',
+      );
+      expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
+      fireEvent.click(screen.getByTestId('forge-history-remove-again-forge-removable'));
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByTestId('forge-removal-again-note').textContent).toContain(
+        'Every record this run created is read again',
+      );
+      expect(within(dialog).getByTestId('forge-removal-plan-Contact').textContent).toBe(
+        'Contact: 2 records',
+      );
+      expect(within(dialog).getByTestId('forge-removal-plan-Account').textContent).toBe(
+        'Account: 1 record',
+      );
+      expect(within(dialog).queryByTestId('forge-removal-left-by')).toBeNull();
+      expect(sent('forge:undo-automation:request')?.payload).toEqual({
+        forgeId: 'forge-removable',
+        again: true,
+      });
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: DEV.alias } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(sent('forge:undo')?.payload).toEqual({
+        forgeId: 'forge-removable',
+        includeChanged: false,
+        again: true,
+      });
+    });
+
+    it('offers nothing again when no undo came after the removal', () => {
+      // Undone at noon, the records were back: the removal at 13:00 deleted them.
+      const deleted = { ...REMOVED, undo: { ...REMOVED.undo!, deleted: 3, alreadyGone: 0 } };
+      render(<ForgeHistoryPanel entries={[deleted]} error={null} onReuseConfig={vi.fn()} />);
+      ledger('2026-02-15T12:00:00.000Z');
+
+      expect(screen.getByTestId('forge-history-rewound-forge-removable').textContent).toContain(
+        'undone on',
+      );
+      expect(screen.queryByTestId('forge-history-remove-again-forge-removable')).toBeNull();
+      expect(screen.queryByTestId('forge-history-remove-forge-removable')).toBeNull();
+    });
+  });
 });
 
 /** The plan the extension kept of a run the history dropped: two contacts and their account. */

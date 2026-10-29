@@ -4725,6 +4725,7 @@
     "removeDescription": "Deletes from {{org}} the records this run created, children before their parents; they go to its recycle bin. Records the run linked to, which {{org}} already held, are kept, and so is a record that records staying in {{org}} depend on. A record changed since the run ended, or one that records added since depend on, is kept unless you include it below.",
     "removeIncludeChanged": "Also remove the records changed since the run, and what was added to them since",
     "removeSweep": "Sweep first: also take back what the target's automation created during the run, as its user — then such a record keeps none of the run's records back",
+    "removeAgainNote": "Every record this run created is read again, those its removal found gone among them. The undo of {{date}} brought them back and dated them as its user's change: they read as changed since the run, and stay unless you also remove the records changed since, below.",
     "stopRefused": "Could not stop the removal",
     "stopRefusedDetail": "The removal is no longer in progress, or it was not started from this window.",
     "stopping": "Stopping: the removal ends once the call under way is answered. What it removed by then is listed; the rest stays in the org, and a removal takes it later.",
@@ -4853,7 +4854,9 @@
       "leftSome": "the rewind left some records: open the removal to see what is left",
       "undone": "undone on {{date}}",
       "outside": "Not rewound: {{objects}}, outside the checkpoint",
-      "badge": "Rewound"
+      "badge": "Rewound",
+      "undoneAfterRemoval": "Its records came back with the undo of {{date}}, after its removal",
+      "removeAgain": "Remove again"
     }
   },
   "grappe": {

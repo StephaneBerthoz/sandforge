@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '../../i18n';
 
 const mockPostMessage = vi.fn();
@@ -116,6 +116,74 @@ describe('SyncHistoryDetail', () => {
 
     expect(screen.getByTestId('history-copied-Account').textContent).toBe(
       '2 records already copied by an earlier run of this configuration, left as they were.',
+    );
+  });
+
+  it('hands the mark of the rewind to the run’s removal, which offers it again once an undo brought its records back', async () => {
+    mockPostMessage.mockClear();
+    const entry = makeMockEntry();
+    entry.result.created = {
+      runId: 'run-1',
+      objects: [{ objectApiName: 'Account', count: 90 }],
+      files: 0,
+    };
+    useSyncHistoryStore.setState({ selectedEntry: entry });
+    render(
+      <SyncHistoryDetail
+        rewound={{
+          kind: 'rewound',
+          rewindId: 'rw-20240101-020000-aaaa',
+          checkpointId: 'ck-20231231-230000-aaaa',
+          checkpointName: 'Before UAT',
+          at: '2024-01-01T02:10:00.000Z',
+          leftSome: false,
+          undoneAt: '2024-01-01T04:00:00.000Z',
+          outside: [],
+        }}
+      />,
+    );
+    const asked = () =>
+      mockPostMessage.mock.calls
+        .map((call) => (call[0] as { payload: { id: string; type: string } }).payload)
+        .filter((message) => message.type === 'sync:removal:info');
+    await waitFor(() => expect(asked()).toHaveLength(1));
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'resp-info',
+            type: 'sync:removal:info:response',
+            timestamp: Date.now(),
+            correlationId: asked()[0].id,
+            payload: {
+              info: {
+                runId: 'run-1',
+                configId: 'cfg-1',
+                configName: 'My Sync Config',
+                sourceOrgId: 'org-1',
+                targetOrgId: 'org-2',
+                startedAt: '2024-01-01T00:00:00Z',
+                endedAt: '2024-01-01T00:12:00Z',
+                created: 90,
+                left: [],
+                // Removed at 03:00, after the rewind: it found them gone.
+                removed: {
+                  removedAt: '2024-01-01T03:00:00.000Z',
+                  deleted: 0,
+                  alreadyGone: 90,
+                  kept: 0,
+                  refused: 0,
+                },
+                createdByObject: [{ objectApiName: 'Account', count: 90 }],
+              },
+            },
+          },
+        }),
+      );
+    });
+
+    expect((await screen.findByTestId('sync-removal-remove-again')).textContent).toBe(
+      'Remove again',
     );
   });
 
