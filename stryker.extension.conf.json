@@ -15,6 +15,7 @@
   "jsonReporter": { "fileName": "reports/mutation/extension/mutation.json" },
   "thresholds": { "high": 80, "low": 60, "break": 69 },
   "timeoutMS": 30000,
+  "dryRunTimeoutMinutes": 10,
   "timeoutFactor": 2,
   "concurrency": 4,
   "incremental": true,

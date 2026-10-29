@@ -3024,7 +3024,7 @@
       "checkpoint1700": "Prüfpunkte: Dateien, Rechte pro Objekt, Weitergabe",
       "checkpoint1700Desc": "Ein Prüfpunkt enthält jetzt die Dateien und Custom Settings seiner Datensätze; ein Benutzer mit View All und Modify All pro Objekt erstellt einen und setzt die Org darauf zurück, ohne View All Data und Modify All Data; ein Prüfpunkt lässt sich verschlüsselt für einen Kollegen exportieren, der dieselbe Org zurücksetzt; und die Verläufe von Seed, Sync und Forge markieren die Läufe, die ein Zurücksetzen zurückgenommen hat.",
       "agentforce1700": "Testdaten für einen Agentforce-Agenten",
-      "agentforce1700Desc": "Aus einem integrierten Szenario oder aus Ihrem eigenen Text, von der KI entworfen und zuerst geprüft, schreibt Seed Accounts, Kontakte, Fälle mit ihrem Verlauf und Knowledge-Artikel, die zueinander passen, sowie eine Testing-Center-Testdatei aus den Themen des Agenten der Org.",
+      "agentforce1700Desc": "Aus einem integrierten Szenario oder aus Ihrem eigenen Text, von der KI entworfen und zuerst geprüft, schreibt Seed Accounts, Kontakte, Fälle mit ihrem Verlauf und Knowledge-Artikel, die zusammenpassen, sowie eine Testing-Center-Testdatei aus den Themen des Agenten der Org.",
       "envMask1690": "Maskierung, gespeicherte Pläne und der Editor für Umgebungen",
       "envMask1690Desc": "Eine sandforge.yaml maskiert jetzt, was eine aus der Produktion kopierte Sandbox enthält, mit DataOps-Regeln und einem destroy, das nie demaskiert; plan --out und apply --plan wenden einen Plan wie geplant an oder lehnen ihn ab; output nennt einer Testsuite die erstellten IDs; und der Editor prüft die Datei beim Tippen.",
       "checkpoints1660": "Prüfpunkte: eine Org auf einen früheren Stand zurücksetzen",

@@ -6,6 +6,10 @@ name: Stryker Mutation Testing
 # so it runs on every push and pull request that changes the code it mutates,
 # nightly (06:00 UTC), and on manual dispatch.
 #
+# On a GitHub runner the extension engine's initial test run alone has passed
+# the five minutes Stryker gives it by default (3 min 47 s on one run, cut at
+# 5 min 03 s on the next), so its config raises `dryRunTimeoutMinutes` to ten.
+#
 # The paths are everything that changes what a run measures: the mutated code,
 # the test setup and runner config each suite loads, the Stryker configs, and
 # the lockfile that pins Stryker and vitest.
