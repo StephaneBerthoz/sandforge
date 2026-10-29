@@ -447,6 +447,29 @@ describe('what a delete takes along of a record’s feed', () => {
   const outsideOf = (diff: RewindDiff, objectApiName: string) =>
     diff.objects.find((o) => o.objectApiName === objectApiName)?.outside;
 
+  it('names the tasks first of what a delete takes along out of sight, before the feed items, so that a line cut short still names them (G-B2)', async () => {
+    const org = new RewindTestOrg({
+      fields: { ...WITH_FEED, Task: WITH_TASKS.Task },
+      children: { ...FEED_CHILDREN, Account: [...FEED_CHILDREN.Account, ...TASK_CHILDREN.Account] },
+    });
+    const t = await taken(
+      (held) => {
+        baseRecords(held);
+        heldObjectByObject(held, HELD);
+      },
+      org,
+      PICKED,
+    );
+    clock.now = SINCE;
+    t.org.add('Account', { Id: account(4), Name: 'New one', LastModifiedById: COLLEAGUE });
+
+    const diff = await previewed(t);
+
+    expect(diff.unseen).toEqual([
+      { objectApiName: 'Account', children: ['Task', 'FeedItem'], records: 1 },
+    ]);
+  });
+
   it('reads the accounts to delete, names the feed items under them out of sight, never reading them, and deletes them only once that is accepted', async () => {
     const t = await withFeed(true);
 

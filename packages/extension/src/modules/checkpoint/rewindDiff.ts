@@ -2258,8 +2258,17 @@ async function unseenUnder(
   const workedIn = await worked();
   const children = [...new Set(cascading.filter((child) => workedIn.has(child)))].sort();
   const out = children.length > 0 ? await access.unseenOf(children) : [];
-  return out.length > 0 ? { objectApiName, children: out, records } : undefined;
+  // Activities first, then the others in order: a line that names only the
+  // first of twenty children named Asset and AssociatedLocation, and left
+  // Task in its "+12" (G-B2).
+  const ordered = [...out].sort(
+    (a, b) => Number(!OUT_OF_SIGHT_FIRST.has(a)) - Number(!OUT_OF_SIGHT_FIRST.has(b)),
+  );
+  return ordered.length > 0 ? { objectApiName, children: ordered, records } : undefined;
 }
+
+/** What a delete takes along out of sight that is named first: tasks and events, which have no View All. */
+const OUT_OF_SIGHT_FIRST: ReadonlySet<string> = new Set(['Event', 'Task']);
 
 /**
  * Of the records to delete, per object, those that go with a parent the first
