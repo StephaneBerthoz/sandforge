@@ -485,9 +485,12 @@ export interface CheckpointEstimate {
  * deletions Undo could not bring back not accepted (`NO_UNDO`), records to
  * make again with new Ids not accepted (`RECREATE`), more emails than the
  * org has left today of a daily limit (`EMAILS`), which nothing lifts either,
- * and files to bring back from the recycle bin that take more file storage
+ * files to bring back from the recycle bin that take more file storage
  * than the org has left (`FILE_STORAGE`): a file in the bin takes none, and
- * its undelete counts it again.
+ * its undelete counts it again, and, for a user without View All Data and
+ * Modify All Data, records to delete whose delete takes along records of
+ * objects the user is not proven to see whole, not accepted (`UNSEEN`,
+ * {@link RewindDiff.unseen}).
  *
  * An import of a `.sfcheckpoint` file is refused, beside the org's own
  * refusals, for a file that is no checkpoint file (`IMPORT_NOT_ARCHIVE`), one
@@ -509,6 +512,7 @@ export type CheckpointRefusalCode =
   | 'RECREATE'
   | 'EMAILS'
   | 'FILE_STORAGE'
+  | 'UNSEEN'
   | 'IMPORT_NOT_ARCHIVE'
   | 'IMPORT_VERSION'
   | 'IMPORT_KEY'
@@ -579,6 +583,17 @@ export interface CheckpointRefusal {
  * new version since (`newFileVersion`): Salesforce neither deletes a version
  * nor lets the latest point back at an older one, so such a file keeps its
  * new content, the one it had staying in its version history.
+ *
+ * Read by a user without View All Data and Modify All Data
+ * ({@link RewindDiff.access}): records deleted since by another user
+ * (`deletedByOther`), whom the deleted row names its last modifier —
+ * Salesforce brings back what someone else deleted for a user with Modify All
+ * Data only, Modify All on the object notwithstanding (P-B3) — never tried,
+ * never made again; and records of an object held through the records it
+ * hangs from, neither live nor in what the user's read of the recycle bin
+ * shows (`outOfReach`): nothing proves the user sees what others deleted of
+ * it, so such a record may sleep in the bin out of sight, and is never made
+ * again, which could leave two of it.
  */
 export type RewindCannotUndoReason =
   | 'goneForGood'
@@ -586,7 +601,9 @@ export type RewindCannotUndoReason =
   | 'activatedContract'
   | 'deletedWithCreatedParent'
   | 'deletedWithParentOutside'
-  | 'newFileVersion';
+  | 'newFileVersion'
+  | 'deletedByOther'
+  | 'outOfReach';
 
 /**
  * Fields of an object whose description changed since the take, by API name.
@@ -764,6 +781,32 @@ export interface RewindFilesResult {
   linksRefused: number;
 }
 
+/**
+ * How the user who read the org holds what it read: with View All Data and
+ * Modify All Data (`org`), every record of every object, whoever changed it;
+ * or, without them, object by object (`perObject`): View All and Modify All
+ * on each object, or on every record it hangs from, read again at each act,
+ * what reading them sent the org in `requests` — each act sends them again.
+ * Read so, what other users deleted since stays in the recycle bin
+ * (`deletedByOther`, `outOfReach`), and an object no longer held is not read.
+ */
+export type RewindDiffAccess = { kind: 'org' } | { kind: 'perObject'; requests: number };
+
+/**
+ * Records of one object a rewind deletes whose delete also takes along
+ * records of objects the user is not proven to see whole — a private task of
+ * another user under an account created since: no read counts them, and
+ * Undo brings back only what comes back with them.
+ */
+export interface RewindDiffUnseen {
+  /** The object of the records to delete. */
+  objectApiName: string;
+  /** The objects whose records go with them out of the user's sight. */
+  children: string[];
+  /** How many of its records the rewind deletes. */
+  records: number;
+}
+
 /** What a rewind to a checkpoint would do, read from the org now, writing nothing. */
 export interface RewindDiff {
   checkpointId: string;
@@ -816,9 +859,20 @@ export interface RewindDiff {
   filesRequests?: number;
   /**
    * Objects whose read failed, with the reason: never read as unchanged, so
-   * the rewind leaves them as they are.
+   * the rewind leaves them as they are. An object the user no longer holds
+   * whole, read object by object ({@link access}), is one of them, never read.
    */
   unread: Array<{ objectApiName: string; reason: string }>;
+  /** How the user who read the org holds what it read: see {@link RewindDiffAccess}. */
+  access: RewindDiffAccess;
+  /**
+   * Read object by object, per object of records to delete, the objects
+   * their delete takes records of along that the user is not proven to see
+   * whole: a rewind deletes them only once that is accepted (`UNSEEN`).
+   * Absent when there is none, and from a read with View All Data and Modify
+   * All Data.
+   */
+  unseen?: RewindDiffUnseen[];
   /** The names of the users {@link RewindDiffObject.lastChangedBy} counts, by user Id. */
   userNames: Record<string, string>;
   /** The users who changed records of the checkpoint's objects in the hour before Tr. */

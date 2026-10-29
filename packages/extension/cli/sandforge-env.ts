@@ -254,11 +254,15 @@ destroy:
                              environment's records, and its checkpoints are then deleted
   --accept-no-undo           with --rewind, rewind although undo could not bring back some of
                              the records it deletes
+  --accept-unseen            with --rewind, for a user without View All Data and Modify All
+                             Data, rewind although what it deletes takes along records of
+                             objects the user is not proven to see, tasks and events among them
   --yes                      as for apply
 reset:
   --accept-automation        rewind although the org runs automation as records are written back
   --accept-no-undo           rewind although undo could not bring back some of the records it
                              deletes
+  --accept-unseen            as for destroy --rewind
   --yes                      as for apply
 
 The file holds no secret: org credentials stay with the sf CLI. A value comes from the environment
@@ -339,7 +343,8 @@ protected org, a state of another org, no state without --accept-no-state, anoth
 org under way, a removal refused for automation without --accept-automation, more API requests,
 storage or emails than the org has left, a checkpoint the file asks that its script refuses, a
 production source without anonymize or accept: { realData: true }, no checkpoint to reset or
-rewind to, a rewind refused for want of --accept-automation or --accept-no-undo, a plan --plan
+rewind to, a rewind refused for want of --accept-automation, --accept-no-undo or
+--accept-unseen, a plan --plan
 names that no longer holds, is a day old or was refused when it was made, no state for output to
 read, a state recover of a state that reads, of another org or of a later SandForge, of a summary
 of another org or that does not read, of two runs of one rank, or of no run at all —, or nothing
@@ -392,13 +397,14 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--accept-automation',
       '--rewind',
       '--accept-no-undo',
+      '--accept-unseen',
       '--yes',
     ],
     values: ['--file', '--org', '--alias'],
   },
   reset: {
     words: 1,
-    switches: ['--json', '--accept-automation', '--accept-no-undo', '--yes'],
+    switches: ['--json', '--accept-automation', '--accept-no-undo', '--accept-unseen', '--yes'],
     values: ['--file', '--org', '--alias'],
   },
   state: { words: 1, switches: ['--json'], values: ['--org', '--file'] },
@@ -440,6 +446,7 @@ export interface CliArgs {
   /** destroy: rewind the org to the checkpoint taken before the first apply. */
   rewind: boolean;
   acceptNoUndo: boolean;
+  acceptUnseen: boolean;
   yes: boolean;
   /** plan: where to keep the plan for `apply --plan`, absolute. */
   out?: string;
@@ -546,8 +553,12 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
           'back to the checkpoint before the first apply. Give one or the other.',
       );
     }
-  } else if (command === 'destroy' && args.includes('--accept-no-undo')) {
-    refuseLine('--accept-no-undo goes with --rewind: a destroy by removal is no rewind.');
+  } else if (command === 'destroy') {
+    for (const flag of ['--accept-no-undo', '--accept-unseen']) {
+      if (args.includes(flag)) {
+        refuseLine(`${flag} goes with --rewind: a destroy by removal is no rewind.`);
+      }
+    }
   }
   const fileGiven = single('--file');
   const replace = values('--replace');
@@ -570,6 +581,7 @@ export function parseArgs(argv: readonly string[], cwd: string = process.cwd()):
     sweep: args.includes('--sweep'),
     rewind,
     acceptNoUndo: args.includes('--accept-no-undo'),
+    acceptUnseen: args.includes('--accept-unseen'),
     yes: args.includes('--yes'),
     ...(out !== undefined ? { out: resolve(cwd, out) } : {}),
     outInRepository: args.includes('--out-in-repository'),
@@ -1630,6 +1642,7 @@ async function rewindVerb(
     state: prepared.state,
     acceptAutomation: args.acceptAutomation,
     acceptNoUndo: args.acceptNoUndo,
+    acceptUnseen: args.acceptUnseen,
   };
   const refused = rewindRefusalOf(input);
   if (refused !== undefined) throw stopWith(refused);

@@ -5310,6 +5310,8 @@
         "goneForGood_other": "その後に削除された {{formatted}} 件のレコードは戻せません。ごみ箱にもうなく、巻き戻しでも再作成できないためです (チェックポイントに中身がないファイル、またはチェックポイントの作成中に削除されたレコード) ({{objects}})。",
         "deletedWithCreatedParent_other": "その後に作成された親と一緒に削除された {{formatted}} 件のレコードは戻せません。Salesforce はその親と一緒にしか戻さず、その親を単独では復元しません ({{objects}})。",
         "deletedWithParentOutside_other": "その後、チェックポイントにないオブジェクトのレコードである親と一緒に削除された {{formatted}} 件のレコードは、ごみ箱に残ります。Salesforce はその親と一緒にしか戻しません。親のオブジェクトを含むチェックポイントなら復元できます ({{objects}})。",
+        "deletedByOther_other": "その後に別のユーザーが削除した {{formatted}} 件のレコードは、ごみ箱に残ります。他のユーザーが削除したものを戻せるのは View All Data と Modify All Data を持つユーザーだけで、巻き戻しでも再作成しません ({{objects}})。",
+        "outOfReach_other": "その後に削除された {{formatted}} 件のレコードには手が届きません。View All Data と Modify All Data がないと、親レコードを通じて保持するオブジェクトについて、他のユーザーが削除したものは見えません。見えないままごみ箱にある可能性があるため、巻き戻しでも再作成しません ({{objects}})。",
         "convertedLead_other": "その後に {{formatted}} 件のリードが取引開始されました。Salesforce はリードの取引開始を取り消せません。取引開始で作成されたものは削除し、リードは取引開始済みのまま残ります。",
         "activatedContract_other": "その後に {{formatted}} 件の契約が有効化されました。Salesforce はドラフトに戻さないため、有効なまま残ります。",
         "newFileVersion_other": "その後に {{formatted}} 件のファイルに新しいバージョンが追加されました。Salesforce はバージョンを削除せず、古いバージョンを最新に戻すこともできないため、ファイルは新しい内容のまま残ります。以前の内容はバージョン履歴に残り、タイトルは戻します。",

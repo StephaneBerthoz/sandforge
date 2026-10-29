@@ -500,6 +500,7 @@ describe('docs/environments.md', () => {
         '--accept-automation',
         '--rewind',
         '--accept-no-undo',
+        '--accept-unseen',
         '--yes',
         '--file',
         '--org',

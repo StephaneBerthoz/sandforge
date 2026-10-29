@@ -224,17 +224,28 @@ describe('docs/modules/checkpoint.md', () => {
     );
   });
 
-  it('refuses a production org with nothing to lift it, and asks for both permissions, or at a take for View All and Modify All per object', () => {
+  it('refuses a production org with nothing to lift it, and asks for both permissions to import, or for View All and Modify All per object at every other act', () => {
     // Positive control: the guard says no override reaches it, reads the two
-    // permissions, and without them the user's rows of each object.
+    // permissions, and without them the user's rows of each object, an import
+    // aside; and the preview, the rewind and the undo give it their user.
     expect(GUARD).toContain('So nothing lifts this refusal');
     expect(GUARD).toContain("{ field: 'PermissionsViewAllData', label: 'View All Data' },");
     expect(GUARD).toContain("{ field: 'PermissionsModifyAllData', label: 'Modify All Data' },");
     expect(GUARD).toContain('FROM ObjectPermissions WHERE ParentId IN (SELECT PermissionSetId');
+    expect(GUARD).toContain("const userId = act === 'import' ? undefined : deps.userId;");
+    for (const act of ['previewCheckpoint', 'rewindOrg', 'undoCheckpoint']) {
+      expect(source(`packages/extension/src/modules/checkpoint/${act}.ts`)).toMatch(
+        /\{ userId: async \(\) => \(\w+ = await (?:count\.)?org\.userId\(\)\) \}/,
+      );
+    }
 
     expect(DOC).toContain('no setting or flag lifts the refusal');
     expect(DOC).toContain(
-      'needs **View All Data and Modify All Data** to preview, rewind, undo or import',
+      'needs **View All Data and Modify All Data** to import, and for a rewind to put back what ' +
+        'anyone changed',
+    );
+    expect(DOC).toContain(
+      'A preview, a rewind and an undo by such a user read those permissions again',
     );
     expect(DOC).toContain('with **View All and Modify All per object**');
     expect(DOC).toContain(
@@ -648,10 +659,12 @@ describe('docs/modules/checkpoint.md', () => {
     expect(unionOf(TYPES, 'RewindCannotUndoReason').sort()).toEqual([
       'activatedContract',
       'convertedLead',
+      'deletedByOther',
       'deletedWithCreatedParent',
       'deletedWithParentOutside',
       'goneForGood',
       'newFileVersion',
+      'outOfReach',
     ]);
     expect(DIFF).toContain(
       "...(goneForGood > 0 ? [{ reason: 'goneForGood' as const, count: goneForGood }] : []),",
@@ -667,15 +680,30 @@ describe('docs/modules/checkpoint.md', () => {
     expect(DIFF).toContain(
       "...(newVersions > 0 ? [{ reason: 'newFileVersion' as const, count: newVersions }] : []),",
     );
+    expect(DIFF).toContain(
+      "...(byOther > 0 ? [{ reason: 'deletedByOther' as const, count: byOther }] : []),",
+    );
+    expect(DIFF).toContain(
+      "...(outOfReach > 0 ? [{ reason: 'outOfReach' as const, count: outOfReach }] : []),",
+    );
     const kept = /const LEFT_AS_IT_IS[^=]*= \{([\s\S]*?)\n\};/.exec(REWIND)?.[1] ?? '';
     expect([...kept.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1])).toEqual([
       'convertedLead',
       'activatedContract',
       'deletedWithCreatedParent',
       'deletedWithParentOutside',
+      'deletedByOther',
+      'outOfReach',
     ]);
 
     const preview = section(DOC, '## The preview');
+    expect(preview).toContain(
+      'the records another user deleted since, left in the recycle bin and never made again',
+    );
+    expect(preview).toContain(
+      'the records of an object held through what it hangs from that are neither in the org nor ' +
+        'in what the recycle bin shows the user, out of reach, never made again',
+    );
     expect(preview).toContain(
       'the contracts activated since, which Salesforce will not set back to Draft, left activated and never given back',
     );

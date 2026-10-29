@@ -300,6 +300,7 @@ export function previewOfEverything(checkpointId: string): CheckpointPreviewResp
       unread: [{ objectApiName: 'Asset', reason: 'the org stopped answering while it was read' }],
       userNames: { [USERS.alice]: 'Alice Martin', [USERS.integration]: 'Integration User' },
       activeLastHour: [USERS.alice, TAKEN_BY],
+      access: { kind: 'org' },
     },
     automation: {
       objectsRead: ['OpportunityLineItem', 'Contact', 'Case', 'Account'],
@@ -358,6 +359,7 @@ export function plainPreview(
       unread: [],
       userNames: { [USERS.alice]: 'Alice Martin' },
       activeLastHour: [],
+      access: { kind: 'org' },
     },
     automation: {
       objectsRead: ['Contact', 'Account'],
@@ -411,6 +413,7 @@ export function previewWithFiles(checkpointId: string): CheckpointPreviewRespons
       unread: [],
       userNames: { [USERS.alice]: 'Alice Martin' },
       activeLastHour: [],
+      access: { kind: 'org' },
       files: {
         unlink: 1,
         relink: 1,
@@ -445,6 +448,7 @@ export function nothingToRewind(checkpointId: string): CheckpointPreviewResponse
       unread: [],
       userNames: {},
       activeLastHour: [],
+      access: { kind: 'org' },
     },
     estimate: { records: 0, apiRequests: 0, apiRequestsLeft: 14_900, seconds: 0, bytes: 0 },
   };
@@ -462,6 +466,7 @@ export function nothingToWrite(checkpointId: string): CheckpointPreviewResponse[
       unread: [],
       userNames: {},
       activeLastHour: [],
+      access: { kind: 'org' },
     },
     estimate: { records: 0, apiRequests: 0, apiRequestsLeft: 14_900, seconds: 0, bytes: 0 },
   };

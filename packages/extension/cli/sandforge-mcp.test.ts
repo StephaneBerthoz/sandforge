@@ -524,6 +524,7 @@ describe('sandforge-mcp: confirm', () => {
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
+      acceptUnseen: true,
     });
     await c.call('checkpoint_rewind', { org: 'DEV', checkpoint: 'Before UAT', confirm: 'DEV' });
     await c.call('checkpoint_undo', {
@@ -627,6 +628,7 @@ describe('sandforge-mcp: confirm', () => {
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
+          '--accept-unseen',
           '--json',
         ],
       },
@@ -811,6 +813,32 @@ describe("sandforge-mcp: a script's answer", () => {
     expect(textOf(result)).toContain("Delete 'baseline' from this machine?");
     expect(textOf(result)).toContain('It is a question for the person using you');
     expect(exitWords(2)).toContain('nothing was written');
+    await c.close();
+  });
+
+  it('names acceptUnseen as the parameter a rewind refused for what its user cannot see stands for', async () => {
+    const refusal =
+      "Deleting 2 Account record(s) created since also deletes what tester@example.com can't " +
+      "see under them in Task: Rewind can't count those. Rewind refused; give --accept-unseen " +
+      'to rewind all the same. No record was written.';
+    const { run } = scripts(() => ({
+      code: 1,
+      stdout: JSON.stringify({ refusal: { code: 'UNSEEN', message: refusal } }),
+      stderr: `${refusal}\n`,
+    }));
+    const c = client(run);
+    await c.initialized();
+
+    const result = await c.call('checkpoint_rewind', {
+      org: 'DEV',
+      checkpoint: 'baseline',
+      confirm: 'DEV',
+    });
+
+    expect(textOf(result)).toContain(
+      "--accept-unseen, named above, is this tool's acceptUnseen: true. Give it only once the " +
+        'person using you has accepted what it lets through.',
+    );
     await c.close();
   });
 

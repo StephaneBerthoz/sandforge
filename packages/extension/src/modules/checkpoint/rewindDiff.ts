@@ -168,6 +168,21 @@
  * An object any of whose reads failed is named "could not be read", never
  * taken for one that did not change: a rewind leaves it as it is.
  *
+ * Read by a user without View All Data and Modify All Data, object by object
+ * (`rewindAccess.ts`): an object the user no longer holds whole is not read,
+ * and could not be read, with why; a record deleted since by another user,
+ * whom the deleted row names its last modifier (F2), cannot come back — only
+ * Modify All Data restores what someone else deleted (P-B3) — and is named
+ * (`deletedByOther`), never brought back nor made again, with what went with
+ * it in its second; of an object held through what it hangs from, a record
+ * the snapshot holds that is neither live nor in what the bin shows the user,
+ * or that Salesforce answered an earlier rewind is no longer in the bin, may
+ * be another's deletion out of sight, and is named (`outOfReach`), never made
+ * again. Of each object with records to delete, the objects its delete takes
+ * records of along, through a lookup whose delete cascades, that the user is
+ * not proven to see whole are named too (`RewindDiff.unseen`): no read counts
+ * those records.
+ *
  * The ids of each class are written to the preview's folder as they are told,
  * `<Object>.<class>.ndjson`, one `{"Id"}` line each and nothing held whole: a
  * rewind acts on what its preview confirmed that still differs, class by
@@ -184,6 +199,7 @@ import {
   type OrgCheckpoint,
   type RewindDiff,
   type RewindDiffObject,
+  type RewindDiffUnseen,
   type RewindFilesDiff,
   type RewindSchemaDrift,
 } from '@sandforge/shared';
@@ -232,6 +248,7 @@ import {
   type ObjectChanges,
   type ObjectRead,
 } from './orgStreams.js';
+import { ORG_ACCESS, type ActAccess } from './rewindAccess.js';
 import { GoneForGood, NotInBin, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
 
 /**
@@ -269,6 +286,9 @@ import { GoneForGood, NotInBin, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snap
  * - `deletedWithParentOutside`: deleted since with its parent, a record of an
  *   object the checkpoint does not hold: named, never brought back, never
  *   made again;
+ * - `deletedByOther`, `outOfReach`: read object by object, deleted since by
+ *   another user, or of an object held through what it hangs from and out of
+ *   the user's sight: named, never brought back, never made again;
  * - `undoCannot`: of the records to delete, those Undo couldn't bring back,
  *   a line naming why when it is not `onlyWithParent`. Not a class of its
  *   own: each of its records is in a class to delete too;
@@ -304,6 +324,8 @@ export type RewindClass =
   | 'carrier'
   | 'deletedWithCreatedParent'
   | 'deletedWithParentOutside'
+  | 'deletedByOther'
+  | 'outOfReach'
   | 'undoCannot'
   | 'outsideParents'
   | 'outsideAdded'
@@ -328,6 +350,8 @@ const REWIND_CLASSES: readonly RewindClass[] = [
   'carrier',
   'deletedWithCreatedParent',
   'deletedWithParentOutside',
+  'deletedByOther',
+  'outOfReach',
   'undoCannot',
   'outsideParents',
   'outsideAdded',
@@ -398,6 +422,12 @@ export interface RewindDiffInput {
    * checkpoint holds is not seen now either.
    */
   queryAllFiles?: boolean;
+  /**
+   * What the user reading now may read and write of each object, as the
+   * act's guard read their permissions (`rewindAccess.ts`): everything, with
+   * View All Data and Modify All Data, unless given.
+   */
+  access?: ActAccess;
 }
 
 /**
@@ -599,6 +629,8 @@ interface ToBringBack {
   stamp: number;
   parents: string[];
   restricts: string[];
+  /** Who deleted it, by key: its last modifier in the bin (F2); none when the read named none. */
+  by?: string;
 }
 
 /** What every object of a diff shares. */
@@ -628,6 +660,16 @@ interface DiffContext {
    * no longer in it (`NotInBin`): gone for good, never to bring back.
    */
   stuck: ReadonlySet<string>;
+  /** Of {@link stuck}, by key, those Salesforce answered an earlier rewind are no longer in the bin. */
+  answeredGone: ReadonlySet<string>;
+  /**
+   * Read object by object, by key, the records deleted since by another user
+   * than the one reading, and what went with them in their second
+   * (`othersOf`): none with View All Data and Modify All Data.
+   */
+  others: ReadonlySet<string>;
+  /** What the user reading may read and write of each object. */
+  access: ActAccess;
   /** By object, the lookups of its snapshot rows that may name a record of {@link back}. */
   lookups: ReadonlyMap<string, readonly string[]>;
   /**
@@ -1073,12 +1115,14 @@ async function toBringBackOf(
           fields
             .map((field) => keyOf(row[field]))
             .filter((parent): parent is string => parent !== undefined && parent !== key);
+        const by = keyOf(row.LastModifiedById);
         const record = (): ToBringBack => ({
           objectApiName,
           id: String(row.Id),
           stamp: dateMs(row.SystemModstamp),
           parents: keysOf(cascadeParents),
           restricts: keysOf(restrictParents),
+          ...(by !== undefined ? { by } : {}),
         });
         // Made again under a new Id: its old one stays in the bin, never
         // brought back over the record that stands for it.
@@ -1170,6 +1214,48 @@ function stuckWith(
     }
   }
   for (const key of stuck) back.delete(key);
+}
+
+/**
+ * Of the records deleted since that a rewind would bring back, read by
+ * `userKey` object by object, those another user deleted, by key: the deleted
+ * row names its deleter its last modifier (F2), and Salesforce refuses the
+ * undelete of what someone else deleted to a user without Modify All Data,
+ * Modify All on the object notwithstanding (P-B3:
+ * `INSUFFICIENT_ACCESS_OR_READONLY`, while the user's own came back). A row
+ * that names no one is taken for another's: never tried. What went with one
+ * of them in its second went with that delete, and stays with it. None
+ * without a user, read with View All Data and Modify All Data.
+ */
+function othersOf(
+  back: ReadonlyMap<string, ToBringBack>,
+  userKey: string | undefined,
+): Set<string> {
+  if (userKey === undefined) return new Set();
+  const deleters = [...back].filter(([, record]) => record.by !== userKey).map(([key]) => key);
+  return wentWith(deleters, back);
+}
+
+/**
+ * `seeds`, and what of `records` went with one of them in its second through
+ * a field whose parent's delete takes it along, as far down as that goes.
+ */
+function wentWith(seeds: Iterable<string>, records: ReadonlyMap<string, ToBringBack>): Set<string> {
+  const went = new Set(seeds);
+  for (let grew = went.size > 0; grew;) {
+    grew = false;
+    for (const [key, record] of records) {
+      if (went.has(key)) continue;
+      const along = record.parents.some(
+        (parent) => went.has(parent) && records.get(parent)?.stamp === record.stamp,
+      );
+      if (along) {
+        went.add(key);
+        grew = true;
+      }
+    }
+  }
+  return went;
 }
 
 /**
@@ -1555,7 +1641,8 @@ async function diffObject(
   fieldsNow: FieldsNow,
 ): Promise<ObjectOutcome> {
   if ('unread' in changes) return { unread: changes.unread };
-  const { input, previewDir, t0s, back, carriers, stranded, stuck, personAccounts } = context;
+  const { input, previewDir, t0s, back, carriers, stranded, stuck, others, personAccounts } =
+    context;
   const { folder, reader, checkpoint, signal } = input;
   const objectApiName = object.objectApiName;
   // A file is acted on when a link ties it to a record the checkpoint holds:
@@ -1623,6 +1710,11 @@ async function diffObject(
     // again, with a new one — but a file, whose body the snapshot does not
     // hold, which a record made again would be without.
     const lostAs: RewindClass = recreatable(object) ? 'toRecreate' : 'goneForGood';
+    // Held through what it hangs from, read object by object: a record the
+    // bin does not show, or that Salesforce said is no longer there, may be
+    // another user's deletion out of sight, and is never made again.
+    const outOfSightAs: RewindClass =
+      context.access.heldAs(objectApiName) === 'parent' ? 'outOfReach' : lostAs;
     const sameSecondFrom = t0s - ORG_DATE_GRAIN_MS;
     const tally: Tally = { fields: 0, cleared: 0, liveNotHeld: 0, deletedHeld: 0 };
     const recordOf = (row: OrgRow): { id: string; key: string } => {
@@ -1824,9 +1916,13 @@ async function diffObject(
             await spool('outsideDeleted').add({ Id: id });
             continue;
           }
-          // Salesforce keeps it in the bin for good.
+          // Another user deleted it: it stays in the bin, never made again.
           const strandedAs = stranded.get(key);
-          if (stuck.has(key)) await spool(lostAs).add({ Id: id });
+          if (others.has(key)) await spool('deletedByOther').add({ Id: id });
+          // Salesforce keeps it in the bin for good.
+          else if (stuck.has(key)) {
+            await spool(context.answeredGone.has(key) ? outOfSightAs : lostAs).add({ Id: id });
+          }
           // It comes back with a parent the rewind does not bring back only.
           else if (strandedAs !== undefined) await spool(strandedAs).add({ Id: id });
           else if (wentWithParent(row, key)) await spool('withParent').add({ Id: id });
@@ -1850,9 +1946,11 @@ async function diffObject(
           const strandedAs = stranded.get(key);
           const as: RewindClass = !actedThen(id)
             ? 'outsideDeleted'
-            : stuck.has(key)
-              ? 'goneForGood'
-              : (strandedAs ?? 'deletedWhileTaken');
+            : others.has(key)
+              ? 'deletedByOther'
+              : stuck.has(key)
+                ? 'goneForGood'
+                : (strandedAs ?? 'deletedWhileTaken');
           await spool(as).add({ Id: id });
         } else if (wentWithParent(row, key)) {
           await spool('comesBackWithParent').add({ Id: id });
@@ -1898,7 +1996,7 @@ async function diffObject(
         }
         for (const id of ids) {
           if (persons.has(id.slice(0, 15))) continue;
-          await spool(actedThen(id) ? lostAs : 'outsideDeleted').add({ Id: id });
+          await spool(actedThen(id) ? outOfSightAs : 'outsideDeleted').add({ Id: id });
         }
         ids = [];
       };
@@ -1916,6 +2014,8 @@ async function diffObject(
     const activatedSince = countOf('activatedContract');
     const withCreatedParent = countOf('deletedWithCreatedParent');
     const withParentOutside = countOf('deletedWithParentOutside');
+    const byOther = countOf('deletedByOther');
+    const outOfReach = countOf('outOfReach');
     const carried = countOf('carrier');
     const diff: RewindDiffObject = {
       objectApiName,
@@ -1950,6 +2050,8 @@ async function diffObject(
         ...(withParentOutside > 0
           ? [{ reason: 'deletedWithParentOutside' as const, count: withParentOutside }]
           : []),
+        ...(byOther > 0 ? [{ reason: 'deletedByOther' as const, count: byOther }] : []),
+        ...(outOfReach > 0 ? [{ reason: 'outOfReach' as const, count: outOfReach }] : []),
       ],
       outside: [],
       touched: countOf('touched'),
@@ -2107,6 +2209,41 @@ async function outsideOf(
       count: records.size,
       parents: parents.size,
     }));
+}
+
+/**
+ * Read object by object, what the delete of `told`'s records to delete takes
+ * along out of the user's sight: the objects a person works in that hang
+ * from them through a relationship the org deletes along, whatever the
+ * checkpoint holds, that the user is not proven to see every record of
+ * (`ActAccess.unseenOf`) — tasks and events always, which have no View All.
+ * A delete takes along every record that hangs from it so, seen or not: a
+ * private task of another user under an account created since goes with
+ * it, uncounted by {@link outsideOf} and by the deletion's own check of
+ * dependents, which read what the user sees. None with View All Data and
+ * Modify All Data.
+ *
+ * @throws When the org would not describe the object, or what hangs from it.
+ */
+async function unseenUnder(
+  access: ActAccess,
+  told: Told,
+  relationsOf: (objectApiName: string) => Promise<CheckpointDescribe>,
+  worked: () => Promise<ReadonlyMap<string, string>>,
+): Promise<RewindDiffUnseen | undefined> {
+  if (access.kind === 'org') return undefined;
+  const { objectApiName, toDelete } = told.diff;
+  const records = toDelete.createdSince + toDelete.broughtBackSince;
+  if (records === 0) return undefined;
+  const described = await relationsOf(objectApiName);
+  const cascading = (described.childRelationships ?? [])
+    .filter((relationship) => relationship.cascadeDelete === true)
+    .map((relationship) => relationship.childSObject);
+  if (cascading.length === 0) return undefined;
+  const workedIn = await worked();
+  const children = [...new Set(cascading.filter((child) => workedIn.has(child)))].sort();
+  const out = children.length > 0 ? await access.unseenOf(children) : [];
+  return out.length > 0 ? { objectApiName, children: out, records } : undefined;
 }
 
 /**
@@ -2438,20 +2575,28 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   await makePrivateDir(previewDir);
 
   const ordered = [...checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
+  // An object its user no longer holds whole is not read at all.
+  const access = input.access ?? ORG_ACCESS;
+  const held = ordered.filter(({ objectApiName }) => !access.notHeld.has(objectApiName));
   const bodies = new Map<string, CheckpointDescribe>();
   // A checkpoint that holds files reads their links too: the describe of a
   // link, which names the objects a link may tie a file to, asked with the
   // objects' own so that it goes in the same call.
   const fileObject =
     checkpoint.files !== undefined
-      ? ordered.find(({ objectApiName }) => isFile(objectApiName))
+      ? held.find(({ objectApiName }) => isFile(objectApiName))
       : undefined;
   const linkDescribe = fileObject !== undefined ? describedLink(reader) : undefined;
   linkDescribe?.catch(() => undefined);
-  const { now: fieldsNow, requests: fieldsRequests } = await fieldsNowOf(input, ordered, bodies);
+  const { now: fieldsNow, requests: fieldsRequests } = await fieldsNowOf(input, held, bodies);
   const unread = new Map<string, string>();
   const readable: Array<{ object: CheckpointObject; fields: FieldsNow }> = [];
   for (const object of ordered) {
+    const notHeld = access.notHeld.get(object.objectApiName);
+    if (notHeld !== undefined) {
+      unread.set(object.objectApiName, notHeld);
+      continue;
+    }
     const now = fieldsNow.get(object.objectApiName);
     if (now === undefined || 'unread' in now) {
       unread.set(object.objectApiName, now?.unread ?? 'Its describe was not read.');
@@ -2492,13 +2637,28 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   };
 
   const { back, gone } = await toBringBackOf({ input, t0s }, ordered, changes);
+  // Told before anything leaves `back`, whose stamps tell what is stuck.
+  const others = othersOf(back, access.userKey);
+  const deleted = new Map([...gone, ...back]);
   const stuck = stuckOf(back, gone);
   // What the org answered an earlier rewind is no longer in the recycle bin,
   // though it still lists it there: no read tells it from what the bin holds
   // (P11), its answer did.
   const notInBin = await NotInBin.read(folder);
   for (const key of notInBin.keys()) if (back.has(key) || gone.has(key)) stuck.add(key);
+  // Those, and what went with them, apart: of an object held through what
+  // it hangs from, read object by object, they are out of reach.
+  const answeredGone = wentWith(
+    [...notInBin.keys()].filter((key) => deleted.has(key)),
+    deleted,
+  );
   stuckWith(stuck, back, gone);
+  // What another user deleted stays in the bin, stuck or not, and brings
+  // nothing back with it: no carrier is told for it.
+  for (const key of others) {
+    back.delete(key);
+    stuck.delete(key);
+  }
   const carriers = carriersOf(ordered, back, gone);
   const compared = new Map(
     readable.map(({ object, fields }) => [
@@ -2551,6 +2711,9 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     carriers,
     stranded,
     stuck,
+    answeredGone,
+    others,
+    access,
     lookups,
     personAccounts: await personAccountsOf(ordered, changes),
     ...(anchors !== undefined ? { files: anchors } : {}),
@@ -2599,6 +2762,7 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   let worked: Promise<ReadonlyMap<string, string>> | undefined;
   const workedNow = (): Promise<ReadonlyMap<string, string>> =>
     (worked ??= workedObjects({ describeGlobal: input.describeGlobal }));
+  const unseen: RewindDiffUnseen[] = [];
   for (const [objectApiName, outcome] of outcomes) {
     if (!('told' in outcome)) continue;
     const { toDelete } = outcome.told.diff;
@@ -2611,6 +2775,8 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
         workedNow,
         inCheckpoint,
       );
+      const under = await unseenUnder(access, outcome.told, relationsOf, workedNow);
+      if (under !== undefined) unseen.push(under);
     } catch (err: unknown) {
       if (err instanceof OrgReadStopped) throw err;
       await discardClasses(previewDir, objectApiName);
@@ -2631,6 +2797,9 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     return outcome && 'told' in outcome ? [outcome.told] : [];
   });
   const { undoCannot, withParentDeleted } = await withParentOf(previewDir, told);
+  // Of an object read whole: one whose files' reads failed since is not.
+  const toldNames = new Set(told.map(({ diff }) => diff.objectApiName));
+  const stillUnseen = unseen.filter(({ objectApiName }) => toldNames.has(objectApiName));
   const users = [...new Set(told.flatMap(({ diff }) => Object.keys(diff.lastChangedBy)))];
   const userNames = await userNamesOf(reader, users, signal);
   const active = new Set(told.flatMap(({ people }) => [...people.active]));
@@ -2648,6 +2817,8 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     ...(fieldsRequests > 0 ? { fieldsRequests } : {}),
     ...(files !== undefined ? { files } : {}),
     ...(fileObject !== undefined ? { filesRequests } : {}),
+    access: access.diffAccess(),
+    ...(stillUnseen.length > 0 ? { unseen: stillUnseen } : {}),
     unread: ordered.flatMap(({ objectApiName }) => {
       const outcome = outcomes.get(objectApiName);
       const reason =

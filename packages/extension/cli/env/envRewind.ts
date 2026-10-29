@@ -63,6 +63,11 @@ export interface EnvRewindInput {
   acceptAutomation: boolean;
   /** Rewind although undo could not bring back some records it deletes: the line's. */
   acceptNoUndo: boolean;
+  /**
+   * Rewind although what it deletes takes along records of objects a user
+   * without View All Data and Modify All Data is not proven to see: the line's.
+   */
+  acceptUnseen: boolean;
 }
 
 /** The step of the checkpoint each verb rewinds to. */
@@ -174,6 +179,7 @@ export async function previewEnvRewind(
       dryRun: true,
       acceptAutomation: input.acceptAutomation,
       acceptNoUndo: input.acceptNoUndo,
+      acceptUnseen: input.acceptUnseen,
     }),
     signal,
   );
@@ -330,6 +336,7 @@ export async function rewindEnvironment(
         dryRun: false,
         acceptAutomation: input.acceptAutomation,
         acceptNoUndo: input.acceptNoUndo,
+        acceptUnseen: input.acceptUnseen,
       }),
       stop.signal,
     );

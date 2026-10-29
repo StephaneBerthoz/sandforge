@@ -874,9 +874,16 @@ describe('checkpoint:* payloads', () => {
       acceptNoUndo: false,
       acceptRecreate: false,
       acceptOutside: false,
+      acceptUnseen: false,
     };
     expect(checkpointRewindPayloadSchema.safeParse(rewind).success).toBe(true);
-    for (const said of ['acceptAutomation', 'acceptNoUndo', 'acceptRecreate', 'acceptOutside']) {
+    for (const said of [
+      'acceptAutomation',
+      'acceptNoUndo',
+      'acceptRecreate',
+      'acceptOutside',
+      'acceptUnseen',
+    ]) {
       const unsaid: Record<string, unknown> = { ...rewind };
       delete unsaid[said];
       expect(checkpointRewindPayloadSchema.safeParse(unsaid).success).toBe(false);
@@ -908,6 +915,7 @@ describe('checkpoint:* payloads', () => {
         acceptNoUndo: true,
         acceptRecreate: true,
         acceptOutside: true,
+        acceptUnseen: true,
       }).success,
     ).toBe(false);
     expect(

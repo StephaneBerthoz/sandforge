@@ -1458,6 +1458,7 @@ export class CheckpointHandler implements DomainHandler {
               acceptNoUndo: parsed.acceptNoUndo,
               acceptRecreate: parsed.acceptRecreate,
               acceptOutside: parsed.acceptOutside,
+              acceptUnseen: parsed.acceptUnseen,
             },
           );
           return outcome.rewound

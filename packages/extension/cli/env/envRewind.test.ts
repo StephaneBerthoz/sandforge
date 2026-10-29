@@ -176,6 +176,7 @@ const input = (verb: 'reset' | 'destroy', state: EnvState | undefined): EnvRewin
   state,
   acceptAutomation: false,
   acceptNoUndo: false,
+  acceptUnseen: false,
 });
 
 describe('what a reset and a destroy by rewind refuse before the org is read', () => {

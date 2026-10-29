@@ -25,6 +25,16 @@
  * automation is read as a rewind reads it, undeletes included, the links'
  * among them.
  *
+ * A user without View All Data and Modify All Data is read object by object
+ * again (`rewindAccess.ts`). Such a user undoes only a rewind made as
+ * themselves: what another user's rewind deleted is that user's deletion in
+ * the recycle bin, which Salesforce restores to a user with Modify All Data
+ * alone (P-B3). And only when they still hold whole every object the undo
+ * takes back: an undo is not left part way for an object it may not read,
+ * since one that went through part way is marked undone and the rest would
+ * never be offered again. Either refusal writes nothing, and the undo stays
+ * offered.
+ *
  * Once through, a record it gave back that differs again from its values
  * from before the rewind is named by who last changed it: the user it writes
  * as and the org's Automated Process are its own — automation that set the
@@ -36,7 +46,6 @@
  * off, and is offered again: the next undo takes up what this one left.
  */
 
-import type { Connection } from 'jsforce';
 import {
   blindedBy,
   firedOnRemovalStepsOf,
@@ -53,8 +62,10 @@ import {
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
-import { guardCheckpoint } from './checkpointGuard.js';
+import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
+import { OrgReadStopped, compositeReader } from './compositeQueries.js';
 import type { CheckpointFolder, OrgCheckpointStore, OrgLockHolder } from './OrgCheckpointStore.js';
+import { actAccessOf, type ActAccess } from './rewindAccess.js';
 import {
   checkpointEmails,
   checkpointEmailsUncounted,
@@ -64,7 +75,12 @@ import {
 } from './rewindEmails.js';
 import { FILE_LINK_OBJECT, FILE_OBJECT, holdsCustomSettings } from './checkpointScope.js';
 import { budgetRefusal, fileStorageRefusal, readBudget, undoEstimate } from './rewindEstimate.js';
-import { rewoundObjects, undoPlansOf, type SpooledUndoPlans } from './rewindJournal.js';
+import {
+  readRewindJournal,
+  rewoundObjects,
+  undoPlansOf,
+  type SpooledUndoPlans,
+} from './rewindJournal.js';
 import { noteRewindUndone } from './rewindLedger.js';
 import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
@@ -147,9 +163,52 @@ function keyOf(id: string): string {
   return id.slice(0, 15);
 }
 
-/** {@link guardCheckpoint}'s view of the org: it reads the answer's records, nothing else of jsforce's query. */
-function guardConnectionOf(org: RewindOrg): Pick<Connection, 'query'> {
-  return { query: (soql: string) => org.query(soql) } as unknown as Pick<Connection, 'query'>;
+/**
+ * {@link guardCheckpoint}'s view of the org: it reads the answer's records
+ * and next pages, nothing else of jsforce's query.
+ */
+function guardConnectionOf(org: RewindOrg): CheckpointGuardConnection {
+  return {
+    query: (soql: string) => org.query(soql),
+    queryMore: (nextRecordsUrl: string) => org.queryMore(nextRecordsUrl),
+  } as unknown as CheckpointGuardConnection;
+}
+
+/**
+ * The refusal of an undo, read object by object, that would take back what
+ * a rewind did to objects its user no longer holds whole, or a rewind made as
+ * another user: nothing when it may go. See the module's comment.
+ */
+function perObjectRefusal(
+  access: ActAccess,
+  rewound: { users: readonly string[]; objects: readonly string[] },
+  username: string,
+): CheckpointRefusal | undefined {
+  if (access.kind === 'org') return undefined;
+  const ownKey = access.userKey;
+  if (rewound.users.some((user) => user.slice(0, 15) !== ownKey)) {
+    return {
+      code: 'PERMISSIONS',
+      message:
+        `This rewind was made as another user than ${username}: what it deleted is that user's ` +
+        'deletion in the recycle bin, which Salesforce brings back only for a user with View ' +
+        'All Data and Modify All Data. Undo it as the user it was made as, or as a user with ' +
+        `View All Data and Modify All Data. ${NOTHING_WRITTEN}`,
+    };
+  }
+  const notHeld = rewound.objects.flatMap((objectApiName) => {
+    const why = access.notHeld.get(objectApiName);
+    return why === undefined ? [] : [`${objectApiName}: ${why}`];
+  });
+  if (notHeld.length === 0) return undefined;
+  return {
+    code: 'PERMISSIONS',
+    message:
+      `Undo takes back what the rewind did to objects ${username} no longer holds whole ` +
+      `(${notHeld.join('; ')}), and does not stop part way: an undo left part way could not be ` +
+      'offered again. Undo it once the user has View All and Modify All on them again, or as a ' +
+      `user with View All Data and Modify All Data. ${NOTHING_WRITTEN}`,
+  };
 }
 
 /** A refusal under `code`. */
@@ -287,14 +346,20 @@ export async function undoCheckpoint(
   const progress = (percentage: number, step: string): void =>
     deps.onProgress?.({ percentage, step });
   const count = counted(deps.org, deps.undelete);
-  const guard = await guardCheckpoint(guardConnectionOf(count.org), {
-    act: 'undo',
-    orgName,
-    registered: request.registered,
-    username: request.username,
-    organizationId: checkpoint.org.organizationId,
-    customSettings: holdsCustomSettings(checkpoint),
-  });
+  // The user the guard reads object by object, when it does.
+  let readAs: string | undefined;
+  const guard = await guardCheckpoint(
+    guardConnectionOf(count.org),
+    {
+      act: 'undo',
+      orgName,
+      registered: request.registered,
+      username: request.username,
+      organizationId: checkpoint.org.organizationId,
+      customSettings: holdsCustomSettings(checkpoint),
+    },
+    { userId: async () => (readAs = await count.org.userId()) },
+  );
   if (!guard.allowed) return { undone: false, refusal: guard.refusal };
   const locked = deps.store.lock(checkpoint.org.organizationId, 'undo', checkpoint.checkpointId);
   if ('busy' in locked) return { undone: false, refusal: lockedRefusal(orgName, locked.busy) };
@@ -355,6 +420,30 @@ export async function undoCheckpoint(
         ...(steps.recreate ?? []),
       ]),
     ];
+    // Read object by object, its user's own rewind alone, every object it
+    // takes back still held whole.
+    let access: ActAccess;
+    try {
+      access = await actAccessOf({
+        grants: guard.grants,
+        ...(readAs !== undefined ? { userId: readAs } : {}),
+        username: request.username,
+        checkpoint,
+        reader: compositeReader(count.org, signal),
+      });
+    } catch (err: unknown) {
+      if (err instanceof OrgReadStopped || stopped()) throw new UndoStopped();
+      throw err;
+    }
+    if (access.kind === 'perObject') {
+      const journal = await readRewindJournal(folder, rewindId);
+      const refusal = perObjectRefusal(
+        access,
+        { users: journal.passes.map((pass) => pass.userId), objects },
+        request.username,
+      );
+      if (refusal) return { undone: false, refusal };
+    }
     let automation: ForgeTargetAutomation | undefined;
     if (objects.length > 0 && deps.readAutomation) {
       try {

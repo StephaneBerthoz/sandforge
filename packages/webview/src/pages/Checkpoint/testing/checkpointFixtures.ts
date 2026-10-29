@@ -265,6 +265,7 @@ export function previewAnswer(
       ],
       undoCannot: [],
       unread: [],
+      access: { kind: 'org' },
       userNames: { [USERS.alice]: 'Alice Martin', [USERS.integration]: 'Integration User' },
       activeLastHour: [],
     },

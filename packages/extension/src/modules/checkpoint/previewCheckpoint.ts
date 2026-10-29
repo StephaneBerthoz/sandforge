@@ -6,9 +6,12 @@
  *
  * The guard comes first, as for every act of a checkpoint: an org it refuses
  * — a production org, another org than the checkpoint's, a user without View
- * All Data and Modify All Data — is not read further, and the refusal is
- * given as the guard words it. The day's limits are read next, once, before
- * any record: the estimate says what the rewind would leave the org. Tr is
+ * All Data and Modify All Data who holds no object by its own permissions —
+ * is not read further, and the refusal is given as the guard words it. The
+ * day's limits are read next, once, before any record: the estimate says what
+ * the rewind would leave the org. A user without the two is read object by
+ * object (`rewindAccess.ts`), whoever took the checkpoint: an object the user
+ * no longer holds whole is not read, and could not be read, with why. Tr is
  * read on the org's clock just before the diff.
  *
  * The rewind's estimate prices the reads of its fresh diff, its convergence
@@ -48,10 +51,9 @@ import {
   type RewindDiff,
   type RewindDiffObject,
 } from '@sandforge/shared';
-import type { Connection } from 'jsforce';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { workedObjects } from '../dataops/RecordRemoval.js';
-import { guardCheckpoint } from './checkpointGuard.js';
+import { guardCheckpoint, type CheckpointGuardConnection } from './checkpointGuard.js';
 import {
   FILE_LINK_OBJECT,
   FILE_OBJECT,
@@ -65,6 +67,7 @@ import {
   type OrgCheckpointStore,
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
+import { actAccessOf } from './rewindAccess.js';
 import { rewindDiff } from './rewindDiff.js';
 import {
   checkpointEmails,
@@ -157,9 +160,15 @@ function lockedRefusal(orgName: string, holder: OrgLockHolder): CheckpointRefusa
   };
 }
 
-/** {@link guardCheckpoint}'s view of the org: it reads the answer's records, nothing else of jsforce's query. */
-function guardConnectionOf(org: TakeOrg): Pick<Connection, 'query'> {
-  return { query: (soql: string) => org.query(soql) } as unknown as Pick<Connection, 'query'>;
+/**
+ * {@link guardCheckpoint}'s view of the org: it reads the answer's records
+ * and next pages, nothing else of jsforce's query.
+ */
+function guardConnectionOf(org: TakeOrg): CheckpointGuardConnection {
+  return {
+    query: (soql: string) => org.query(soql),
+    queryMore: (nextRecordsUrl: string) => org.queryMore(nextRecordsUrl),
+  } as unknown as CheckpointGuardConnection;
 }
 
 /**
@@ -261,20 +270,33 @@ export async function previewCheckpoint(
 ): Promise<PreviewOutcome> {
   const { org, signal } = deps;
   const { checkpoint, orgName } = request;
-  const guard = await guardCheckpoint(guardConnectionOf(org), {
-    act: 'preview',
-    orgName,
-    registered: request.registered,
-    username: request.username,
-    organizationId: checkpoint.org.organizationId,
-    customSettings: holdsCustomSettings(checkpoint),
-  });
+  // The user the guard reads object by object, when it does.
+  let userId: string | undefined;
+  const guard = await guardCheckpoint(
+    guardConnectionOf(org),
+    {
+      act: 'preview',
+      orgName,
+      registered: request.registered,
+      username: request.username,
+      organizationId: checkpoint.org.organizationId,
+      customSettings: holdsCustomSettings(checkpoint),
+    },
+    { userId: async () => (userId = await org.userId()) },
+  );
   if (!guard.allowed) return { previewed: false, refusal: guard.refusal };
 
   const budget = await readBudget(org, orgName);
+  const kept = keepingDescribes(org, compositeReader(org, signal));
+  const access = await actAccessOf({
+    grants: guard.grants,
+    ...(userId !== undefined ? { userId } : {}),
+    username: request.username,
+    checkpoint,
+    reader: kept.reader,
+  });
   const readAt = await org.serverTime();
   const previewId = newFolderId('pv', (deps.now ?? (() => new Date()))());
-  const kept = keepingDescribes(org, compositeReader(org, signal));
   const diff = await rewindDiff({
     checkpoint,
     folder: request.folder,
@@ -283,6 +305,7 @@ export async function previewCheckpoint(
     previewId,
     readAt,
     queryAllFiles: guard.queryAllFiles,
+    access,
     ...(signal ? { signal } : {}),
   });
   const storage = budget.fileStorage;

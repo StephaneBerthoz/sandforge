@@ -318,6 +318,25 @@ describe('RewindPreview', () => {
     ]);
   });
 
+  it('names, read object by object, the records another user deleted and those out of reach, each never made again', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [
+          diffObject('Account', { cannotUndo: [{ reason: 'deletedByOther', count: 2 }] }),
+          diffObject('OpportunityLineItem', { cannotUndo: [{ reason: 'outOfReach', count: 1 }] }),
+        ],
+      }),
+    });
+    const lines = within(screen.getByTestId('checkpoint-preview-cannot'))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent);
+    expect(lines.slice(0, 2)).toEqual([
+      '2 records deleted since by another user stay in the recycle bin: only a user with View All Data and Modify All Data restores what someone else deleted, and the rewind does not make them again (Account).',
+      '1 record deleted since is out of reach: without View All Data and Modify All Data, nothing shows what others deleted of an object held through the records it hangs from. It may be in the recycle bin out of sight, so the rewind does not make it again (OpportunityLineItem).',
+    ]);
+  });
+
   it('says a field hidden by field-level security apart from one deleted since, with what lifts it, and one it could not tell, with both', () => {
     renderPreview();
     answerPreview({
@@ -385,6 +404,7 @@ describe('RewindPreview', () => {
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,
+        acceptUnseen: false,
       },
       previewAnswer().diff,
     );

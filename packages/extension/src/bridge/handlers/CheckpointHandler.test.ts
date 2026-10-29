@@ -30,7 +30,11 @@ import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
-import { MEMORY_ORG_USER, type MemoryOrgRequest } from '../../test/memoryRemovalOrg.js';
+import {
+  MEMORY_ORG_USER,
+  type MemoryChild,
+  type MemoryOrgRequest,
+} from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
 import { inboundRequest } from '../../test/mockFactories.js';
 
@@ -113,8 +117,11 @@ class HandlerTestOrg extends MemoryRestoreOrg {
   /** Whether each read of its clock moves it a second, as time passes during a rewind. */
   ticking = false;
 
-  constructor(says: { sandbox?: boolean; edition?: string } = {}) {
-    super({}, { now: () => clock });
+  constructor(
+    says: { sandbox?: boolean; edition?: string } = {},
+    children: Readonly<Record<string, readonly MemoryChild[]>> = {},
+  ) {
+    super(children, { now: () => clock });
     clock = LONG_AGO;
     for (const [name, fields] of Object.entries(FIELDS)) this.changeSchema(name, fields);
     this.add('Organization', {
@@ -1166,6 +1173,7 @@ function rewindOf(checkpointId: string, previewId: string, accepted: Record<stri
     acceptNoUndo: false,
     acceptRecreate: false,
     acceptOutside: false,
+    acceptUnseen: false,
     ...accepted,
   };
 }
@@ -1421,6 +1429,67 @@ describe('CheckpointHandler — the rewind and its undo', () => {
     const result = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
     expect(result.status).toBe('success');
     expect(h.org.all('Case')).toHaveLength(1);
+  });
+
+  it('passes on whether a rewind by a user read object by object may delete what takes along records the user is not proven to see: refused without it, writing nothing, rewound with it', async () => {
+    // The cases go with their account; the user holds the accounts by Modify
+    // All on them, the cases by View All alone.
+    const org = new HandlerTestOrg(
+      {},
+      { Account: [{ childSObject: 'Case', field: 'AccountId', cascadeDelete: true }] },
+    );
+    clock = LONG_AGO;
+    org.all('UserPermissionAccess')[0].PermissionsViewAllData = false;
+    org.all('UserPermissionAccess')[0].PermissionsModifyAllData = false;
+    org.add('PermissionSetAssignment', {
+      Id: '0Pa000000000001AAA',
+      AssigneeId: MEMORY_ORG_USER,
+      PermissionSetId: '0PS000000000001AAA',
+      PermissionSetGroupId: null,
+    });
+    for (const [n, object, modifyAll] of [
+      [1, 'Account', true],
+      [2, 'Case', false],
+    ] as const) {
+      org.add('ObjectPermissions', {
+        Id: id('110', n),
+        ParentId: '0PS000000000001AAA',
+        SobjectType: object,
+        PermissionsViewAllRecords: true,
+        PermissionsModifyAllRecords: modifyAll,
+      });
+    }
+    clock = T0;
+    const h = harness({ org });
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.add('Account', { Id: id('001', 3), Name: 'New', LastModifiedById: COLLEAGUE });
+    clock = T0 + 120_000;
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+    const before = stateOf(h.org);
+
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+
+    expect(answerOf(h, 'wv-rewind-1').payload).toMatchObject({
+      code: 'UNSEEN',
+      retryable: false,
+      message: expect.stringContaining(
+        "Deleting 1 Account record(s) created since also deletes what tester@example.com can't " +
+          'see under them in Case',
+      ) as unknown,
+    });
+    expect(stateOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    await h.send(
+      'wv-rewind-2',
+      'checkpoint:rewind',
+      rewindOf(checkpointId, previewId, { acceptUnseen: true }),
+    );
+    const result = resultOf(h, 'wv-rewind-2', 'checkpoint:rewind:response');
+    expect(result.status).toBe('success');
+    expect(h.org.all('Account').map((row) => row.Id)).not.toContain(id('001', 3));
   });
 
   it('refuses a rewind and an undo while a run of this window writes to the org, as its handler says, writing nothing; each goes once the run has ended', async () => {

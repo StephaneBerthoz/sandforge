@@ -591,7 +591,9 @@ export const TOOLS: readonly ServedTool[] = [
       'checkpoint_preview first. Refused without acceptAutomation when the org runs automation ' +
       'as the rewind writes, without acceptNoUndo when Undo could not bring back records it ' +
       'deletes, without acceptRecreate when records no longer in the recycle bin would be made ' +
-      'again with new Ids. A production org is refused.',
+      'again with new Ids, without acceptUnseen when, for a user without View All Data and ' +
+      'Modify All Data, what it deletes takes along records the user is not proven to see. A ' +
+      'production org is refused.',
     readOnly: false,
     destructive: true,
     args: z.strictObject({
@@ -617,6 +619,11 @@ export const TOOLS: readonly ServedTool[] = [
         'For a checkpoint of picked objects: also delete the records outside it created under ' +
           'records it deletes.',
       ),
+      acceptUnseen: acceptance(
+        'For a user without View All Data and Modify All Data: delete records whose delete ' +
+          'takes along records of objects the user is not proven to see, tasks and events among ' +
+          'them, which no count holds.',
+      ),
     }),
     writesTo: (args) => args.org,
     writes:
@@ -628,6 +635,7 @@ export const TOOLS: readonly ServedTool[] = [
       '--accept-no-undo': 'acceptNoUndo',
       '--accept-recreate': 'acceptRecreate',
       '--accept-outside': 'acceptOutside',
+      '--accept-unseen': 'acceptUnseen',
     },
     run: (args) => ({
       script: 'sandforge-checkpoint',
@@ -642,6 +650,7 @@ export const TOOLS: readonly ServedTool[] = [
         ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
         ...(args.acceptRecreate === true ? ['--accept-recreate'] : []),
         ...(args.acceptOutside === true ? ['--accept-outside'] : []),
+        ...(args.acceptUnseen === true ? ['--accept-unseen'] : []),
         '--json',
       ],
     }),

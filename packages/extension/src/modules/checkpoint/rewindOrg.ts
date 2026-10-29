@@ -21,6 +21,18 @@
  * command line that rewinds from the preview it just showed acts on that
  * preview, whose Tr it takes.
  *
+ * **Object by object.** A user without View All Data and Modify All Data is
+ * read object by object again, whoever took the checkpoint
+ * (`rewindAccess.ts`): an object no longer held whole is not read, and is
+ * left as it is; what another user deleted since stays in the recycle bin,
+ * named; and records whose delete takes along records of objects the user
+ * is not proven to see whole are deleted only once that is accepted
+ * (`UNSEEN`): no read counts what goes with them. A preview read with more
+ * than the user holds now is not acted on: it is read again. Of an object
+ * held through what it hangs from, a record Salesforce answers is no longer
+ * in the recycle bin is never made again: it may be another's deletion the
+ * user does not see.
+ *
  * **The order of one pass**, the order a Sync run's removal takes a run back
  * in (`removeSyncRun`): the removal of what is deleted reads its records, then
  * in its sweep, before its first delete, what was deleted since comes back,
@@ -219,7 +231,11 @@ import {
   type FileLinkChangedLine,
   type FileLinkLine,
 } from './checkpointFiles.js';
-import { guardCheckpoint } from './checkpointGuard.js';
+import {
+  guardCheckpoint,
+  type CheckpointGrants,
+  type CheckpointGuardConnection,
+} from './checkpointGuard.js';
 import {
   FILE_LINK_OBJECT,
   FILE_OBJECT,
@@ -252,6 +268,7 @@ import {
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, readStreams, spooledRows } from './orgStreams.js';
+import { ORG_ACCESS, actAccessOf, type ActAccess } from './rewindAccess.js';
 import { classFileOf, recreatable, rewindDiff, type RewindClass } from './rewindDiff.js';
 import {
   checkpointEmails,
@@ -336,7 +353,29 @@ const STILL_DIFFERING: readonly RewindClass[] = [
   'activatedContract',
   'deletedWithCreatedParent',
   'deletedWithParentOutside',
+  'deletedByOther',
+  'outOfReach',
 ];
+
+/**
+ * Why a rewind read object by object leaves in the recycle bin what another
+ * user deleted since (P-B3: Modify All on the object let a user see it there,
+ * and its undelete was refused, `INSUFFICIENT_ACCESS_OR_READONLY`).
+ */
+export const OTHERS_DELETION_WORDS =
+  'Left in the recycle bin: deleted since by another user, which only a user with View All ' +
+  'Data and Modify All Data restores. Not made again: it is there still.';
+
+/**
+ * Why a rewind read object by object leaves a record of an object held
+ * through what it hangs from that the recycle bin does not show it, or that
+ * Salesforce answered is no longer there: what others deleted of it may be
+ * there out of sight, and made again it would be there twice.
+ */
+export const OUT_OF_REACH_WORDS =
+  "Left as it is: out of the user's reach. Without View All Data and Modify All Data, " +
+  'nothing proves the user sees what others deleted of this object in the recycle bin, so it ' +
+  'may be there out of sight, and it is never made again.';
 
 /**
  * Why a rewind leaves as it is what the preview named it cannot take back,
@@ -354,6 +393,8 @@ const LEFT_AS_IT_IS: Readonly<Partial<Record<RewindClass, string>>> = {
     'Left in the recycle bin: deleted with its parent, a record of an object the checkpoint ' +
     'does not hold, it comes back with that record only. A checkpoint that holds that object ' +
     'brings it back.',
+  deletedByOther: OTHERS_DELETION_WORDS,
+  outOfReach: OUT_OF_REACH_WORDS,
 };
 
 /** Which brick acts on the records of each class, whose refusal the verify quotes. */
@@ -643,6 +684,11 @@ export interface RewindRequest {
   acceptRecreate: boolean;
   /** A checkpoint of picked objects: delete too the records outside it that hang from what it deletes. */
   acceptOutside: boolean;
+  /**
+   * Read object by object: delete records whose delete takes along records
+   * of objects the user is not proven to see whole (`RewindDiff.unseen`).
+   */
+  acceptUnseen: boolean;
 }
 
 /** How a rewind ended: what it did and what still differs, or the refusal it met before writing. */
@@ -716,9 +762,15 @@ const keyPrefixesSchema = z
   })
   .loose();
 
-/** {@link guardCheckpoint}'s view of the org: it reads the answer's records, nothing else of jsforce's query. */
-function guardConnectionOf(org: RewindOrg): Pick<Connection, 'query'> {
-  return { query: (soql: string) => org.query(soql) } as unknown as Pick<Connection, 'query'>;
+/**
+ * {@link guardCheckpoint}'s view of the org: it reads the answer's records
+ * and next pages, nothing else of jsforce's query.
+ */
+function guardConnectionOf(org: RewindOrg): CheckpointGuardConnection {
+  return {
+    query: (soql: string) => org.query(soql),
+    queryMore: (nextRecordsUrl: string) => org.queryMore(nextRecordsUrl),
+  } as unknown as CheckpointGuardConnection;
 }
 
 /** A refusal under `code`. */
@@ -796,6 +848,73 @@ function recreateRefusal(left: readonly RewindPlanLeft[]): CheckpointRefusal {
       'checkpoint, with new Ids. Anything outside Salesforce that names their old Ids — an ' +
       'integration, a link, a report filter — no longer finds them. Rewind refused; accept ' +
       `that they get new Ids to rewind all the same. ${NOTHING_WRITTEN}`,
+  };
+}
+
+/**
+ * The refusal of a rewind whose deletions take along records of objects its
+ * user is not proven to see whole, not accepted: for each object, how many
+ * records it deletes and the objects of what goes with them out of sight.
+ */
+function unseenRefusal(
+  username: string,
+  unseen: ReadonlyArray<{ objectApiName: string; children: readonly string[]; records: number }>,
+): CheckpointRefusal {
+  const said = unseen.map(
+    ({ objectApiName, children, records }) =>
+      `Deleting ${records} ${objectApiName} record(s) created since also deletes what ` +
+      `${username} can't see under them in ${children.join(', ')}: Rewind can't count those.`,
+  );
+  return {
+    code: 'UNSEEN',
+    message:
+      `${said.join(' ')} Rewind refused; accept that it deletes what ${username} can't see ` +
+      `to rewind all the same. ${NOTHING_WRITTEN}`,
+  };
+}
+
+/**
+ * Of what a pass deletes, per object, its records whose delete takes along
+ * records the user is not proven to see (`RewindDiff.unseen`), counted as
+ * the plan deletes them: those it hands the removal, and those that go with
+ * a parent it deletes.
+ */
+function unseenOfPlan(
+  diff: Pick<RewindDiff, 'unseen'>,
+  plan: Pick<RewindPlan, 'objects'>,
+): Array<{ objectApiName: string; children: string[]; records: number }> {
+  return (diff.unseen ?? []).flatMap((entry) => {
+    const planned = plan.objects.find((object) => object.objectApiName === entry.objectApiName);
+    const records = (planned?.deleted ?? 0) + (planned?.withParentDeleted ?? 0);
+    return records > 0 ? [{ ...entry, records }] : [];
+  });
+}
+
+/**
+ * Why a rewind may not act on the preview it was handed as read: read with
+ * View All Data and Modify All Data, which its user no longer has, or
+ * reading objects its user no longer holds whole. Nothing when it may.
+ */
+function accessChangedSince(preview: RewindDiff, access: ActAccess): string[] {
+  if (access.kind === 'org') return [];
+  if (preview.access.kind === 'org') return ['View All Data and Modify All Data'];
+  const unread = new Set(preview.unread.map((object) => object.objectApiName));
+  return [...access.notHeld]
+    .filter(([objectApiName]) => !unread.has(objectApiName))
+    .map(([objectApiName, why]) => `${objectApiName}: ${why}`);
+}
+
+/**
+ * The refusal of a rewind whose user can no longer read what its preview
+ * read: the preview is read again, as the user can read it now.
+ */
+function accessChangedRefusal(orgName: string, changed: readonly string[]): CheckpointRefusal {
+  return {
+    code: 'PERMISSIONS',
+    message:
+      `The preview read ${orgName} with permissions its user no longer has ` +
+      `(${changed.join('; ')}). Preview the rewind again: it reads the org as the user can ` +
+      `now. ${NOTHING_WRITTEN}`,
   };
 }
 
@@ -998,6 +1117,11 @@ class PassTally {
   readonly notInBin = new Map<string, RecordKeySet>();
   /** Per object, such records the checkpoint cannot make again: a file, or one it holds no values of. */
   readonly lost = new Map<string, RecordKeySet>();
+  /**
+   * Per object, such records of an object held through what it hangs from,
+   * read object by object, never made again: out of the user's reach.
+   */
+  readonly outOfReach = new Map<string, RecordKeySet>();
   /** What it wrote to the links between files and records: removed, inserted again, shared again. */
   readonly links: Record<'unlink' | 'relink' | 'share', FileLinksWritten> = {
     unlink: nothingWritten(),
@@ -1017,7 +1141,7 @@ class PassTally {
   }
 
   /** Name a record among those of `kept`. */
-  mark(kept: 'notInBin' | 'lost', objectApiName: string, id: string): void {
+  mark(kept: 'notInBin' | 'lost' | 'outOfReach', objectApiName: string, id: string): void {
     let held = this[kept].get(objectApiName);
     if (!held) {
       held = new RecordKeySet();
@@ -1411,18 +1535,28 @@ export async function rewindOrg(deps: RewindDeps, request: RewindRequest): Promi
     throw new Error('A rewind acts on the preview it names: the one given is another.');
   }
   const count = counted(deps.org, deps.undelete);
-  const guard = await guardCheckpoint(guardConnectionOf(count.org), {
-    act: 'rewind',
-    orgName,
-    registered: request.registered,
-    username: request.username,
-    organizationId: checkpoint.org.organizationId,
-    customSettings: holdsCustomSettings(checkpoint),
-  });
+  // The user the guard reads object by object, when it does: what tells
+  // their own deletions from others'.
+  let userId: string | undefined;
+  const guard = await guardCheckpoint(
+    guardConnectionOf(count.org),
+    {
+      act: 'rewind',
+      orgName,
+      registered: request.registered,
+      username: request.username,
+      organizationId: checkpoint.org.organizationId,
+      customSettings: holdsCustomSettings(checkpoint),
+    },
+    { userId: async () => (userId = await count.org.userId()) },
+  );
   if (!guard.allowed) return { rewound: false, refusal: guard.refusal };
   const locked = deps.store.lock(checkpoint.org.organizationId, 'rewind', checkpoint.checkpointId);
   if ('busy' in locked) return { rewound: false, refusal: lockedRefusal(orgName, locked.busy) };
-  const rewind = new Rewind(deps, request, count, locked.lock, guard.queryAllFiles);
+  const rewind = new Rewind(deps, request, count, locked.lock, guard.queryAllFiles, {
+    grants: guard.grants,
+    ...(userId !== undefined ? { userId } : {}),
+  });
   try {
     const writing = await deps.runWriting?.(guard.org.id);
     if (writing !== undefined) return refusedWith('RUN_WRITING', writing);
@@ -1481,6 +1615,8 @@ class Rewind {
   private before = Number.NaN;
   /** The org's clock against this machine's, as the rewind last read it: for the ledger's line. */
   private readonly clock = new OrgClockWatch(() => this.now().getTime());
+  /** What its user may read and write of each object, read once it reads the org. */
+  private access: ActAccess = ORG_ACCESS;
 
   constructor(
     private readonly deps: RewindDeps,
@@ -1489,6 +1625,8 @@ class Rewind {
     private readonly lock: OrgLock,
     /** Whether its user has Query All Files, as its guard read it: what its reads see of files. */
     private readonly queryAllFiles: boolean,
+    /** What its guard read of its user's permissions, and their id when it read them object by object. */
+    private readonly user: { grants: CheckpointGrants; userId?: string },
   ) {
     this.org = this.clock.watched(count.org);
     this.signal = deps.signal;
@@ -1521,6 +1659,7 @@ class Rewind {
       previewId,
       readAt,
       queryAllFiles: this.queryAllFiles,
+      access: this.access,
       ...(this.signal ? { signal: this.signal } : {}),
     });
     return { diff, dir };
@@ -1605,6 +1744,17 @@ class Rewind {
     let fresh: DiffRead;
     let first: PlanMade;
     try {
+      this.access = await actAccessOf({
+        grants: this.user.grants,
+        ...(this.user.userId !== undefined ? { userId: this.user.userId } : {}),
+        username: this.request.username,
+        checkpoint,
+        reader: this.kept.reader,
+      });
+      const changed = reused ? accessChangedSince(reused, this.access) : [];
+      if (changed.length > 0) {
+        return { rewound: false, refusal: accessChangedRefusal(orgName, changed) };
+      }
       tr = reused ? reused.readAt : await this.org.serverTime();
       this.before = Date.parse(tr) - ORG_DATE_GRAIN_MS;
       if (!Number.isFinite(this.before)) throw new Error(`Not a date: ${tr}`);
@@ -1622,6 +1772,11 @@ class Rewind {
     if (noUndo.length > 0) return { rewound: false, refusal: noUndoRefusal(noUndo) };
     const notMade = first.plan.left.filter((entry) => entry.reason === 'recreateNotAccepted');
     if (notMade.length > 0) return { rewound: false, refusal: recreateRefusal(notMade) };
+    // What its deletions take along out of its user's sight goes uncounted.
+    const unseen = unseenOfPlan(fresh.diff, first.plan);
+    if (unseen.length > 0 && !this.request.acceptUnseen) {
+      return { rewound: false, refusal: unseenRefusal(this.request.username, unseen) };
+    }
     // The files it brings back take file storage again, which the bin took
     // none of: past what the org has left, nothing is written.
     const overStorage = fileStorageRefusal(
@@ -2889,6 +3044,12 @@ class Rewind {
    * the first account's two contacts were still in the bin, the undelete of
    * each answered "Entity is not in the recycle bin", and the rewind, asked
    * to make records again, named them refused and made nothing.
+   *
+   * Read object by object, a record of an object held through what it hangs
+   * from is never made again, whether the org answered for it or for the
+   * record it was to come back with: nothing proves the user sees what
+   * others deleted of that object, and the record may be in the bin still,
+   * out of sight. It is named out of reach.
    */
   private async settleGone(
     objectApiName: string,
@@ -2902,17 +3063,29 @@ class Rewind {
     if (gone.length === 0) return outcome;
     const moved = new Set<string>();
     let notRemade = 0;
+    let outOfReach = 0;
+    const outOfSight = (object: string): boolean => this.access.heldAs(object) === 'parent';
     // Kept by the checkpoint whatever becomes of them here: a later preview
     // takes them as stuck in the bin, and never counts them to bring back.
     await this.keepNotInBin(objectApiName, gone);
     for (const id of gone) {
+      if (outOfSight(objectApiName)) {
+        outOfReach++;
+        tally.mark('outOfReach', objectApiName, id);
+        for (const child of answered.get(keyOf(id)) ?? []) {
+          tally.mark('outOfReach', child.objectApiName, child.id);
+        }
+        continue;
+      }
       if (!(await makesAgain(objectApiName, id))) {
         tally.mark('lost', objectApiName, id);
         continue;
       }
       const along: ChildRecord[] = [];
       for (const child of answered.get(keyOf(id)) ?? []) {
-        if (await makesAgain(child.objectApiName, child.id)) along.push(child);
+        if (outOfSight(child.objectApiName)) {
+          tally.mark('outOfReach', child.objectApiName, child.id);
+        } else if (await makesAgain(child.objectApiName, child.id)) along.push(child);
       }
       if (remake) {
         await remake.add(objectApiName, id);
@@ -2936,7 +3109,11 @@ class Rewind {
               ? object.reasons.map((reason) =>
                   NOT_IN_BIN.test(reason) ? NOT_REMADE_WORDS : reason,
                 )
-              : object.reasons;
+              : outOfReach > 0
+                ? object.reasons.map((reason) =>
+                    NOT_IN_BIN.test(reason) ? OUT_OF_REACH_WORDS : reason,
+                  )
+                : object.reasons;
         return {
           ...object,
           planned: object.planned - moved.size,
@@ -3393,6 +3570,10 @@ class Rewind {
         // it again was not accepted. Read again once the org answered, it is
         // one to make again: the checkpoint keeps that answer (`NotInBin`).
         if (BRICK_OF[cls] === 'undelete' || cls === 'toRecreate') {
+          if (tallies.some((tally) => tally.outOfReach.get(name)?.has(id) === true)) {
+            add(name, 'kept', id, { message: OUT_OF_REACH_WORDS });
+            continue;
+          }
           if (tallies.some((tally) => tally.lost.get(name)?.has(id) === true)) {
             add(name, 'goneForGood', id);
             continue;

@@ -436,16 +436,23 @@ describe('checkpoint.after, and reset', () => {
   it('passes the acceptances the line gives to the rewind, and no other', async () => {
     await run(line('apply', '--yes'));
 
-    await run(line('reset', '--yes', '--accept-automation', '--accept-no-undo'));
+    await run(line('reset', '--yes', '--accept-automation', '--accept-no-undo', '--accept-unseen'));
     await run(line('reset', '--yes'));
 
     const rewinds = world.calls.filter(
       (call) => call.script === 'sandforge-checkpoint' && call.args[0] === 'rewind',
     );
     expect(rewinds[0]?.args).toEqual(
-      expect.arrayContaining(['--yes', '--accept-automation', '--accept-no-undo', '--json']),
+      expect.arrayContaining([
+        '--yes',
+        '--accept-automation',
+        '--accept-no-undo',
+        '--accept-unseen',
+        '--json',
+      ]),
     );
     expect(rewinds[1]?.args).not.toContain('--accept-automation');
+    expect(rewinds[1]?.args).not.toContain('--accept-unseen');
     expect(rewinds.flatMap((call) => call.args)).not.toContain('--accept-recreate');
   });
 
@@ -639,11 +646,14 @@ describe('checkpoint.before, and destroy --rewind', () => {
   it('refuses on the line a rewind given the switches of a removal, and an acceptance of a rewind without it', async () => {
     const changed = await run(line('destroy', '--rewind', '--include-changed', '--yes'));
     const noUndo = await run(line('destroy', '--accept-no-undo', '--yes'));
+    const unseen = await run(line('destroy', '--accept-unseen', '--yes'));
 
     expect(changed.code).toBe(2);
     expect(changed.said).toContain('--include-changed take back records by removal');
     expect(noUndo.code).toBe(2);
     expect(noUndo.said).toContain('--accept-no-undo goes with --rewind');
+    expect(unseen.code).toBe(2);
+    expect(unseen.said).toContain('--accept-unseen goes with --rewind');
   });
 });
 

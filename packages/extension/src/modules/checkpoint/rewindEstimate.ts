@@ -196,6 +196,18 @@ const SNAPSHOT_LIVE_ROWS = 'IsDeleted = false';
 const ACT_FIXED_REQUESTS = 4;
 
 /**
+ * Requests an act sends, beside {@link ACT_FIXED_REQUESTS}, to read its user
+ * object by object, as the last read counted them (`RewindDiff.access`): the
+ * user's id, their permission rows — those of the sets assigned on their
+ * own, the groups they are assigned, each group's aggregate, page by page —
+ * and the describes that prove an object held through what it hangs from.
+ * None with View All Data and Modify All Data, which read nothing more.
+ */
+function accessRequestsOf(diff: Partial<Pick<RewindDiff, 'access'>>): number {
+  return diff.access?.kind === 'perObject' ? diff.access.requests : 0;
+}
+
+/**
  * Requests a read of what changed since a checkpoint sends whatever it finds:
  * the moment it reads from, on the org's clock (a SOAP call). The names of
  * the users who last changed what it finds are read only when it finds some,
@@ -1036,6 +1048,7 @@ export interface DiffEstimateInput {
         | 'fieldsRequests'
         | 'files'
         | 'filesRequests'
+        | 'access'
       >
     >;
   /**
@@ -1717,7 +1730,7 @@ export function rewindEstimate(
   const recreated = objects.reduce((total, object) => total + toRecreate(object), 0);
   const records = toDelete + toGiveBack + toBringBack + recreated;
   const reads = sum(
-    calls(ACT_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
+    calls(ACT_FIXED_REQUESTS + accessRequestsOf(input.diff), SECONDS_PER_SMALL_CALL),
     input.reusesPreview === true ? NOTHING : diffEstimate(input),
   );
   const files = input.diff.files;

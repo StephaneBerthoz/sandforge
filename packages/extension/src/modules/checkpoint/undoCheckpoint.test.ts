@@ -311,6 +311,7 @@ async function rewound(emptied = false, carried = false): Promise<Rewound> {
       acceptNoUndo: false,
       acceptRecreate: emptied,
       acceptOutside: false,
+      acceptUnseen: false,
     },
   );
   org.ticking = false;

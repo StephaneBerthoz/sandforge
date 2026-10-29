@@ -133,6 +133,8 @@ const CANNOT_UNDO_KEYS: Readonly<Record<CannotUndoLine['reason'], string>> = {
   convertedLead: 'checkpoint.preview.cannot.convertedLead',
   activatedContract: 'checkpoint.preview.cannot.activatedContract',
   newFileVersion: 'checkpoint.preview.cannot.newFileVersion',
+  deletedByOther: 'checkpoint.preview.cannot.deletedByOther',
+  outOfReach: 'checkpoint.preview.cannot.outOfReach',
 };
 
 /** What the preview says Undo could not bring back of what a rewind deletes, by reason. */
@@ -149,6 +151,12 @@ export interface RewindAcceptances {
   acceptNoUndo: boolean;
   acceptRecreate: boolean;
   acceptOutside: boolean;
+  /**
+   * Delete records whose delete takes along what the user, read object by
+   * object, is not proven to see (`RewindDiff.unseen`). The preview offers no
+   * box for it: such a rewind is refused (`UNSEEN`), and says why.
+   */
+  acceptUnseen: boolean;
 }
 
 /** Props for {@link RewindPreview}. */
@@ -429,6 +437,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
       // A checkpoint of everything people work in takes them along, as the
       // preview said: only a checkpoint of picked objects asks.
       acceptOutside: outside.length > 0 && (!picked || ticked.outside),
+      acceptUnseen: false,
     });
   };
   const confirmed = (): void => {

@@ -221,6 +221,8 @@ const CANNOT_UNDO_ORDER: readonly RewindCannotUndoReason[] = [
   'goneForGood',
   'deletedWithCreatedParent',
   'deletedWithParentOutside',
+  'deletedByOther',
+  'outOfReach',
   'convertedLead',
   'activatedContract',
   'newFileVersion',

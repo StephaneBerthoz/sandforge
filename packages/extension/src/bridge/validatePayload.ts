@@ -1258,8 +1258,9 @@ export const checkpointTakePayloadSchema = z
   .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
 export const checkpointPreviewPayloadSchema = z.object({ checkpointId: checkpointIdSchema });
 // Each acceptance is said, never assumed: a rewind that deletes what Undo
-// couldn't bring back, makes records again with new Ids, or fires the org's
-// automation writes nothing unless the request says yes to it.
+// couldn't bring back, makes records again with new Ids, fires the org's
+// automation, or deletes records whose delete takes along what its user is
+// not proven to see writes nothing unless the request says yes to it.
 export const checkpointRewindPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
   previewId: previewIdSchema,
@@ -1267,6 +1268,7 @@ export const checkpointRewindPayloadSchema = z.object({
   acceptNoUndo: z.boolean(),
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
+  acceptUnseen: z.boolean(),
 });
 export const checkpointUndoPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,

@@ -263,6 +263,7 @@ async function rewindFromPreview(
     acceptNoUndo: false,
     acceptRecreate: false,
     acceptOutside: false,
+    acceptUnseen: false,
   });
   return rewind;
 }
@@ -684,6 +685,7 @@ for (const theme of THEMES) {
         acceptNoUndo: true,
         acceptRecreate: true,
         acceptOutside: true,
+        acceptUnseen: false,
       });
 
       await expect(

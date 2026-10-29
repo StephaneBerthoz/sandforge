@@ -221,6 +221,25 @@ describe('rewindPreviewFacts', () => {
     ]);
   });
 
+  it('says, read object by object, what another user deleted and what is out of reach, after what a parent of another object keeps', () => {
+    const diff = previewDiff({
+      objects: [
+        diffObject('OpportunityLineItem', { cannotUndo: [{ reason: 'outOfReach', count: 2 }] }),
+        diffObject('Account', {
+          cannotUndo: [
+            { reason: 'deletedByOther', count: 1 },
+            { reason: 'deletedWithParentOutside', count: 1 },
+          ],
+        }),
+      ],
+    });
+    expect(cannotUndoLines(diff)).toEqual([
+      { reason: 'deletedWithParentOutside', count: 1, objects: ['Account'] },
+      { reason: 'deletedByOther', count: 1, objects: ['Account'] },
+      { reason: 'outOfReach', count: 2, objects: ['OpportunityLineItem'] },
+    ]);
+  });
+
   it('says the files given a new version since, which keep it, last of what a rewind cannot undo', () => {
     const diff = previewDiff({
       objects: [

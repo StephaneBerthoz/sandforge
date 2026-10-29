@@ -191,6 +191,7 @@ describe('parseArgs', () => {
       acceptNoUndo: false,
       acceptRecreate: false,
       acceptOutside: false,
+      acceptUnseen: false,
       ignoreFields: [],
       yes: false,
       storeRoot: expect.any(String) as unknown,
@@ -210,6 +211,7 @@ describe('parseArgs', () => {
           '--accept-no-undo',
           '--accept-recreate',
           '--accept-outside',
+          '--accept-unseen',
           '--ignore-field',
           'Case.Last_Touched__c',
           '--json',
@@ -224,6 +226,7 @@ describe('parseArgs', () => {
       acceptNoUndo: true,
       acceptRecreate: true,
       acceptOutside: true,
+      acceptUnseen: true,
       ignoreFields: ['Case.Last_Touched__c'],
       json: true,
     });
@@ -365,12 +368,12 @@ describe('parseArgs', () => {
       'files?: {unlinked, relinked, linksUpdated, linksRefused}',
       'files to bring back taking more file storage than it has left',
       'a file given a new version since, which keeps it',
-      'the files of a checkpoint\ntaken before SandForge 1.70, which holds none',
+      'the files of a\ncheckpoint taken before SandForge 1.70, which holds none',
       // What it says of emails it could not count, and of fields gone since.
       'emailsUncounted?, refusal?}',
       'emails not counted, which --accept-automation covers',
       '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
-      'a field added since, deleted since, or hidden since from the user by\nfield-level security, which the preview tells apart and names',
+      'a field added since, deleted since, or hidden since from\nthe user by field-level security, which the preview tells apart and names',
       // A checkpoint to another machine, and from one.
       'export    write a checkpoint to a .sfcheckpoint file, encrypted, for a teammate who rewinds the',
       'import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this',
@@ -596,6 +599,7 @@ function diffOf(objects: RewindDiffObject[], patch: Partial<RewindDiff> = {}): R
     objects,
     undoCannot: [],
     unread: [],
+    access: { kind: 'org' },
     userNames: {},
     activeLastHour: [],
     ...patch,
@@ -1012,6 +1016,61 @@ describe('rewindStepsOf and acceptanceRefusal', () => {
         { acceptAutomation: false, acceptNoUndo: false, acceptRecreate: true },
       ),
     ).toBeUndefined();
+  });
+
+  it('refuses without --accept-unseen a rewind whose deletions take along what its user is not proven to see, naming the objects, and goes with it', () => {
+    const unseen = diffOf(
+      [object({ toDelete: { createdSince: 3, broughtBackSince: 0, comesBackWithParent: 0 } })],
+      {
+        access: { kind: 'perObject', requests: 5 },
+        unseen: [{ objectApiName: 'Account', children: ['Event', 'Task'], records: 3 }],
+      },
+    );
+    expect(
+      acceptanceRefusal('DEV-SB', { diff: unseen }, NOTHING_ACCEPTED, 'tester@example.com'),
+    ).toEqual({
+      code: 'UNSEEN',
+      message:
+        "Deleting 3 Account record(s) created since also deletes what tester@example.com can't " +
+        "see under them in Event, Task: Rewind can't count those. Rewind refused; give " +
+        '--accept-unseen to rewind all the same. No record was written.',
+    });
+    expect(
+      acceptanceRefusal('DEV-SB', { diff: unseen }, { ...NOTHING_ACCEPTED, acceptUnseen: true }),
+    ).toBeUndefined();
+    // Read with View All Data and Modify All Data, nothing is unseen.
+    expect(
+      acceptanceRefusal('DEV-SB', { diff: diffOf(unseen.objects) }, NOTHING_ACCEPTED),
+    ).toBeUndefined();
+    const checkpoint = { name: 'Before UAT', takenAt: '2026-10-20T14:05:31.000Z' };
+    const estimate = { records: 3, apiRequests: 12, apiRequestsLeft: 14_900, seconds: 3, bytes: 0 };
+    const lines = previewLines(
+      'DEV-SB',
+      checkpoint,
+      {
+        diff: {
+          ...unseen,
+          objects: [
+            ...unseen.objects,
+            object({
+              objectApiName: 'Contact',
+              cannotUndo: [{ reason: 'deletedByOther', count: 2 }],
+            }),
+          ],
+        },
+        estimate,
+      },
+      'tester@example.com',
+    );
+    expect(lines).toContain(
+      '  also deleted with them, out of sight: deleting 3 Account also deletes what ' +
+        "tester@example.com can't see under them in Event, Task; Rewind can't count those, " +
+        'and deletes them only with --accept-unseen',
+    );
+    expect(lines).toContain(
+      "  can't be taken back: Contact 2 — deleted since by another user: only View All Data " +
+        'and Modify All Data restore those; they stay in the recycle bin, never made again',
+    );
   });
 
   it('refuses deletions Undo couldn’t bring back without --accept-no-undo, before anything else', () => {
@@ -2036,7 +2095,7 @@ describe('custom settings', () => {
       '--custom-setting <ApiName|all> keep a custom setting, or all of them',
     );
     expect(stdout).toContain(
-      'and Customize\nApplication for a checkpoint that keeps custom settings',
+      'A checkpoint that keeps custom settings\nneeds Customize Application too',
     );
   });
 

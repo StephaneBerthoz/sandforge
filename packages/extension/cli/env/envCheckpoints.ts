@@ -149,6 +149,8 @@ export function checkpointRewindLine(
     dryRun: boolean;
     acceptAutomation: boolean;
     acceptNoUndo: boolean;
+    /** Not given, not accepted. */
+    acceptUnseen?: boolean;
   },
 ): string[] {
   return [
@@ -159,6 +161,7 @@ export function checkpointRewindLine(
     input.dryRun ? '--dry-run' : '--yes',
     ...(input.acceptAutomation ? ['--accept-automation'] : []),
     ...(input.acceptNoUndo ? ['--accept-no-undo'] : []),
+    ...(input.acceptUnseen === true ? ['--accept-unseen'] : []),
     '--json',
   ];
 }

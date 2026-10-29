@@ -162,6 +162,11 @@ rewind:
                                  created under records it deletes, and the files it deletes that are
                                  attached outside it too; without it those parents stay, and those
                                  files are only removed from its records
+  --accept-unseen                (a user without View All Data and Modify All Data) delete records
+                                 whose delete takes along records of objects the user is not
+                                 proven to see whole — tasks and events always: the preview names
+                                 those objects, and no count holds what goes with them; without it
+                                 such a rewind writes nothing, exit 1
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
   --yes                          do not ask before writing; without it and with no terminal — a CI
                                  step — it stops at its question, exit 2, having written nothing
@@ -190,9 +195,14 @@ Options:
   --help                         this text
 
 A production org is refused before anything is read or written, exit 1. No flag lifts it.
-The user the alias connects as needs View All Data and Modify All Data, and Customize
-Application for a checkpoint that keeps custom settings: View All Custom Settings reads them,
-never writes them.
+With View All Data and Modify All Data, the user the alias connects as sees every record and
+rewinds whoever changed it; import needs both. Without them, take holds only the objects the
+user has View All and Modify All on, or, for an object with no permissions of its own, on every
+record it hangs from — never tasks and events, products and price books, files or custom
+settings — and preview, rewind and undo read those permissions again: an object no longer held
+is not read, and is left as it is; what another user deleted since stays in the recycle bin,
+named; undo takes back the user's own rewind alone. A checkpoint that keeps custom settings
+needs Customize Application too: View All Custom Settings reads them, never writes them.
 A checkpoint holds the records' values as the org held them, personal data among them,
 unencrypted, in files only you can read (on Windows: in your user profile). Expired checkpoints
 are deleted as any command starts, each named.
@@ -241,12 +251,14 @@ What a rewind cannot undo: a file deleted since and no longer in the recycle bin
 checkpoint does not hold, a file given a new version since, which keeps it, a lead converted
 since, a contract activated since, a record deleted with a parent created since that Salesforce
 does not undelete on its own, or with its parent of an object the checkpoint does not hold
-(preview counts them); a field added since, deleted since, or hidden since from the user by
-field-level security, which the preview tells apart and names; the values the org computes or
-keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
-(emails, callouts, outbound messages, platform events); metadata; the files of a checkpoint
-taken before SandForge 1.70, which holds none. A record the org refuses to put back, or to make
-again, is named by rewind, with its words.
+(preview counts them); without View All Data and Modify All Data, a record another user deleted
+since, and a record of an object held through what it hangs from that the recycle bin does not
+show the user (preview counts them too); a field added since, deleted since, or hidden since from
+the user by field-level security, which the preview tells apart and names; the values the org
+computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left
+the org (emails, callouts, outbound messages, platform events); metadata; the files of a
+checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back, or
+to make again, is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -283,7 +295,12 @@ JSON (--json), one value on stdout:
                      for a checkpoint that holds files: {unlink, relink, updateLinks,
                      outsideAdded, outsideDeleted, storage: {bringBack, remaining?, undo},
                      blindSpot?}, the links to remove, put back and give their sharing back, the
-                     files left, and file storage in bytes
+                     files left, and file storage in bytes; diff.access, {kind, requests?}, org
+                     for a user with View All Data and Modify All Data, perObject for one read
+                     object by object, with the API requests that read; diff.unseen, read
+                     object by object: [{objectApiName, children, records}], of the records to
+                     delete of an object, the objects whose records their delete takes along
+                     out of the user's sight
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -317,7 +334,8 @@ org matches among the objects and fields compared; preview, rewind --dry-run and
 delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
 kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
-without --accept-no-undo, records to make again with new Ids without --accept-recreate, more than
+without --accept-no-undo, records to make again with new Ids without --accept-recreate,
+deletions taking along records the user is not proven to see without --accept-unseen, more than
 --max-total records, more API requests or emails than the org
 has left today, files to bring back taking more file storage than it has left, a checkpoint of
 the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
@@ -390,6 +408,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--accept-no-undo',
       '--accept-recreate',
       '--accept-outside',
+      '--accept-unseen',
       '--yes',
     ],
     values: [...COMMON.values, '--checkpoint', '--ignore-field'],
@@ -459,6 +478,7 @@ export type CliArgs =
       acceptNoUndo: boolean;
       acceptRecreate: boolean;
       acceptOutside: boolean;
+      acceptUnseen: boolean;
       /** Fields, `Object.Field`, to stop comparing from now on. */
       ignoreFields: string[];
       yes: boolean;
@@ -656,6 +676,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         acceptNoUndo: args.includes('--accept-no-undo'),
         acceptRecreate: args.includes('--accept-recreate'),
         acceptOutside: args.includes('--accept-outside'),
+        acceptUnseen: args.includes('--accept-unseen'),
         ignoreFields,
         yes: args.includes('--yes'),
       };
@@ -1355,6 +1376,13 @@ const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
     'files given a new version since: Salesforce deletes no version and won’t make an older ' +
     'one the latest again, so they keep their new content; the content each had is still in ' +
     'its version history, and their titles are given back',
+  deletedByOther:
+    'deleted since by another user: only View All Data and Modify All Data restore those; they ' +
+    'stay in the recycle bin, never made again',
+  outOfReach:
+    'out of reach: without View All Data and Modify All Data, nothing shows what others deleted ' +
+    'of an object held through the records it hangs from; they may be in the recycle bin out ' +
+    'of sight, and are never made again',
 };
 
 /**
@@ -1609,6 +1637,13 @@ export function previewLines(
       )} — ${words.preview}`,
     );
   }
+  for (const { objectApiName, children, records } of diff.unseen ?? []) {
+    lines.push(
+      `  also deleted with them, out of sight: deleting ${count(records)} ${objectApiName} also ` +
+        `deletes what ${user} can't see under them in ${someOf(children)}; Rewind can't ` +
+        'count those, and deletes them only with --accept-unseen',
+    );
+  }
   for (const object of diff.objects) {
     for (const outside of object.outside) {
       // A file to delete attached outside the checkpoint too leaves it as
@@ -1836,21 +1871,25 @@ export interface RewindAccepted {
   acceptAutomation: boolean;
   acceptNoUndo: boolean;
   acceptRecreate: boolean;
+  /** Not given, not accepted. */
+  acceptUnseen?: boolean;
 }
 
 /**
  * The refusal a rewind of what `answer` previewed would meet before it
  * writes, for want of a flag: deletions Undo couldn't bring back without
  * `--accept-no-undo`, records to make again with new Ids without
- * `--accept-recreate`, automation its writes fire — or that could not all be
- * read — without `--accept-automation`. Said before the question, as the page
- * holds its button until the box is ticked; the rewind itself refuses the
- * same, whatever this says.
+ * `--accept-recreate`, deletions that take along records `user` is not
+ * proven to see without `--accept-unseen`, automation its writes fire — or
+ * that could not all be read — without `--accept-automation`. Said before the
+ * question, as the page holds its button until the box is ticked; the rewind
+ * itself refuses the same, whatever this says.
  */
 export function acceptanceRefusal(
   orgName: string,
   answer: Pick<PreviewAnswer, 'diff' | 'automation' | 'emailsUncounted'>,
   accepted: RewindAccepted,
+  user = 'the user SandForge connects as',
 ): CheckpointRefusalLike | undefined {
   const { diff, automation, emailsUncounted } = answer;
   if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
@@ -1881,6 +1920,20 @@ export function acceptanceRefusal(
         'that names their old Ids — an integration, a link, a report filter — no longer finds ' +
         'them. Rewind refused; give --accept-recreate to rewind all the same. No record was ' +
         'written.',
+    };
+  }
+  const unseen = diff.unseen ?? [];
+  if (unseen.length > 0 && accepted.acceptUnseen !== true) {
+    const said = unseen.map(
+      ({ objectApiName, children, records }) =>
+        `Deleting ${count(records)} ${objectApiName} record(s) created since also deletes what ` +
+        `${user} can't see under them in ${children.join(', ')}: Rewind can't count those.`,
+    );
+    return {
+      code: 'UNSEEN',
+      message:
+        `${said.join(' ')} Rewind refused; give --accept-unseen to rewind all the same. ` +
+        'No record was written.',
     };
   }
   if (!automation || accepted.acceptAutomation) return undefined;
@@ -3132,7 +3185,7 @@ async function rewind(
   const preview = payloadOf(previewed) as unknown as PreviewAnswer;
   for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
   const writes = objectsWrittenBy(preview.diff).length > 0;
-  const gate = writes ? acceptanceRefusal(args.org, preview, args) : undefined;
+  const gate = writes ? acceptanceRefusal(args.org, preview, args, org.username) : undefined;
   const outsideStays =
     !args.acceptOutside &&
     checkpoint.scope.mode === 'picked' &&
@@ -3169,6 +3222,7 @@ async function rewind(
           acceptNoUndo: args.acceptNoUndo,
           acceptRecreate: args.acceptRecreate,
           acceptOutside: args.acceptOutside,
+          acceptUnseen: args.acceptUnseen,
         },
         timeoutMs: WRITE_TIMEOUT_MS,
       }),

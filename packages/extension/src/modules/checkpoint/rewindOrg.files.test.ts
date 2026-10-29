@@ -304,6 +304,7 @@ async function rewound(
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,
+        acceptUnseen: false,
       },
     );
   } finally {

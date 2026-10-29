@@ -619,6 +619,46 @@ describe('MemoryRemovalOrg', () => {
       expect(await recordOf(org, 'Contact', SECOND_CONTACT)).toMatchObject(back);
     });
 
+    it('refuses its user, told they lack Modify All Data, the undelete of what another user deleted, and brings back their own', async () => {
+      const { org } = seeded();
+      org.add('Account', { Id: SECOND_ACCOUNT, Name: 'Own' }, WHEN);
+      org.trash('Account', ACCOUNT, OTHER_USER);
+      org.trash('Account', SECOND_ACCOUNT);
+      org.othersDeletionsRefused = true;
+
+      const answer = await org.undelete([ACCOUNT, SECOND_ACCOUNT]);
+
+      expect(answer).toEqual([
+        {
+          id: ACCOUNT,
+          success: false,
+          errors: [
+            {
+              statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY',
+              message: 'insufficient access rights on object id',
+            },
+          ],
+        },
+        { id: SECOND_ACCOUNT, success: true, errors: [] },
+      ]);
+      expect(org.inBin('Contact').map((row) => row.Id)).toEqual([CONTACT, SECOND_CONTACT]);
+      // Someone else in the org brings back whoever's deletion, as before.
+      org.untrash(ACCOUNT, OTHER_USER);
+      expect(org.all('Contact')).toHaveLength(2);
+    });
+
+    it('shows its user, of an object told so, only their own deletions in the recycle bin', async () => {
+      const { org } = seeded();
+      org.trash('Contact', CONTACT, OTHER_USER);
+      org.trash('Contact', SECOND_CONTACT);
+      org.binShowsOwnOnly.add('Contact');
+
+      const answer = await org.queryAll('SELECT Id FROM Contact WHERE IsDeleted = true');
+
+      expect(answer.records.map((row) => row.Id)).toEqual([SECOND_CONTACT]);
+      expect(org.inBin('Contact')).toHaveLength(2);
+    });
+
     it('leaves the last modifier as it was when told an undelete does not set it, the dates moving all the same', async () => {
       const { org, wait } = seeded({ facts: { undeleterIsLastModifier: false } });
       org.trash('Account', ACCOUNT, OTHER_USER);

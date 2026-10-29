@@ -267,6 +267,55 @@ export class RewindTestOrg extends MemoryRestoreOrg implements TakeOrg {
   }
 }
 
+/** The permission set of a test's own, assigned to the user the org's session acts as. */
+export const OWN_SET = '0PS000000000001AAA';
+
+/**
+ * The session's user stripped of View All Data and Modify All Data and given,
+ * object by object, the permission rows `rows` say — View All and Modify All
+ * as told, through one set assigned to them on their own — as a Standard User
+ * given a permission set: what a take, a preview, a rewind and an undo then
+ * read object by object. The org then refuses that user the undelete of what
+ * another user deleted (P-B3).
+ */
+export function heldObjectByObject(
+  org: RewindTestOrg,
+  rows: Record<string, { viewAll?: boolean; modifyAll?: boolean }>,
+): void {
+  const was = clock.now;
+  clock.now = LONG_AGO;
+  const [permissions] = org.all('UserPermissionAccess');
+  permissions.PermissionsViewAllData = false;
+  permissions.PermissionsModifyAllData = false;
+  org.add('PermissionSetAssignment', {
+    Id: '0Pa000000000001AAA',
+    AssigneeId: MEMORY_ORG_USER,
+    PermissionSetId: OWN_SET,
+    PermissionSetGroupId: null,
+  });
+  let n = 0;
+  for (const [object, held] of Object.entries(rows)) {
+    org.add('ObjectPermissions', {
+      Id: `110${String(++n).padStart(12, '0')}AAA`,
+      ParentId: OWN_SET,
+      SobjectType: object,
+      PermissionsViewAllRecords: held.viewAll ?? held.modifyAll ?? false,
+      PermissionsModifyAllRecords: held.modifyAll ?? false,
+    });
+  }
+  org.othersDeletionsRefused = true;
+  clock.now = was;
+}
+
+/** Take back from the session's user, object by object, Modify All and View All on `objects`. */
+export function withdrawn(org: RewindTestOrg, objects: readonly string[]): void {
+  for (const row of org.all('ObjectPermissions')) {
+    if (!objects.includes(String(row.SobjectType))) continue;
+    row.PermissionsViewAllRecords = false;
+    row.PermissionsModifyAllRecords = false;
+  }
+}
+
 /** Everything the memory org answered: its REST requests, a composite one, and its SOAP calls. */
 export function spent(org: MemoryRestoreOrg): number {
   return org.requests + org.soapCalls;
@@ -478,6 +527,7 @@ export async function rewound(
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,
+        acceptUnseen: false,
         ...options.request,
       },
     );

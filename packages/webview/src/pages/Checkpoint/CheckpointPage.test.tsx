@@ -300,6 +300,7 @@ describe('CheckpointPage', () => {
         acceptNoUndo: false,
         acceptRecreate: false,
         acceptOutside: false,
+        acceptUnseen: false,
       });
       const run = await screen.findByTestId('checkpoint-run');
       expect(within(run).getByRole('heading', { level: 2 }).textContent).toBe(

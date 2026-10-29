@@ -161,6 +161,7 @@ describe('the lines of the checkpoint script', () => {
             dryRun,
             acceptAutomation: accept,
             acceptNoUndo: accept,
+            acceptUnseen: accept,
           }),
         ),
       );
@@ -172,12 +173,14 @@ describe('the lines of the checkpoint script', () => {
       acceptAutomation: true,
       acceptNoUndo: true,
       acceptRecreate: false,
+      acceptUnseen: true,
     });
     expect(rewind(true, false)).toMatchObject({
       dryRun: true,
       yes: false,
       acceptAutomation: false,
       acceptNoUndo: false,
+      acceptUnseen: false,
     });
     expect(
       parseCheckpointArgs(argv(checkpointDeleteLine({ ...base, checkpoint: CK }))),

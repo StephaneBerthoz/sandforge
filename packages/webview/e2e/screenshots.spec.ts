@@ -530,6 +530,7 @@ const MOCK_REWIND_PREVIEW: CheckpointPreviewResponse['payload'] = {
     unread: [],
     userNames: { [USERS.alice]: 'Alice Martin', [USERS.integration]: 'Integration User' },
     activeLastHour: [],
+    access: { kind: 'org' },
   },
   automation: {
     objectsRead: ['Contact', 'Case', 'Account'],

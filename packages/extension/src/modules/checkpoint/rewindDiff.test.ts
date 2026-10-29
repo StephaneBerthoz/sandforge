@@ -874,6 +874,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
       objects: [],
       undoCannot: [],
       unread: [],
+      access: { kind: 'org' },
       userNames: {},
       activeLastHour: [],
     });

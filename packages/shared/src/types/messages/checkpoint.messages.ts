@@ -132,6 +132,12 @@ export interface CheckpointRewindRequest extends BaseMessage {
      * under records it deletes. Without it, those parents stay, named.
      */
     acceptOutside: boolean;
+    /**
+     * Delete records whose delete takes along records of objects the user,
+     * without View All Data and Modify All Data, is not proven to see
+     * (`RewindDiff.unseen`). Without it, a rewind that would writes nothing.
+     */
+    acceptUnseen: boolean;
   };
 }
 

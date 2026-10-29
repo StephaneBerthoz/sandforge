@@ -310,6 +310,8 @@ interface Binned {
    * come back (see {@link MemoryOrgFacts.emptiedStillListed}).
    */
   emptied?: boolean;
+  /** The user whose delete sent it there, with its parent's or on its own. */
+  deletedBy?: string;
 }
 
 /** A lookup a delete cleared, to put back when the record comes back. */
@@ -386,6 +388,22 @@ export class MemoryRemovalOrg implements RemovalOrg {
   readonly comesBackOnlyWithParent = new Set<string>();
   /** Objects the org refuses to read, with its answer: one it will not read whole. */
   readonly refuseRead = new Map<string, { errorCode: string; message: string }>();
+  /**
+   * Whether the session's user lacks Modify All Data, which Salesforce asks
+   * of an undelete of what another user deleted: refused then,
+   * `INSUFFICIENT_ACCESS_OR_READONLY`, whatever the user holds on the object,
+   * while their own deletions come back (P-B3, a Standard User given View
+   * All and Modify All on a private object). Off: the session's user brings
+   * back whoever's deletions, as with Modify All Data.
+   */
+  othersDeletionsRefused = false;
+  /**
+   * Objects whose recycle bin a read by the session's user shows only their
+   * own deletions in. Of an object its user holds by its own View All, the
+   * probe saw every user's deletions (P-B3); of one held through what it
+   * hangs from, it could not tell, so a test holds a rewind to either answer.
+   */
+  readonly binShowsOwnOnly = new Set<string>();
   /**
    * Fields an object does not have, by object: a statement naming one is
    * refused as the org refuses it, `INVALID_FIELD` — a ContentDocumentLink has
@@ -581,8 +599,10 @@ export class MemoryRemovalOrg implements RemovalOrg {
   protected visible(objectApiName: string, scanAll: boolean): MemoryRow[] {
     const live = this.all(objectApiName);
     if (!scanAll) return live.filter((row) => row.IsArchived !== true);
+    const ownOnly = this.binShowsOwnOnly.has(objectApiName);
     for (const held of this.binned.values()) {
       if (held.objectApiName !== objectApiName) continue;
+      if (ownOnly && held.deletedBy !== MEMORY_ORG_USER) continue;
       if (!held.hard || this.facts.hardDeleteInQueryAll) live.push(held.row);
     }
     return live;
@@ -1058,6 +1078,7 @@ export class MemoryRemovalOrg implements RemovalOrg {
         objectApiName: object,
         row,
         ...(key === root ? {} : { deletedWith: root }),
+        deletedBy: by,
       });
       this.removed(object, row);
       for (const child of this.children[object] ?? []) {
@@ -1124,6 +1145,23 @@ export class MemoryRemovalOrg implements RemovalOrg {
     return ids.map((id): WriteAnswer => {
       const key = keyOf(id);
       const held = this.binned.get(key);
+      if (
+        held !== undefined &&
+        this.othersDeletionsRefused &&
+        by === MEMORY_ORG_USER &&
+        held.deletedBy !== by
+      ) {
+        return {
+          id,
+          success: false,
+          errors: [
+            {
+              statusCode: 'INSUFFICIENT_ACCESS_OR_READONLY',
+              message: 'insufficient access rights on object id',
+            },
+          ],
+        };
+      }
       const refusal = this.undeleteRefusalOf(held);
       if (refusal !== undefined || held === undefined) {
         return {
