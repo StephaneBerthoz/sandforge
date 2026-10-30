@@ -859,8 +859,9 @@ function cameBackUnderCost(
 /** The relationships of an object, as its describe lists them, that a rewind reads through. */
 export interface ObjectRelationships {
   /**
-   * Child relationships the org deletes along or restricts a delete by: what
-   * the dependents check reads.
+   * Child relationships the org deletes along or restricts a delete by, to an
+   * object a person works in: what the dependents check reads. Not told which
+   * objects those are, every one of them, the most it reads.
    */
   dependents: number;
   /** Child relationships the org deletes along: the children that come back with a record. */
@@ -911,16 +912,30 @@ export interface CheckpointBounds {
 
 /**
  * An object's relationships as its describe lists them: every one the org
- * deletes along or restricts a delete by. The dependents check reads those
- * whose child people work in only, so this is the most it reads. Given the
- * checkpoint's bounds, those it deletes along to an object outside them too.
+ * deletes along or restricts a delete by, of which the dependents check reads
+ * those whose child people work in only — those alone, given the objects a
+ * person works in. Given the checkpoint's bounds, those it deletes along to
+ * an object outside them too.
+ *
+ * A command line's rewind of a record created since in each of three
+ * objects, in a checkpoint of 204 objects of a scratch org, was estimated at
+ * 287 requests and sent 155: its preview priced a fresh read of the org,
+ * which a rewind from the preview it just showed does not send, and every
+ * relationship the three objects' describes list. Replayed on the memory
+ * org, whose describes had listed no relationship to an object no one works
+ * in, the estimate was exact until they listed some: an object's history,
+ * sharing rows and feed, which the check never reads.
  */
 export function relationshipsOf(describe: unknown, bounds?: CheckpointBounds): ObjectRelationships {
   const children = childRelationshipsSchema.parse(describe).childRelationships ?? [];
   const cascading = children.filter((r) => r.cascadeDelete === true);
+  const workedIn = bounds?.worked;
   const relationships: ObjectRelationships = {
-    dependents: children.filter((r) => r.cascadeDelete === true || r.restrictedDelete === true)
-      .length,
+    dependents: children.filter(
+      (r) =>
+        (r.cascadeDelete === true || r.restrictedDelete === true) &&
+        (workedIn === undefined || (r.childSObject !== undefined && workedIn.has(r.childSObject))),
+    ).length,
     cascades: cascading.length,
     cascadeChildren: [
       ...new Set(cascading.flatMap((r) => (r.childSObject === undefined ? [] : [r.childSObject]))),

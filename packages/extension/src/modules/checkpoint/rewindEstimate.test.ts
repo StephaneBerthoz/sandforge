@@ -7,6 +7,7 @@ import type { RewindDiff, RewindDiffObject } from '@sandforge/shared';
 
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from '../../test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg.js';
+import { workedObjects } from '../dataops/RecordRemoval.js';
 import { removeRunRecords } from '../forge/ForgeRunRemoval.js';
 import type { LimitsTransport } from '../forge/ForgeRunGate.js';
 import { restoreOverwrites, type BackupReader } from '../sync/SyncRunRestore.js';
@@ -437,6 +438,64 @@ describe('the bricks, as they send their requests to the org', () => {
     expect(await run(false)).toBeLessThan(cost.apiRequests);
   });
 
+  it('counts, of the relationships a removal’s check of dependents may read, those to an object a person works in: an account’s history and sharing rows, which its describe lists, are never read', async () => {
+    const children = {
+      Account: [
+        { childSObject: 'Contact', field: 'AccountId', cascadeDelete: true },
+        { childSObject: 'AccountHistory', field: 'AccountId', cascadeDelete: true },
+        { childSObject: 'AccountShare', field: 'AccountId', cascadeDelete: true },
+      ],
+    };
+    /** Its global describe lists an account's history and sharing rows with no page layout, as an org lists them. */
+    class LayoutsOrg extends MemoryRemovalOrg {
+      override async describeGlobal(): Promise<unknown> {
+        const { sobjects } = (await super.describeGlobal()) as {
+          sobjects: Array<{ name: string }>;
+        };
+        return {
+          sobjects: sobjects.map((object) =>
+            object.name === 'AccountHistory' || object.name === 'AccountShare'
+              ? { ...object, layoutable: false }
+              : object,
+          ),
+        };
+      }
+    }
+    let clock = T0 - 60_000;
+    const org = new LayoutsOrg(children, { now: () => clock });
+    // A contact that stays, pointing at an account the removal leaves alone:
+    // its relationship is read for every 200 accounts.
+    org.add('Account', { Id: fakeId('001', 9_000) });
+    org.add('Contact', { Id: fakeId('003', 9_000), AccountId: fakeId('001', 9_000) });
+    clock = T0 + 1_000;
+    const accounts = ids('001', 250);
+    for (const id of accounts) org.add('Account', { Id: id });
+    clock = T0 + 5_000;
+    const describe = await org.describe('Account');
+    const worked = new Set((await workedObjects(org)).keys());
+    const before = spent(org);
+    const outcome = await removeRunRecords(org, [{ objectApiName: 'Account', ids: accounts }], {
+      runStartedAt: new Date(T0),
+      runEndedAt: new Date(T0 + 2_000),
+      includeChanged: false,
+    });
+    expect(outcome.objects.map((object) => object.deleted)).toEqual([250]);
+    const sent = spent(org) - before;
+    const inCheckpoint = new Set(['account', 'contact']);
+    const cost = (relationships: ObjectRelationships): number =>
+      removalCost([{ records: 250, dependents: relationships.dependents }]).apiRequests;
+
+    // 3 for the call; a describe, 2 reads, the contacts' relationship asked
+    // once then read twice, 2 deletes.
+    expect(cost(relationshipsOf(describe, { inCheckpoint, worked }))).toBe(
+      3 + (1 + 2 + (1 + 2) + 2),
+    );
+    expect(sent).toBe(cost(relationshipsOf(describe, { inCheckpoint, worked })));
+    // Not told who works in what, each relationship is counted, the most the
+    // check reads: the two it never reads, asked once and read twice each.
+    expect(cost(relationshipsOf(describe, { inCheckpoint })) - sent).toBe(2 * (1 + 2));
+  });
+
   it('prices a Bulk API job by the calls it sends, as the org counted one live: a job of 200 deletes with two reads of its state cost five', () => {
     // P9, on a scratch org: opened, its CSV sent, closed, its state read
     // twice, its results never read — five of the day's requests, the
@@ -532,21 +591,23 @@ describe('the bricks, as they send their requests to the org', () => {
       ],
     };
 
+    // The dependents check reads the feed of no account: no person works in it.
     expect(
       relationshipsOf(describe, {
         inCheckpoint: new Set(['account', 'contact']),
         worked: new Set(['Account', 'Contact', 'Opportunity', 'Case']),
       }),
     ).toEqual({
-      dependents: 4,
+      dependents: 3,
       cascades: 3,
       cascadeChildren: ['Contact', 'Opportunity', 'AccountFeed'],
       outside: { all: 2, worked: 1 },
     });
-    // The org's objects not described: none known to be worked in.
-    expect(relationshipsOf(describe, { inCheckpoint: new Set(['account']) }).outside).toEqual({
-      all: 3,
-      worked: 0,
+    // The org's objects not described: none known to be worked in, and every
+    // relationship the check may read counted, the most it reads.
+    expect(relationshipsOf(describe, { inCheckpoint: new Set(['account']) })).toMatchObject({
+      dependents: 4,
+      outside: { all: 3, worked: 0 },
     });
   });
 });
