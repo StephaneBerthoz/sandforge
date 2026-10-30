@@ -1,6 +1,6 @@
 # Migration
 
-Import an existing SFDMU `export.json`, or a CSV or JSON file, into a Sync configuration. Importing reads the file and changes nothing in any org; running the configuration it makes, from Sync, writes records to the target org.
+Import an existing SFDMU `export.json`, or a CSV or JSON file, into a Sync configuration. Importing reads the file and changes nothing in any org; running the configuration it makes writes records to the target org -- with **Run sync**, under **Run this import**, or from Sync once **Save as a Sync configuration** has kept it there.
 
 <!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.migration in packages/webview/src/i18n/locales/en.json -->
 

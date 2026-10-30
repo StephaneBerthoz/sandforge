@@ -24,7 +24,8 @@ records, and clean up the records nobody needs, from a single tabbed page.
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
 3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
-4. Start with a backup before other operations
+4. Before masking, leave **Keep the values first, so Restore can put them back** ticked in
+   Apply's confirmation, or start with a backup: without either, the mask cannot be undone
 
 ## Features
 
@@ -445,8 +446,9 @@ How it counts, and where it stops:
 
 ## Tips
 
-- Always create a backup before running anonymization: the mask is applied in
-  place and cannot be undone
+- Leave **Keep the values first, so Restore can put them back** ticked in Apply's
+  confirmation, or create a backup before running anonymization: the mask is
+  applied in place and, without either, cannot be undone
 - A backup can only be restored into the org it was taken from, so keep one
   backup per org rather than one per project
 - Check the KPI row for a quick overview of your DataOps activity and error rates

@@ -44,16 +44,12 @@ The main Forge journey, end to end — from a real record to a populated sandbox
 1. Connect your orgs with the Salesforce CLI import
      → Sidebar → SandForge → Organizations → "Import from SF CLI"
        (imports every org already authenticated with the Salesforce CLI)
-2. Open Forge (sidebar) and paste a root record ID
+2. Open Forge (sidebar), pick the orgs and paste a root record ID
+     → the Source Org is already the org selected in the side panel:
+       pick the Target Org (your dev sandbox)
      → "Record" tab → input "Record ID or Salesforce URL"
        (e.g. an Account from your UAT / partial-copy org)
-     → pick the Source Org and the Target Org (your dev sandbox)
-3. Click "Discover Graph"
-     → Forge walks the relationship graph from your root record
-       (Account → Contacts, Opportunities, Cases…)
-     → or "Clone directly", to clone as soon as discovery answers,
-       with no stop on the graph or on Review (see below)
-4. Tune the options:
+3. Tune the options, on the same form, above "Discover Graph":
      • Depth: "Direct only" / "Full tree" / "Custom depth"
      • "Records per object" — cap rows per object (Smart / 10…1000 / All);
        Smart caps nothing of one record's graph and 100 of a SOQL run, and
@@ -64,13 +60,18 @@ The main Forge journey, end to end — from a real record to a populated sandbox
      • "Keep emails and phone numbers as they are" — off by default:
        every address goes in under .invalid and every phone number as
        a fictional one (see the reference)
-     • (Optional) pick an anonymization preset on the Review screen:
-       GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal;
-       its Anonymization tab turns anonymization on or off for the run,
-       with no new discovery
+4. Click "Discover Graph"
+     → Forge walks the relationship graph from your root record
+       (Account → Contacts, Opportunities, Cases…)
+     → or "Clone directly", to clone as soon as discovery answers,
+       with no stop on the graph or on Review (see below)
 5. Click "Review & Execute", check the plan, then "Simulate" to see first
    what the run would write and what the target would refuse (see below),
    then "Execute Forge"
+     → (Optional) pick an anonymization preset on the Review screen first:
+       GDPR — default, GDPR — strict, Healthcare — PHI, Internal test — minimal;
+       its Anonymization tab turns anonymization on or off for the run,
+       with no new discovery
      → the "Automation" tab says first what the target runs on the
        records: its flows, Apex triggers, processes and workflow rules,
        what of them sends messages or runs after commit, its assignment

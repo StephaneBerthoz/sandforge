@@ -1,6 +1,6 @@
 # Grappe
 
-A progress page, not an engine: once `sandforge.grappe.enabled` is on (off by default), large Seed and Sync runs report there partition by partition. Execution stays sequential: Grappe does not make a run faster.
+A progress page, not an engine: once `sandforge.grappe.enabled` is on (off by default), a large Seed run reports there partition by partition, a large Sync one partition per object, and a large Autopilot run only its start and its end. Execution stays sequential: Grappe does not make a run faster.
 
 <!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.grappe in packages/webview/src/i18n/locales/en.json -->
 

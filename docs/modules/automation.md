@@ -1,6 +1,6 @@
 # Automation
 
-Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did. A pipeline runs when you click Run; a saved one also runs on a schedule, or when SandForge notices a refresh of a sandbox, while VS Code is open.
+Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did. A pipeline runs when you click Run Pipeline; a saved one also runs on a schedule, or when SandForge notices a refresh of a sandbox, while VS Code is open.
 
 <!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.automation in packages/webview/src/i18n/locales/en.json -->
 
@@ -23,11 +23,12 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 > notification, and an Approval waits for someone to approve the run in VS Code.
 > **The one step that writes to an org is Sync,** and it runs a configuration
 > saved on the Sync page, through Sync's own run and its Production Guard: a
-> Sync step into an org the guard asks about -- a production org; a sandbox, a
-> scratch org or a Developer Edition is never asked about -- needs an Approval
-> step before it, whose answer the guard takes.
-> Seed, Restore, Anonymize and Delete run only from their own pages. The Step
-> Palette offers only steps a pipeline runs; a pipeline that holds one it cannot
+> Sync step into an org the guard asks about -- a production org, or a sandbox
+> marked Staging when the Sync deletes there; a scratch org, a Developer Edition
+> or any other sandbox is never asked about -- needs an Approval step before
+> it, whose answer the guard takes.
+> Seed, Restore, Anonymize and Delete run only from their own pages. The list
+> under Steps offers only steps a pipeline runs; a pipeline that holds one it cannot
 > run -- from a template, an AI draft or an older save -- is refused before its
 > first step: nothing runs, and the run is written to the history as failed,
 > with the reason.
@@ -36,9 +37,9 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 
 1. Navigate to **Automation** from the sidebar
 2. Click **Create Pipeline** to start a new pipeline
-3. Click a step in the Step Palette to add it to the Pipeline Canvas
-4. Select each step and configure it in the Step Config Panel: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync
-5. Click **Run** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, the Run button is disabled and a note under the header names the step and the reason
+3. Click a step under **Steps** to add it to the Pipeline Canvas
+4. Select each step and configure it under **Step Configuration**: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync
+5. Click **Run Pipeline** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, **Run Pipeline** is disabled and a note under the header names the step and the reason
 6. To start the pipeline without a click, add a **Schedule** or a **Sandbox Refresh** trigger on the **Triggers** tab and save the pipeline: it then starts on its own while VS Code is open, and the tab shows the next run, or the sandbox it waits for
 
 ## Features
@@ -48,14 +49,14 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 The visual builder for composing automation workflows:
 
 - **Canvas** -- Steps run in the order they are listed; a step that cannot run is marked where it sits, with the reason
-- **Step Palette** -- A sidebar listing the eight step types it can add and a pipeline runs: Sync, Backup, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas. A note above the list says where the steps that write to an org and do not run here run instead
-- **Step Config Panel** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
+- **Steps** -- A sidebar listing the eight step types it can add and a pipeline runs: Sync, Backup, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas. A note above the list says where the steps that write to an org and do not run here run instead
+- **Step Configuration** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
 - **Pipeline Execution View** -- While a run lasts, the canvas shows each step's status as the extension reports it, what each finished step did, and a Cancel button that stops the run. An Approval step that waits shows its message, until when it waits, and **Approve** and **Reject**
 - **AI Pipeline Generator** -- Describe what you want in natural language and let the AI draft the pipeline; its steps are marked when they cannot run
 
 ### Step Types
 
-A pipeline step is one of 12 types, and the Step Palette offers the eight a pipeline runs, grouped:
+A pipeline step is one of 12 types, and the list under Steps offers the eight a pipeline runs, grouped:
 
 - **Data** -- Sync, Backup
 - **Quality** -- Compare, Pre-Check
@@ -68,12 +69,12 @@ Eight of them run in a pipeline:
 - **Compare** -- runs the Compare page's metadata diff between the two orgs and the metadata types you choose, and keeps its counts: only in the source, only in the target, modified, unchanged, not compared. Both orgs are only read. It hands on how many components differ (`compareDifferenceCount`), for a Condition to test.
 - **Pre-Check** -- reads the Monitor's health signals you choose on an org: API usage, data storage, the Apex error logs of the last 24 hours, the failed Apex jobs. A reading the Monitor calls critical, or one it cannot read, fails the step and stops the run. It hands what it read on to the steps after it (`apiUsagePercent`, `storageUsagePercent`, `recentErrorCount`, `failedJobCount`), for a Condition to test.
 - **Notification** -- shows its message as a VS Code notification, to whoever runs the pipeline. It sends nothing anywhere else: SandForge talks to no chat, mail or incident tool.
-- **Delay** -- waits the seconds set in its config panel, from 0 up to 24 days. A run cut short stops its wait where it is.
-- **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. The Step Config Panel offers the tests a run can answer: the previous step succeeded, or failed (after a step set to continue on error); a Compare found more than N differences; a Pre-Check read API usage or data storage above N %, more than N Apex errors, or more than N failed Apex jobs. A condition a Marketplace template set is shown as it stands until another is chosen. A Condition testing a value no step before it hands on -- differences with no Compare before it -- is refused before the run.
+- **Delay** -- waits the seconds set under Step Configuration, from 0 up to 24 days. A run cut short stops its wait where it is.
+- **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. Step Configuration offers the tests a run can answer: the previous step succeeded, or failed (after a step set to continue on error); a Compare found more than N differences; a Pre-Check read API usage or data storage above N %, more than N Apex errors, or more than N failed Apex jobs. A condition a Marketplace template set is shown as it stands until another is chosen. A Condition testing a value no step before it hands on -- differences with no Compare before it -- is refused before the run.
 - **Approval** -- holds the run until someone answers: a VS Code notification asks, with **Approve** and **Reject**, and so does the step on the canvas while the run is open there; the first answer counts. Reject fails the step, as does no answer within its wait (an hour unless set, at most a day): "not approved in time". A cancel of the run while it waits ends it. The wait does not count against `sandforge.pipeline.timeout`. A run a schedule or a sandbox refresh starts asks through the notification, which is how a run started while VS Code is open is answered; with VS Code closed, nothing runs. Who answered, where and when are kept in Execution History and the audit trail.
-- **Sync** -- runs a Sync configuration saved on the Sync page, through the run its schedule makes: the configuration is checked as Sync checks it, Production Guard is consulted, and the run is listed in Live Operations and Sync's history as a pipeline's run, where a cancel of the pipeline stops it. The Sync run does not count against `sandforge.pipeline.timeout`: it has its own Pause, Cancel and progress. A Sync into an org the guard lets through without asking -- a sandbox, a scratch org -- runs with no approval. One into an org the guard asks about -- a production org, a Developer Edition -- is refused before the run unless an Approval step comes before it; the run then never shows the guard's question: the guard takes the Approval's answer, and records it as confirmed. A Sync the guard refuses -- a delete on a production org -- is refused whatever is answered. A configuration deleted or no longer valid refuses the run. The step keeps Sync's counts: records read, written, failed and skipped, per object.
+- **Sync** -- runs a Sync configuration saved on the Sync page, through the run its schedule makes: the configuration is checked as Sync checks it, Production Guard is consulted, and the run is listed in Live Operations and Sync's history as a pipeline's run, where a cancel of the pipeline stops it. The Sync run does not count against `sandforge.pipeline.timeout`: it has its own Pause, Cancel and progress. A Sync into an org the guard lets through without asking -- a scratch org, a Developer Edition, a sandbox not marked Staging, or one marked Staging that the Sync deletes nothing in -- runs with no approval. One into an org the guard asks about -- a production org, or a sandbox marked Staging when the Sync deletes there -- is refused before the run unless an Approval step comes before it; the run then never shows the guard's question: the guard takes the Approval's answer, and records it as confirmed. A Sync the guard refuses -- a delete on a production org -- is refused whatever is answered. A configuration deleted or no longer valid refuses the run. The step keeps Sync's counts: records read, written, failed and skipped, per object.
 
-The other four are not offered by the palette, and a pipeline that holds one -- from a template, an AI draft or an older save -- is refused before its first step, with the step marked on the canvas and the reason:
+The other four are not offered under Steps, and a pipeline that holds one -- from a template, an AI draft or an older save -- is refused before its first step, with the step marked on the canvas and the reason:
 
 - **Seed, Restore, Anonymize, Delete** write to an org. Each runs from its own page, where Production Guard stops a write to a production org or asks you first.
 
@@ -85,7 +86,7 @@ Every step is read before the run the way its module's own request is read: a Ba
 
 ### Triggers
 
-The Trigger Config Panel offers the trigger types that start a pipeline:
+The **Triggers** tab offers the trigger types that start a pipeline:
 
 - **Manual** -- Run on demand from the Run Pipeline button
 - **Schedule** -- Starts the pipeline at each time a five-field cron expression names (minute, hour, day of the month, month, day of the week), in the time zone chosen on the trigger, while VS Code is open

@@ -1,6 +1,6 @@
 # Monitor
 
-Track your Salesforce org health in real time. Monitor shows API limits consumption, active jobs, storage usage, alerts, trend analysis, and predictive analytics -- all in a single dashboard.
+Track your Salesforce org health, read when the dashboard opens, on each refresh, or every 30 seconds with auto-refresh on. Monitor shows API limits consumption, active jobs, storage usage, alerts, trend analysis, and predictive analytics -- all in a single dashboard.
 
 <!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.monitor in packages/webview/src/i18n/locales/en.json -->
 
@@ -31,11 +31,12 @@ Track your Salesforce org health in real time. Monitor shows API limits consumpt
 
 ### KPI Overview
 
-The top row shows four key metrics at a glance:
+The top row shows five key metrics at a glance:
 
 - **Health Score** -- A composite gauge aggregating limits, jobs, storage, and error rates. Displayed as a radial gauge with color coding (green/amber/red).
 - **API Calls Today** -- Current REST API consumption with a progress bar and percentage. Includes a prediction warning when approaching the daily limit.
 - **Data Storage** -- Storage used vs. allocated in GB with usage percentage.
+- **File Storage** -- File storage used vs. allocated in GB with usage percentage.
 - **Alerts** -- Active alert count with severity-based coloring.
 
 ### Org Info Panel
@@ -245,8 +246,17 @@ number of error logs. Each says "not read" when its rows cannot be read.
 
 ### Alerts Panel
 
-- Configurable alert thresholds by severity
-- Active alerts with timestamps
+Shown with Time-to-Limit Predictions while an alert is active or acknowledged,
+or a prediction exists:
+
+- Built-in alerts at fixed thresholds, checked each time the dashboard reads the
+  org's limits: critical from 90% of the limit for daily API requests and async
+  Apex executions and from 85% for data and file storage, warning from 80% for
+  daily workflow emails. An alert fires again for the same org only after 15
+  minutes (API requests, async Apex) or 30 (storage, workflow emails). No
+  setting or control changes the thresholds
+- Active alerts with timestamps, value and threshold, each with **Dismiss**, and
+  **Acknowledge** until it is acknowledged
 - Integration with the notification system
 
 ### Governance
@@ -277,8 +287,9 @@ Policies of threshold rules, checked against the selected org when asked:
 
 - Enable auto-refresh (clock icon) during long-running operations to keep the dashboard current
 - Expand Governor Limits when troubleshooting API limit errors
-- Use the Anomaly Scan to catch unusual patterns in your org data -- one object
-  per run, so pick the object in the dropdown, or choose Other object… and type
-  its API name, before scanning
+- Use **Scan anomalies (Account)**, beside Governor Limits, to catch unusual
+  patterns in your org data -- one object per run, so pick the object in the
+  dropdown, or choose Other object… and type its API name, before scanning: the
+  button then names it
 - Critical job insights appear as red banners at the top of the dashboard -- act on those first
 - API limit predictions show hours remaining before the daily limit is reached

@@ -18,10 +18,10 @@ Compare metadata, permission names, and five Organization settings between two S
 
 ## Quick Start
 
-1. Navigate to **Compare** from the sidebar (requires at least 2 connected orgs)
+1. Navigate to **Compare Org** from the sidebar (requires at least 2 orgs in SandForge's list of orgs)
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
-4. Click **Run Compare** to execute the comparison
+4. Click **Run Comparison** to execute the comparison
 5. Browse results across five tabs: Diff, Permissions, Snapshots, Drift, and Deploy
 
 ## Features
@@ -149,7 +149,8 @@ set of rules -- no model, no key, nothing leaves the machine:
 - Object-specific analysis
 
 Rules cover naming conventions, labels duplicated across objects and missing
-standard relationships. Each run returns a score out of 100.
+standard relationships. Each run says how many issues it found and lists its
+recommendations; it shows no score.
 
 ## Tips
 

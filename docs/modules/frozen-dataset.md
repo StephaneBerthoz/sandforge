@@ -21,10 +21,10 @@ Typical case: a Developer sandbox refresh leaves you with metadata and zero reco
 ## Quick Start
 
 1. Open **Frozen Dataset** from the sidebar (or `SandForge: Open Frozen Dataset` from the command palette)
-2. **Extract** tab: fill in the root object, the coverage axes and the volume budget, then **Save configuration**
-3. Create the pseudonymization rules file. The salt the pseudonyms are drawn with is made on the first extraction and kept in VS Code's secret storage -- see [the salt](#the-salt)
+2. **Extract** tab: fill in the root object, add coverage axes if you want them (with none, the whole root object is one combination, and the selection keeps one root for it), check the volume budget, which starts at 2,500 records, then **Save configuration**
+3. Create the pseudonymization rules file, `~/.sandforge-sas/rules.json` by default (`rulesFilePath` or `sasDir` in the configuration move it): a JSON object with a semver `rulesVersion` and `rules` keyed `Object.Field`, each naming a `generator` -- `keep` only with `"approved": true` -- for example `{"rulesVersion": "1.0.0", "rules": {"Contact.Email": {"generator": "email"}}}`. **Run extraction** is refused without it. The salt the pseudonyms are drawn with is made on the first extraction and kept in VS Code's secret storage -- see [the salt](#the-salt)
 4. **Run selection** (coverage matrix) -- the tab says the step it is at as it goes -- then **Run extraction**. The 4-point control must return PASS for the dataset to be written
-5. **Load** tab: pick the target sandbox, tick **Pilot** to try a single root graph first, **Preview** to see what the load would do with nothing written, then **Run load** -- **Cancel run** stops it before its next write. Post-load verification is chained automatically
+5. **Load** tab: pick the target sandbox, tick **Pilot (1 folder)** to try a single root graph first, **Preview** to see what the load would do with nothing written, then **Run load**, which reads **Run pilot** while Pilot is ticked -- **Cancel run** stops it before its next write. Post-load verification is chained automatically
 6. To take a load back, **Last load** on the same tab removes the records the last load into the selected target created -- see [Removing a Load](#removing-a-load)
 
 ## Features
