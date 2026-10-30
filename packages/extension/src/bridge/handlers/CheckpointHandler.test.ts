@@ -10,9 +10,18 @@ import type {
   SalesforceOrg,
   UUID,
 } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import {
+  OrgSafetyTier,
+  pipelineCheckpointStepConfigSchema,
+  pipelineRewindStepConfigSchema,
+  rewindGrantDigest,
+} from '@sandforge/shared';
 
-import { CheckpointHandler, type WindowWriters } from './CheckpointHandler.js';
+import {
+  CheckpointHandler,
+  CheckpointStepRefused,
+  type WindowWriters,
+} from './CheckpointHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
@@ -26,6 +35,7 @@ import {
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { newArchiveKey, parseArchiveKey } from '../../modules/checkpoint/checkpointArchive.js';
 import { appendToRewindLedger, rewindLedgerFileOf } from '../../modules/checkpoint/rewindLedger.js';
+import { StepCancelledError } from '../../modules/automation/StepExecutor.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { SandboxRefreshDetector } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
@@ -1712,6 +1722,41 @@ describe('CheckpointHandler — the rewind and its undo', () => {
 
     expect(reused).toBeLessThan(fresh);
   });
+
+  it('prices, once told to, the rewind its preview will be rewound from: the fresh read of the org the panel’s rewind makes is no longer counted, as that rewind never sends it (G-D2)', async () => {
+    const run = async (fromPreview: boolean): Promise<{ said: number; sent: number }> => {
+      const h = harness();
+      noAutomation(h);
+      if (fromPreview) h.handler.rewindFromPreviewsAnswered();
+      const checkpointId = await taken(h);
+      changedSince(h);
+      await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId });
+      const preview = answerOf(h, 'wv-preview-1').payload as {
+        diff: { previewId: string };
+        estimate: { apiRequests: number };
+      };
+      h.org.ticking = true;
+      await h.send(
+        'wv-rewind-1',
+        'checkpoint:rewind',
+        rewindOf(checkpointId, preview.diff.previewId),
+      );
+      const result = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+      expect(result.status).toBe('success');
+      return { said: preview.estimate.apiRequests, sent: result.apiRequests.used };
+    };
+
+    const panel = await run(false);
+    const commandLine = await run(true);
+
+    // What the command line's rewind does not send, its preview does not
+    // count: the two figures part by what the two rewinds part by. What the
+    // memory org's estimate counts beyond either rewind is the same for both;
+    // that each preview says what its rewind sends is held on the org of
+    // gate G-D2 (`rewindEstimate.requests.test.ts`).
+    expect(commandLine.sent).toBeLessThan(panel.sent);
+    expect(panel.said - commandLine.said).toBe(panel.sent - commandLine.sent);
+  });
 });
 
 // ─── A rewind of some objects ────────────────────────────────────────────────
@@ -2228,5 +2273,513 @@ describe('CheckpointHandler — a checkpoint to another machine, and from one', 
     });
     expect(existsSync(`${file}.other`)).toBe(false);
     expect(here.trail().filter((entry) => entry.action === 'checkpoint_export')).toEqual([]);
+  });
+});
+
+// ─── A pipeline's Checkpoint and Rewind steps ────────────────────────────────
+
+/** The pipeline step that runs the take or the rewind: a nightly reset on a schedule. */
+const ORIGIN = {
+  pipeline: 'Nightly reset',
+  step: 'Rewind the sandbox',
+  trigger: 'schedule',
+} as const;
+
+/** When the Rewind step was confirmed, as the Automation side read it. */
+const GRANTED_AT = '2026-10-21T09:00:00.000Z';
+
+/**
+ * A Rewind step of the registered org to `checkpointId`, confirmed for its
+ * configuration: nothing accepted, ten records at most, the people at work
+ * not looked at, unless said.
+ */
+function rewindStep(checkpointId: string, config: Record<string, unknown> = {}) {
+  const read = pipelineRewindStepConfigSchema.parse({
+    orgId: REGISTERED,
+    checkpointId,
+    maxRecords: 10,
+    refuseWhenActive: false,
+    ...config,
+  });
+  return {
+    config: read,
+    grant: {
+      organizationId: ORG_ID,
+      checkpointId,
+      digest: rewindGrantDigest(read),
+      grantedAt: GRANTED_AT,
+    },
+    origin: ORIGIN,
+  };
+}
+
+/** What a step was refused with, or a failed test. */
+async function stepRefusal(step: Promise<unknown>): Promise<CheckpointStepRefused> {
+  try {
+    await step;
+  } catch (err: unknown) {
+    if (err instanceof CheckpointStepRefused) return err;
+    throw err;
+  }
+  throw new Error('The step was not refused.');
+}
+
+/** What the org was sent that writes: updates and deletes, and what its records hold. */
+function writesOf(org: HandlerTestOrg) {
+  return { updates: org.updates.length, deletes: org.deletes.length, state: stateOf(org) };
+}
+
+describe('CheckpointHandler — a pipeline’s Checkpoint step', () => {
+  it('takes a checkpoint named as the step says, {date} put in the place of T0, listed in the registry and in Live Operations, and answers what it kept to no page', async () => {
+    const h = harness();
+
+    const kept = await h.handler.takeForPipeline({
+      config: pipelineCheckpointStepConfigSchema.parse({
+        orgId: REGISTERED,
+        mode: 'everything',
+        name: 'Nightly {date}',
+      }),
+      origin: ORIGIN,
+    });
+
+    expect(kept).toMatchObject({
+      name: 'Nightly 2026-10-22 14:05 UTC',
+      records: 3,
+      objects: 2,
+      movedWhileTaken: { changed: 0, deleted: 0, created: 0 },
+    });
+    expect(kept.bytes).toBeGreaterThan(0);
+    const read = await h.store.read(kept.checkpointId);
+    expect(read?.checkpoint).toMatchObject({ name: kept.name, status: 'ready' });
+    expect(read?.checkpoint?.expiresAt).not.toBeNull();
+    await Promise.resolve();
+    expect(h.registry.get(kept.operationId)).toMatchObject({
+      module: 'checkpoint',
+      status: 'completed',
+    });
+    expect(h.tracker.get(kept.operationId)).toMatchObject({
+      status: 'completed',
+      description: "Pipeline 'Nightly reset': taking a checkpoint of DEV-SB",
+    });
+    expect(h.posted.filter((message) => message.type === 'checkpoint:take:response')).toEqual([]);
+  });
+
+  it('fails with the take’s refusal, its code and its words, keeping nothing: the day’s requests, a production org whatever the registry says', async () => {
+    const h = harness();
+    h.org.limits = { Max: 5_000_000, Remaining: 3 };
+
+    const budget = await stepRefusal(
+      h.handler.takeForPipeline({
+        config: pipelineCheckpointStepConfigSchema.parse({ orgId: REGISTERED, mode: 'everything' }),
+        origin: ORIGIN,
+      }),
+    );
+    expect(budget.code).toBe('API_BUDGET');
+    expect(budget.message).toContain('DEV-SB');
+    h.org.limits = { Max: 5_000_000, Remaining: 4_999_000 };
+
+    h.org.edit('Organization', ORG_ID, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+    const production = await stepRefusal(
+      h.handler.takeForPipeline({
+        config: pipelineCheckpointStepConfigSchema.parse({ orgId: REGISTERED, mode: 'everything' }),
+        origin: ORIGIN,
+      }),
+    );
+    expect(production.code).toBe('PRODUCTION');
+    expect(production.message).toContain(
+      'SandForge never takes a checkpoint of, or rewinds, a production org',
+    );
+    expect(await h.store.list()).toEqual([]);
+  });
+
+  it('is stopped by the step’s Stop, before the take and between two reads, keeping nothing', async () => {
+    const h = harness();
+    const before = new AbortController();
+    before.abort();
+    const step = {
+      config: pipelineCheckpointStepConfigSchema.parse({ orgId: REGISTERED, mode: 'everything' }),
+      origin: ORIGIN,
+    };
+
+    await expect(h.handler.takeForPipeline(step, before.signal)).rejects.toBeInstanceOf(
+      StepCancelledError,
+    );
+
+    const during = new AbortController();
+    h.onQuery((soql) => {
+      if (/^SELECT Id, SystemModstamp, CreatedDate/.test(soql)) during.abort();
+    });
+    await expect(h.handler.takeForPipeline(step, during.signal)).rejects.toBeInstanceOf(
+      StepCancelledError,
+    );
+    expect(await h.store.list()).toEqual([]);
+  });
+});
+
+describe('CheckpointHandler — a pipeline’s Rewind step', () => {
+  it('rewinds from a preview it reads itself, under an operation of its own, recorded with its pipeline, its step, its trigger and when it was confirmed', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const atCheckpoint = stateOf(h.org);
+    changedSince(h);
+    h.org.ticking = true;
+
+    const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId));
+
+    expect(rewound.result).toMatchObject({ status: 'success', residual: [] });
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+    expect(rewound.estimate.records).toBe(3);
+    await Promise.resolve();
+    expect(h.registry.get(rewound.operationId)?.status).toBe('completed');
+    expect(h.tracker.get(rewound.operationId)).toMatchObject({
+      status: 'completed',
+      description: "Pipeline 'Nightly reset': rewinding DEV-SB to 'Before UAT'",
+    });
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      operationId: rewound.operationId,
+      orgId: REGISTERED,
+      outcome: 'success',
+      details: {
+        checkpointId,
+        rewindId: rewound.result.rewindId,
+        status: 'success',
+        pipeline: 'Nightly reset',
+        step: 'Rewind the sandbox',
+        trigger: 'schedule',
+        grantedAt: GRANTED_AT,
+      },
+    });
+    expect(h.posted.filter((message) => message.type === 'checkpoint:rewind:response')).toEqual([]);
+  });
+
+  it('leaves the panel’s preview as it was: the panel’s rewind confirmed on it goes after the step’s, reading the org again', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const atCheckpoint = stateOf(h.org);
+    changedSince(h);
+    const panelPreview = await previewed(h, checkpointId, 'wv-preview-1');
+    h.org.ticking = true;
+
+    const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId));
+
+    expect(rewound.result.status).toBe('success');
+    // Its own preview, which the rewind removes once it went through; the
+    // panel's is kept as it was.
+    const kept = await h.store.read(checkpointId);
+    expect(readdirSync(kept?.folder.previewsDir ?? '')).toEqual([panelPreview]);
+    await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, panelPreview));
+    const panel = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response');
+    // Nothing of what the panel confirmed still differs: the step put it back.
+    expect(panel).toMatchObject({ status: 'success', residual: [] });
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('rewinds from its own preview as that preview read the org, not reading it again before the first pass, as the panel’s rewind does', async () => {
+    const run = async (step: boolean): Promise<number> => {
+      const h = harness();
+      noAutomation(h);
+      const checkpointId = await taken(h);
+      changedSince(h);
+      if (step) {
+        h.org.ticking = true;
+        return (await h.handler.rewindForPipeline(rewindStep(checkpointId))).result.apiRequests
+          .used;
+      }
+      const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+      h.org.ticking = true;
+      await h.send('wv-rewind-1', 'checkpoint:rewind', rewindOf(checkpointId, previewId));
+      return resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response').apiRequests.used;
+    };
+
+    const panel = await run(false);
+    const step = await run(true);
+
+    expect(step).toBeLessThan(panel);
+  });
+
+  it('refuses a rewind of more records than its limit before it writes, with both numbers, and rewinds one at its limit', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    const atCheckpoint = stateOf(h.org);
+    changedSince(h);
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(rewindStep(checkpointId, { maxRecords: 2 })),
+    );
+
+    expect(refused.code).toBe('TOO_MANY_TO_REWIND');
+    expect(refused.message).toBe(
+      'The rewind of DEV-SB would rewind 3 records (1 to delete, 1 to give back, 1 to bring ' +
+        "back), past this step's limit of 2. Rewind refused; preview the rewind, then raise the " +
+        "step's maxRecords to what it rewinds and confirm it again. No record was written.",
+    );
+    expect(writesOf(h.org)).toEqual(before);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { checkpointId, code: 'TOO_MANY_TO_REWIND', pipeline: 'Nightly reset' },
+    });
+
+    h.org.ticking = true;
+    const rewound = await h.handler.rewindForPipeline(rewindStep(checkpointId, { maxRecords: 3 }));
+    expect(rewound.result.status).toBe('success');
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('refuses before it writes while someone else was at work in the org in the hour before, saying how many people, and rewinds when told not to look', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(rewindStep(checkpointId, { refuseWhenActive: true })),
+    );
+
+    expect(refused.code).toBe('PEOPLE_ACTIVE');
+    expect(refused.message).toMatch(
+      /^1 person other than the user the rewind writes as changed records of the checkpoint's objects in DEV-SB in the hour before the rewind read it/,
+    );
+    expect(writesOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    const rewound = await h.handler.rewindForPipeline(
+      rewindStep(checkpointId, { refuseWhenActive: false }),
+    );
+    expect(rewound.result.status).toBe('success');
+  });
+
+  it('lets through, when told to look, a rewind whose own user alone was at work in the hour before', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, MEMORY_ORG_USER);
+    clock = T0 + 120_000;
+    h.org.ticking = true;
+
+    const rewound = await h.handler.rewindForPipeline(
+      rewindStep(checkpointId, { refuseWhenActive: true }),
+    );
+
+    expect(rewound.result.status).toBe('success');
+    expect(h.org.all('Account').find((row) => row.Id === id('001', 1))?.Name).toBe('Northwind');
+  });
+
+  it('refuses for want of an acceptance its configuration does not give, naming the setting, before it writes', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [],
+          unread: [{ part: 'flows', reason: 'Tooling API timed out' }],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+
+    expect(refused.code).toBe('AUTOMATION');
+    expect(refused.message).toMatch(
+      /Rewind refused; turn on acceptAutomation in the step and confirm it again to rewind all the same\. No record was written\.$/,
+    );
+    expect(writesOf(h.org)).toEqual(before);
+
+    h.org.ticking = true;
+    const rewound = await h.handler.rewindForPipeline(
+      rewindStep(checkpointId, { acceptAutomation: true }),
+    );
+    expect(rewound.result.status).toBe('success');
+  });
+
+  it('refuses a rewind whose writes would send more emails than the org has left today, whatever it accepts', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    clock = T0 + 60_000;
+    h.org.edit('Account', id('001', 1), { Name: 'Renamed' }, COLLEAGUE);
+    clock = T0 + 120_000;
+    h.org.emailLimits = { SingleEmail: { Max: 15, Remaining: 0 } };
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) =>
+        Promise.resolve({
+          objectsRead: [...objects],
+          objects: [
+            {
+              objectApiName: 'Account',
+              flows: [
+                {
+                  apiName: 'Account_changed',
+                  label: 'Account changed',
+                  timing: 'afterSave',
+                  startsOn: 'update',
+                  condition: 'read',
+                  permissions: [],
+                  messages: [{ kind: 'email', name: 'Tell owner', limit: 'SingleEmail' }],
+                },
+              ],
+              triggers: [],
+            },
+          ],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation),
+    });
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(
+      h.handler.rewindForPipeline(
+        rewindStep(checkpointId, {
+          acceptAutomation: true,
+          acceptNoUndo: true,
+          acceptRecreate: true,
+          acceptUnseen: true,
+        }),
+      ),
+    );
+
+    expect(refused.code).toBe('EMAILS');
+    expect(writesOf(h.org)).toEqual(before);
+  });
+
+  it('answers no, with nobody to ask, to deleting the rest when its user may not delete some of it: nothing written, the step failing with the objects named', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.org.undeletable.add('Case');
+    const before = writesOf(h.org);
+    h.org.ticking = true;
+
+    const refused = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+
+    expect(refused.code).toBe('UNDELETABLE_UNATTENDED');
+    expect(refused.message).toBe(
+      'The user SandForge connects to DEV-SB as may not delete the Case (1) record(s) this ' +
+        'rewind deletes. With nobody to ask whether to delete the rest, the deletion was left ' +
+        'untouched. Give the user Delete on those objects, or rewind from the Checkpoints page, ' +
+        'which asks. No record was written.',
+    );
+    expect(refused.result?.status).toBe('cancelled');
+    expect(writesOf(h.org)).toEqual(before);
+    const [entry] = h.trail();
+    expect(entry).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { code: 'UNDELETABLE_UNATTENDED', pipeline: 'Nightly reset' },
+    });
+    expect(h.tracker.get(entry?.operationId ?? '')?.status).toBe('failed');
+  });
+
+  it('is stopped by the step’s Stop: before it writes, as the step’s cancellation with nothing written; once it wrote, with its result', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const before = writesOf(h.org);
+    const already = new AbortController();
+    already.abort();
+
+    await expect(
+      h.handler.rewindForPipeline(rewindStep(checkpointId), already.signal),
+    ).rejects.toBeInstanceOf(StepCancelledError);
+    expect(writesOf(h.org)).toEqual(before);
+    expect(h.trail()[0]).toMatchObject({
+      outcome: 'stopped',
+      details: { code: 'ABORTED_BEFORE_START' },
+    });
+
+    // While its own preview reads the org.
+    const reading = new AbortController();
+    h.onQuery((soql) => {
+      if (/FROM UserPermissionAccess/.test(soql)) reading.abort();
+    });
+    await expect(
+      h.handler.rewindForPipeline(rewindStep(checkpointId), reading.signal),
+    ).rejects.toBeInstanceOf(StepCancelledError);
+    expect(writesOf(h.org)).toEqual(before);
+    h.onQuery(() => undefined);
+
+    // As its first delete goes.
+    const writing = new AbortController();
+    h.org.ticking = true;
+    h.org.beforeDelete = () => {
+      h.org.beforeDelete = undefined;
+      writing.abort();
+    };
+    const stopped = await h.handler.rewindForPipeline(rewindStep(checkpointId), writing.signal);
+    expect(stopped.result.status).toBe('cancelled');
+    expect(h.registry.get(stopped.operationId)?.status).toBe('aborted');
+    expect(h.tracker.get(stopped.operationId)?.status).toBe('cancelled');
+  });
+
+  it('refuses, before it reaches the org, a configuration that does not read and a confirmation given for another one', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const connected = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    const latest = rewindStep(checkpointId);
+    const invalid = await stepRefusal(
+      h.handler.rewindForPipeline({
+        ...latest,
+        config: { ...latest.config, checkpointId: 'latest' },
+      }),
+    );
+    expect(invalid.code).toBe('CONFIG_INVALID');
+    expect(invalid.message).toContain('never latest');
+
+    const confirmed = rewindStep(checkpointId, { maxRecords: 10 });
+    const changed = await stepRefusal(
+      h.handler.rewindForPipeline({
+        ...confirmed,
+        config: { ...confirmed.config, maxRecords: 500 },
+      }),
+    );
+    expect(changed.code).toBe('NOT_CONFIRMED');
+    expect(changed.message).toBe(
+      'Rewind step "Rewind the sandbox" has not been confirmed since it was changed: open it ' +
+        "and type the org's alias. No record was written.",
+    );
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connected);
+  });
+
+  it('refuses a production org with the checkpoint guard’s words, whatever the confirmation, recording the refusal, writing nothing', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    h.org.edit('Organization', ORG_ID, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+    const before = writesOf(h.org);
+
+    const refused = await stepRefusal(h.handler.rewindForPipeline(rewindStep(checkpointId)));
+
+    expect(refused.code).toBe('PRODUCTION');
+    expect(writesOf(h.org)).toEqual(before);
+    expect(h.trail()[0]).toMatchObject({
+      action: 'checkpoint_rewind',
+      outcome: 'stopped',
+      details: { code: 'PRODUCTION', trigger: 'schedule' },
+    });
   });
 });

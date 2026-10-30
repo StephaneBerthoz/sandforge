@@ -179,9 +179,11 @@ class GateOrg extends RewindTestOrg {
 
 /**
  * The checkpoint of the gate taken, then an account, a contact and a case
- * made by a colleague, a feed item under the case, and the preview read.
+ * made by a colleague, a feed item under the case, and the preview read: as
+ * the panel reads it, or as a host that rewinds from it as read
+ * (`reusesPreview`) does.
  */
-async function gate(): Promise<{
+async function gate(reusesPreview = false): Promise<{
   t: Taken & { org: GateOrg };
   preview: { diff: RewindDiff; estimate: { apiRequests: number } };
 }> {
@@ -208,7 +210,7 @@ async function gate(): Promise<{
       store: t.store,
       readAutomation: automationOf({ requests: AUTOMATION_REQUESTS }),
     },
-    request(t),
+    { ...request(t), ...(reusesPreview ? { reusesPreview } : {}) },
   );
   if (!preview.previewed) throw new Error(preview.refusal.message);
   return { t: { ...t, org }, preview };
@@ -332,6 +334,21 @@ describe('what a rewind sends against its estimate, on the org of gate G-D2', ()
       expect(preview.estimate.apiRequests - result.apiRequests.used).toBe(
         diffEstimate(input).apiRequests,
       );
+    },
+    paced(60_000),
+  );
+
+  it(
+    'says in the preview of a rewind that acts on it as read what that rewind sends, as the command line and a pipeline’s Rewind step rewind: the gate’s preview counted a fresh read the command line never made',
+    async () => {
+      const { t, preview } = await gate(true);
+      const asked = spent(t.org);
+
+      const result = await rewind(t, preview.diff, true);
+
+      expectRewound(t, result);
+      expect(result.apiRequests.used).toBe(spent(t.org) - asked + AUTOMATION_REQUESTS);
+      expect(result.apiRequests.used).toBe(preview.estimate.apiRequests);
     },
     paced(60_000),
   );

@@ -46,10 +46,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-  blindedBy,
   checkpointIdSchema,
   checkpointIgnoredFieldsSchema,
-  firedOnRemovalStepsOf,
   type CheckpointCustomSettingKind,
   type CheckpointCustomSettings,
   type CheckpointEmails,
@@ -63,7 +61,6 @@ import {
   type CheckpointScopeMode,
   type CheckpointScopeObject,
   type CheckpointTakeRequests,
-  type ForgeRemovalSteps,
   type ForgeTargetAutomation,
   type OrgCheckpoint,
   type RewindDiff,
@@ -78,7 +75,13 @@ import {
   type SalesforceOrg,
 } from '@sandforge/shared';
 import { createPanelHost } from './panelHost.js';
-import type { PanelAnswer, PanelHost, PanelHostOptions, PostedMessage } from './panelHost.js';
+import type {
+  PanelAnswer,
+  PanelHost,
+  PanelHostOptions,
+  PanelHostWiring,
+  PostedMessage,
+} from './panelHost.js';
 import { refuseUnreadArguments, type CommandFlags } from './commandLine.js';
 import { DONE_EXIT, FAILED_EXIT, PARTIAL_EXIT, UNSTABLE_EXIT, endWith } from './exitCodes.js';
 import { confirm, hidden, typed } from './prompt.js';
@@ -95,12 +98,26 @@ import {
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
-import { diffOfPicked } from '../src/modules/checkpoint/rewindPlan.js';
+import {
+  acceptanceRefusal as acceptanceOf,
+  boundsRefusal,
+  previewTotals,
+  rewindStepsOf,
+  selectionDiff,
+  type BoundWords,
+  type RewindAccepted,
+} from '../src/modules/checkpoint/rewindBounds.js';
+import { rewindWriters } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
-import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
+import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
+import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
 import { holdOutputWhole } from './wholeOutput.js';
+
+// The counts the bounds of a rewind are read by (`rewindBounds.ts`), which
+// the lines of this command are made of too.
+export { previewTotals, rewindStepsOf, selectionDiff };
 
 const HELP = `sandforge-checkpoint — take a checkpoint of an org's data, and rewind the org to it, without the editor.
 
@@ -176,6 +193,16 @@ rewind:
                                  proven to see whole — tasks and events always: the preview names
                                  those objects, and no count holds what goes with them; without it
                                  such a rewind writes nothing, exit 1
+  --max-records <n>              refuse, before it writes, a rewind that would delete, give back,
+                                 bring back and make again more than <n> records together, exit 1:
+                                 with --yes in a cron job or a CI step, what stands in for reading
+                                 the preview
+  --refuse-when-active           refuse, before it writes, a rewind of an org where anyone but the
+                                 user it writes as and the org's Automated Process changed records
+                                 of the checkpoint's objects in the hour before it read the org,
+                                 whose work it would take back, exit 1; the refusal says how many
+                                 people. Where people sign in as the user SandForge connects as,
+                                 their changes are that user's, and are not told apart
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
   --yes                          do not ask before writing; without it and with no terminal — a CI
                                  step — it stops at its question, exit 2, having written nothing
@@ -263,11 +290,13 @@ does not undelete on its own, or with its parent of an object the checkpoint doe
 (preview counts them); without View All Data and Modify All Data, a record another user deleted
 since, and a record of an object held through what it hangs from that the recycle bin does not
 show the user (preview counts them too); a field added since, deleted since, or hidden since from
-the user by field-level security, which the preview tells apart and names; the values the org
-computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left
-the org (emails, callouts, outbound messages, platform events); metadata; the files of a
-checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back, or
-to make again, is named by rewind, with its words.
+the user by field-level security, which the preview tells apart and names in an object something
+changed in since — in an object nothing changed in, which a rewind writes nothing to, the fields
+are not checked, and the preview counts those objects; the values the org computes or keeps
+itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
+(emails, callouts, outbound messages, platform events); metadata; the files of a checkpoint taken
+before SandForge 1.70, which holds none. A record the org refuses to put back, or to make again,
+is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -300,7 +329,13 @@ JSON (--json), one value on stdout:
                      diff.objects[].schemaDrift, of an object whose fields changed since:
                      {removed, added, changed, hidden?, uncertain?: {fields, reason?}}, removed
                      the custom fields deleted since, hidden those field-level security hides
-                     from the user, uncertain those the org would not say which of; diff.files,
+                     from the user, uncertain those the org would not say which of;
+                     diff.described, {first, later}, the objects it described again, asked
+                     whether their fields changed since the take: first those something moved
+                     in, later those nothing moved in that hold fewer records than the
+                     checkpoint; diff.fieldsNotChecked, the objects nothing changed in whose
+                     fields it did not describe: a rewind writes nothing there, and a field
+                     deleted or hidden since in one of them is not known; diff.files,
                      for a checkpoint that holds files: {unlink, relink, updateLinks,
                      outsideAdded, outsideDeleted, storage: {bringBack, remaining?, undo},
                      blindSpot?}, the links to remove, put back and give their sharing back, the
@@ -356,7 +391,8 @@ kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate,
 deletions taking along records the user is not proven to see without --accept-unseen, more than
---max-total records, more API requests or emails than the org
+--max-total records, more records to rewind than --max-records, people working in the org in the
+hour before with --refuse-when-active, more API requests or emails than the org
 has left today, files to bring back taking more file storage than it has left, a checkpoint of
 the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
 of another org's file, with the wrong key, of a file changed since its export), or nothing
@@ -430,9 +466,10 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--accept-recreate',
       '--accept-outside',
       '--accept-unseen',
+      '--refuse-when-active',
       '--yes',
     ],
-    values: [...COMMON.values, '--checkpoint', '--ignore-field', '--object'],
+    values: [...COMMON.values, '--checkpoint', '--ignore-field', '--object', '--max-records'],
   },
   undo: {
     words: 1,
@@ -509,6 +546,10 @@ export type CliArgs =
       acceptRecreate: boolean;
       acceptOutside: boolean;
       acceptUnseen: boolean;
+      /** The most records it may delete, give back, bring back and make again, all together. */
+      maxRecords?: number;
+      /** Refused when people other than its own writers changed the org in the hour before. */
+      refuseWhenActive: boolean;
       /** Fields, `Object.Field`, to stop comparing from now on. */
       ignoreFields: string[];
       yes: boolean;
@@ -710,6 +751,11 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
           `--ignore-field: ${checked.error.issues[0]?.message ?? 'not read'}. Nothing was run.`,
         );
       }
+      // A bound of none would refuse every rewind that writes: as a Rewind step's, one or more.
+      const maxRecords = wholeNumber('--max-records');
+      if (maxRecords === 0) {
+        refuseLine('--max-records takes a whole number of 1 or more, not "0". Nothing was run.');
+      }
       return {
         ...common,
         command,
@@ -722,6 +768,8 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         acceptRecreate: args.includes('--accept-recreate'),
         acceptOutside: args.includes('--accept-outside'),
         acceptUnseen: args.includes('--accept-unseen'),
+        ...(maxRecords !== undefined ? { maxRecords } : {}),
+        refuseWhenActive: args.includes('--refuse-when-active'),
         ignoreFields,
         yes: args.includes('--yes'),
       };
@@ -1324,17 +1372,6 @@ export function requestsLine(
   return `  sent ${count(requests.total)} API requests to the org${said}: ${phases.join(', ')}`;
 }
 
-/**
- * What a rewind to a checkpoint would do, in the three numbers the preview
- * leads with, and the records it would make again with new Ids.
- */
-export interface PreviewTotals {
-  toDelete: number;
-  toGiveBack: number;
-  toBringBack: number;
-  toRecreate: number;
-}
-
 const toDeleteOf = (o: RewindDiffObject): number =>
   o.toDelete.createdSince + o.toDelete.broughtBackSince + o.toDelete.comesBackWithParent;
 const toBringBackOf = (o: RewindDiffObject): number =>
@@ -1348,24 +1385,6 @@ const toRecreateOf = (o: RewindDiffObject): number => o.toRecreate ?? 0;
  * three numbers, but written twice.
  */
 const carriersOf = (o: RewindDiffObject): number => o.toBringBack.carriers ?? 0;
-
-/**
- * The three numbers: records to delete (created since, brought back from the
- * bin since, and those that come back with a parent and go again), to give
- * their values back, and to bring back from the recycle bin; and the records
- * the recycle bin no longer gives back, to make again with new Ids.
- */
-export function previewTotals(diff: Pick<RewindDiff, 'objects'>): PreviewTotals {
-  return diff.objects.reduce<PreviewTotals>(
-    (totals, object) => ({
-      toDelete: totals.toDelete + toDeleteOf(object),
-      toGiveBack: totals.toGiveBack + object.toGiveBack.records,
-      toBringBack: totals.toBringBack + toBringBackOf(object),
-      toRecreate: totals.toRecreate + toRecreateOf(object),
-    }),
-    { toDelete: 0, toGiveBack: 0, toBringBack: 0, toRecreate: 0 },
-  );
-}
 
 /**
  * The links between files and records a rewind writes: those added since it
@@ -1432,28 +1451,24 @@ const CANNOT_UNDO_WORDS: Readonly<Record<string, string>> = {
 
 /**
  * Why Undo couldn't bring back records a rewind deletes, in the order the
- * lines say them: as the preview says it, as a refusal for want of
- * `--accept-no-undo` does, and as the rewind's result does once they went.
+ * lines say them: as the preview says it, and as the rewind's result does
+ * once they went. A refusal for want of `--accept-no-undo` says it in the
+ * words of `acceptanceRefusal` (`rewindBounds.ts`).
  */
 const UNDO_CANNOT_WORDS: ReadonlyArray<{
   reason: RewindUndoCannotReason;
   preview: string;
-  refusal: string;
   result: string;
 }> = [
   {
     reason: 'onlyWithParent',
     preview: 'Salesforce undeletes them only with their parent, and their parent stays',
-    refusal: 'Salesforce undeletes them only with their parent, which stays',
     result: 'Salesforce undeletes them only with their parent',
   },
   {
     reason: 'deletedBeforeParent',
     preview:
       'deleted before a record they point at, which the rewind deletes next: Salesforce ' +
-      'cannot bring them back after that',
-    refusal:
-      'deleted before a record they point at, which the rewind deletes next, Salesforce ' +
       'cannot bring them back after that',
     result:
       'deleted before a record they point at, which the rewind deleted next: Salesforce ' +
@@ -1747,6 +1762,15 @@ export function previewLines(
       lines.push(`  fields changed since, tried one by one: ${someOf(named(drift.changed))}`);
     }
   }
+  // Their fields were not described: a field deleted or hidden there since
+  // is not known, and a rewind, writing nothing there, does not need it.
+  const notChecked = diff.fieldsNotChecked ?? 0;
+  if (notChecked > 0) {
+    lines.push(
+      `  fields not checked for changes in ${count(notChecked)} objects nothing changed in: a ` +
+        'rewind writes nothing there',
+    );
+  }
   for (const unread of diff.unread) {
     lines.push(
       `  could not be read: ${unread.objectApiName} — ${unread.reason} (never taken for unchanged)`,
@@ -1889,49 +1913,6 @@ export interface Selection {
   diff: RewindDiff;
 }
 
-/**
- * The diff a rewind limited to the plan's objects is counted by, beside the
- * whole one: of the objects picked, and of those not picked it writes to, the
- * plan's numbers in place of the diff's, what it cannot take back and the
- * objects it could not read of the objects picked alone, and what Undo
- * couldn't bring back as the plan says it.
- */
-export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): RewindDiff {
-  const picked = new Set(plan.objects);
-  const actOf = new Map(plan.acts.map((act) => [act.objectApiName, act]));
-  const base = diffOfPicked(diff, picked);
-  return {
-    ...base,
-    objects: diff.objects
-      .filter((o) => picked.has(o.objectApiName) || actOf.has(o.objectApiName))
-      .map((o): RewindDiffObject => {
-        const act = actOf.get(o.objectApiName);
-        const own = picked.has(o.objectApiName);
-        return {
-          ...o,
-          toDelete: {
-            createdSince: act?.toDelete ?? 0,
-            broughtBackSince: 0,
-            comesBackWithParent: 0,
-          },
-          toGiveBack: { ...o.toGiveBack, records: act?.toGiveBack ?? 0 },
-          toBringBack: {
-            inBin: act?.toBringBack ?? 0,
-            withParent: 0,
-            deletedWhileTaken: 0,
-            ...(own && o.toBringBack.carriers !== undefined
-              ? { carriers: o.toBringBack.carriers }
-              : {}),
-          },
-          toRecreate: act?.toRecreate ?? 0,
-          cannotUndo: own ? o.cannotUndo : [],
-          unexplained: own ? o.unexplained : 0,
-        };
-      }),
-    undoCannot: [...plan.undoCannot],
-  };
-}
-
 /** Why a rewind limited to some objects leaves records of them, as the lines say it. */
 const SELECTION_LEFT_WORDS: Readonly<Record<RewindSelectionLeftReason, string>> = {
   needsUnpickedParent:
@@ -2040,50 +2021,21 @@ async function selectionOf(
 // ─── What a rewind and an undo say, and how they end the command ─────────────
 
 /**
- * The objects whose records each step of a rewind writes, as its preview
- * counts them: brought back, given back, deleted — an order activated since
- * set back to Draft first, which the platform deletes no other way — and the
- * records it brings back for a moment, then deletes again.
+ * What the command line says lifts each refusal of a rewind held to bounds
+ * or for want of an acceptance: its flags.
  */
-export function rewindStepsOf(
-  diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
-): ForgeRemovalSteps {
-  // What comes back for a moment is brought back and deleted, as the rewind
-  // itself lists it: its automation runs on both.
-  const deleted = diff.objects
-    .filter((o) => toDeleteOf(o) + carriersOf(o) > 0)
-    .map((o) => o.objectApiName);
-  // A link between a file and a record removed is a delete, one put back an
-  // insert, one given its sharing back an update, as the rewind lists them:
-  // a trigger on links runs on each.
-  const links = diff.files;
-  const linked = (step: string[], writes: number): string[] =>
-    writes > 0 ? [...step, FILE_LINK_OBJECT] : step;
-  return {
-    bringBack: diff.objects
-      .filter((o) => toBringBackOf(o) + carriersOf(o) > 0)
-      .map((o) => o.objectApiName),
-    recreate: linked(
-      diff.objects.filter((o) => toRecreateOf(o) > 0).map((o) => o.objectApiName),
-      links?.relink ?? 0,
-    ),
-    giveBack: linked(
-      diff.objects.filter((o) => o.toGiveBack.records > 0).map((o) => o.objectApiName),
-      links?.updateLinks ?? 0,
-    ),
-    setToDraft: deleted.filter((name) => name === 'Order'),
-    delete: linked(deleted, links?.unlink ?? 0),
-  };
-}
-
-/** What a rewind is told it may do, by its flags. */
-export interface RewindAccepted {
-  acceptAutomation: boolean;
-  acceptNoUndo: boolean;
-  acceptRecreate: boolean;
-  /** Not given, not accepted. */
-  acceptUnseen?: boolean;
-}
+const COMMAND_LINE_WORDS: BoundWords = {
+  // As the flag is given: a number with no separator.
+  limit: (max) => `--max-records ${max}`,
+  lift: {
+    acceptAutomation: 'give --accept-automation to rewind all the same',
+    acceptNoUndo: 'give --accept-no-undo to rewind all the same',
+    acceptRecreate: 'give --accept-recreate to rewind all the same',
+    acceptUnseen: 'give --accept-unseen to rewind all the same',
+    maxRecords: 'read its preview (--dry-run), then give a --max-records that holds it',
+    refuseWhenActive: 'rewind once they are done, or without --refuse-when-active',
+  },
+};
 
 /**
  * The refusal a rewind of what `answer` previewed would meet before it
@@ -2093,7 +2045,8 @@ export interface RewindAccepted {
  * proven to see without `--accept-unseen`, automation its writes fire — or
  * that could not all be read — without `--accept-automation`. Said before the
  * question, as the page holds its button until the box is ticked; the rewind
- * itself refuses the same, whatever this says.
+ * itself refuses the same, whatever this says. A pipeline's Rewind step is
+ * refused the same, naming its settings (`rewindBounds.ts`).
  */
 export function acceptanceRefusal(
   orgName: string,
@@ -2101,80 +2054,7 @@ export function acceptanceRefusal(
   accepted: RewindAccepted,
   user = 'the user SandForge connects as',
 ): CheckpointRefusalLike | undefined {
-  const { diff, automation, emailsUncounted } = answer;
-  if (diff.undoCannot.length > 0 && !accepted.acceptNoUndo) {
-    const said = undoCannotByReason(diff.undoCannot).map(({ words, of }) => {
-      const records = of.reduce((total, u) => total + u.count, 0);
-      const objects = [...new Set(of.map((u) => u.objectApiName))].join(', ');
-      return (
-        `Undo couldn't bring back ${count(records)} ${objects} record(s) this rewind deletes: ` +
-        `${words.refusal}.`
-      );
-    });
-    return {
-      code: 'NO_UNDO',
-      message:
-        `${said.join(' ')} Rewind refused; give --accept-no-undo to rewind all the same. ` +
-        'No record was written.',
-    };
-  }
-  const remade = diff.objects.filter((o) => toRecreateOf(o) > 0);
-  if (remade.length > 0 && !accepted.acceptRecreate) {
-    const records = remade.reduce((total, o) => total + toRecreateOf(o), 0);
-    return {
-      code: 'RECREATE',
-      message:
-        `${count(records)} ${remade.map((o) => o.objectApiName).join(', ')} record(s) deleted ` +
-        'since are no longer in the recycle bin, or Salesforce keeps them there for good: this ' +
-        'rewind makes them again from the checkpoint, with new Ids. Anything outside Salesforce ' +
-        'that names their old Ids — an integration, a link, a report filter — no longer finds ' +
-        'them. Rewind refused; give --accept-recreate to rewind all the same. No record was ' +
-        'written.',
-    };
-  }
-  const unseen = diff.unseen ?? [];
-  if (unseen.length > 0 && accepted.acceptUnseen !== true) {
-    const said = unseen.map(
-      ({ objectApiName, children, records }) =>
-        `Deleting ${count(records)} ${objectApiName} record(s) created since also deletes what ` +
-        `${user} can't see under them in ${children.join(', ')}: Rewind can't count those.`,
-    );
-    return {
-      code: 'UNSEEN',
-      message:
-        `${said.join(' ')} Rewind refused; give --accept-unseen to rewind all the same. ` +
-        'No record was written.',
-    };
-  }
-  if (!automation || accepted.acceptAutomation) return undefined;
-  const steps = rewindStepsOf(diff);
-  const fired = firedOnRemovalStepsOf(automation, steps);
-  if (fired.length === 0 && !blindedBy(automation.unread) && emailsUncounted === undefined) {
-    return undefined;
-  }
-  const objects = [...new Set(fired.map((each) => each.objectApiName))];
-  // A link put back is an insert of a link, no record made again.
-  const makes = (steps.recreate ?? []).some((name) => name !== FILE_LINK_OBJECT)
-    ? 'makes them again, '
-    : '';
-  const what =
-    fired.length > 0
-      ? `${fired.length} flow(s), trigger(s) or rule(s) of ${objects.join(', ')} run as the ` +
-        `rewind brings records back, ${makes}gives them their values back or deletes them`
-      : 'what runs as the rewind writes could not all be read, so automation may run';
-  // Said here too: a rewind refused for its automation is the one place the
-  // command line says it before nothing more is written.
-  const uncounted =
-    emailsUncounted !== undefined
-      ? 'The emails it sends as the rewind writes were not counted against its daily limits, ' +
-        `as what sends them was not read (${emailsUncounted}). `
-      : '';
-  return {
-    code: 'AUTOMATION',
-    message:
-      `${orgName}: ${what}. ${uncounted}Rewind refused; give --accept-automation to rewind all ` +
-      'the same. No record was written.',
-  };
+  return acceptanceOf(orgName, answer, accepted, COMMAND_LINE_WORDS.lift, user);
 }
 
 /** The question a rewind asks before it writes: what it does, typed as the page asks it. */
@@ -2797,6 +2677,7 @@ export async function main(
   let lastStep: string | undefined;
   let sweep: () => Promise<void> = () => Promise.resolve();
   let transfers: Transfers | undefined;
+  let orgs: Pick<PanelHostWiring, 'orgRegistry' | 'orgManager'> | undefined;
   try {
     const host = (deps.createHost ?? createPanelHost)({
       storeDir: hostDir,
@@ -2818,6 +2699,7 @@ export async function main(
         } as Partial<InfraServices> as InfraServices);
         sweep = () => wiring.handlers.sweepCheckpoints();
         transfers = wiring.handlers;
+        orgs = wiring;
       },
       onPost: (message: PostedMessage) => {
         if (message.type !== 'operation:progress') return;
@@ -2851,6 +2733,14 @@ export async function main(
           message: `${alias} could not be reached: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
+    };
+
+    // Through the connection the handlers open, from what `connect` registered.
+    const userIdOf = async (org: SalesforceOrg): Promise<string> => {
+      if (orgs === undefined) throw new Error('The host composed no handlers.');
+      return takeOrgOf(
+        await getJsforceConnection(org.id, orgs.orgRegistry, orgs.orgManager),
+      ).userId();
     };
 
     switch (args.command) {
@@ -2897,7 +2787,16 @@ export async function main(
       }
       case 'rewind':
       case 'undo': {
-        const context: WriteContext = { host, registry, store, listAll, connect, say, answerJson };
+        const context: WriteContext = {
+          host,
+          registry,
+          store,
+          listAll,
+          connect,
+          userIdOf,
+          say,
+          answerJson,
+        };
         if (args.command === 'rewind') await rewind(args, context);
         else await undo(args, context);
         return;
@@ -3353,6 +3252,8 @@ interface WriteContext {
   store: OrgCheckpointStore;
   listAll: () => Promise<CheckpointListEntry[]>;
   connect: (alias: string) => Promise<SalesforceOrg>;
+  /** The Id of the user SandForge connects to a connected org as: a call to the org. */
+  userIdOf: (org: SalesforceOrg) => Promise<string>;
   say: (line: string) => void;
   answerJson: (value: unknown) => void;
 }
@@ -3431,7 +3332,21 @@ async function rewind(
   for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
   for (const line of selection ? selectionLines(selection.plan) : []) say(line);
   const writes = objectsWrittenBy(preview.diff).length > 0;
-  const gate = writes ? acceptanceRefusal(args.org, preview, args, org.username) : undefined;
+  // What stands in for reading the preview in a cron job or a CI step: the
+  // bounds the flags give, then the acceptances it needs, as a pipeline's
+  // Rewind step is held to them.
+  const gate = await boundsRefusal({
+    orgName: args.org,
+    preview,
+    bounds: {
+      ...(args.maxRecords !== undefined ? { maxRecords: args.maxRecords } : {}),
+      refuseWhenActive: args.refuseWhenActive,
+    },
+    accepted: args,
+    writers: async () => rewindWriters(checkpoint.takenBy, await context.userIdOf(org)),
+    words: COMMAND_LINE_WORDS,
+    user: org.username,
+  });
   const outsideStays =
     !args.acceptOutside &&
     checkpoint.scope.mode === 'picked' &&

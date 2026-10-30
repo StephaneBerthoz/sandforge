@@ -70,6 +70,7 @@ import { join } from 'node:path';
 import type { Connection } from 'jsforce';
 import * as z from 'zod';
 import {
+  CHECKPOINT_STEP_DATE,
   checkpointIgnoredFieldsSchema,
   checkpointNameSchema,
   sanitizeSoqlObjectName,
@@ -287,6 +288,13 @@ export interface TakeRequest {
   customSettings?: Readonly<CheckpointCustomSettings>;
   /** What it is called; the date and time of T0 by default. */
   name?: string;
+  /**
+   * What it is called, without {@link name}: each `{date}` in it put in the
+   * place of T0, as a take not given a name is called (`2026-10-22 14:05
+   * UTC`). A pipeline's Checkpoint step names each take so, which keeps a
+   * nightly step's checkpoints apart.
+   */
+  nameWithDate?: string;
   /** Days until it expires; 0 keeps it until it is deleted. */
   keepDays?: number;
   /** Fields, `Object.Field`, neither compared nor written back. */
@@ -1436,6 +1444,11 @@ function defaultNameOf(readFrom: string): string {
   return `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
 }
 
+/** A name with each `{date}` in it put in the place of T0, as {@link defaultNameOf} says it. */
+function nameDated(name: string, readFrom: string): string {
+  return name.split(CHECKPOINT_STEP_DATE).join(defaultNameOf(readFrom));
+}
+
 /** A stamp as the org gives it, in milliseconds; NaN for anything else. */
 function stampMs(value: unknown): number {
   const at = orgDateTime(value);
@@ -1626,6 +1639,10 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
   // What the request names is checked before the org is asked anything.
   const ignoredFields = checkpointIgnoredFieldsSchema.parse([...(request.ignoredFields ?? [])]);
   const named = request.name === undefined ? undefined : checkpointNameSchema.parse(request.name);
+  // Checked with any date in its place, before the org is asked anything:
+  // every date reads as long.
+  const withDate = request.nameWithDate;
+  if (withDate !== undefined) checkpointNameSchema.parse(nameDated(withDate, now().toISOString()));
   const settings = request.customSettings === 'all' ? [] : (request.customSettings ?? []);
   for (const objectApiName of [
     ...(request.objects ?? []),
@@ -1707,7 +1724,11 @@ export async function takeCheckpoint(deps: TakeDeps, request: TakeRequest): Prom
     taking = {
       version: 1,
       checkpointId,
-      name: named ?? defaultNameOf(readFrom),
+      name:
+        named ??
+        (withDate !== undefined
+          ? checkpointNameSchema.parse(nameDated(withDate, readFrom))
+          : defaultNameOf(readFrom)),
       org: {
         organizationId,
         ...(request.alias !== undefined ? { alias: request.alias } : {}),

@@ -13,7 +13,11 @@ import {
   openCheckpointStore,
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
-import { type MemoryOrgRequest, type MemoryRow } from '../src/test/memoryRemovalOrg.js';
+import {
+  MEMORY_ORG_USER,
+  type MemoryOrgRequest,
+  type MemoryRow,
+} from '../src/test/memoryRemovalOrg.js';
 import { MemoryRestoreOrg } from '../src/test/memoryRestoreOrg.js';
 
 vi.mock('../src/core/connection/ConnectionHelper.js', async (original) => ({
@@ -980,6 +984,102 @@ describe('sandforge-checkpoint rewind', () => {
     );
     expect(stateOf(h.org)).toEqual(before);
     expect(journalsOf(h, checkpoint)).toEqual([]);
+  });
+
+  it('refuses with --max-records, before it writes, a rewind of more records than it gives, exit 1, as a pipeline’s Rewind step is refused; rewinds one at the limit', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    const atCheckpoint = stateOf(h.org);
+    demo(h);
+    const before = stateOf(h.org);
+    const rewind = (...flags: string[]) =>
+      h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--json',
+        ...flags,
+      );
+
+    const refused = await rewind('--max-records', '3');
+
+    expect(refused.code).toBe(1);
+    expect(JSON.parse(refused.stdout)).toEqual({
+      refusal: {
+        code: 'TOO_MANY_TO_REWIND',
+        message:
+          'The rewind of DEV-SB would rewind 4 records (1 to delete, 2 to give back, 1 to bring ' +
+          'back), past --max-records 3. Rewind refused; read its preview (--dry-run), then give a ' +
+          '--max-records that holds it. No record was written.',
+      },
+    });
+    expect(stateOf(h.org)).toEqual(before);
+    expect(h.org.updates).toEqual([]);
+    expect(journalsOf(h, checkpoint)).toEqual([]);
+    const dryRun = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--accept-automation',
+      '--max-records',
+      '3',
+      '--dry-run',
+    );
+    expect(dryRun.code).toBe(0);
+    expect(dryRun.stdout).toContain(
+      '  a rewind now would be refused: The rewind of DEV-SB would rewind 4 records',
+    );
+
+    const atLimit = await rewind('--max-records', '4');
+    expect(atLimit.code, atLimit.stderr).toBe(0);
+    expect(stateOf(h.org).live).toEqual(atCheckpoint.live);
+  });
+
+  it('refuses with --refuse-when-active, before it writes, a rewind of an org someone else changed in the hour before, exit 1, saying how many people; its own user’s changes do not count', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    demo(h);
+    const before = stateOf(h.org);
+    const rewind = () =>
+      h.run(
+        'rewind',
+        '--org',
+        'DEV-SB',
+        '--checkpoint',
+        'Before UAT',
+        '--yes',
+        '--accept-automation',
+        '--refuse-when-active',
+        '--json',
+      );
+
+    const refused = await rewind();
+
+    expect(refused.code).toBe(1);
+    expect(JSON.parse(refused.stdout)).toEqual({
+      refusal: {
+        code: 'PEOPLE_ACTIVE',
+        message:
+          "1 person other than the user the rewind writes as changed records of the checkpoint's " +
+          'objects in DEV-SB in the hour before the rewind read it: it would take their work ' +
+          'back. Rewind refused; rewind once they are done, or without --refuse-when-active. No ' +
+          'record was written.',
+      },
+    });
+    expect(stateOf(h.org)).toEqual(before);
+    expect(journalsOf(h, checkpoint)).toEqual([]);
+
+    // An hour later, the colleague's changes are older than the hour; the
+    // user the command connects as changed a record since, which is its own.
+    clock += 60 * 60_000;
+    h.org.edit('Case', id('500', 2), { Subject: 'Touched by the suite' }, MEMORY_ORG_USER);
+    clock += 60_000;
+    const rewound = await rewind();
+    expect(rewound.code, rewound.stderr).toBe(0);
   });
 
   it('previews with --dry-run and stops: exit 0, nothing written, the preview’s JSON', async () => {

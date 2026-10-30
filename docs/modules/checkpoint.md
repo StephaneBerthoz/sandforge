@@ -202,6 +202,7 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 - **Which checkpoint**: `--checkpoint` takes an id, a name or `latest`, the default. `rewind --yes` and `undo --yes`, which do not ask, need it named by its id or its name: `latest` could be a checkpoint taken since by someone else. A name two checkpoints share is refused, exit `2`, with their ids.
 - **The acceptances**: `--accept-automation` for automation that runs as records are updated, deleted or brought back, `--accept-no-undo` for deletions Undo could not bring back, `--accept-recreate` for the records the recycle bin no longer gives back, made again with new Ids, `--accept-outside` for the records outside a checkpoint of picked objects, `--accept-unseen`, for a user without View All Data and Modify All Data, for the records of objects the user is not proven to see that the records it deletes take along. Without `--accept-outside`, the records they hang from stay; without any other, such a rewind writes nothing, exit `1`.
+- **Bounds, for a rewind nobody watches**: `--max-records <n>` refuses a rewind that would delete, give back, bring back and make again more than `<n>` records together, and `--refuse-when-active` one of an org where anyone but the user it writes as and the org's Automated Process changed records of the checkpoint's objects in the hour before it read the org, the refusal saying how many people and naming none. Each is checked on the preview the rewind then acts on, before it writes, exit `1`; with `--yes` in a cron job or a CI step, they stand in for the person who would read that preview. Where people sign in as the user SandForge connects as, their changes are that user's, and are not told apart.
 - **One object, or a few**: `preview --object Contact` and `rewind --object Contact --object Case` limit the rewind to the objects named, each repeated `--object` one more; an object the checkpoint does not hold is refused, exit `2`, before the org is reached. The org is still read whole, and the preview's numbers, its estimate and the automation it reads are those of a rewind of the objects named. The rewind never adds what they depend on: it leaves what cannot be rewound without another object, says why, and names the `--object` to add -- records that come back from the recycle bin only with a parent left deleted (contacts deleted with their account, products with their opportunity); a lookup naming a record left deleted, which Salesforce refuses, the record's other fields given back; a record created since that records of an object not named created since hang from, kept unless `--accept-outside`, or that a record of the checkpoint was moved under, kept; the values products created since hold in place on their opportunity, its other fields given back. It writes the other objects only to delete again the records created since that come back with a record it brings back. A record of an object not named that looks up a record it deletes has that lookup emptied by Salesforce, as any delete empties it. Once read again, the objects named alone are compared: exit `0` when they match, whatever still differs in the others, which `--json` names (`notRewound`), and the histories of Seed, Sync and Forge mark as rewound only the runs on the objects named.
 - **Fields not to compare**: `take --ignore-field Case.Last_Touched__c`, or `rewind --ignore-field …` once, kept in the checkpoint from then on: a field your automation sets on every save otherwise keeps every rewind partial.
 - **What its write check sees**: the org's lock alone. A take, a rewind or an undo of the org under way on this machine, in the editor or in another command line, refuses a take, a rewind and an undo; the runs the panel sees writing to the org are not seen here. What any other run changes after the preview read the org is left as it made it, and said.
@@ -231,7 +232,7 @@ steps:
 ```
 
 - Exit `3` marks the org dirty: do not give it back to the pool. Exit `4` means something still writes to it, an integration say.
-- One org per suite running at the same time: a rewind takes back a neighbouring suite's work with the rest.
+- One org per suite running at the same time: a rewind takes back a neighbouring suite's work with the rest. `--max-records <n>` refuses a rewind of more than `<n>` records -- a suite that wrote far more than it should, say -- and `--refuse-when-active` one of an org someone other than the user it writes as changed in the hour before: exit `1`, nothing written.
 - The checkpoint holds the records' values unencrypted: keep `sandforge-journal/` in a cache only the pipeline reads, never in a public artifact. `undo` works in a pipeline as anywhere, but is seldom needed there: the journal of the checkpoint's last rewind is deleted once that rewind can no longer be undone, 15 days after it.
 
 ### Every flag
@@ -313,6 +314,16 @@ rewind:
                                  proven to see whole — tasks and events always: the preview names
                                  those objects, and no count holds what goes with them; without it
                                  such a rewind writes nothing, exit 1
+  --max-records <n>              refuse, before it writes, a rewind that would delete, give back,
+                                 bring back and make again more than <n> records together, exit 1:
+                                 with --yes in a cron job or a CI step, what stands in for reading
+                                 the preview
+  --refuse-when-active           refuse, before it writes, a rewind of an org where anyone but the
+                                 user it writes as and the org's Automated Process changed records
+                                 of the checkpoint's objects in the hour before it read the org,
+                                 whose work it would take back, exit 1; the refusal says how many
+                                 people. Where people sign in as the user SandForge connects as,
+                                 their changes are that user's, and are not told apart
   --ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint
   --yes                          do not ask before writing; without it and with no terminal — a CI
                                  step — it stops at its question, exit 2, having written nothing
@@ -400,11 +411,13 @@ does not undelete on its own, or with its parent of an object the checkpoint doe
 (preview counts them); without View All Data and Modify All Data, a record another user deleted
 since, and a record of an object held through what it hangs from that the recycle bin does not
 show the user (preview counts them too); a field added since, deleted since, or hidden since from
-the user by field-level security, which the preview tells apart and names; the values the org
-computes or keeps itself (formulas, roll-ups, auto-numbers, created and modified dates); what left
-the org (emails, callouts, outbound messages, platform events); metadata; the files of a
-checkpoint taken before SandForge 1.70, which holds none. A record the org refuses to put back, or
-to make again, is named by rewind, with its words.
+the user by field-level security, which the preview tells apart and names in an object something
+changed in since — in an object nothing changed in, which a rewind writes nothing to, the fields
+are not checked, and the preview counts those objects; the values the org computes or keeps
+itself (formulas, roll-ups, auto-numbers, created and modified dates); what left the org
+(emails, callouts, outbound messages, platform events); metadata; the files of a checkpoint taken
+before SandForge 1.70, which holds none. A record the org refuses to put back, or to make again,
+is named by rewind, with its words.
 
 JSON (--json), one value on stdout:
   list               [{id, name, org, organizationId, takenAt, records, bytes, expiresAt,
@@ -437,7 +450,13 @@ JSON (--json), one value on stdout:
                      diff.objects[].schemaDrift, of an object whose fields changed since:
                      {removed, added, changed, hidden?, uncertain?: {fields, reason?}}, removed
                      the custom fields deleted since, hidden those field-level security hides
-                     from the user, uncertain those the org would not say which of; diff.files,
+                     from the user, uncertain those the org would not say which of;
+                     diff.described, {first, later}, the objects it described again, asked
+                     whether their fields changed since the take: first those something moved
+                     in, later those nothing moved in that hold fewer records than the
+                     checkpoint; diff.fieldsNotChecked, the objects nothing changed in whose
+                     fields it did not describe: a rewind writes nothing there, and a field
+                     deleted or hidden since in one of them is not known; diff.files,
                      for a checkpoint that holds files: {unlink, relink, updateLinks,
                      outsideAdded, outsideDeleted, storage: {bringBack, remaining?, undo},
                      blindSpot?}, the links to remove, put back and give their sharing back, the
@@ -493,7 +512,8 @@ kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
 without --accept-no-undo, records to make again with new Ids without --accept-recreate,
 deletions taking along records the user is not proven to see without --accept-unseen, more than
---max-total records, more API requests or emails than the org
+--max-total records, more records to rewind than --max-records, people working in the org in the
+hour before with --refuse-when-active, more API requests or emails than the org
 has left today, files to bring back taking more file storage than it has left, a checkpoint of
 the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
 of another org's file, with the wrong key, of a file changed since its export), or nothing

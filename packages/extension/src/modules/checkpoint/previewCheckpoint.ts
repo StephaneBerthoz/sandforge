@@ -15,7 +15,8 @@
  * read on the org's clock just before the diff.
  *
  * The rewind's estimate prices the reads of its fresh diff, its convergence
- * pass and its verify from what this read found, and the children it reads
+ * pass and its verify from what this read found — no fresh diff for a rewind
+ * that acts on this preview as read (`reusesPreview`) —, and the children it reads
  * through each relationship from the describes this read already made: they
  * are kept as the diff reads them, never asked twice. The global describe the
  * diff reads, when its deletions reach outside the checkpoint, tells which of
@@ -135,6 +136,15 @@ export interface PreviewRequest {
    * every object.
    */
   objects?: readonly string[];
+  /**
+   * Whether the rewind that follows acts on this preview as it read the org
+   * (`RewindRequest.reusesPreview`): the command line's, which shows the
+   * preview and rewinds in the same command, and a pipeline's Rewind step,
+   * which reads its own. Its estimate then counts no fresh read of the org,
+   * which that rewind never makes; the panel's rewind, which reads the org
+   * again, is priced with that read.
+   */
+  reusesPreview?: boolean;
 }
 
 /** How a preview ended, when it was not stopped and did not fail. */
@@ -382,6 +392,7 @@ export async function previewCheckpoint(
     diff: selected,
     automationRequests: automation?.requests ?? 0,
     relationships,
+    ...(request.reusesPreview === true ? { reusesPreview: true } : {}),
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
   const records = writtenByDiff(selected.objects);

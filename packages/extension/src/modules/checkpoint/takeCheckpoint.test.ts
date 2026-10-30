@@ -645,6 +645,25 @@ describe('takeCheckpoint — what it keeps', () => {
     expect(checkpoint.ignoredFields).toEqual([]);
   });
 
+  it('names it, given a name with {date} in it, with each put in the place of T0 on the org’s clock, and refuses one too long once dated before it asks the org anything', async () => {
+    const h = harness();
+    seed(h.org);
+    // This machine's clock is minutes behind the org's: the name is of T0.
+    const behind = { ...h.deps, now: () => new Date('2026-10-22T13:58:00.000Z') };
+
+    const { checkpoint } = taken(
+      await takeCheckpoint(behind, request({ nameWithDate: 'Nightly {date} ({date})' })),
+    );
+
+    expect(checkpoint.name).toBe('Nightly 2026-10-22 14:05 UTC (2026-10-22 14:05 UTC)');
+    const asked = h.org.asked.length;
+    await expect(
+      takeCheckpoint(behind, request({ nameWithDate: `${'x'.repeat(100)} {date}` })),
+    ).rejects.toThrow(/120/);
+    expect(h.org.asked.length).toBe(asked);
+    expect(await h.store.list()).toHaveLength(1);
+  });
+
   it('records a Developer Edition org by the edition the guard read, and keeps one until it is deleted when told 0 days', async () => {
     const h = harness({ sandbox: false, edition: 'Developer Edition' });
     seed(h.org);

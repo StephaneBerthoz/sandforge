@@ -193,6 +193,7 @@ describe('parseArgs', () => {
       acceptRecreate: false,
       acceptOutside: false,
       acceptUnseen: false,
+      refuseWhenActive: false,
       ignoreFields: [],
       yes: false,
       storeRoot: expect.any(String) as unknown,
@@ -231,6 +232,36 @@ describe('parseArgs', () => {
       ignoreFields: ['Case.Last_Touched__c'],
       json: true,
     });
+  });
+
+  it('holds a rewind to --max-records and --refuse-when-active when given, and refuses a bound of no record or one that is no whole number, exit 2', () => {
+    expect(
+      parseArgs(
+        argv(
+          'rewind',
+          '--org',
+          'DEV-SB',
+          '--checkpoint',
+          'baseline',
+          '--yes',
+          '--max-records',
+          '5000',
+          '--refuse-when-active',
+        ),
+      ),
+    ).toMatchObject({ command: 'rewind', maxRecords: 5000, refuseWhenActive: true });
+    expect(parseArgs(argv('rewind', '--org', 'DEV-SB'))).not.toHaveProperty('maxRecords');
+    for (const [value, said] of [
+      ['0', '--max-records takes a whole number of 1 or more, not "0". Nothing was run.'],
+      ['many', '--max-records takes a whole number, not "many".'],
+    ] as const) {
+      const { code, stdout, stderr } = refused('rewind', '--org', 'DEV-SB', '--max-records', value);
+      expect(code, value).toBe(2);
+      expect(stdout).toBe('');
+      expect(stderr).toContain(said);
+    }
+    expect(refused('undo', '--org', 'DEV-SB', '--max-records', '5').code).toBe(2);
+    expect(refused('preview', '--org', 'DEV-SB', '--refuse-when-active').code).toBe(2);
   });
 
   it('limits a preview and a rewind to the objects --object names, each once whatever its case, and refuses a name that is no API name, exit 2', () => {
@@ -410,12 +441,18 @@ describe('parseArgs', () => {
       'files?: {unlinked, relinked, linksUpdated, linksRefused}',
       'files to bring back taking more file storage than it has left',
       'a file given a new version since, which keeps it',
-      'the files of a\ncheckpoint taken before SandForge 1.70, which holds none',
+      'the files of a checkpoint taken\nbefore SandForge 1.70, which holds none',
       // What it says of emails it could not count, and of fields gone since.
       'emailsUncounted?, refusal?}',
       'emails not counted, which --accept-automation covers',
       '{removed, added, changed, hidden?, uncertain?: {fields, reason?}}',
-      'a field added since, deleted since, or hidden since from\nthe user by field-level security, which the preview tells apart and names',
+      'a field added since, deleted since, or hidden since from\nthe user by field-level security, which the preview tells apart and names in an object something\nchanged in since — in an object nothing changed in, which a rewind writes nothing to, the fields\nare not checked',
+      'diff.described, {first, later}',
+      'diff.fieldsNotChecked, the objects nothing changed in whose',
+      // The bounds of a rewind nobody watches.
+      '--max-records <n>              refuse, before it writes, a rewind that would delete, give back,',
+      '--refuse-when-active           refuse, before it writes, a rewind of an org where anyone but the',
+      'more records to rewind than --max-records, people working in the org in the\nhour before with --refuse-when-active',
       // A checkpoint to another machine, and from one.
       'export    write a checkpoint to a .sfcheckpoint file, encrypted, for a teammate who rewinds the',
       'import    keep a .sfcheckpoint file a teammate exported as a checkpoint of the org on this',
@@ -751,6 +788,29 @@ describe('previewLines', () => {
     expect(lines).toContain(
       '  to make again, with new Ids: Contact 2 — deleted since and no longer in the recycle bin: made again from the checkpoint, the lookups it holds that named them naming the new Ids; anything outside Salesforce that names their old Ids no longer finds them',
     );
+  });
+
+  it('says in how many objects nothing changed in it checked no field, and that a rewind writes nothing there; nothing when it checked every one', () => {
+    const answer = (fieldsNotChecked?: number) =>
+      previewLines('DEV-SB', checkpoint, {
+        diff: diffOf(
+          [
+            object({
+              toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+            }),
+          ],
+          fieldsNotChecked !== undefined ? { fieldsNotChecked } : {},
+        ),
+        estimate,
+      });
+
+    expect(answer(201)).toContain(
+      '  fields not checked for changes in 201 objects nothing changed in: a rewind writes ' +
+        'nothing there',
+    );
+    for (const none of [answer(0), answer()]) {
+      expect(none.some((line) => line.includes('fields not checked'))).toBe(false);
+    }
   });
 
   it('leads with the three numbers, then each object and who last changed it', () => {
