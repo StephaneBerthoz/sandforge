@@ -2,6 +2,19 @@
 
 Copy whole objects from one Salesforce org into another, in the order their dependencies set, with the records they reference. It is a copy, not a generator: it needs a source org that holds the records, and it writes what that org holds.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.autopilot in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Pick an org under Source Org and another under Target Org, then click Next.
+2. Tick each object to copy, then click Next.
+3. On Review Plan, check Total Records and What the plan copies.
+4. Click Execute Autopilot, then follow each wave under Live Stats in the Control Panel.
+
+**Tip:** SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh.
+
+<!-- how-to:end -->
+
 Before you start, know three things:
 
 - **It copies whole tables.** Each object you select is read and written whole, every record of it, as selected; of the other objects, only the records the selection references are read. A run copies 50,000 records of a selected object at most: past that, its first 50,000 by Id are copied, with the records they reference, and the plan says so beside the count the source holds.

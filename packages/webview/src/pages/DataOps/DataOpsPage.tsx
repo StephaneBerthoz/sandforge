@@ -36,6 +36,7 @@ import { CompliancePanel } from './CompliancePanel';
 import { CleanupPanel } from './CleanupPanel';
 import type { AnonymizationTemplateDraft } from './AnonymizationTemplateEditor';
 import { formatNumber, uiLocale } from '../../utils/formatters';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * The objects templates mask, in the order their rules first name them: those
@@ -618,6 +619,7 @@ export const DataOpsPage: React.FC = () => {
           ) : undefined
         }
       />
+      <ModuleHowTo module="dataops" />
 
       {!currentOrg && (
         <ErrorBanner message={t('dataops.noOrgSelected')} data-testid="dataops-no-org" />

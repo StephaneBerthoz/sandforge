@@ -105,6 +105,8 @@ interface ModuleBootOptions {
    * otherwise. Same failure mode as above, different gate.
    */
   readonly ai?: boolean;
+  /** Leave the module's how-to open, as on a first visit; hidden otherwise. */
+  readonly howTo?: boolean;
   /** The host theme the panel is painted in. */
   readonly theme: ScannedTheme;
 }
@@ -124,7 +126,7 @@ async function navigateToModule(
   waitForTestId: string,
   options: ModuleBootOptions,
 ): Promise<void> {
-  await bridge.setup(page);
+  await bridge.setup(page, { howToOpen: options.howTo });
   await paintHostTheme(page, options.theme);
   await page.addInitScript((id: string) => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
@@ -1062,6 +1064,16 @@ async function contrastMeasuredIn(
       all.filter((selector) => document.querySelector(selector)?.closest(within) != null).length,
     { selectors, container },
   );
+}
+
+/**
+ * Scroll the element `testId` names to the middle of the window, where axe can
+ * read its background. Under a module's how-to bar, a line at the foot of the
+ * window sat beneath the sticky action bar, and axe left its contrast
+ * unmeasured ("overlapped by another element").
+ */
+async function toMiddle(page: Page, testId: string): Promise<void> {
+  await page.getByTestId(testId).evaluate((element) => element.scrollIntoView({ block: 'center' }));
 }
 
 /** The `operation:started` the extension broadcasts when an operation begins. */
@@ -2699,6 +2711,7 @@ for (const theme of SCANNED_THEMES) {
         },
       });
       await expect(page.getByTestId('stat-source-tables')).toBeVisible();
+      await toMiddle(page, 'stat-source-tables');
       const discovered = await checkAccessibility(page);
       expectNoViolations(discovered);
       expect(
@@ -2712,6 +2725,7 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('forge-gaps-undecided')).toContainText(
         '1 gap will refuse rows',
       );
+      await toMiddle(page, 'forge-gaps-undecided');
       const undecided = await checkAccessibility(page);
       expectNoViolations(undecided);
       expect(
@@ -4160,6 +4174,7 @@ for (const theme of SCANNED_THEMES) {
       await page.getByTestId('forge-files-toggle').check();
       await page.waitForSelector('[data-testid="forge-files-as-is"]', { timeout: 10_000 });
       await expect(page.getByTestId('execute-button')).toBeDisabled();
+      await toMiddle(page, 'forge-files-as-is');
       const asked = await checkAccessibility(page, reviewScan);
       expectNoViolations(asked);
       expect(
@@ -4168,6 +4183,7 @@ for (const theme of SCANNED_THEMES) {
 
       await page.getByTestId('forge-files-as-is-accept').check();
       await expect(page.getByTestId('execute-button')).toBeEnabled();
+      await toMiddle(page, 'forge-files-option');
       const accepted = await checkAccessibility(page, reviewScan);
       expectNoViolations(accepted);
       expect(
@@ -5242,6 +5258,40 @@ for (const theme of SCANNED_THEMES) {
       const results = await checkAccessibility(page);
       expectNoViolations(results);
       expect(await contrastMeasuredIn(page, results, '#help-content-forge')).toBeGreaterThan(0);
+    });
+
+    test('a module page with its how-to open, then hidden', async ({ page }) => {
+      await navigateToModule(bridge, page, 'checkpoint', 'checkpoint-page', {
+        theme,
+        orgs: true,
+        howTo: true,
+      });
+      const howTo = page.getByTestId('how-to-checkpoint');
+      await expect(howTo.getByRole('listitem')).toHaveCount(5);
+      const open = await checkAccessibility(page);
+      expectNoViolations(open);
+      expect(
+        await contrastMeasuredIn(page, open, '[data-testid="how-to-checkpoint"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('how-to-checkpoint-toggle').click();
+      await expect(page.getByTestId('how-to-checkpoint-toggle')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      await expect(howTo.getByRole('listitem')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Help on Seed, its how-to above what the section says', async ({ page }) => {
+      await navigateToModule(bridge, page, 'help', 'help-page', { theme });
+      await page.getByTestId('help-section-seed').getByRole('button').click();
+      await expect(page.getByTestId('how-to-steps-seed').getByRole('listitem')).toHaveCount(4);
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="how-to-steps-seed"]'),
+      ).toBeGreaterThan(0);
     });
 
     test('AI page', async ({ page }) => {

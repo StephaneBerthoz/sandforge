@@ -44,10 +44,14 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Each chip is `relative`, the box its sr-only input is placed in. It
+          was placed by a far ancestor instead, some 250 pixels below the chip,
+          where the focus scrolled to and where a click under a module's
+          how-to bar fell outside the window. */}
       <div className="flex flex-wrap gap-3">
         <label
           className={cn(
-            'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
+            'relative flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
             anonymize
               ? 'border-forge bg-forge/10 text-hue-forge'
               : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
@@ -65,7 +69,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         </label>
         <label
           className={cn(
-            'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
+            'relative flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
             skipEmpty
               ? 'border-forge bg-forge/10 text-hue-forge'
               : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
@@ -83,7 +87,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         </label>
         <label
           className={cn(
-            'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
+            'relative flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
             expandOrphanParents
               ? 'border-forge bg-forge/10 text-hue-forge'
               : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',
@@ -105,7 +109,7 @@ export const ForgeOptionToggles: React.FC<ForgeOptionTogglesProps> = ({
         </label>
         <label
           className={cn(
-            'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
+            'relative flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
             keepContactPoints
               ? 'border-status-warning/60 bg-status-warning/10 text-text-primary'
               : 'border-subtle bg-surface-1 text-text-secondary hover:border-forge/30',

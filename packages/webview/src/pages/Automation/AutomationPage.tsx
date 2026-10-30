@@ -24,6 +24,7 @@ import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Main Automation page — wired to extension via bridge hooks. */
 export const AutomationPage: React.FC = () => {
@@ -164,6 +165,7 @@ export const AutomationPage: React.FC = () => {
           </div>
         }
       />
+      <ModuleHowTo module="automation" />
 
       {error && (
         <ErrorBanner

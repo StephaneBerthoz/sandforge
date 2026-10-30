@@ -88,8 +88,14 @@ describe('GrappePage empty state', () => {
     };
     const contributed = Object.keys(manifest.contributes.configuration.properties);
     expect(contributed.length).toBeGreaterThan(0);
-    // `[\w.]*\w` so a full stop ending the sentence is not read as part of the id.
-    for (const named of page.textContent?.match(/sandforge\.[\w.]*\w/g) ?? []) {
+    // Text node by text node: the page's textContent runs the how-to's steps
+    // together, "…grappe.enabled.Leave the page…", and read a setting that is
+    // not one. `[\w.]*\w` so a full stop ending the sentence is not read as
+    // part of the id.
+    const texts: string[] = [];
+    const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) texts.push(walker.currentNode.textContent ?? '');
+    for (const named of texts.join(' ').match(/sandforge\.[\w.]*\w/g) ?? []) {
       expect(contributed).toContain(named);
     }
     expect(screen.getByText(en.grappe.emptyDesc)).toBeDefined();

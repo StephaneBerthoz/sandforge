@@ -18,6 +18,7 @@ import { PageHeader } from '../../../components/ui/PageHeader';
 import { Step1Connect } from './Step1_Connect';
 import { Step2Objects, pickableInTarget } from './Step2_Objects';
 import { Step4Review } from './Step4_Review';
+import { ModuleHowTo } from '../../../components/ui/ModuleHowTo';
 
 /**
  * Steps definition for the Autopilot wizard: three. The compliance framework
@@ -361,6 +362,7 @@ export const AutopilotWizard: React.FC<AutopilotWizardProps> = ({
         subtitle={t('moduleSummary.autopilot')}
         icon="rocket"
       />
+      <ModuleHowTo module="autopilot" />
 
       <SeedWizard
         steps={AUTOPILOT_STEPS}

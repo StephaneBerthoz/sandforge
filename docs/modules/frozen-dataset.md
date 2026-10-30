@@ -2,6 +2,20 @@
 
 Extract a business dataset from a UAT sandbox **once**, pseudonymize it deterministically, freeze it (manifest + salt fingerprint), then **replay it identically** after every dev sandbox refresh -- with a non-reidentification gate before versioning and a verification pass after loading.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.frozen in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. On the Extract tab, fill in Root object (business folder) and click Save configuration.
+2. Click Run selection: it picks the root records in the org selected in the side panel.
+3. Put the pseudonymization rules in ~/.sandforge-sas/rules.json, then click Run extraction.
+4. On the Load tab, pick the Target org (sandbox) to fill, then click Run load.
+5. Read the Post-load verification that follows the load; Re-verify runs it again.
+
+**Tip:** Preview writes nothing, a load never goes into a production org, and Remove the records this load created deletes them.
+
+<!-- how-to:end -->
+
 Typical case: a Developer sandbox refresh leaves you with metadata and zero records. Frozen Dataset gives you back a realistic set of root records covering your functional paths in one run, without ever shipping identifying data.
 
 ## Quick Start

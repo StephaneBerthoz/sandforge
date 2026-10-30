@@ -3,6 +3,19 @@
 Back up your org data, anonymize sensitive fields, find and erase one person's
 records, and clean up the records nobody needs, from a single tabbed page.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.dataops in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Check the org named at the top of the page, then open the Anonymize tab.
+2. Pick a template in Select a template; its card lists each field it masks.
+3. Click Preview: the first records show Original beside Masked, and nothing is written.
+4. Click Apply, leave Keep the values first ticked, type Anonymize, then click Confirm.
+
+**Tip:** Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back.
+
+<!-- how-to:end -->
+
 > **Status.** Backup, Restore, Anonymize, Compliance, Cleanup and Data Quality
 > are wired end to end. Each section below says what it does and where it stops.
 

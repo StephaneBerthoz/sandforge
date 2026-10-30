@@ -2,6 +2,19 @@
 
 Synchronize data between two Salesforce orgs with field mapping, transforms, and conflict resolution.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.sync in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. On the Sync tab, click Start Quick Sync.
+2. Choose the Source org and the Target org, then click Next.
+3. Pick objects under Suggested objects or by search, then click Next.
+4. Check Total records in the Preview, then click Sync Now.
+
+**Tip:** A Quick Sync inserts every record each time it runs; outside production, its results offer Remove what this run created.
+
+<!-- how-to:end -->
+
 ## Quick Start
 
 1. Navigate to **Sync** from the sidebar (requires at least 2 connected orgs)

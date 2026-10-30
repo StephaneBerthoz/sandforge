@@ -2,6 +2,20 @@
 
 Track your Salesforce org health in real time. Monitor shows API limits consumption, active jobs, storage usage, alerts, trend analysis, and predictive analytics -- all in a single dashboard.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.monitor in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. If the page shows Select an org to monitor, click the org you want to watch.
+2. Read the Health Score, then click View Full Report for its factors and recommendations.
+3. In Recent Apex Jobs, click Failed to keep only the failed jobs, grouped by Apex class.
+4. Click the arrow beside Governor Limits to list every limit, the most used first.
+5. Click the clock button, Auto-refresh, to read the org again every 30 seconds.
+
+**Tip:** Trends stays empty until SandForge has kept two snapshots of the limits; it keeps at most one per 15 minutes, for 7 days.
+
+<!-- how-to:end -->
+
 ## Quick Start
 
 1. Navigate to **Monitor** from the sidebar

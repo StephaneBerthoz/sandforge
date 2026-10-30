@@ -58,6 +58,7 @@ import type {
   SyncRunControlAnswer,
 } from '@sandforge/shared';
 import { bannerHintOf, registeredOrgType } from '@sandforge/shared';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
 export type { JobDisplayInfo } from './monitorUtils';
@@ -470,6 +471,8 @@ export const MonitorPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      <ModuleHowTo module="monitor" />
 
       {/* ── Connection lost warning ── */}
       {connectionLost && (

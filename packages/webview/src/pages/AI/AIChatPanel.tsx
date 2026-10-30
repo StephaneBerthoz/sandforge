@@ -16,6 +16,7 @@ import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { AIProviderStatusBanner, type AIProviderState } from './components/AIProviderStatusBanner';
 import { TokenBudgetIndicator, type TokenBudgetState } from './components/TokenBudgetIndicator';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Chat message for display. */
 export interface ChatMessageDisplay {
@@ -150,6 +151,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
         icon="comment-discussion"
       />
+      <ModuleHowTo module="ai" />
       {/* What leaves the machine and what stays on it, said where the
           conversations are: nothing on the page said either. */}
       <p className="text-xs text-text-secondary" data-testid="ai-privacy-note">

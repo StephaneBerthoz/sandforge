@@ -3047,13 +3047,13 @@
     "gettingStartedDesc": "Learn the basics of SandForge",
     "gettingStartedContent": "1. Connect your Salesforce org on the Organizations page.\n2. Fill it with Seed: a template such as CRM Starter writes linked accounts, contacts, opportunities and cases, after checking the org's storage.\n3. Clone with Forge: copy a real record and everything around it from another org.\n4. Open the Monitor to check the org's health, limits and jobs.\n5. Explore Sync, Compare Org, DataOps, Frozen Dataset and Automation when you need them.",
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
-    "seedContent": "In five steps:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set record counts — a lookup field is filled from the records the same run inserted earlier\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
+    "seedContent": "Under the templates, three other ways to seed:\n- Generate data: a wizard for the objects, record counts and field rules you choose (AI, Faker, static, sequence...); a lookup field is filled from the records the same run inserted earlier\n- CSV Upload: records from a CSV file, its columns mapped to fields\n- Clone from Org: records copied from another org",
     "checkpointContent": "A checkpoint is the state of an org's data at a moment. Rewind then deletes what was added since, gives back what changed and brings back what was deleted, whoever did it. A DataOps backup is a copy of some objects: its Restore writes it back and brings back deleted records, and never deletes what was added.\n- It undoes everyone's work since the checkpoint, not only SandForge's runs: every record created, changed or deleted since in the objects the checkpoint holds, by any user, flow or integration. The preview says who last changed what before anything is written.\n- Never on a production org: checkpoints are for sandboxes, scratch orgs and Developer Edition orgs, and no setting or flag lifts the refusal.\n- Data only: fields, flows, validation rules, layouts, permissions, users and setup stay as they are, and what already left the org (emails, callouts, outbound messages, platform events) stays sent.\n- Files are not covered: file contents, file versions and attachments added since stay.\n- A checkpoint holds the records' values unencrypted, personal data among them, on this machine, readable by you alone, for 30 days unless you keep it.",
     "syncContent": "Sync data between two Salesforce orgs:\n- Full or delta: a full run reads every object whole; a delta run of a saved configuration reads each object from where its last good run left off, and can delete in the target what the source deleted. A configuration asking for incremental is refused\n- Auto field mapping with confidence scores\n- Transform rules apply to every field of every record of the run, except Id and the external ID the run matches on, which are left as they are so a prefix or a truncate cannot send the write to a record that does not exist. The settings each one takes: case and trim take none; truncate takes a length; prefix, suffix, replace, regex, default value, date and number formats and formulas take their text; value mapping takes a table of replacements the page cannot type yet, so a rule of that kind leaves values as they are\n- Conflict resolution on bidirectional runs: source wins, target wins, newest wins or a field-level merge\n- Real-Time tab: follows the change events (Change Data Capture) the source org publishes and writes each change to the target as it comes, matched on an external id, the record Id or a saved sync's mapping; deletions only when asked. To follow another object, select it in Setup → Change Data Capture on the source org. A change whose target record was edited after it is decided by the strategy, or held on the Conflicts tab\n- Remove what a run created: from the run's results or its history entry, a run's removal gives the records it wrote over — by an update, or an upsert that found them — the values they held before it, brings back from the recycle bin what a delta run deleted because the source had, and deletes the records it inserted, or upserted where the target held none, and the files it created; Production Guard refuses it on a production org. The values from before are kept on this machine for sandforge.backup.maxAgeDays, and a record changed since the run is left as it is unless you include it. A session of the Real-Time tab is kept the same way, from its first write to its stop: once it has stopped, Earlier sessions on that tab offers its removal",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permissions: which profiles and permission sets exist on each side\n- Snapshots: the objects of both orgs, captured live when you open the tab\n- Drift: five Organization settings side by side (name, language, locale, time zone, fiscal year start)\n- Deploy: pick what differs, validate it in the target first, then deploy the validation to a sandbox",
     "dataopsContent": "Data operations on the selected org:\n- Backup: a snapshot of the objects the anonymization templates mask, or of those the template picked masks, kept in extension storage\n- Restore: puts a backup back, whole, into the org it was taken from\n- Anonymize: masks fields in place with a built-in template such as GDPR, CCPA or HIPAA; it cannot be undone, so back up first\n- Quality: for the objects you pick, counts how often each field is filled, which values of a key such as Name or Email more than one record shares, and how many records nobody has modified in a number of days; the org does the counting, and nothing is read record by record or written\n- Compliance: finds the fields of the objects you pick that hold personal data, confirmed on a sample of their last 200 records; then finds one person's records by email, name or phone, exports them to a file, and erases them in place or deletes them, after a review, a typed confirmation and Production Guard; a local log keeps counts of each request, never who it was about\n- Cleanup: counts the records nobody has modified in a number of days, those that leave empty a lookup the business relies on, and the extra copies of a repeated value; each can be exported, or deleted after a review, a typed confirmation and Production Guard, at most 1,000 at a time",
     "automationContent": "Visual pipeline builder:\n- The palette offers the step types a pipeline runs: Backup, Compare, Pre-Check, Delay and Notification; a Condition step comes with a Marketplace template. A pipeline holding a step that writes to an org, or a Script, Approval, Loop or Parallel step, is refused before it starts\n- A pipeline starts from the Run Pipeline button, at the times a cron expression names while VS Code is open, or when SandForge notices a refresh of a sandbox you choose\n- Execution history: status, total duration and errors of each run, what each of its steps did, and the starts a trigger missed\n- Pipeline templates from the Marketplace",
-    "forgeContent": "In four steps:\n1. Paste a record ID or Salesforce URL, then pick the source and target orgs\n2. Discover Graph walks the relationships from that record\n3. Set the depth, the records per object and PII anonymization\n4. Review the plan, then run it: IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it\n\nClone directly, under Discover Graph, runs the discovery and then the clone of what it found, without stopping on the graph or on Review: the run is sent as Review sends it when nothing was changed there, Production Guard judges it as it judges any run, and the metadata diff between the two orgs is not run.\n\nGraph or table: the discovery, Review and execution screens draw a graph of up to 25 objects and list a larger one in a table. The Graph View / Table View switch picks the other view on every screen until the panel is closed; the sandforge.forge.graphView setting (auto, graph or table) picks the view they open on.\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
+    "forgeContent": "IDs are remapped as the records are written; a record type with no active record type of the same API name on the target keeps its source Id, and the SandForge log names it.\n\nClone directly, under Discover Graph, runs the discovery and then the clone of what it found, without stopping on the graph or on Review: the run is sent as Review sends it when nothing was changed there, Production Guard judges it as it judges any run, and the metadata diff between the two orgs is not run.\n\nGraph or table: the discovery, Review and execution screens draw a graph of up to 25 objects and list a larger one in a table. The Graph View / Table View switch picks the other view on every screen until the panel is closed; the sandforge.forge.graphView setting (auto, graph or table) picks the view they open on.\n\nTip: a record-scoped clone copies what that record needs, not whole tables.",
     "frozenContent": "Frozen Dataset extracts a dataset from a source sandbox once and replays it after every refresh:\n- Extract: root records chosen by coverage matrix, within a volume budget\n- Pseudonymization is deterministic, keyed by a salt you keep out of the repository\n- A four-point check must pass before the dataset is written\n- Load: sandbox targets only, with an optional Pilot on one root folder before the full load, and a verification pass after the load",
     "grappeContent": "Grappe splits a large operation into partitions and reports progress as each one completes:\n- Turn it on with the sandforge.grappe.enabled setting\n- A Seed run past the record threshold reports each partition, a Sync past it reports one partition per object, and an Autopilot run reports only its start and its end\n- Partitions run one after another: Grappe does not make a run faster",
     "aiContent": "AI Assistant, with your own Anthropic key:\n- Chat, NL2SOQL in Forge's AI tab, and custom personas and AI field rules in Seed\n- Pipeline drafts in Automation\n- A built-in table of Salesforce error codes answers the codes it knows first, on your machine, AI on or off, and sends nothing\n- Nothing is sent for a fixed list of SandForge's own messages, such as a declined production confirmation, a duplicate run, or a CRUD, FLS or Production Guard refusal, nor for any failure while no SandForge view is open\n- While AI is on, any other failed Seed, Sync, DataOps or Automation run sends its error message, with its Salesforce Ids replaced by <id>, and the suggestion comes back as a VS Code notification\n- Turn that sending off with sandforge.ai.errorResolution: the rest of the assistant keeps working\n- Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key\n- Configure your API key in Settings > AI",
@@ -3080,6 +3080,115 @@
     "autopilotContent": "In three steps:\n1. Pick the source and target orgs\n2. Select the objects to copy\n3. Review the plan (waves, records, API calls, PII fields), then run it. Emails and phone numbers are neutralized unless you untick it — every address under .invalid, every number a fictional one — and Advanced picks a compliance framework that anonymizes more (GDPR, CCPA, HIPAA or PCI-DSS)",
     "migrationContent": "Migration turns an existing migration definition into a Sync configuration:\n- Import an SFDMU export.json, or a .json or .csv file\n- Importing reads the file and changes nothing in any org\n- Running the converted configuration writes records to the target org",
     "reportsContent": "Reports shows what SandForge's runs did:\n- Executions: each Forge and Sync run with its status, duration and record count, exportable as JSON\n- Analytics: success rates computed from those runs\n- Audit Trail: every run that writes to an org — a Forge clone, a sync, a seed, a CSV import, a record clone, an Autopilot run, a restore, a masking run or a frozen dataset load — with what it wrote to each object and what Production Guard decided\n- Data Lineage: where the records a run wrote came from — another org, generated data, a CSV file, a backup or a frozen dataset — and how many of each object"
+  },
+  "howTo": {
+    "title": "How to",
+    "tipLabel": "Tip:",
+    "forge": {
+      "step1": "Pick the Target Org; the Source Org is already the org selected in the side panel.",
+      "step2": "On the Record tab, paste a Record ID or Salesforce URL, then click Discover Graph.",
+      "step3": "When discovery ends, click Review & Execute.",
+      "step4": "Click Execute Forge, then read the Inserted card once the run ends.",
+      "tip": "Simulate, beside Execute Forge, writes nothing; Remove the records this run created, after the run and in Recent runs, deletes them."
+    },
+    "seed": {
+      "step1": "Under Quick Seed from Template, press Use This on CRM Starter, marked Start here.",
+      "step2": "Check the counts under Record Count, and pick the org under Select target org.",
+      "step3": "Press Start Seeding and follow each object's progress until the results show.",
+      "step4": "On the results, press Open a created Account in your org to see the records.",
+      "tip": "Nothing is written before Start Seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back."
+    },
+    "checkpoint": {
+      "step1": "Pick a sandbox, scratch org or Developer Edition in the org list at the top.",
+      "step2": "Click Take a checkpoint, read Before it runs, click Take the checkpoint, then Done.",
+      "step3": "To return the org to it, click Rewind… on the checkpoint's row: the preview writes nothing.",
+      "step4": "Tick any box the preview asks for, then click the Rewind button that names the org.",
+      "step5": "Type the name the dialog shows, then click Confirm.",
+      "tip": "Rewind undoes everyone's changes since the checkpoint, not only yours. Undo this rewind takes it back for up to 15 days."
+    },
+    "sync": {
+      "step1": "On the Sync tab, click Start Quick Sync.",
+      "step2": "Choose the Source org and the Target org, then click Next.",
+      "step3": "Pick objects under Suggested objects or by search, then click Next.",
+      "step4": "Check Total records in the Preview, then click Sync Now.",
+      "tip": "A Quick Sync inserts every record each time it runs; outside production, its results offer Remove what this run created."
+    },
+    "autopilot": {
+      "step1": "Pick an org under Source Org and another under Target Org, then click Next.",
+      "step2": "Tick each object to copy, then click Next.",
+      "step3": "On Review Plan, check Total Records and What the plan copies.",
+      "step4": "Click Execute Autopilot, then follow each wave under Live Stats in the Control Panel.",
+      "tip": "SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh."
+    },
+    "frozen": {
+      "step1": "On the Extract tab, fill in Root object (business folder) and click Save configuration.",
+      "step2": "Click Run selection: it picks the root records in the org selected in the side panel.",
+      "step3": "Put the pseudonymization rules in ~/.sandforge-sas/rules.json, then click Run extraction.",
+      "step4": "On the Load tab, pick the Target org (sandbox) to fill, then click Run load.",
+      "step5": "Read the Post-load verification that follows the load; Re-verify runs it again.",
+      "tip": "Preview writes nothing, a load never goes into a production org, and Remove the records this load created deletes them."
+    },
+    "compare": {
+      "step1": "Pick the Source Org and a different Target Org.",
+      "step2": "Under Categories, click the types to compare, or Select All.",
+      "step3": "Click Run Comparison, then open a group in Diff Viewer and click a change to see it.",
+      "step4": "On the Deploy from Diff tab, tick components and click the Validate button that names the target.",
+      "step5": "Once it succeeds, click the Deploy button that names the target, type its name and click Confirm.",
+      "tip": "Comparing writes nothing. Deploy from Diff validates in the target first, deletes nothing there and refuses a production target."
+    },
+    "dataops": {
+      "step1": "Check the org named at the top of the page, then open the Anonymize tab.",
+      "step2": "Pick a template in Select a template; its card lists each field it masks.",
+      "step3": "Click Preview: the first records show Original beside Masked, and nothing is written.",
+      "step4": "Click Apply, leave Keep the values first ticked, type Anonymize, then click Confirm.",
+      "tip": "Unless you untick Keep the values first, Apply backs up the values it masks: Open in Restore, then Restore, puts them back."
+    },
+    "monitor": {
+      "step1": "If the page shows Select an org to monitor, click the org you want to watch.",
+      "step2": "Read the Health Score, then click View Full Report for its factors and recommendations.",
+      "step3": "In Recent Apex Jobs, click Failed to keep only the failed jobs, grouped by Apex class.",
+      "step4": "Click the arrow beside Governor Limits to list every limit, the most used first.",
+      "step5": "Click the clock button, Auto-refresh, to read the org again every 30 seconds.",
+      "tip": "Trends stays empty until SandForge has kept two snapshots of the limits; it keeps at most one per 15 minutes, for 7 days."
+    },
+    "automation": {
+      "step1": "Click Create Pipeline at the top of the page.",
+      "step2": "Under Steps, click a step such as Pre-Check to add it to the Pipeline Canvas.",
+      "step3": "Click the step on the canvas, then fill its fields under Step Configuration.",
+      "step4": "Click Save Pipeline, then Run Pipeline once no step is marked Cannot run.",
+      "step5": "Open the History tab to read what each step of the run did.",
+      "tip": "Only a Sync step writes to an org; one that writes to an org Production Guard asks about needs an Approval step before it."
+    },
+    "migration": {
+      "step1": "Pick the kind of file you have: SFDMU export.json, or CSV or JSON file.",
+      "step2": "Type the file's absolute path in File path, then press Import.",
+      "step3": "Under Object Set, check each object's operation, External ID and WHERE clause.",
+      "step4": "Under Run this import, pick the Source org and the Target org, then press Run sync.",
+      "step5": "To run it again later, name it and press Save as a Sync configuration.",
+      "tip": "Import writes nothing to any org; only Run sync writes, to the Target org, once Production Guard has judged the run."
+    },
+    "reports": {
+      "step1": "On Executions, click a Forge or Sync run to read its details below the list.",
+      "step2": "Open Audit Trail to see every run that writes to an org, newest first.",
+      "step3": "Narrow the list with Filter by action, Filter by module or Filter by org.",
+      "step4": "Press View run on an entry to see on Data Lineage where its records came from.",
+      "step5": "Press Export CSV or Export JSON to save the trail as filtered.",
+      "tip": "Reports writes nothing to any org; Export CSV and Export JSON save every entry the filters match, not only those shown."
+    },
+    "grappe": {
+      "step1": "Click Open the Grappe setting and turn on sandforge.grappe.enabled.",
+      "step2": "Leave the Grappe page open, open Seed in the side panel, and seed 10,000 records or more.",
+      "step3": "Return to the Grappe page during the run: Active Execution shows each partition's progress.",
+      "step4": "When the run ends, read its totals on the Partitions, Records, processed and failed cards.",
+      "tip": "Lower sandforge.grappe.autoActivateThreshold to watch smaller runs; Grappe runs nothing itself and makes no run faster."
+    },
+    "ai": {
+      "step1": "If the page says AI Assistant Not Configured, click Go to Settings, then the AI tab.",
+      "step2": "Paste your Anthropic key into API key and click Save key and turn on AI.",
+      "step3": "Back in AI Assistant, click New Conversation.",
+      "step4": "Type your question in the message box and press Enter, or click Send.",
+      "tip": "The chat reads none of your orgs: paste into your question the error, query or field names it should look at."
+    }
   },
   "emptyState": {
     "connectViaSfdx": "Connect an org (sign in with your browser)",

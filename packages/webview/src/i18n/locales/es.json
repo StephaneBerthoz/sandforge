@@ -3047,13 +3047,13 @@
     "gettingStartedDesc": "Aprenda los conceptos básicos de SandForge",
     "gettingStartedContent": "1. Conecte su org Salesforce en la página Organizaciones.\n2. Llénela con Seed: una plantilla como el Kit inicial de CRM escribe cuentas, contactos, oportunidades y casos vinculados, tras comprobar el almacenamiento de la org.\n3. Clone con Forge: copie un registro real y todo lo que lo rodea desde otra org.\n4. Abra el Monitor para comprobar la salud, los límites y los jobs de la org.\n5. Explore Sync, Comparación, DataOps, Dataset congelado y Automatización cuando los necesite.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Límites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales críticos\n\nConsejo: Habilite la actualización automática para monitoreo continuo.",
-    "seedContent": "En cinco pasos:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estático, secuencia...)\n4. Fije el número de registros — un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n5. Revise y ejecute\n\nConsejo: Use la generación IA para los datos más realistas.",
+    "seedContent": "Bajo las plantillas, otras tres formas de poblar una org:\n- Generar datos: un asistente para los objetos, el número de registros y las reglas de campos que elija (IA, Faker, estático, secuencia...); un campo de búsqueda se rellena con los registros que la misma ejecución insertó antes\n- Subir CSV: registros de un archivo CSV, con sus columnas asignadas a los campos\n- Clonar desde Org: registros copiados de otra org",
     "checkpointContent": "Un punto de control es el estado de los datos de una org en un momento dado. Retroceder elimina después lo que se añadió desde entonces, devuelve sus valores a lo que cambió y recupera lo que se eliminó, quienquiera que lo hiciera. Un respaldo de DataOps es una copia de algunos objetos: su restauración lo vuelve a escribir y recupera los registros eliminados, pero nunca elimina lo que se añadió.\n- El retroceso deshace el trabajo de todos desde el punto de control, no solo las ejecuciones de SandForge: cada registro creado, modificado o eliminado desde entonces en los objetos que contiene el punto de control, por cualquier usuario, flujo o integración. La vista previa indica quién modificó qué por última vez antes de que se escriba nada.\n- Nunca en una org de producción: los puntos de control son para sandboxes, scratch orgs y orgs Developer Edition, y ningún ajuste ni opción levanta este rechazo.\n- Solo datos: campos, flujos, reglas de validación, formatos, permisos, usuarios y configuración se quedan como están, y lo que ya salió de la org (correos electrónicos, callouts, mensajes salientes, eventos de plataforma) sigue enviado.\n- Los archivos no están cubiertos: los contenidos y las versiones de archivos y los adjuntos añadidos desde entonces se quedan.\n- Un punto de control contiene en claro los valores de los registros, datos personales entre ellos, en este equipo, legibles solo por usted, durante 30 días salvo que lo conserve.",
     "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Completa o delta: una ejecución completa lee cada objeto entero; una ejecución delta de una configuración guardada lee cada objeto desde donde terminó su última ejecución correcta, y puede eliminar en el destino lo que el origen eliminó. Una configuración que pide incremental se rechaza\n- Mapeo automático de campos con puntajes de confianza\n- Las reglas de transformación se aplican a cada campo de cada registro de la ejecución, salvo Id y el identificador externo con el que la ejecución hace la correspondencia, que se dejan tal cual: así un prefijo o un truncado no puede enviar la escritura a un registro que no existe. Los ajustes que admite cada una: mayúsculas, minúsculas y recorte de espacios no admiten ninguno; el truncado admite una longitud; prefijo, sufijo, reemplazo, regex, valor predeterminado, formatos de fecha y número y fórmulas admiten su texto; el mapeo de valores admite una tabla de reemplazos que la página aún no puede escribir, así que una regla de ese tipo deja los valores tal como están\n- Resolución de conflictos en ejecuciones bidireccionales: origen prevalece, destino prevalece, más reciente prevalece o fusión campo por campo\n- Pestaña Tiempo real: sigue los eventos de cambio (Change Data Capture) que publica la org de origen y escribe cada cambio en el destino en cuanto llega, localizado por un ID externo, el ID de registro o la asignación de una sync guardada; las eliminaciones solo si se piden. Para seguir otro objeto, selecciónelo en Configuración → Change Data Capture en la org de origen. Un cambio cuyo registro de destino se editó después lo decide la estrategia, o queda retenido en la pestaña Conflictos\n- Quitar lo que creó una ejecución: desde sus resultados o su entrada del historial, la eliminación de una ejecución devuelve a los registros que sobrescribió — con una actualización, o un upsert que los encontró — los valores que tenían antes de ella, recupera de la papelera lo que una ejecución delta eliminó porque el origen lo había eliminado, y borra los registros que insertó, o escribió por upsert donde el destino no tenía ninguno, y los archivos que creó; Production Guard la rechaza en una org de producción. Los valores anteriores se conservan en este equipo durante sandforge.backup.maxAgeDays, y un registro modificado desde la ejecución se queda como está salvo que lo incluya. Una sesión de la pestaña Tiempo real se conserva igual, desde su primera escritura hasta que se detiene: una vez detenida, Sesiones anteriores, en esa pestaña, ofrece quitarla",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoría y nivel de riesgo\n- Permisos: qué perfiles y conjuntos de permisos existen en cada lado\n- Snapshots: los objetos de ambas orgs, capturados en vivo al abrir la pestaña\n- Desvío: cinco ajustes de Organization lado a lado (nombre, idioma, configuración regional, zona horaria, inicio del año fiscal)\n- Despliegue: elija lo que difiere, valídelo primero en el destino y luego despliegue la validación en un sandbox",
     "dataopsContent": "Operaciones de datos en la org seleccionada:\n- Respaldo: una instantánea de los objetos que enmascaran las plantillas de anonimización, o de los que enmascara la plantilla elegida, guardada en el almacenamiento de la extensión\n- Restauración: devuelve un respaldo, entero, a la org de la que se tomó\n- Anonimización: enmascara los campos in situ con una plantilla integrada como GDPR, CCPA o HIPAA; es irreversible, así que haga un respaldo antes\n- Calidad: para los objetos que elija, cuenta con qué frecuencia se rellena cada campo, qué valores de una clave como Name o Email comparten varios registros y cuántos registros nadie ha modificado en un número de días; la org hace el recuento, y no se lee registro por registro ni se escribe nada\n- Cumplimiento: encuentra los campos de los objetos elegidos que contienen datos personales, confirmados en una muestra de sus últimos 200 registros; después encuentra los registros de una persona por correo, nombre o teléfono, los exporta a un archivo y los anonimiza in situ o los elimina, tras una revisión, una confirmación escrita y Production Guard; un registro local guarda recuentos de cada solicitud, nunca a quién se refería\n- Limpieza: cuenta los registros que nadie ha modificado en un número de días, los que dejan vacío un campo de búsqueda en el que se apoya el negocio y las copias sobrantes de un valor repetido; cada grupo puede exportarse, o eliminarse tras una revisión, una confirmación escrita y Production Guard, como mucho 1.000 a la vez",
     "automationContent": "Constructor visual de pipelines:\n- La paleta ofrece los tipos de pasos que un pipeline ejecuta: Respaldo, Comparación, Pre-verificación, Retraso y Notificación; un paso Condición viene con una plantilla del Marketplace. Un pipeline que contenga un paso que escribe en una org, o un paso Script, Aprobación, Bucle o Paralelo, se rechaza antes de iniciarse\n- Un pipeline se inicia con el botón Ejecutar pipeline, en las horas que indica una expresión cron mientras VS Code está abierto, o cuando SandForge detecta la actualización de un sandbox elegido\n- Historial de ejecución: estado, duración total y errores de cada ejecución, lo que hizo cada uno de sus pasos, y los inicios que un disparador perdió\n- Plantillas de pipeline del Marketplace",
-    "forgeContent": "En cuatro pasos:\n1. Pegue un ID de registro o una URL de Salesforce y elija las orgs de origen y destino\n2. Descubrir grafo recorre las relaciones desde ese registro\n3. Ajuste la profundidad, los registros por objeto y la anonimización de PII\n4. Revise el plan y ejecútelo: los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica\n\nClonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación de lo que encontró, sin detenerse en el grafo ni en la revisión: la ejecución se envía como la envía la revisión cuando no se cambió nada allí, Production Guard la juzga como cualquier ejecución y no se ejecuta la comparación de metadatos entre las dos orgs.\n\nGrafo o tabla: las pantallas de descubrimiento, revisión y ejecución dibujan un grafo de hasta 25 objetos y enumeran uno mayor en una tabla. El selector Vista de grafo / Vista de tabla elige la otra vista en todas las pantallas hasta que se cierra el panel; el ajuste sandforge.forge.graphView (auto, graph o table) elige la vista con la que se abren.\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
+    "forgeContent": "Los ID se reasignan al escribir; un tipo de registro sin un tipo de registro activo con el mismo nombre de API en el destino conserva su Id de origen, y el log de SandForge lo indica.\n\nClonar directamente, bajo Descubrir grafo, ejecuta el descubrimiento y luego la clonación de lo que encontró, sin detenerse en el grafo ni en la revisión: la ejecución se envía como la envía la revisión cuando no se cambió nada allí, Production Guard la juzga como cualquier ejecución y no se ejecuta la comparación de metadatos entre las dos orgs.\n\nGrafo o tabla: las pantallas de descubrimiento, revisión y ejecución dibujan un grafo de hasta 25 objetos y enumeran uno mayor en una tabla. El selector Vista de grafo / Vista de tabla elige la otra vista en todas las pantallas hasta que se cierra el panel; el ajuste sandforge.forge.graphView (auto, graph o table) elige la vista con la que se abren.\n\nConsejo: un clon limitado a un registro copia lo que ese registro necesita, no tablas enteras.",
     "frozenContent": "El Dataset congelado extrae los datos de un sandbox de origen una sola vez y los reproduce idénticos tras cada actualización:\n- Extracción: registros raíz elegidos por matriz de cobertura, dentro de un presupuesto de volumen\n- Seudonimización determinista, con una sal que se guarda fuera del repositorio\n- Un control de cuatro puntos debe superarse antes de escribir el dataset\n- Carga: solo sandboxes como destino, con un Piloto opcional sobre un único expediente raíz antes de la carga completa, y una verificación después de la carga",
     "grappeContent": "Grappe divide una operación grande en particiones e informa el progreso al completarse cada una:\n- Actívelo con el ajuste sandforge.grappe.enabled\n- Una ejecución de Seed por encima del umbral de registros informa cada partición, una Sync por encima de ese umbral informa una partición por objeto y un plan de Autopilot solo informa su inicio y su fin\n- Las particiones se procesan una tras otra: Grappe no hace más rápida una ejecución",
     "aiContent": "El Asistente IA, con su propia clave de Anthropic:\n- Chat, NL2SOQL en la pestaña IA de Forge, y personas personalizadas y reglas de campo IA en Seed\n- Borradores de pipeline en Automatización\n- Una tabla integrada de códigos de error de Salesforce responde primero a los códigos que conoce, en su máquina, con la IA activada o desactivada, y no envía nada\n- No se envía nada por una lista fija de mensajes propios de SandForge, como una confirmación de producción rechazada, una ejecución duplicada o un rechazo CRUD, FLS o de Production Guard, ni por un fallo ocurrido sin ninguna vista de SandForge abierta\n- Con la IA activada, cualquier otra ejecución fallida de Seed, Sync, DataOps o Automatización envía su mensaje de error, con sus Id de Salesforce reemplazados por <id>, y la sugerencia vuelve como notificación de VS Code\n- Desactive ese envío con sandforge.ai.errorResolution: el resto del asistente sigue funcionando\n- Los consejos de esquema de Comparación y el escaneo de anomalías de Monitor se basan en reglas: funcionan con la IA desactivada y sin clave\n- Configure su clave API en Configuración > IA",
@@ -3080,6 +3080,115 @@
     "autopilotContent": "En tres pasos:\n1. Elija la org de origen y la de destino\n2. Seleccione los objetos que desea copiar\n3. Revise el plan (oleadas, registros, llamadas a la API, campos PII) y ejecútelo. Los correos y los números de teléfono se neutralizan salvo que lo desmarque — cada dirección bajo .invalid, cada número ficticio — y Avanzado elige un marco de cumplimiento que anonimiza más (RGPD, CCPA, HIPAA o PCI-DSS)",
     "migrationContent": "Migración convierte una definición de migración existente en una configuración de Sync:\n- Importe un export.json de SFDMU, o un archivo .json o .csv\n- La importación lee el archivo y no cambia nada en ninguna org\n- Ejecutar la configuración convertida escribe registros en la org de destino",
     "reportsContent": "Informes muestra lo que hicieron las ejecuciones de SandForge:\n- Ejecuciones: cada ejecución de Forge y Sync con su estado, duración y número de registros, exportable en JSON\n- Análisis: tasas de éxito calculadas a partir de esas ejecuciones\n- Registro de auditoría: cada ejecución que escribe en una org — una clonación Forge, una sincronización, un seed, una importación CSV, una clonación de registros, una ejecución de Autopilot, una restauración, un enmascaramiento o una carga de dataset congelado — con lo que escribió en cada objeto y lo que decidió Production Guard\n- Linaje de datos: de dónde vinieron los registros que escribió una ejecución — otra org, datos generados, un archivo CSV, un respaldo o un dataset congelado — y cuántos de cada objeto"
+  },
+  "howTo": {
+    "title": "Cómo hacerlo",
+    "tipLabel": "Consejo:",
+    "forge": {
+      "step1": "Elija la Org de destino; la Org de origen ya es la org seleccionada en el panel lateral.",
+      "step2": "En la pestaña Registro, pegue un ID de registro o URL de Salesforce y haga clic en Descubrir grafo.",
+      "step3": "Cuando termine el descubrimiento, haga clic en Revisar y ejecutar.",
+      "step4": "Haga clic en Ejecutar Forge y, cuando termine la ejecución, lea la tarjeta Insertados.",
+      "tip": "Simular, junto a Ejecutar Forge, no escribe nada; Eliminar los registros que creó esta ejecución, al terminar y en Ejecuciones recientes, los borra."
+    },
+    "seed": {
+      "step1": "En Seed rápido desde plantilla, pulse Usar esta en la plantilla Kit inicial de CRM, marcada Empiece aquí.",
+      "step2": "Revise las cantidades en Cantidad de registros y elija la org en Seleccionar org de destino.",
+      "step3": "Pulse Iniciar Seed y siga el progreso de cada objeto hasta que aparezcan los resultados.",
+      "step4": "En los resultados, pulse Abrir el primer registro creado (Account) en su org para ver los datos.",
+      "tip": "No se escribe nada antes de Iniciar Seed; después, Quitar lo que creó esta ejecución, en los resultados o en Seeds anteriores, deshace el seed."
+    },
+    "checkpoint": {
+      "step1": "Elija un sandbox, una scratch org o una org Developer Edition en la lista de orgs de arriba.",
+      "step2": "Haga clic en Crear un punto de control, lea Antes de empezar, haga clic en Crear el punto de control y luego en Hecho.",
+      "step3": "Para devolver la org a ese punto, haga clic en Retroceder… en la fila del punto de control: la vista previa no escribe nada.",
+      "step4": "Marque las casillas que pida la vista previa y haga clic en el botón Retroceder con el nombre de la org.",
+      "step5": "Escriba el nombre que muestra el cuadro de diálogo y haga clic en Confirmar.",
+      "tip": "Retroceder deshace los cambios de todos desde el punto de control, no solo los suyos. Deshacer este retroceso sigue disponible durante 15 días como máximo."
+    },
+    "sync": {
+      "step1": "En la pestaña Sync, haga clic en Iniciar Sync rápido.",
+      "step2": "Elija la Org de origen y la Org de destino, y haga clic en Siguiente.",
+      "step3": "Elija objetos en Objetos sugeridos o con la búsqueda, y haga clic en Siguiente.",
+      "step4": "Revise Total de registros en la Vista previa y haga clic en Sincronizar ahora.",
+      "tip": "Un Sync rápido inserta todos los registros cada vez; fuera de producción, sus resultados ofrecen Quitar lo que creó esta ejecución."
+    },
+    "autopilot": {
+      "step1": "Elija una org en Org de origen y otra en Org de destino, y haga clic en Siguiente.",
+      "step2": "Marque cada objeto que quiera copiar y haga clic en Siguiente.",
+      "step3": "En el paso Revisar plan, compruebe Total de registros y Lo que copia el plan.",
+      "step4": "Haga clic en Ejecutar Autopilot y siga cada ola en Estadísticas en vivo, en el Panel de control.",
+      "tip": "SandForge no puede quitar lo que escribe una ejecución de Autopilot: pruébela en una scratch org o en un sandbox que pueda actualizar."
+    },
+    "frozen": {
+      "step1": "En la pestaña Extraer, indique el Objeto raíz (expediente) y haga clic en Guardar configuración.",
+      "step2": "Haga clic en Ejecutar selección: elige los registros raíz en la org seleccionada en el panel lateral.",
+      "step3": "Coloque las reglas de seudonimización en ~/.sandforge-sas/rules.json y haga clic en Ejecutar extracción.",
+      "step4": "En la pestaña Cargar, elija la Org de destino (sandbox) que va a llenar y haga clic en Ejecutar carga.",
+      "step5": "Lea la Verificación posterior a la carga, que se ejecuta después de la carga; Volver a verificar la repite.",
+      "tip": "Vista previa no escribe nada, una carga nunca va a una org de producción y Eliminar los registros que creó esta carga los borra."
+    },
+    "compare": {
+      "step1": "Elija la Org origen y una Org destino distinta.",
+      "step2": "En Categorías, haga clic en los tipos que quiere comparar, o en Seleccionar todo.",
+      "step3": "Haga clic en Ejecutar comparación, abra un grupo en Visor de diferencias y haga clic en un cambio.",
+      "step4": "En Desplegar desde diff, marque los componentes y haga clic en el botón Validar con el nombre del destino.",
+      "step5": "Si la validación tiene éxito, haga clic en el botón Desplegar con el nombre del destino, escriba ese nombre y haga clic en Confirmar.",
+      "tip": "Comparar no escribe nada. Desplegar desde diff valida primero en el destino, no elimina nada allí y rechaza un destino de producción."
+    },
+    "dataops": {
+      "step1": "Compruebe la org indicada en la parte superior de la página y abra la pestaña Anonimizar.",
+      "step2": "Elija una plantilla en Seleccionar una plantilla; su tarjeta muestra cada campo que enmascara.",
+      "step3": "Haga clic en Vista previa: los primeros registros muestran Original junto a Enmascarado, sin escribir nada.",
+      "step4": "Haga clic en Aplicar, deje marcada la casilla Conservar primero los valores, escriba Anonimizar y haga clic en Confirmar.",
+      "tip": "Salvo que desmarque Conservar primero los valores, Aplicar respalda los valores que enmascara: haga clic en Abrir en Restaurar y luego en Restaurar para devolverlos."
+    },
+    "monitor": {
+      "step1": "Si la página muestra Seleccione una org para vigilar, haga clic en la org que quiere seguir.",
+      "step2": "Lea el Puntaje de salud y haga clic en Ver informe completo para ver sus factores y recomendaciones.",
+      "step3": "En Jobs Apex recientes, haga clic en Fallidos para ver solo los jobs fallidos, agrupados por clase Apex.",
+      "step4": "Haga clic en la flecha junto a Límites governor para listar todos los límites, los más usados primero.",
+      "step5": "Haga clic en el botón del reloj, Actualización automática, para volver a leer la org cada 30 segundos.",
+      "tip": "Tendencias sigue vacía hasta que SandForge haya guardado dos instantáneas de los límites; guarda como máximo una cada 15 minutos, durante 7 días."
+    },
+    "automation": {
+      "step1": "Haga clic en Crear pipeline, arriba en la página.",
+      "step2": "En Pasos, haga clic en un paso como Pre-verificación para agregarlo al Canvas del pipeline.",
+      "step3": "Haga clic en el paso en el canvas y complete sus campos en Configuración del paso.",
+      "step4": "Haga clic en Guardar pipeline y luego en Ejecutar pipeline cuando ningún paso esté marcado No ejecutable.",
+      "step5": "Abra la pestaña Historial para leer lo que hizo cada paso de la ejecución.",
+      "tip": "Solo un paso Sync escribe en una org, y uno que escribe en una org por la que Production Guard pregunta necesita un paso Aprobación antes."
+    },
+    "migration": {
+      "step1": "Elija el tipo de su archivo: export.json de SFDMU, o Archivo CSV o JSON.",
+      "step2": "Escriba la ruta absoluta del archivo en Ruta del archivo y pulse Importar.",
+      "step3": "En Conjunto de objetos, revise la operación, el ID externo y la Cláusula WHERE de cada objeto.",
+      "step4": "En Ejecutar esta importación, elija la Org de origen y la Org de destino, y pulse Ejecutar sincronización.",
+      "step5": "Para volver a ejecutarla más tarde, póngale un nombre y pulse Guardar como configuración de Sync.",
+      "tip": "Importar no escribe en ninguna org; solo Ejecutar sincronización escribe, en la Org de destino, después de que Production Guard juzgue la ejecución."
+    },
+    "reports": {
+      "step1": "En Ejecuciones, pulse una ejecución de Forge o Sync para leer su detalle bajo la lista.",
+      "step2": "Abra Registro de auditoría para ver cada ejecución que escribe en una org, la más reciente primero.",
+      "step3": "Acote la lista con Filtrar por acción, Filtrar por módulo o Filtrar por org.",
+      "step4": "Pulse Ver la ejecución en una entrada para ver en Linaje de datos de dónde vinieron sus registros.",
+      "step5": "Pulse Exportar a CSV o Exportar a JSON para guardar el registro tal como está filtrado.",
+      "tip": "Informes no escribe en ninguna org; Exportar a CSV y Exportar a JSON guardan todas las entradas que cumplen los filtros, no solo las mostradas."
+    },
+    "grappe": {
+      "step1": "Haga clic en Abrir el ajuste de Grappe y active sandforge.grappe.enabled.",
+      "step2": "Deje abierta la página de Grappe, abra Seed en el panel lateral y ejecute un Seed de 10.000 registros o más.",
+      "step3": "Vuelva a la página de Grappe durante la ejecución: Ejecución activa muestra el avance de cada partición.",
+      "step4": "Al terminar la ejecución, lea sus totales en las tarjetas Particiones, Registros, procesados y fallidos.",
+      "tip": "Baje sandforge.grappe.autoActivateThreshold para seguir ejecuciones más pequeñas; Grappe no ejecuta nada por sí mismo ni acelera ninguna ejecución."
+    },
+    "ai": {
+      "step1": "Si la página dice Asistente IA no configurado, haga clic en Ir a Configuración y luego en la pestaña IA.",
+      "step2": "Pegue su clave de Anthropic en Clave de API y haga clic en Guardar la clave y activar la IA.",
+      "step3": "De vuelta en Asistente IA, haga clic en Nueva conversación.",
+      "step4": "Escriba su pregunta en el cuadro de mensaje y pulse Enter, o haga clic en Enviar.",
+      "tip": "El chat no lee ninguna de sus orgs: pegue en su pregunta el error, la consulta o los nombres de campo que debe revisar."
+    }
   },
   "emptyState": {
     "connectViaSfdx": "Conecte una org (inicio de sesión en el navegador)",

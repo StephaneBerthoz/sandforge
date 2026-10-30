@@ -4,6 +4,19 @@
 
 Forge needs two orgs: one that holds the records, and one to fill. With a single empty org and nothing to copy, start with [Seed's templates](modules/seed.md#quick-start) instead. The [Forge reference](forge-reference.md) says what each step below reads, checks, writes and keeps, and what the clone command takes.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.forge in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Pick the Target Org; the Source Org is already the org selected in the side panel.
+2. On the Record tab, paste a Record ID or Salesforce URL, then click Discover Graph.
+3. When discovery ends, click Review & Execute.
+4. Click Execute Forge, then read the Inserted card once the run ends.
+
+**Tip:** Simulate, beside Execute Forge, writes nothing; Remove the records this run created, after the run and in Recent runs, deletes them.
+
+<!-- how-to:end -->
+
 ## Why Forge?
 
 Hand-crafting test data for a dev sandbox takes time. Pick a real record on a partial-copy / full-copy sandbox, and Forge clones it + the related records (Account, Contacts, Opportunities, Cases…) into your dev sandbox with full referential integrity.

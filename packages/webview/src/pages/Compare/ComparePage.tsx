@@ -32,6 +32,7 @@ import type { SettingsDriftReport } from './SettingsDrift';
 import { DeployPanel } from './DeployPanel';
 import { CHANGE_LOOK, CHANGE_ORDER } from './changeLook';
 import { enrichDiffs } from './enrichDiffs';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** How long the page waits for a diff before it calls the comparison failed. */
 const COMPARE_TIMEOUT_MS = 5 * 60_000;
@@ -204,6 +205,7 @@ export const ComparePage: React.FC = () => {
           </div>
         }
       />
+      <ModuleHowTo module="compare" />
 
       {error && (
         <ErrorBanner

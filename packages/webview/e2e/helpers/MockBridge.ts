@@ -1,5 +1,9 @@
 import type { Page } from '@playwright/test';
-import { injectVSCodeApiMock, sendExtensionMessage } from '../mocks/vscode-api';
+import {
+  injectVSCodeApiMock,
+  sendExtensionMessage,
+  type VSCodeApiMockOptions,
+} from '../mocks/vscode-api';
 import { MOCK_ORGS } from '../fixtures';
 
 /** Orgs handed to the webview when a spec does not supply its own. */
@@ -18,9 +22,9 @@ export class MockBridge {
    * Initialize the mock bridge on a Playwright page.
    * Must be called before `page.goto()` so the init script runs first.
    */
-  async setup(page: Page): Promise<void> {
+  async setup(page: Page, options: VSCodeApiMockOptions = {}): Promise<void> {
     this.page = page;
-    await injectVSCodeApiMock(page);
+    await injectVSCodeApiMock(page, options);
   }
 
   /**

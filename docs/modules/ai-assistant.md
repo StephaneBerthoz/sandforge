@@ -2,6 +2,19 @@
 
 Chat about your Salesforce work, draft pipelines and SOQL in plain English, and let Seed fill fields with generated values, on your own Anthropic key. The assistant is off by default, and nothing is sent to a model before you turn it on and store a key.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.ai in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. If the page says AI Assistant Not Configured, click Go to Settings, then the AI tab.
+2. Paste your Anthropic key into API key and click Save key and turn on AI.
+3. Back in AI Assistant, click New Conversation.
+4. Type your question in the message box and press Enter, or click Send.
+
+**Tip:** The chat reads none of your orgs: paste into your question the error, query or field names it should look at.
+
+<!-- how-to:end -->
+
 ## Quick Start
 
 1. In the AI tab of the SandForge Settings page, read what each feature sends, then store your Anthropic API key with **Save key and turn on AI**. The key is kept in VS Code Secret Storage, never in a settings file. Tick **Suggest fixes for failed runs** beside it only if a failed run may send its error message (see Error resolution)

@@ -28,6 +28,7 @@ import { PartBoundary } from '../../components/ui/PartBoundary';
 import { uiLocale } from '../../utils/formatters';
 import { useHeldFailure } from '../../hooks/useHeldFailure';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
@@ -283,6 +284,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       <h1 tabIndex={-1} className="text-lg font-bold text-text-primary">
         {t('reports.title')}
       </h1>
+      <ModuleHowTo module="reports" />
 
       {/* KPI summary row — omitted entirely when nothing feeds it. */}
       {hasMetrics && (

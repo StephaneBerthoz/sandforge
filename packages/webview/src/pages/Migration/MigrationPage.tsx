@@ -21,6 +21,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { JsonViewer } from '../../components/ui/JsonViewer';
 import { ObjectSetEditor } from '../Sync/ObjectSetEditor';
 import type { ObjectSetEntry } from '../Sync/ObjectSetEditor';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Import source supported by the migration bridge messages. */
 type ImportType = 'sfdmu' | 'universal';
@@ -443,6 +444,7 @@ export const MigrationPage: React.FC = () => {
           ) : undefined
         }
       />
+      <ModuleHowTo module="migration" />
 
       {/* Import type selector */}
       <div

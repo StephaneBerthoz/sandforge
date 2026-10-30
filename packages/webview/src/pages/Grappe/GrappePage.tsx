@@ -9,6 +9,7 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { uiLocale } from '../../utils/formatters';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * Grappe module page — partitioned-run dashboard.
@@ -53,6 +54,8 @@ export const GrappePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ModuleHowTo module="grappe" />
 
       {/* KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

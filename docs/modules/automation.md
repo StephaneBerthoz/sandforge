@@ -2,6 +2,20 @@
 
 Compose multi-step pipelines on a visual canvas, save them, run them, and read back what each step of a run did. A pipeline runs when you click Run; a saved one also runs on a schedule, or when SandForge notices a refresh of a sandbox, while VS Code is open.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.automation in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Click Create Pipeline at the top of the page.
+2. Under Steps, click a step such as Pre-Check to add it to the Pipeline Canvas.
+3. Click the step on the canvas, then fill its fields under Step Configuration.
+4. Click Save Pipeline, then Run Pipeline once no step is marked Cannot run.
+5. Open the History tab to read what each step of the run did.
+
+**Tip:** Only a Sync step writes to an org; one that writes to an org Production Guard asks about needs an Approval step before it.
+
+<!-- how-to:end -->
+
 > **What a pipeline runs:** Backup, Compare, Pre-Check, Notification, Delay,
 > Condition, Approval and Sync steps. A Backup step takes a DataOps snapshot
 > into local storage, a Compare step runs the Compare page's metadata diff, a

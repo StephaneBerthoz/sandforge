@@ -2,6 +2,19 @@
 
 Fill a Salesforce sandbox, scratch org or Developer Edition with realistic test data: from a built-in template in one confirmation, with no AI key, or generated with Faker profiles or AI, imported from a CSV file, or copied from another org. Seed handles object dependencies automatically.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.seed in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Under Quick Seed from Template, press Use This on CRM Starter, marked Start here.
+2. Check the counts under Record Count, and pick the org under Select target org.
+3. Press Start Seeding and follow each object's progress until the results show.
+4. On the results, press Open a created Account in your org to see the records.
+
+**Tip:** Nothing is written before Start Seeding; Remove what this run created, on the results or in Earlier seeds, takes the seed back.
+
+<!-- how-to:end -->
+
 Seed opens on its template gallery -- **Quick Seed**, a template seeded from one confirmation -- with three other ways to seed listed under it:
 
 - **Generate data**: the 4-step Seed Wizard, for the objects, record counts and field rules you choose, generated with Faker profiles, AI, or an industry persona

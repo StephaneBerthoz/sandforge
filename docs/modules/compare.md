@@ -2,6 +2,20 @@
 
 Compare metadata, permission names, and five Organization settings between two Salesforce orgs, from a single tabbed interface, and deploy to a sandbox, a scratch org or a Developer Edition org what the source holds differently, validated first -- see [Deploy from Diff](#deploy-from-diff).
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.compare in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Pick the Source Org and a different Target Org.
+2. Under Categories, click the types to compare, or Select All.
+3. Click Run Comparison, then open a group in Diff Viewer and click a change to see it.
+4. On the Deploy from Diff tab, tick components and click the Validate button that names the target.
+5. Once it succeeds, click the Deploy button that names the target, type its name and click Confirm.
+
+**Tip:** Comparing writes nothing. Deploy from Diff validates in the target first, deletes nothing there and refuses a production target.
+
+<!-- how-to:end -->
+
 ## Quick Start
 
 1. Navigate to **Compare** from the sidebar (requires at least 2 connected orgs)

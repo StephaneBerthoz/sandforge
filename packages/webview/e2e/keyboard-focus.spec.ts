@@ -730,13 +730,13 @@ test.describe('Keyboard and screen reader — the Forge flow', () => {
     const checkbox = (name: string) =>
       page.locator('.react-flow__node[data-id="' + name + '"]').getByTestId('include-checkbox');
     await checkbox('Account').waitFor({ state: 'visible', timeout: 10_000 });
-    const box = await pane.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-
+    // The pane is read again with the node: focus scrolls the page, which
+    // moves the pane on screen as well as the node in it.
     const inPane = async (name: string): Promise<boolean> => {
+      const box = await pane.boundingBox();
       const shown = await checkbox(name).boundingBox();
       return (
+        box !== null &&
         shown !== null &&
         shown.x >= box.x &&
         shown.y >= box.y &&

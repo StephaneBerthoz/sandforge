@@ -35,6 +35,7 @@ import { RewindPreview, RewindRun, StopComparingFields, TakeCheckpoint } from '.
 import { undoCannotReasonOf, usableCheckpoints } from './checkpointFacts';
 import type { RewindAcceptances } from './RewindPreview';
 import type { RunShown } from './RewindRun';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * The words of an undo's confirmation, as the rewind's result says them, for records Undo couldn't bring back, by reason: each
@@ -171,6 +172,7 @@ export const CheckpointPage: React.FC = () => {
           ) : undefined
         }
       />
+      <ModuleHowTo module="checkpoint" />
       {body}
     </div>
   );

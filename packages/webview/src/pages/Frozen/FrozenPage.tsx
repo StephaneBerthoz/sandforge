@@ -13,6 +13,7 @@ import { KPICard } from '../../components/ui/KPICard';
 import { useFrozenPushChannels } from './useFrozenBridge';
 import { FrozenExtractTab } from './FrozenExtractTab';
 import { FrozenLoadTab } from './FrozenLoadTab';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * Frozen Reference Dataset page — extract a pseudonymized reference dataset
@@ -98,6 +99,7 @@ export const FrozenPage: React.FC = () => {
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="frozen-page">
       <PageHeader title={t('nav.frozen')} subtitle={t('frozen.subtitle')} icon="snowflake" />
+      <ModuleHowTo module="frozen" />
 
       {saltMismatch && status?.manifest && (
         <div

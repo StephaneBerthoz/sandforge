@@ -13,6 +13,7 @@ import type {
   AIConversationListResponse,
   BaseMessage,
 } from '@sandforge/shared';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * A question awaiting its answer: the request carrying it, the conversation it
@@ -340,6 +341,7 @@ export const AIPage: React.FC = () => {
           subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
           icon="comment-discussion"
         />
+        <ModuleHowTo module="ai" />
         <div className="flex-1 flex items-center justify-center">
           <EmptyState
             icon={

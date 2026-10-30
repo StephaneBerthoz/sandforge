@@ -114,7 +114,8 @@ describe('AIPage', () => {
 
     it('should show guidance title', () => {
       render(<AIPage />);
-      expect(screen.getByText(/AI Assistant Not Configured/i)).toBeDefined();
+      // The how-to above it names the title too, as the label of its first step.
+      expect(screen.getByRole('heading', { name: /AI Assistant Not Configured/i })).toBeDefined();
     });
 
     it('should show guidance description', () => {

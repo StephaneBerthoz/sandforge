@@ -17,7 +17,7 @@ describe('pageRoutes', () => {
       module: './pages/Forge/ForgePage',
       english: expect.arrayContaining(['forge', 'errors']),
     });
-    expect(routes.find((route) => route.route === 'grappe')?.english).toEqual(['grappe']);
+    expect(routes.find((route) => route.route === 'grappe')?.english).toEqual(['grappe', 'howTo']);
   });
 });
 

@@ -3047,13 +3047,13 @@
     "gettingStartedDesc": "Lernen Sie die Grundlagen von SandForge",
     "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org auf der Seite Organisationen.\n2. Füllen Sie sie mit Seed: Eine Vorlage wie CRM-Starter schreibt verknüpfte Accounts, Kontakte, Opportunities und Kundenvorgänge, nachdem sie den Speicher der Org geprüft hat.\n3. Klonen Sie mit Forge: Kopieren Sie einen echten Datensatz mit allem, was dazugehört, aus einer anderen Org.\n4. Öffnen Sie den Monitor, um Gesundheit, Limits und Jobs der Org zu prüfen.\n5. Entdecken Sie Sync, den Vergleich, DataOps, das eingefrorene Dataset und die Automatisierung, wenn Sie sie brauchen.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen für kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung für kontinuierliche Überwachung.",
-    "seedContent": "In fünf Schritten:\n1. Wählen Sie Ihre Ziel-Org\n2. Wählen Sie die zu befüllenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Legen Sie die Datensatzanzahl fest — ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n5. Überprüfen und ausführen\n\nTipp: Verwenden Sie die KI-Generierung für die realistischsten Daten.",
+    "seedContent": "Unter den Vorlagen stehen drei weitere Wege bereit:\n- Daten generieren: ein Assistent für die Objekte, die Datensatzanzahl und die Feldregeln Ihrer Wahl (KI, Faker, statisch, Sequenz...); ein Lookup-Feld wird aus den Datensätzen befüllt, die derselbe Lauf zuvor eingefügt hat\n- CSV-Upload: Datensätze aus einer CSV-Datei, deren Spalten den Feldern zugeordnet werden\n- Von Org klonen: Datensätze, die aus einer anderen Org kopiert werden",
     "checkpointContent": "Ein Prüfpunkt ist der Stand der Daten einer Org zu einem bestimmten Zeitpunkt. Das Zurücksetzen löscht dann, was seitdem hinzugefügt wurde, gibt Geändertem seine Werte zurück und holt Gelöschtes zurück, egal wer es getan hat. Eine DataOps-Sicherung ist eine Kopie einiger Objekte: Beim Wiederherstellen wird sie zurückgespielt und gelöschte Datensätze kommen zurück, doch was hinzugefügt wurde, wird nie gelöscht.\n- Das Zurücksetzen macht die Arbeit aller seit dem Prüfpunkt ungeschehen, nicht nur die Läufe von SandForge: jeden Datensatz, der seitdem in den Objekten des Prüfpunkts erstellt, geändert oder gelöscht wurde, ob von Benutzern, Flows oder Integrationen. Die Vorschau zeigt, wer was zuletzt geändert hat, bevor etwas geschrieben wird.\n- Nie in einer Produktions-Org: Prüfpunkte sind für Sandboxes, Scratch-Orgs und Developer-Edition-Orgs gedacht, und keine Einstellung und keine Option hebt diese Ablehnung auf.\n- Nur Daten: Felder, Flows, Validierungsregeln, Layouts, Berechtigungen, Benutzer und Setup bleiben, wie sie sind, und was die Org schon verlassen hat (E-Mails, Callouts, ausgehende Nachrichten, Plattformereignisse), bleibt gesendet.\n- Dateien sind nicht abgedeckt: Dateiinhalte, Dateiversionen und Anhänge, die seitdem hinzugekommen sind, bleiben.\n- Ein Prüfpunkt enthält die Werte der Datensätze im Klartext, darunter personenbezogene Daten, auf diesem Rechner, nur für Sie lesbar, 30 Tage lang, sofern Sie ihn nicht aufbewahren.",
     "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Vollständig oder Delta: Ein vollständiger Lauf liest jedes Objekt ganz; ein Delta-Lauf einer gespeicherten Konfiguration liest jedes Objekt ab dem Punkt, an dem sein letzter erfolgreicher Lauf aufhörte, und kann im Ziel löschen, was die Quelle gelöscht hat. Eine Konfiguration, die Inkrementell verlangt, wird abgelehnt\n- Auto-Feldzuordnung mit Konfidenzwerten\n- Transformationsregeln gelten für jedes Feld jedes Datensatzes des Laufs, außer Id und der externen ID, über die der Lauf zuordnet: Diese bleiben unverändert, damit ein Präfix oder ein Kürzen den Schreibvorgang nicht an einen Datensatz schickt, den es nicht gibt. Die Einstellungen, die jede annimmt: Groß- und Kleinschreibung und Trimmen nehmen keine; Kürzen nimmt eine Länge; Präfix, Suffix, Ersetzen, Regex, Standardwert, Datums- und Zahlenformate und Formeln nehmen ihren Text; die Wertzuordnung nimmt eine Ersetzungstabelle, die die Seite noch nicht eingeben kann, eine Regel dieser Art lässt die Werte also unverändert\n- Konfliktlösung bei bidirektionalen Läufen: Quelle hat Vorrang, Ziel hat Vorrang, Neuestes hat Vorrang oder eine feldweise Zusammenführung\n- Tab „Echtzeit“: folgt den Änderungsereignissen (Change Data Capture), die die Quell-Org veröffentlicht, und schreibt jede Änderung sofort in das Ziel, gefunden über eine externe ID, die Datensatz-ID oder die Zuordnung einer gespeicherten Sync; Löschungen nur auf Wunsch. Um einem weiteren Objekt zu folgen, wählen Sie es in der Quell-Org unter Setup → Change Data Capture aus. Über eine Änderung, deren Zieldatensatz danach bearbeitet wurde, entscheidet die Strategie, oder sie wird auf dem Tab „Konflikte“ zurückgehalten\n- Entfernen, was ein Lauf erstellt hat: Aus den Ergebnissen oder dem Verlaufseintrag eines Laufs gibt sein Entfernen den Datensätzen, die er überschrieben hat — per Update oder per Upsert, der sie gefunden hat —, die Werte zurück, die sie vor ihm hatten, stellt aus dem Papierkorb wieder her, was ein Delta-Lauf gelöscht hat, weil die Quelle es gelöscht hatte, und löscht die Datensätze, die er eingefügt oder per Upsert geschrieben hat, wo das Ziel keinen hatte, und die Dateien, die er erstellt hat; Production Guard verweigert es in einer Produktions-Org. Die vorherigen Werte werden auf diesem Rechner für sandforge.backup.maxAgeDays aufbewahrt, und ein seit dem Lauf geänderter Datensatz bleibt, wie er ist, es sei denn, Sie schließen ihn ein. Eine Sitzung des Tabs Echtzeit wird ebenso aufbewahrt, von ihrem ersten Schreibvorgang bis zu ihrem Stopp: Sobald sie gestoppt ist, bietet „Frühere Sitzungen“ auf diesem Tab ihr Entfernen an",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Berechtigungen: welche Profile und Berechtigungssätze auf jeder Seite existieren\n- Snapshots: die Objekte beider Orgs, live erfasst beim Öffnen des Tabs\n- Drift: fünf Organization-Einstellungen nebeneinander (Name, Sprache, Gebietsschema, Zeitzone, Beginn des Geschäftsjahres)\n- Bereitstellung: Wählen Sie, was abweicht, validieren Sie es zuerst im Ziel und stellen Sie dann die Validierung in einer Sandbox bereit",
     "dataopsContent": "Datenoperationen in der ausgewählten Org:\n- Sicherung: ein Snapshot der Objekte, die die Anonymisierungsvorlagen maskieren, oder derer, die die gewählte Vorlage maskiert, im Speicher der Erweiterung abgelegt\n- Wiederherstellung: spielt eine Sicherung vollständig in die Org zurück, aus der sie stammt\n- Anonymisierung: maskiert Felder direkt mit einer integrierten Vorlage wie DSGVO, CCPA oder HIPAA; das ist nicht umkehrbar, also zuerst sichern\n- Qualität: zählt für die gewählten Objekte, wie oft jedes Feld gefüllt ist, welche Werte eines Schlüssels wie Name oder Email mehrere Datensätze teilen und wie viele Datensätze seit einer Anzahl von Tagen niemand geändert hat; die Org zählt selbst, und nichts wird Datensatz für Datensatz gelesen oder geschrieben\n- Compliance: findet die Felder der gewählten Objekte mit personenbezogenen Daten, bestätigt an einer Stichprobe ihrer letzten 200 Datensätze; findet dann die Datensätze einer Person über E-Mail, Name oder Telefon, exportiert sie in eine Datei und anonymisiert sie direkt oder löscht sie – nach einer Prüfung, einer eingetippten Bestätigung und Production Guard; ein lokales Protokoll hält Zahlen zu jeder Anfrage fest, nie die betroffene Person\n- Bereinigung: zählt die Datensätze, die seit einer Anzahl von Tagen niemand geändert hat, die, die ein Lookup-Feld leer lassen, auf das sich das Geschäft stützt, und die überzähligen Kopien eines wiederholten Werts; jede Gruppe lässt sich exportieren oder nach einer Prüfung, einer eingetippten Bestätigung und Production Guard löschen, höchstens 1.000 auf einmal",
     "automationContent": "Visueller Pipeline-Builder:\n- Die Palette bietet die Schritttypen an, die eine Pipeline ausführt: Sicherung, Vergleich, Vorabprüfung, Verzögerung und Benachrichtigung; ein Bedingungsschritt kommt mit einer Vorlage aus dem Marketplace. Eine Pipeline mit einem Schritt, der in eine Org schreibt, oder mit einem Skript-, Genehmigungs-, Schleifen- oder Parallel-Schritt wird abgelehnt, bevor sie startet\n- Eine Pipeline startet über die Schaltfläche Pipeline ausführen, zu den Zeiten, die ein Cron-Ausdruck nennt, solange VS Code geöffnet ist, oder wenn SandForge die Aktualisierung einer gewählten Sandbox bemerkt\n- Ausführungsverlauf: Status, Gesamtdauer und Fehler jeder Ausführung, was jeder ihrer Schritte getan hat, und die Starts, die ein Auslöser verpasst hat\n- Pipeline-Vorlagen aus dem Marketplace",
-    "forgeContent": "In vier Schritten:\n1. Fügen Sie eine Datensatz-ID oder Salesforce-URL ein und wählen Sie Quell- und Ziel-Org\n2. Graph ermitteln durchläuft die Beziehungen ab diesem Datensatz\n3. Legen Sie Tiefe, Datensätze pro Objekt und PII-Anonymisierung fest\n4. Prüfen Sie den Plan und führen Sie ihn aus: Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn\n\nDirekt klonen, unter Graph ermitteln, führt die Ermittlung und danach das Klonen des Gefundenen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Lauf wird so gesendet, wie die Überprüfung ihn sendet, wenn dort nichts geändert wurde, Production Guard beurteilt ihn wie jeden Lauf, und der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.\n\nGraph oder Tabelle: Die Bildschirme Ermittlung, Überprüfung und Ausführung zeichnen einen Graphen mit bis zu 25 Objekten und listen einen größeren in einer Tabelle. Der Umschalter Graph-Ansicht / Tabellenansicht wählt auf allen Bildschirmen die andere Ansicht, bis das Panel geschlossen wird; die Einstellung sandforge.forge.graphView (auto, graph oder table) wählt die Ansicht, mit der sie öffnen.\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
+    "forgeContent": "Die IDs werden beim Schreiben neu zugeordnet; ein Datensatztyp ohne aktiven Datensatztyp mit demselben API-Namen im Ziel behält seine Quell-Id, und das SandForge-Protokoll nennt ihn.\n\nDirekt klonen, unter Graph ermitteln, führt die Ermittlung und danach das Klonen des Gefundenen aus, ohne beim Graphen oder bei der Überprüfung anzuhalten: Der Lauf wird so gesendet, wie die Überprüfung ihn sendet, wenn dort nichts geändert wurde, Production Guard beurteilt ihn wie jeden Lauf, und der Metadatenvergleich zwischen den beiden Orgs wird nicht ausgeführt.\n\nGraph oder Tabelle: Die Bildschirme Ermittlung, Überprüfung und Ausführung zeichnen einen Graphen mit bis zu 25 Objekten und listen einen größeren in einer Tabelle. Der Umschalter Graph-Ansicht / Tabellenansicht wählt auf allen Bildschirmen die andere Ansicht, bis das Panel geschlossen wird; die Einstellung sandforge.forge.graphView (auto, graph oder table) wählt die Ansicht, mit der sie öffnen.\n\nTipp: Ein datensatzbezogener Klon kopiert, was dieser Datensatz braucht, keine ganzen Tabellen.",
     "frozenContent": "Das eingefrorene Dataset wird einmal aus einer Quell-Sandbox extrahiert und nach jeder Aktualisierung identisch erneut eingespielt:\n- Extraktion: Stammdatensätze nach Abdeckungsmatrix gewählt, innerhalb eines Volumenbudgets\n- Deterministische Pseudonymisierung mit einem Salt, das außerhalb des Repositorys bleibt\n- Eine Vier-Punkte-Prüfung muss bestanden sein, bevor das Dataset geschrieben wird\n- Laden: nur Sandboxes als Ziel, mit einem optionalen Pilot auf einem einzigen Stammvorgang vor dem vollständigen Laden und einer Verifizierung nach dem Laden",
     "grappeContent": "Grappe teilt eine große Operation in Partitionen und meldet den Fortschritt, sobald jede abgeschlossen ist:\n- Aktivieren Sie es mit der Einstellung sandforge.grappe.enabled\n- Ein Seed-Lauf oberhalb der Datensatzschwelle meldet jede Partition, eine Sync oberhalb dieser Schwelle meldet eine Partition je Objekt, und ein Autopilot-Lauf meldet nur seinen Beginn und sein Ende\n- Partitionen laufen nacheinander: Grappe macht einen Lauf nicht schneller",
     "aiContent": "Der KI-Assistent, mit Ihrem eigenen Anthropic-Schlüssel:\n- Chat, NL2SOQL im KI-Tab von Forge sowie eigene Personas und KI-Feldregeln in Seed\n- Pipeline-Entwürfe in der Automatisierung\n- Eine eingebaute Tabelle von Salesforce-Fehlercodes beantwortet die ihr bekannten Codes zuerst, auf Ihrem Rechner, ob die KI ein- oder ausgeschaltet ist, und sendet nichts\n- Nichts gesendet wird für eine feste Liste eigener Meldungen von SandForge, etwa eine abgelehnte Produktionsbestätigung, einen doppelten Lauf oder eine CRUD-, FLS- oder Production-Guard-Ablehnung, und für keinen Fehler ohne geöffnete SandForge-Ansicht\n- Bei eingeschalteter KI sendet jeder andere fehlgeschlagene Seed-, Sync-, DataOps- oder Automatisierungslauf seine Fehlermeldung mit durch <id> ersetzten Salesforce-IDs, und der Vorschlag kommt als VS-Code-Benachrichtigung zurück\n- Dieses Senden schalten Sie mit sandforge.ai.errorResolution ab: Der übrige Assistent arbeitet weiter\n- Die Schema-Empfehlungen des Vergleichs und der Anomalie-Scan des Monitors sind regelbasiert: Sie laufen mit ausgeschalteter KI und ohne Schlüssel\n- Konfigurieren Sie Ihren API-Schlüssel in Einstellungen > KI",
@@ -3080,6 +3080,115 @@
     "autopilotContent": "In drei Schritten:\n1. Wählen Sie Quell- und Ziel-Org\n2. Wählen Sie die zu kopierenden Objekte\n3. Prüfen Sie den Plan (Wellen, Datensätze, API-Aufrufe, PII-Felder) und starten Sie ihn. E-Mail-Adressen und Telefonnummern werden neutralisiert, sofern Sie das nicht abwählen — jede Adresse unter .invalid, jede Nummer fiktiv —, und unter Erweitert wählen Sie ein Compliance-Framework, das mehr anonymisiert (DSGVO, CCPA, HIPAA oder PCI-DSS)",
     "migrationContent": "Migration wandelt eine bestehende Migrationsdefinition in eine Sync-Konfiguration um:\n- Importieren Sie eine SFDMU-export.json oder eine .json- bzw. .csv-Datei\n- Der Import liest die Datei und ändert in keiner Org etwas\n- Das Ausführen der umgewandelten Konfiguration schreibt Datensätze in die Ziel-Org",
     "reportsContent": "Berichte zeigt, was die Läufe von SandForge getan haben:\n- Ausführungen: jeder Forge- und Sync-Lauf mit Status, Dauer und Datensatzanzahl, als JSON exportierbar\n- Analysen: Erfolgsquoten, berechnet aus diesen Läufen\n- Audit-Protokoll: jeder Lauf, der in eine Org schreibt — ein Forge-Klon, ein Sync, ein Seed, ein CSV-Import, ein Datensatz-Klon, ein Autopilot-Lauf, eine Wiederherstellung, eine Maskierung oder das Laden eines eingefrorenen Datasets — mit dem, was er in jedes Objekt geschrieben hat, und wie Production Guard entschieden hat\n- Datenherkunft: woher die Datensätze kamen, die ein Lauf geschrieben hat — aus einer anderen Org, aus generierten Daten, einer CSV-Datei, einer Sicherung oder einem eingefrorenen Dataset — und wie viele je Objekt"
+  },
+  "howTo": {
+    "title": "Anleitung",
+    "tipLabel": "Tipp:",
+    "forge": {
+      "step1": "Wählen Sie die Ziel-Org; die Quell-Org ist bereits die im Seitenpanel ausgewählte Org.",
+      "step2": "Fügen Sie auf dem Tab Datensatz eine Datensatz-ID oder Salesforce-URL ein und klicken Sie auf Graph ermitteln.",
+      "step3": "Klicken Sie nach Abschluss der Ermittlung auf Überprüfen & Ausführen.",
+      "step4": "Klicken Sie auf Forge ausführen und lesen Sie nach dem Durchlauf die Karte Eingefügt ab.",
+      "tip": "Simulieren, neben Forge ausführen, schreibt nichts; Die von diesem Durchlauf erstellten Datensätze entfernen, nach dem Durchlauf und unter Letzte Durchläufe, löscht sie."
+    },
+    "seed": {
+      "step1": "Klicken Sie unter Schnell-Seed aus Vorlage bei CRM-Starter, markiert mit Hier beginnen, auf Diese verwenden.",
+      "step2": "Prüfen Sie die Anzahlen unter Datensatzanzahl und wählen Sie die Org unter Ziel-Org auswählen.",
+      "step3": "Klicken Sie auf Seed starten und verfolgen Sie den Fortschritt jedes Objekts bis zu den Ergebnissen.",
+      "step4": "Klicken Sie in den Ergebnissen auf Ersten erstellten Datensatz (Account) in Ihrer Org öffnen, um die Daten zu sehen.",
+      "tip": "Vor Seed starten wird nichts geschrieben; danach macht Entfernen, was dieser Lauf erstellt hat (in den Ergebnissen oder unter Frühere Seeds), den Seed rückgängig."
+    },
+    "checkpoint": {
+      "step1": "Wählen Sie oben in der Org-Liste eine Sandbox, eine Scratch-Org oder eine Developer-Edition-Org.",
+      "step2": "Klicken Sie auf Prüfpunkt erstellen, lesen Sie Vor dem Start und klicken Sie auf Den Prüfpunkt erstellen, dann auf Fertig.",
+      "step3": "Um die Org auf diesen Stand zurückzusetzen, klicken Sie in der Zeile des Prüfpunkts auf Zurücksetzen… Die Vorschau schreibt nichts.",
+      "step4": "Setzen Sie jedes Häkchen, das die Vorschau verlangt, und klicken Sie auf die Zurücksetzen-Schaltfläche mit dem Org-Namen.",
+      "step5": "Geben Sie den Namen ein, den der Dialog anzeigt, und klicken Sie auf Bestätigen.",
+      "tip": "Zurücksetzen macht alle Änderungen seit dem Prüfpunkt rückgängig, nicht nur Ihre. Mit Dieses Zurücksetzen rückgängig machen nehmen Sie es bis zu 15 Tage lang zurück."
+    },
+    "sync": {
+      "step1": "Klicken Sie auf dem Tab Sync auf Schnell-Sync starten.",
+      "step2": "Wählen Sie die Quell-Org und die Ziel-Org, dann klicken Sie auf Weiter.",
+      "step3": "Wählen Sie Objekte unter Vorgeschlagene Objekte oder über die Suche aus, dann klicken Sie auf Weiter.",
+      "step4": "Prüfen Sie Datensätze gesamt in der Vorschau, dann klicken Sie auf Jetzt synchronisieren.",
+      "tip": "Ein Schnell-Sync fügt bei jedem Lauf alle Datensätze ein; außer in einer Produktions-Org bieten seine Ergebnisse die Schaltfläche Entfernen, was dieser Lauf erstellt hat."
+    },
+    "autopilot": {
+      "step1": "Wählen Sie eine Org unter Quell-Org und eine andere unter Ziel-Org, dann klicken Sie auf Weiter.",
+      "step2": "Markieren Sie jedes Objekt, das kopiert werden soll, dann klicken Sie auf Weiter.",
+      "step3": "Prüfen Sie im Schritt Plan überprüfen die Angaben Datensätze gesamt und Was der Plan kopiert.",
+      "step4": "Klicken Sie auf Autopilot ausführen und verfolgen Sie jede Welle unter Live-Statistiken in der Steuerung.",
+      "tip": "SandForge kann nicht entfernen, was ein Autopilot-Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können."
+    },
+    "frozen": {
+      "step1": "Geben Sie auf dem Tab Extrahieren das Stammobjekt (Vorgang) ein und klicken Sie auf Konfiguration speichern.",
+      "step2": "Klicken Sie auf Auswahl starten: Die Stammdatensätze werden aus der im Seitenpanel ausgewählten Org gewählt.",
+      "step3": "Legen Sie die Pseudonymisierungsregeln in ~/.sandforge-sas/rules.json ab und klicken Sie auf Extraktion starten.",
+      "step4": "Wählen Sie auf dem Tab Laden die zu befüllende Ziel-Org (Sandbox) und klicken Sie auf Ladevorgang starten.",
+      "step5": "Lesen Sie die Prüfung nach dem Laden, die auf den Ladevorgang folgt; Erneut prüfen führt sie noch einmal aus.",
+      "tip": "Vorschau schreibt nichts, ein Ladevorgang geht nie in eine Produktions-Org, und Die von diesem Ladevorgang erstellten Datensätze entfernen löscht sie."
+    },
+    "compare": {
+      "step1": "Wählen Sie eine Quell-Org und eine andere Ziel-Org.",
+      "step2": "Klicken Sie unter Kategorien auf die zu vergleichenden Typen oder auf Alle auswählen.",
+      "step3": "Klicken Sie auf Vergleich starten, öffnen Sie in der Diff-Ansicht eine Gruppe und klicken Sie auf eine Änderung.",
+      "step4": "Haken Sie unter Aus Diff bereitstellen die Komponenten an und klicken Sie auf die Validieren-Schaltfläche mit dem Zielnamen.",
+      "step5": "Ist die Validierung erfolgreich, klicken Sie auf die Bereitstellen-Schaltfläche mit dem Zielnamen, geben Sie ihn ein und klicken Sie auf Bestätigen.",
+      "tip": "Der Vergleich schreibt nichts. Aus Diff bereitstellen validiert zuerst im Ziel, löscht dort nichts und lehnt eine Produktions-Org als Ziel ab."
+    },
+    "dataops": {
+      "step1": "Prüfen Sie die oben auf der Seite genannte Org und öffnen Sie dann die Registerkarte Anonymisieren.",
+      "step2": "Wählen Sie unter Vorlage auswählen eine Vorlage; ihre Karte listet jedes Feld auf, das sie maskiert.",
+      "step3": "Klicken Sie auf Vorschau: Die ersten Datensätze zeigen Original neben Maskiert, und nichts wird geschrieben.",
+      "step4": "Klicken Sie auf Anwenden, lassen Sie das Kästchen Die Werte vorher aufbewahren angehakt, geben Sie Anonymisieren ein und klicken Sie auf Bestätigen.",
+      "tip": "Sofern Sie Die Werte vorher aufbewahren nicht deaktivieren, sichert Anwenden die Werte, die es maskiert: Klicken Sie auf In „Wiederherstellen“ öffnen und dann auf Wiederherstellen, um sie zurückzuschreiben."
+    },
+    "monitor": {
+      "step1": "Zeigt die Seite Org zum Überwachen auswählen, klicken Sie auf die Org, die Sie beobachten möchten.",
+      "step2": "Lesen Sie den Gesundheitswert und klicken Sie dann auf Vollständigen Bericht anzeigen, um seine Faktoren und Empfehlungen zu sehen.",
+      "step3": "Klicken Sie unter Aktuelle Apex-Jobs auf Fehlgeschlagen, um nur die fehlgeschlagenen Jobs zu sehen, nach Apex-Klasse gruppiert.",
+      "step4": "Klicken Sie auf den Pfeil neben Governor-Limits, um alle Limits aufzulisten, die meistgenutzten zuerst.",
+      "step5": "Klicken Sie auf die Uhr-Schaltfläche Automatisch aktualisieren, damit die Org alle 30 Sekunden neu gelesen wird.",
+      "tip": "Trends bleibt leer, bis SandForge zwei Stände der Limits gespeichert hat; es speichert höchstens einen pro 15 Minuten, 7 Tage lang."
+    },
+    "automation": {
+      "step1": "Klicken Sie oben auf der Seite auf Pipeline erstellen.",
+      "step2": "Klicken Sie unter Schritte auf einen Schritt wie Vorabprüfung, um ihn dem Pipeline-Canvas hinzuzufügen.",
+      "step3": "Klicken Sie im Canvas auf den Schritt und füllen Sie seine Felder unter Schrittkonfiguration aus.",
+      "step4": "Klicken Sie auf Pipeline speichern und dann auf Pipeline ausführen, sobald kein Schritt als Nicht ausführbar markiert ist.",
+      "step5": "Öffnen Sie den Tab Verlauf, um zu sehen, was jeder Schritt des Laufs getan hat.",
+      "tip": "Nur ein Sync-Schritt schreibt in eine Org, und einer, der in eine Org schreibt, bei der Production Guard nachfragt, braucht einen Genehmigungsschritt davor."
+    },
+    "migration": {
+      "step1": "Wählen Sie die Art Ihrer Datei: SFDMU export.json oder CSV- oder JSON-Datei.",
+      "step2": "Geben Sie unter Dateipfad den absoluten Pfad der Datei ein und klicken Sie auf Importieren.",
+      "step3": "Prüfen Sie unter Objektgruppe für jedes Objekt die Operation, die Externe ID und die WHERE-Klausel.",
+      "step4": "Wählen Sie unter Diesen Import ausführen die Quell-Org und die Ziel-Org, dann klicken Sie auf Sync starten.",
+      "step5": "Um den Import später erneut auszuführen, benennen Sie ihn und klicken Sie auf Als Sync-Konfiguration speichern.",
+      "tip": "Importieren schreibt in keine Org; erst Sync starten schreibt in die Ziel-Org, nachdem Production Guard den Lauf beurteilt hat."
+    },
+    "reports": {
+      "step1": "Klicken Sie unter Ausführungen auf einen Forge- oder Sync-Lauf, um seine Details unter der Liste zu lesen.",
+      "step2": "Öffnen Sie Audit-Protokoll, um jeden Lauf zu sehen, der in eine Org schreibt, den neuesten zuerst.",
+      "step3": "Grenzen Sie die Liste mit Nach Aktion filtern, Nach Modul filtern oder Nach Org filtern ein.",
+      "step4": "Klicken Sie bei einem Eintrag auf Lauf ansehen, um unter Datenherkunft zu sehen, woher seine Datensätze kamen.",
+      "step5": "Klicken Sie auf Als CSV exportieren oder Als JSON exportieren, um das Protokoll wie gefiltert zu speichern.",
+      "tip": "Berichte schreibt in keine Org; Als CSV exportieren und Als JSON exportieren speichern jeden Eintrag, den die Filter treffen, nicht nur die angezeigten."
+    },
+    "grappe": {
+      "step1": "Klicken Sie auf Grappe-Einstellung öffnen und aktivieren Sie sandforge.grappe.enabled.",
+      "step2": "Lassen Sie die Grappe-Seite geöffnet, öffnen Sie Seed im Seitenpanel und starten Sie einen Seed-Lauf ab 10.000 Datensätzen.",
+      "step3": "Kehren Sie während des Laufs zur Grappe-Seite zurück: Aktive Ausführung zeigt den Fortschritt jeder Partition.",
+      "step4": "Lesen Sie nach dem Ende des Laufs die Summen auf den Karten Partitionen, Datensätze, verarbeitet und fehlgeschlagen ab.",
+      "tip": "Senken Sie sandforge.grappe.autoActivateThreshold, um kleinere Läufe zu verfolgen; Grappe führt selbst nichts aus und macht keinen Lauf schneller."
+    },
+    "ai": {
+      "step1": "Zeigt die Seite KI-Assistent nicht konfiguriert, klicken Sie auf Zu den Einstellungen und dann auf die Registerkarte KI.",
+      "step2": "Fügen Sie Ihren Anthropic-Schlüssel unter API-Schlüssel ein und klicken Sie auf Schlüssel speichern und KI aktivieren.",
+      "step3": "Öffnen Sie wieder die Seite KI-Assistent und klicken Sie auf Neue Unterhaltung.",
+      "step4": "Geben Sie Ihre Frage in das Nachrichtenfeld ein und drücken Sie Enter oder klicken Sie auf Senden.",
+      "tip": "Der Chat liest keine Ihrer Orgs: Fügen Sie den Fehler, die Abfrage oder die Feldnamen, um die es geht, in Ihre Frage ein."
+    }
   },
   "emptyState": {
     "connectViaSfdx": "Verbinden Sie eine Org (Anmeldung im Browser)",

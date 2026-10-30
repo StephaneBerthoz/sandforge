@@ -19,6 +19,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { ProgressAnnouncer } from '../../components/ui/ProgressBar';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { PartBoundary } from '../../components/ui/PartBoundary';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Forge phase variants for AnimatePresence transitions. */
 const variants = pageTransition(1);
@@ -119,6 +120,7 @@ export const ForgePage: React.FC = () => {
   return (
     <div ref={pageRef} className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('moduleSummary.forge')} icon="flame" />
+      <ModuleHowTo module="forge" />
       {/* A finished run is spoken from the results screen. One an error or an
           abort stopped stays on the execution screen, which the page can
           leave and come back to: this region outlives it, and says where the

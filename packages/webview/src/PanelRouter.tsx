@@ -42,6 +42,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'forge',
+    'howTo',
     'moduleSummary',
     'orgAutomation',
     'runRemoval',
@@ -50,6 +51,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
   frozen: page(() => import('./pages/Frozen/FrozenPage'), 'FrozenPage', [
     'errors',
     'frozen',
+    'howTo',
     'orgAutomation',
     'runRemoval',
     'runResults',
@@ -58,13 +60,15 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'checkpoint',
     'emptyState',
     'errors',
+    'howTo',
     'moduleSummary',
   ]),
-  grappe: page(() => import('./pages/Grappe/GrappePage'), 'GrappePage', ['grappe']),
+  grappe: page(() => import('./pages/Grappe/GrappePage'), 'GrappePage', ['grappe', 'howTo']),
   monitor: page(() => import('./pages/Monitor/MonitorPage'), 'MonitorPage', [
     'emptyState',
     'errors',
     'governance',
+    'howTo',
     'monitor',
   ]),
   compare: page(() => import('./pages/Compare/ComparePage'), 'ComparePage', [
@@ -72,27 +76,32 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'compareParts',
     'emptyState',
     'errors',
+    'howTo',
     'list',
   ]),
   dataops: page(() => import('./pages/DataOps/DataOpsPage'), 'DataOpsPage', [
     'dataops',
     'emptyState',
     'errors',
+    'howTo',
   ]),
   automation: page(() => import('./pages/Automation/AutomationPage'), 'AutomationPage', [
     'ai',
     'automation',
     'compareParts',
     'errors',
+    'howTo',
     'syncParts',
   ]),
   migration: page(() => import('./pages/Migration/MigrationPage'), 'MigrationPage', [
     'errors',
+    'howTo',
     'migration',
     'syncParts',
   ]),
   reports: page(() => import('./pages/Reports/ReportsContainer'), 'ReportsContainer', [
     'errors',
+    'howTo',
     'reports',
   ]),
   settings: page(() => import('./pages/Settings/SettingsPage'), 'SettingsPage', [
@@ -100,12 +109,13 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'errors',
     'settings',
   ]),
-  help: page(() => import('./pages/Help/HelpPage'), 'HelpPage', ['help', 'moduleSummary']),
+  help: page(() => import('./pages/Help/HelpPage'), 'HelpPage', ['help', 'howTo', 'moduleSummary']),
   // Legacy routes (kept for backwards compat)
   seed: page(() => import('./pages/Seed/SeedPage'), 'SeedPage', [
     'emptyState',
     'errors',
     'grappe',
+    'howTo',
     'list',
     'moduleSummary',
     'orgAutomation',
@@ -118,6 +128,7 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'grappe',
+    'howTo',
     'list',
     'pagination',
     'quickSync',
@@ -130,10 +141,11 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'emptyState',
     'errors',
     'grappe',
+    'howTo',
     'moduleSummary',
     'runResults',
   ]),
-  ai: page(() => import('./pages/AI/AIPage'), 'AIPage', ['ai', 'errors']),
+  ai: page(() => import('./pages/AI/AIPage'), 'AIPage', ['ai', 'errors', 'howTo']),
 };
 
 /** How long a page's chunk is waited for before the wait is shown. */

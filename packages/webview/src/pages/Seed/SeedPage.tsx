@@ -23,6 +23,7 @@ import {
 } from './seedFlows';
 import { ScenarioCards } from './Scenario/ScenarioCards';
 import type { ScenarioPicked } from './Scenario/scenarioPacks';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /**
  * What the Seed page shows: its start — the template gallery, the other ways
@@ -231,6 +232,8 @@ export const SeedPage: React.FC = () => {
       {seedMode !== 'generate' && (
         <PageHeader title={t('seed.title')} subtitle={getPageSubtitle()} icon="database" />
       )}
+
+      {seedMode === 'start' && <ModuleHowTo module="seed" />}
 
       {/* Back to the start, from the CSV import or the clone */}
       {(seedMode === 'csv' || seedMode === 'clone') && !flowRunning && (

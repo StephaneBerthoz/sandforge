@@ -57,6 +57,7 @@ import { ForgeCurrenciesResult } from '../Forge/ForgeCurrenciesResult';
 import { PriceCurrenciesResult } from '../Forge/PriceCurrenciesResult';
 import { ForgeContactPointsResult } from '../Forge/ForgeContactPointsResult';
 import { SyncWrittenLines, hasWrittenLines } from './SyncWrittenLines';
+import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 
 /** Tab options for the Sync page. */
 type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
@@ -388,6 +389,7 @@ export const SyncPage: React.FC = () => {
           </div>
         }
       />
+      <ModuleHowTo module="sync" />
 
       {error && (
         <ErrorBanner message={error} code={null} onDismiss={clearError} data-testid="sync-error" />

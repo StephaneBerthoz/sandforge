@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../stores/useAppStore';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
+import { HowToSteps } from '../../components/ui/ModuleHowTo';
+import { hasHowTo, howToKeys } from '../../components/ui/moduleHowTo';
 
 /** Accordion section definition. */
 interface HelpSection {
@@ -174,7 +176,18 @@ export const HelpPage: React.FC = () => {
       const title = t(section.titleKey).toLowerCase();
       const summary = section.summaryKey ? t(section.summaryKey).toLowerCase() : '';
       const content = t(section.contentKey).toLowerCase();
-      return title.includes(query) || summary.includes(query) || content.includes(query);
+      const howTo = hasHowTo(section.id)
+        ? howToKeys(section.id)
+            .map((key) => t(key))
+            .join(' ')
+            .toLowerCase()
+        : '';
+      return (
+        title.includes(query) ||
+        summary.includes(query) ||
+        howTo.includes(query) ||
+        content.includes(query)
+      );
     });
   }, [searchQuery, t]);
 
@@ -276,6 +289,17 @@ export const HelpPage: React.FC = () => {
                     >
                       {t(section.summaryKey)}
                     </p>
+                  )}
+                  {hasHowTo(section.id) && (
+                    <div className="mb-3" style={{ whiteSpace: 'normal' }}>
+                      <p
+                        className="mb-1 text-xs font-semibold"
+                        style={{ color: 'var(--sf-text-primary)' }}
+                      >
+                        {t('howTo.title')}
+                      </p>
+                      <HowToSteps module={section.id} />
+                    </div>
                   )}
                   {t(section.contentKey)}
                 </div>

@@ -2,6 +2,20 @@
 
 Keep the state of an org's data at a moment on this machine, and return the org to it later. Take a checkpoint before a test session, a demo or a training; afterwards, Rewind puts the data of the org back as it was at the checkpoint, whoever changed it since -- you, your testers, flows or integrations. Records created since are deleted, records changed since get their checkpoint values back field by field, and records deleted since come back from the recycle bin with their original Ids -- or, once the bin no longer holds them and you accept it, are made again from the checkpoint with new Ids. Before it writes anything, Rewind shows what it will change, who last changed it, what the org runs in answer and what it cannot take back; it keeps what it changes, so a rewind can be undone; and once through, it reads the org again and names what still differs, with why.
 
+<!-- how-to:start: written by scripts/sync-module-howto.mjs from howTo.checkpoint in packages/webview/src/i18n/locales/en.json -->
+
+## How to
+
+1. Pick a sandbox, scratch org or Developer Edition in the org list at the top.
+2. Click Take a checkpoint, read Before it runs, click Take the checkpoint, then Done.
+3. To return the org to it, click Rewind… on the checkpoint's row: the preview writes nothing.
+4. Tick any box the preview asks for, then click the Rewind button that names the org.
+5. Type the name the dialog shows, then click Confirm.
+
+**Tip:** Rewind undoes everyone's changes since the checkpoint, not only yours. Undo this rewind takes it back for up to 15 days.
+
+<!-- how-to:end -->
+
 A DataOps backup is a copy of some objects: its Restore writes the copy back and brings back deleted records, and never deletes what was added. A checkpoint is the state of an org's data at a moment: its Rewind deletes what was added, gives back what changed and brings back what was deleted, whoever did it -- with View All Data and Modify All Data; with View All and Modify All per object, a record another user deleted is named and left in the recycle bin, as only those two permissions restore it.
 
 Before you start, know four things:
