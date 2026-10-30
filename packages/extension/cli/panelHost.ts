@@ -47,6 +47,7 @@ import type { OrgIdentity } from '../src/core/connection/AuthProvider.js';
 import { SfdxBridge } from '../src/core/connection/SfdxBridge.js';
 import { CompareOrchestrator } from '../src/modules/compare/CompareOrchestrator.js';
 import { PipelineOrchestrator } from '../src/modules/automation/PipelineOrchestrator.js';
+import { SeedOrchestrator } from '../src/modules/seed/SeedOrchestrator.js';
 import { LiveOperationTracker } from '../src/modules/monitor/LiveOperationTracker.js';
 import type { Services } from '../src/services.js';
 
@@ -215,7 +216,9 @@ export function problemLine(message: PostedMessage): string | undefined {
  * The Services bundle, cut down to what the routed handlers read.
  *
  * `createServices` builds it from the VS Code API, which is not here. The
- * compare and pipeline factories are the ones it declares; a setting reads as
+ * compare, pipeline and seed factories are the ones it declares (a pipeline's
+ * Seed step builds its orchestrator through the last: without it the step
+ * failed "seedOrchestrator is not a function"); a setting reads as
  * its manifest default, which is what VS Code answers for a setting nobody
  * changed. There is no window to show a notification in, so a pipeline's
  * Notification step writes its message to the log instead.
@@ -228,6 +231,7 @@ function headlessServices(
     Services,
     | 'compareOrchestrator'
     | 'automationOrchestrator'
+    | 'seedOrchestrator'
     | 'getSandforgeSetting'
     | 'isAIEnabled'
     | 'configStore'
@@ -235,6 +239,7 @@ function headlessServices(
   > = {
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),
     automationOrchestrator: (deps) => new PipelineOrchestrator(deps),
+    seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
     isAIEnabled: () => false,
     configStore,

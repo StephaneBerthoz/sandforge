@@ -113,6 +113,26 @@ describe('createPanelHost', () => {
     }
   });
 
+  it("hands the handlers the seed orchestrator factory a pipeline's Seed step builds its run with", () => {
+    // Without it, a Seed step in a headless host failed "this.deps.services
+    // .seedOrchestrator is not a function" (live gate E1, 2026-10-30).
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-host-test-'));
+    try {
+      let seeded: unknown;
+      createPanelHost({
+        storeDir: dir,
+        log: () => undefined,
+        waitMs: 5_000,
+        compose: ({ services }) => {
+          seeded = services.seedOrchestrator;
+        },
+      });
+      expect(typeof seeded).toBe('function');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('ends the wait on the error a handler answers on its own channel', async () => {
     // A clone preview of an org nobody registered: the handler says so on
     // `seed:clone:error` at once, and the host reported "unanswered" once it
