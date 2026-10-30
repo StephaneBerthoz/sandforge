@@ -170,5 +170,12 @@
   "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Estos registros hacen que los flujos de {0} envíen unos {1} correos de flujo de trabajo. Lo que le queda hoy no se pudo leer ({2}), así que no se sabe si caben.",
   "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.": "No se pudo leer lo que {0} ejecuta en estos objetos ({1}), así que los correos que sus flujos envían al entrar los registros no se contaron contra sus límites diarios.",
   "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} solo da sus límites a un usuario con «Ver configuración»: puede que el usuario con el que se conecta SandForge no lo tenga.",
-  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "La ejecución usa unas {0} solicitudes de API, y a {1} le quedan {2} de sus {3} solicitudes diarias: dejaría a la org con menos de una décima parte."
+  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "La ejecución usa unas {0} solicitudes de API, y a {1} le quedan {2} de sus {3} solicitudes diarias: dejaría a la org con menos de una décima parte.",
+  "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.": "SandForge escribe y lee un archivo de punto de control en el disco de la máquina donde se ejecuta: elija una carpeta de ese disco.",
+  "SandForge checkpoint": "Punto de control de SandForge",
+  "Export the checkpoint, encrypted": "Exportar el punto de control, cifrado",
+  "Export": "Exportar",
+  "Import a checkpoint file": "Importar un archivo de punto de control",
+  "Import": "Importar",
+  "All files": "Todos los archivos"
 }

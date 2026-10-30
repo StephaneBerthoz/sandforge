@@ -6089,6 +6089,48 @@
       "noMatch": "Kein Feld passt.",
       "ticked_one": "{{formatted}} Feld nicht verglichen",
       "ticked_other": "{{formatted}} Felder nicht verglichen"
+    },
+    "transfer": {
+      "export": "Exportieren…",
+      "import": "Importieren…",
+      "exported": {
+        "title": "„{{name}}“ exportiert",
+        "saved": "Als {{file}} gespeichert, verschlüsselt: {{records}} aus {{objects}}, {{size}}.",
+        "key": "Der Schlüssel, nur dieses eine Mal angezeigt und nirgends aufbewahrt",
+        "copy": "Schlüssel kopieren",
+        "copied": "Schlüssel kopiert",
+        "whoReads_one": "Wer diese Datei und ihren Schlüssel hat, kann den Datensatz von {{org}} lesen, den sie enthält, personenbezogene Daten eingeschlossen. Senden Sie den Schlüssel auf einem anderen Weg als die Datei, und nur an Personen, die bereits alle Daten in {{org}} sehen.",
+        "whoReads_other": "Wer diese Datei und ihren Schlüssel hat, kann die {{formatted}} Datensätze von {{org}} lesen, die sie enthält, personenbezogene Daten eingeschlossen. Senden Sie den Schlüssel auf einem anderen Weg als die Datei, und nur an Personen, die bereits alle Daten in {{org}} sehen.",
+        "noExpiry": "Die Datei läuft nicht ab: Löschen Sie sie, sobald sie gedient hat. Sie enthält weder die Journale der von diesem Rechner aus gemachten Zurücksetzungen noch deren Rückgängigmachen, die hier bleiben.",
+        "done": "Fertig"
+      },
+      "importDialog": {
+        "title": "Prüfpunkt importieren",
+        "read": "{{file}}, wie sein Kopf ihn beschreibt: Nichts wird entschlüsselt, bevor Sie ihn importieren.",
+        "org": "Org",
+        "records": "Enthält",
+        "recordsValue": "{{records}} aus {{objects}}",
+        "taken": "Erstellt",
+        "madeBy": "Erstellt mit",
+        "madeByValue": "SandForge {{version}}",
+        "format": "Format",
+        "formatValue": "Dateiformat {{fileFormat}}, Prüfpunktformat {{dataFormat}}",
+        "size": "Auf diesem Rechner",
+        "keptHere": "Ein Prüfpunkt mit dieser ID ist auf diesem Rechner bereits gespeichert: Der Import lässt ihn unverändert, wenn er derselbe ist, und wird abgelehnt, wenn nicht.",
+        "notConnected": "Keine in SandForge verbundene Org ist die Org, deren Prüfpunkt diese Datei enthält, Organization Id {{id}}: Verbinden Sie sie, dann importieren Sie die Datei.",
+        "importFor": "Importieren für",
+        "key": "Schlüssel, mit dem die Datei exportiert wurde",
+        "keyHint": "52 Buchstaben und Ziffern, mit oder ohne Bindestriche. Wird bei der Eingabe nicht angezeigt.",
+        "keptFor": "Auf diesem Rechner bis {{date}} aufbewahrt, es sei denn, Sie bewahren ihn auf, bis Sie ihn löschen.",
+        "notCompared": "Ein Feld, das Ihr Benutzer in {{org}} nicht sieht, wird von einem Zurücksetzen von diesem Rechner aus weder verglichen noch zurückgeschrieben: Seine Vorschau nennt es nicht verglichen.",
+        "lock": "Zurücksetzungen von {{org}} von zwei Rechnern zugleich behindern sich: Die Sperre gilt pro Rechner. Sprechen Sie ab, wer zurücksetzt.",
+        "undoStays": "Die Zurücksetzungen, die vom Ursprungsrechner aus gemacht wurden, und deren Rückgängigmachen sind dort geblieben.",
+        "confirm": "Importieren",
+        "importedUntil": "„{{name}}“ importiert: Jetzt unter den Prüfpunkten von {{org}} aufgeführt und bis {{date}} aufbewahrt.",
+        "importedForever": "„{{name}}“ importiert: Jetzt unter den Prüfpunkten von {{org}} aufgeführt und aufbewahrt, bis Sie ihn löschen.",
+        "alreadyKept": "„{{name}}“ ist auf diesem Rechner bereits gespeichert, unverändert: Er wurde so belassen.",
+        "done": "Fertig"
+      }
     }
   }
 }

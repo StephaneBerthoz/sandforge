@@ -6089,6 +6089,48 @@
       "noMatch": "No field matches.",
       "ticked_one": "{{formatted}} field not compared",
       "ticked_other": "{{formatted}} fields not compared"
+    },
+    "transfer": {
+      "export": "Export…",
+      "import": "Import…",
+      "exported": {
+        "title": "“{{name}}” exported",
+        "saved": "Saved as {{file}}, encrypted: {{records}} of {{objects}}, {{size}}.",
+        "key": "The key, shown this once and kept nowhere",
+        "copy": "Copy the key",
+        "copied": "Key copied",
+        "whoReads_one": "Anyone who has this file and its key can read the record it holds of {{org}}, personal data among them. Send the key another way than the file, and only to people who already see all data in {{org}}.",
+        "whoReads_other": "Anyone who has this file and its key can read the {{formatted}} records it holds of {{org}}, personal data among them. Send the key another way than the file, and only to people who already see all data in {{org}}.",
+        "noExpiry": "The file does not expire: delete it once it has served. It carries neither the journals of the rewinds made from this machine nor their Undo, which stay here.",
+        "done": "Done"
+      },
+      "importDialog": {
+        "title": "Import a checkpoint",
+        "read": "{{file}}, as its header says it: nothing is decrypted before you import it.",
+        "org": "Org",
+        "records": "Holds",
+        "recordsValue": "{{records}} of {{objects}}",
+        "taken": "Taken",
+        "madeBy": "Made by",
+        "madeByValue": "SandForge {{version}}",
+        "format": "Format",
+        "formatValue": "file format {{fileFormat}}, checkpoint format {{dataFormat}}",
+        "size": "On this machine",
+        "keptHere": "A checkpoint of this id is kept on this machine already: the import leaves it as it is when it is the same, and is refused when it is not.",
+        "notConnected": "No org connected in SandForge is the org this file holds a checkpoint of, Organization Id {{id}}: connect it, then import the file.",
+        "importFor": "Import for",
+        "key": "Key the file was exported with",
+        "keyHint": "52 letters and digits, with their dashes or without. Not shown as you type it.",
+        "keptFor": "Kept on this machine until {{date}}, unless you keep it until you delete it.",
+        "notCompared": "A field your user cannot see in {{org}} is not compared by a rewind from this machine, nor written back: its preview names it not compared.",
+        "lock": "Rewinds of {{org}} from two machines at once fight each other: the lock is per machine. Agree on who rewinds.",
+        "undoStays": "The rewinds made from the machine it came from, and their Undo, stayed there.",
+        "confirm": "Import",
+        "importedUntil": "Imported “{{name}}”: listed now among the checkpoints of {{org}}, and kept until {{date}}.",
+        "importedForever": "Imported “{{name}}”: listed now among the checkpoints of {{org}}, and kept until you delete it.",
+        "alreadyKept": "“{{name}}” is kept on this machine already, the same: it was left as it is.",
+        "done": "Done"
+      }
     }
   }
 }

@@ -6,13 +6,14 @@ import { CheckpointList } from './CheckpointList';
 import { listEntry, polyfillDialog, readyCheckpoint } from './testing/checkpointFixtures';
 
 /** The list rendered with spies for what it asks the page to do. */
-function renderList(entries = [listEntry()], focusRewind?: string) {
+function renderList(entries = [listEntry()], focusRewind?: string, exporting?: string) {
   const onRename = vi.fn();
   const onKeep = vi.fn();
   const onDelete = vi.fn();
   const onRewind = vi.fn();
   const onUndo = vi.fn();
   const onStopComparing = vi.fn();
+  const onExport = vi.fn();
   render(
     <CheckpointList
       entries={entries}
@@ -23,10 +24,12 @@ function renderList(entries = [listEntry()], focusRewind?: string) {
       onRewind={onRewind}
       onUndo={onUndo}
       onStopComparing={onStopComparing}
+      onExport={onExport}
+      {...(exporting ? { exporting } : {})}
       {...(focusRewind ? { focusRewind } : {})}
     />,
   );
-  return { onRename, onKeep, onDelete, onRewind, onUndo, onStopComparing };
+  return { onRename, onKeep, onDelete, onRewind, onUndo, onStopComparing, onExport };
 }
 
 /** A checkpoint whose org's last rewind was made to it, and which can still be undone. */
@@ -123,9 +126,42 @@ describe('CheckpointList', () => {
       expect(screen.queryByTestId(`checkpoint-keep-${entry.checkpointId}`)).toBeNull();
       expect(screen.queryByTestId(`checkpoint-rename-${entry.checkpointId}`)).toBeNull();
       expect(screen.queryByTestId(`checkpoint-rewind-${entry.checkpointId}`)).toBeNull();
+      expect(screen.queryByTestId(`checkpoint-export-${entry.checkpointId}`)).toBeNull();
       expect(screen.getByTestId(`checkpoint-delete-${entry.checkpointId}`)).toBeInTheDocument();
     },
   );
+
+  it('offers no Export… for a checkpoint being taken, one whose take failed, nor one whose file cannot be read', () => {
+    const taking = readyCheckpoint({ checkpointId: 'ck-20261021-090000-aaaa', status: 'taking' });
+    const failed = readyCheckpoint({ checkpointId: 'ck-20261021-090000-bbbb', status: 'failed' });
+    renderList([
+      listEntry(taking, { valid: false, why: 'taking' }),
+      listEntry(failed, { valid: false, why: 'failed' }),
+      listEntry(null, { checkpointId: 'ck-20261019-090000-dead', valid: false, why: 'damaged' }),
+      listEntry(),
+    ]);
+    expect(screen.getAllByRole('button', { name: 'Export…' })).toHaveLength(1);
+    expect(screen.getByTestId(`checkpoint-export-${ID}`)).toHaveAccessibleDescription('Before UAT');
+  });
+
+  it('asks the page to export the checkpoint of the row', () => {
+    const { onExport } = renderList();
+    fireEvent.click(screen.getByTestId(`checkpoint-export-${ID}`));
+    expect(onExport).toHaveBeenCalledWith(ID);
+  });
+
+  it('says an export under way on its Export…, kept focusable, and holds the others until it ends', () => {
+    const other = readyCheckpoint({ checkpointId: 'ck-20261021-090000-cccc', name: 'Before demo' });
+    const { onExport } = renderList([listEntry(), listEntry(other)], undefined, ID);
+    const running = screen.getByTestId(`checkpoint-export-${ID}`);
+    const waiting = screen.getByTestId('checkpoint-export-ck-20261021-090000-cccc');
+    expect(running).toHaveAttribute('aria-disabled', 'true');
+    expect(running).not.toHaveAttribute('disabled');
+    expect(waiting).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(running);
+    fireEvent.click(waiting);
+    expect(onExport).not.toHaveBeenCalled();
+  });
 
   it('lists a checkpoint whose file cannot be read by its folder’s name', () => {
     renderList([

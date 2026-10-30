@@ -4,15 +4,19 @@ import '@testing-library/jest-dom/vitest';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import {
   developerOrg,
+  exportAnswer,
   fakeHost,
+  importReadAnswer,
   listEntry,
   polyfillDialog,
   previewAnswer,
   productionOrg,
   readyCheckpoint,
   rewindResult,
+  SHOWN_KEY,
   withoutUndo,
 } from './testing/checkpointFixtures';
 import type { FakeHost } from './testing/checkpointFixtures';
@@ -533,5 +537,163 @@ describe('CheckpointPage', () => {
     answerList();
     expect(screen.getByRole('heading', { name: 'Checkpoints of DEV-SB' })).toBeInTheDocument();
     expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  describe('Export… and Import…', () => {
+    /** Every value the page sent, at any depth, that looks like a place on a disk. */
+    function pathsSent(): string[] {
+      const found: string[] = [];
+      const walk = (value: unknown): void => {
+        if (typeof value === 'string') {
+          if (/[\\/]|^[A-Za-z]:/.test(value)) found.push(value);
+        } else if (value && typeof value === 'object') {
+          Object.values(value).forEach(walk);
+        }
+      };
+      for (const message of host.current?.sent() ?? []) {
+        walk((message as { payload?: unknown }).payload);
+      }
+      return found;
+    }
+
+    /** Everything the page could keep a key in once its dialog is gone. */
+    function kept(): string {
+      return JSON.stringify([
+        { ...localStorage },
+        { ...sessionStorage },
+        useAppStore.getState(),
+        useOrgStore.getState(),
+        useNotificationStore.getState(),
+        document.body.textContent,
+      ]);
+    }
+
+    it('exports the checkpoint of the row by its id alone, shows its key once, and keeps it nowhere once Done', async () => {
+      const setState = vi.spyOn(host.current!.api, 'setState');
+      render(<CheckpointPage />);
+      answerList();
+      const exportButton = screen.getByTestId(`checkpoint-export-${ID}`);
+      exportButton.focus();
+      fireEvent.click(exportButton);
+      expect(host.current?.lastPayload('checkpoint:export')).toEqual({ checkpointId: ID });
+      // The save dialog is the extension's: the page waits on it, its Export… busy.
+      expect(exportButton).toHaveAttribute('aria-busy', 'true');
+      act(() =>
+        host.current?.answer('checkpoint:export', 'checkpoint:export:response', exportAnswer()),
+      );
+
+      expect(await screen.findByTestId('checkpoint-export-key')).toHaveTextContent(SHOWN_KEY);
+      expect(screen.getByRole('heading', { name: '“Before UAT” exported' })).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('checkpoint-export-done'));
+
+      await waitFor(() => expect(screen.queryByTestId('checkpoint-export-key')).toBeNull());
+      expect(kept().includes(SHOWN_KEY)).toBe(false);
+      expect(JSON.stringify(setState.mock.calls).includes(SHOWN_KEY)).toBe(false);
+      expect(exportButton).not.toHaveAttribute('aria-busy');
+      // A second export is a new file under a new key: nothing of the first is shown again.
+      fireEvent.click(exportButton);
+      expect(host.current?.sent('checkpoint:export')).toHaveLength(2);
+      expect(screen.queryByTestId('checkpoint-export-key')).toBeNull();
+      expect(pathsSent()).toEqual([]);
+    });
+
+    it('says nothing of a save dialog closed, and offers Export… again', () => {
+      render(<CheckpointPage />);
+      answerList();
+      fireEvent.click(screen.getByTestId(`checkpoint-export-${ID}`));
+      act(() =>
+        host.current?.answer('checkpoint:export', 'checkpoint:export:response', {
+          status: 'cancelled',
+          checkpointId: ID,
+        }),
+      );
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByTestId('checkpoint-change-error')).toBeNull();
+      expect(screen.getByTestId(`checkpoint-export-${ID}`)).not.toHaveAttribute('aria-busy');
+    });
+
+    it('says an export refused in the extension’s words', () => {
+      render(<CheckpointPage />);
+      answerList();
+      fireEvent.click(screen.getByTestId(`checkpoint-export-${ID}`));
+      const said =
+        "The checkpoint 'Before UAT' is being taken, or its take never ended: it can be exported once taken, or deleted.";
+      act(() => host.current?.fail('checkpoint:export', { code: 'TAKING', message: said }));
+      expect(screen.getByTestId('checkpoint-change-error')).toHaveTextContent(said);
+      expect(screen.queryByTestId('checkpoint-export-key')).toBeNull();
+    });
+
+    it('offers Import… beside Take a checkpoint, and reads the file the extension’s open dialog picks, naming no path', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      fireEvent.click(screen.getByTestId('checkpoint-import-open'));
+      expect(host.current?.sent('checkpoint:import-read')).toHaveLength(1);
+      expect(host.current?.lastPayload('checkpoint:import-read')).toBeUndefined();
+      act(() =>
+        host.current?.answer(
+          'checkpoint:import-read',
+          'checkpoint:import-read:response',
+          importReadAnswer(),
+        ),
+      );
+      expect(await screen.findByTestId('checkpoint-import-facts')).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('Key the file was exported with'), {
+        target: { value: SHOWN_KEY },
+      });
+      fireEvent.click(screen.getByTestId('checkpoint-import-confirm'));
+      expect(host.current?.lastPayload('checkpoint:import')).toEqual({
+        token: importReadAnswer().token,
+        orgId: 'org-dev',
+        key: SHOWN_KEY,
+        keepDays: 30,
+      });
+      expect(pathsSent()).toEqual([]);
+    });
+
+    it('says an import the org refused before any key, in the extension’s words', () => {
+      render(<CheckpointPage />);
+      answerList();
+      fireEvent.click(screen.getByTestId('checkpoint-import-open'));
+      const said =
+        'An import needs a user with View All Data and Modify All Data in DEV-SB: this machine never holds what its user could not see in the org. Nothing was imported.';
+      act(() =>
+        host.current?.fail('checkpoint:import-read', { code: 'PERMISSIONS', message: said }),
+      );
+      expect(screen.getByTestId('checkpoint-change-error')).toHaveTextContent(said);
+      expect(screen.queryByTestId('checkpoint-import-facts')).toBeNull();
+    });
+
+    it('imports a first checkpoint from the empty state, reads the list again, and keeps saying it was imported as the list appears', async () => {
+      render(<CheckpointPage />);
+      answerList([]);
+      fireEvent.click(screen.getByTestId('checkpoint-import-open'));
+      act(() =>
+        host.current?.answer(
+          'checkpoint:import-read',
+          'checkpoint:import-read:response',
+          importReadAnswer(),
+        ),
+      );
+      fireEvent.change(await screen.findByLabelText('Key the file was exported with'), {
+        target: { value: SHOWN_KEY },
+      });
+      fireEvent.click(screen.getByTestId('checkpoint-import-confirm'));
+      const lists = host.current?.sent('checkpoint:list').length ?? 0;
+      act(() =>
+        host.current?.answer('checkpoint:import', 'checkpoint:import:response', {
+          checkpoint: readyCheckpoint(),
+          outcome: 'imported',
+        }),
+      );
+      expect(host.current?.sent('checkpoint:list').length).toBe(lists + 1);
+      answerList();
+      expect(screen.getByTestId(`checkpoint-row-${ID}`)).toBeInTheDocument();
+      expect(screen.getByTestId('checkpoint-import-outcome')).toHaveTextContent(
+        'Imported “Before UAT”',
+      );
+      fireEvent.click(screen.getByTestId('checkpoint-import-done'));
+      await waitFor(() => expect(screen.queryByTestId('checkpoint-import-outcome')).toBeNull());
+      expect(kept().includes(SHOWN_KEY)).toBe(false);
+    });
   });
 });

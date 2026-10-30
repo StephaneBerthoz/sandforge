@@ -54,6 +54,13 @@ export interface CheckpointListProps {
   onUndo: (entry: CheckpointListEntry & { checkpoint: OrgCheckpoint }) => void;
   /** Choose the fields a checkpoint stops comparing. */
   onStopComparing: (checkpoint: OrgCheckpoint) => void;
+  /** Export a checkpoint to an encrypted file, at the place the window's save dialog asks for. */
+  onExport: (checkpointId: string) => void;
+  /**
+   * The checkpoint whose export is under way: its Export… says so, and the
+   * others wait for it, the save dialog being one at a time.
+   */
+  exporting?: string | null;
   /**
    * The checkpoint whose Rewind… takes the keyboard as the list is drawn:
    * the one whose preview, or whose rewind, was just left.
@@ -69,8 +76,9 @@ function nameOf(entry: CheckpointListEntry): string {
 /**
  * The checkpoints of an org kept on this machine, read without contacting
  * the org: each with when it was taken, the records it holds, the room it
- * takes and how long it is kept, and Rewind…, which opens what a rewind to it
- * would do. Beneath, what the store says of it: that it was taken with View
+ * takes and how long it is kept, Rewind…, which opens what a rewind to it
+ * would do, and Export…, which saves it encrypted for a teammate who rewinds
+ * the same org. Beneath, what the store says of it: that it was taken with View
  * All and Modify All per object, its user having no View All Data and Modify
  * All Data; that it expires within days, with Keep; that records deleted
  * before a date can no longer come back once it is older than the recycle
@@ -87,6 +95,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
   onRewind,
   onUndo,
   onStopComparing,
+  onExport,
+  exporting = null,
   focusRewind,
 }) => {
   const { t } = useTranslation();
@@ -119,6 +129,8 @@ export const CheckpointList: React.FC<CheckpointListProps> = ({
             onRewind={() => onRewind(entry.checkpointId)}
             onUndo={onUndo}
             onStopComparing={onStopComparing}
+            onExport={() => onExport(entry.checkpointId)}
+            exporting={exporting === null ? null : exporting === entry.checkpointId}
             focusRewind={focusRewind === entry.checkpointId}
           />
         ))}
@@ -160,6 +172,9 @@ interface CheckpointRowProps {
   onRewind: () => void;
   onUndo: CheckpointListProps['onUndo'];
   onStopComparing: CheckpointListProps['onStopComparing'];
+  onExport: () => void;
+  /** Its export is under way (true), another's is (false), or none is (null). */
+  exporting: boolean | null;
   /** Its Rewind… takes the keyboard as it is drawn. */
   focusRewind: boolean;
 }
@@ -174,6 +189,8 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
   onRewind,
   onUndo,
   onStopComparing,
+  onExport,
+  exporting,
   focusRewind,
 }) => {
   const { t } = useTranslation();
@@ -278,6 +295,26 @@ const CheckpointRow: React.FC<CheckpointRowProps> = ({
               data-testid={`checkpoint-stop-comparing-${entry.checkpointId}`}
             >
               {t('checkpoint.list.stopComparing')}
+            </Button>
+          )}
+          {/* Offered where Rewind… is: a checkpoint being taken, one whose take
+              failed, one whose file cannot be read, one of the org before a
+              refresh or of an expired scratch org is refused by the extension
+              before its save dialog asks anything. Kept focusable while its
+              export runs, so the dialog of its key gives the keyboard back
+              to it. */}
+          {usable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onExport}
+              loading={exporting === true}
+              disabled={exporting !== null}
+              focusableWhenDisabled
+              aria-describedby={nameId}
+              data-testid={`checkpoint-export-${entry.checkpointId}`}
+            >
+              {t('checkpoint.transfer.export')}
             </Button>
           )}
           <Button

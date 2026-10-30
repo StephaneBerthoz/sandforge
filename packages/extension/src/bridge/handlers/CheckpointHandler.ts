@@ -1,9 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { lstat, rename, rm, stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
+import { basename, dirname, join, sep } from 'node:path';
 import type {
   AuditOutcome,
   CheckpointArchiveHeader,
+  CheckpointArchiveSummary,
   CheckpointCustomSettings,
   CheckpointEstimate,
   CheckpointListEntry,
@@ -30,7 +32,12 @@ import {
   pipelineRewindStepConfigSchema,
   rewindGrantDigest,
 } from '@sandforge/shared';
-import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import type {
+  CheckpointFileDialogs,
+  DomainHandler,
+  HandlerDeps,
+  InboundRequest,
+} from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -42,7 +49,9 @@ import {
 import { listLive } from './liveRun.js';
 import {
   checkpointDeletePayloadSchema,
+  checkpointExportPayloadSchema,
   checkpointIgnoreFieldsPayloadSchema,
+  checkpointImportPayloadSchema,
   checkpointKeepPayloadSchema,
   checkpointListPayloadSchema,
   checkpointPlanSelectionPayloadSchema,
@@ -91,10 +100,19 @@ const CHECKPOINT_TYPES = new Set([
   'checkpoint:rename',
   'checkpoint:ignore-fields',
   'checkpoint:rewinds',
+  'checkpoint:export',
+  'checkpoint:import-read',
+  'checkpoint:import',
 ]);
 
 /** The module runs are listed under, in the registry and in Live Operations. */
 const MODULE = 'checkpoint';
+
+/**
+ * The files the page's Import… read that a token still names: the newest
+ * ones, as many as a person reads before importing one.
+ */
+const IMPORT_FILES_KEPT = 8;
 
 /** How long the read of what the org runs as a rewind writes may take: as a removal's. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
@@ -368,6 +386,8 @@ async function loadCheckpointModules() {
     guardCheckpoint: guard.guardCheckpoint,
     newArchiveKey: archive.newArchiveKey,
     archiveKeyText: archive.archiveKeyText,
+    parseArchiveKey: archive.parseArchiveKey,
+    ARCHIVE_EXTENSION: archive.ARCHIVE_EXTENSION,
     exportCheckpointArchive: archive.exportCheckpointArchive,
     CheckpointExportError: archive.CheckpointExportError,
     readArchiveHeader: archive.readArchiveHeader,
@@ -467,6 +487,41 @@ function nameOf(org: Pick<SalesforceOrg, 'alias' | 'username'>): string {
   return org.alias || org.username;
 }
 
+/**
+ * `message` with none of `paths` in it: a file named by its name alone, the
+ * folders it was in left out, a folder named alone by its own name. What the
+ * page is told of an export or an import names no place on this machine,
+ * whatever words a failure of the disk came in.
+ */
+function withoutPaths(message: string, paths: readonly string[]): string {
+  const longestFirst = [...paths].sort((a, b) => b.length - a.length);
+  let said = message;
+  for (const path of longestFirst) said = said.replaceAll(path, basename(path));
+  for (const path of longestFirst) {
+    const folder = dirname(path);
+    if (folder === path || folder.length <= 1) continue;
+    said = said.replaceAll(`${folder}${sep}`, '').replaceAll(folder, basename(folder));
+  }
+  return said;
+}
+
+/** What the page is told of a checkpoint file before it asks for the key: its header, without how it is encrypted. */
+function archiveSummaryOf(header: CheckpointArchiveHeader): CheckpointArchiveSummary {
+  return {
+    formatVersion: header.formatVersion,
+    checkpointFormat: header.checkpointFormat,
+    sandforgeVersion: header.sandforgeVersion,
+    organizationId: header.organizationId,
+    orgTier: header.orgTier,
+    checkpointId: header.checkpointId,
+    takenAt: header.takenAt,
+    records: header.records,
+    objects: header.objects,
+    files: header.files,
+    bytes: header.bytes,
+  };
+}
+
 /** Why the store's folder cannot be used, as a person reads it. */
 function storeRefusalWords(refusal: CheckpointStoreRefusal): string {
   const why =
@@ -536,12 +591,25 @@ function holderWords(holder: OrgLockHolder): string {
  *   is of, read from this machine alone: what the Seed, Sync and Forge
  *   histories mark a run rewound by.
  *
- * A checkpoint goes to another machine and comes from one through the host
- * alone, never a message: {@link CheckpointHandler.exportCheckpoint} writes
- * it, encrypted, to a file the host names, and
+ * A checkpoint goes to another machine and comes from one through files the
+ * host names: {@link CheckpointHandler.exportCheckpoint} writes it,
+ * encrypted, to a file the host names, and
  * {@link CheckpointHandler.readImport} then
  * {@link CheckpointHandler.importCheckpoint} keep another machine's here
- * once the org has answered for it. A page names no path.
+ * once the org has answered for it. A page names no path: its Export… and
+ * Import… pick the file in the window's dialogs (`infraServices.checkpointFiles`).
+ *
+ * - `checkpoint:export` — the checkpoint refused, before anything is asked,
+ *   when it can only be deleted; then the save dialog, the file written, and
+ *   the key answered once, with the file's name alone.
+ * - `checkpoint:import-read` — the open dialog, the file's header, and the
+ *   registered orgs of its Organization Id, each asked live whether it lets
+ *   the file be imported — the file's org, no production org, a user who
+ *   sees all data — before any key is typed: the first refusal is the
+ *   answer when none does. Where the file is stays here, behind a token.
+ * - `checkpoint:import` — the file the token names, decrypted with the key
+ *   typed and kept for the org named, every check made again in the
+ *   engine's order.
  *
  * A pipeline's Checkpoint and Rewind steps go through the host alone too,
  * never a message: {@link CheckpointHandler.takeForPipeline} takes as the
@@ -584,6 +652,11 @@ export class CheckpointHandler implements DomainHandler {
   private readonly previewReads = new Map<string, { checkpointId: string; readAt: string }>();
   /** Told each time the checkpoints kept on this machine change: see {@link onCheckpointsChanged}. */
   private readonly changeListeners = new Set<() => void>();
+  /**
+   * The files the page's Import… read, by the token it names each by, oldest
+   * first: where a file is never goes to the page.
+   */
+  private readonly importFiles = new Map<string, string>();
 
   /**
    * @param deps - Injected handler dependencies.
@@ -670,6 +743,15 @@ export class CheckpointHandler implements DomainHandler {
         return true;
       case 'checkpoint:rewinds':
         await this.handleRewinds(msg);
+        return true;
+      case 'checkpoint:export':
+        await this.handleExport(msg);
+        return true;
+      case 'checkpoint:import-read':
+        await this.handleImportRead(msg);
+        return true;
+      case 'checkpoint:import':
+        await this.handleImport(msg);
         return true;
       default:
         return false;
@@ -1299,6 +1381,213 @@ export class CheckpointHandler implements DomainHandler {
       return { code: err.code, message: err.message };
     }
     return { code, message: extractErrorMessage(err) };
+  }
+
+  // ─── The page's Export… and Import… ────────────────────────────────────────
+
+  /**
+   * Export… on the page: the checkpoint refused, before the save dialog
+   * asks anything, when it can only be deleted; then the dialog, the file
+   * written by {@link exportCheckpoint}, and the key drawn for it answered
+   * once, with the file's name alone. A file there already is one the person
+   * confirmed to replace in the dialog: the new one is written beside it and
+   * takes its place once whole, so what was there stays until then.
+   */
+  private async handleExport(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      checkpointExportPayloadSchema,
+      msg,
+      'checkpoint:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const paths: string[] = [];
+    try {
+      const dialogs = this.fileDialogs('export');
+      const m = await this.modules();
+      const store = await this.openedStore();
+      paths.push(store.root);
+      const { checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
+      this.usable(m, checkpoint, 'export');
+      const { checkpointId } = checkpoint;
+      // Named by its id, not its name: a name may carry a client's, and the
+      // file travels.
+      const out = await dialogs.pickExportFile(`${checkpointId}${m.ARCHIVE_EXTENSION}`);
+      if (out === undefined) {
+        this.respond(msg, 'checkpoint:export:response', { status: 'cancelled', checkpointId });
+        return;
+      }
+      paths.push(out);
+      const replaces = await lstat(out).then(
+        () => true,
+        () => false,
+      );
+      const written = replaces
+        ? join(dirname(out), `.${basename(out)}.${randomBytes(4).toString('hex')}.export`)
+        : out;
+      paths.push(written);
+      const answer = await this.exportCheckpoint({
+        checkpointId,
+        out: written,
+        sandforgeVersion: dialogs.sandforgeVersion,
+      });
+      if (!answer.exported) throw new Refused(answer.refusal.code, answer.refusal.message);
+      if (replaces) {
+        try {
+          await rename(written, out);
+        } catch (err: unknown) {
+          await rm(written, { force: true });
+          throw err;
+        }
+      }
+      this.respond(msg, 'checkpoint:export:response', {
+        status: 'saved',
+        checkpointId,
+        fileName: basename(out),
+        key: answer.key,
+        records: answer.header.records,
+        objects: answer.header.objects,
+        bytes: answer.bytes,
+      });
+    } catch (err: unknown) {
+      this.fail(msg, this.pathless(err, paths, 'EXPORT_ERROR'), 'EXPORT_ERROR');
+    }
+  }
+
+  /**
+   * Import… on the page: the open dialog, the file's header, and the orgs
+   * registered here that are, or were before a refresh, its org, each asked
+   * live by {@link readImport} before any key is typed. Answered with the
+   * orgs that let it be imported, under a token that names the file; with
+   * the first refusal when an org of it is registered and none lets it; with
+   * no org when none is registered.
+   */
+  private async handleImportRead(msg: InboundRequest): Promise<void> {
+    const paths: string[] = [];
+    try {
+      const dialogs = this.fileDialogs('import');
+      const m = await this.modules();
+      const store = await this.openedStore();
+      paths.push(store.root);
+      const file = await dialogs.pickImportFile();
+      if (file === undefined) {
+        this.respond(msg, 'checkpoint:import-read:response', { status: 'cancelled' });
+        return;
+      }
+      paths.push(file);
+      const opened = await m.readArchiveHeader(file);
+      if ('refusal' in opened) throw this.refusalOf(opened.refusal);
+      const { header } = opened.read;
+      const orgIds: string[] = [];
+      let refusal: CheckpointTransferRefusal | undefined;
+      for (const org of this.deps.orgManager.getAllOrgs()) {
+        const ids = this.organizationIdsOf(org.id);
+        if (!ids.some((id) => sameOrganization(id, header.organizationId))) continue;
+        const check = await this.readImport({ orgId: org.id, file });
+        if (check.allowed) orgIds.push(org.id);
+        else refusal ??= check.refusal;
+      }
+      if (orgIds.length === 0 && refusal !== undefined) {
+        throw new Refused(refusal.code, refusal.message);
+      }
+      const keptHere = (await store.read(header.checkpointId)) !== undefined;
+      this.respond(msg, 'checkpoint:import-read:response', {
+        status: 'read',
+        token: this.keepImportFile(file),
+        fileName: basename(file),
+        summary: archiveSummaryOf(header),
+        orgIds,
+        ...(keptHere ? { keptHere: true } : {}),
+      });
+    } catch (err: unknown) {
+      this.fail(msg, this.pathless(err, paths, 'IMPORT_ERROR'), 'IMPORT_ERROR');
+    }
+  }
+
+  /**
+   * The import the page confirmed, of the file its token names, for the org
+   * named, by {@link importCheckpoint}: every check made again, in the
+   * engine's order. What the org refuses comes before the key typed, a key
+   * that is no key SandForge draws included.
+   */
+  private async handleImport(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      checkpointImportPayloadSchema,
+      msg,
+      'checkpoint:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const file = this.importFiles.get(parsed.token);
+    const paths = file !== undefined ? [file] : [];
+    try {
+      if (file === undefined) {
+        throw new Refused(
+          'IMPORT_FILE_GONE',
+          'This window no longer knows the file to import: choose it again with Import…. ' +
+            'Nothing was imported.',
+        );
+      }
+      const m = await this.modules();
+      paths.push((await this.openedStore()).root);
+      const key = m.parseArchiveKey(parsed.key);
+      if (key === undefined) {
+        const check = await this.readImport({ orgId: parsed.orgId, file });
+        if (!check.allowed) throw new Refused(check.refusal.code, check.refusal.message);
+        throw new Refused(
+          'IMPORT_KEY',
+          'That is not a key SandForge draws: 52 letters and digits, in groups of four as the ' +
+            'export showed it. Nothing was imported.',
+        );
+      }
+      const answer = await this.importCheckpoint({
+        orgId: parsed.orgId,
+        file,
+        key,
+        keepDays: parsed.keepDays,
+      });
+      if (!answer.imported) throw new Refused(answer.refusal.code, answer.refusal.message);
+      this.importFiles.delete(parsed.token);
+      this.respond(msg, 'checkpoint:import:response', {
+        checkpoint: answer.checkpoint,
+        outcome: answer.outcome,
+      });
+    } catch (err: unknown) {
+      this.fail(msg, this.pathless(err, paths, 'IMPORT_ERROR'), 'IMPORT_ERROR');
+    }
+  }
+
+  /** The window's dialogs, or the refusal of a page's Export… or Import… without them. */
+  private fileDialogs(act: 'export' | 'import'): CheckpointFileDialogs {
+    const dialogs = this.deps.infraServices?.checkpointFiles;
+    if (!dialogs) {
+      throw new Refused(
+        'NO_FILE_DIALOG',
+        act === 'export'
+          ? 'This window has no dialog to ask where the file goes: export the checkpoint with ' +
+              'sandforge-checkpoint export. Nothing was written.'
+          : 'This window has no dialog to ask which file to read: import it with ' +
+              'sandforge-checkpoint import. Nothing was imported.',
+      );
+    }
+    return dialogs;
+  }
+
+  /** A token naming `file` for the page, the oldest one forgotten past {@link IMPORT_FILES_KEPT}. */
+  private keepImportFile(file: string): string {
+    const token = randomUUID();
+    this.importFiles.set(token, file);
+    for (const old of this.importFiles.keys()) {
+      if (this.importFiles.size <= IMPORT_FILES_KEPT) break;
+      this.importFiles.delete(old);
+    }
+    return token;
+  }
+
+  /** A failure of an export or an import as the page is told it: a refusal, naming none of `paths`. */
+  private pathless(err: unknown, paths: readonly string[], code: string): Refused {
+    const refused = err instanceof Refused ? err : new Refused(code, extractErrorMessage(err));
+    return new Refused(refused.code, withoutPaths(refused.message, paths), refused.retryable);
   }
 
   /** Tell the listeners the checkpoints kept have changed: one that throws stops neither the others nor the request. */

@@ -67,6 +67,30 @@ export interface InfraServices {
    * nothing removed. Absent, the rest is removed and the result says what stayed.
    */
   confirmRemovalLeavingUndeletable?: (question: UndeletableRemovalQuestion) => Promise<boolean>;
+  /**
+   * The window's dialogs a checkpoint's Export… and Import… pick their file
+   * in, on the Checkpoints page. Absent, both are refused: there is nowhere
+   * to ask, and the page never names a path.
+   */
+  checkpointFiles?: CheckpointFileDialogs;
+}
+
+/**
+ * Where a checkpoint's export is saved, and which file an import reads: what
+ * the person picks in the window's own dialogs. The page never names a
+ * path; the extension keeps the one picked.
+ */
+export interface CheckpointFileDialogs {
+  /** This SandForge's version, which an exported file names. */
+  sandforgeVersion: string;
+  /**
+   * Ask where to save an export, `suggestedName` filled in: the path picked,
+   * or undefined when the dialog was closed. Throws, with words to show, for
+   * a place that is not on this machine's disk.
+   */
+  pickExportFile(suggestedName: string): Promise<string | undefined>;
+  /** Ask which `.sfcheckpoint` file to import: the path picked, or undefined when the dialog was closed. */
+  pickImportFile(): Promise<string | undefined>;
 }
 
 /** What a removal asks about the objects whose records its user may not delete. */

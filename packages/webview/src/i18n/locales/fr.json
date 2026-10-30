@@ -6089,6 +6089,48 @@
       "noMatch": "Aucun champ ne correspond.",
       "ticked_one": "{{formatted}} champ non comparé",
       "ticked_other": "{{formatted}} champs non comparés"
+    },
+    "transfer": {
+      "export": "Exporter…",
+      "import": "Importer…",
+      "exported": {
+        "title": "« {{name}} » exporté",
+        "saved": "Enregistré sous {{file}}, chiffré : {{records}} de {{objects}}, {{size}}.",
+        "key": "La clé, affichée cette seule fois et conservée nulle part",
+        "copy": "Copier la clé",
+        "copied": "Clé copiée",
+        "whoReads_one": "Quiconque a ce fichier et sa clé peut lire l’enregistrement de {{org}} qu’il contient, données personnelles comprises. Envoyez la clé par un autre moyen que le fichier, et seulement à des personnes qui voient déjà toutes les données de {{org}}.",
+        "whoReads_other": "Quiconque a ce fichier et sa clé peut lire les {{formatted}} enregistrements de {{org}} qu’il contient, données personnelles comprises. Envoyez la clé par un autre moyen que le fichier, et seulement à des personnes qui voient déjà toutes les données de {{org}}.",
+        "noExpiry": "Le fichier n’expire pas : supprimez-le une fois qu’il a servi. Il ne contient ni les journaux des retours arrière faits depuis cette machine ni leur annulation, qui restent ici.",
+        "done": "Terminé"
+      },
+      "importDialog": {
+        "title": "Importer un point de contrôle",
+        "read": "{{file}}, tel que son en-tête le décrit : rien n’est déchiffré avant que vous l’importiez.",
+        "org": "Org",
+        "records": "Contient",
+        "recordsValue": "{{records}} de {{objects}}",
+        "taken": "Créé",
+        "madeBy": "Produit par",
+        "madeByValue": "SandForge {{version}}",
+        "format": "Format",
+        "formatValue": "format de fichier {{fileFormat}}, format de point de contrôle {{dataFormat}}",
+        "size": "Sur cette machine",
+        "keptHere": "Un point de contrôle de cet identifiant est déjà conservé sur cette machine : l’import le laisse tel quel s’il est identique, et est refusé sinon.",
+        "notConnected": "Aucune org connectée dans SandForge n’est l’org dont ce fichier contient un point de contrôle, Organization Id {{id}} : connectez-la, puis importez le fichier.",
+        "importFor": "Importer pour",
+        "key": "Clé avec laquelle le fichier a été exporté",
+        "keyHint": "52 lettres et chiffres, avec ou sans leurs tirets. Non affichée pendant la saisie.",
+        "keptFor": "Conservé sur cette machine jusqu’au {{date}}, sauf si vous le conservez jusqu’à ce que vous le supprimiez.",
+        "notCompared": "Un champ que votre utilisateur ne voit pas dans {{org}} n’est ni comparé ni réécrit par un retour arrière fait depuis cette machine : son aperçu le nomme non comparé.",
+        "lock": "Des retours arrière de {{org}} lancés depuis deux machines à la fois se contrarient : le verrou est propre à chaque machine. Convenez de qui fait le retour arrière.",
+        "undoStays": "Les retours arrière faits depuis la machine d’origine, et leur annulation, sont restés là-bas.",
+        "confirm": "Importer",
+        "importedUntil": "« {{name}} » importé : il figure maintenant parmi les points de contrôle de {{org}}, conservé jusqu’au {{date}}.",
+        "importedForever": "« {{name}} » importé : il figure maintenant parmi les points de contrôle de {{org}}, conservé jusqu’à ce que vous le supprimiez.",
+        "alreadyKept": "« {{name}} » est déjà conservé sur cette machine, identique : il a été laissé tel quel.",
+        "done": "Terminé"
+      }
     }
   }
 }

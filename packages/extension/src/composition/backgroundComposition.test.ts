@@ -13,6 +13,16 @@ vi.mock('vscode', () => ({
   window: {
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
+    showSaveDialog: vi.fn(),
+    showOpenDialog: vi.fn(),
+  },
+  // A file URI as VS Code makes one, its path as the disk names it.
+  Uri: {
+    file: (fsPath: string) => ({ scheme: 'file', fsPath, path: fsPath }),
+    joinPath: (base: { scheme: string; fsPath: string }, ...parts: string[]) => {
+      const fsPath = [base.fsPath, ...parts].join('/');
+      return { scheme: base.scheme, fsPath, path: fsPath };
+    },
   },
   env: { clipboard: { writeText: vi.fn() } },
   l10n: {
@@ -26,6 +36,7 @@ vi.mock('vscode', () => ({
 import * as vscode from 'vscode';
 import { DATA_STORAGE_NOT_TOLD } from '@sandforge/shared';
 import {
+  checkpointFileDialogs,
   confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
@@ -1141,6 +1152,76 @@ describe('restore confirmation for an org a refresh replaced (localized)', () =>
     ]);
     vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
     await expect(confirmRemovalLeavingUndeletable(asked)).resolves.toBe(false);
+  });
+});
+
+describe('the dialogs a checkpoint’s Export… and Import… pick their file in (localized)', () => {
+  const HOME = '/home/tester';
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showSaveDialog).mockReset();
+    vi.mocked(vscode.window.showOpenDialog).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('asks where to save in the home folder, the name suggested, offering checkpoint files, and gives the path picked', async () => {
+    l10nBundle.current = { Export: 'Exporter' };
+    vi.mocked(vscode.window.showSaveDialog).mockResolvedValue(
+      vscode.Uri.file('/home/tester/shared/before-uat.sfcheckpoint'),
+    );
+    const dialogs = checkpointFileDialogs('1.71.0', HOME);
+
+    await expect(dialogs.pickExportFile('ck-20261020-140512-a1b2.sfcheckpoint')).resolves.toBe(
+      '/home/tester/shared/before-uat.sfcheckpoint',
+    );
+
+    expect(dialogs.sandforgeVersion).toBe('1.71.0');
+    expect(vi.mocked(vscode.window.showSaveDialog).mock.calls[0][0]).toMatchObject({
+      saveLabel: 'Exporter',
+      title: 'Export the checkpoint, encrypted',
+      defaultUri: { fsPath: '/home/tester/ck-20261020-140512-a1b2.sfcheckpoint' },
+      filters: { 'SandForge checkpoint': ['sfcheckpoint'] },
+    });
+  });
+
+  it('asks which one file to import, checkpoint files first and every file offered, and gives its path', async () => {
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
+      vscode.Uri.file('/home/tester/Downloads/before-uat.sfcheckpoint'),
+    ]);
+
+    await expect(checkpointFileDialogs('1.71.0', HOME).pickImportFile()).resolves.toBe(
+      '/home/tester/Downloads/before-uat.sfcheckpoint',
+    );
+
+    const options = vi.mocked(vscode.window.showOpenDialog).mock.calls[0][0];
+    expect(options).toMatchObject({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      openLabel: 'Import',
+    });
+    expect(Object.values(options?.filters ?? {})).toEqual([['sfcheckpoint'], ['*']]);
+  });
+
+  it('gives nothing for a dialog closed', async () => {
+    vi.mocked(vscode.window.showSaveDialog).mockResolvedValue(undefined);
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue(undefined);
+    const dialogs = checkpointFileDialogs('1.71.0', HOME);
+
+    await expect(dialogs.pickExportFile('a.sfcheckpoint')).resolves.toBeUndefined();
+    await expect(dialogs.pickImportFile()).resolves.toBeUndefined();
+  });
+
+  it('refuses, in words, a place off this machine’s disk that the dialog offered', async () => {
+    const remote = { scheme: 'vscode-userdata', fsPath: '/elsewhere/a.sfcheckpoint' };
+    vi.mocked(vscode.window.showSaveDialog).mockResolvedValue(remote as never);
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([remote] as never);
+    const dialogs = checkpointFileDialogs('1.71.0', HOME);
+
+    await expect(dialogs.pickExportFile('a.sfcheckpoint')).rejects.toThrow(
+      'on the disk of the machine it runs on: pick a folder there',
+    );
+    await expect(dialogs.pickImportFile()).rejects.toThrow('pick a folder there');
   });
 });
 

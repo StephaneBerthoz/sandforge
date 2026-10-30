@@ -37,8 +37,9 @@ import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
  * a rewind, every part of it, and an org with nothing to rewind; the rewind
  * confirmed by typing the org's name, its phases with Stop, and every way it
  * ends; Undo, confirmed, under way and ended; the fields a checkpoint stops
- * comparing; the checkpoints a disconnection offers to delete; and the Home
- * tile.
+ * comparing; a checkpoint exported with its key shown once, and one imported
+ * from its file's facts with its key typed hidden, the page naming no path;
+ * the checkpoints a disconnection offers to delete; and the Home tile.
  *
  * Every state is scanned with axe under VS Code's default themes, Light 2026
  * and Dark 2026, and the two they replaced, with the stylesheet VS Code
@@ -235,6 +236,26 @@ async function expectReadable(page: Page, theme: Theme, opened?: string): Promis
   }
   const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
   expect(shortfalls, shortfalls.join('\n')).toEqual([]);
+}
+
+/** A key as an export shows it, made up: thirteen groups of four letters and digits. */
+const EXPORT_KEY = 'MFRG-GZDF-MZTW-Q2LK-NNWG-23TP-OBYX-E43U-OV3H-O6DZ-PI2D-KNRW-G4ZQ';
+
+/** What the extension names a file to import by: never its path. */
+const IMPORT_TOKEN = '7d0c4c9e-2f6b-4a8e-9a43-0b6f8f6a1c2d';
+
+/** Every value of what the page sent, at any depth, that looks like a place on a disk. */
+function pathsIn(messages: readonly Record<string, unknown>[]): string[] {
+  const found: string[] = [];
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') {
+      if (/[\\/]|^[A-Za-z]:/.test(value)) found.push(value);
+    } else if (value && typeof value === 'object') {
+      Object.values(value).forEach(walk);
+    }
+  };
+  for (const message of messages) walk(message.payload);
+  return found;
 }
 
 /** Type `text` in the typed confirmation, and press its Confirm. */
@@ -554,6 +575,121 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('danger-title')).toHaveCount(0);
       await expect(undo).toBeFocused();
       expect(await host.sent('checkpoint:undo')).toEqual([]);
+    });
+
+    test('exports a checkpoint from its row by its id alone: its key shown once with Copy, what to know before sending it, and the keyboard back on Export… once Done', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint();
+      const host = await openCheckpoints(page, theme, [listEntry(checkpoint)]);
+      const exportButton = page.getByTestId(`checkpoint-export-${checkpoint.checkpointId}`);
+      await exportButton.click();
+      const asked = await host.answer('checkpoint:export', {
+        status: 'saved',
+        checkpointId: checkpoint.checkpointId,
+        fileName: 'before-uat.sfcheckpoint',
+        key: EXPORT_KEY,
+        records: 2412,
+        objects: 3,
+        bytes: 1_300_000,
+      });
+      expect(asked.payload).toEqual({ checkpointId: checkpoint.checkpointId });
+
+      const dialog = page.locator('dialog[open]');
+      await expect(dialog.getByRole('heading', { name: '“Before UAT” exported' })).toBeVisible();
+      await expect(page.getByTestId('checkpoint-export-key')).toHaveText(EXPORT_KEY);
+      await expect(page.getByTestId('checkpoint-export-warning')).toHaveText(
+        `Anyone who has this file and its key can read the 2,412 records it holds of ${ORG}, ` +
+          'personal data among them. Send the key another way than the file, and only to ' +
+          `people who already see all data in ${ORG}.`,
+      );
+      await expect(page.getByRole('button', { name: 'Copy the key' })).toBeVisible();
+      await expectReadable(page, theme, 'dialog[open]');
+
+      await page.getByTestId('checkpoint-export-done').click();
+      await expect(page.getByTestId('checkpoint-export-key')).toHaveCount(0);
+      await expect(exportButton).toBeFocused();
+      expect(await page.content()).not.toContain(EXPORT_KEY);
+      expect(pathsIn(await host.sent('checkpoint:export'))).toEqual([]);
+    });
+
+    test('imports a checkpoint another machine exported, from the empty state: the file’s facts, the key typed hidden, what to know before, then what was kept', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint();
+      const host = await openCheckpoints(page, theme, []);
+      await page.getByTestId('checkpoint-import-open').click();
+      const read = await host.answer('checkpoint:import-read', {
+        status: 'read',
+        token: IMPORT_TOKEN,
+        fileName: 'before-uat.sfcheckpoint',
+        summary: {
+          formatVersion: 1,
+          checkpointFormat: 1,
+          sandforgeVersion: '1.71.0',
+          organizationId: checkpoint.org.organizationId,
+          orgTier: 'sandbox',
+          checkpointId: checkpoint.checkpointId,
+          takenAt: checkpoint.takenAt,
+          records: 2412,
+          objects: 3,
+          files: 6,
+          bytes: 2_400_000,
+        },
+        orgIds: [CHECKPOINT_ORG.id],
+      });
+      expect(read.payload).toBeUndefined();
+
+      const dialog = page.locator('dialog[open]');
+      await expect(dialog.getByRole('heading', { name: 'Import a checkpoint' })).toBeVisible();
+      await expect(page.getByTestId('checkpoint-import-fact-org')).toHaveText(ORG);
+      await expect(page.getByTestId('checkpoint-import-fact-made-by')).toHaveText(
+        'SandForge 1.71.0',
+      );
+      const key = page.getByLabel('Key the file was exported with');
+      await expect(key).toHaveAttribute('type', 'password');
+      await expect(page.getByTestId('checkpoint-import-warnings')).toContainText(
+        `Rewinds of ${ORG} from two machines at once fight each other: the lock is per ` +
+          'machine. Agree on who rewinds.',
+      );
+      await expect(page.getByTestId('checkpoint-import-confirm')).toBeDisabled();
+      await expectReadable(page, theme, 'dialog[open]');
+
+      await key.fill(EXPORT_KEY);
+      await page.getByTestId('checkpoint-import-confirm').click();
+      await host.refuse(
+        'checkpoint:import',
+        'IMPORT_KEY',
+        'This key is not the one the file was exported with. Nothing was imported.',
+      );
+      await expect(page.getByTestId('checkpoint-import-error')).toContainText(
+        'This key is not the one the file was exported with.',
+      );
+      await expectReadable(page, theme, 'dialog[open]');
+
+      await page.getByTestId('checkpoint-import-confirm').click();
+      const imported = await host.answer('checkpoint:import', {
+        checkpoint,
+        outcome: 'imported',
+      });
+      expect(imported.payload).toEqual({
+        token: IMPORT_TOKEN,
+        orgId: CHECKPOINT_ORG.id,
+        key: EXPORT_KEY,
+        keepDays: 30,
+      });
+      // Kept: the list is read again, and the empty state turns into it.
+      await host.answer('checkpoint:list', { checkpoints: [listEntry(checkpoint)] });
+      await expect(page.getByTestId(`checkpoint-row-${checkpoint.checkpointId}`)).toBeVisible();
+      await expect(page.getByTestId('checkpoint-import-outcome')).toContainText(
+        `Imported “Before UAT”: listed now among the checkpoints of ${ORG}`,
+      );
+      await expectReadable(page, theme, 'dialog[open]');
+      const sent = [
+        ...(await host.sent('checkpoint:import-read')),
+        ...(await host.sent('checkpoint:import')),
+      ];
+      expect(pathsIn(sent)).toEqual([]);
     });
 
     test('previews a rewind with every part a preview says, holds Rewind until each box is ticked, and rewinds once the org’s name is typed: its phases with Stop, then where a stop left the org', async ({

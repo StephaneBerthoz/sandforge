@@ -4,6 +4,8 @@ import { History } from 'lucide-react';
 import { isDevelopmentOrg } from '@sandforge/shared';
 import type {
   CheckpointDeleteResponse,
+  CheckpointExportResponse,
+  CheckpointImportReadResponse,
   CheckpointKeepResponse,
   CheckpointListResponse,
   CheckpointRenameResponse,
@@ -31,7 +33,14 @@ import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { formatNumber } from '../../utils/formatters';
 import { CheckpointList } from './CheckpointList';
-import { RewindPreview, RewindRun, StopComparingFields, TakeCheckpoint } from './checkpointParts';
+import {
+  ExportCheckpoint,
+  ImportCheckpoint,
+  RewindPreview,
+  RewindRun,
+  StopComparingFields,
+  TakeCheckpoint,
+} from './checkpointParts';
 import { undoCannotReasonOf, usableCheckpoints } from './checkpointFacts';
 import type { RewindAcceptances } from './RewindPreview';
 import type { RunShown } from './RewindRun';
@@ -189,7 +198,8 @@ interface OrgCheckpointsProps {
 /**
  * The checkpoints of one org: its list, read from this machine, what can be
  * done to each — rewound to, kept, renamed, its fields compared or not,
- * deleted — a take, and a rewind with what it did, which its Undo takes
+ * exported for a teammate, deleted — a take, a checkpoint another machine
+ * exported imported, and a rewind with what it did, which its Undo takes
  * back.
  *
  * A rewind and an undo are asked here, under the org's name typed to confirm
@@ -200,6 +210,7 @@ interface OrgCheckpointsProps {
  */
 const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   const { t } = useTranslation();
+  const orgs = useOrgStore((s) => s.orgs);
   const orgName = org.alias || org.username;
   const listHeadingRef = useRef<HTMLHeadingElement>(null);
   const [taking, setTaking] = useState(arrival !== null && 'take' in arrival);
@@ -230,6 +241,18 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     timeoutMs: WRITE_RUN_TIMEOUT_MS,
     runOutlivesWait: true,
   });
+  // Export… and Import… wait on the window's save and open dialogs, for as
+  // long as the person takes, then on the file written or read: no
+  // request's thirty seconds. The page names no path; the extension asks
+  // where, and answers a file's name alone.
+  const exporting = useBridgeMutation<CheckpointExportResponse['payload']>('checkpoint:export', {
+    timeoutMs: WRITE_RUN_TIMEOUT_MS,
+  });
+  const importReading = useBridgeMutation<CheckpointImportReadResponse['payload']>(
+    'checkpoint:import-read',
+    { timeoutMs: WRITE_RUN_TIMEOUT_MS },
+  );
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   // Each change is read back from the store, which is what lists it: a
   // checkpoint deleted, kept or renamed elsewhere meanwhile shows too. A
@@ -254,7 +277,18 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
     if (deleted) listHeadingRef.current?.focus();
   }, [deleted]);
 
-  const failed = [deletion, keeping, renaming].find((mutation) => mutation.error !== null);
+  // A save dialog closed exports nothing, and says nothing.
+  const exportClosed = exporting.data?.status === 'cancelled';
+  const resetExport = exporting.reset;
+  useEffect(() => {
+    if (exportClosed) resetExport();
+  }, [exportClosed, resetExport]);
+  const exported = exporting.data?.status === 'saved' ? exporting.data : null;
+  const fileRead = importReading.data?.status === 'read' ? importReading.data : null;
+
+  const failed = [deletion, keeping, renaming, exporting, importReading].find(
+    (mutation) => mutation.error !== null,
+  );
   const changeError = failed ? (
     <ErrorBanner
       message={failed.error ?? ''}
@@ -424,73 +458,133 @@ const OrgCheckpoints: React.FC<OrgCheckpointsProps> = ({ org, arrival }) => {
   }
 
   const entries = listQuery.data.checkpoints;
+  // Import… asks the window's open dialog for a file another machine
+  // exported: offered with or without checkpoints, a teammate's machine
+  // having none of the org yet.
+  const importButton = (
+    <Button
+      variant="secondary"
+      onClick={() => importReading.mutate()}
+      loading={importReading.loading}
+      focusableWhenDisabled
+      data-testid="checkpoint-import-open"
+    >
+      {t('checkpoint.transfer.import')}
+    </Button>
+  );
+  // Drawn after the list or the empty state, in one place either way: a
+  // first checkpoint imported turns the empty state into the list, and the
+  // dialog that says it was imported stays.
+  const transferDialogs = (
+    <>
+      {exported && (
+        <ExportCheckpoint
+          exported={exported}
+          name={
+            entries.find((entry) => entry.checkpointId === exported.checkpointId)?.checkpoint
+              ?.name ?? exported.checkpointId
+          }
+          orgName={orgName}
+          onClose={() => {
+            // The key goes with the answer that carried it.
+            exporting.reset();
+            setExportingId(null);
+          }}
+        />
+      )}
+      {fileRead && (
+        <ImportCheckpoint
+          read={fileRead}
+          orgs={orgs}
+          currentOrgId={org.id}
+          onImported={() => refetchList.current()}
+          onClose={() => importReading.reset()}
+        />
+      )}
+    </>
+  );
   if (entries.length === 0) {
     return (
       <>
-        {changeError}
-        <EmptyState
-          icon={<History className="h-8 w-8" aria-hidden="true" />}
-          title={t('checkpoint.empty.title', { org: orgName })}
-          description={t('checkpoint.empty.description', { org: orgName })}
-          actionLabel={t('checkpoint.take.open')}
-          onAction={() => setTaking(true)}
-        />
+        <>
+          {changeError}
+          <EmptyState
+            icon={<History className="h-8 w-8" aria-hidden="true" />}
+            title={t('checkpoint.empty.title', { org: orgName })}
+            description={t('checkpoint.empty.description', { org: orgName })}
+            actionLabel={t('checkpoint.take.open')}
+            onAction={() => setTaking(true)}
+            action={importButton}
+          />
+        </>
+        {transferDialogs}
       </>
     );
   }
   return (
-    <section
-      className="flex flex-col gap-3"
-      aria-labelledby="checkpoint-list-heading"
-      aria-busy={listQuery.loading || undefined}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2
-          id="checkpoint-list-heading"
-          ref={listHeadingRef}
-          tabIndex={-1}
-          className="text-base font-semibold text-text-primary"
-        >
-          {t('checkpoint.list.title', { org: orgName })}
-        </h2>
-        <Button
-          variant="primary"
-          onClick={() => setTaking(true)}
-          data-testid="checkpoint-take-open"
-        >
-          {t('checkpoint.take.open')}
-        </Button>
-      </div>
-      {changeError}
-      <CheckpointList
-        entries={entries}
-        orgName={orgName}
-        onRename={(checkpointId, name) => renaming.mutate({ checkpointId, name })}
-        onKeep={(checkpointId, keep) => keeping.mutate({ checkpointId, keep })}
-        onDelete={(checkpointId) => deletion.mutate({ checkpointIds: [checkpointId] })}
-        onRewind={(checkpointId) => {
-          setLeftPreview(undefined);
-          setPreviewing(checkpointId);
-        }}
-        onUndo={(entry) => {
-          if (entry.undo) {
-            askUndo({ checkpoint: entry.checkpoint, rewindId: entry.undo.rewindId, cannot: [] });
-          }
-        }}
-        onStopComparing={setStopComparing}
-        focusRewind={leftPreview}
-      />
-      {undoConfirm}
-      {stopComparing && (
-        <StopComparingFields
-          checkpoint={stopComparing}
-          onClose={() => setStopComparing(null)}
-          onSaved={() => {
-            setStopComparing(null);
-            refetchList.current();
+    <>
+      <section
+        className="flex flex-col gap-3"
+        aria-labelledby="checkpoint-list-heading"
+        aria-busy={listQuery.loading || undefined}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2
+            id="checkpoint-list-heading"
+            ref={listHeadingRef}
+            tabIndex={-1}
+            className="text-base font-semibold text-text-primary"
+          >
+            {t('checkpoint.list.title', { org: orgName })}
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            {importButton}
+            <Button
+              variant="primary"
+              onClick={() => setTaking(true)}
+              data-testid="checkpoint-take-open"
+            >
+              {t('checkpoint.take.open')}
+            </Button>
+          </div>
+        </div>
+        {changeError}
+        <CheckpointList
+          entries={entries}
+          orgName={orgName}
+          onRename={(checkpointId, name) => renaming.mutate({ checkpointId, name })}
+          onKeep={(checkpointId, keep) => keeping.mutate({ checkpointId, keep })}
+          onDelete={(checkpointId) => deletion.mutate({ checkpointIds: [checkpointId] })}
+          onRewind={(checkpointId) => {
+            setLeftPreview(undefined);
+            setPreviewing(checkpointId);
           }}
+          onUndo={(entry) => {
+            if (entry.undo) {
+              askUndo({ checkpoint: entry.checkpoint, rewindId: entry.undo.rewindId, cannot: [] });
+            }
+          }}
+          onStopComparing={setStopComparing}
+          onExport={(checkpointId) => {
+            setExportingId(checkpointId);
+            exporting.mutate({ checkpointId });
+          }}
+          exporting={exporting.loading ? exportingId : null}
+          focusRewind={leftPreview}
         />
-      )}
-    </section>
+        {undoConfirm}
+        {stopComparing && (
+          <StopComparingFields
+            checkpoint={stopComparing}
+            onClose={() => setStopComparing(null)}
+            onSaved={() => {
+              setStopComparing(null);
+              refetchList.current();
+            }}
+          />
+        )}
+      </section>
+      {transferDialogs}
+    </>
   );
 };

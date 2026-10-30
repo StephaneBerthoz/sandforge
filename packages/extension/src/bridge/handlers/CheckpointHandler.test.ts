@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,7 +30,7 @@ import {
   CheckpointStepRefused,
   type WindowWriters,
 } from './CheckpointHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { CheckpointFileDialogs, HandlerDeps } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { OrgConnectionError } from '../../core/connection/OrgConnectionError.js';
 import { OrgManager } from '../../core/connection/OrgManager.js';
@@ -273,6 +281,8 @@ function harness(
     registered?: SalesforceOrg;
     writers?: WindowWriters;
     self?: { pid: number; startedAt: string };
+    /** The window's dialogs the page's Export… and Import… pick their file in. */
+    checkpointFiles?: CheckpointFileDialogs;
   } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'sandforge-checkpoint-host-'));
@@ -308,7 +318,11 @@ function harness(
     secretVault: {},
     authProvider: {},
     sfdxBridge: {},
-    infraServices: { backgroundRegistry: registry, productionGuard },
+    infraServices: {
+      backgroundRegistry: registry,
+      productionGuard,
+      ...(options.checkpointFiles ? { checkpointFiles: options.checkpointFiles } : {}),
+    },
     nextId: () => `ext-${++ids}`,
     sandboxRefreshes: detector,
   } as unknown as HandlerDeps;
@@ -2273,6 +2287,367 @@ describe('CheckpointHandler — a checkpoint to another machine, and from one', 
     });
     expect(existsSync(`${file}.other`)).toBe(false);
     expect(here.trail().filter((entry) => entry.action === 'checkpoint_export')).toEqual([]);
+  });
+});
+
+describe('CheckpointHandler — Export… and Import… on the page', () => {
+  /** A key as an export shows it: thirteen groups of four letters and digits. */
+  const KEY_SHOWN = /^(?:[A-Z2-7]{4}-){12}[A-Z2-7]{4}$/;
+
+  /**
+   * The window's dialogs, in a folder of the test's own: the save dialog
+   * answers `saveAs` there, the open dialog `open`, each undefined when it
+   * is closed.
+   */
+  function dialogs(picks: { saveAs?: string; open?: string } = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'sandforge-page-transfer-'));
+    dirs.push(dir);
+    const files: CheckpointFileDialogs & {
+      pickExportFile: ReturnType<typeof vi.fn>;
+      pickImportFile: ReturnType<typeof vi.fn>;
+    } = {
+      sandforgeVersion: '1.71.0',
+      pickExportFile: vi.fn(async () =>
+        picks.saveAs === undefined ? undefined : join(dir, picks.saveAs),
+      ),
+      pickImportFile: vi.fn(async () =>
+        picks.open === undefined ? undefined : join(dir, picks.open),
+      ),
+    };
+    return { dir, files };
+  }
+
+  /** This machine, a checkpoint of the org taken, its export saved as `before-uat.sfcheckpoint`. */
+  async function exportedHere() {
+    const { dir, files } = dialogs({ saveAs: 'before-uat.sfcheckpoint' });
+    const here = harness({ checkpointFiles: files });
+    const checkpointId = await taken(here);
+    await here.send('wv-export-1', 'checkpoint:export', { checkpointId });
+    const answer = answerOf(here, 'wv-export-1');
+    expect(answer.type, JSON.stringify(answer.payload)).toBe('checkpoint:export:response');
+    return {
+      here,
+      dir,
+      files,
+      checkpointId,
+      file: join(dir, 'before-uat.sfcheckpoint'),
+      key: String(answer.payload.key),
+    };
+  }
+
+  /** A teammate's machine, with a store of its own, whose open dialog picks `file`. */
+  function teammate(
+    file: string,
+    there: { org?: HandlerTestOrg; registered?: SalesforceOrg } = {},
+  ) {
+    const files: CheckpointFileDialogs = {
+      sandforgeVersion: '1.71.0',
+      pickExportFile: vi.fn(async () => undefined),
+      pickImportFile: vi.fn(async () => file),
+    };
+    return harness({ ...there, checkpointFiles: files });
+  }
+
+  /** The folders a store keeps of any org: none, for an import refused. */
+  function foldersOf(h: Harness): string[] {
+    return existsSync(h.store.root)
+      ? readdirSync(h.store.root).flatMap((org) => readdirSync(join(h.store.root, org)))
+      : [];
+  }
+
+  it('asks where to save once the checkpoint is checked, suggests its id, writes the file its owner’s alone, and answers the key once with the file’s name alone', async () => {
+    const { here, dir, files, checkpointId, file, key } = await exportedHere();
+
+    expect(files.pickExportFile).toHaveBeenCalledWith(`${checkpointId}.sfcheckpoint`);
+    expect(answerOf(here, 'wv-export-1').payload).toEqual({
+      status: 'saved',
+      checkpointId,
+      fileName: 'before-uat.sfcheckpoint',
+      key: expect.stringMatching(KEY_SHOWN),
+      records: 3,
+      objects: 2,
+      bytes: statSync(file).size,
+    });
+    expect(readFileSync(file, 'utf8').startsWith('{"format":"sandforge-checkpoint"')).toBe(true);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dir)).toEqual(['before-uat.sfcheckpoint']);
+    const said = JSON.stringify([here.posted, here.logs, here.trail()]);
+    expect(said.includes(dir), 'a path reached the page, the log or the trail').toBe(false);
+    // The key once: in the answer that shows it, and nowhere else.
+    expect(said.split(key).length - 1).toBe(1);
+    expect(here.trail()[0]).toMatchObject({
+      action: 'checkpoint_export',
+      outcome: 'success',
+      details: { checkpointId, records: 3, objects: 2 },
+    });
+  });
+
+  it('refuses the export of a checkpoint whose take never ended, failed, or whose file cannot be read, before the save dialog asks anything, writing nothing', async () => {
+    const { dir, files } = dialogs({ saveAs: 'before-uat.sfcheckpoint' });
+    const h = harness({ checkpointFiles: files });
+    const checkpointId = await taken(h);
+    const cases = [
+      { status: 'taking', code: 'TAKING', says: 'it can be exported once taken, or deleted' },
+      { status: 'failed', code: 'FAILED', says: 'failed: it can only be deleted' },
+    ] as const;
+    for (const { status, code, says } of cases) {
+      await h.store.update(checkpointId, (checkpoint) => ({ ...checkpoint, status }));
+      await h.send(`wv-export-${status}`, 'checkpoint:export', { checkpointId });
+      expect(answerOf(h, `wv-export-${status}`), status).toMatchObject({
+        type: 'checkpoint:error',
+        payload: { code, message: expect.stringContaining(says) },
+      });
+    }
+    writeFileSync(h.store.folderOf(ORG_ID, checkpointId).checkpointFile, '{ not json');
+    await h.send('wv-export-damaged', 'checkpoint:export', { checkpointId });
+    expect(answerOf(h, 'wv-export-damaged')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'DAMAGED', message: expect.stringContaining('cannot be read') },
+    });
+
+    expect(files.pickExportFile).not.toHaveBeenCalled();
+    expect(readdirSync(dir)).toEqual([]);
+    expect(h.trail().filter((entry) => entry.action === 'checkpoint_export')).toEqual([]);
+  });
+
+  it('says a save dialog closed, writing nothing', async () => {
+    const { dir, files } = dialogs();
+    const h = harness({ checkpointFiles: files });
+    const checkpointId = await taken(h);
+
+    await h.send('wv-export-1', 'checkpoint:export', { checkpointId });
+
+    expect(answerOf(h, 'wv-export-1')).toMatchObject({
+      type: 'checkpoint:export:response',
+      payload: { status: 'cancelled', checkpointId },
+    });
+    expect(readdirSync(dir)).toEqual([]);
+    expect(h.trail().filter((entry) => entry.action === 'checkpoint_export')).toEqual([]);
+  });
+
+  it('replaces a file the person confirmed to replace in the save dialog once the new one is whole, leaving nothing beside it', async () => {
+    const { dir, files } = dialogs({ saveAs: 'before-uat.sfcheckpoint' });
+    const h = harness({ checkpointFiles: files });
+    const checkpointId = await taken(h);
+    writeFileSync(join(dir, 'before-uat.sfcheckpoint'), 'an older export');
+
+    await h.send('wv-export-1', 'checkpoint:export', { checkpointId });
+
+    expect(answerOf(h, 'wv-export-1').payload).toMatchObject({
+      status: 'saved',
+      fileName: 'before-uat.sfcheckpoint',
+    });
+    const written = readFileSync(join(dir, 'before-uat.sfcheckpoint'), 'utf8');
+    expect(written.startsWith('{"format":"sandforge-checkpoint"')).toBe(true);
+    expect(readdirSync(dir)).toEqual(['before-uat.sfcheckpoint']);
+  });
+
+  it('tells the page a failure of the disk without the folders it happened in', async () => {
+    const { dir, files } = dialogs({ saveAs: join('gone', 'before-uat.sfcheckpoint') });
+    const h = harness({ checkpointFiles: files });
+    const checkpointId = await taken(h);
+
+    await h.send('wv-export-1', 'checkpoint:export', { checkpointId });
+
+    const answer = answerOf(h, 'wv-export-1');
+    expect(answer.type).toBe('checkpoint:error');
+    expect(answer.payload.message).toEqual(expect.stringContaining('ENOENT'));
+    expect(JSON.stringify(h.posted).includes(dir)).toBe(false);
+    expect(JSON.stringify(h.logs).includes(dir)).toBe(false);
+  });
+
+  it('reads the file’s header and the orgs it can be imported for, the org asked before any key, and names the file by a token, never by its path', async () => {
+    const { here, dir, checkpointId, file } = await exportedHere();
+    const there = teammate(file, { org: here.org });
+
+    await there.send('wv-read-1', 'checkpoint:import-read');
+
+    const answer = answerOf(there, 'wv-read-1');
+    expect(answer.type).toBe('checkpoint:import-read:response');
+    expect(answer.payload).toEqual({
+      status: 'read',
+      token: expect.any(String),
+      fileName: 'before-uat.sfcheckpoint',
+      summary: {
+        formatVersion: 1,
+        checkpointFormat: 1,
+        sandforgeVersion: '1.71.0',
+        // In its 18-character form, its last three letters the org's own checksum.
+        organizationId: expect.stringMatching(new RegExp(`^${ORG_ID.slice(0, 15)}[A-Z0-9]{3}$`)),
+        orgTier: expect.any(String),
+        checkpointId,
+        takenAt: expect.any(String),
+        records: 3,
+        objects: 2,
+        files: expect.any(Number),
+        bytes: expect.any(Number),
+      },
+      orgIds: [REGISTERED],
+    });
+    // The org's guard was asked: its connection was opened.
+    expect(vi.mocked(getJsforceConnection)).toHaveBeenCalled();
+    expect(JSON.stringify(there.posted).includes(dir)).toBe(false);
+    expect(foldersOf(there)).toEqual([]);
+  });
+
+  it('refuses, before any key, a file the org does not let in — its user without View All Data, a production org — and one that is no checkpoint file, each with its words, keeping nothing', async () => {
+    const { here, dir, file } = await exportedHere();
+    const cases: Array<{ code: string; says: string; prepare: (org: HandlerTestOrg) => void }> = [
+      {
+        code: 'PERMISSIONS',
+        says: 'An import needs a user with View All Data and Modify All Data',
+        prepare: (org) =>
+          org.edit('UserPermissionAccess', '0Up000000000001AAA', { PermissionsViewAllData: false }),
+      },
+      {
+        code: 'PRODUCTION',
+        says: 'is a production org, or cannot be told from one',
+        prepare: (org) =>
+          org.edit('Organization', ORG_ID, {
+            IsSandbox: false,
+            OrganizationType: 'Enterprise Edition',
+          }),
+      },
+    ];
+    for (const { code, says, prepare } of cases) {
+      const elsewhere = new HandlerTestOrg();
+      prepare(elsewhere);
+      const there = teammate(file, { org: elsewhere });
+      await there.send('wv-read-1', 'checkpoint:import-read');
+      expect(answerOf(there, 'wv-read-1'), code).toMatchObject({
+        type: 'checkpoint:error',
+        payload: { code, message: expect.stringContaining(says) },
+      });
+      expect(foldersOf(there), code).toEqual([]);
+    }
+    writeFileSync(join(dir, 'notes.txt'), 'name,value\n');
+    const there = teammate(join(dir, 'notes.txt'), { org: here.org });
+    await there.send('wv-read-2', 'checkpoint:import-read');
+    expect(answerOf(there, 'wv-read-2')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: {
+        code: 'IMPORT_NOT_ARCHIVE',
+        message: expect.stringContaining('This is not a checkpoint file SandForge exported'),
+      },
+    });
+    expect(JSON.stringify(there.posted).includes(dir)).toBe(false);
+  });
+
+  it('answers no org to import into for a file of an org not connected here, and never asks one', async () => {
+    const { here, file } = await exportedHere();
+    const there = teammate(file, {
+      org: here.org,
+      registered: registered({ orgId: '00D000000000007AAA' }),
+    });
+    const connections = vi.mocked(getJsforceConnection).mock.calls.length;
+
+    await there.send('wv-read-1', 'checkpoint:import-read');
+
+    expect(answerOf(there, 'wv-read-1').payload).toMatchObject({ status: 'read', orgIds: [] });
+    expect(vi.mocked(getJsforceConnection).mock.calls.length).toBe(connections);
+  });
+
+  it('says an open dialog closed, and that a checkpoint of the file’s id is kept here already', async () => {
+    const { here, file } = await exportedHere();
+    const closed = harness({ checkpointFiles: dialogs().files });
+    await closed.send('wv-read-1', 'checkpoint:import-read');
+    expect(answerOf(closed, 'wv-read-1').payload).toEqual({ status: 'cancelled' });
+
+    const self = teammate(file, { org: here.org });
+    self.handler.setStore(here.store);
+    await self.send('wv-read-2', 'checkpoint:import-read');
+    expect(answerOf(self, 'wv-read-2').payload).toMatchObject({ status: 'read', keptHere: true });
+  });
+
+  it('keeps the checkpoint the page confirms with the key shown, after refusing a wrong key, a key that is none and a token the window does not know, each with its words and nothing kept', async () => {
+    const { here, dir, checkpointId, file, key } = await exportedHere();
+    const there = teammate(file, { org: here.org });
+    await there.send('wv-read-1', 'checkpoint:import-read');
+    const token = String(answerOf(there, 'wv-read-1').payload.token);
+    const asked = (id: string, given: { token?: string; key: string }) =>
+      there.send(id, 'checkpoint:import', {
+        token: given.token ?? token,
+        orgId: REGISTERED,
+        key: given.key,
+        keepDays: 30,
+      });
+
+    await asked('wv-import-1', { key: 'AAAA-'.repeat(12) + 'AAAA' });
+    expect(answerOf(there, 'wv-import-1').payload).toMatchObject({
+      code: 'IMPORT_KEY',
+      message: expect.stringContaining('This key is not the one the file was exported with.'),
+    });
+    await asked('wv-import-2', { key: 'not a key' });
+    expect(answerOf(there, 'wv-import-2').payload).toMatchObject({
+      code: 'IMPORT_KEY',
+      message: expect.stringContaining('That is not a key SandForge draws'),
+    });
+    await asked('wv-import-3', { token: 'a-token-of-another-window', key });
+    expect(answerOf(there, 'wv-import-3').payload).toMatchObject({
+      code: 'IMPORT_FILE_GONE',
+      message: expect.stringContaining('choose it again with Import…'),
+    });
+    expect(foldersOf(there)).toEqual([]);
+
+    // Typed in lower case, without its dashes: the key all the same.
+    await asked('wv-import-4', { key: key.replaceAll('-', '').toLowerCase() });
+    expect(answerOf(there, 'wv-import-4')).toMatchObject({
+      type: 'checkpoint:import:response',
+      payload: { outcome: 'imported', checkpoint: { checkpointId, org: { alias: 'DEV-SB' } } },
+    });
+    expect(foldersOf(there)).toEqual([checkpointId]);
+    // The token named the file until it was imported, and no longer.
+    await asked('wv-import-5', { key });
+    expect(answerOf(there, 'wv-import-5').payload).toMatchObject({ code: 'IMPORT_FILE_GONE' });
+    // Read again and imported again: the same checkpoint, left as it is.
+    await there.send('wv-read-2', 'checkpoint:import-read');
+    const again = String(answerOf(there, 'wv-read-2').payload.token);
+    await asked('wv-import-6', { token: again, key });
+    expect(answerOf(there, 'wv-import-6').payload).toMatchObject({ outcome: 'alreadyKept' });
+
+    const said = JSON.stringify([there.posted, there.logs, there.trail()]);
+    expect(said.includes(dir)).toBe(false);
+    expect(said.includes(key)).toBe(false);
+    expect(said.includes(key.replaceAll('-', '').toLowerCase())).toBe(false);
+  });
+
+  it('refuses a key that is none with what the org refuses first, as a key given is', async () => {
+    const { file } = await exportedHere();
+    const production = new HandlerTestOrg();
+    const there = teammate(file, { org: production });
+    await there.send('wv-read-1', 'checkpoint:import-read');
+    const token = String(answerOf(there, 'wv-read-1').payload.token);
+    // The org becomes a production org between the read and the import.
+    production.edit('Organization', ORG_ID, {
+      IsSandbox: false,
+      OrganizationType: 'Enterprise Edition',
+    });
+
+    await there.send('wv-import-1', 'checkpoint:import', {
+      token,
+      orgId: REGISTERED,
+      key: 'not a key',
+      keepDays: 30,
+    });
+
+    expect(answerOf(there, 'wv-import-1').payload).toMatchObject({ code: 'PRODUCTION' });
+  });
+
+  it('refuses Export… and Import… in a window without dialogs, writing nothing', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+
+    await h.send('wv-export-1', 'checkpoint:export', { checkpointId });
+    await h.send('wv-read-1', 'checkpoint:import-read');
+
+    expect(answerOf(h, 'wv-export-1').payload).toMatchObject({
+      code: 'NO_FILE_DIALOG',
+      message: expect.stringContaining('sandforge-checkpoint export'),
+    });
+    expect(answerOf(h, 'wv-read-1').payload).toMatchObject({
+      code: 'NO_FILE_DIALOG',
+      message: expect.stringContaining('sandforge-checkpoint import'),
+    });
   });
 });
 

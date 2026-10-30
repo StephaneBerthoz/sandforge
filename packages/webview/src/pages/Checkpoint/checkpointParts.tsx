@@ -5,14 +5,16 @@ import type { TakeCheckpointProps } from './TakeCheckpoint';
 import type { RewindPreviewProps } from './RewindPreview';
 import type { RewindRunProps } from './RewindRun';
 import type { StopComparingFieldsProps } from './StopComparingFields';
+import type { ExportCheckpointProps, ImportCheckpointProps } from './CheckpointTransfer';
 
 /*
  * The parts of the Checkpoints page its first paint does not draw, each a
  * chunk of its own fetched the first time it is shown: the page paints the
  * org's checkpoints, or its empty state, and what a take asks and shows comes
  * once Take a checkpoint is pressed, what a rewind would do once Rewind… is,
- * the rewind and what it did once it is confirmed, and the fields a
- * checkpoint compares once they are to change. Their words are the page's own
+ * the rewind and what it did once it is confirmed, the fields a checkpoint
+ * compares once they are to change, and the key of an export or the facts of
+ * a file to import once Export… or Import… has its answer. Their words are the page's own
  * namespace, loaded with the page; the preview names beside it the words of
  * what the org runs as a removal writes, which it lists as the Forge and Sync
  * removals do, and the run those of what a removal deleted, which it says as
@@ -42,6 +44,18 @@ const LoadedRewindRun = lazy(() =>
 const LoadedStopComparingFields = lazy(() =>
   withEnglish(() => import('./StopComparingFields'), [])().then((module) => ({
     default: module.StopComparingFields,
+  })),
+);
+
+const LoadedExportCheckpoint = lazy(() =>
+  withEnglish(() => import('./CheckpointTransfer'), [])().then((module) => ({
+    default: module.ExportCheckpoint,
+  })),
+);
+
+const LoadedImportCheckpoint = lazy(() =>
+  withEnglish(() => import('./CheckpointTransfer'), [])().then((module) => ({
+    default: module.ImportCheckpoint,
   })),
 );
 
@@ -77,6 +91,24 @@ export const StopComparingFields: FC<StopComparingFieldsProps> = (props) => (
   <PartBoundary>
     <Suspense fallback={null}>
       <LoadedStopComparingFields {...props} />
+    </Suspense>
+  </PartBoundary>
+);
+
+/** A checkpoint exported to a file, and the key it is encrypted under, shown once. */
+export const ExportCheckpoint: FC<ExportCheckpointProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedExportCheckpoint {...props} />
+    </Suspense>
+  </PartBoundary>
+);
+
+/** A checkpoint file another machine exported, as its header says it, and its import with the key. */
+export const ImportCheckpoint: FC<ImportCheckpointProps> = (props) => (
+  <PartBoundary>
+    <Suspense fallback={null}>
+      <LoadedImportCheckpoint {...props} />
     </Suspense>
   </PartBoundary>
 );

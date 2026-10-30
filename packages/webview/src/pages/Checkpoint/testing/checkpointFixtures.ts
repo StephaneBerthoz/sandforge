@@ -9,6 +9,8 @@ import { vi } from 'vitest';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type {
   BaseMessage,
+  CheckpointExportResponse,
+  CheckpointImportReadResponse,
   CheckpointListEntry,
   CheckpointPreviewResponse,
   CheckpointScopeResponse,
@@ -492,6 +494,51 @@ export function rewindResult(overrides: Partial<RewindResult> = {}): RewindResul
     undo: { until: '2026-11-06T14:02:00.000Z', cannot: [] },
     apiRequests: { used: 96, leftToday: 14_804 },
     finishedAt: '2026-10-22T14:02:00.000Z',
+    ...overrides,
+  };
+}
+
+/** A key as an export shows it, made up: thirteen groups of four letters and digits. */
+export const SHOWN_KEY = 'MFRG-GZDF-MZTW-Q2LK-NNWG-23TP-OBYX-E43U-OV3H-O6DZ-PI2D-KNRW-G4ZQ';
+
+/** What `checkpoint:export` answers once the file is written: the default checkpoint's. */
+export function exportAnswer(
+  overrides: Partial<Extract<CheckpointExportResponse['payload'], { status: 'saved' }>> = {},
+): Extract<CheckpointExportResponse['payload'], { status: 'saved' }> {
+  return {
+    status: 'saved',
+    checkpointId: 'ck-20261020-140512-a1b2',
+    fileName: 'before-uat.sfcheckpoint',
+    key: SHOWN_KEY,
+    records: 2412,
+    objects: 3,
+    bytes: 1_300_000,
+    ...overrides,
+  };
+}
+
+/** What `checkpoint:import-read` answers for the default checkpoint's file, importable for DEV-SB. */
+export function importReadAnswer(
+  overrides: Partial<Extract<CheckpointImportReadResponse['payload'], { status: 'read' }>> = {},
+): Extract<CheckpointImportReadResponse['payload'], { status: 'read' }> {
+  return {
+    status: 'read',
+    token: '7d0c4c9e-2f6b-4a8e-9a43-0b6f8f6a1c2d',
+    fileName: 'before-uat.sfcheckpoint',
+    summary: {
+      formatVersion: 1,
+      checkpointFormat: 1,
+      sandforgeVersion: '1.71.0',
+      organizationId: '00Dxx0000001234AAA',
+      orgTier: 'developer',
+      checkpointId: 'ck-20261020-140512-a1b2',
+      takenAt: '2026-10-20T14:06:03.000Z',
+      records: 2412,
+      objects: 3,
+      files: 6,
+      bytes: 2_400_000,
+    },
+    orgIds: ['org-dev'],
     ...overrides,
   };
 }

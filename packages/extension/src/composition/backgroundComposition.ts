@@ -25,6 +25,7 @@ import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type {
+  CheckpointFileDialogs,
   ReplacedOrgRestoreQuestion,
   UndeletableRemovalQuestion,
 } from '../bridge/handlers/HandlerTypes';
@@ -115,6 +116,68 @@ function undeletableQuestionDetail(question: UndeletableRemovalQuestion): string
       'Remove the rest removes every other record of the run, and keeps these with the records they hang from. Cancel removes nothing.',
     ),
   ].join('\n');
+}
+
+/** The extension a checkpoint file is saved with, without its dot. */
+const CHECKPOINT_FILE_EXTENSION = 'sfcheckpoint';
+
+/**
+ * The path on this machine's disk of a place a dialog picked, or a refusal in
+ * words: a checkpoint's file is written and read with the disk's own calls,
+ * which reach no other file system the dialog offers.
+ */
+function diskPathOf(uri: vscode.Uri): string {
+  if (uri.scheme !== 'file') {
+    throw new Error(
+      vscode.l10n.t(
+        'SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.',
+      ),
+    );
+  }
+  return uri.fsPath;
+}
+
+/**
+ * The save and open dialogs a checkpoint's Export… and Import… pick their
+ * file in. The save dialog opens in the home folder, never a workspace's:
+ * an encrypted checkpoint saved into a repository is one commit away from
+ * being pushed with it.
+ *
+ * @param sandforgeVersion - This SandForge's version, which an export names.
+ * @param homeDir - Where the save dialog opens.
+ */
+export function checkpointFileDialogs(
+  sandforgeVersion: string,
+  homeDir: string,
+): CheckpointFileDialogs {
+  const filters = (): Record<string, string[]> => ({
+    [vscode.l10n.t('SandForge checkpoint')]: [CHECKPOINT_FILE_EXTENSION],
+  });
+  return {
+    sandforgeVersion,
+    pickExportFile: async (suggestedName) => {
+      const uri = await vscode.window.showSaveDialog({
+        title: vscode.l10n.t('Export the checkpoint, encrypted'),
+        saveLabel: vscode.l10n.t('Export'),
+        defaultUri: vscode.Uri.joinPath(vscode.Uri.file(homeDir), suggestedName),
+        filters: filters(),
+      });
+      return uri ? diskPathOf(uri) : undefined;
+    },
+    pickImportFile: async () => {
+      const picked = await vscode.window.showOpenDialog({
+        title: vscode.l10n.t('Import a checkpoint file'),
+        openLabel: vscode.l10n.t('Import'),
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        // A file sent through a chat or a drive can come back renamed.
+        filters: { ...filters(), [vscode.l10n.t('All files')]: ['*'] },
+      });
+      const uri = picked?.[0];
+      return uri ? diskPathOf(uri) : undefined;
+    },
+  };
 }
 
 /** The most entries a run's question lists before it says how many more there are. */

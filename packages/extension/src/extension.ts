@@ -26,6 +26,7 @@ import type { Services } from './services.js';
 import { logger } from './logger.js';
 import { createCoreComposition } from './composition/coreComposition';
 import {
+  checkpointFileDialogs,
   confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
@@ -304,6 +305,11 @@ export function activate(context: vscode.ExtensionContext): void {
       confirmRestoreIntoReplacedOrg,
       // A removal whose user may not delete some of the run's objects asks first.
       confirmRemovalLeavingUndeletable,
+      // Export… and Import… on the Checkpoints page pick their file here.
+      checkpointFiles: checkpointFileDialogs(
+        (context.extension.packageJSON as { version?: string }).version ?? '0.0.0',
+        os.homedir(),
+      ),
     },
     backgroundRegistry,
     migrationFileReader: fsReader,

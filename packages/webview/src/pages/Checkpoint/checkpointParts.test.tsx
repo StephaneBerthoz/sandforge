@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
-import { developerOrg, previewDiff, readyCheckpoint } from './testing/checkpointFixtures';
+import {
+  developerOrg,
+  exportAnswer,
+  importReadAnswer,
+  previewDiff,
+  readyCheckpoint,
+} from './testing/checkpointFixtures';
 
 /**
- * When the take, the preview, the run and the choice of fields load. Each
+ * When the take, the preview, the run, the choice of fields, and the key of
+ * an export or the facts of a file to import load. Each
  * stand-in notes when its module is evaluated: a page that imported one up
  * front would parse what a take asks, a preview shows or a rewind says it did
  * before its list painted.
@@ -55,7 +62,26 @@ vi.mock('./StopComparingFields', () => {
   };
 });
 
-import { RewindPreview, RewindRun, StopComparingFields, TakeCheckpoint } from './checkpointParts';
+vi.mock('./CheckpointTransfer', () => {
+  evaluated.add('CheckpointTransfer');
+  return {
+    ExportCheckpoint: ({ name }: { name: string }) => (
+      <div data-testid="export-stand-in">{name}</div>
+    ),
+    ImportCheckpoint: ({ read }: { read: { fileName: string } }) => (
+      <div data-testid="import-stand-in">{read.fileName}</div>
+    ),
+  };
+});
+
+import {
+  ExportCheckpoint,
+  ImportCheckpoint,
+  RewindPreview,
+  RewindRun,
+  StopComparingFields,
+  TakeCheckpoint,
+} from './checkpointParts';
 
 describe('the parts of the Checkpoints page loaded on demand', () => {
   it('loads the take the first time it is shown, with the props it was given', async () => {
@@ -97,6 +123,35 @@ describe('the parts of the Checkpoints page loaded on demand', () => {
     );
     expect((await screen.findByTestId('stop-comparing-stand-in')).textContent).toBe('Before UAT');
     expect([...evaluated]).toContain('StopComparingFields');
+  });
+
+  it('loads the key of an export the first time an export is saved, with the props it was given', async () => {
+    expect([...evaluated]).not.toContain('CheckpointTransfer');
+    render(
+      <ExportCheckpoint
+        exported={exportAnswer()}
+        name="Before UAT"
+        orgName="DEV-SB"
+        onClose={vi.fn()}
+      />,
+    );
+    expect((await screen.findByTestId('export-stand-in')).textContent).toBe('Before UAT');
+    expect([...evaluated]).toContain('CheckpointTransfer');
+  });
+
+  it('loads the facts of a file to import from the same part, with the props it was given', async () => {
+    render(
+      <ImportCheckpoint
+        read={importReadAnswer()}
+        orgs={[developerOrg()]}
+        currentOrgId="org-dev"
+        onImported={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect((await screen.findByTestId('import-stand-in')).textContent).toBe(
+      'before-uat.sfcheckpoint',
+    );
   });
 
   it('says a take that could not load in its place, and leaves the page around it up', async () => {

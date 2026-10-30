@@ -170,5 +170,12 @@
   "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "Ces enregistrements font envoyer aux flows de {0} environ {1} e-mails de workflow. Ce qu'il lui reste aujourd'hui n'a pas pu être lu ({2}) : on ne sait donc pas s'ils tiennent.",
   "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.": "Ce que {0} exécute sur ces objets n'a pas pu être lu ({1}) : les e-mails que ses flows envoient à l'arrivée des enregistrements n'ont pas été comptés dans ses limites quotidiennes.",
   "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} ne donne ses limites qu'à un utilisateur disposant de « Afficher la configuration » : l'utilisateur avec lequel SandForge se connecte ne l'a peut-être pas.",
-  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "L'exécution prend environ {0} requêtes d'API, et il reste à {1} {2} de ses {3} requêtes quotidiennes : elle laisserait l'org avec moins d'un dixième."
+  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "L'exécution prend environ {0} requêtes d'API, et il reste à {1} {2} de ses {3} requêtes quotidiennes : elle laisserait l'org avec moins d'un dixième.",
+  "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.": "SandForge écrit et lit un fichier de point de contrôle sur le disque de la machine où il s’exécute : choisissez un dossier sur ce disque.",
+  "SandForge checkpoint": "Point de contrôle SandForge",
+  "Export the checkpoint, encrypted": "Exporter le point de contrôle, chiffré",
+  "Export": "Exporter",
+  "Import a checkpoint file": "Importer un fichier de point de contrôle",
+  "Import": "Importer",
+  "All files": "Tous les fichiers"
 }

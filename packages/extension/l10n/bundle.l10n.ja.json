@@ -170,5 +170,12 @@
   "These records make the flows of {0} send about {1} workflow emails. What it has left today could not be read ({2}), so whether they fit is not known.": "これらのレコードにより、{0} のフローが約 {1} 通のワークフローメールを送信します。今日の残り数を読み取れなかったため ({2})、収まるかどうかはわかりません。",
   "What {0} runs on these objects could not be read ({1}), so the emails its flows send as the records go in were not counted against its daily limits.": "{0} がこれらのオブジェクトで実行する内容を読み取れなかったため ({1})、レコードの書き込み時にそのフローが送信するメールは 1 日の上限に対して数えられていません。",
   "{0} gives its limits only to a user with View Setup and Configuration: the user SandForge connects as may not have it.": "{0} は「設定・定義を参照する」権限を持つユーザーにのみ制限値を返します。SandForge が接続するユーザーにはその権限がない可能性があります。",
-  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "この実行は約 {0} 件の API 要求を使い、{1} には 1 日の {3} 件のうち {2} 件が残っています。実行後は 10 分の 1 未満しか残りません。"
+  "The run takes about {0} API requests, and {1} has {2} of its {3} daily requests left: it would leave the org with less than a tenth of them.": "この実行は約 {0} 件の API 要求を使い、{1} には 1 日の {3} 件のうち {2} 件が残っています。実行後は 10 分の 1 未満しか残りません。",
+  "SandForge writes and reads a checkpoint file on the disk of the machine it runs on: pick a folder there.": "SandForge は、自身が動いているマシンのディスク上でチェックポイントファイルを読み書きします。そのディスク上のフォルダーを選んでください。",
+  "SandForge checkpoint": "SandForge チェックポイント",
+  "Export the checkpoint, encrypted": "チェックポイントを暗号化してエクスポート",
+  "Export": "エクスポート",
+  "Import a checkpoint file": "チェックポイントファイルをインポート",
+  "Import": "インポート",
+  "All files": "すべてのファイル"
 }

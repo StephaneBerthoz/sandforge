@@ -6089,6 +6089,48 @@
       "noMatch": "Nenhum campo corresponde.",
       "ticked_one": "{{formatted}} campo não comparado",
       "ticked_other": "{{formatted}} campos não comparados"
+    },
+    "transfer": {
+      "export": "Exportar…",
+      "import": "Importar…",
+      "exported": {
+        "title": "“{{name}}” exportado",
+        "saved": "Salvo como {{file}}, criptografado: {{records}} de {{objects}}, {{size}}.",
+        "key": "A chave, mostrada só desta vez e guardada em lugar nenhum",
+        "copy": "Copiar a chave",
+        "copied": "Chave copiada",
+        "whoReads_one": "Quem tiver este arquivo e a sua chave pode ler o registro de {{org}} que ele contém, dados pessoais incluídos. Envie a chave por outro meio que não o arquivo, e só a pessoas que já veem todos os dados de {{org}}.",
+        "whoReads_other": "Quem tiver este arquivo e a sua chave pode ler os {{formatted}} registros de {{org}} que ele contém, dados pessoais incluídos. Envie a chave por outro meio que não o arquivo, e só a pessoas que já veem todos os dados de {{org}}.",
+        "noExpiry": "O arquivo não expira: exclua-o quando tiver servido. Ele não leva nem os diários dos retrocessos feitos a partir desta máquina nem o seu desfazer, que ficam aqui.",
+        "done": "Concluído"
+      },
+      "importDialog": {
+        "title": "Importar um ponto de verificação",
+        "read": "{{file}}, como o seu cabeçalho o descreve: nada é descriptografado antes de você importá-lo.",
+        "org": "Org",
+        "records": "Contém",
+        "recordsValue": "{{records}} de {{objects}}",
+        "taken": "Criado",
+        "madeBy": "Feito com",
+        "madeByValue": "SandForge {{version}}",
+        "format": "Formato",
+        "formatValue": "formato de arquivo {{fileFormat}}, formato de ponto de verificação {{dataFormat}}",
+        "size": "Nesta máquina",
+        "keptHere": "Um ponto de verificação com este id já está guardado nesta máquina: a importação o deixa como está se for o mesmo, e é recusada se não for.",
+        "notConnected": "Nenhuma org conectada no SandForge é a org de que este arquivo contém um ponto de verificação, Organization Id {{id}}: conecte-a e depois importe o arquivo.",
+        "importFor": "Importar para",
+        "key": "Chave com que o arquivo foi exportado",
+        "keyHint": "52 letras e dígitos, com ou sem os hifens. Não é mostrada enquanto você digita.",
+        "keptFor": "Guardado nesta máquina até {{date}}, a menos que você o guarde até excluí-lo.",
+        "notCompared": "Um campo que o seu usuário não vê em {{org}} não é comparado nem regravado por um retrocesso feito a partir desta máquina: a prévia o nomeia não comparado.",
+        "lock": "Retrocessos de {{org}} a partir de duas máquinas ao mesmo tempo atrapalham um ao outro: o bloqueio é por máquina. Combinem quem faz o retrocesso.",
+        "undoStays": "Os retrocessos feitos a partir da máquina de origem, e o seu desfazer, ficaram lá.",
+        "confirm": "Importar",
+        "importedUntil": "“{{name}}” importado: agora consta entre os pontos de verificação de {{org}} e fica guardado até {{date}}.",
+        "importedForever": "“{{name}}” importado: agora consta entre os pontos de verificação de {{org}} e fica guardado até você excluí-lo.",
+        "alreadyKept": "“{{name}}” já está guardado nesta máquina, igual: foi deixado como estava.",
+        "done": "Concluído"
+      }
     }
   }
 }
