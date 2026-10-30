@@ -16,7 +16,9 @@
  * The reads of five objects go together in one composite call, and the
  * cursors they open are followed to their end, a page each a call, before the
  * next five are opened: pages are written as they arrive, and a cursor left
- * idle while others are read can expire.
+ * idle while others are read can expire. The reads the org answers in one row
+ * — the pre-checks, the counts — open no cursor to wait on, and go three
+ * calls at a time.
  *
  * What a read selects, and from when, follows what the org does with dates:
  *
@@ -53,6 +55,7 @@ import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { cursorPages, type PagedQuerySource } from '../forge/queryAllPages.js';
 import { DELTA_OVERLAP_MS, orgDateTime, type DeltaQuerySource } from '../sync/SyncDelta.js';
 import {
+  ONE_ROW_CALLS_IN_FLIGHT,
   OrgReadStopped,
   QUERIES_PER_COMPOSITE,
   type CompositeReader,
@@ -294,6 +297,12 @@ export async function streamRead(
  * pages of five go in one call, and their cursors are followed to their end,
  * a page each a call, before the next five are opened.
  *
+ * Reads the org answers in their first page — a pre-check, a `COUNT()` — are
+ * read so with `oneRow`: five a call still, but
+ * {@link ONE_ROW_CALLS_IN_FLIGHT} groups of five at a time, a group opened as
+ * soon as one before it ends. No cursor is left open by such a read, so none
+ * waits idle while another group is read.
+ *
  * @param take - Called with each page's rows and the place of its read.
  * @returns Each read's outcome, in the order of `reads`.
  * @throws {OrgReadStopped} When the run was stopped.
@@ -303,14 +312,15 @@ export async function readStreams(
   reads: readonly ObjectRead[],
   take: (index: number, rows: OrgRow[]) => Promise<void> | void,
   signal?: AbortSignal,
+  options: { oneRow?: boolean } = {},
 ): Promise<ReadOutcome[]> {
-  const outcomes: ReadOutcome[] = [];
-  for (let start = 0; start < reads.length; start += QUERIES_PER_COMPOSITE) {
-    if (signal?.aborted) throw new OrgReadStopped();
+  const oneRow = options.oneRow === true;
+  const outcomes: ReadOutcome[] = new Array<ReadOutcome>(reads.length);
+  const readGroup = async (start: number): Promise<void> => {
     const group = reads.slice(start, start + QUERIES_PER_COMPOSITE);
     // Every lane of the group is open before any read asks, so that their
     // first pages go together.
-    const lanes = group.map(() => reader.lane());
+    const lanes = group.map(() => reader.lane({ oneRow }));
     const settled = await Promise.allSettled(
       group.map(async (read, offset) => {
         const lane = lanes[offset];
@@ -321,11 +331,31 @@ export async function readStreams(
         }
       }),
     );
-    for (const result of settled) {
+    for (const [offset, result] of settled.entries()) {
       if (result.status === 'rejected') {
         throw result.reason instanceof Error ? result.reason : new Error(String(result.reason));
       }
-      outcomes.push(result.value);
+      outcomes[start + offset] = result.value;
+    }
+  };
+  let next = 0;
+  // Each takes the next group once its own ended: one at a time, or, for
+  // one-row reads, as many as may be in flight.
+  const reading = async (): Promise<void> => {
+    while (next < reads.length) {
+      if (signal?.aborted) throw new OrgReadStopped();
+      const start = next;
+      next += QUERIES_PER_COMPOSITE;
+      await readGroup(start);
+    }
+  };
+  const groups = Math.ceil(reads.length / QUERIES_PER_COMPOSITE);
+  const settled = await Promise.allSettled(
+    Array.from({ length: Math.min(oneRow ? ONE_ROW_CALLS_IN_FLIGHT : 1, groups) }, reading),
+  );
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      throw result.reason instanceof Error ? result.reason : new Error(String(result.reason));
     }
   }
   if (signal?.aborted) throw new OrgReadStopped();
@@ -418,8 +448,8 @@ export type PreCheck =
   | { objectApiName: string; unread: string };
 
 /**
- * The pre-check of each of `objects`, five a call, against the change reads'
- * start for a checkpoint read from `readFrom`.
+ * The pre-check of each of `objects`, five a call, three calls in flight,
+ * against the change reads' start for a checkpoint read from `readFrom`.
  *
  * @returns One answer per object, in the order of `objects`.
  * @throws {OrgReadStopped} When the run was stopped.
@@ -439,6 +469,7 @@ export async function preCheck(
       if (rows.length > 0) newest[index] = rows[0].SystemModstamp;
     },
     signal,
+    { oneRow: true },
   );
   return outcomes.map((outcome, index): PreCheck => {
     if (!outcome.read) return { objectApiName: outcome.objectApiName, unread: outcome.reason };
@@ -467,7 +498,7 @@ export type ObjectCount =
   { objectApiName: string; count: number } | { objectApiName: string; unread: string };
 
 /**
- * n for each of `objects`, five a call.
+ * n for each of `objects`, five a call, three calls in flight.
  *
  * @returns One answer per object, in the order of `objects`.
  * @throws {OrgReadStopped} When the run was stopped.
@@ -482,6 +513,7 @@ export async function countRecords(
     objects.map(({ objectApiName, readMode }) => countRead(objectApiName, readMode)),
     () => undefined,
     signal,
+    { oneRow: true },
   );
   return outcomes.map((outcome): ObjectCount => {
     if (!outcome.read) return { objectApiName: outcome.objectApiName, unread: outcome.reason };
@@ -541,6 +573,9 @@ export type ObjectChanges =
  * An object any of whose reads failed is `unread`, with why: never read as
  * one that did not change.
  *
+ * @param given - The pre-checks of `objects`, one each in their order, when
+ *   the caller read them already — a diff reads them before it describes what
+ *   moved: not read again.
  * @returns One answer per object, in the order of `objects`.
  * @throws {OrgReadStopped} When the run was stopped.
  */
@@ -550,13 +585,19 @@ export async function readChanges(
   readFrom: string,
   folder: string,
   signal?: AbortSignal,
+  given?: readonly PreCheck[],
 ): Promise<ObjectChanges[]> {
-  const checks = await preCheck(
-    reader,
-    objects.map(({ objectApiName }) => objectApiName),
-    readFrom,
-    signal,
-  );
+  if (given !== undefined && given.length !== objects.length) {
+    throw new Error(`${given.length} pre-checks for ${objects.length} objects`);
+  }
+  const checks =
+    given ??
+    (await preCheck(
+      reader,
+      objects.map(({ objectApiName }) => objectApiName),
+      readFrom,
+      signal,
+    ));
   const unread = new Map<number, string>();
   const movedAt: number[] = [];
   checks.forEach((check, index) => {

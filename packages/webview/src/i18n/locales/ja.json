@@ -5427,7 +5427,8 @@
         "broughtBackSince_other": "{{object}}: チェックポイント時点でごみ箱にあり、その後に復元された {{formatted}} 件のレコードは、ごみ箱に戻ります。",
         "comesBackWithParent_other": "{{object}}: その後に作成され、巻き戻しで復元する親と一緒に削除された {{formatted}} 件のレコードは、親と一緒に戻ってから削除されます。",
         "touched_other": "{{object}}: その後に更新されてもチェックポイントの値のままの {{formatted}} 件のレコードは、戻す値がありません。",
-        "unexplained_other": "{{object}}: チェックポイントより前の日付なのにチェックポイントにない {{formatted}} 件のレコードは、そのまま残します (作成日を過去に設定した読み込みかもしれません)。"
+        "unexplained_other": "{{object}}: チェックポイントより前の日付なのにチェックポイントにない {{formatted}} 件のレコードは、そのまま残します (作成日を過去に設定した読み込みかもしれません)。",
+        "fieldsNotChecked_other": "何も変わっていない {{formatted}} 個のオブジェクトでは、項目の変更を確認していません。巻き戻しはそこに何も書き込みません。"
       },
       "unread_other": "{{formatted}} 個のオブジェクトを読み取れませんでした。巻き戻しではそのまま残します",
       "cannot": {

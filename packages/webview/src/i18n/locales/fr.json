@@ -5751,7 +5751,9 @@
         "touched_one": "{{object}} : {{formatted}} enregistrement touché depuis garde ses valeurs du point de contrôle : rien à rendre.",
         "touched_other": "{{object}} : {{formatted}} enregistrements touchés depuis gardent leurs valeurs du point de contrôle : rien à rendre.",
         "unexplained_one": "{{object}} : {{formatted}} enregistrement que le point de contrôle ne contient pas, bien que daté d'avant lui, reste tel quel (un chargement aux dates de création antidatées ?).",
-        "unexplained_other": "{{object}} : {{formatted}} enregistrements que le point de contrôle ne contient pas, bien que datés d'avant lui, restent tels quels (un chargement aux dates de création antidatées ?)."
+        "unexplained_other": "{{object}} : {{formatted}} enregistrements que le point de contrôle ne contient pas, bien que datés d'avant lui, restent tels quels (un chargement aux dates de création antidatées ?).",
+        "fieldsNotChecked_one": "Champs non vérifiés dans {{formatted}} objet où rien n'a changé : un retour arrière n'y écrit rien.",
+        "fieldsNotChecked_other": "Champs non vérifiés dans {{formatted}} objets où rien n'a changé : un retour arrière n'y écrit rien."
       },
       "unread_one": "{{formatted}} objet n'a pas pu être lu : un retour arrière le laisse tel quel",
       "unread_other": "{{formatted}} objets n'ont pas pu être lus : un retour arrière les laisse tels quels",

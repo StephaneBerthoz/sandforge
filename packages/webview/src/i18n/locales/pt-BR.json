@@ -5751,7 +5751,9 @@
         "touched_one": "{{object}}: {{formatted}} registro tocado desde então mantém os valores do ponto de verificação: nada a devolver.",
         "touched_other": "{{object}}: {{formatted}} registros tocados desde então mantêm os valores do ponto de verificação: nada a devolver.",
         "unexplained_one": "{{object}}: {{formatted}} registro que o ponto de verificação não contém, embora tenha data anterior a ele, fica como está (uma carga com datas de criação retroativas?).",
-        "unexplained_other": "{{object}}: {{formatted}} registros que o ponto de verificação não contém, embora tenham data anterior a ele, ficam como estão (uma carga com datas de criação retroativas?)."
+        "unexplained_other": "{{object}}: {{formatted}} registros que o ponto de verificação não contém, embora tenham data anterior a ele, ficam como estão (uma carga com datas de criação retroativas?).",
+        "fieldsNotChecked_one": "Campos não verificados em {{formatted}} objeto em que nada mudou: um retrocesso não escreve nada ali.",
+        "fieldsNotChecked_other": "Campos não verificados em {{formatted}} objetos em que nada mudou: um retrocesso não escreve nada ali."
       },
       "unread_one": "{{formatted}} objeto não pôde ser lido: o retrocesso o deixa como está",
       "unread_other": "{{formatted}} objetos não puderam ser lidos: o retrocesso os deixa como estão",

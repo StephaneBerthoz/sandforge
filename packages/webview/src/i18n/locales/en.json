@@ -5751,7 +5751,9 @@
         "touched_one": "{{object}}: {{formatted}} record touched since holds its checkpoint values: nothing to give back.",
         "touched_other": "{{object}}: {{formatted}} records touched since hold their checkpoint values: nothing to give back.",
         "unexplained_one": "{{object}}: {{formatted}} record the checkpoint does not hold, although dated before it, is left as it is (a load with back-dated creation dates?).",
-        "unexplained_other": "{{object}}: {{formatted}} records the checkpoint does not hold, although dated before it, are left as they are (a load with back-dated creation dates?)."
+        "unexplained_other": "{{object}}: {{formatted}} records the checkpoint does not hold, although dated before it, are left as they are (a load with back-dated creation dates?).",
+        "fieldsNotChecked_one": "Fields not checked for changes in {{formatted}} object nothing changed in: a rewind writes nothing there.",
+        "fieldsNotChecked_other": "Fields not checked for changes in {{formatted}} objects nothing changed in: a rewind writes nothing there."
       },
       "unread_one": "{{formatted}} object could not be read: a rewind leaves it as it is",
       "unread_other": "{{formatted}} objects could not be read: a rewind leaves them as they are",

@@ -928,6 +928,24 @@ export interface RewindDiff {
    */
   fieldsRequests?: number;
   /**
+   * How many of the checkpoint's objects it described again, asked whether
+   * their fields changed since the take: `first`, before the change reads,
+   * those it found something moved in since — and, of an org with person
+   * accounts whose contacts moved, the account — 25 a call with a file's
+   * link; `later`, once the counts were read, those nothing moved in that
+   * hold fewer records than the checkpoint, 25 a call. Each read of the org
+   * since the checkpoint describes as many again. Absent from a diff that
+   * described every object it read.
+   */
+  described?: { first: number; later: number };
+  /**
+   * Of the objects it read, those whose fields it did not describe and left
+   * with nothing to do: nothing moved in them since, so a rewind writes
+   * nothing there, and a field deleted or hidden since in one of them is not
+   * known. Absent when there is none.
+   */
+  fieldsNotChecked?: number;
+  /**
    * The requests its reads of files sent beyond the reads every object has:
    * the links of the records it holds as they are now, the files it reads by
    * their ids — those the user sees no other way, those a link names that it

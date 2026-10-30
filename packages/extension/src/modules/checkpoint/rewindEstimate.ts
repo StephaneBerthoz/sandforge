@@ -74,7 +74,11 @@ import {
   type EmailLimit,
   type LimitsTransport,
 } from '../forge/ForgeRunGate.js';
-import { QUERIES_PER_COMPOSITE, SUBREQUESTS_PER_COMPOSITE } from './compositeQueries.js';
+import {
+  ONE_ROW_CALLS_IN_FLIGHT,
+  QUERIES_PER_COMPOSITE,
+  SUBREQUESTS_PER_COMPOSITE,
+} from './compositeQueries.js';
 import { SNAPSHOT_CHUNK_IDS, snapshotIndexBytes } from './snapshotIndex.js';
 import { RUN_RECORDS_PAGE } from './spooledRunRecords.js';
 
@@ -348,6 +352,20 @@ function calls(count: number, secondsEach: number): Cost {
   return { apiRequests: count, seconds: count * secondsEach };
 }
 
+/**
+ * What `count` composites of one-row reads cost — pre-checks, counts — sent
+ * {@link ONE_ROW_CALLS_IN_FLIGHT} at a time: a request each, and for each
+ * three the time of one. Three in flight at once answered in 0.32 to 0.65 s
+ * on two orgs, where the three sent one after the other took 0.84 to 1.31 s
+ * (P-D3), and one alone 0.23 to 0.45 s.
+ */
+function oneRowCalls(count: number): Cost {
+  return {
+    apiRequests: count,
+    seconds: callsFor(count, ONE_ROW_CALLS_IN_FLIGHT) * SECONDS_PER_SMALL_CALL,
+  };
+}
+
 function sum(...costs: readonly Cost[]): Cost {
   return costs.reduce(
     (total, cost) => ({
@@ -564,12 +582,13 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *   again alone each one a call did not answer, the View Encrypted Data
  *   permission;
  * - `start`: the user, the Automated Process user and T0;
- * - `counts`: every object kept once described, five a call, and again alone
- *   each count a call did not answer — an object then left out, as the org
- *   would not count it or as it holds more than one object may, was counted
- *   all the same — then, five a call, what the next phases' reads hold of
- *   each object: its recycle bin at T0, and of one holding records, its
- *   records stamped since the change reads' start, and its links to files;
+ * - `counts`: every object kept once described, five a call, three calls in
+ *   flight, and again alone each count a call did not answer — an object
+ *   then left out, as the org would not count it or as it holds more than
+ *   one object may, was counted all the same — then, five a call, one call
+ *   after the other, what the next phases' reads hold of each object: its
+ *   recycle bin at T0, and of one holding records, its records stamped since
+ *   the change reads' start, and its links to files;
  * - `bin`: the recycle bin at T0, five objects at a time, each page of ids a
  *   call for the longest of the five;
  * - `snapshot`: a page a call, of {@link SNAPSHOT_PAGE_ROWS} rows at most
@@ -578,9 +597,18 @@ function snapshotCallsOf(object: TakenObject, pageRows: number): { pages: number
  *   to files, five objects at a time, a page of a statement each call — read
  *   by lists of 200 records' ids where the org would not count them — and
  *   the files they name, read by lists of 200 ids, five lists a call;
- * - `stability`: T1, each object's newest stamp, five a call, and, for each
- *   object stamped since the change reads' start, its records stamped since
- *   and those deleted since, read as the bin is, then its count.
+ * - `stability`: T1, each object's newest stamp, five a call, three calls in
+ *   flight, and, for each object stamped since the change reads' start, its
+ *   records stamped since and those deleted since, read as the bin is, then
+ *   its count, three calls in flight.
+ *
+ * The page size the org answers is read off the snapshot's own reads: its
+ * handler asks for a page of the org's kind, 2,000 rows in a sandbox or a
+ * scratch org (`Sforce-Query-Options: batchSize`), and the org answers fewer
+ * for a wide projection — 1,000 for 49 columns (P-D2) — so a snapshot page
+ * is priced at {@link SNAPSHOT_PAGE_ROWS} at most. The narrow reads beside
+ * it, of ids and stamps, the bin and the stability phase, came back 2,000 a
+ * page, and are priced so.
  *
  * Not known before the take reads them, and left out: what moves while the
  * take runs, and what the five minutes before T0 moved of an object that
@@ -596,11 +624,13 @@ export function takeEstimate(
   const kept = input.objects.length;
   const describeCalls = callsFor(input.described, SUBREQUESTS_PER_COMPOSITE);
   const describedAlone = input.describedAlone ?? 0;
-  const counts =
-    callsFor(input.counted ?? kept, QUERIES_PER_COMPOSITE) +
-    (input.countedAlone ?? 0) +
-    callsFor(input.recounted ?? 0, QUERIES_PER_COMPOSITE);
-  const fiveAtATime = callsFor(kept, QUERIES_PER_COMPOSITE);
+  // The counts of the objects kept and the newest stamps go three calls in
+  // flight; a count asked alone, and the recounts, one after the other.
+  const countedTogether = oneRowCalls(callsFor(input.counted ?? kept, QUERIES_PER_COMPOSITE));
+  const countedApart =
+    (input.countedAlone ?? 0) + callsFor(input.recounted ?? 0, QUERIES_PER_COMPOSITE);
+  const counts = countedTogether.apiRequests + countedApart;
+  const fiveAtATime = oneRowCalls(callsFor(kept, QUERIES_PER_COMPOSITE));
   const pageRows = Math.min(input.pageRows, SNAPSHOT_PAGE_ROWS);
   let pages = 0;
   let reads = 0;
@@ -616,7 +646,7 @@ export function takeEstimate(
   const moved = input.objects.filter((object) => (object.stampedSince ?? 0) > 0);
   const changes = sum(
     streamedReadsCost(moved.flatMap((object) => [pagesOf(object.stampedSince ?? 0), 1])),
-    calls(callsFor(moved.length, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+    oneRowCalls(callsFor(moved.length, QUERIES_PER_COMPOSITE)),
   );
   const snapshot = pages + reads + (pages > 0 ? SNAPSHOT_ORG_REQUESTS : 0);
   const requestsByPhase: Record<CheckpointTakePhase, number> = {
@@ -626,7 +656,7 @@ export function takeEstimate(
     counts,
     bin: bin.apiRequests,
     snapshot: snapshot + files.apiRequests,
-    stability: STABILITY_CLOCK_REQUESTS + fiveAtATime + changes.apiRequests,
+    stability: STABILITY_CLOCK_REQUESTS + fiveAtATime.apiRequests + changes.apiRequests,
   };
   return {
     records,
@@ -634,7 +664,9 @@ export function takeEstimate(
     requestsByPhase,
     seconds: Math.ceil(
       describeCalls * SECONDS_PER_DESCRIBE_CALL +
-        (describedAlone + counts + fiveAtATime) * SECONDS_PER_SMALL_CALL +
+        (describedAlone + countedApart) * SECONDS_PER_SMALL_CALL +
+        countedTogether.seconds +
+        fiveAtATime.seconds +
         bin.seconds +
         changes.seconds +
         files.seconds +
@@ -705,10 +737,11 @@ export interface MovedObject {
 
 /**
  * What the change reads of a checkpoint's objects cost (`readChanges`): the
- * pre-check of every object, five a call; then, for each object that moved,
- * the read of what moved (L) and the read of what was deleted (D), streamed
- * five at a time; then the count of each object that moved or that the
- * checkpoint holds records of, five a call.
+ * pre-check of every object, five a call, three calls in flight; then, for
+ * each object that moved, the read of what moved (L) and the read of what was
+ * deleted (D), streamed five at a time; then the count of each object that
+ * moved or that the checkpoint holds records of, five a call, three in
+ * flight.
  */
 export function changeReadsCost(input: {
   /** Objects read. */
@@ -720,11 +753,11 @@ export function changeReadsCost(input: {
 }): Cost {
   const counted = new Set([...input.held, ...input.moved.map((object) => object.objectApiName)]);
   return sum(
-    calls(callsFor(input.objects, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+    oneRowCalls(callsFor(input.objects, QUERIES_PER_COMPOSITE)),
     streamedReadsCost(
       input.moved.flatMap(({ live, deleted }) => [pagesOf(live), pagesOf(deleted)]),
     ),
-    calls(callsFor(counted.size, QUERIES_PER_COMPOSITE), SECONDS_PER_SMALL_CALL),
+    oneRowCalls(callsFor(counted.size, QUERIES_PER_COMPOSITE)),
   );
 }
 
@@ -1046,6 +1079,7 @@ export interface DiffEstimateInput {
         | 'withParentDeleted'
         | 'parentsOutsideRequests'
         | 'fieldsRequests'
+        | 'described'
         | 'files'
         | 'filesRequests'
         | 'access'
@@ -1251,9 +1285,13 @@ function readAfterPass(
  * objects it reads again for being unread last time, and the users it names:
  *
  * - its clock;
- * - the drift describes, 25 a call;
  * - the change reads, of the objects that moved and of those the last read
- *   could not read, in the checkpoint's order;
+ *   could not read, in the checkpoint's order, the drift describes of the
+ *   objects something moved in between their pre-checks and the rest, 25 a
+ *   call with a file's link, and, after the counts, of those nothing moved in
+ *   that hold fewer records than the checkpoint, 25 a call: as many as the
+ *   last read described (`RewindDiff.described`), or, of a diff that does not
+ *   say, every object at once;
  * - the values of the records changed since, and of those that come back
  *   with a parent — their lookup names a record brought back, so they are
  *   read whatever their stamps — by id, in each object's column groups;
@@ -1286,6 +1324,7 @@ function readCost(
   reads: ReadonlyMap<string, ObjectRead>,
   unread: ReadonlySet<string>,
   users: number,
+  described: RewindDiff['described'],
   parentsOutside = 0,
   files?: FilesRead,
   fieldsTold = 0,
@@ -1313,10 +1352,15 @@ function readCost(
     outside += outsideReads(read.deletes, read.outside.worked);
   }
   if (files !== undefined) describesGlobal = true;
-  const described = objects.length + (files !== undefined ? 1 : 0);
+  const link = files !== undefined ? 1 : 0;
+  const describes =
+    described === undefined
+      ? callsFor(objects.length + link, SUBREQUESTS_PER_COMPOSITE)
+      : callsFor(described.first + link, SUBREQUESTS_PER_COMPOSITE) +
+        callsFor(described.later, SUBREQUESTS_PER_COMPOSITE);
   return sum(
     calls(DIFF_FIXED_REQUESTS, SECONDS_PER_SMALL_CALL),
-    calls(callsFor(described, SUBREQUESTS_PER_COMPOSITE), SECONDS_PER_DESCRIBE_CALL),
+    calls(describes, SECONDS_PER_DESCRIBE_CALL),
     changeReadsCost({
       objects: objects.length,
       held: objects.filter((object) => object.records > 0).map((object) => object.objectApiName),
@@ -1371,6 +1415,7 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
     readsOf(input, (object, held) => readOf(object, held, input.relationships)),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     users.size,
+    input.diff.described,
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
     input.diff.fieldsRequests ?? 0,
@@ -1387,6 +1432,9 @@ export function diffEstimate(input: DiffEstimateInput): Cost {
 function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean): Cost {
   const waiting =
     !secondPassThrough && input.diff.objects.some((object) => deletedNext(object) > 0);
+  // What a pass made again in an object nothing moved in moved it: its
+  // describe goes with the others', before the change reads.
+  const described = input.diff.described;
   return readCost(
     input.objects,
     readsOf(input, (object, held) =>
@@ -1394,6 +1442,7 @@ function readAfterPassCost(input: DiffEstimateInput, secondPassThrough: boolean)
     ),
     new Set(input.diff.unread.map((object) => object.objectApiName)),
     waiting ? 1 : 0,
+    described === undefined ? undefined : { first: described.first + described.later, later: 0 },
     input.diff.parentsOutsideRequests ?? 0,
     filesReadOf(input.diff),
     input.diff.fieldsRequests ?? 0,

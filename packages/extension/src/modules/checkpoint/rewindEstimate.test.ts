@@ -625,6 +625,77 @@ describe('diffEstimate', () => {
     ).toBe(1 + 1);
   });
 
+  it('describes as many objects as the last read did, those that moved with a file’s link, then those counted after; every object at once for a diff that does not say', () => {
+    const many = Array.from({ length: 60 }, (_, n) => held(`Object${n}__c`, 1));
+    const priced = (described?: { first: number; later: number }, files = false): number =>
+      diffEstimate({
+        objects: many,
+        diff: {
+          objects: [],
+          unread: [],
+          ...(described ? { described } : {}),
+          ...(files
+            ? {
+                files: {
+                  unlink: 0,
+                  relink: 0,
+                  updateLinks: 0,
+                  outsideAdded: 0,
+                  outsideDeleted: 0,
+                  storage: { bringBack: 0, undo: 0 },
+                },
+                filesRequests: 0,
+              }
+            : {}),
+        },
+      }).apiRequests;
+    const none = priced({ first: 0, later: 0 });
+
+    // Sixty objects described at once: three calls.
+    expect(priced() - none).toBe(3);
+    expect(priced({ first: 3, later: 0 }) - none).toBe(1);
+    // Twenty-five and the link: two calls; then one more for those counted after.
+    expect(priced({ first: 25, later: 0 }, true) - priced({ first: 0, later: 0 }, true)).toBe(
+      2 - 1,
+    );
+    expect(priced({ first: 3, later: 1 }) - none).toBe(1 + 1);
+    expect(priced({ first: 0, later: 26 }) - none).toBe(2);
+  });
+
+  it('describes, once a pass went through, what the last read described after its counts with what moved: a record made again moved its object', () => {
+    const many = Array.from({ length: 30 }, (_, n) => held(`Object${n}__c`, 1));
+    const remade = found('Object0__c', { toRecreate: 1 });
+    const estimate = (later: number): number =>
+      rewindEstimate({
+        objects: many,
+        diff: { objects: [remade], unread: [], described: { first: 24, later } },
+        automationRequests: 0,
+        reusesPreview: true,
+      }).apiRequests;
+
+    // The read after the pass, the verify here, describes the object made
+    // again before its change reads, in the one call of the twenty-four that
+    // moved, not in a call of its own after its counts.
+    expect(estimate(1) - estimate(0)).toBe(0);
+    expect(estimate(2) - estimate(0)).toBe(1);
+  });
+
+  it('prices pre-checks and counts three calls at a time, and their requests one each', () => {
+    const objects = (count: number) =>
+      Array.from({ length: count }, (_, n) => held(`Object${n}__c`, 1));
+    const read = (count: number) =>
+      diffEstimate({
+        objects: objects(count),
+        diff: { objects: [], unread: [], described: { first: 0, later: 0 } },
+      });
+
+    // Fifteen objects: three calls of pre-checks, three of counts, the clock.
+    expect(read(15).apiRequests).toBe(3 + 3 + 1);
+    // Thirty: six and six, in two waves each rather than six calls each.
+    expect(read(30).apiRequests).toBe(6 + 6 + 1);
+    expect(read(30).seconds - read(15).seconds).toBeCloseTo(2 * 0.35, 5);
+  });
+
   it('names the users who last changed what it found, two hundred a read, five reads a call', () => {
     const changedBy = (users: number): Record<string, number> =>
       Object.fromEntries(Array.from({ length: users }, (_, n) => [fakeId('005', n), 1]));

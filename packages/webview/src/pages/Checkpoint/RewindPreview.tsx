@@ -989,26 +989,44 @@ const ObjectTable: React.FC<{ diff: RewindDiff; settings: ReadonlySet<string> }>
   );
 };
 
-/** What each object's numbers hold beyond the table: only the lines that apply. */
+/**
+ * What each object's numbers hold beyond the table, and the objects whose
+ * fields the preview did not describe, nothing having moved in them: only the
+ * lines that apply.
+ */
 const Details: React.FC<{ diff: RewindDiff }> = ({ diff }) => {
   const { t } = useTranslation();
-  const lines = diff.objects.flatMap((object) =>
-    DETAIL_LINES.flatMap(({ key, count }) => {
-      const n = count(object);
-      return n > 0
-        ? [
-            {
-              id: `${object.objectApiName}-${key}`,
-              text: t(key, {
-                count: n,
-                formatted: formatNumber(n),
-                object: object.objectApiName,
-              }),
-            },
-          ]
-        : [];
-    }),
-  );
+  const notChecked = diff.fieldsNotChecked ?? 0;
+  const lines = [
+    ...diff.objects.flatMap((object) =>
+      DETAIL_LINES.flatMap(({ key, count }) => {
+        const n = count(object);
+        return n > 0
+          ? [
+              {
+                id: `${object.objectApiName}-${key}`,
+                text: t(key, {
+                  count: n,
+                  formatted: formatNumber(n),
+                  object: object.objectApiName,
+                }),
+              },
+            ]
+          : [];
+      }),
+    ),
+    ...(notChecked > 0
+      ? [
+          {
+            id: 'fieldsNotChecked',
+            text: t('checkpoint.preview.detail.fieldsNotChecked', {
+              count: notChecked,
+              formatted: formatNumber(notChecked),
+            }),
+          },
+        ]
+      : []),
+  ];
   if (lines.length === 0) return null;
   return (
     <ul className="ml-4 list-disc" data-testid="checkpoint-preview-details">

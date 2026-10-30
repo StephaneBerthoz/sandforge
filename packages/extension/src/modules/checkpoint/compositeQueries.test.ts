@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Connection } from 'jsforce';
 import { compositeOrg, orgError, stampedRows, type FakeOrgCall } from '../../test/compositeOrg.js';
 import {
+  ONE_ROW_CALLS_IN_FLIGHT,
   OrgReadStopped,
   QUERIES_PER_COMPOSITE,
   SUBREQUESTS_PER_COMPOSITE,
@@ -322,6 +323,108 @@ describe('compositeReader: describes beside the queries', () => {
     await expect(reader.describe('Account/../x')).rejects.toThrow(/Invalid Salesforce object/);
     await expect(reader.describe('Account', 'not a date')).rejects.toThrow(/Not a date/);
     expect(org.calls).toEqual([]);
+  });
+});
+
+/**
+ * `conn` answering each call a few milliseconds after it left, as an org
+ * does, and, for each call sent, how many were out once it left, itself
+ * among them, and what it held.
+ */
+function answeringLater(conn: CompositeQueryConnection): {
+  conn: CompositeQueryConnection;
+  sent: Array<{ out: number; subrequests: string[] }>;
+  mostOut: () => number;
+} {
+  let out = 0;
+  const sent: Array<{ out: number; subrequests: string[] }> = [];
+  return {
+    sent,
+    mostOut: () => Math.max(0, ...sent.map((call) => call.out)),
+    conn: {
+      version: conn.version,
+      request: async (request) => {
+        out++;
+        const body =
+          request.url === '/composite'
+            ? (JSON.parse(request.body ?? '{}') as { compositeRequest: Array<{ url: string }> })
+            : { compositeRequest: [{ url: request.url }] };
+        sent.push({ out, subrequests: body.compositeRequest.map(({ url }) => url) });
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          return await conn.request(request);
+        } finally {
+          out--;
+        }
+      },
+      query: conn.query,
+      queryMore: conn.queryMore,
+    },
+  };
+}
+
+/** Forty objects of one record each. */
+const FORTY = Array.from({ length: 40 }, (_, index) => `Obj${index}__c`);
+
+describe('compositeReader: one-row reads three calls at a time', () => {
+  it('sends the first pages of one-row reads three composites at a time, never a fourth while three are out', async () => {
+    const org = compositeOrg({
+      tables: Object.fromEntries(FORTY.map((object) => [object, stampedRows('Obj', 1, T)])),
+    });
+    const later = answeringLater(org.conn);
+    const reader = compositeReader(later.conn);
+
+    const pages = await Promise.all(
+      FORTY.map((object) => drain(reader.lane({ oneRow: true }), `SELECT COUNT() FROM ${object}`)),
+    );
+
+    expect(pages.map((read) => read[0].totalSize)).toEqual(FORTY.map(() => 1));
+    expect(later.sent).toHaveLength(8);
+    expect(later.mostOut()).toBe(ONE_ROW_CALLS_IN_FLIGHT);
+    expect(ONE_ROW_CALLS_IN_FLIGHT).toBe(3);
+  });
+
+  it('sends the pages of cursors one call at a time, as many lanes as they are', async () => {
+    const org = compositeOrg({
+      tables: Object.fromEntries(FORTY.map((object) => [object, stampedRows('Obj', 9, T)])),
+      pageSize: () => 4,
+    });
+    const later = answeringLater(org.conn);
+    const reader = compositeReader(later.conn);
+
+    const pages = await Promise.all(
+      FORTY.map((object) => drain(reader.lane(), `SELECT Id FROM ${object}`)),
+    );
+
+    expect(pages.map(rowsOf)).toEqual(FORTY.map(() => 9));
+    expect(later.mostOut()).toBe(1);
+  });
+
+  it('sends alone a next page a one-row read asks all the same, and a describe asked beside them', async () => {
+    const org = compositeOrg({
+      tables: Object.fromEntries(FORTY.map((object) => [object, stampedRows('Obj', 3, T)])),
+      pageSize: () => 2,
+    });
+    const later = answeringLater(org.conn);
+    const reader = compositeReader(later.conn);
+
+    const [pages, described] = await Promise.all([
+      Promise.all(
+        FORTY.slice(0, 15).map((object) =>
+          drain(reader.lane({ oneRow: true }), `SELECT Id FROM ${object}`),
+        ),
+      ),
+      reader.describe('Obj0__c'),
+    ]);
+
+    expect(pages.map(rowsOf)).toEqual(FORTY.slice(0, 15).map(() => 3));
+    expect(described).toEqual({ body: { name: 'Obj0__c', fields: [] } });
+    // A call that held a next page or a describe went with nothing else out.
+    const alone = later.sent.filter(({ subrequests }) =>
+      subrequests.some((url) => !/\/query\?q=/.test(url)),
+    );
+    expect(alone.length).toBeGreaterThan(0);
+    expect(alone.every(({ out }) => out === 1)).toBe(true);
   });
 });
 

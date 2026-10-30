@@ -5751,7 +5751,9 @@
         "touched_one": "{{object}}: {{formatted}} seitdem berührter Datensatz hat seine Werte des Prüfpunkts: Nichts zurückzugeben.",
         "touched_other": "{{object}}: {{formatted}} seitdem berührte Datensätze haben ihre Werte des Prüfpunkts: Nichts zurückzugeben.",
         "unexplained_one": "{{object}}: {{formatted}} Datensatz, den der Prüfpunkt nicht enthält, obwohl er davor datiert ist, bleibt, wie er ist (ein Import mit rückdatierten Erstellungsdaten?).",
-        "unexplained_other": "{{object}}: {{formatted}} Datensätze, die der Prüfpunkt nicht enthält, obwohl sie davor datiert sind, bleiben, wie sie sind (ein Import mit rückdatierten Erstellungsdaten?)."
+        "unexplained_other": "{{object}}: {{formatted}} Datensätze, die der Prüfpunkt nicht enthält, obwohl sie davor datiert sind, bleiben, wie sie sind (ein Import mit rückdatierten Erstellungsdaten?).",
+        "fieldsNotChecked_one": "Felder nicht auf Änderungen geprüft in {{formatted}} Objekt, in dem sich nichts geändert hat: Das Zurücksetzen schreibt dort nichts.",
+        "fieldsNotChecked_other": "Felder nicht auf Änderungen geprüft in {{formatted}} Objekten, in denen sich nichts geändert hat: Das Zurücksetzen schreibt dort nichts."
       },
       "unread_one": "{{formatted}} Objekt konnte nicht gelesen werden: Das Zurücksetzen lässt es, wie es ist",
       "unread_other": "{{formatted}} Objekte konnten nicht gelesen werden: Das Zurücksetzen lässt sie, wie sie sind",

@@ -5751,7 +5751,9 @@
         "touched_one": "{{object}}: {{formatted}} registro tocado desde entonces conserva sus valores del punto de control: nada que devolver.",
         "touched_other": "{{object}}: {{formatted}} registros tocados desde entonces conservan sus valores del punto de control: nada que devolver.",
         "unexplained_one": "{{object}}: {{formatted}} registro que el punto de control no contiene, aunque tiene una fecha anterior, se queda como está (¿una carga con fechas de creación retroactivas?).",
-        "unexplained_other": "{{object}}: {{formatted}} registros que el punto de control no contiene, aunque tienen una fecha anterior, se quedan como están (¿una carga con fechas de creación retroactivas?)."
+        "unexplained_other": "{{object}}: {{formatted}} registros que el punto de control no contiene, aunque tienen una fecha anterior, se quedan como están (¿una carga con fechas de creación retroactivas?).",
+        "fieldsNotChecked_one": "Campos sin comprobar en {{formatted}} objeto en el que nada cambió: un retroceso no escribe nada allí.",
+        "fieldsNotChecked_other": "Campos sin comprobar en {{formatted}} objetos en los que nada cambió: un retroceso no escribe nada allí."
       },
       "unread_one": "{{formatted}} objeto no se pudo leer: el retroceso lo deja como está",
       "unread_other": "{{formatted}} objetos no se pudieron leer: el retroceso los deja como están",

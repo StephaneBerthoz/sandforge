@@ -39,6 +39,7 @@ import {
   type OrgCheckpointStore,
 } from './OrgCheckpointStore.js';
 import { Recreated, writeSnapshotIndex } from './snapshotIndex.js';
+import { diffEstimate } from './rewindEstimate.js';
 import {
   classFileOf,
   definitionOf,
@@ -873,6 +874,8 @@ describe('rewindDiff: what it reads, and what it sends', () => {
       readAt: new Date(T0_MS + 120_000).toISOString(),
       objects: [],
       undoCannot: [],
+      // Its one object moved in the five minutes before T0: described.
+      described: { first: 1, later: 0 },
       unread: [],
       access: { kind: 'org' },
       userNames: {},
@@ -880,7 +883,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     });
   });
 
-  it('reads no value of a record stamped in the five minutes before the checkpoint and not since: four calls, the describes, the pre-check, the change reads and the count', async () => {
+  it('reads no value of a record stamped in the five minutes before the checkpoint and not since: four calls, the pre-check, the describe, the change reads and the count', async () => {
     const taken = await take({});
     const before = taken.org.requests;
 
@@ -896,7 +899,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     });
     const atChanged = changed.org.requests;
     await diffOf(changed);
-    // The describes, the pre-check, the change reads, the count, one read of
+    // The pre-check, the describe, the change reads, the count, one read of
     // values, and the names of who last changed them.
     expect(changed.org.requests - atChanged).toBe(6);
 
@@ -909,7 +912,7 @@ describe('rewindDiff: what it reads, and what it sends', () => {
     });
     const atLost = lost.org.requests;
     await diffOf(lost);
-    // The describes, the pre-check, the change reads, the count, and the scan
+    // The pre-check, the describe, the change reads, the count, and the scan
     // of live ids.
     expect(lost.org.requests - atLost).toBe(5);
   });
@@ -930,8 +933,8 @@ describe('rewindDiff: what it reads, and what it sends', () => {
 
     const diff = await diffOf(taken);
 
-    // The pre-check saw nothing move: the describes, no change read, the
-    // count, the scan.
+    // The pre-check saw nothing move: no change read, the count, then the
+    // describe of an object a rewind makes records again in, the scan.
     expect(taken.org.requests - before).toBe(4);
     expect(await classesOf(taken.folder, 'Account')).toEqual({ toRecreate: lines(SUBJECT) });
     expect(diff.objects).toEqual([objectOf('Account', { toRecreate: lines(SUBJECT) })]);
@@ -1256,6 +1259,296 @@ describe('rewindDiff: what changed in the objects’ fields since the take', () 
   });
 });
 
+/** A custom object of notes, its fields custom ones. */
+const MEMO: Held = { objectApiName: 'Memo__c', fields: [...STAMPS, 'Body__c', 'Topic__c'] };
+const memoId = (n: number): string => idOf('a0m', n);
+
+/** One call sent: how many were out once it left, itself among them, and its subrequests' URLs. */
+interface SentCall {
+  out: number;
+  urls: string[];
+}
+
+/**
+ * A connection to `org` that keeps every call it sends, and the objects it
+ * asks to describe, in order; `later`, each call answered a few
+ * milliseconds after it left, as an org does.
+ */
+function keeping(
+  org: MemoryRemovalOrg,
+  later = false,
+): { conn: CompositeQueryConnection; described: string[]; sent: SentCall[] } {
+  const described: string[] = [];
+  const sent: SentCall[] = [];
+  let out = 0;
+  return {
+    described,
+    sent,
+    conn: {
+      version: org.version,
+      query: (soql, options) => org.query(soql, options),
+      queryMore: (url) => org.queryMore(url),
+      request: async (request) => {
+        const urls = (
+          request.url === '/composite'
+            ? (JSON.parse(String(request.body)) as { compositeRequest: Array<{ url: string }> })
+                .compositeRequest
+            : [request]
+        ).map(({ url }) => decodeURIComponent(url));
+        out++;
+        sent.push({ out, urls });
+        for (const url of urls) {
+          const object = /\/sobjects\/(\w+)\/describe$/.exec(url)?.[1];
+          if (object !== undefined) described.push(object);
+        }
+        try {
+          if (later) await new Promise((resolve) => setTimeout(resolve, 2));
+          return await org.request(request);
+        } finally {
+          out--;
+        }
+      },
+    },
+  };
+}
+
+/** Thirty custom objects of one record each, every one a field of its own beside the stamps. */
+const THIRTY: Held[] = Array.from({ length: 30 }, (_, n) => ({
+  objectApiName: `Obj${n}__c`,
+  fields: [...STAMPS, 'Name'],
+}));
+const objId = (n: number): string => idOf(`a${String(n).padStart(2, '0')}`, 1);
+
+describe('rewindDiff: only the objects something moved in are described', () => {
+  it('describes an object something moved in, never one nothing moved in, and counts those it left with nothing to do as not checked', async () => {
+    const taken = await take({
+      background: false,
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }, CONTACT, MEMO],
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Contact', { Id: contactId(1), LastName: 'Then' });
+        org.add('Memo__c', { Id: memoId(1), Body__c: 'kept' });
+      },
+      since: (org) => org.edit('Contact', contactId(1), { LastName: 'Now' }),
+    });
+    const kept = keeping(taken.org);
+
+    const diff = await diffOf(taken, { conn: kept.conn });
+
+    expect(kept.described).toEqual(['Contact']);
+    expect(diff.described).toEqual({ first: 1, later: 0 });
+    expect(diff.fieldsNotChecked).toBe(2);
+    expect(diff.objects).toEqual([
+      objectOf('Contact', { giveBack: [{ Id: contactId(1), fields: ['LastName'] }] }, bySession(1)),
+    ]);
+    expect(diff.unread).toEqual([]);
+    // The pre-checks went before the describe, the change reads after it.
+    const describeAt = kept.sent.findIndex(({ urls }) => urls.some((url) => /describe$/.test(url)));
+    const preCheckAt = kept.sent.findIndex(({ urls }) =>
+      urls.some((url) => url.includes('ORDER BY SystemModstamp DESC LIMIT 1')),
+    );
+    const changesAt = kept.sent.findIndex(({ urls }) =>
+      urls.some((url) => url.includes('WHERE SystemModstamp >=')),
+    );
+    expect(preCheckAt).toBeLessThan(describeAt);
+    expect(describeAt).toBeLessThan(changesAt);
+  });
+
+  it('does not know a field deleted since in an object nothing moved in, which it counts not checked, and names one deleted in an object that moved', async () => {
+    const taken = await take({
+      background: false,
+      objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }, MEMO],
+      before: (org) => {
+        org.add('Account', subject());
+        org.add('Memo__c', { Id: memoId(1), Body__c: 'kept', Topic__c: 'gone since' });
+      },
+      since: (org) => {
+        org.edit('Account', SUBJECT, { Industry: 'Retail' });
+        org.changeSchema(
+          'Account',
+          ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
+        );
+        org.changeSchema('Memo__c', describedOf([...STAMPS, 'Body__c']));
+      },
+    });
+    const kept = keeping(taken.org);
+
+    const diff = await diffOf(taken, { conn: kept.conn });
+
+    expect(kept.described).toEqual(['Account']);
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { giveBack: [{ Id: SUBJECT, fields: ['Industry'] }] },
+        {
+          ...bySession(1),
+          schemaDrift: { removed: ['Due__c'], added: [], changed: [] },
+          notCompared: ['Due__c'],
+        },
+      ),
+    ]);
+    expect(diff.fieldsNotChecked).toBe(1);
+    expect(taken.org.toolingAsked).toEqual([
+      "SELECT QualifiedApiName FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName = 'Account' AND QualifiedApiName IN ('Due__c')",
+    ]);
+  });
+
+  it('describes, once counted, an object nothing moved in that lost records without a stamp, which a rewind makes again: a field deleted since in it is named and not made again (F29)', async () => {
+    const taken = await take(
+      {
+        background: false,
+        objects: [{ ...ACCOUNT, described: ACCOUNT_DESCRIBED }, MEMO],
+        before: (org) => {
+          org.add('Account', subject());
+          org.add('Account', { Id: OTHER, Name: 'Kept' });
+          org.add('Memo__c', { Id: memoId(1), Body__c: 'kept' });
+        },
+        since: (org) => {
+          org.hardDelete('Account', SUBJECT);
+          org.changeSchema(
+            'Account',
+            ACCOUNT_DESCRIBED.filter(({ name }) => name !== 'Due__c'),
+          );
+        },
+      },
+      { hardDeleteInQueryAll: false },
+    );
+    const kept = keeping(taken.org);
+
+    const diff = await diffOf(taken, { conn: kept.conn });
+
+    expect(kept.described).toEqual(['Account']);
+    expect(diff.described).toEqual({ first: 0, later: 1 });
+    expect(diff.fieldsNotChecked).toBe(1);
+    expect(await classesOf(taken.folder, 'Account')).toEqual({ toRecreate: lines(SUBJECT) });
+    expect(diff.objects).toEqual([
+      objectOf(
+        'Account',
+        { toRecreate: lines(SUBJECT) },
+        {
+          schemaDrift: { removed: ['Due__c'], added: [], changed: [] },
+          notCompared: ['Due__c'],
+        },
+      ),
+    ]);
+    // Described once the counts said it lost records.
+    const describeAt = kept.sent.findIndex(({ urls }) => urls.some((url) => /describe$/.test(url)));
+    const countAt = kept.sent.findIndex(({ urls }) =>
+      urls.some((url) => url.includes('SELECT COUNT() FROM Account')),
+    );
+    expect(countAt).toBeGreaterThanOrEqual(0);
+    expect(countAt).toBeLessThan(describeAt);
+  });
+
+  it('describes the account of a person contact that moved before the change reads, as its fields are compared whenever its contact moved', async () => {
+    const personAccount: Held = {
+      objectApiName: 'Account',
+      fields: [...STAMPS, 'Name', 'Industry', 'IsPersonAccount', 'PersonEmail'],
+    };
+    const personContact: Held = {
+      objectApiName: 'Contact',
+      fields: [...STAMPS, 'LastName', 'Email', 'AccountId', 'IsPersonAccount'],
+      cascadeParents: ['AccountId'],
+    };
+    const taken = await take({
+      background: false,
+      objects: [personAccount, personContact],
+      before: (org) => addPerson(org, 30, 'thirty@example.com'),
+      since: (org) => {
+        org.edit('Contact', contactId(30), { Email: 'moved@example.com' });
+        const account = org.all('Account').find((row) => row.Id === accountId(30));
+        if (account) account.PersonEmail = 'moved@example.com';
+      },
+    });
+    const kept = keeping(taken.org);
+
+    const diff = await diffOf(taken, { conn: kept.conn });
+
+    expect(kept.described).toEqual(['Account', 'Contact']);
+    expect(diff.described).toEqual({ first: 2, later: 0 });
+    expect(diff.fieldsNotChecked).toBeUndefined();
+    expect(await classesOf(taken.folder, 'Account')).toEqual({
+      giveBack: [{ Id: accountId(30), fields: ['PersonEmail'] }],
+    });
+  });
+
+  it(
+    'sends exactly the requests its estimate counts, three objects moved of thirty, but for the org’s clock its preview reads first: the describes of the three alone',
+    async () => {
+      const moved = [3, 14, 27];
+      const taken = await take({
+        background: false,
+        objects: THIRTY,
+        before: (org) => {
+          THIRTY.forEach(({ objectApiName }, n) =>
+            org.add(objectApiName, { Id: objId(n), Name: `Then ${n}` }),
+          );
+        },
+        since: (org) => {
+          for (const n of moved) org.edit(THIRTY[n].objectApiName, objId(n), { Name: `Now ${n}` });
+        },
+      });
+      const before = taken.org.requests;
+
+      const diff = await diffOf(taken);
+
+      const sent = taken.org.requests - before;
+      expect(diff.objects.map(({ objectApiName }) => objectApiName)).toEqual(
+        moved.map((n) => THIRTY[n].objectApiName),
+      );
+      expect(diff.described).toEqual({ first: 3, later: 0 });
+      expect(diff.fieldsNotChecked).toBe(27);
+      const estimated = diffEstimate({ objects: taken.objects, diff }).apiRequests;
+      // Six calls of pre-checks, one of three describes, two of the reads
+      // of what moved and was deleted, six of counts, three of values, one
+      // of names; and the clock.
+      expect(sent).toBe(6 + 1 + 2 + 6 + 3 + 1);
+      expect(estimated).toBe(sent + 1);
+      // Priced as if every object were described, it counts one call more.
+      const asBefore = { ...diff, described: undefined };
+      expect(diffEstimate({ objects: taken.objects, diff: asBefore }).apiRequests).toBe(
+        estimated + 1,
+      );
+    },
+    ROW_TIMEOUT_MS,
+  );
+
+  it(
+    'keeps no more than three calls out while it reads, the change reads one at a time, and tells the same diff as when calls answer at once',
+    async () => {
+      const history = {
+        background: false,
+        objects: THIRTY,
+        before: (org: MemoryRemovalOrg) => {
+          THIRTY.forEach(({ objectApiName }, n) =>
+            org.add(objectApiName, { Id: objId(n), Name: `Then ${n}` }),
+          );
+        },
+        since: (org: MemoryRemovalOrg) => {
+          for (const n of [0, 9, 18, 29]) {
+            org.edit(THIRTY[n].objectApiName, objId(n), { Name: `Now ${n}` });
+          }
+        },
+      };
+      const answeringLater = await take(history);
+      const kept = keeping(answeringLater.org, true);
+      const atOnce = await take(history);
+
+      const diff = await diffOf(answeringLater, { conn: kept.conn });
+      const same = await diffOf(atOnce);
+
+      expect(diff.objects).toEqual(same.objects);
+      expect(Math.max(...kept.sent.map(({ out }) => out))).toBe(3);
+      const changeReads = kept.sent.filter(({ urls }) =>
+        urls.some((url) => url.includes('WHERE SystemModstamp >=') || /describe$/.test(url)),
+      );
+      expect(changeReads.length).toBeGreaterThan(0);
+      expect(changeReads.every(({ out }) => out === 1)).toBe(true);
+    },
+    ROW_TIMEOUT_MS,
+  );
+});
+
 /**
  * A reader of the Tooling API's `FieldDefinition` alone: per object, the
  * fields it defines; an object whose reads it refuses, with the org's
@@ -1514,7 +1807,7 @@ describe('rewindDiff: what it says beside the classes', () => {
 
     const soon = await diffOf(taken, { readAt: new Date(T0_MS + 30 * 60_000).toISOString() });
 
-    // The describes, the pre-check, the change reads, the count, the values,
+    // The pre-check, the describe, the change reads, the count, the values,
     // the describe of what the deletion takes along, and one read of names.
     expect(taken.org.requests - before).toBe(7);
     expect(soon.objects).toEqual([told]);

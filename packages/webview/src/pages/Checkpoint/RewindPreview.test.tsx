@@ -225,6 +225,32 @@ describe('RewindPreview', () => {
     ]);
   });
 
+  it('says in how many objects nothing changed in it did not check the fields, after the lines of the objects', () => {
+    renderPreview();
+    answerPreview({
+      diff: previewDiff({
+        objects: [diffObject('Contact', { touched: 2 })],
+        fieldsNotChecked: 187,
+      }),
+    });
+    expect(
+      within(screen.getByTestId('checkpoint-preview-details'))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'Contact: 2 records touched since hold their checkpoint values: nothing to give back.',
+      'Fields not checked for changes in 187 objects nothing changed in: a rewind writes nothing there.',
+    ]);
+  });
+
+  it('says so of one object, with nothing else to say', () => {
+    renderPreview();
+    answerPreview({ diff: previewDiff({ objects: [], fieldsNotChecked: 1 }) });
+    expect(screen.getByTestId('checkpoint-preview-details').textContent).toBe(
+      'Fields not checked for changes in 1 object nothing changed in: a rewind writes nothing there.',
+    );
+  });
+
   it('says a record the checkpoint does not hold that took records of it along comes back for a moment, then goes back to the recycle bin, in none of the numbers', () => {
     renderPreview();
     answerPreview({ diff: carriedDiff() });

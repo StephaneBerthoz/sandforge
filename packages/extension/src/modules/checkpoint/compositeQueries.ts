@@ -35,6 +35,16 @@
  * into a page: a cursor is followed by its `nextRecordsUrl` until the org says
  * it is done.
  *
+ * Calls in flight. A composite that carries a cursor's page or a describe goes
+ * alone, once the call before it answered. Composites of one-row reads — the
+ * newest stamp of an object, its `COUNT()`, a first page that is its last —
+ * go three at a time: three composites of five pre-checks sent at once raised
+ * no concurrency error on a scratch org and a Developer Edition org, six at
+ * once neither, and three took 0.32 to 0.65 s where three sent one after the
+ * other took 0.84 to 1.31 s (P-D3). A cursor's pages never go so: a read
+ * drains its cursors before it opens others, and three calls in flight would
+ * open them three groups at a time.
+ *
  * The one-call route. Each query can also go in a call of its own, through
  * the connection's `query` and `queryMore`. It is taken when the org will not
  * take a composite — it refuses the call whole with its own words, answers
@@ -62,6 +72,12 @@ export const QUERIES_PER_COMPOSITE = 5;
  * describes alone, or twenty-five less the queries beside them.
  */
 export const SUBREQUESTS_PER_COMPOSITE = 25;
+
+/**
+ * Composites of one-row reads in flight at once, at most: three, as asked
+ * live of two orgs (P-D3). Any other call goes alone.
+ */
+export const ONE_ROW_CALLS_IN_FLIGHT = 3;
 
 /** A row of a query's answer, as the org gives it. */
 export type OrgRow = Record<string, unknown>;
@@ -133,8 +149,13 @@ export interface CompositeReader {
    * together, a page each a call. Close it once the read ended. Between two
    * pages a read waits on nothing that goes through another lane of the same
    * reader: that lane's page would wait for this one's.
+   *
+   * @param options - `oneRow`, for a read the org answers in its first page
+   *   (`LIMIT 1`, `COUNT()`): a composite of such first pages alone goes
+   *   beside others like it, {@link ONE_ROW_CALLS_IN_FLIGHT} at most. A next
+   *   page it asks all the same goes alone.
    */
-  lane(): CompositeLane;
+  lane(options?: { oneRow?: boolean }): CompositeLane;
   /**
    * An object's describe, sent beside the queries of a composite, or in one of
    * twenty-five describes. Asked with `modifiedSince`, an object that has not
@@ -167,6 +188,8 @@ interface LaneState {
   settle?: Settle<CountedPage>;
   /** When it asked: a page asked earlier goes first. */
   order: number;
+  /** A read the org answers in its first page: see {@link CompositeReader.lane}. */
+  oneRow: boolean;
 }
 
 /** A describe as the reader keeps it. */
@@ -330,7 +353,9 @@ export function nextPagePath(nextRecordsUrl: string): string {
  * Reads of the org `conn` reaches, sent in composites: each call holds
  * {@link QUERIES_PER_COMPOSITE} queries at most, and as many describes as
  * leave {@link SUBREQUESTS_PER_COMPOSITE} subrequests in all. One call is in
- * flight at a time.
+ * flight at a time, but for composites of one-row first pages alone, which
+ * go {@link ONE_ROW_CALLS_IN_FLIGHT} at a time; a call that must go alone
+ * waits for those out to answer, and none goes beside it.
  *
  * A query the org halts goes again, first, in the next call, and every call
  * after holds no more queries than the org ran of that one: an org that runs
@@ -348,7 +373,10 @@ export function compositeReader(
   const describes: DescribeAsk[] = [];
   let queryRoom = QUERIES_PER_COMPOSITE;
   let route: 'composite' | 'single' = 'composite';
-  let inFlight = false;
+  /** Calls out, not yet answered. */
+  let inFlight = 0;
+  /** Whether one of them is a call that goes alone. */
+  let alone = false;
   let scheduled = false;
   let ticket = 0;
   let sent = 0;
@@ -372,7 +400,7 @@ export function compositeReader(
     // A microtask later, so that describes asked together go together.
     queueMicrotask(() => {
       scheduled = false;
-      void pump();
+      pump();
     });
   };
 
@@ -494,26 +522,11 @@ export function compositeReader(
     }
   };
 
-  const pump = async (): Promise<void> => {
-    if (inFlight) return;
-    if (signal?.aborted) {
-      stopAll();
-      return;
-    }
-    const open = [...lanes];
-    const waiting = open
-      .filter((lane) => lane.state === 'pending')
-      .sort((a, b) => a.order - b.order);
-    // Queries wait for every open lane to have asked: the cursors of reads
-    // run together then advance together, a page each a call. Describes go
-    // at once, with whatever queries have asked.
-    const lanesReady = waiting.length > 0 && !open.some((lane) => lane.state === 'idle');
-    if (!lanesReady && describes.length === 0) return;
-    const queries = waiting.slice(0, queryRoom);
-    const asks = describes.splice(0, SUBREQUESTS_PER_COMPOSITE - queries.length);
-    if (queries.length === 0 && asks.length === 0) return;
-    for (const lane of queries) lane.state = 'sent';
-    inFlight = true;
+  const send = async (
+    queries: LaneState[],
+    asks: DescribeAsk[],
+    besideOthers: boolean,
+  ): Promise<void> => {
     try {
       if (route === 'composite') await sendComposite(queries, asks);
       else await sendAlone(queries, asks);
@@ -523,9 +536,47 @@ export function compositeReader(
       for (const lane of queries) if (lane.state === 'sent') answerLane(lane, reason);
       for (const ask of asks) ask.settle.reject(reason);
     } finally {
-      inFlight = false;
+      inFlight--;
+      if (!besideOthers) alone = false;
       schedule();
       unlistenWhenIdle();
+    }
+  };
+
+  const pump = (): void => {
+    if (signal?.aborted) {
+      // What is out still answers its own; nothing more goes.
+      stopAll();
+      return;
+    }
+    for (;;) {
+      if (alone) return;
+      const open = [...lanes];
+      const waiting = open
+        .filter((lane) => lane.state === 'pending')
+        .sort((a, b) => a.order - b.order);
+      // Queries wait for every open lane to have asked: the cursors of reads
+      // run together then advance together, a page each a call. Describes
+      // go at once, with whatever queries have asked.
+      const lanesReady = waiting.length > 0 && !open.some((lane) => lane.state === 'idle');
+      if (!lanesReady && describes.length === 0) return;
+      const queries = waiting.slice(0, queryRoom);
+      const room = SUBREQUESTS_PER_COMPOSITE - queries.length;
+      // First pages of one-row reads, and nothing else, go beside others
+      // like them; a page of a cursor, a describe, a call of the one-call
+      // route go alone.
+      const besideOthers =
+        route === 'composite' &&
+        describes.length === 0 &&
+        queries.length > 0 &&
+        queries.every((lane) => lane.oneRow && lane.ask?.kind === 'first');
+      if (inFlight >= (besideOthers ? ONE_ROW_CALLS_IN_FLIGHT : 1)) return;
+      const asks = describes.splice(0, room);
+      if (queries.length === 0 && asks.length === 0) return;
+      for (const lane of queries) lane.state = 'sent';
+      inFlight++;
+      if (!besideOthers) alone = true;
+      void send(queries, asks, besideOthers);
     }
   };
   const onAbort = (): void => {
@@ -538,7 +589,7 @@ export function compositeReader(
     listening = true;
   };
   const unlistenWhenIdle = (): void => {
-    if (!listening || inFlight || lanes.size > 0 || describes.length > 0) return;
+    if (!listening || inFlight > 0 || lanes.size > 0 || describes.length > 0) return;
     signal?.removeEventListener('abort', onAbort);
     listening = false;
   };
@@ -559,8 +610,8 @@ export function compositeReader(
   };
 
   return {
-    lane() {
-      const state: LaneState = { state: 'idle', order: 0 };
+    lane(options) {
+      const state: LaneState = { state: 'idle', order: 0, oneRow: options?.oneRow === true };
       lanes.add(state);
       listen();
       return {

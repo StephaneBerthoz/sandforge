@@ -110,10 +110,18 @@
  *
  * Beside the classes, a diff says:
  *
- * - what changed in the objects' fields since the take: each object is
- *   described again, asked whether it changed since a day before T0 — the
- *   take described it before T0 and kept no date of it — and what comes back
- *   is printed as the take printed it. A field deleted since, or hidden since
+ * - what changed in the objects' fields since the take: each object its
+ *   pre-check found something moved in is described again, asked whether it
+ *   changed since a day before T0 — the take described it before T0 and kept
+ *   no date of it — and what comes back is printed as the take printed it.
+ *   An object nothing moved in is not described: no record of it was
+ *   created, changed, deleted or brought back since, a rewind writes nothing
+ *   there, and the diff counts it among those whose fields were not checked
+ *   (`fieldsNotChecked`). One that holds fewer records than the checkpoint
+ *   all the same lost some without a stamp, which a rewind makes again, and
+ *   is described once the counts said so. Described whole, a scratch org's
+ *   202 objects took nine composites of 2.1 to 2.9 s, some 22 of a preview's
+ *   47 seconds, whatever moved. A field deleted since, or hidden since
  *   by field-level security, is neither read nor compared, and is named: a
  *   read that names it is refused whole, and its object would read as one
  *   that could not be read. Which of the two it is, the describe does not
@@ -240,6 +248,7 @@ import {
 } from './OrgCheckpointStore.js';
 import {
   idScanRead,
+  preCheck,
   readChanges,
   readStreams,
   soqlInstant,
@@ -247,6 +256,7 @@ import {
   streamRead,
   type ObjectChanges,
   type ObjectRead,
+  type PreCheck,
 } from './orgStreams.js';
 import { ORG_ACCESS, type ActAccess } from './rewindAccess.js';
 import { GoneForGood, NotInBin, SNAPSHOT_CHUNK_IDS, SnapshotIndex } from './snapshotIndex.js';
@@ -1033,6 +1043,31 @@ async function fieldsNowOf(
     });
   }
   return { now, requests: told.requests };
+}
+
+/**
+ * The objects described before the change reads, in the checkpoint's order:
+ * those whose pre-check found something moved in since — no other is written
+ * by a rewind, nor read but by its count — and, with a contact that moved of
+ * an org with person accounts, the account, whose fields a person contact's
+ * are and which is compared whenever its contact moved.
+ */
+function describedFirstOf(
+  objects: readonly CheckpointObject[],
+  checks: ReadonlyMap<string, PreCheck>,
+): CheckpointObject[] {
+  const moved = (objectApiName: string): boolean => {
+    const check = checks.get(objectApiName);
+    return check !== undefined && !('unread' in check) && check.moved;
+  };
+  const contact = objects.find(({ objectApiName }) => objectApiName === CONTACT);
+  const persons =
+    contact !== undefined &&
+    heldField(contact.fields, PERSON_ACCOUNT_FLAG) !== undefined &&
+    moved(CONTACT);
+  return objects.filter(
+    ({ objectApiName }) => moved(objectApiName) || (persons && objectApiName === ACCOUNT),
+  );
 }
 
 /**
@@ -2610,22 +2645,44 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     checkpoint.files !== undefined
       ? held.find(({ objectApiName }) => isFile(objectApiName))
       : undefined;
+  // What moved first, a row an object, with no describe; then the objects
+  // something moved in described, and they alone.
+  const checks = await preCheck(
+    reader,
+    held.map(({ objectApiName }) => objectApiName),
+    checkpoint.readFrom,
+    signal,
+  );
+  const checkOf = new Map(held.map(({ objectApiName }, at) => [objectApiName, checks[at]]));
+  const describedFirst = describedFirstOf(held, checkOf);
   const linkDescribe = fileObject !== undefined ? describedLink(reader) : undefined;
   linkDescribe?.catch(() => undefined);
-  const { now: fieldsNow, requests: fieldsRequests } = await fieldsNowOf(input, held, bodies);
+  const first = await fieldsNowOf(input, describedFirst, bodies);
+  let fieldsRequests = first.requests;
   const unread = new Map<string, string>();
-  const readable: Array<{ object: CheckpointObject; fields: FieldsNow }> = [];
+  /** The objects nothing moved in, whose fields were not described. */
+  const unchecked = new Set<string>();
+  const readable: Array<{ object: CheckpointObject; fields: FieldsNow; check: PreCheck }> = [];
   for (const object of ordered) {
-    const notHeld = access.notHeld.get(object.objectApiName);
+    const name = object.objectApiName;
+    const notHeld = access.notHeld.get(name);
     if (notHeld !== undefined) {
-      unread.set(object.objectApiName, notHeld);
+      unread.set(name, notHeld);
       continue;
     }
-    const now = fieldsNow.get(object.objectApiName);
-    if (now === undefined || 'unread' in now) {
-      unread.set(object.objectApiName, now?.unread ?? 'Its describe was not read.');
+    const check = checkOf.get(name);
+    if (check === undefined || 'unread' in check) {
+      unread.set(name, check?.unread ?? 'Its newest record was not read.');
+      continue;
+    }
+    const now = first.now.get(name);
+    if (now === undefined) {
+      unchecked.add(name);
+      readable.push({ object, fields: { gone: new Set() }, check });
+    } else if ('unread' in now) {
+      unread.set(name, now.unread);
     } else {
-      readable.push({ object, fields: now });
+      readable.push({ object, fields: now, check });
     }
   }
 
@@ -2640,8 +2697,42 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
     checkpoint.readFrom,
     previewDir,
     signal,
+    readable.map(({ check }) => check),
   );
   const changes = new Map(readable.map(({ object }, at) => [object.objectApiName, read[at]]));
+
+  // Of the objects nothing moved in, one that holds fewer records than the
+  // checkpoint lost some without a stamp (F29): a rewind makes them again
+  // from the snapshot's values, so its fields are described as those of an
+  // object that moved, once the counts said so.
+  const later = readable.filter(({ object }) => {
+    if (!unchecked.has(object.objectApiName)) return false;
+    const changed = changes.get(object.objectApiName);
+    return (
+      changed !== undefined &&
+      !('unread' in changed) &&
+      changed.count !== undefined &&
+      changed.count < object.records
+    );
+  });
+  if (later.length > 0) {
+    const late = await fieldsNowOf(
+      input,
+      later.map(({ object }) => object),
+      bodies,
+    );
+    fieldsRequests += late.requests;
+    for (const entry of later) {
+      const name = entry.object.objectApiName;
+      unchecked.delete(name);
+      const now = late.now.get(name);
+      if (now === undefined || 'unread' in now) {
+        unread.set(name, now?.unread ?? 'Its describe was not read.');
+      } else {
+        entry.fields = now;
+      }
+    }
+  }
 
   const asked = new Map<string, Promise<CheckpointDescribe>>();
   const relationsOf = (objectApiName: string): Promise<CheckpointDescribe> => {
@@ -2827,6 +2918,13 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
   const users = [...new Set(told.flatMap(({ diff }) => Object.keys(diff.lastChangedBy)))];
   const userNames = await userNamesOf(reader, users, signal);
   const active = new Set(told.flatMap(({ people }) => [...people.active]));
+  // Told, and with nothing to do. An object nothing moved in whose snapshot
+  // rows name a record brought back is compared all the same, its values read
+  // now: one that differs on them is not among those left unchecked, and
+  // what it gives back are fields its read found.
+  const fieldsNotChecked = told.filter(
+    ({ diff }) => unchecked.has(diff.objectApiName) && !differs(diff),
+  ).length;
 
   return {
     checkpointId: checkpoint.checkpointId,
@@ -2839,6 +2937,8 @@ export async function rewindDiff(input: RewindDiffInput): Promise<RewindDiff> {
       ? { parentsOutsideRequests: outsideOfCheckpoint.requests }
       : {}),
     ...(fieldsRequests > 0 ? { fieldsRequests } : {}),
+    described: { first: describedFirst.length, later: later.length },
+    ...(fieldsNotChecked > 0 ? { fieldsNotChecked } : {}),
     ...(files !== undefined ? { files } : {}),
     ...(fileObject !== undefined ? { filesRequests } : {}),
     access: access.diffAccess(),

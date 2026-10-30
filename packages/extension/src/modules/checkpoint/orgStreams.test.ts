@@ -12,7 +12,13 @@ import {
 } from '../../test/compositeOrg.js';
 import { MemoryRemovalOrg, orgStamp } from '../../test/memoryRemovalOrg.js';
 import { FORGE_QUERY_MAX_RECORDS } from '../forge/queryAllPages.js';
-import { OrgReadStopped, compositeReader, type OrgRow } from './compositeQueries.js';
+import {
+  ONE_ROW_CALLS_IN_FLIGHT,
+  OrgReadStopped,
+  compositeReader,
+  type CompositeQueryConnection,
+  type OrgRow,
+} from './compositeQueries.js';
 import {
   ENDED_BEFORE_DONE,
   binLedgerRead,
@@ -581,5 +587,142 @@ describe('readChanges', () => {
     ]);
     // A pre-check, L and D, a count: three composites, three requests.
     expect(org.requests).toBe(3);
+  });
+});
+
+/**
+ * `conn` answering each call a few milliseconds after it left, as an org
+ * does, and, for each call sent, how many were out once it left, itself
+ * among them, and the URLs it held.
+ */
+function answeringLater(conn: CompositeQueryConnection): {
+  conn: CompositeQueryConnection;
+  sent: Array<{ out: number; urls: string[] }>;
+} {
+  let out = 0;
+  const sent: Array<{ out: number; urls: string[] }> = [];
+  return {
+    sent,
+    conn: {
+      version: conn.version,
+      request: async (request) => {
+        out++;
+        const body =
+          request.url === '/composite'
+            ? (JSON.parse(request.body ?? '{}') as { compositeRequest: Array<{ url: string }> })
+            : { compositeRequest: [{ url: request.url }] };
+        sent.push({ out, urls: body.compositeRequest.map(({ url }) => decodeURIComponent(url)) });
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          return await conn.request(request);
+        } finally {
+          out--;
+        }
+      },
+      query: conn.query,
+      queryMore: conn.queryMore,
+    },
+  };
+}
+
+describe('the one-row reads: three calls in flight, the cursors one at a time', () => {
+  const objects = Array.from({ length: 40 }, (_, index) => `Obj${index}__c`);
+
+  it('pre-checks and counts forty objects in eight calls each, never more than three out, each answer in its place', async () => {
+    const org = compositeOrg({
+      tables: Object.fromEntries(
+        objects.map((object, index) => [
+          object,
+          index % 2 === 0 ? stampedRows('Obj', index + 1, SINCE) : stampedRows('Obj', 1, BEFORE),
+        ]),
+      ),
+    });
+    const later = answeringLater(org.conn);
+    const reader = compositeReader(later.conn);
+
+    const checks = await preCheck(reader, objects, T0);
+    const counts = await countRecords(
+      reader,
+      objects.map((objectApiName) => ({ objectApiName, readMode: 'query' as const })),
+    );
+
+    expect(checks.map((check) => 'moved' in check && check.moved)).toEqual(
+      objects.map((_, index) => index % 2 === 0),
+    );
+    expect(counts).toEqual(
+      objects.map((objectApiName, index) => ({
+        objectApiName,
+        count: index % 2 === 0 ? index + 1 : 1,
+      })),
+    );
+    expect(later.sent).toHaveLength(16);
+    expect(Math.max(...later.sent.map(({ out }) => out))).toBe(ONE_ROW_CALLS_IN_FLIGHT);
+  });
+
+  it('reads what moved one call at a time, its cursors drained before the next five, between pre-checks and counts sent three at a time', async () => {
+    const org = compositeOrg({
+      tables: Object.fromEntries(
+        objects.map((object) => [object, stampedRows('Obj', 9, SINCE, { CreatedDate: BEFORE })]),
+      ),
+      pageSize: () => 4,
+    });
+    const later = answeringLater(org.conn);
+    const reader = compositeReader(later.conn);
+
+    const changes = await readChanges(
+      reader,
+      objects.map((objectApiName) => ({ objectApiName, readMode: 'query' as const, held: true })),
+      T0,
+      folder,
+    );
+
+    expect(changes.every((change) => 'live' in change && change.live?.rows === 9)).toBe(true);
+    const cursorCalls = later.sent.filter(({ urls }) =>
+      urls.some((url) => /SystemModstamp >=|\/query(All)?\/01g/.test(url)),
+    );
+    // Eighty reads of what moved and was deleted: sixteen groups of five,
+    // each a call of first pages and two of next pages.
+    expect(cursorCalls).toHaveLength(16 * 3);
+    expect(cursorCalls.every(({ out }) => out === 1)).toBe(true);
+    expect(Math.max(...later.sent.map(({ out }) => out))).toBe(ONE_ROW_CALLS_IN_FLIGHT);
+  });
+
+  it('takes the pre-checks it is given and reads none again, and refuses as many pre-checks as there are not objects', async () => {
+    const { org, reader } = readerOf({
+      Account: stampedRows('Account', 2, SINCE, { CreatedDate: BEFORE }),
+      Contact: stampedRows('Contact', 1, BEFORE),
+    });
+    const given = await preCheck(reader, ['Account', 'Contact'], T0);
+    const before = composites(org.calls).length;
+
+    const changes = await readChanges(
+      reader,
+      [
+        { objectApiName: 'Account', readMode: 'query', held: true },
+        { objectApiName: 'Contact', readMode: 'query', held: true },
+      ],
+      T0,
+      folder,
+      undefined,
+      given,
+    );
+
+    expect(changes.map((change) => 'moved' in change && change.moved)).toEqual([true, false]);
+    // L and D of Account, then the two counts: no pre-check again.
+    expect(
+      composites(org.calls)
+        .slice(before)
+        .map((subs) => subs.length),
+    ).toEqual([2, 2]);
+    await expect(
+      readChanges(
+        reader,
+        [{ objectApiName: 'Account', readMode: 'query', held: true }],
+        T0,
+        folder,
+        undefined,
+        given,
+      ),
+    ).rejects.toThrow('2 pre-checks for 1 objects');
   });
 });
