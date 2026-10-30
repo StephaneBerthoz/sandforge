@@ -9,6 +9,7 @@
 import * as z from 'zod';
 import type { ForgeTemplate } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore.js';
+import { revokeRewindGrantsOf } from '../../modules/automation/RewindGrants.js';
 import {
   importedTemplatesFor,
   isTemplateEntry,
@@ -273,6 +274,20 @@ export class ConfigProfileManager {
           }
           this.configStore.set(key, value, STORE_CATEGORIES[category]);
           entriesImported++;
+          // A pipeline written by an import arrives unconfirmed: a Rewind
+          // step's confirmation is this machine's, given for what was saved
+          // here, and the profile's pipeline is another one under its id.
+          if (category === 'pipelines') {
+            const revoked = revokeRewindGrantsOf(
+              this.configStore,
+              key.slice(expectedPrefix.length),
+            );
+            if (revoked.length > 0) {
+              warnings.push(
+                `Pipeline "${key}" was written over: confirm its Rewind ${revoked.length === 1 ? 'step' : 'steps'} again.`,
+              );
+            }
+          }
         }
       }
 

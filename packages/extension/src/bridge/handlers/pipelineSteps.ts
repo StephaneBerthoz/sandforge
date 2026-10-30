@@ -1,11 +1,19 @@
 import type {
+  CheckpointInvalidReason,
   CompareResult,
+  GuardTier,
   PipelineApprovalRecord,
+  PipelineMaskingTemplateInfo,
+  PipelineRewindStepInfo,
+  PipelineSeedTemplateInfo,
   PipelineStep,
   PipelineStepResult,
   PipelineSyncConfigInfo,
+  RewindResult,
+  SeedTemplate,
   SyncConfig,
   SyncExecutionResult,
+  TriggerType,
 } from '@sandforge/shared';
 import {
   APPROVAL_DEFAULT_TIMEOUT_MINUTES,
@@ -13,11 +21,18 @@ import {
   APPROVAL_MAX_TIMEOUT_MINUTES,
   COMPARE_DIFFERENCE_COUNT,
   PRECHECK_VARIABLES,
+  PREBUILT_SEED_TEMPLATES,
   approvalDefect,
   approvalTimeoutMinutes,
+  pipelineAnonymizeStepConfigSchema,
+  pipelineCheckpointStepConfigSchema,
+  pipelineRewindStepConfigSchema,
+  pipelineSeedStepConfigSchema,
+  pipelineWriteVerdict,
 } from '@sandforge/shared';
 import * as z from 'zod';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
+import { grantRefusalWords, type GrantRefusal } from '../../modules/automation/RewindGrants.js';
 import {
   StepCancelledError,
   type StepCheck,
@@ -28,11 +43,24 @@ import {
 } from '../../modules/automation/StepExecutor.js';
 import type { HealthSignal } from '../../modules/monitor/HealthCheck.js';
 import type { HealthSignalName } from '../../modules/monitor/MonitorOpsFactory.js';
+import { pipelineMaskingAsked } from './anonymizePipeline.js';
+import type { PipelineMaskingOutcome, PipelineMaskingRequest } from './anonymizePipeline.js';
+import {
+  CheckpointStepRefused,
+  type CheckpointPipelineRewindOutcome,
+  type CheckpointPipelineRewindRequest,
+  type CheckpointPipelineTakeOutcome,
+  type CheckpointPipelineTakeRequest,
+  type VerifiedRewindGrant,
+} from './CheckpointHandler.js';
 import type { BackupTaken } from './DataOpsHandler.js';
+import { aiRuleFields, pipelineSeedAsked } from './seedPipeline.js';
+import type { PipelineSeedOutcome, PipelineSeedRequest } from './seedPipeline.js';
 import {
   compareExecutePayloadSchema,
   dataOpsBackupPayloadSchema,
   orgIdSchema,
+  seedTemplatePayloadSchema,
   sfApiNameSchema,
   syncExecutePayloadSchema,
 } from '../validatePayload.js';
@@ -41,17 +69,29 @@ import {
  * The pipeline steps that run through a module's own flow: Backup takes a
  * DataOps snapshot, Compare runs the Compare page's diff, Pre-check reads the
  * Monitor's health signals, Notification shows a VS Code notification,
- * Approval waits for a person's answer in VS Code, and Sync runs a saved Sync
- * configuration.
+ * Approval waits for a person's answer in VS Code, Sync runs a saved Sync
+ * configuration, Seed seeds with a template of the Seed page, Anonymize masks
+ * with a template of the DataOps page, Checkpoint takes a checkpoint and
+ * Rewind puts an org back to one.
  *
- * Sync is the one step that writes to an org, and it writes only as Sync's
- * own run does: the configuration saved on the Sync page, through the run its
- * schedule makes, which consults Production Guard. A pipeline may run where
- * nobody watches, so a Sync step whose target the guard asks about — a
- * production org, a Developer Edition — is refused before the run unless an
- * Approval step comes before it; the person's answer to that step is the
- * answer the guard takes, and the guard shows nothing. Seed, Restore,
- * Anonymize and Delete are not here: each runs from its own page.
+ * Four of them write to an org, each only as its own module writes, and a
+ * pipeline may run where nobody watches:
+ * - Sync runs the configuration saved on the Sync page, through the run its
+ *   schedule makes, which consults Production Guard. A Sync step whose target
+ *   the guard asks about — a production org, a sandbox marked Staging — is
+ *   refused before the run unless an Approval step comes before it; the
+ *   person's answer to that step is the answer the guard takes;
+ * - Seed and Anonymize never write to a production org, whatever an Approval
+ *   step answered, and write to a sandbox marked Staging only behind an
+ *   approved one (`pipelineWriteVerdict`); every question their page would
+ *   put is answered by that Approval, and refused without it. Neither is ever
+ *   tried again: a second try writes a second set of records, or masks again
+ *   what the first masked;
+ * - Rewind runs only once a person has confirmed it, by typing the org's
+ *   alias below its preview, for its configuration as saved; the
+ *   confirmation is this machine's (`RewindGrants`), and the step's bounds
+ *   stand in for the person who would read the preview.
+ * Restore and Delete are not here: each runs from its own page.
  *
  * A step's configuration is read before the run with the schema its module's
  * own request is read with, so a step is refused for the same reasons the
@@ -181,7 +221,104 @@ export interface PipelineStepRunners {
     answer: GivenAnswer,
     signal?: AbortSignal,
   ) => Promise<SyncExecutionResult>;
+  /**
+   * The guard's tier of a registered org (`guardTierOf`), which the steps that
+   * write read their verdict from; undefined for an org not registered.
+   */
+  orgTier?: (orgId: string) => GuardTier | undefined;
+  /**
+   * The Organization Ids a registered org is known by: the one it was
+   * registered with, and the one it answered as last. A Rewind step's
+   * checkpoint is of the org only when it was taken of one of them.
+   */
+  organizationIdsOf?: (orgId: string) => string[];
+  /** The pipeline the steps are checked and run for, by id: a Rewind step's confirmation is kept under it. */
+  pipelineId?: string;
+  /** How the run the steps are of was started: recorded with a rewind in the audit trail. */
+  trigger?: TriggerType;
+  /** A template the Seed page saved, as stored, by id; undefined when none is saved under it. */
+  savedSeedTemplate?: (templateId: string) => SeedTemplate | undefined;
+  /** Every template the Seed page saved, as stored. */
+  listSeedTemplates?: () => unknown[];
+  /**
+   * Seed's own run of a template for a pipeline (`SeedOpsHandler.seedForPipeline`):
+   * its gates, its Recent runs entry, Live Operations and the audit trail.
+   * Rejects with a `code` when it is refused before it writes.
+   */
+  seed?: (request: PipelineSeedRequest, signal?: AbortSignal) => Promise<PipelineSeedOutcome>;
+  /** Every masking template, those DataOps ships first, with the fields their rules name. */
+  maskingTemplates?: () => ReadonlyArray<MaskingTemplate>;
+  /**
+   * DataOps's own masking run for a pipeline (`DataOpsHandler.anonymizeForPipeline`):
+   * coverage first, Production Guard, the snapshot always, then the masking.
+   * Rejects with a `code` when it is refused before it writes or fails.
+   */
+  anonymize?: (
+    request: PipelineMaskingRequest,
+    signal?: AbortSignal,
+  ) => Promise<PipelineMaskingOutcome>;
+  /**
+   * The take of a checkpoint for a pipeline (`CheckpointHandler.takeForPipeline`).
+   * Rejects with a {@link CheckpointStepRefused} when the take is refused.
+   */
+  takeCheckpoint?: (
+    request: CheckpointPipelineTakeRequest,
+    signal?: AbortSignal,
+  ) => Promise<CheckpointPipelineTakeOutcome>;
+  /**
+   * The confirmation kept on this machine for a Rewind step of the pipeline
+   * `pipelineId`, given for the configuration it runs with; otherwise why not
+   * (`RewindGrants.verify`).
+   */
+  rewindGrant?: (
+    pipelineId: string,
+    step: Pick<PipelineStep, 'id' | 'config'>,
+  ) => { grant: VerifiedRewindGrant } | { refusal: GrantRefusal };
+  /**
+   * A checkpoint a Rewind step names, as read from this machine before the
+   * check; undefined when it was not read, and the run reads it then.
+   */
+  checkpointKept?: (checkpointId: string) => RewindCheckpoint | undefined;
+  /**
+   * A checkpoint as read from this machine, without contacting its org: what
+   * {@link checkpointKept} answers from, read before each check and run of a
+   * pipeline that holds a Rewind step, and as a confirmation is given.
+   */
+  readCheckpoint?: (checkpointId: string) => Promise<RewindCheckpoint>;
+  /**
+   * The rewind of an org for a pipeline (`CheckpointHandler.rewindForPipeline`):
+   * a preview of its own, the bounds, then the rewind. Rejects with a
+   * {@link CheckpointStepRefused} when it is refused.
+   */
+  rewind?: (
+    request: CheckpointPipelineRewindRequest,
+    signal?: AbortSignal,
+  ) => Promise<CheckpointPipelineRewindOutcome>;
 }
+
+/** A masking template as a pipeline's Anonymize step reads it: what its rules name, and where it comes from. */
+export interface MaskingTemplate {
+  id: string;
+  name: string;
+  builtIn: boolean;
+  rules: ReadonlyArray<{ fieldPattern: string }>;
+}
+
+/**
+ * A checkpoint a Rewind step names, as read from this machine without
+ * contacting the org: not kept here, or kept, of an Organization Id, and
+ * whether it can be rewound to and why not (`CheckpointListEntry`).
+ */
+export type RewindCheckpoint =
+  | { kept: false }
+  | {
+      kept: true;
+      /** The Organization Id it was taken of; absent for one whose file does not read. */
+      organizationId?: string;
+      name?: string;
+      valid: boolean;
+      why?: CheckpointInvalidReason;
+    };
 
 /** `count` and `noun`, the noun in the plural unless the count is one. */
 function counted(count: number, noun: string): string {
@@ -785,9 +922,692 @@ function syncHandler(runners: PipelineStepRunners): StepHandler {
   };
 }
 
+// ─── The steps that seed, mask, take a checkpoint and rewind ─────────────────
+
+/** A step's configuration read as text, an empty one as none: the page clears a field to ''. */
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+/** The first issue of a schema's refusal, as "path: message". */
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return 'its configuration is not one';
+  return issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message;
+}
+
+/** Whether two Organization Ids name one org: the 15-character id and its 18-character form alike. */
+function sameOrganization(a: string | undefined, b: string | undefined): boolean {
+  return a !== undefined && b !== undefined && a.length >= 15 && a.slice(0, 15) === b.slice(0, 15);
+}
+
+/** How the pipeline a step runs in is named, to the module its step runs. */
+function pipelineNameOf(context: StepContext): string {
+  return context.pipelineName ?? context.pipelineId;
+}
+
 /**
- * Give `executor` the Backup, Compare, Pre-check, Notification, Approval and
- * Sync steps, each with the check that reads its configuration before the run.
+ * Why a step that writes may not write to its org, whatever it writes, or
+ * undefined when it may (`pipelineWriteVerdict`): a production org, or one
+ * SandForge cannot tell is not one, whatever an Approval step answers; a
+ * sandbox marked Staging, with no Approval step before it.
+ * @param does - What the step does there, as a sentence goes on: "seeds", "masks"
+ */
+function writeVerdictProblem(
+  runners: PipelineStepRunners,
+  who: string,
+  orgId: string,
+  does: string,
+  context: StepCheckContext | undefined,
+): string | undefined {
+  const org = runners.orgName(orgId) ?? orgId;
+  const verdict = pipelineWriteVerdict(runners.orgTier?.(orgId) ?? 'production');
+  if (verdict === 'refused') {
+    return (
+      `${who} writes to ${org}, a production org or one SandForge cannot tell is not: a ` +
+      `pipeline never ${does} one, whatever an Approval step answers. Choose a sandbox, a ` +
+      'scratch org or a Developer Edition org.'
+    );
+  }
+  if (verdict === 'needsApproval' && !approvalBefore(context)) {
+    return (
+      `${who} writes to ${org}, a sandbox marked Staging, which a pipeline ${does} only once ` +
+      'an Approval step before it has approved the run: put an Approval step before it.'
+    );
+  }
+  return undefined;
+}
+
+/** Why a step that writes may not be tried again, or undefined when it is given no retry. */
+function retriesProblem(step: PipelineStep, who: string, why: string): string | undefined {
+  return step.retries !== undefined && step.retries > 0
+    ? `${who} is given retries, and is never tried again: ${why}. Set its retries to 0.`
+    : undefined;
+}
+
+/** A refusal before a step wrote, carried as an error with a `code`: its code, or undefined. */
+function refusalCode(err: unknown): string | undefined {
+  if (err instanceof StepCancelledError) return undefined;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function checkSeed(runners: PipelineStepRunners): StepCheck {
+  return (step, context) => {
+    const who = `Seed step "${step.name}"`;
+    if (!runners.seed || !runners.savedSeedTemplate) {
+      return `${who} cannot run here: Seed is not available in this window.`;
+    }
+    const config = step.config ?? {};
+    const problem = orgProblem(runners, who, config['orgId'], 'the org it seeds');
+    if (problem) return problem;
+    const templateId = text(config['templateId']);
+    if (templateId === undefined) {
+      return `${who} names no Seed template: choose the one it seeds with.`;
+    }
+    const orgId = String(config['orgId']);
+    const chosen = pipelineSeedAsked(orgId, templateId, (id) => runners.savedSeedTemplate?.(id));
+    if ('refusal' in chosen) return `${who}: ${chosen.refusal.message}`;
+    return (
+      retriesProblem(step, who, 'a second try would write a second set of records') ??
+      writeVerdictProblem(runners, who, orgId, 'seeds', context)
+    );
+  };
+}
+
+function seedHandler(runners: PipelineStepRunners): StepHandler {
+  return async (step: PipelineStep, context: StepContext) => {
+    const startTime = new Date().toISOString();
+    const who = `Seed step "${step.name}"`;
+    if (!runners.seed) {
+      throw new Error(`${who} cannot run here: Seed is not available in this window.`);
+    }
+    const { orgId, templateId } = pipelineSeedStepConfigSchema.parse({
+      orgId: step.config['orgId'],
+      templateId: text(step.config['templateId']),
+    });
+    const org = runners.orgName(orgId) ?? orgId;
+    let outcome: PipelineSeedOutcome;
+    try {
+      outcome = await runners.seed(
+        {
+          orgId,
+          templateId,
+          pipeline: { name: pipelineNameOf(context) },
+          answer: givenAnswer(context),
+        },
+        context.signal,
+      );
+    } catch (err: unknown) {
+      const code = refusalCode(err);
+      if (code === undefined) throw err;
+      return failed(
+        step,
+        startTime,
+        { orgId, templateId, code },
+        `${who}: ${(err as Error).message}`,
+      );
+    }
+    const { result } = outcome;
+    const output: Record<string, unknown> = {
+      orgId,
+      templateId,
+      operationId: outcome.operationId,
+      runId: outcome.runId,
+      status: result.status,
+      totalRecordsCreated: result.totalRecordsCreated,
+      totalRecordsFailed: result.totalRecordsFailed,
+      objects: result.objectResults.map((object) => ({
+        objectApiName: object.objectApiName,
+        recordsCreated: object.recordsCreated,
+        recordsFailed: object.recordsFailed,
+      })),
+      ...(outcome.automation.length > 0 ? { automation: outcome.automation } : {}),
+    };
+    const created = counted(result.totalRecordsCreated, 'record');
+    // What a seed wrote stays in the org until someone takes it back, a seed
+    // stopped part way included: the step says from where.
+    const takeBack = "take them back from Seed's Recent runs";
+    if (result.cancelled) {
+      throw new StepCancelledError(
+        `${who} was cancelled: it had created ${created} in ${org}, which stay there; ${takeBack}.`,
+      );
+    }
+    if (result.status !== 'success') {
+      return failed(
+        step,
+        startTime,
+        output,
+        `${who} seeded ${org} and did not complete: ${created} created, ` +
+          `${result.totalRecordsFailed} refused; ${takeBack}.`,
+      );
+    }
+    return completed(step, startTime, output, `Seeded ${created} into ${org}: ${takeBack}.`);
+  };
+}
+
+/**
+ * Each Seed template as a Seed step sees it: those the Seed page saved, then
+ * those SandForge ships, whether it reads as a run of the page is read, and
+ * whether it holds an AI rule. The page checks a Seed step against these
+ * before Run, as the step's own check does.
+ * @param runners - The flows the steps run on
+ */
+export function describeSeedTemplates(runners: PipelineStepRunners): PipelineSeedTemplateInfo[] {
+  const saved = (runners.listSeedTemplates?.() ?? []).map((raw) => ({ raw, builtIn: false }));
+  const shipped = PREBUILT_SEED_TEMPLATES.map((raw) => ({ raw: raw as unknown, builtIn: true }));
+  const seen = new Set<string>();
+  return [...saved, ...shipped].flatMap(({ raw, builtIn }): PipelineSeedTemplateInfo[] => {
+    if (typeof raw !== 'object' || raw === null) return [];
+    const { id, name } = raw as Record<string, unknown>;
+    // A saved template shadows a shipped one of the same id, as the step reads it.
+    if (typeof id !== 'string' || id === '' || seen.has(id)) return [];
+    seen.add(id);
+    const label = typeof name === 'string' && name !== '' ? name : id;
+    const parsed = seedTemplatePayloadSchema.safeParse(raw);
+    return [
+      {
+        id,
+        name: label,
+        builtIn,
+        valid: parsed.success,
+        usesAi: parsed.success && aiRuleFields(parsed.data).length > 0,
+      },
+    ];
+  });
+}
+
+/** The objects a masking template's rules name, by API name, in the order they come. */
+function maskedObjectsOf(template: MaskingTemplate): string[] {
+  const objects: string[] = [];
+  for (const rule of template.rules) {
+    const object = rule.fieldPattern.split('.')[0];
+    if (object && !objects.includes(object)) objects.push(object);
+  }
+  return objects;
+}
+
+/**
+ * Each masking template as an Anonymize step sees it: those DataOps ships,
+ * then those its page saved, with the objects their rules name, which a
+ * masking run of it writes to unless the step names one.
+ * @param runners - The flows the steps run on
+ */
+export function describeMaskingTemplates(
+  runners: PipelineStepRunners,
+): PipelineMaskingTemplateInfo[] {
+  return (runners.maskingTemplates?.() ?? []).map((template) => ({
+    id: template.id,
+    name: template.name,
+    builtIn: template.builtIn,
+    objects: maskedObjectsOf(template),
+  }));
+}
+
+function checkAnonymize(runners: PipelineStepRunners): StepCheck {
+  return (step, context) => {
+    const who = `Anonymize step "${step.name}"`;
+    if (!runners.anonymize || !runners.maskingTemplates) {
+      return `${who} cannot run here: DataOps is not available in this window.`;
+    }
+    const config = step.config ?? {};
+    const problem = orgProblem(runners, who, config['orgId'], 'the org it masks');
+    if (problem) return problem;
+    const templateId = text(config['templateId']);
+    if (templateId === undefined) {
+      return `${who} names no masking template: choose the one it masks with.`;
+    }
+    const orgId = String(config['orgId']);
+    const templates = runners.maskingTemplates();
+    const object = text(config['object']);
+    const where = text(config['where']);
+    const chosen = pipelineMaskingAsked(
+      {
+        orgId,
+        templateId,
+        ...(object !== undefined ? { object } : {}),
+        ...(where !== undefined ? { where } : {}),
+        ...(step.retries !== undefined ? { retries: step.retries } : {}),
+      },
+      (id) => templates.some((template) => template.id === id),
+    );
+    if ('refusal' in chosen) return `${who}: ${chosen.refusal.message}`;
+    return writeVerdictProblem(runners, who, orgId, 'masks', context);
+  };
+}
+
+function anonymizeHandler(runners: PipelineStepRunners): StepHandler {
+  return async (step: PipelineStep, context: StepContext) => {
+    const startTime = new Date().toISOString();
+    const who = `Anonymize step "${step.name}"`;
+    if (!runners.anonymize) {
+      throw new Error(`${who} cannot run here: DataOps is not available in this window.`);
+    }
+    const object = text(step.config['object']);
+    const where = text(step.config['where']);
+    const { orgId, templateId } = pipelineAnonymizeStepConfigSchema.parse({
+      orgId: step.config['orgId'],
+      templateId: text(step.config['templateId']),
+      ...(object !== undefined ? { object } : {}),
+      ...(where !== undefined ? { where } : {}),
+    });
+    const org = runners.orgName(orgId) ?? orgId;
+    let outcome: PipelineMaskingOutcome;
+    try {
+      outcome = await runners.anonymize(
+        {
+          orgId,
+          templateId,
+          ...(object !== undefined ? { object } : {}),
+          ...(where !== undefined ? { where } : {}),
+          ...(step.retries !== undefined ? { retries: step.retries } : {}),
+          pipeline: { name: pipelineNameOf(context) },
+          answer: givenAnswer(context),
+        },
+        context.signal,
+      );
+    } catch (err: unknown) {
+      const code = refusalCode(err);
+      if (code === undefined) throw err;
+      const snapshot = (err as { snapshot?: { operationId?: unknown } }).snapshot;
+      return failed(
+        step,
+        startTime,
+        { orgId, templateId, code, ...(snapshot !== undefined ? { snapshot } : {}) },
+        `${who}: ${(err as Error).message}` +
+          (typeof snapshot?.operationId === 'string'
+            ? ` The snapshot ${snapshot.operationId} it took keeps the values it wrote over, in ` +
+              'clear, until it is deleted on the DataOps page.'
+            : ''),
+      );
+    }
+    const { result } = outcome;
+    const kept = result.snapshot
+      ? `the snapshot ${result.snapshot.operationId} keeps the values it wrote over, in clear, ` +
+        'until it is deleted on the DataOps page, where a restore writes them back'
+      : 'no snapshot was kept';
+    const output: Record<string, unknown> = {
+      orgId,
+      templateId,
+      ...(object !== undefined ? { object } : {}),
+      ...(where !== undefined ? { where } : {}),
+      operationId: outcome.operationId,
+      status: result.status,
+      recordsProcessed: result.recordsProcessed,
+      recordsFailed: result.recordsFailed,
+      recordsNotMasked: result.recordsNotMasked,
+      objects: result.objects,
+      ...(result.fieldsNotFound.length > 0 ? { fieldsNotFound: result.fieldsNotFound } : {}),
+      ...(result.snapshot ? { snapshot: result.snapshot } : {}),
+    };
+    if (result.cancelled) {
+      throw new StepCancelledError(
+        `${who} was cancelled: it masked ${counted(result.recordsProcessed, 'record')} in ${org} ` +
+          `before the stop, and ${result.recordsNotMasked} still hold their values; ${kept}.`,
+      );
+    }
+    // Rows the org refused, or left unreached, still hold what the template
+    // masks: the steps after it would go on as if the org were masked.
+    const left = result.objects.filter((entry) => entry.notMasked > 0);
+    if (result.recordsNotMasked > 0 || result.fieldsNotFound.length > 0) {
+      const unmasked =
+        left.length > 0
+          ? `${left.map((entry) => `${entry.notMasked} of ${entry.objectApiName}`).join(', ')} ` +
+            'still hold their values'
+          : `${result.fieldsNotFound.map((f) => `${f.objectApiName}.${f.fieldApiName}`).join(', ')} ` +
+            'masked nothing';
+      return failed(
+        step,
+        startTime,
+        output,
+        `${who} masked ${org} and did not complete: ${unmasked}; ${kept}.`,
+      );
+    }
+    const scope =
+      object !== undefined
+        ? where !== undefined
+          ? `the ${object} rows where ${where}`
+          : `every ${object} row`
+        : `every row of ${result.objects.map((entry) => entry.objectApiName).join(', ')}`;
+    return completed(
+      step,
+      startTime,
+      output,
+      `Masked ${counted(result.recordsProcessed, 'record')} in ${org}, ${scope}; ${kept}.`,
+    );
+  };
+}
+
+function checkCheckpoint(runners: PipelineStepRunners): StepCheck {
+  return (step) => {
+    const who = `Checkpoint step "${step.name}"`;
+    if (!runners.takeCheckpoint) {
+      return `${who} cannot run here: Checkpoints are not available in this window.`;
+    }
+    const config = step.config ?? {};
+    const problem = orgProblem(runners, who, config['orgId'], 'the org it takes');
+    if (problem) return problem;
+    const orgId = String(config['orgId']);
+    if ((runners.orgTier?.(orgId) ?? 'production') === 'production') {
+      return (
+        `${who} names ${runners.orgName(orgId) ?? orgId}, a production org or one SandForge ` +
+        'cannot tell is not: SandForge takes no checkpoint of one.'
+      );
+    }
+    const parsed = pipelineCheckpointStepConfigSchema.safeParse(config);
+    if (!parsed.success) return `${who} does not read (${firstIssue(parsed.error)}).`;
+    return undefined;
+  };
+}
+
+/** How many bytes, in the unit a person reads them in. */
+function sizeOf(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function checkpointHandler(runners: PipelineStepRunners): StepHandler {
+  return async (step: PipelineStep, context: StepContext) => {
+    const startTime = new Date().toISOString();
+    const who = `Checkpoint step "${step.name}"`;
+    if (!runners.takeCheckpoint) {
+      throw new Error(`${who} cannot run here: Checkpoints are not available in this window.`);
+    }
+    const config = pipelineCheckpointStepConfigSchema.parse(step.config);
+    const org = runners.orgName(config.orgId) ?? config.orgId;
+    let taken: CheckpointPipelineTakeOutcome;
+    try {
+      taken = await runners.takeCheckpoint(
+        {
+          config,
+          origin: {
+            pipeline: pipelineNameOf(context),
+            step: step.name,
+            trigger: runners.trigger ?? 'manual',
+          },
+        },
+        context.signal,
+      );
+    } catch (err: unknown) {
+      if (!(err instanceof CheckpointStepRefused)) throw err;
+      return failed(step, startTime, { orgId: config.orgId, code: err.code }, err.message);
+    }
+    const moved = taken.movedWhileTaken;
+    const movedCount = moved.changed + moved.deleted + moved.created;
+    return completed(
+      step,
+      startTime,
+      {
+        orgId: config.orgId,
+        operationId: taken.operationId,
+        checkpointId: taken.checkpointId,
+        name: taken.name,
+        records: taken.records,
+        objects: taken.objects,
+        bytes: taken.bytes,
+        movedWhileTaken: moved,
+      },
+      `Took the checkpoint '${taken.name}' of ${org}: ${counted(taken.records, 'record')} of ` +
+        `${counted(taken.objects, 'object')}, ${sizeOf(taken.bytes)} on this machine, ` +
+        (config.keepDays === 0
+          ? 'kept until it is deleted'
+          : `kept ${counted(config.keepDays, 'day')}`) +
+        (movedCount > 0 ? `; ${counted(movedCount, 'record')} changed while it was taken.` : '.'),
+    );
+  };
+}
+
+/** Why a checkpoint a Rewind step names cannot be rewound to, as a clause that goes on from its name. */
+const CHECKPOINT_UNUSABLE: Readonly<Record<CheckpointInvalidReason, string>> = {
+  damaged: 'whose file cannot be read: it can only be deleted',
+  taking: 'whose take is under way or never ended',
+  failed: 'whose take failed: it can only be deleted',
+  refreshed:
+    'of the org a sandbox was before its refresh: the sandbox is another org now, and the ' +
+    'checkpoint can only be deleted. Take a checkpoint of it again, and choose it',
+  scratchExpired: 'of a scratch org that has expired: it can only be deleted',
+};
+
+/**
+ * Why the checkpoint a Rewind step names cannot be rewound to, as read from
+ * this machine before the run, or undefined when it can — or was not read,
+ * which leaves it to the run.
+ */
+function checkpointProblem(
+  runners: PipelineStepRunners,
+  who: string,
+  orgId: string,
+  checkpointId: string,
+): { why: NonNullable<PipelineRewindStepInfo['why']>; problem: string } | undefined {
+  const kept = runners.checkpointKept?.(checkpointId);
+  if (kept === undefined) return undefined;
+  if (!kept.kept) {
+    return {
+      why: 'missing',
+      problem:
+        `${who} rewinds to the checkpoint ${checkpointId}, which is not kept on this machine: ` +
+        'it was deleted or expired, or the pipeline came from another machine. Take a ' +
+        'checkpoint here, choose it, and confirm the step again.',
+    };
+  }
+  const named = kept.name !== undefined ? `'${kept.name}'` : checkpointId;
+  if (!kept.valid) {
+    const why = kept.why ?? 'damaged';
+    return {
+      why,
+      problem: `${who} rewinds to the checkpoint ${named}, ${CHECKPOINT_UNUSABLE[why]}.`,
+    };
+  }
+  const ids = runners.organizationIdsOf?.(orgId) ?? [];
+  if (
+    kept.organizationId !== undefined &&
+    !ids.some((id) => sameOrganization(id, kept.organizationId))
+  ) {
+    return {
+      why: 'otherOrg',
+      problem:
+        `${who} rewinds ${runners.orgName(orgId) ?? orgId} to the checkpoint ${named}, which ` +
+        'was taken of another org.',
+    };
+  }
+  return undefined;
+}
+
+function checkRewind(runners: PipelineStepRunners): StepCheck {
+  return (step) => {
+    const who = `Rewind step "${step.name}"`;
+    if (!runners.rewind || !runners.rewindGrant) {
+      return `${who} cannot run here: Checkpoints are not available in this window.`;
+    }
+    const config = step.config ?? {};
+    const problem = orgProblem(runners, who, config['orgId'], 'the org it rewinds');
+    if (problem) return problem;
+    const orgId = String(config['orgId']);
+    if ((runners.orgTier?.(orgId) ?? 'production') === 'production') {
+      return (
+        `${who} writes to ${runners.orgName(orgId) ?? orgId}, a production org or one SandForge ` +
+        'cannot tell is not: SandForge rewinds none.'
+      );
+    }
+    const parsed = pipelineRewindStepConfigSchema.safeParse(config);
+    if (!parsed.success) return `${who} does not read (${firstIssue(parsed.error)}).`;
+    const retries = retriesProblem(
+      step,
+      who,
+      'a second try would read the org after the first one wrote, with nobody to read its preview',
+    );
+    if (retries) return retries;
+    // Kept on this machine for the configuration the run holds: an edit not
+    // saved, or saved since the confirmation, is no confirmed rewind.
+    const granted = runners.rewindGrant(runners.pipelineId ?? '', step);
+    if ('refusal' in granted) return grantRefusalWords(step.name, granted.refusal);
+    return checkpointProblem(runners, who, orgId, parsed.data.checkpointId)?.problem;
+  };
+}
+
+/** How many records a rewind wrote, by what it did to them. */
+function rewound(result: RewindResult): {
+  deleted: number;
+  gaveBack: number;
+  broughtBack: number;
+  madeAgain: number;
+} {
+  return {
+    deleted: result.deleted.reduce((sum, object) => sum + object.deleted, 0),
+    gaveBack: result.restored.reduce(
+      (sum, object) => sum + object.restored + (object.restoredWithout ?? 0),
+      0,
+    ),
+    broughtBack: result.undeleted.reduce((sum, object) => sum + object.undeleted, 0),
+    madeAgain: (result.recreated ?? []).reduce((sum, object) => sum + object.created, 0),
+  };
+}
+
+/** What a rewind did, in the words of its result. */
+function rewoundWords(result: RewindResult): string {
+  const done = rewound(result);
+  return (
+    `${done.deleted} deleted, ${done.gaveBack} given their values back, ` +
+    `${done.broughtBack} brought back from the recycle bin` +
+    (done.madeAgain > 0 ? `, ${done.madeAgain} made again with new Ids` : '')
+  );
+}
+
+/** Until when Undo, on the Checkpoints page, takes a rewind back, as a clause. */
+function undoWords(result: RewindResult): string {
+  return result.undo
+    ? `Undo on the Checkpoints page takes it back until ${result.undo.until}`
+    : 'it wrote nothing Undo would take back';
+}
+
+function rewindHandler(runners: PipelineStepRunners): StepHandler {
+  return async (step: PipelineStep, context: StepContext) => {
+    const startTime = new Date().toISOString();
+    const who = `Rewind step "${step.name}"`;
+    if (!runners.rewind || !runners.rewindGrant) {
+      throw new Error(`${who} cannot run here: Checkpoints are not available in this window.`);
+    }
+    const config = pipelineRewindStepConfigSchema.parse(step.config);
+    // Read again here: the confirmation can be taken back, by a save in
+    // another window, while the steps before this one run.
+    const granted = runners.rewindGrant(context.pipelineId, step);
+    if ('refusal' in granted) {
+      return failed(
+        step,
+        startTime,
+        { orgId: config.orgId, checkpointId: config.checkpointId, code: 'NOT_CONFIRMED' },
+        grantRefusalWords(step.name, granted.refusal),
+      );
+    }
+    const org = runners.orgName(config.orgId) ?? config.orgId;
+    let outcome: CheckpointPipelineRewindOutcome;
+    try {
+      outcome = await runners.rewind(
+        {
+          config,
+          grant: granted.grant,
+          origin: {
+            pipeline: pipelineNameOf(context),
+            step: step.name,
+            trigger: runners.trigger ?? 'manual',
+          },
+        },
+        context.signal,
+      );
+    } catch (err: unknown) {
+      if (!(err instanceof CheckpointStepRefused)) throw err;
+      return failed(
+        step,
+        startTime,
+        {
+          orgId: config.orgId,
+          checkpointId: config.checkpointId,
+          code: err.code,
+          ...(err.result ? { status: err.result.status, ...rewound(err.result) } : {}),
+        },
+        err.message,
+      );
+    }
+    const { result } = outcome;
+    const left = result.residual.reduce((sum, residual) => sum + residual.count, 0);
+    const output: Record<string, unknown> = {
+      orgId: config.orgId,
+      checkpointId: outcome.checkpointId,
+      operationId: outcome.operationId,
+      rewindId: result.rewindId,
+      status: result.status,
+      ...rewound(result),
+      residual: left,
+      ...(result.undo ? { undoUntil: result.undo.until } : {}),
+      apiRequests: result.apiRequests.used,
+    };
+    if (result.status === 'cancelled') {
+      throw new StepCancelledError(
+        `${who} was stopped part way in ${org}: ${rewoundWords(result)}; ${undoWords(result)}.`,
+      );
+    }
+    if (result.status !== 'success') {
+      return failed(
+        step,
+        startTime,
+        output,
+        `${who} rewound ${org} and did not complete (${result.status}): ${rewoundWords(result)}; ` +
+          `${counted(left, 'record')} still ${left === 1 ? 'differs' : 'differ'} from the checkpoint` +
+          (result.unread && result.unread.length > 0
+            ? `, and ${result.unread.map((unread) => unread.objectApiName).join(', ')} could not be read`
+            : '') +
+          `; ${undoWords(result)}.`,
+      );
+    }
+    return completed(
+      step,
+      startTime,
+      output,
+      `Rewound ${org} to the checkpoint ${outcome.checkpointId}: ${rewoundWords(result)}, with ` +
+        `${counted(result.apiRequests.used, 'API request')}; ${undoWords(result)}.`,
+    );
+  };
+}
+
+/**
+ * A Rewind step of a saved pipeline as the extension sees it on this
+ * machine: whether its checkpoint can be rewound to, and the confirmation
+ * kept for it, with whether it was given for the configuration as saved.
+ * @param checkpoint - Its checkpoint as read from this machine; undefined
+ *   when its configuration names none that reads
+ * @param kept - The confirmation kept for it, if one is
+ */
+export function rewindStepInfo(
+  runners: PipelineStepRunners,
+  step: Pick<PipelineStep, 'id' | 'config'>,
+  checkpoint: RewindCheckpoint | undefined,
+  kept: { grantedAt: string; matches: boolean } | undefined,
+): PipelineRewindStepInfo {
+  const granted = kept ? { granted: { at: kept.grantedAt, digestMatches: kept.matches } } : {};
+  const parsed = pipelineRewindStepConfigSchema.safeParse(step.config ?? {});
+  if (!parsed.success) return { stepId: step.id, valid: false, why: 'config', ...granted };
+  const { orgId, checkpointId } = parsed.data;
+  const problem = checkpointProblem(
+    { ...runners, checkpointKept: () => checkpoint },
+    'The step',
+    orgId,
+    checkpointId,
+  );
+  return {
+    stepId: step.id,
+    checkpointId,
+    valid: problem === undefined,
+    ...(problem ? { why: problem.why } : {}),
+    ...granted,
+  };
+}
+
+/**
+ * Give `executor` the Backup, Compare, Pre-check, Notification, Approval,
+ * Sync, Seed, Anonymize, Checkpoint and Rewind steps, each with the check
+ * that reads its configuration before the run.
  * @param executor - The step executor of one run
  * @param runners - The flows the steps run on
  */
@@ -802,4 +1622,8 @@ export function registerPipelineSteps(executor: StepExecutor, runners: PipelineS
   );
   executor.registerHandler('approval', approvalHandler(runners), checkApproval(runners));
   executor.registerHandler('sync', syncHandler(runners), checkSync(runners));
+  executor.registerHandler('seed', seedHandler(runners), checkSeed(runners));
+  executor.registerHandler('anonymize', anonymizeHandler(runners), checkAnonymize(runners));
+  executor.registerHandler('checkpoint', checkpointHandler(runners), checkCheckpoint(runners));
+  executor.registerHandler('rewind', rewindHandler(runners), checkRewind(runners));
 }

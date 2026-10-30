@@ -8,6 +8,10 @@ import type {
   PipelineCondition,
   PipelineDefinition,
   PipelineDraftSuggestion,
+  PipelineMaskingTemplateInfo,
+  PipelineRewindGrantResponse,
+  PipelineRewindStepInfo,
+  PipelineSeedTemplateInfo,
   PipelineStepType,
   PipelineWritePage,
   PipelineStepUpdate,
@@ -18,7 +22,12 @@ import type {
   TriggerType,
   PipelineHistoryEntry,
 } from '@sandforge/shared';
-import { isPipelineStepType, isRetiredPipelineStepType, isTriggeredRun } from '@sandforge/shared';
+import {
+  guardTierOf,
+  isPipelineStepType,
+  isRetiredPipelineStepType,
+  isTriggeredRun,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -29,7 +38,7 @@ import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import { useLatestRef } from '../../hooks/useLatestRef';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import { blockedSteps, paletteBlocker } from './stepRunnability';
-import type { BlockedStep } from './stepRunnability';
+import type { BlockedStep, StepPlace } from './stepRunnability';
 import type { TriggerSandbox } from './TriggerConfigPanel';
 import type { PipelineScheduleRow } from './SchedulerCalendar';
 import { getLocalTimezone } from '../Sync/CronScheduleBuilder';
@@ -317,6 +326,34 @@ export interface AutomationPageData {
    * Guard does with each; undefined until the extension has answered.
    */
   syncConfigs: PipelineSyncConfigInfo[] | undefined;
+  /** The Seed templates a Seed step can run, as the extension describes them; undefined until then. */
+  seedTemplates: PipelineSeedTemplateInfo[] | undefined;
+  /** The masking templates an Anonymize step can run, with their objects; undefined until described. */
+  maskingTemplates: PipelineMaskingTemplateInfo[] | undefined;
+  /**
+   * The Rewind steps of the current pipeline as saved, as the extension sees
+   * them on this machine; undefined for a pipeline never saved, or until it
+   * has answered.
+   */
+  rewindSteps: PipelineRewindStepInfo[] | undefined;
+  /** The steps of the current pipeline as last saved; undefined for one never saved. */
+  savedSteps: PipelineDefinition['steps'] | undefined;
+  /**
+   * Confirm a Rewind step of the saved pipeline with the org's alias, as
+   * typed under its preview: `pipeline:rewind-grant`.
+   */
+  handleConfirmRewind: (stepId: string, typed: string) => void;
+  /** Take back a Rewind step's confirmation: `pipeline:rewind-revoke`. */
+  handleRevokeRewind: (stepId: string) => void;
+  /** The extension's answer to the last confirmation sent, until another is sent. */
+  rewindGrantAnswer: PipelineRewindGrantResponse['payload'] | null;
+  /** Whether a confirmation is on its way to the extension. */
+  rewindGrantPending: boolean;
+  /**
+   * What a step of the current pipeline is checked against beside itself:
+   * the variables, what the extension describes, the tiers of the orgs.
+   */
+  stepAround: Omit<StepPlace, 'steps' | 'index'>;
   /** The names of the variables the current pipeline declares, which a Condition may test. */
   declaredVariables: ReadonlySet<string>;
   /**
@@ -515,6 +552,17 @@ export function useAutomationPageData(): AutomationPageData {
   );
   const syncConfigs = syncConfigsQuery.data?.configs;
 
+  // The Seed and masking templates, as the extension describes them: what a
+  // Seed or an Anonymize step is checked against before Run.
+  const seedTemplatesQuery = useBridgeQuery<{ templates: PipelineSeedTemplateInfo[] }>(
+    'pipeline:seed-templates',
+  );
+  const seedTemplates = seedTemplatesQuery.data?.templates;
+  const maskingTemplatesQuery = useBridgeQuery<{ templates: PipelineMaskingTemplateInfo[] }>(
+    'pipeline:masking-templates',
+  );
+  const maskingTemplates = maskingTemplatesQuery.data?.templates;
+
   // Derive running state from bridge mutation
   const isRunning = executeMutation.loading;
 
@@ -618,12 +666,80 @@ export function useAutomationPageData(): AutomationPageData {
     () => new Set((pipeline?.variables ?? []).map((variable) => variable.name)),
     [pipeline],
   );
+  // The pipeline as last saved: a Rewind step is confirmed for its saved
+  // configuration alone, and asked about only once saved.
+  const savedSteps = pipeline
+    ? savedPipelines.find((saved) => saved.id === pipeline.id)?.steps
+    : undefined;
+  const savedId = savedSteps !== undefined ? pipeline?.id : undefined;
+  const hasRewind = pipeline?.steps.some((step) => step.type === 'rewind') ?? false;
+  const rewindStepsQuery = useBridgeQuery<{
+    pipelineId: string;
+    steps: PipelineRewindStepInfo[];
+  }>('pipeline:rewind-steps', savedId ? { pipelineId: savedId } : undefined, {
+    skip: savedId === undefined || !hasRewind,
+  });
+  const rewindSteps =
+    savedId !== undefined && rewindStepsQuery.data?.pipelineId === savedId
+      ? rewindStepsQuery.data.steps
+      : undefined;
+  const refetchRewindSteps = rewindStepsQuery.refetch;
+
+  const grantMutation =
+    useBridgeMutation<PipelineRewindGrantResponse['payload']>('pipeline:rewind-grant');
+  const revokeMutation = useBridgeMutation<{ revoked: boolean }>('pipeline:rewind-revoke');
+  const handleConfirmRewind = useCallback(
+    (stepId: string, typed: string) => {
+      if (!savedId) return;
+      grantMutation.mutate({ pipelineId: savedId, stepId, typed });
+    },
+    [savedId, grantMutation],
+  );
+  const handleRevokeRewind = useCallback(
+    (stepId: string) => {
+      if (!savedId) return;
+      revokeMutation.mutate({ pipelineId: savedId, stepId });
+    },
+    [savedId, revokeMutation],
+  );
+  // What the extension sees of the Rewind steps changes with each answer.
+  useEffect(() => {
+    if (grantMutation.data?.granted || revokeMutation.data) refetchRewindSteps();
+  }, [grantMutation.data, revokeMutation.data, refetchRewindSteps]);
+
+  const tierOf = useCallback(
+    (orgId: string) => {
+      const org = orgs.find((candidate) => candidate.id === orgId);
+      return org ? guardTierOf(org) : undefined;
+    },
+    [orgs],
+  );
+  // What a step of the current pipeline is checked against beside itself. A
+  // Rewind step of a pipeline never saved is confirmed for nothing, and one
+  // of a saved pipeline counts as unconfirmed until the extension has said.
+  const stepAround = useMemo<Omit<StepPlace, 'steps' | 'index'>>(
+    () => ({
+      declared: declaredVariables,
+      ...(syncConfigs ? { syncConfigs } : {}),
+      ...(seedTemplates ? { seedTemplates } : {}),
+      ...(maskingTemplates ? { maskingTemplates } : {}),
+      ...(savedSteps ? { savedSteps } : {}),
+      rewindSteps: rewindSteps ?? [],
+      tierOf,
+    }),
+    [
+      declaredVariables,
+      syncConfigs,
+      seedTemplates,
+      maskingTemplates,
+      savedSteps,
+      rewindSteps,
+      tierOf,
+    ],
+  );
   const runBlockers = useMemo(
-    () =>
-      pipeline
-        ? blockedSteps(pipeline.steps, orgIds, { declared: declaredVariables, syncConfigs })
-        : [],
-    [pipeline, orgIds, declaredVariables, syncConfigs],
+    () => (pipeline ? blockedSteps(pipeline.steps, orgIds, stepAround) : []),
+    [pipeline, orgIds, stepAround],
   );
 
   // The execution view while running: each step as the host last reported
@@ -711,9 +827,11 @@ export function useAutomationPageData(): AutomationPageData {
     if (!saveMutation.data?.success) return;
     announceSaved.current();
     // The saved list, and what the triggers of the pipeline now do: a
-    // schedule is planned by the save.
+    // schedule is planned by the save. And its Rewind steps, whose
+    // confirmations a save that changes them takes back.
     refetchPipelines();
-  }, [saveMutation.data, announceSaved, refetchPipelines]);
+    refetchRewindSteps();
+  }, [saveMutation.data, announceSaved, refetchPipelines, refetchRewindSteps]);
 
   // The host writes a run to its history when the run ends, but answers
   // `pipeline:history` only on request, and the query fires once on mount:
@@ -1000,6 +1118,15 @@ export function useAutomationPageData(): AutomationPageData {
     pipelinesLoading: pipelinesQuery.loading && pipelinesQuery.data === null,
     savedPipelines,
     syncConfigs,
+    seedTemplates,
+    maskingTemplates,
+    rewindSteps,
+    savedSteps,
+    handleConfirmRewind,
+    handleRevokeRewind,
+    rewindGrantAnswer: grantMutation.data,
+    rewindGrantPending: grantMutation.loading,
+    stepAround,
     declaredVariables,
     triggerStatuses,
     savedTriggers,

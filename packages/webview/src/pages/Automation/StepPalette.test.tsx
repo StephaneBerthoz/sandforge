@@ -25,8 +25,12 @@ describe('StepPalette', () => {
     // "Coming soon": none of the ten could be added.
     render(<StepPalette />);
     expect(offeredTypes()).toEqual([
+      'seed',
       'sync',
       'backup',
+      'anonymize',
+      'checkpoint',
+      'rewind',
       'compare',
       'precheck',
       'condition',
@@ -57,8 +61,12 @@ describe('StepPalette', () => {
     render(<StepPalette onAddStep={onAdd} />);
 
     const offered = [
+      'seed',
       'sync',
       'backup',
+      'anonymize',
+      'checkpoint',
+      'rewind',
       'compare',
       'precheck',
       'condition',
@@ -74,7 +82,7 @@ describe('StepPalette', () => {
 
   it('offers no step a pipeline refuses, and says where the steps that write run', () => {
     render(<StepPalette />);
-    for (const type of ['seed', 'restore', 'anonymize', 'delete']) {
+    for (const type of ['restore', 'delete']) {
       expect(screen.queryByTestId(`palette-${type}`)).toBeNull();
     }
     // Gone for good: no palette entry, and no label to show one with.
@@ -82,10 +90,10 @@ describe('StepPalette', () => {
       expect(screen.queryByTestId(`palette-${type}`)).toBeNull();
     }
     const note = screen.getByTestId('palette-runnable-note').textContent ?? '';
-    expect(note).toContain(
-      'Seed, Restore, Anonymize and Delete write to an org and run only from their own pages',
-    );
+    expect(note).toContain('Restore and Delete write to an org and run only from their own pages');
     expect(note).toContain('needs an Approval step before it');
+    expect(note).toContain('never in a production org');
+    expect(note).toContain("once you confirm it with the org's alias");
     expect(note).not.toMatch(/\byet\b/);
   });
 

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { PipelineStep, PipelineStepType, PipelineSyncConfigInfo } from '@sandforge/shared';
+import type {
+  GuardTier,
+  PipelineRewindStepInfo,
+  PipelineStep,
+  PipelineStepType,
+  PipelineSyncConfigInfo,
+} from '@sandforge/shared';
 import {
   MAX_STEP_TIMEOUT_MS,
   blockedSteps,
@@ -7,6 +13,7 @@ import {
   stepBlocker,
   typeBlocker,
 } from './stepRunnability';
+import type { StepPlace } from './stepRunnability';
 
 function step(
   type: PipelineStepType,
@@ -24,7 +31,7 @@ function step(
 }
 
 /** The steps that write to an org and that the extension runs in no pipeline. */
-const WRITE_STEPS: PipelineStepType[] = ['seed', 'restore', 'anonymize', 'delete'];
+const WRITE_STEPS: PipelineStepType[] = ['restore', 'delete'];
 
 /** The step types SandForge no longer has, as a pipeline saved earlier holds them. */
 const RETIRED = ['script', 'loop', 'parallel'];
@@ -39,13 +46,17 @@ const RUNNABLE: PipelineStepType[] = [
   'notification',
   'approval',
   'sync',
+  'seed',
+  'anonymize',
+  'checkpoint',
+  'rewind',
 ];
 
 /** Two orgs connected on this page. */
 const ORGS = new Set(['org-a', 'org-b']);
 
 describe('typeBlocker', () => {
-  it('lets the eight step types the extension runs through', () => {
+  it('lets the twelve step types the extension runs through', () => {
     for (const type of RUNNABLE) {
       expect(typeBlocker(type)).toBeUndefined();
     }
@@ -69,12 +80,14 @@ describe('typeBlocker', () => {
 });
 
 describe('paletteBlocker', () => {
-  it('offers Condition, Approval and Sync, and none of the steps that write from their own pages', () => {
-    expect(paletteBlocker('condition')).toBeUndefined();
-    expect(paletteBlocker('approval')).toBeUndefined();
-    expect(paletteBlocker('sync')).toBeUndefined();
-    expect(paletteBlocker('backup')).toBeUndefined();
-    expect(paletteBlocker('seed')).toBe('writesToOrg');
+  it('offers the steps a pipeline runs, Seed, Anonymize and Rewind among them, and neither Restore nor Delete', () => {
+    for (const type of ['condition', 'approval', 'sync', 'backup', 'seed', 'anonymize'] as const) {
+      expect(paletteBlocker(type)).toBeUndefined();
+    }
+    expect(paletteBlocker('checkpoint')).toBeUndefined();
+    expect(paletteBlocker('rewind')).toBeUndefined();
+    expect(paletteBlocker('restore')).toBe('writesToOrg');
+    expect(paletteBlocker('delete')).toBe('writesToOrg');
   });
 });
 
@@ -100,7 +113,7 @@ describe('stepBlocker', () => {
   });
 
   it('keeps the type reason ahead of any configuration', () => {
-    expect(stepBlocker(step('seed', { seconds: 30 }))).toBe('writesToOrg');
+    expect(stepBlocker(step('restore', { seconds: 30 }))).toBe('writesToOrg');
     expect(stepBlocker(step('script' as PipelineStepType, { seconds: 30 }))).toBe(
       'noLongerSupported',
     );
@@ -305,14 +318,14 @@ describe('blockedSteps', () => {
   it('names each step that keeps the pipeline from running, in order, and no other', () => {
     const steps = [
       step('delay', { seconds: 5 }),
-      step('seed'),
+      step('delete'),
       step('delay'),
       step('condition'),
       step('backup', { orgId: 'org-a', objects: ['Account'] }),
     ];
 
     expect(blockedSteps(steps, ORGS)).toEqual([
-      { stepId: 'id-seed', stepName: 'name-seed', stepType: 'seed', blocker: 'writesToOrg' },
+      { stepId: 'id-delete', stepName: 'name-delete', stepType: 'delete', blocker: 'writesToOrg' },
       {
         stepId: 'id-delay',
         stepName: 'name-delay',
@@ -339,5 +352,198 @@ describe('blockedSteps', () => {
         ORGS,
       ),
     ).toEqual([]);
+  });
+});
+
+/** The guard's tier of each org connected here. */
+const TIERS: Record<string, GuardTier> = {
+  'org-a': 'development',
+  'org-b': 'staging',
+  'org-p': 'production',
+};
+const CONNECTED = new Set(Object.keys(TIERS));
+
+/** Where a step sits: after `before`, with what the extension describes. */
+function placeOf(
+  target: PipelineStep,
+  before: PipelineStep[] = [],
+  around: Omit<StepPlace, 'steps' | 'index'> = {},
+): StepPlace {
+  const steps = [...before, target];
+  return {
+    steps,
+    index: steps.length - 1,
+    tierOf: (orgId) => TIERS[orgId],
+    seedTemplates: [
+      { id: 'tpl-ok', name: 'Ok', builtIn: false, valid: true, usesAi: false },
+      { id: 'tpl-ai', name: 'AI', builtIn: false, valid: true, usesAi: true },
+      { id: 'tpl-broken', name: 'Broken', builtIn: false, valid: false, usesAi: false },
+    ],
+    maskingTemplates: [
+      { id: 'tpl-gdpr-standard', name: 'GDPR', builtIn: true, objects: ['Contact', 'Lead'] },
+    ],
+    ...around,
+  };
+}
+
+const APPROVAL = step('approval', {}, { id: 'id-approval' });
+
+describe('the steps that seed and mask', () => {
+  it.each([
+    [{ templateId: 'tpl-ok' }, 'needsOrg'],
+    [{ orgId: 'org-a' }, 'seedNeedsTemplate'],
+    [{ orgId: 'org-a', templateId: 'tpl-gone' }, 'seedTemplateMissing'],
+    [{ orgId: 'org-a', templateId: 'tpl-broken' }, 'seedTemplateInvalid'],
+    [{ orgId: 'org-a', templateId: 'tpl-ai' }, 'seedTemplateUsesAi'],
+    [{ orgId: 'org-p', templateId: 'tpl-ok' }, 'writeRefusedOnProduction'],
+    [{ orgId: 'org-b', templateId: 'tpl-ok' }, 'writeNeedsApproval'],
+  ])('blocks a Seed step for %j: %s', (config, blocker) => {
+    const target = step('seed', config);
+    expect(stepBlocker(target, CONNECTED, placeOf(target))).toBe(blocker);
+  });
+
+  it('runs a Seed step with a valid template in a development org, with no Approval', () => {
+    const target = step('seed', { orgId: 'org-a', templateId: 'tpl-ok' });
+    expect(stepBlocker(target, CONNECTED, placeOf(target))).toBeUndefined();
+  });
+
+  it('refuses a production org whatever comes before, and lets a Staging one run behind an Approval', () => {
+    const prod = step('seed', { orgId: 'org-p', templateId: 'tpl-ok' });
+    expect(stepBlocker(prod, CONNECTED, placeOf(prod, [APPROVAL]))).toBe(
+      'writeRefusedOnProduction',
+    );
+    const staging = step('anonymize', { orgId: 'org-b', templateId: 'tpl-gdpr-standard' });
+    expect(stepBlocker(staging, CONNECTED, placeOf(staging, [APPROVAL]))).toBeUndefined();
+  });
+
+  it('refuses retries on a step that writes, and leaves them to a Backup', () => {
+    const seed = step('seed', { orgId: 'org-a', templateId: 'tpl-ok' }, { retries: 1 });
+    expect(stepBlocker(seed, CONNECTED, placeOf(seed))).toBe('writeNoRetries');
+    const backup = step('backup', { orgId: 'org-a', objects: ['Account'] }, { retries: 1 });
+    expect(stepBlocker(backup, CONNECTED, placeOf(backup))).toBeUndefined();
+  });
+
+  it.each([
+    [{ orgId: 'org-a' }, 'anonymizeNeedsTemplate'],
+    [{ orgId: 'org-a', templateId: 'tpl-gone' }, 'anonymizeTemplateMissing'],
+    [
+      { orgId: 'org-a', templateId: 'tpl-gdpr-standard', where: "Title = 'x'" },
+      'anonymizeFilterNeedsObject',
+    ],
+    [{ orgId: 'org-p', templateId: 'tpl-gdpr-standard' }, 'writeRefusedOnProduction'],
+  ])('blocks an Anonymize step for %j: %s', (config, blocker) => {
+    const target = step('anonymize', config);
+    expect(stepBlocker(target, CONNECTED, placeOf(target))).toBe(blocker);
+  });
+
+  it('runs an Anonymize step on one object and a condition, and reads cleared fields as none', () => {
+    const target = step('anonymize', {
+      orgId: 'org-a',
+      templateId: 'tpl-gdpr-standard',
+      object: 'Contact',
+      where: "Title = 'x'",
+    });
+    expect(stepBlocker(target, CONNECTED, placeOf(target))).toBeUndefined();
+    const cleared = step('anonymize', {
+      orgId: 'org-a',
+      templateId: 'tpl-gdpr-standard',
+      object: '',
+      where: ' ',
+    });
+    expect(stepBlocker(cleared, CONNECTED, placeOf(cleared))).toBeUndefined();
+  });
+
+  it('leaves the templates to the extension until it has described them', () => {
+    const target = step('seed', { orgId: 'org-a', templateId: 'tpl-anything' });
+    expect(stepBlocker(target, CONNECTED, { steps: [target], index: 0 })).toBeUndefined();
+  });
+});
+
+describe('the Checkpoint step', () => {
+  it('runs on a development org, and is refused on a production one', () => {
+    const ok = step('checkpoint', { orgId: 'org-a', mode: 'everything' });
+    expect(stepBlocker(ok, CONNECTED, placeOf(ok))).toBeUndefined();
+    const prod = step('checkpoint', { orgId: 'org-p', mode: 'everything' });
+    expect(stepBlocker(prod, CONNECTED, placeOf(prod))).toBe('checkpointRefusedOnProduction');
+  });
+
+  it('asks for the objects of a take of picked objects, and for settings that read', () => {
+    const picked = step('checkpoint', { orgId: 'org-a', mode: 'picked' });
+    expect(stepBlocker(picked, CONNECTED, placeOf(picked))).toBe('checkpointNeedsObjects');
+    const keep = step('checkpoint', { orgId: 'org-a', mode: 'everything', keepDays: 4000 });
+    expect(stepBlocker(keep, CONNECTED, placeOf(keep))).toBe('checkpointConfigInvalid');
+  });
+});
+
+describe('the Rewind step', () => {
+  const CONFIG = { orgId: 'org-a', checkpointId: 'ck-20261030-020000-abcd', maxRecords: 100 };
+  const rewind = (config: Record<string, unknown> = CONFIG, extra: Partial<PipelineStep> = {}) =>
+    step('rewind', config, { id: 'step-r', ...extra });
+  const info = (overrides: Partial<PipelineRewindStepInfo> = {}): PipelineRewindStepInfo => ({
+    stepId: 'step-r',
+    checkpointId: CONFIG.checkpointId,
+    valid: true,
+    granted: { at: '2026-10-29T09:00:00.000Z', digestMatches: true },
+    ...overrides,
+  });
+  const saved = (target: PipelineStep, steps: PipelineRewindStepInfo[] = [info()]) =>
+    placeOf(target, [], { savedSteps: [rewind()], rewindSteps: steps });
+
+  it('runs once saved as it stands and confirmed for that configuration', () => {
+    expect(stepBlocker(rewind(), CONNECTED, saved(rewind()))).toBeUndefined();
+  });
+
+  it.each([
+    [{ orgId: 'org-a', maxRecords: 100 }, 'rewindNeedsCheckpoint'],
+    [{ ...CONFIG, checkpointId: 'latest' }, 'rewindNeedsCheckpoint'],
+    [{ orgId: 'org-a', checkpointId: CONFIG.checkpointId }, 'rewindNeedsMaxRecords'],
+    [{ ...CONFIG, objects: ['not a name'] }, 'rewindConfigInvalid'],
+    [{ ...CONFIG, orgId: 'org-p' }, 'writeRefusedOnProduction'],
+  ])('is blocked for %j: %s', (config, blocker) => {
+    expect(stepBlocker(rewind(config), CONNECTED, saved(rewind(config)))).toBe(blocker);
+  });
+
+  it('is never tried again', () => {
+    const target = rewind(CONFIG, { retries: 2 });
+    expect(stepBlocker(target, CONNECTED, saved(target))).toBe('writeNoRetries');
+  });
+
+  it('asks to save a step never saved, or changed since it was saved', () => {
+    const target = rewind();
+    expect(stepBlocker(target, CONNECTED, placeOf(target, [], { rewindSteps: [] }))).toBe(
+      'rewindNotSaved',
+    );
+    const edited = rewind({ ...CONFIG, maxRecords: 101 });
+    expect(stepBlocker(edited, CONNECTED, saved(edited))).toBe('rewindNotSaved');
+  });
+
+  it('asks to confirm a saved step never confirmed, and again one changed since', () => {
+    expect(stepBlocker(rewind(), CONNECTED, saved(rewind(), []))).toBe('rewindNotConfirmed');
+    expect(stepBlocker(rewind(), CONNECTED, saved(rewind(), [info({ granted: undefined })]))).toBe(
+      'rewindNotConfirmed',
+    );
+    expect(
+      stepBlocker(
+        rewind(),
+        CONNECTED,
+        saved(rewind(), [info({ granted: { at: 'x', digestMatches: false } })]),
+      ),
+    ).toBe('rewindChangedSinceConfirmed');
+  });
+
+  it.each([
+    ['missing', 'rewindCheckpointMissing'],
+    ['otherOrg', 'rewindCheckpointOtherOrg'],
+    ['refreshed', 'rewindCheckpointRefreshed'],
+    ['scratchExpired', 'rewindCheckpointUnusable'],
+    ['damaged', 'rewindCheckpointUnusable'],
+  ] as const)('says why its checkpoint cannot be rewound to: %s', (why, blocker) => {
+    expect(stepBlocker(rewind(), CONNECTED, saved(rewind(), [info({ valid: false, why })]))).toBe(
+      blocker,
+    );
+  });
+
+  it('leaves the confirmation to the extension where the Rewind steps were not described', () => {
+    expect(stepBlocker(rewind(), CONNECTED, placeOf(rewind()))).toBeUndefined();
   });
 });

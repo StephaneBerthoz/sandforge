@@ -22,6 +22,31 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  * guessing.
  */
 
+/** A checkpoint of the first mock org kept on this machine, as `checkpoint:list` lists it. */
+const REWIND_CHECKPOINT_ENTRY = {
+  checkpointId: 'ck-20261029-020000-abcd',
+  organizationId: '00D000000000001AAA',
+  valid: true,
+  checkpoint: {
+    version: 1,
+    checkpointId: 'ck-20261029-020000-abcd',
+    name: 'Training baseline',
+    org: {
+      organizationId: '00D000000000001AAA',
+      alias: 'DevSandbox',
+      username: 'dev@example.com',
+      instanceUrl: 'https://example.my.salesforce.com',
+      isSandbox: true,
+    },
+    takenAt: '2026-10-29T02:00:00.000Z',
+    readFrom: '2026-10-29T02:00:00.000Z',
+    status: 'ready',
+    objects: [],
+    bytes: 0,
+    expiresAt: null,
+  },
+};
+
 /** Boot the app straight into the Automation panel. */
 async function openAutomation(
   page: Page,
@@ -436,9 +461,9 @@ test.describe('Automation page — saved pipelines', () => {
     await expect(page.getByTestId('pipeline-blocked-step-1')).toHaveText(
       'Query Accounts (Sync) — Choose the saved Sync configuration this step runs.',
     );
+    // A Seed step seeds a chosen org, and this one names none.
     await expect(page.getByTestId('pipeline-blocked-step-3')).toHaveText(
-      'Load Target (Seed) — A pipeline does not run this step: ' +
-        'run it from its own page, where Production Guard asks before a write to a production org.',
+      'Load Target (Seed) — Choose the org this step works on.',
     );
     await expect(page.locator('[data-testid^="canvas-blocked-"]')).toHaveCount(3);
 
@@ -515,12 +540,16 @@ test.describe('Automation page — canvas editing', () => {
     await page.getByTestId('create-pipeline-btn').click();
 
     await expect(page.getByTestId('palette-runnable-note')).toContainText(
-      'Seed, Restore, Anonymize and Delete write to an org and run only from their own pages',
+      'Restore and Delete write to an org and run only from their own pages',
     );
-    await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(8);
+    await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(12);
     for (const type of [
+      'seed',
       'sync',
       'backup',
+      'anonymize',
+      'checkpoint',
+      'rewind',
       'compare',
       'precheck',
       'condition',
@@ -530,13 +559,73 @@ test.describe('Automation page — canvas editing', () => {
     ]) {
       await expect(page.getByTestId(`palette-${type}`)).toBeEnabled();
     }
-    for (const type of ['seed', 'delete', 'script', 'loop', 'parallel']) {
+    for (const type of ['restore', 'delete', 'script', 'loop', 'parallel']) {
       await expect(page.getByTestId(`palette-${type}`)).toHaveCount(0);
     }
     await expect(page.getByTestId('automation-content')).not.toContainText('Coming soon');
 
     await page.getByTestId('palette-backup').click();
     await expect(canvasSteps(page)).toHaveCount(1);
+  });
+
+  test('a Seed step into a production org cannot run, whatever comes before it, and runs into a sandbox', async ({
+    page,
+  }) => {
+    const production = { ...MOCK_ORGS[0], id: 'org-prod-1', alias: 'Prod', orgType: 'Production' };
+    await openAutomation(page, [...MOCK_ORGS, production]);
+    await answerMountQueries(page);
+    await respondToAll(page, 'pipeline:seed-templates', 'pipeline:seed-templates:response', {
+      templates: [
+        { id: 'tpl-demo', name: 'Demo', builtIn: false, valid: true, usesAi: false },
+        { id: 'tpl-ai', name: 'With AI', builtIn: false, valid: true, usesAi: true },
+      ],
+    });
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-approval').click();
+    await page.getByTestId('palette-seed').click();
+    await canvasSteps(page).nth(1).click();
+    await page.getByTestId('config-orgId').selectOption('org-prod-1');
+    await page.getByTestId('config-seed-templateId').selectOption('tpl-demo');
+
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'A pipeline never writes to a production org',
+    );
+    // An AI rule is refused in a sandbox too: nobody watches the run.
+    await page.getByTestId('config-orgId').selectOption(MOCK_ORGS[0].id);
+    await page.getByTestId('config-seed-templateId').selectOption('tpl-ai');
+    await expect(page.getByTestId('pipeline-blocked')).toContainText(
+      'This Seed template has AI rules',
+    );
+    await page.getByTestId('config-seed-templateId').selectOption('tpl-demo');
+    await expect(page.getByTestId('pipeline-blocked')).toHaveCount(0);
+    await expect(page.getByTestId('run-pipeline-btn')).toBeEnabled();
+  });
+
+  test('a Rewind step asks to be saved, then confirmed below its preview with the org’s alias', async ({
+    page,
+  }) => {
+    await openAutomation(page);
+    await answerMountQueries(page);
+    await page.getByTestId('create-pipeline-btn').click();
+    await page.getByTestId('palette-rewind').click();
+    await canvasSteps(page).first().click();
+    await page.getByTestId('config-orgId').selectOption(MOCK_ORGS[0].id);
+    await respondToAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+      checkpoints: [REWIND_CHECKPOINT_ENTRY],
+    });
+    await page
+      .getByTestId('config-checkpointId')
+      .selectOption(REWIND_CHECKPOINT_ENTRY.checkpointId);
+    await page.getByTestId('config-maxRecords').fill('200');
+
+    // Not saved: nothing to confirm yet, and the run is refused.
+    await expect(page.getByTestId('rewind-confirmation-status')).toHaveText(
+      'Save the pipeline, then confirm this rewind.',
+    );
+    await expect(page.getByTestId('rewind-confirm')).toBeDisabled();
+    await expect(page.getByTestId('run-pipeline-btn')).toBeDisabled();
+    expect(await outgoing(page, 'pipeline:rewind-grant')).toEqual([]);
   });
 
   test('the trigger panel adds only the trigger types that start a run', async ({ page }) => {
@@ -1052,14 +1141,17 @@ test.describe('Automation page — marketplace', () => {
     await respondToAll(page, 'marketplace:list', 'marketplace:list:response', {
       success: true,
       templates: [
-        { ...MARKETPLACE_TEMPLATES[0], stepTypes: ['sync', 'anonymize', 'seed', 'sync'] },
+        {
+          ...MARKETPLACE_TEMPLATES[0],
+          stepTypes: ['sync', 'restore', 'anonymize', 'delete', 'sync'],
+        },
         { ...MARKETPLACE_TEMPLATES[1], stepTypes: ['delay'] },
       ],
     });
 
     await expect(page.getByTestId('marketplace-template-blocked-mkt-1')).toContainText(
-      // Sync runs, once a saved configuration is chosen for it after Install.
-      'Cannot run as a pipeline. These step types do not run in one: Anonymize, Seed.',
+      // Sync and Anonymize run, once what they write with is chosen after Install.
+      'Cannot run as a pipeline. These step types do not run in one: Restore, Delete.',
     );
     await expect(page.getByTestId('marketplace-template-blocked-mkt-2')).toHaveCount(0);
   });

@@ -5,6 +5,7 @@ import { importedTemplatesFor } from './importedForgeTemplates.js';
 import { ConfigStore } from '../storage/ConfigStore.js';
 import type { ConfigStoreBackend, ConfigEntry } from '../storage/ConfigStoreBackend';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import { RewindGrants } from '../../modules/automation/RewindGrants.js';
 import type { ForgeTemplate, SyncConfig } from '@sandforge/shared';
 
 /** In-memory backend for testing. */
@@ -271,6 +272,53 @@ describe('ConfigProfileManager', () => {
       });
       expect(store.has('pipeline:history:run-1')).toBe(false);
       expect(result.warnings).toEqual([expect.stringContaining('"pipeline:history:run-1"')]);
+    });
+
+    it("takes back the Rewind confirmations of a pipeline it writes over, and keeps another pipeline's", async () => {
+      const grants = new RewindGrants(store);
+      store.set('pipeline:saved:pipe-1', { id: 'pipe-1', name: 'Nightly reset' }, 'pipelines');
+      store.set('pipeline:saved:pipe-2', { id: 'pipe-2', name: 'Other' }, 'pipelines');
+      const grant = {
+        stepId: 'step-r',
+        organizationId: '00D000000000001AAA',
+        checkpointId: 'ck-20261030-020000-abcd',
+        digest: `sha256:${'0'.repeat(64)}`,
+        grantedAt: '2026-10-30T09:00:00.000Z',
+      };
+      grants.write({ ...grant, pipelineId: 'pipe-1' });
+      grants.write({ ...grant, pipelineId: 'pipe-2' });
+      const profile: ConfigProfile = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        categories: ['pipelines'],
+        data: { pipelines: { 'pipeline:saved:pipe-1': { id: 'pipe-1', name: 'Imported' } } },
+      };
+
+      const result = await manager.importProfile(JSON.stringify(profile));
+
+      expect(result.success).toBe(true);
+      expect(grants.get('pipe-1', 'step-r')).toBeUndefined();
+      expect(grants.get('pipe-2', 'step-r')).toBeDefined();
+      expect(result.warnings).toEqual([
+        'Pipeline "pipeline:saved:pipe-1" was written over: confirm its Rewind step again.',
+      ]);
+    });
+
+    it('carries no Rewind confirmation in the profile it exports', async () => {
+      store.set('pipeline:saved:pipe-1', { id: 'pipe-1', name: 'Nightly reset' }, 'pipelines');
+      new RewindGrants(store).write({
+        pipelineId: 'pipe-1',
+        stepId: 'step-r',
+        organizationId: '00D000000000001AAA',
+        checkpointId: 'ck-20261030-020000-abcd',
+        digest: `sha256:${'0'.repeat(64)}`,
+        grantedAt: '2026-10-30T09:00:00.000Z',
+      });
+
+      const exported = (await manager.exportProfile(['pipelines'])).json!;
+
+      expect(exported).not.toContain('rewind-grant');
+      expect(exported).not.toContain('ck-20261030-020000-abcd');
     });
 
     it('warns about empty categories', async () => {

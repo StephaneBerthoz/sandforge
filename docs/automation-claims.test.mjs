@@ -2,9 +2,10 @@
  * Keeps the Automation surfaces honest about what a pipeline step does.
  *
  * `StepExecutor` gives Delay and Condition handlers of its own, and the
- * extension registers six more for its runs in `pipelineSteps.ts` — Backup,
- * Compare, Pre-check, Notification, Approval and Sync, each through the flow
- * its module runs. Every other step type is refused: a pipeline that holds one
+ * extension registers ten more for its runs in `pipelineSteps.ts` — Backup,
+ * Compare, Pre-check, Notification, Approval, Sync, Seed, Anonymize,
+ * Checkpoint and Rewind, each through the flow its module runs. Every other
+ * step type is refused: a pipeline that holds one
  * does not start. (Until the refusal, those types went to a pass-through that returned
  * success without opening a connection.) Around that sit the places that
  * describe steps: the predefined catalogue the host serves on
@@ -100,11 +101,16 @@ function refusedStepTypes() {
 /**
  * The step types that write to an org. Each runs from its own page, where
  * Production Guard stops a write to a production org or asks the person at
- * the panel first. Sync alone also runs in a pipeline: a configuration saved
- * on the Sync page, through Sync's own run, with an Approval step before it
- * where the guard would ask, whose answer the guard takes.
+ * the panel first. Four of them also run in a pipeline, each only as its own
+ * page writes: Sync a configuration saved on the Sync page, with an Approval
+ * step before it where the guard would ask; Seed and Anonymize a template of
+ * their pages, never in a production org; Rewind a checkpoint, once a person
+ * confirmed the step by typing the org's alias. Restore and Delete never do.
  */
-const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
+const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete', 'rewind'];
+
+/** The step types that write to an org and run in a pipeline, each as its page writes. */
+const WRITES_IN_A_PIPELINE = ['anonymize', 'rewind', 'seed', 'sync'];
 
 /**
  * Every `name:` and `description:` value of a template file, in source order.
@@ -434,17 +440,37 @@ test('a trigger starts a pipeline only through the run that refuses a step that 
   assert.match(automationHandler, /return orchestrator\.check\(pipeline\)/);
 });
 
-test('no step that writes to an org runs in a pipeline but Sync, and Sync only as Production Guard allows', () => {
+test('no step that writes to an org runs in a pipeline but Sync, Seed, Anonymize and Rewind, each only as its page writes', () => {
   const handled = handledStepTypes();
   // Positive control: the walk sees the steps registered through a module.
   for (const type of ['backup', 'compare', 'precheck', 'notification', 'approval']) {
     assert.ok(handled.includes(type), `${type} is no longer seen as running — is the walk blind?`);
   }
   assert.deepEqual(
-    handled.filter((type) => WRITE_STEP_TYPES.includes(type)),
-    ['sync'],
+    handled.filter((type) => WRITE_STEP_TYPES.includes(type)).sort(),
+    WRITES_IN_A_PIPELINE,
     'another step that writes to an org runs in a pipeline now. Re-read the module page, both ' +
       'READMEs and the listing before relaxing this.',
+  );
+  // Seed and Anonymize write nowhere a production org is: the verdict the
+  // page reads too, refused whatever an Approval answers.
+  for (const check of ['checkSeed', 'checkAnonymize']) {
+    const body = pipelineSteps.match(new RegExp(`function ${check}\\([\\s\\S]*?\\n\\}`));
+    assert.ok(body, `no ${check} found in pipelineSteps.ts`);
+    assert.match(body[0], /writeVerdictProblem\(/, `${check} no longer reads the write verdict`);
+  }
+  assert.match(
+    pipelineSteps,
+    /if \(verdict === 'refused'\) \{/,
+    'a production org is no longer refused to a step that writes whatever the answer',
+  );
+  // A Rewind step runs only with the confirmation kept on this machine.
+  const rewindCheck = pipelineSteps.match(/function checkRewind\([\s\S]*?\n\}/);
+  assert.ok(rewindCheck, 'no checkRewind found in pipelineSteps.ts');
+  assert.match(
+    rewindCheck[0],
+    /runners\.rewindGrant\(/,
+    'a Rewind step no longer needs its confirmation before the run',
   );
   // Sync runs a saved configuration through Sync's own run, which consults
   // Production Guard; a target the guard would ask about needs an Approval
@@ -483,14 +509,29 @@ test('no step that writes to an org runs in a pipeline but Sync, and Sync only a
     /const given = liveAnswer\(\);\s*if \(given\) \{\s*return given\.approved;/,
     "the guard no longer takes the Approval step's answer for its question",
   );
-  // And the palette says where the others run instead, and what Sync needs.
+  // And the palette says where the others run instead, and what the steps
+  // that write ask for.
   const note = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.runnability
     .paletteNote;
-  for (const label of ['Seed', 'Sync', 'Restore', 'Anonymize', 'Delete']) {
+  for (const label of ['Seed', 'Sync', 'Restore', 'Anonymize', 'Delete', 'Rewind']) {
     assert.match(note, new RegExp(label), `the palette note does not name ${label}`);
   }
-  assert.match(note, /write to an org/, 'the palette note does not say why they are refused');
+  assert.match(
+    note,
+    /Restore and Delete write to an org/,
+    'the palette note does not say why they are refused',
+  );
   assert.match(note, /Approval step before it/, 'the palette note does not say what Sync needs');
+  assert.match(
+    note,
+    /never in a production org/,
+    'the palette note no longer says where Seed and Anonymize never write',
+  );
+  assert.match(
+    note,
+    /confirm it with the org's alias/,
+    'the palette note no longer says what a Rewind needs',
+  );
 });
 
 test('the Step Palette offers only the step types a pipeline runs', () => {
@@ -531,6 +572,20 @@ function section(markdown, heading) {
 /** The step type labels the page shows, by type. */
 const STEP_LABELS = JSON.parse(read(webviewSrc, 'i18n', 'locales', 'en.json')).automation.stepTypes;
 
+/**
+ * The label the page shows a step type under. A type with none would be
+ * matched by `new RegExp(undefined)`, which matches anything: every refused
+ * type without a label passed "names every one it refuses".
+ */
+function stepLabel(type) {
+  const label = STEP_LABELS[type];
+  assert.ok(
+    typeof label === 'string' && label !== '',
+    `automation.stepTypes has no label for ${type}`,
+  );
+  return label;
+}
+
 test('the module page lists exactly the step types that run, and names every one it refuses', () => {
   // The page said "only Delay steps run" for a release after Condition ran
   // too; it is read against the handlers now.
@@ -539,9 +594,7 @@ test('the module page lists exactly the step types that run, and names every one
   const runs = stepTypes.match(/run in a pipeline:\n\n((?:- .*\n)+)/);
   assert.ok(runs, 'no "run in a pipeline:" list found under ### Step Types');
   const listed = [...runs[1].matchAll(/^- \*\*([^*]+)\*\*/gm)].map((m) => m[1]).sort();
-  const expected = handledStepTypes()
-    .map((type) => STEP_LABELS[type])
-    .sort();
+  const expected = handledStepTypes().map(stepLabel).sort();
   assert.deepEqual(
     listed,
     expected,
@@ -552,7 +605,7 @@ test('the module page lists exactly the step types that run, and names every one
   for (const type of refusedStepTypes()) {
     assert.match(
       refused,
-      new RegExp(STEP_LABELS[type]),
+      new RegExp(`\\b${stepLabel(type)}\\b`),
       `the module page does not name ${type} as refused`,
     );
   }

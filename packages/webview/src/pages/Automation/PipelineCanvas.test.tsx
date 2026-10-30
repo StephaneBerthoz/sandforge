@@ -124,9 +124,9 @@ describe('PipelineCanvas', () => {
     const backup = screen.getByTestId('canvas-blocked-s1');
     expect(backup.textContent).toBe('Cannot run');
     expect(backup.getAttribute('title')).toBe('Choose the org this step works on.');
-    // Anonymize and Sync write to an org: no pipeline runs them.
-    expect(screen.getByTestId('canvas-blocked-s2').getAttribute('title')).toContain(
-      'run it from its own page',
+    // Anonymize masks a chosen org, and this one names none.
+    expect(screen.getByTestId('canvas-blocked-s2').getAttribute('title')).toBe(
+      'Choose the org this step works on.',
     );
     expect(screen.getByTestId('canvas-blocked-s3')).toBeDefined();
     expect(screen.getByTestId('canvas-blocked-c1').getAttribute('title')).toBe(

@@ -6,6 +6,8 @@ import type {
   PipelineApprovalRecord,
   PipelineDefinition,
   PipelineHistoryEntry,
+  PipelineRewindGrantResponse,
+  PipelineRewindStepInfo,
   PipelineHistoryStep,
   PipelineRun,
   PipelineStepResult,
@@ -14,7 +16,7 @@ import type {
   SyncExecutionResult,
   TriggerType,
 } from '@sandforge/shared';
-import { TRIGGERED_RUN_PREFIX } from '@sandforge/shared';
+import { TRIGGERED_RUN_PREFIX, pipelineRewindStepConfigSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
@@ -42,6 +44,9 @@ import {
   pipelineApprovalPayloadSchema,
   pipelineRunPayloadSchema,
   pipelineSavePayloadSchema,
+  pipelineRewindGrantPayloadSchema,
+  pipelineRewindRevokePayloadSchema,
+  pipelineRewindStepsPayloadSchema,
   marketplaceListPayloadSchema,
   marketplaceInstallPayloadSchema,
   savedPipelineSchema,
@@ -50,8 +55,15 @@ import {
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
-import { describeSyncConfigs, registerPipelineSteps } from './pipelineSteps.js';
-import type { ApprovalAsk, PipelineStepRunners } from './pipelineSteps.js';
+import {
+  describeMaskingTemplates,
+  describeSeedTemplates,
+  describeSyncConfigs,
+  registerPipelineSteps,
+  rewindStepInfo,
+} from './pipelineSteps.js';
+import type { ApprovalAsk, PipelineStepRunners, RewindCheckpoint } from './pipelineSteps.js';
+import { RewindGrants, digestOf } from '../../modules/automation/RewindGrants.js';
 import type { GivenAnswer } from '../../core/precheck/ProductionGuard.js';
 import { ApprovalGate } from '../../modules/automation/ApprovalGate.js';
 import { AuditTrailStore, auditUserKey } from '../../modules/audit/auditTrail.js';
@@ -199,6 +211,28 @@ interface RunWiring {
    * once it ends.
    */
   holdBudget: (held: boolean) => void;
+  /** How the run was started: a rewind records it in the audit trail. */
+  triggeredBy?: TriggerType;
+}
+
+/** The steps a pipeline holds as saved, read loosely: a step may carry no id, or no config. */
+type SavedSteps = ReadonlyArray<{ id?: unknown; type?: unknown; config?: unknown; name?: unknown }>;
+
+/** The Rewind steps of `steps`, with the id each was saved under. */
+function rewindStepsOf(steps: SavedSteps): Array<{ id: string; config: Record<string, unknown> }> {
+  return steps.flatMap((step) =>
+    step.type === 'rewind' && typeof step.id === 'string' && step.id !== ''
+      ? [
+          {
+            id: step.id,
+            config:
+              typeof step.config === 'object' && step.config !== null
+                ? (step.config as Record<string, unknown>)
+                : {},
+          },
+        ]
+      : [],
+  );
 }
 
 /** Message types handled by AutomationHandler. */
@@ -210,6 +244,11 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:save',
   'pipeline:approval',
   'pipeline:sync-configs',
+  'pipeline:seed-templates',
+  'pipeline:masking-templates',
+  'pipeline:rewind-steps',
+  'pipeline:rewind-grant',
+  'pipeline:rewind-revoke',
   'marketplace:list',
   'marketplace:install',
 ]);
@@ -297,6 +336,26 @@ export class AutomationHandler implements DomainHandler {
     } finally {
       run.holdBudget(false);
     }
+  }
+
+  /**
+   * Run `work` with the run's time budget held: a Seed, an Anonymize, a
+   * Checkpoint or a Rewind step's run, which has its own Stop in Live
+   * Operations and its own progress, as Sync's (see {@link runSyncUntimed}).
+   * The pipeline's own cancel still reaches it, through the step's signal.
+   */
+  private async untimed<T>(work: () => Promise<T>, run: RunWiring): Promise<T> {
+    run.holdBudget(true);
+    try {
+      return await work();
+    } finally {
+      run.holdBudget(false);
+    }
+  }
+
+  /** The confirmations of Rewind steps kept on this machine. */
+  private rewindGrants(): RewindGrants {
+    return new RewindGrants(this.deps.configStore);
   }
 
   /**
@@ -457,7 +516,7 @@ export class AutomationHandler implements DomainHandler {
 
   /** Why a pipeline would be refused before its first step: what a trigger checks before it arms. */
   private async pipelineProblems(pipeline: PipelineDefinition): Promise<string[]> {
-    const orchestrator = await this.buildOrchestrator();
+    const orchestrator = await this.buildOrchestrator(undefined, pipeline);
     return orchestrator.check(pipeline);
   }
 
@@ -522,6 +581,21 @@ export class AutomationHandler implements DomainHandler {
         return true;
       case 'pipeline:sync-configs':
         this.handleSyncConfigs(msg);
+        return true;
+      case 'pipeline:seed-templates':
+        this.handleSeedTemplates(msg);
+        return true;
+      case 'pipeline:masking-templates':
+        this.handleMaskingTemplates(msg);
+        return true;
+      case 'pipeline:rewind-steps':
+        await this.handleRewindSteps(msg);
+        return true;
+      case 'pipeline:rewind-grant':
+        await this.handleRewindGrant(msg);
+        return true;
+      case 'pipeline:rewind-revoke':
+        this.handleRewindRevoke(msg);
         return true;
       case 'marketplace:list':
         this.handleMarketplaceList(msg);
@@ -617,6 +691,273 @@ export class AutomationHandler implements DomainHandler {
   }
 
   /**
+   * The checkpoints the Rewind steps of `pipeline` name, as read from this
+   * machine, by id: what a check reads them as, synchronously. Empty for a
+   * pipeline with no Rewind step, and where no checkpoint can be read.
+   */
+  private async checkpointsOf(
+    pipeline: Pick<PipelineDefinition, 'steps'> | undefined,
+  ): Promise<Map<string, RewindCheckpoint>> {
+    const read = new Map<string, RewindCheckpoint>();
+    const readCheckpoint = this.stepRunners?.readCheckpoint;
+    if (!pipeline || !readCheckpoint) return read;
+    for (const step of rewindStepsOf(pipeline.steps as SavedSteps)) {
+      const parsed = pipelineRewindStepConfigSchema.safeParse(step.config);
+      if (!parsed.success || read.has(parsed.data.checkpointId)) continue;
+      try {
+        read.set(parsed.data.checkpointId, await readCheckpoint(parsed.data.checkpointId));
+      } catch (err: unknown) {
+        // Left to the run, which reads it again and says why it cannot.
+        this.deps.log(
+          `[WARN] checkpoint ${parsed.data.checkpointId} not read for a check: ${extractErrorMessage(err)}`,
+        );
+      }
+    }
+    return read;
+  }
+
+  /**
+   * Take back the confirmations of Rewind steps left void: their pipeline no
+   * longer saved, or their checkpoint no longer kept here. Each is named in
+   * the log. Called as the pipelines are listed, and as the checkpoints kept
+   * here change.
+   */
+  async revokeVoidGrants(): Promise<void> {
+    try {
+      const readCheckpoint = this.stepRunners?.readCheckpoint;
+      const revoked = await this.rewindGrants().revokeVoid(
+        readCheckpoint
+          ? async (checkpointId) => (await readCheckpoint(checkpointId)).kept
+          : undefined,
+      );
+      for (const grant of revoked) {
+        this.deps.log(
+          `[INFO] the confirmation of Rewind step ${grant.stepId} of pipeline ${grant.pipelineId} ` +
+            `was taken back: its pipeline is no longer saved, or its checkpoint ${grant.checkpointId} ` +
+            'is no longer kept',
+        );
+      }
+    } catch (err: unknown) {
+      this.deps.log(
+        `[WARN] confirmations of Rewind steps not checked: ${extractErrorMessage(err)}`,
+      );
+    }
+  }
+
+  /** The saved pipeline `pipelineId` as stored, read as a pipeline; undefined when none reads. */
+  private savedPipeline(pipelineId: string): PipelineDefinition | undefined {
+    const parsed = savedPipelineSchema.safeParse(
+      this.deps.configStore.get<unknown>(`pipeline:saved:${pipelineId}`),
+    );
+    return parsed.success ? (parsed.data as unknown as PipelineDefinition) : undefined;
+  }
+
+  /**
+   * A Rewind step of a saved pipeline as the page is told of it (see
+   * {@link PipelineRewindStepInfo}), with its checkpoint as read from this
+   * machine; none for a configuration that names none, or where no
+   * checkpoint can be read.
+   */
+  private async describeRewindStep(
+    pipelineId: string,
+    step: { id: string; config: Record<string, unknown> },
+  ): Promise<{ info: PipelineRewindStepInfo; checkpoint?: RewindCheckpoint }> {
+    const runners = this.stepRunners;
+    const parsed = pipelineRewindStepConfigSchema.safeParse(step.config);
+    const checkpoint =
+      parsed.success && runners?.readCheckpoint
+        ? await runners.readCheckpoint(parsed.data.checkpointId)
+        : undefined;
+    const grant = this.rewindGrants().get(pipelineId, step.id);
+    const kept = grant
+      ? { grantedAt: grant.grantedAt, matches: digestOf(step.config) === grant.digest }
+      : undefined;
+    if (!runners) {
+      // No checkpoint can be read where Checkpoints are not wired in.
+      return {
+        info: {
+          stepId: step.id,
+          valid: false,
+          why: 'missing',
+          ...(kept ? { granted: { at: kept.grantedAt, digestMatches: kept.matches } } : {}),
+        },
+      };
+    }
+    return {
+      info: rewindStepInfo(runners, step, checkpoint, kept),
+      ...(checkpoint ? { checkpoint } : {}),
+    };
+  }
+
+  /**
+   * The Rewind steps of a saved pipeline, as this machine sees them: whether
+   * each can rewind, and whether it is confirmed for its configuration as
+   * saved. None for a pipeline that is not saved.
+   */
+  private async handleRewindSteps(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      pipelineRewindStepsPayloadSchema,
+      msg,
+      'pipeline:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const saved = this.savedPipeline(parsed.pipelineId);
+      const steps: PipelineRewindStepInfo[] = [];
+      for (const step of rewindStepsOf((saved?.steps ?? []) as SavedSteps)) {
+        steps.push((await this.describeRewindStep(parsed.pipelineId, step)).info);
+      }
+      const response = buildResponse(this.deps, msg, 'pipeline:rewind-steps:response', {
+        pipelineId: parsed.pipelineId,
+        steps,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} (${steps.length} Rewind steps)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:rewind-steps', 'pipeline:error', msg, err);
+    }
+  }
+
+  /**
+   * Confirm a Rewind step of a saved pipeline, as the person typed below its
+   * preview. The step is read from the pipeline as saved, never from the
+   * page; `typed` is compared with the org's alias — its username when it has
+   * none — character for character; the checkpoint has to be kept here, can
+   * be rewound to, and be of the org the step names, by its Organization Id.
+   * Only then is the confirmation kept, on this machine, bound to the step's
+   * configuration as saved. Nothing is kept on a refusal.
+   */
+  private async handleRewindGrant(msg: InboundRequest): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      pipelineRewindGrantPayloadSchema,
+      msg,
+      'pipeline:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { pipelineId, stepId, typed } = parsed;
+    const respond = (payload: PipelineRewindGrantResponse['payload']): void => {
+      const response = buildResponse(this.deps, msg, 'pipeline:rewind-grant:response', payload);
+      this.deps.broker.postToWebview(response);
+      this.deps.log(
+        `[TX] ${response.type} ${payload.granted ? 'granted' : `refused ${payload.code}`}`,
+      );
+    };
+    const refuse = (
+      code: Extract<PipelineRewindGrantResponse['payload'], { granted: false }>['code'],
+      extra: { why?: PipelineRewindStepInfo['why']; reason?: string } = {},
+    ): void =>
+      respond({
+        granted: false,
+        pipelineId,
+        stepId,
+        code,
+        ...(extra.why !== undefined ? { why: extra.why } : {}),
+        ...(extra.reason !== undefined ? { reason: extra.reason } : {}),
+      });
+    try {
+      const saved = this.savedPipeline(pipelineId);
+      const step = rewindStepsOf((saved?.steps ?? []) as SavedSteps).find(
+        (candidate) => candidate.id === stepId,
+      );
+      if (!step) return refuse('NOT_SAVED');
+      const config = pipelineRewindStepConfigSchema.safeParse(step.config);
+      if (!config.success) {
+        return refuse('CONFIG_INVALID', { reason: config.error.issues[0]?.message ?? '' });
+      }
+      const org = this.deps.orgManager.getOrg(config.data.orgId);
+      if (!org) return refuse('ORG_UNKNOWN');
+      // As the Checkpoints page's confirmation reads it: the alias, or the
+      // username of an org that has none, exactly as registered.
+      if (typed !== (org.alias || org.username)) return refuse('TYPED_MISMATCH');
+      const { info, checkpoint } = await this.describeRewindStep(pipelineId, step);
+      if (!info.valid) return refuse('CHECKPOINT_INVALID', { why: info.why ?? 'missing' });
+      if (!checkpoint?.kept || checkpoint.organizationId === undefined) {
+        return refuse('CHECKPOINT_INVALID', { why: 'missing' });
+      }
+      const grantedBy = localUserKey();
+      this.rewindGrants().write({
+        pipelineId,
+        stepId,
+        organizationId: checkpoint.organizationId,
+        checkpointId: config.data.checkpointId,
+        digest: digestOf(step.config) ?? '',
+        grantedAt: new Date().toISOString(),
+        ...(grantedBy !== undefined ? { grantedBy } : {}),
+      });
+      this.deps.log(
+        `[INFO] pipeline:rewind-grant: Rewind step ${stepId} of pipeline ${pipelineId} confirmed ` +
+          `for ${org.alias || org.username}, to checkpoint ${config.data.checkpointId}`,
+      );
+      respond({
+        granted: true,
+        pipelineId,
+        stepId,
+        step: (await this.describeRewindStep(pipelineId, step)).info,
+      });
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:rewind-grant', 'pipeline:error', msg, err);
+    }
+  }
+
+  /** Take back a Rewind step's confirmation: the step no longer runs until it is confirmed again. */
+  private handleRewindRevoke(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      pipelineRewindRevokePayloadSchema,
+      msg,
+      'pipeline:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const revoked = this.rewindGrants().revoke(parsed.pipelineId, parsed.stepId);
+      const response = buildResponse(this.deps, msg, 'pipeline:rewind-revoke:response', {
+        pipelineId: parsed.pipelineId,
+        stepId: parsed.stepId,
+        revoked,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} revoked=${revoked}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:rewind-revoke', 'pipeline:error', msg, err);
+    }
+  }
+
+  /** The Seed templates a Seed step can run, each with whether it reads and holds an AI rule. */
+  private handleSeedTemplates(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const templates = this.stepRunners ? describeSeedTemplates(this.stepRunners) : [];
+      const response = buildResponse(this.deps, msg, 'pipeline:seed-templates:response', {
+        templates,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} (${templates.length} templates)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:seed-templates', 'pipeline:error', msg, err);
+    }
+  }
+
+  /** The masking templates an Anonymize step can run, with the objects their rules name. */
+  private handleMaskingTemplates(msg: InboundRequest): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const templates = this.stepRunners ? describeMaskingTemplates(this.stepRunners) : [];
+      const response = buildResponse(this.deps, msg, 'pipeline:masking-templates:response', {
+        templates,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} (${templates.length} templates)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:masking-templates', 'pipeline:error', msg, err);
+    }
+  }
+
+  /**
    * The saved Sync configurations a Sync step can run, each with whether it
    * reads and what Production Guard does with a run of it: what the page
    * checks a Sync step against before Run.
@@ -640,8 +981,13 @@ export class AutomationHandler implements DomainHandler {
    * can run. An Approval step can ask wherever there is a window to ask in;
    * for a check, that is all it needs to know.
    * @param run - The run it is built for; absent for a check
+   * @param pipeline - The pipeline it checks or runs: the checkpoints its
+   *   Rewind steps name are read from this machine first, for the check
    */
-  private async buildOrchestrator(run?: RunWiring): Promise<PipelineOrchestrator> {
+  private async buildOrchestrator(
+    run?: RunWiring,
+    pipeline?: Pick<PipelineDefinition, 'id' | 'steps'>,
+  ): Promise<PipelineOrchestrator> {
     const { PipelineBuilder } = await import('../../modules/automation/PipelineBuilder.js');
     const { TriggerEngine } = await import('../../modules/automation/TriggerEngine.js');
     const { StepLibrary } = await import('../../modules/automation/StepLibrary.js');
@@ -652,14 +998,41 @@ export class AutomationHandler implements DomainHandler {
     const stepExecutor = new StepExecutor();
     if (this.stepRunners) {
       const wiring: RunWiring = run ?? { operationId: '', holdBudget: () => undefined };
-      const { runSync } = this.stepRunners;
+      const { runSync, seed, anonymize, takeCheckpoint, rewind } = this.stepRunners;
+      const checkpoints = await this.checkpointsOf(pipeline);
+      const grants = this.rewindGrants();
       registerPipelineSteps(stepExecutor, {
         ...this.stepRunners,
+        ...(pipeline?.id ? { pipelineId: pipeline.id } : {}),
+        ...(wiring.triggeredBy ? { trigger: wiring.triggeredBy } : {}),
+        rewindGrant: (pipelineId, step) => grants.verify(pipelineId, step),
+        checkpointKept: (checkpointId) => checkpoints.get(checkpointId),
         ...(runSync
           ? {
               runSync: (config: SyncConfig, answer: GivenAnswer, signal?: AbortSignal) =>
                 this.runSyncUntimed(runSync, config, answer, signal, wiring),
             }
+          : {}),
+        // Each of these has its own Stop and its own progress, as Sync's run
+        // does: counted against the pipeline's budget, a seed, a masking run,
+        // a take or a rewind longer than five minutes was stopped part way.
+        ...(seed
+          ? { seed: (request, signal) => this.untimed(() => seed(request, signal), wiring) }
+          : {}),
+        ...(anonymize
+          ? {
+              anonymize: (request, signal) =>
+                this.untimed(() => anonymize(request, signal), wiring),
+            }
+          : {}),
+        ...(takeCheckpoint
+          ? {
+              takeCheckpoint: (request, signal) =>
+                this.untimed(() => takeCheckpoint(request, signal), wiring),
+            }
+          : {}),
+        ...(rewind
+          ? { rewind: (request, signal) => this.untimed(() => rewind(request, signal), wiring) }
           : {}),
         ...(this.approvals().canAsk
           ? {
@@ -718,10 +1091,14 @@ export class AutomationHandler implements DomainHandler {
       outOfTime = true;
       stop.abort();
     });
-    const orchestrator = await this.buildOrchestrator({
-      operationId,
-      holdBudget: (held) => (held ? budget.hold() : budget.resume()),
-    });
+    const orchestrator = await this.buildOrchestrator(
+      {
+        operationId,
+        holdBudget: (held) => (held ? budget.hold() : budget.resume()),
+        triggeredBy,
+      },
+      pipeline,
+    );
 
     this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
     const description = `Pipeline: ${pipeline.name}`;
@@ -979,6 +1356,7 @@ export class AutomationHandler implements DomainHandler {
         ...(value as Record<string, unknown>),
       }));
       const triggers = await this.triggerScheduler().statuses();
+      await this.revokeVoidGrants();
       const response = buildResponse(this.deps, msg, 'pipeline:list:response', {
         pipelines,
         triggers,
@@ -1043,6 +1421,29 @@ export class AutomationHandler implements DomainHandler {
         },
         'pipelines',
       );
+      // A confirmation stands for the configuration it was given for, as
+      // saved: a save that changes what a Rewind step does takes it back,
+      // and saving the old configuration again does not bring it back.
+      const steps = Array.isArray(payload.config['steps'])
+        ? (payload.config['steps'] as SavedSteps)
+        : [];
+      const revoked = this.rewindGrants().revokeChanged(
+        pipelineId,
+        steps.map((step) => ({
+          ...(typeof step.id === 'string' ? { id: step.id } : {}),
+          ...(step.type === 'rewind' ? { type: 'rewind' as const } : {}),
+          config:
+            typeof step.config === 'object' && step.config !== null
+              ? (step.config as Record<string, unknown>)
+              : {},
+        })),
+      );
+      for (const stepId of revoked) {
+        this.deps.log(
+          `[INFO] pipeline:save ${pipelineId}: the confirmation of Rewind step ${stepId} was ` +
+            'taken back, since the save changed what it does',
+        );
+      }
       // Its schedule is planned now, not at the next look a minute away: a
       // start due in the meantime would otherwise be made late.
       void this.scheduler?.reload();
@@ -1134,6 +1535,13 @@ export class AutomationHandler implements DomainHandler {
         pipeline = JSON.parse(exported) as Record<string, unknown>;
       } catch {
         throw new Error(`Template "${templateId}" contains invalid JSON.`);
+      }
+      // A pipeline installed arrives unconfirmed: nothing a template carries
+      // is a confirmation, and one kept here under the id it names is taken
+      // back before the page can save over it.
+      const installedId = pipeline['id'];
+      if (typeof installedId === 'string' && installedId !== '') {
+        this.rewindGrants().revokePipeline(installedId);
       }
       const response = buildResponse(this.deps, msg, 'marketplace:install:response', {
         success: true,

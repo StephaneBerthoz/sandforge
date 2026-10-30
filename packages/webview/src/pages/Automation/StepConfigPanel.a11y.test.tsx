@@ -8,7 +8,7 @@ const seedStep: PipelineStep = {
   id: 'step-1',
   name: 'Seed Accounts',
   type: 'seed',
-  config: { objectName: 'Account', recordCount: 100 },
+  config: { orgId: 'org-1', templateId: 'tpl-saved' },
   continueOnError: false,
   timeout: 300,
   retries: 2,
@@ -75,8 +75,8 @@ describe('StepConfigPanel accessible names', () => {
 
   it('should name the type-specific text and number fields', () => {
     render(<StepConfigPanel step={seedStep} onUpdate={vi.fn()} />);
-    expect(accessibleName(screen.getByTestId('config-objectName'))).not.toBe('');
-    expect(accessibleName(screen.getByTestId('config-recordCount'))).not.toBe('');
+    expect(accessibleName(screen.getByTestId('config-orgId'))).not.toBe('');
+    expect(accessibleName(screen.getByTestId('config-seed-templateId'))).not.toBe('');
   });
 
   it('should name the type-specific boolean field exactly once', () => {

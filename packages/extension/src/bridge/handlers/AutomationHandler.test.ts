@@ -88,6 +88,10 @@ function createMockDeps(): HandlerDeps {
     configStore: {
       get: vi.fn(),
       set: vi.fn(),
+      has: vi.fn(() => false),
+      delete: vi.fn(() => false),
+      getByCategory: vi.fn(() => ({})),
+      getKeysByPrefix: vi.fn(() => []),
     } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
@@ -108,6 +112,10 @@ function createMemoryConfigStore(): HandlerDeps['configStore'] {
       entries.set(key, { value, category });
     }),
     delete: vi.fn((key: string) => entries.delete(key)),
+    has: vi.fn((key: string) => entries.has(key)),
+    getKeysByPrefix: vi.fn((prefix: string) =>
+      [...entries.keys()].filter((key) => key.startsWith(prefix)),
+    ),
     getByCategory: vi.fn((category: string) =>
       Object.fromEntries(
         [...entries]
@@ -680,11 +688,9 @@ describe('AutomationHandler', () => {
     });
 
     it.each([
-      // The steps that write to an org, Sync aside: each runs from its own
-      // page, behind Production Guard.
-      ['seed', 'and this step type cannot run in a pipeline yet.'],
+      // The steps that write to an org with no run of their own to bound
+      // them: each runs from its own page, behind Production Guard.
       ['restore', 'and this step type cannot run in a pipeline yet.'],
-      ['anonymize', 'and this step type cannot run in a pipeline yet.'],
       ['delete', 'and this step type cannot run in a pipeline yet.'],
       // The types SandForge no longer has, as a pipeline saved by an earlier
       // release holds them: it still reads, and does not start.

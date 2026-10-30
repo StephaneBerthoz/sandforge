@@ -261,6 +261,50 @@ describe('PipelineGenerator', () => {
     ]);
   });
 
+  it('keeps a Rewind step of a model draft naming its org alone, never what a person confirms', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({
+        name: 'Nightly reset',
+        steps: [
+          { name: 'take', type: 'checkpoint', config: { orgId: 'org-2', mode: 'everything' } },
+          {
+            name: 'reset',
+            type: 'rewind',
+            config: {
+              orgId: 'org-2',
+              checkpointId: 'ck-20261030-020000-abcd',
+              acceptNoUndo: true,
+              maxRecords: 100000,
+              refuseWhenActive: false,
+              granted: true,
+            },
+            description: '',
+          },
+        ],
+      }),
+    );
+
+    const pipeline = await generator.generatePipeline('put the training org back', testOrgs);
+
+    expect(pipeline.steps.map((s) => [s.type, s.config])).toEqual([
+      ['checkpoint', { orgId: 'org-2', mode: 'everything' }],
+      ['rewind', { orgId: 'org-2' }],
+    ]);
+    expect(pipeline.suggestions).toBeUndefined();
+  });
+
+  it('draws a Checkpoint and a Rewind step from the words, the checkpoint of every object', async () => {
+    const pipeline = await generator.generatePipeline(
+      'take a checkpoint then rewind it nightly',
+      testOrgs,
+    );
+    expect(pipeline.steps.map((s) => [s.type, s.config])).toEqual([
+      ['checkpoint', { mode: 'everything' }],
+      ['rewind', {}],
+    ]);
+    expect(mockProvider).not.toHaveBeenCalled();
+  });
+
   it('gives one suggestion per page a model draft names, however many of its steps do', async () => {
     mockProvider.mockResolvedValue(
       JSON.stringify({

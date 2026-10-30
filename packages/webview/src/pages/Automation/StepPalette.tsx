@@ -26,6 +26,8 @@ const STEP_ENTRIES: StepPaletteEntry[] = [
   { type: 'restore', category: 'data' },
   { type: 'anonymize', category: 'data' },
   { type: 'delete', category: 'data' },
+  { type: 'checkpoint', category: 'data' },
+  { type: 'rewind', category: 'data' },
   { type: 'compare', category: 'quality' },
   { type: 'precheck', category: 'quality' },
   { type: 'condition', category: 'control' },
@@ -52,9 +54,11 @@ const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' |
  * "Coming soon": none of the ten could be added, and all ten read as on
  * offer. Script, Loop and Parallel are gone for good; Approval waits for an
  * answer in VS Code, Condition is given its test in the Step Config Panel,
- * and Sync runs a configuration saved on the Sync page. The note above the
- * list says where the steps that write to an org and do not run here run
- * instead, since those are the ones a reader comes looking for.
+ * Sync runs a configuration saved on the Sync page, Seed and Anonymize a
+ * template of their pages, and Rewind runs once confirmed with the org's
+ * alias. The note above the list says what the steps that write ask for, and
+ * where Restore and Delete run instead, since those are the ones a reader
+ * comes looking for.
  */
 const OFFERED_ENTRIES = STEP_ENTRIES.filter((entry) => paletteBlocker(entry.type) === undefined);
 

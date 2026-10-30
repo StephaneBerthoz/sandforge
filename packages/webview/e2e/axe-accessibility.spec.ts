@@ -5,6 +5,11 @@ import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
 import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
 import { listEntry, plainPreview, readyCheckpoint } from './fixtures/checkpoints';
+
+/** A checkpoint of the first mock org a Rewind step can name: its id one a step's schema reads. */
+function rewindableCheckpoint() {
+  return readyCheckpoint({ checkpointId: 'ck-20261029-020000-abcd', name: 'Training baseline' });
+}
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -4972,6 +4977,149 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
+    test('Automation Seed, Anonymize and Checkpoint step panels, each with what it asks for', async ({
+      page,
+    }) => {
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await answerAll(page, 'pipeline:seed-templates', 'pipeline:seed-templates:response', {
+        templates: [
+          { id: 'tpl-demo', name: 'Demo', builtIn: false, valid: true, usesAi: false },
+          {
+            id: 'prebuilt-minimal-demo',
+            name: 'seed.templates.minimalDemo.name',
+            builtIn: true,
+            valid: true,
+            usesAi: false,
+          },
+        ],
+      });
+      await answerAll(page, 'pipeline:masking-templates', 'pipeline:masking-templates:response', {
+        templates: [
+          { id: 'tpl-gdpr-standard', name: 'GDPR Standard', builtIn: true, objects: ['Contact'] },
+        ],
+      });
+      await page.getByTestId('create-pipeline-btn').click();
+      for (const type of ['seed', 'anonymize', 'checkpoint']) {
+        await page.getByTestId(`palette-${type}`).click();
+      }
+      const steps = page.locator('[data-testid^="canvas-step-"]');
+
+      await steps.nth(0).click();
+      await page.getByTestId('config-orgId').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('config-seed-templateId').selectOption('tpl-demo');
+      await expect(page.getByTestId('config-seed-note')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+
+      await steps.nth(1).click();
+      await page.getByTestId('config-orgId').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('config-masking-templateId').selectOption('tpl-gdpr-standard');
+      await page.getByTestId('config-masking-object').selectOption('Contact');
+      await page.getByTestId('config-masking-where').fill("Title = 'QA'");
+      const masking = await checkAccessibility(page);
+      expectNoViolations(masking);
+      expect(
+        masking.passes
+          .filter((rule) => rule.id === 'color-contrast')
+          .flatMap((rule) => rule.nodes)
+          .some((node) => node.html.includes('config-masking-note')),
+        'axe did not measure the masking note',
+      ).toBe(true);
+
+      await steps.nth(2).click();
+      await page.getByTestId('config-orgId').selectOption(DEV_SANDBOX.id);
+      await page.getByTestId('config-checkpoint-mode').selectOption('picked');
+      await expect(page.getByTestId('config-checkpoint-objects')).toBeVisible();
+      expectNoViolations(await checkAccessibility(page));
+    });
+
+    test('Automation Rewind step panel, its preview and the confirmation typed with the org’s alias', async ({
+      page,
+    }) => {
+      const checkpoint = rewindableCheckpoint();
+      const pipeline = {
+        id: 'p-reset',
+        name: 'Nightly reset',
+        description: '',
+        version: 1,
+        steps: [
+          {
+            id: 'step-r',
+            name: 'Reset',
+            type: 'rewind',
+            config: {
+              orgId: DEV_SANDBOX.id,
+              checkpointId: checkpoint.checkpointId,
+              maxRecords: 200,
+            },
+            continueOnError: false,
+          },
+        ],
+        triggers: [],
+        variables: [],
+        tags: [],
+        createdAt: '2026-10-29T00:00:00.000Z',
+        updatedAt: '2026-10-29T00:00:00.000Z',
+      };
+      await navigateToModule(bridge, page, 'automation', 'automation-page', { theme, orgs: true });
+      await answerAll(page, 'pipeline:list', 'pipeline:list:response', {
+        pipelines: [pipeline],
+        triggers: [],
+      });
+      await page.getByTestId('saved-pipeline-p-reset').click();
+      await bridge.waitForMessage('pipeline:rewind-steps', { timeout: 10_000 });
+      await answerAll(page, 'pipeline:rewind-steps', 'pipeline:rewind-steps:response', {
+        pipelineId: 'p-reset',
+        steps: [{ stepId: 'step-r', checkpointId: checkpoint.checkpointId, valid: true }],
+      });
+      await page.getByTestId('canvas-step-step-r').click();
+      await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [
+          {
+            checkpointId: checkpoint.checkpointId,
+            organizationId: checkpoint.org.organizationId,
+            checkpoint,
+            valid: true,
+          },
+        ],
+      });
+      await expect(page.getByTestId('rewind-confirmation-status')).toContainText('Not confirmed');
+      await expect(page.getByTestId('rewind-confirm')).toBeEnabled();
+      const panel = await checkAccessibility(page);
+      expectNoViolations(panel);
+      expect(
+        panel.passes
+          .filter((rule) => rule.id === 'color-contrast')
+          .flatMap((rule) => rule.nodes)
+          .some((node) => node.html.includes('rewind-confirmation-status')),
+        'axe did not measure the confirmation status',
+      ).toBe(true);
+
+      await page.getByTestId('rewind-confirm').click();
+      await bridge.waitForMessage('checkpoint:preview', { timeout: 10_000 });
+      await answerAll(
+        page,
+        'checkpoint:preview',
+        'checkpoint:preview:response',
+        plainPreview(checkpoint.checkpointId, 'pv-20261030-090000-ab12'),
+      );
+      await expect(page.getByTestId('rewind-step-confirm')).toBeVisible();
+      await expect(page.getByTestId('checkpoint-preview-rewind')).toHaveCount(0);
+      expectNoViolations(await checkAccessibility(page));
+
+      await page.getByTestId('rewind-step-confirm-type').click();
+      await expect(page.getByTestId('danger-input')).toBeVisible();
+      await page.getByTestId('danger-input').fill(DEV_SANDBOX.alias);
+      expectNoViolations(await checkAccessibility(page));
+      await page.getByTestId('danger-confirm-btn').click();
+      const sent = await bridge.waitForMessage('pipeline:rewind-grant', { timeout: 10_000 });
+      expect(sent.payload).toEqual({
+        pipelineId: 'p-reset',
+        stepId: 'step-r',
+        typed: DEV_SANDBOX.alias,
+      });
+    });
+
     test('Migration page editing an imported config: an object left out, an upsert with no key', async ({
       page,
     }) => {
@@ -6468,7 +6616,7 @@ for (const theme of SCANNED_THEMES) {
       // A Delay step with no seconds: the notice, the canvas marker and the
       // palette, which offers only the steps a pipeline runs, are all on
       // screen for the scan.
-      await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(8);
+      await expect(page.getByTestId('step-palette').getByRole('button')).toHaveCount(12);
       await page.getByTestId('palette-delay').click();
       await page.getByTestId('pipeline-blocked').waitFor({ state: 'visible', timeout: 5000 });
 

@@ -5,6 +5,8 @@
     "auth.jwt",
     "auth.oauthWeb",
     "automation.errorCount_one",
+    "automation.maskingWherePlaceholder",
+    "automation.rewindCheckpointOption",
     "automation.timeout",
     "checkpoint.preview.person",
     "checkpoint.transfer.importDialog.madeByValue",

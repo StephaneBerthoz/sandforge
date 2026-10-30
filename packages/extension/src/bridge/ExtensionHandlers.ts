@@ -26,7 +26,7 @@ import type {
 } from './handlers/HandlerTypes.js';
 import { syntheticRequest } from './handlers/HandlerTypes.js';
 import type { UUID } from '@sandforge/shared';
-import { DEFAULT_ROBUSTNESS_CONFIG } from '@sandforge/shared';
+import { DEFAULT_ROBUSTNESS_CONFIG, guardTierOf } from '@sandforge/shared';
 import { BulkApiManager } from '../core/engine/BulkApiManager.js';
 import { getConnectionPool } from '../core/connection/ConnectionHelper.js';
 import { forgetOrgDescribes } from '../core/connection/describeCache.js';
@@ -85,6 +85,10 @@ import { I18nHandler } from './handlers/I18nHandler.js';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
 import { SyncConfigStore } from '../modules/sync/SyncConfigStore.js';
 import { runPipelineSync, syncGuardVerdict } from './handlers/pipelineSync.js';
+import type { RewindCheckpoint } from './handlers/pipelineSteps.js';
+import { SeedTemplateStore } from '../modules/seed/SeedTemplateStore.js';
+import { AnonymizationTemplateStore } from '../modules/dataops/AnonymizationTemplateStore.js';
+import { ANONYMIZATION_TEMPLATES } from './templates/anonymizationTemplates.js';
 
 /**
  * Thenable-returning command executor — mirrors `vscode.commands.executeCommand`
@@ -188,6 +192,8 @@ export class ExtensionHandlers {
   /** Where background runs register; a pipeline's Sync step cancels its run through it. */
   private backgroundRegistry?: BackgroundOperationRegistry;
   private readonly refreshDetector: SandboxRefreshDetector;
+  /** The store a command line told the checkpoints to be kept in; the default one otherwise. */
+  private checkpointStore?: OrgCheckpointStore;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Default to a no-op executor so tests that don't care about the reload
@@ -332,6 +338,36 @@ export class ExtensionHandlers {
           answer,
           signal,
         ),
+      // The steps that seed, mask, take a checkpoint and rewind read the org
+      // as the registry holds it, and run the flows the Seed, DataOps and
+      // Checkpoints pages run, on the same instances: a pipeline's rewind and
+      // one from the Checkpoints page wait on the same per-org lock.
+      orgTier: (orgId) => {
+        const org = deps.orgManager.getOrg(orgId);
+        return org ? guardTierOf(org) : undefined;
+      },
+      organizationIdsOf: (orgId) =>
+        [deps.orgManager.getOrg(orgId)?.orgId, this.refreshDetector.organizationIdOf(orgId)].filter(
+          (id): id is string => typeof id === 'string' && id !== '',
+        ),
+      savedSeedTemplate: (templateId) => new SeedTemplateStore(deps.configStore).load(templateId),
+      listSeedTemplates: () => new SeedTemplateStore(deps.configStore).list(),
+      seed: (request, signal) => this.seedHandler.seedForPipeline(request, signal),
+      maskingTemplates: () => [
+        ...ANONYMIZATION_TEMPLATES.map((template) => ({ ...template, builtIn: true })),
+        ...new AnonymizationTemplateStore(deps.configStore)
+          .list()
+          .map((template) => ({ ...template, builtIn: false })),
+      ],
+      anonymize: (request, signal) => this.dataOpsHandler.anonymizeForPipeline(request, signal),
+      takeCheckpoint: (request, signal) => this.checkpointHandler.takeForPipeline(request, signal),
+      rewind: (request, signal) => this.checkpointHandler.rewindForPipeline(request, signal),
+      readCheckpoint: (checkpointId) => this.readCheckpointForRewind(checkpointId),
+    });
+    // A checkpoint deleted, or swept past its day, leaves the confirmations
+    // of the Rewind steps that name it void: they are taken back.
+    this.checkpointHandler.onCheckpointsChanged(() => {
+      void this.automationHandler.revokeVoidGrants();
     });
     this.refreshDetector.onRefreshDetected((refresh) => this.forgetOrg(refresh.orgId));
     // After the org is forgotten, so a pipeline a refresh starts reaches the
@@ -472,7 +508,66 @@ export class ExtensionHandlers {
    * or the home directory names: the store a command line is told to use.
    */
   setCheckpointStore(store: OrgCheckpointStore): void {
+    this.checkpointStore = store;
     this.checkpointHandler.setStore(store);
+  }
+
+  /**
+   * A checkpoint a pipeline's Rewind step names, as read from this machine
+   * without contacting its org, as the Checkpoints list reads it: not kept
+   * here, damaged, or kept, of an Organization Id, and whether it can be
+   * rewound to — its take ended, of no org a sandbox was before a refresh
+   * noticed here, of no scratch org that has expired.
+   */
+  private async readCheckpointForRewind(checkpointId: string): Promise<RewindCheckpoint> {
+    const { openCheckpointStore, defaultCheckpointStoreRoot } =
+      await import('../modules/checkpoint/OrgCheckpointStore.js');
+    let store = this.checkpointStore;
+    if (!store) {
+      const opened = openCheckpointStore({ root: defaultCheckpointStoreRoot() });
+      if (!('store' in opened)) {
+        throw new Error(`The checkpoints of this machine cannot be read: ${opened.refusal.reason}`);
+      }
+      store = opened.store;
+    }
+    const read = await store.read(checkpointId);
+    if (read === undefined) return { kept: false };
+    if (read.checkpoint === undefined) return { kept: true, valid: false, why: 'damaged' };
+    const { organizationId } = read.checkpoint.org;
+    const entry = (
+      await store.list({
+        organizationId,
+        refreshedAt: (id) => this.refreshedAtOf(id),
+      })
+    ).find((listed) => listed.checkpointId === checkpointId);
+    return {
+      kept: true,
+      organizationId,
+      name: read.checkpoint.name,
+      valid: entry?.valid ?? false,
+      ...(entry?.why !== undefined ? { why: entry.why } : {}),
+    };
+  }
+
+  /**
+   * When a sandbox that was the org of Organization Id `organizationId` was
+   * noticed refreshed, as the Checkpoints list reads it: its checkpoints are
+   * of the org before the refresh.
+   */
+  private refreshedAtOf(organizationId: string): string | undefined {
+    const sameOrganization = (a: string | undefined): boolean =>
+      a !== undefined && a.length >= 15 && a.slice(0, 15) === organizationId.slice(0, 15);
+    for (const org of this.handlerDeps.orgManager.getAllOrgs()) {
+      for (const refresh of this.refreshDetector.refreshesOf(org.id)) {
+        const before =
+          refresh.previousOrganizationId ??
+          (refresh.organizationId === undefined
+            ? this.refreshDetector.organizationIdOf(org.id)
+            : undefined);
+        if (sameOrganization(before)) return refresh.detectedAt;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -973,6 +1068,11 @@ export class ExtensionHandlers {
         'pipeline:save',
         'pipeline:approval',
         'pipeline:sync-configs',
+        'pipeline:seed-templates',
+        'pipeline:masking-templates',
+        'pipeline:rewind-steps',
+        'pipeline:rewind-grant',
+        'pipeline:rewind-revoke',
         'marketplace:list',
         'marketplace:install',
       ],

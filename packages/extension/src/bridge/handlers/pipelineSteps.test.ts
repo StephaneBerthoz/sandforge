@@ -109,7 +109,7 @@ describe('registerPipelineSteps', () => {
   });
 
   describe('the steps that write to an org', () => {
-    it.each(['seed', 'restore', 'anonymize', 'delete'] as const)(
+    it.each(['restore', 'delete'] as const)(
       'still refuses a %s step: it runs from its own page',
       (type) => {
         expect(executor.check(step(type, {}))).toContain('cannot run in a pipeline yet');

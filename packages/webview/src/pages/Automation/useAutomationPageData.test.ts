@@ -530,7 +530,7 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
     const { result } = renderHook(() => useAutomationPageData());
     act(() => result.current.handleCreatePipeline());
 
-    act(() => result.current.handleAddStep('seed'));
+    act(() => result.current.handleAddStep('delete'));
     act(() => result.current.handleAddStep('restore'));
     expect(result.current.stepCount).toBe(0);
 
@@ -559,9 +559,10 @@ describe('useAutomationPageData — a pipeline with a step that cannot run is no
     expect(
       result.current.runBlockers.map((blocked) => [blocked.stepName, blocked.blocker]),
     ).toEqual([
-      // A Sync step runs a saved configuration, and this one names none.
+      // A Sync step runs a saved configuration, and this one names none;
+      // an Anonymize step masks a chosen org with a chosen template.
       ['Copy accounts', 'syncNeedsConfig'],
-      ['Mask PII', 'writesToOrg'],
+      ['Mask PII', 'needsOrg'],
     ]);
 
     act(() => result.current.handleRunPipeline());
@@ -995,5 +996,127 @@ describe('useAutomationPageData — triggers', () => {
       { id: 'org-uat', alias: 'uat' },
       { id: 'org-dev', alias: 'admin@example.test.dev' },
     ]);
+  });
+});
+
+describe('useAutomationPageData — the steps that write, and the confirmation of a Rewind step', () => {
+  const REWIND = { orgId: 'org-dev', checkpointId: 'ck-20261030-020000-abcd', maxRecords: 100 };
+  /** A saved pipeline holding one Rewind step, as `pipeline:list` answers it. */
+  function savedPipeline(config: Record<string, unknown> = REWIND): PipelineDefinition {
+    return {
+      id: 'p-reset',
+      name: 'Nightly reset',
+      description: '',
+      version: 1,
+      steps: [{ id: 'step-r', name: 'Reset', type: 'rewind', config, continueOnError: false }],
+      triggers: [],
+      variables: [],
+      tags: [],
+      createdAt: '2026-10-30T00:00:00.000Z',
+      updatedAt: '2026-10-30T00:00:00.000Z',
+    };
+  }
+
+  beforeEach(() => {
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-dev', alias: 'training', username: 'u1', orgType: 'Sandbox' },
+        { id: 'org-prod', alias: 'prod', username: 'u2', orgType: 'Production' },
+      ] as unknown as SalesforceOrg[],
+    });
+  });
+
+  it('runs a saved Rewind step the extension says is confirmed for its configuration', () => {
+    queryData.set('pipeline:list', { pipelines: [savedPipeline()] });
+    queryData.set('pipeline:rewind-steps', {
+      pipelineId: 'p-reset',
+      steps: [
+        {
+          stepId: 'step-r',
+          checkpointId: REWIND.checkpointId,
+          valid: true,
+          granted: { at: '2026-10-29T09:00:00.000Z', digestMatches: true },
+        },
+      ],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(savedPipeline()));
+    expect(result.current.runBlockers).toEqual([]);
+  });
+
+  it('blocks a Rewind step until saved as it stands, and until the extension says it is confirmed', () => {
+    queryData.set('pipeline:list', { pipelines: [savedPipeline()] });
+    const { result } = renderHook(() => useAutomationPageData());
+    // Loaded, the extension not having said yet: no confirmation is assumed.
+    act(() => result.current.handleLoadPipeline(savedPipeline()));
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'rewindNotConfirmed',
+    ]);
+    // Changed on the canvas: the confirmation would be of the saved one.
+    act(() => result.current.handleUpdateStep('step-r', { config: { ...REWIND, maxRecords: 5 } }));
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'rewindNotSaved',
+    ]);
+  });
+
+  it('confirms with what was typed, for the pipeline as saved, and asks for its Rewind steps again', () => {
+    queryData.set('pipeline:list', { pipelines: [savedPipeline()] });
+    const { result, rerender } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleLoadPipeline(savedPipeline()));
+
+    act(() => result.current.handleConfirmRewind('step-r', 'training'));
+    expect(mutationFor('pipeline:rewind-grant').mutate).toHaveBeenCalledWith({
+      pipelineId: 'p-reset',
+      stepId: 'step-r',
+      typed: 'training',
+    });
+    refetchFor('pipeline:rewind-steps').mockClear();
+    mutationFor('pipeline:rewind-grant').data = {
+      granted: true,
+      pipelineId: 'p-reset',
+      stepId: 'step-r',
+      step: { stepId: 'step-r', valid: true },
+    };
+    rerender();
+    expect(refetchFor('pipeline:rewind-steps')).toHaveBeenCalled();
+
+    act(() => result.current.handleRevokeRewind('step-r'));
+    expect(mutationFor('pipeline:rewind-revoke').mutate).toHaveBeenCalledWith({
+      pipelineId: 'p-reset',
+      stepId: 'step-r',
+    });
+  });
+
+  it('sends no confirmation for a pipeline never saved', () => {
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddStep('rewind'));
+    act(() => result.current.handleConfirmRewind(result.current.pipeline!.steps[0].id, 'training'));
+    expect(mutationFor('pipeline:rewind-grant').mutate).not.toHaveBeenCalled();
+  });
+
+  it('blocks a Seed step into a production org, whatever is before it, from the org it names', () => {
+    queryData.set('pipeline:seed-templates', {
+      templates: [{ id: 'tpl-ok', name: 'Ok', builtIn: false, valid: true, usesAi: false }],
+    });
+    const { result } = renderHook(() => useAutomationPageData());
+    act(() => result.current.handleCreatePipeline());
+    act(() => result.current.handleAddStep('approval'));
+    act(() => result.current.handleAddStep('seed'));
+    const seed = result.current.pipeline!.steps[1];
+    act(() =>
+      result.current.handleUpdateStep(seed.id, {
+        config: { orgId: 'org-prod', templateId: 'tpl-ok' },
+      }),
+    );
+    expect(result.current.runBlockers.map((blocked) => blocked.blocker)).toEqual([
+      'writeRefusedOnProduction',
+    ]);
+    act(() =>
+      result.current.handleUpdateStep(seed.id, {
+        config: { orgId: 'org-dev', templateId: 'tpl-ok' },
+      }),
+    );
+    expect(result.current.runBlockers).toEqual([]);
   });
 });

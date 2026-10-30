@@ -452,10 +452,11 @@ export class StepExecutor {
 
   /**
    * Delay and Condition run wherever a pipeline runs. Backup, Compare,
-   * Pre-check, Notification, Approval and Sync run through the modules that
-   * own their work, which the extension registers for its runs (see
-   * `pipelineSteps.ts`). The others — Seed, Restore, Anonymize and Delete,
-   * which write to an org — have no handler, and are refused.
+   * Pre-check, Notification, Approval, Sync, Seed, Anonymize, Checkpoint and
+   * Rewind run through the modules that own their work, which the extension
+   * registers for its runs (see `pipelineSteps.ts`). The others — Restore and
+   * Delete, which write to an org with no run of their own to bound them —
+   * have no handler, and are refused.
    */
   private registerDefaults(): void {
     this.handlers.set('delay', this.createDelayHandler());

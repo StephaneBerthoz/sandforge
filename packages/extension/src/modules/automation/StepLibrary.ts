@@ -1,4 +1,5 @@
 import type { PipelineStepType } from '@sandforge/shared';
+import { CHECKPOINT_STEP_DEFAULT_KEEP_DAYS } from '@sandforge/shared';
 
 /** Categories for grouping step types */
 export type StepCategory = 'data' | 'control' | 'notification' | 'quality';
@@ -18,16 +19,18 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'seed',
     label: 'Seed Data',
-    description: 'Generate test data using AI or templates',
+    description:
+      'Seed an org with a template saved on the Seed page or shipped with SandForge, never a production org; its records are taken back from Seed’s Recent runs',
     category: 'data',
     icon: 'database',
-    configSchema: { objectName: { type: 'string' }, count: { type: 'number' } },
+    // A template with an AI rule is refused: nobody watches a pipeline run.
+    configSchema: { orgId: { type: 'string' }, templateId: { type: 'string' } },
   },
   {
     type: 'sync',
     label: 'Sync Data',
     description:
-      'Run a Sync configuration saved on the Sync page; a production target needs an Approval step before it',
+      'Run a Sync configuration saved on the Sync page; a target Production Guard asks about, a production org or a sandbox marked Staging, needs an Approval step before it',
     category: 'data',
     icon: 'sync',
     configSchema: { configId: { type: 'string' } },
@@ -51,10 +54,18 @@ const STEP_REGISTRY: StepTypeInfo[] = [
   {
     type: 'anonymize',
     label: 'Anonymize',
-    description: 'Mask or anonymize sensitive fields in records',
+    description:
+      'Mask an org with a DataOps template, after a snapshot of the values it writes over, never a production org',
     category: 'data',
     icon: 'shield',
-    configSchema: { objects: { type: 'array' }, fields: { type: 'array' } },
+    configSchema: {
+      orgId: { type: 'string' },
+      templateId: { type: 'string' },
+      // One object, its rows held to a SOQL condition; every object the
+      // template names when absent.
+      object: { type: 'string', optional: true },
+      where: { type: 'string', optional: true },
+    },
   },
   {
     type: 'delete',
@@ -64,27 +75,47 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     icon: 'trash',
     configSchema: { objectName: { type: 'string' }, where: { type: 'string' } },
   },
-  // Checkpoint and Rewind have no handler yet: a pipeline holding either is
-  // refused before it starts, as not runnable in a pipeline yet. Their
-  // configurations are read by `pipelineCheckpointStepConfigSchema` and
-  // `pipelineRewindStepConfigSchema`, whose defaults — a rewind refused while
-  // people are active, its bound on records required — no key listed here
-  // could give.
+  // Their configurations are read by `pipelineCheckpointStepConfigSchema`
+  // and `pipelineRewindStepConfigSchema`; the defaults here are theirs: a
+  // rewind refused while people are active, every acceptance off, and no
+  // bound on records, which the step has to be given.
   {
     type: 'checkpoint',
     label: 'Checkpoint',
-    description: 'Take a checkpoint of an org; not runnable in a pipeline yet',
+    description:
+      'Take a checkpoint of a sandbox, a scratch org or a Developer Edition org, kept on this machine',
     category: 'data',
     icon: 'bookmark',
-    configSchema: {},
+    configSchema: {
+      orgId: { type: 'string' },
+      mode: { type: 'string', default: 'everything' },
+      objects: { type: 'array', optional: true },
+      excluded: { type: 'array', optional: true },
+      name: { type: 'string', optional: true },
+      keepDays: { type: 'number', default: CHECKPOINT_STEP_DEFAULT_KEEP_DAYS },
+      maxTotal: { type: 'number', optional: true },
+      ignoredFields: { type: 'array', optional: true },
+    },
   },
   {
     type: 'rewind',
     label: 'Rewind',
-    description: 'Put an org back to a checkpoint; not runnable in a pipeline yet',
+    description:
+      'Put an org back to a checkpoint kept on this machine, once confirmed by typing the org’s alias, at most maxRecords records',
     category: 'data',
     icon: 'history',
-    configSchema: {},
+    configSchema: {
+      orgId: { type: 'string' },
+      checkpointId: { type: 'string' },
+      objects: { type: 'array', optional: true },
+      acceptAutomation: { type: 'boolean', default: false },
+      acceptNoUndo: { type: 'boolean', default: false },
+      acceptRecreate: { type: 'boolean', default: false },
+      acceptOutside: { type: 'boolean', default: false },
+      acceptUnseen: { type: 'boolean', default: false },
+      maxRecords: { type: 'number', required: true },
+      refuseWhenActive: { type: 'boolean', default: true },
+    },
   },
   {
     type: 'compare',
@@ -180,7 +211,10 @@ export class StepLibrary {
   }
 
   /**
-   * Return the default configuration for a specific step type.
+   * Return the default configuration for a specific step type: a key's own
+   * `default` when it declares one, none for an `optional` key or a
+   * `required` one — a Rewind step's bound on records, which no default may
+   * set — and an empty value of its type otherwise.
    * @param type - The step type to get defaults for
    * @returns A record of default config values (empty object if type not found)
    */
@@ -193,6 +227,11 @@ export class StepLibrary {
     const defaults: Record<string, unknown> = {};
     for (const [key, schemaDef] of Object.entries(info.configSchema)) {
       const schema = schemaDef as Record<string, unknown>;
+      if (schema['optional'] === true || schema['required'] === true) continue;
+      if ('default' in schema) {
+        defaults[key] = schema['default'];
+        continue;
+      }
       switch (schema['type']) {
         case 'string':
           defaults[key] = '';

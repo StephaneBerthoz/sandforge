@@ -29,7 +29,7 @@ const step: PipelineStep = {
   id: 'step-1',
   name: 'Seed Accounts',
   type: 'seed',
-  config: { objectName: 'Account', recordCount: 100 },
+  config: { orgId: 'org-1', templateId: 'tpl-saved' },
   continueOnError: false,
   timeout: 300,
   retries: 2,
@@ -84,20 +84,96 @@ describe('StepConfigPanel', () => {
     expect(onUpdate).toHaveBeenCalledWith('step-1', { continueOnError: true });
   });
 
-  it('should show type-specific config for seed step', () => {
-    render(<StepConfigPanel step={step} onUpdate={vi.fn()} />);
+  it('asks a Seed step for its org and a template the extension described, the shipped ones in the page’s words', () => {
+    render(
+      <StepConfigPanel
+        step={step}
+        onUpdate={vi.fn()}
+        seedTemplates={[
+          { id: 'tpl-saved', name: 'Saved', builtIn: false, valid: true, usesAi: false },
+          {
+            id: 'prebuilt-minimal-demo',
+            name: 'seed.templates.minimalDemo.name',
+            builtIn: true,
+            valid: true,
+            usesAi: false,
+          },
+        ]}
+      />,
+    );
     expect(screen.getByTestId('step-type-config')).toBeDefined();
-    const objectInput = screen.getByTestId('config-objectName') as HTMLInputElement;
-    expect(objectInput.value).toBe('Account');
+    const select = screen.getByTestId('config-seed-templateId') as HTMLSelectElement;
+    expect(select.value).toBe('tpl-saved');
+    const labels = [...select.options].map((option) => option.textContent);
+    expect(labels).toContain('Saved');
+    expect(labels).not.toContain('seed.templates.minimalDemo.name');
+    expect(screen.getByTestId('config-seed-note').textContent).toContain('Recent runs');
   });
 
-  it('should call onUpdate for config field changes', () => {
+  it('keeps a template no longer there chosen, and writes the template picked', () => {
     const onUpdate = vi.fn();
-    render(<StepConfigPanel step={step} onUpdate={onUpdate} />);
-    fireEvent.change(screen.getByTestId('config-objectName'), { target: { value: 'Contact' } });
+    render(<StepConfigPanel step={step} onUpdate={onUpdate} seedTemplates={[]} />);
+    const select = screen.getByTestId('config-seed-templateId') as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent).toBe('A template that is no longer saved');
+    fireEvent.change(select, { target: { value: '' } });
     expect(onUpdate).toHaveBeenCalledWith('step-1', {
-      config: { objectName: 'Contact', recordCount: 100 },
+      config: { orgId: 'org-1', templateId: '' },
     });
+  });
+
+  it('asks an Anonymize step for a template, one of its objects, and a condition once an object is chosen', () => {
+    const onUpdate = vi.fn();
+    const anonymize: PipelineStep = {
+      id: 'step-m',
+      name: 'Mask',
+      type: 'anonymize',
+      config: { orgId: 'org-1', templateId: 'tpl-gdpr-standard' },
+      continueOnError: false,
+    };
+    const templates = [
+      { id: 'tpl-gdpr-standard', name: 'GDPR', builtIn: true, objects: ['Contact', 'Lead'] },
+    ];
+    const { rerender } = render(
+      <StepConfigPanel step={anonymize} onUpdate={onUpdate} maskingTemplates={templates} />,
+    );
+    const object = screen.getByTestId('config-masking-object') as HTMLSelectElement;
+    expect([...object.options].map((option) => option.value)).toEqual(['', 'Contact', 'Lead']);
+    expect(screen.queryByTestId('config-masking-where')).toBeNull();
+    fireEvent.change(object, { target: { value: 'Contact' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-m', {
+      config: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', object: 'Contact' },
+    });
+    rerender(
+      <StepConfigPanel
+        step={{ ...anonymize, config: { ...anonymize.config, object: 'Contact' } }}
+        onUpdate={onUpdate}
+        maskingTemplates={templates}
+      />,
+    );
+    expect(screen.getByTestId('config-masking-where')).toBeDefined();
+    expect(screen.getByTestId('config-masking-note').textContent).toContain('snapshot');
+  });
+
+  it('asks a Checkpoint step what it takes, and the objects only for a take of picked objects', () => {
+    const onUpdate = vi.fn();
+    const checkpoint: PipelineStep = {
+      id: 'step-c',
+      name: 'Take',
+      type: 'checkpoint',
+      config: { orgId: 'org-1', mode: 'everything' },
+      continueOnError: false,
+    };
+    render(<StepConfigPanel step={checkpoint} onUpdate={onUpdate} />);
+    expect(screen.queryByTestId('config-checkpoint-objects')).toBeNull();
+    fireEvent.change(screen.getByTestId('config-checkpoint-mode'), { target: { value: 'picked' } });
+    expect(onUpdate).toHaveBeenCalledWith('step-c', {
+      config: { orgId: 'org-1', mode: 'picked' },
+    });
+    fireEvent.change(screen.getByTestId('config-checkpoint-keepDays'), { target: { value: '0' } });
+    expect(onUpdate).toHaveBeenLastCalledWith('step-c', {
+      config: { orgId: 'org-1', mode: 'everything', keepDays: 0 },
+    });
+    expect(screen.getByTestId('config-checkpoint-note').textContent).toContain('{date}');
   });
 
   it('should show boolean config field as checkbox for delete step', () => {

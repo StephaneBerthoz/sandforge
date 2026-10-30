@@ -39,16 +39,18 @@ const BUILTIN_TEMPLATES: PipelineTemplate[] = [
     category: 'environment',
     rating: 4.8,
     steps: [
+      // The org of each step is asked for once installed, as a Backup's is:
+      // the refreshed sandbox, which no template can name.
       {
         name: 'Anonymize PII',
         type: 'anonymize',
-        config: { objects: ['Contact', 'Lead'] },
+        config: { templateId: 'tpl-gdpr-standard' },
         description: 'Mask personal data after refresh',
       },
       {
         name: 'Seed Test Data',
         type: 'seed',
-        config: { count: 500 },
+        config: { templateId: 'prebuilt-minimal-demo' },
         description: 'Generate test records',
       },
       {

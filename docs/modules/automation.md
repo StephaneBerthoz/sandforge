@@ -12,33 +12,39 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 4. Click Save Pipeline, then Run Pipeline once no step is marked Cannot run.
 5. Open the History tab to read what each step of the run did.
 
-**Tip:** Only a Sync step writes to an org; one that writes to an org Production Guard asks about needs an Approval step before it.
+**Tip:** Sync, Seed, Anonymize and Rewind steps write to an org. Seed and Anonymize never write to a production org; a Rewind runs once confirmed.
 
 <!-- how-to:end -->
 
-> **What a pipeline runs:** Backup, Compare, Pre-Check, Notification, Delay,
-> Condition, Approval and Sync steps. A Backup step takes a DataOps snapshot
-> into local storage, a Compare step runs the Compare page's metadata diff, a
-> Pre-Check reads the Monitor's health signals, a Notification shows a VS Code
-> notification, and an Approval waits for someone to approve the run in VS Code.
-> **The one step that writes to an org is Sync,** and it runs a configuration
-> saved on the Sync page, through Sync's own run and its Production Guard: a
-> Sync step into an org the guard asks about -- a production org, or a sandbox
-> marked Staging when the Sync deletes there; a scratch org, a Developer Edition
-> or any other sandbox is never asked about -- needs an Approval step before
-> it, whose answer the guard takes.
-> Seed, Restore, Anonymize and Delete run only from their own pages. The list
-> under Steps offers only steps a pipeline runs; a pipeline that holds one it cannot
-> run -- from a template, an AI draft or an older save -- is refused before its
-> first step: nothing runs, and the run is written to the history as failed,
-> with the reason.
+> **What a pipeline runs:** Backup, Checkpoint, Compare, Pre-Check,
+> Notification, Delay, Condition, Approval, Sync, Seed, Anonymize and Rewind
+> steps. A Backup step takes a DataOps snapshot into local storage, a
+> Checkpoint step takes a checkpoint of an org on this machine, a Compare step
+> runs the Compare page's metadata diff, a Pre-Check reads the Monitor's health
+> signals, a Notification shows a VS Code notification, and an Approval waits
+> for someone to approve the run in VS Code.
+> **Four steps write to an org, each only as its own page writes:** Sync runs
+> a configuration saved on the Sync page, through Sync's own run and its
+> Production Guard, and a Sync step into an org the guard asks about -- a
+> production org, or a sandbox marked Staging when the Sync deletes there --
+> needs an Approval step before it, whose answer the guard takes. Seed seeds
+> with a template of the Seed page and Anonymize masks with a template of the
+> DataOps page: neither ever writes to a production org, whatever an Approval
+> answers, and a sandbox marked Staging needs an Approval step before them.
+> Rewind puts an org back to a checkpoint kept on this machine, once you have
+> confirmed the step by typing the org's alias below its preview.
+> Restore and Delete run only from their own pages. The list under Steps
+> offers only steps a pipeline runs; a pipeline that holds one it cannot run --
+> from a template, an AI draft or an older save -- is refused before its first
+> step: nothing runs, and the run is written to the history as failed, with
+> the reason.
 
 ## Quick Start
 
 1. Navigate to **Automation** from the sidebar
 2. Click **Create Pipeline** to start a new pipeline
 3. Click a step under **Steps** to add it to the Pipeline Canvas
-4. Select each step and configure it under **Step Configuration**: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync
+4. Select each step and configure it under **Step Configuration**: the org and objects of a Backup, the two orgs and the metadata types of a Compare, the org and checks of a Pre-Check, the message of a Notification, the seconds of a Delay, the test of a Condition, the message and wait of an Approval, the saved configuration of a Sync, the org and template of a Seed or an Anonymize, what a Checkpoint takes, and the checkpoint, the bounds and the confirmation of a Rewind
 5. Click **Run Pipeline** once every step can run: the canvas shows each step as it starts and ends, and **Cancel** stops the run where it is. While a step cannot run, **Run Pipeline** is disabled and a note under the header names the step and the reason
 6. To start the pipeline without a click, add a **Schedule** or a **Sandbox Refresh** trigger on the **Triggers** tab and save the pipeline: it then starts on its own while VS Code is open, and the tab shows the next run, or the sandbox it waits for
 
@@ -49,21 +55,21 @@ Compose multi-step pipelines on a visual canvas, save them, run them, and read b
 The visual builder for composing automation workflows:
 
 - **Canvas** -- Steps run in the order they are listed; a step that cannot run is marked where it sits, with the reason
-- **Steps** -- A sidebar listing the eight step types it can add and a pipeline runs: Sync, Backup, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas. A note above the list says where the steps that write to an org and do not run here run instead
+- **Steps** -- A sidebar listing the twelve step types it can add and a pipeline runs: Seed, Sync, Backup, Anonymize, Checkpoint, Rewind, Compare, Pre-Check, Condition, Delay, Approval and Notification. Click to add a step to the canvas. A note above the list says what the steps that write ask for, and where Restore and Delete run instead
 - **Step Configuration** -- Select a step on the canvas to configure it: its name, timeout (up to 24 days), retries, whether the run goes on after it fails, and the fields of its type
 - **Pipeline Execution View** -- While a run lasts, the canvas shows each step's status as the extension reports it, what each finished step did, and a Cancel button that stops the run. An Approval step that waits shows its message, until when it waits, and **Approve** and **Reject**
 - **AI Pipeline Generator** -- Describe what you want in natural language and let the AI draft the pipeline; its steps are marked when they cannot run
 
 ### Step Types
 
-A pipeline step is one of 12 types, and the list under Steps offers the eight a pipeline runs, grouped:
+A pipeline step is one of 14 types, and the list under Steps offers the twelve a pipeline runs, grouped:
 
-- **Data** -- Sync, Backup
+- **Data** -- Seed, Sync, Backup, Anonymize, Checkpoint, Rewind
 - **Quality** -- Compare, Pre-Check
 - **Control Flow** -- Condition, Delay, Approval
 - **Notification** -- Notification
 
-Eight of them run in a pipeline:
+Twelve of them run in a pipeline:
 
 - **Backup** -- takes the snapshot the DataOps Backup button takes, of the objects you list, from the org you choose: the same per-org lock, the same cap of records per object, the same retention. The records go to local storage, where the DataOps page lists the backup; nothing is written to the org. A snapshot that stopped at the cap says it is partial.
 - **Compare** -- runs the Compare page's metadata diff between the two orgs and the metadata types you choose, and keeps its counts: only in the source, only in the target, modified, unchanged, not compared. Both orgs are only read. It hands on how many components differ (`compareDifferenceCount`), for a Condition to test.
@@ -73,16 +79,42 @@ Eight of them run in a pipeline:
 - **Condition** -- tests its condition against the run's variables and the values the steps before it handed on. One that does not hold ends the run there, unless it names a step to go on from. Step Configuration offers the tests a run can answer: the previous step succeeded, or failed (after a step set to continue on error); a Compare found more than N differences; a Pre-Check read API usage or data storage above N %, more than N Apex errors, or more than N failed Apex jobs. A condition a Marketplace template set is shown as it stands until another is chosen. A Condition testing a value no step before it hands on -- differences with no Compare before it -- is refused before the run.
 - **Approval** -- holds the run until someone answers: a VS Code notification asks, with **Approve** and **Reject**, and so does the step on the canvas while the run is open there; the first answer counts. Reject fails the step, as does no answer within its wait (an hour unless set, at most a day): "not approved in time". A cancel of the run while it waits ends it. The wait does not count against `sandforge.pipeline.timeout`. A run a schedule or a sandbox refresh starts asks through the notification, which is how a run started while VS Code is open is answered; with VS Code closed, nothing runs. Who answered, where and when are kept in Execution History and the audit trail.
 - **Sync** -- runs a Sync configuration saved on the Sync page, through the run its schedule makes: the configuration is checked as Sync checks it, Production Guard is consulted, and the run is listed in Live Operations and Sync's history as a pipeline's run, where a cancel of the pipeline stops it. The Sync run does not count against `sandforge.pipeline.timeout`: it has its own Pause, Cancel and progress. A Sync into an org the guard lets through without asking -- a scratch org, a Developer Edition, a sandbox not marked Staging, or one marked Staging that the Sync deletes nothing in -- runs with no approval. One into an org the guard asks about -- a production org, or a sandbox marked Staging when the Sync deletes there -- is refused before the run unless an Approval step comes before it; the run then never shows the guard's question: the guard takes the Approval's answer, and records it as confirmed. A Sync the guard refuses -- a delete on a production org -- is refused whatever is answered. A configuration deleted or no longer valid refuses the run. The step keeps Sync's counts: records read, written, failed and skipped, per object.
+- **Seed** -- seeds the org you choose with a template saved on the Seed page, or one SandForge ships, through the Seed page's own run: the same gates of storage, emails, API requests and Production Guard, listed in Live Operations, recorded in the audit trail, and kept in Seed's Recent runs under the pipeline's name, where its records are taken back. A pipeline never seeds a production org, nor one SandForge cannot tell is not one, whatever an Approval step answers; a sandbox marked Staging needs an Approval step before it, whose answer stands for every question the Seed page would put. With no Approval, the answer is no: a seed whose storage cannot be read is refused, where the page's goes on. A template with an AI rule is refused: an AI rule sends field names to Anthropic on each run, with nobody there to see it. The step is never tried again (its retries must be 0), and a seed that does not end in success fails the step, with what it created and failed. Each run adds the template's records: a Rewind step before it puts the org back to a checkpoint first.
+- **Anonymize** -- masks the org you choose with a template DataOps ships or its page saved, every object its rules name or the one object you choose, its rows held to a SOQL condition, through the DataOps page's own run: first the fields the template names, which a field the org does not show the user SandForge connects as, or rules that mask nothing there, refuse before anything is written; then Production Guard; then a snapshot of every value it writes over, always, before the first one; then the masking. Without a condition it masks every row of those objects. The same rules of org as a Seed step hold: never a production org, an Approval step before it in a sandbox marked Staging, never tried again. Rows left unmasked fail the step, with how many are left per object. Nothing unmasks what it masked: its snapshot keeps the values it wrote over, in clear, on this machine, until it is deleted on the DataOps page, where a restore writes them back.
+- **Checkpoint** -- takes a checkpoint of the org you choose, a sandbox, a scratch org or a Developer Edition, as the Checkpoints page takes one: everything people work in, or the objects you list, with the objects left out, the name (`{date}` in it is replaced by when the take starts), the days it is kept (30 unless set, 0 keeps it until you delete it: a nightly step then keeps one a night) and the most records it holds. Its guards are the page's, read live, and a refusal fails the step with its words. It says the checkpoint it took, its records and the space it takes on this machine. The take does not count against `sandforge.pipeline.timeout`.
+- **Rewind** -- puts the org you choose back to a checkpoint kept on this machine, once you have confirmed the step (see [The confirmation of a Rewind step](#the-confirmation-of-a-rewind-step)). At each run it reads a preview of its own and is held to its bounds in the place of the person who would read it: no more records than its `maxRecords`, all objects together; none while someone other than the user it writes as and the org's Automated Process changed records of the checkpoint's objects in the hour before, unless you turn that off; and each acceptance the rewind needs, set on the step as the command line's flags. A refusal fails the step with nothing written. A deletion of records the user may not delete is answered no, nobody being there to ask: it is left untouched, and the step fails naming the objects. A rewind that does not end in success fails the step, with its counts and what still differs. It does not count against `sandforge.pipeline.timeout`. Undo is not a step: it stays on the Checkpoints page and the command line.
 
-The other four are not offered under Steps, and a pipeline that holds one -- from a template, an AI draft or an older save -- is refused before its first step, with the step marked on the canvas and the reason:
+The other two are not offered under Steps, and a pipeline that holds one -- from a template, an AI draft or an older save -- is refused before its first step, with the step marked on the canvas and the reason:
 
-- **Seed, Restore, Anonymize, Delete** write to an org. Each runs from its own page, where Production Guard stops a write to a production org or asks you first.
+- **Restore, Delete** write to an org with no preview to read nor run to bound them. Each runs from its own page, where Production Guard stops a write to a production org or asks you first. A Rewind step is the way back a pipeline runs.
 
 Script, Loop and Parallel steps, which never ran, are gone. A pipeline saved with one still opens: the step is marked as no longer supported, and the pipeline is refused before it starts until the step is removed.
 
 A step of a type SandForge does not have -- a pipeline saved by a later release, or written by hand -- is marked so where it sits, and the pipeline is refused before its first step, written to History as failed with the step and the reason; its triggers start nothing, and the SandForge output channel says why, once.
 
-Every step is read before the run the way its module's own request is read: a Backup with no org or with an object that is not an API name, a Compare of an org with itself, a Pre-Check naming a check SandForge does not have, a Notification with no message, an Approval waiting less than a minute or more than a day, a Sync naming no saved configuration, a timeout longer than 24 days. The page marks such a step, and the extension refuses it with the same reason.
+Every step is read before the run the way its module's own request is read: a Backup with no org or with an object that is not an API name, a Compare of an org with itself, a Pre-Check naming a check SandForge does not have, a Notification with no message, an Approval waiting less than a minute or more than a day, a Sync naming no saved configuration, a Seed or an Anonymize naming no template, one no longer saved, or a condition with no object, a Checkpoint of picked objects naming none, a Rewind naming no checkpoint, `latest`, or no bound on records, a timeout longer than 24 days. The page marks such a step, and the extension refuses it with the same reason.
+
+### What each step's result is taken back by
+
+- **Sync** -- the removal of the run in Sync's run history.
+- **Seed** -- Remove in Seed's Recent runs, where the run is listed under the pipeline's name.
+- **Anonymize** -- nothing unmasks a value: a restore of the step's snapshot, on the DataOps page, writes back the values it wrote over.
+- **Checkpoint** -- the checkpoint is deleted on the Checkpoints page, or at the end of the days it is kept.
+- **Rewind** -- Undo on the Checkpoints page, or `sandforge-checkpoint undo`, for the org's last rewind, while the recycle bin keeps what it deleted.
+
+### The confirmation of a Rewind step
+
+A rewind from the Checkpoints page asks for the org's alias, typed under its preview. A Rewind step runs where nobody may be there to type it, so it is confirmed once, for its configuration as saved:
+
+1. Save the pipeline. On the step, **Confirm this rewind…** opens the preview of the rewind, read from the org as the Checkpoints page reads it, with no Rewind button: nothing is written.
+2. **Confirm for this step…** asks for the org's alias -- its username when it has none -- typed as the Checkpoints page asks it. The extension reads the step from the pipeline as saved, never from the page, compares what was typed with the org it knows character for character, checks the checkpoint is kept here, can be rewound to and is of that org, and keeps the confirmation on this machine.
+3. The step then reads "Confirmed on <date>: this step rewinds <org> to <checkpoint> whenever the pipeline runs, by schedule too, at most <n> records, taking back everyone's work since." **Take back the confirmation** removes it.
+
+The confirmation is bound to what the step does to the org: its org, its checkpoint, its objects, each acceptance, its `maxRecords` and its refusal while people are at work. A save that changes any of them takes it back, and saving the old configuration again does not bring it back; a change of its name does not. It is kept in this machine's storage, never in the pipeline: a pipeline imported with a profile, installed from the Marketplace or drafted by the AI arrives unconfirmed, and an import or an install that writes a pipeline takes back the confirmations of its steps. A pipeline no longer saved, or a checkpoint deleted or past its days, leaves the confirmation void. Any VS Code window of this account on this machine runs a confirmed pipeline. Where people sign in as the user SandForge connects as -- trainees sharing a Developer Edition's one user, say -- their changes are that user's, and the refusal while people are at work does not see them.
+
+A Rewind step without its confirmation is refused before the pipeline starts, and so is a pipeline whose checkpoint was made by the org before a refresh of its sandbox: a trigger on it starts nothing, and its starts are written to History as missed, with the reason. An Approval step before a Rewind is allowed, not needed: at 2 a.m. nobody answers, and the step would fail after its wait.
+
+**A nightly reset of a training org**: take a baseline once on the Checkpoints page, kept until you delete it; build a pipeline "Nightly reset" with a Rewind step to it, its `maxRecords` set to what a day of training writes, and a Schedule trigger `0 2 * * *` in your time zone; save it and confirm the step. It runs only while VS Code is open: a night it is closed shows as missed, never run late. For a machine that sleeps, run `sandforge-checkpoint rewind --org <alias> --checkpoint <id> --yes --max-records <n> --refuse-when-active` from cron or CI instead (see [Checkpoint & Rewind](checkpoint.md#from-the-command-line)). A Seed step after the Rewind step seeds the org afresh each night, with no records of the night before left over.
 
 ### Triggers
 
@@ -166,12 +198,15 @@ Browse and install pre-configured pipeline templates:
 - One-click install to add a template to your workspace
 
 A template is a composition, not a capability: its steps are the same step types
-listed above. Most built-in templates hold a step that writes to an org from its
-own page, or a Pre-Check naming a check SandForge does not have, so they cannot
-run as installed; each card names the step types that do not run in a pipeline,
-and the tab says so above the list. An installed template's Backup, Compare and
-Pre-Check steps ask for their orgs, and its Sync steps for a saved
-configuration, before the pipeline can run.
+listed above. Several built-in templates hold a Restore step, or a Pre-Check
+naming a check SandForge does not have, so they cannot run as installed; each
+card names the step types that do not run in a pipeline, and the tab says so
+above the list. An installed template's Backup, Compare, Pre-Check, Seed and
+Anonymize steps ask for their orgs, and its Sync steps for a saved
+configuration, before the pipeline can run: Sandbox Refresh Post-Processing
+masks with GDPR Standard and seeds with the Minimal Demo template once its two
+steps name the refreshed sandbox. An installed pipeline is never confirmed: a
+Rewind step in it asks to be confirmed on this machine.
 
 ### Saved Pipelines
 
@@ -189,4 +224,5 @@ configuration, before the pipeline can run.
 - Browse the Marketplace for templates that match your use case before building from scratch
 - Read Execution History for each run's status and for what each of its steps did
 - Put an Approval step before a Sync into a production org, and after a Compare, so the person who approves has the differences in front of them
-- Remember that seeding, restoring, anonymizing and deleting run from their own pages: a pipeline writes to an org only through a saved Sync configuration
+- A pipeline writes to an org through four steps: a saved Sync configuration, a Seed template, a masking template, and a confirmed Rewind. Restoring and deleting run from their own pages
+- After a sandbox refresh, a Sandbox Refresh trigger on an Anonymize step then a Seed step masks the copy of production's data and seeds test records; without a condition, the Anonymize step masks every row of the template's objects, in a sandbox others share too

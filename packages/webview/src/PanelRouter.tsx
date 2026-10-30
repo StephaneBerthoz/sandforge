@@ -85,12 +85,16 @@ const panelComponents: Record<string, React.LazyExoticComponent<React.FC>> = {
     'errors',
     'howTo',
   ]),
+  // A Rewind step's confirmation is typed below the Checkpoints page's preview.
   automation: page(() => import('./pages/Automation/AutomationPage'), 'AutomationPage', [
     'ai',
     'automation',
+    'checkpoint',
     'compareParts',
     'errors',
     'howTo',
+    'orgAutomation',
+    'runRemoval',
     'syncParts',
   ]),
   migration: page(() => import('./pages/Migration/MigrationPage'), 'MigrationPage', [

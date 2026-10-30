@@ -2,6 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { PipelineMarketplace } from './PipelineMarketplace';
 import type { PipelineTemplate } from './PipelineMarketplace';
 import { conditionDefect } from './ConditionalRouter';
+import {
+  PREBUILT_SEED_TEMPLATES,
+  pipelineAnonymizeStepConfigSchema,
+  pipelineSeedStepConfigSchema,
+} from '@sandforge/shared';
+import { ANONYMIZATION_TEMPLATES } from '../../bridge/templates/anonymizationTemplates.js';
 
 describe('PipelineMarketplace', () => {
   let marketplace: PipelineMarketplace;
@@ -86,6 +92,25 @@ describe('PipelineMarketplace', () => {
 
     it('should return undefined for unknown ID', () => {
       expect(marketplace.getById('non-existent')).toBeUndefined();
+    });
+
+    it('gives the Sandbox Refresh template a masking and a seed template its steps run, the org left to choose', () => {
+      const steps = marketplace.getById('tpl-sandbox-refresh')!.steps;
+      const anonymize = steps.find((step) => step.type === 'anonymize')!;
+      const seed = steps.find((step) => step.type === 'seed')!;
+      expect(anonymize.config).toEqual({ templateId: 'tpl-gdpr-standard' });
+      expect(ANONYMIZATION_TEMPLATES.some((t) => t.id === anonymize.config['templateId'])).toBe(
+        true,
+      );
+      expect(PREBUILT_SEED_TEMPLATES.some((t) => t.id === seed.config['templateId'])).toBe(true);
+      // Read as their steps read them once an org is chosen; refused before.
+      for (const [schema, step] of [
+        [pipelineAnonymizeStepConfigSchema, anonymize],
+        [pipelineSeedStepConfigSchema, seed],
+      ] as const) {
+        expect(schema.safeParse(step.config).success).toBe(false);
+        expect(schema.safeParse({ ...step.config, orgId: 'org-1' }).success).toBe(true);
+      }
     });
   });
 

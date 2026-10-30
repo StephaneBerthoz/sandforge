@@ -39,12 +39,20 @@ export interface GeneratedPipeline {
 
 /**
  * The step types a draft may hold: Delay and Condition, Backup, Compare,
- * Pre-check, Notification, and Approval, which waits for an answer in VS Code
- * and needs nothing else to run. A Sync step runs a configuration saved on
- * the Sync page, which no draft can choose, so the Sync work a description
- * asks for is left out with a word of where it runs. The step executor
- * refuses every other type before the run starts, and the Automation page
- * shows such a step blocked.
+ * Pre-check, Notification, Approval, which waits for an answer in VS Code and
+ * needs nothing else to run, Checkpoint, which reads an org, and Rewind.
+ *
+ * A Rewind step comes in a draft naming at most its org, and never
+ * confirmed: no draft chooses a checkpoint, an acceptance or a bound on
+ * records, and a confirmation is typed by a person below the step's preview
+ * and kept on this machine, never in a pipeline's definition. The page shows
+ * the step blocked until both are done.
+ *
+ * Sync, Seed and Anonymize write with what a person saved on their pages — a
+ * Sync configuration, a Seed template, a masking template — which no draft
+ * chooses, so the work a description asks of them is left out with a word of
+ * where it runs. The step executor refuses every other type before the run
+ * starts, and the Automation page shows such a step blocked.
  */
 const RUNNABLE_STEP_TYPES: ReadonlySet<string> = new Set<PipelineStepType>([
   'delay',
@@ -54,7 +62,15 @@ const RUNNABLE_STEP_TYPES: ReadonlySet<string> = new Set<PipelineStepType>([
   'precheck',
   'notification',
   'approval',
+  'checkpoint',
+  'rewind',
 ]);
+
+/** What of a Rewind step's configuration a draft keeps: the org, and nothing a person has to choose. */
+function draftRewindConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const orgId = config['orgId'];
+  return typeof orgId === 'string' && orgId !== '' ? { orgId } : {};
+}
 
 /**
  * Keywords mapped to the step types a pipeline runs. "backup" used to draw a
@@ -72,6 +88,8 @@ const KEYWORD_STEP_MAP: Record<string, PipelineStepType> = {
   watch: 'precheck',
   alert: 'notification',
   notify: 'notification',
+  checkpoint: 'checkpoint',
+  rewind: 'rewind',
 };
 
 /**
@@ -271,6 +289,8 @@ export class PipelineGenerator {
     if (matchedOrgs.length >= 1) {
       config['orgId'] = matchedOrgs[0].orgId;
     }
+    // Every object people work in, as a take on the page offers first.
+    if (stepType === 'checkpoint') config['mode'] = 'everything';
     if (stepType === 'backup') {
       const sfObjects = this.extractSalesforceObjects(description);
       if (sfObjects.length > 0) {
@@ -363,7 +383,11 @@ export class PipelineGenerator {
       // A step the model names that a pipeline cannot run is left out, with a
       // word of where its work runs instead: kept, it reached the canvas as a
       // step that blocked the whole pipeline.
-      const steps = draft.steps.filter((step) => RUNNABLE_STEP_TYPES.has(step.type));
+      const steps = draft.steps
+        .filter((step) => RUNNABLE_STEP_TYPES.has(step.type))
+        .map((step) =>
+          step.type === 'rewind' ? { ...step, config: draftRewindConfig(step.config) } : step,
+        );
       // One per page, and one per step type that has none.
       const suggestions = new Map<string, PipelineDraftSuggestion>();
       for (const step of draft.steps) {

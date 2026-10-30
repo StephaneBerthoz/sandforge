@@ -74,7 +74,7 @@ export interface PipelineSyncConfigInfo {
   targetOrgId?: string;
   /**
    * What Production Guard does with a run of it: lets it through, asks a
-   * person first (a production org, a Developer Edition), or refuses it
+   * person first (a production org, a sandbox marked Staging), or refuses it
    * whatever anyone answers. Absent for a configuration that does not read.
    */
   guard?: 'allowed' | 'asks' | 'refused';

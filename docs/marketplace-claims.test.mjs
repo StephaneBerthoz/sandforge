@@ -55,7 +55,7 @@ const manifest = () => readJson(...EXT, 'package.json');
  * Seed and Sync write their batches one after the other. A pipeline now backs
  * up, compares and checks orgs, and starts by hand, on a schedule or on a
  * sandbox refresh — while VS Code is open, which is no automation service —
- * writes only through a saved Sync, and streams nothing. An English denylist
+ * writes only as Sync, Seed, DataOps and Checkpoints write, and streams nothing. An English denylist
  * would have passed on all five translations, which said the same thing in
  * their own words, so each locale carries its own.
  */
@@ -69,11 +69,13 @@ const DESCRIPTION_OVERCLAIM = {
 };
 
 /**
- * The step types that write to an org. Only Sync runs in a pipeline, a
- * configuration saved on the Sync page, behind Production Guard and an
- * Approval step where the guard asks; the others run from their own pages.
+ * The step types that write to an org. Four run in a pipeline, each only as
+ * its page writes: Sync a saved configuration, behind Production Guard and an
+ * Approval step where the guard asks; Seed and Anonymize a template of their
+ * pages, never in a production org; Rewind a checkpoint, once confirmed with
+ * the org's alias. Restore and Delete run from their own pages.
  */
-const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete'];
+const WRITE_STEP_TYPES = ['seed', 'sync', 'restore', 'anonymize', 'delete', 'rewind'];
 
 /**
  * The step types a pipeline runs: the executor's own, and the ones the
@@ -93,7 +95,7 @@ function handledStepTypes() {
   return [...own, ...viaModules];
 }
 
-test('anchor: no step that writes to an org runs in a pipeline but Sync', () => {
+test('anchor: no step that writes to an org runs in a pipeline but Sync, Seed, Anonymize and Rewind', () => {
   const handled = handledStepTypes();
   // Positive control: an anchor that reads no handler would pass on anything,
   // and one blind to the module steps would miss a write step registered there.
@@ -103,10 +105,10 @@ test('anchor: no step that writes to an org runs in a pipeline but Sync', () => 
     'the anchor does not see the steps registerPipelineSteps adds',
   );
   assert.deepEqual(
-    handled.filter((type) => WRITE_STEP_TYPES.includes(type)),
-    ['sync'],
-    'another step that writes to an org runs in a pipeline now — the description says only a ' +
-      'saved Sync does, and this rule has to go with it',
+    handled.filter((type) => WRITE_STEP_TYPES.includes(type)).sort(),
+    ['anonymize', 'rewind', 'seed', 'sync'],
+    'another step that writes to an org runs in a pipeline now — re-read what the description ' +
+      'and NO_SYNC_ONLY_CLAIM say a pipeline writes through',
   );
   // And Sync only with an Approval before it where the guard would ask.
   const steps = read(...EXT, 'src', 'bridge', 'handlers', 'pipelineSteps.ts');
@@ -146,10 +148,10 @@ const STEPS_CREDITED_WITH_THE_ORG = {
 };
 
 /**
- * That a pipeline writes to the org only through a saved Sync, approved first
- * where Production Guard asks, as each language says it. Owed only by a
- * description that brings pipelines up: one that never names them promises
- * nothing about them.
+ * That a pipeline writes to the org only through a saved Sync, as each
+ * language once said it: no longer true, since a Seed, an Anonymize and a
+ * confirmed Rewind step write too. A description that brings pipelines up
+ * may not say it.
  */
 const ONLY_SYNC_WRITES_TO_THE_ORG = {
   en: /a pipeline writes to your org only through a saved Sync, approved first/i,
@@ -190,24 +192,26 @@ test('anchor: the delay and condition steps are handed nothing that reaches an o
   }
 });
 
-test('a Marketplace description that names pipelines says they write only through an approved Sync, in six languages', () => {
+test('a Marketplace description credits no step but its own with the org, and never says a pipeline writes only through a Sync, in six languages', () => {
   const offenders = [];
   for (const [locale, text] of Object.entries(resolveNls(manifest().description))) {
     assert.ok(STEPS_CREDITED_WITH_THE_ORG[locale], `${locale}: no rule written for this locale`);
     assert.ok(NAMES_A_PIPELINE[locale], `${locale}: no pipeline word written for this locale`);
     const hit = STEPS_CREDITED_WITH_THE_ORG[locale].exec(text);
     if (hit) offenders.push(`${locale}: "${hit[0]}"`);
-    if (NAMES_A_PIPELINE[locale].test(text) && !ONLY_SYNC_WRITES_TO_THE_ORG[locale].test(text)) {
+    if (NAMES_A_PIPELINE[locale].test(text) && ONLY_SYNC_WRITES_TO_THE_ORG[locale].test(text)) {
       offenders.push(
-        `${locale}: does not say that a pipeline writes to the org only through an approved Sync`,
+        `${locale}: says a pipeline writes to the org only through a Sync, which Seed, ` +
+          'Anonymize and Rewind steps also do',
       );
     }
   }
   assert.deepEqual(
     offenders,
     [],
-    'a pipeline backs up, compares and checks an org, and writes to one only through a saved ' +
-      'Sync; delay waits and condition reads variables:\n  ' +
+    'a pipeline backs up, compares and checks an org, and writes to one through a saved Sync, ' +
+      'a Seed or masking template, or a confirmed rewind; delay waits and condition reads ' +
+      'variables:\n  ' +
       offenders.join('\n  '),
   );
 });

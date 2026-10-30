@@ -4,6 +4,7 @@ import type { PipelineStep, PipelineStepType, PipelineSyncConfigInfo } from '@sa
 import { Badge } from '../../components/ui/Badge';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { stepBlocker } from './stepRunnability';
+import type { StepPlace } from './stepRunnability';
 
 /** PipelineCanvas component props. */
 export interface PipelineCanvasProps {
@@ -18,6 +19,11 @@ export interface PipelineCanvasProps {
   declared?: ReadonlySet<string>;
   /** The saved Sync configurations as the extension describes them, once it has. */
   syncConfigs?: readonly PipelineSyncConfigInfo[];
+  /**
+   * Everything else a step is checked against beside itself, as the page's
+   * Run reads it: the templates, the Rewind steps as saved, the orgs' tiers.
+   */
+  around?: Omit<StepPlace, 'steps' | 'index'>;
 }
 
 /**
@@ -50,6 +56,7 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
   orgIds,
   declared,
   syncConfigs,
+  around,
 }) => {
   const { t } = useTranslation();
 
@@ -76,7 +83,13 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         const colorClass = STEP_COLORS[step.type] ?? 'bg-text-secondary';
         // A saved pipeline, a Marketplace template or an AI draft can hold a
         // step the palette would not add: it is marked where it sits.
-        const blocker = stepBlocker(step, orgIds, { steps, index, declared, syncConfigs });
+        const blocker = stepBlocker(step, orgIds, {
+          declared,
+          syncConfigs,
+          ...around,
+          steps,
+          index,
+        });
 
         // The node holds two buttons side by side, one that selects the step
         // and one that removes it. It used to be a role="button" div with the

@@ -1,4 +1,5 @@
-import React, { useId, useMemo, useRef } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { OrgCheckpoint } from '@sandforge/shared';
 import { useTranslation } from 'react-i18next';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { m } from 'framer-motion';
@@ -22,6 +23,7 @@ import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
+import { RewindStepConfirm } from './RewindStepConfirm';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
@@ -32,6 +34,11 @@ export const AutomationPage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const orgIds = useMemo(() => new Set(orgs.map((org) => org.id)), [orgs]);
   const blockedNoticeId = useId();
+  /** The Rewind step whose preview is open, its confirmation typed below it, and its checkpoint. */
+  const [confirming, setConfirming] = useState<{
+    stepId: string;
+    checkpoint: OrgCheckpoint;
+  } | null>(null);
 
   /** A step type in the reader's language; a type this page does not know stays as it is. */
   const stepTypeLabel = (type: string): string =>
@@ -53,6 +60,15 @@ export const AutomationPage: React.FC = () => {
     pipelinesLoading,
     savedPipelines,
     syncConfigs,
+    seedTemplates,
+    maskingTemplates,
+    rewindSteps,
+    savedSteps,
+    handleConfirmRewind,
+    handleRevokeRewind,
+    rewindGrantAnswer,
+    rewindGrantPending,
+    stepAround,
     declaredVariables,
     triggerStatuses,
     savedTriggers,
@@ -95,6 +111,24 @@ export const AutomationPage: React.FC = () => {
     handleGeneratePipeline,
     handleGenSubmit,
   } = useAutomationPageData();
+
+  // The step confirmed is the one saved: its preview closes once the
+  // extension kept the confirmation, and with the step or its org gone.
+  const confirmingStep = confirming
+    ? savedSteps?.find((saved) => saved.id === confirming.stepId)
+    : undefined;
+  const confirmingOrg = confirmingStep
+    ? orgs.find((org) => org.id === confirmingStep.config['orgId'])
+    : undefined;
+  useEffect(() => {
+    if (
+      rewindGrantAnswer?.granted &&
+      confirming &&
+      rewindGrantAnswer.stepId === confirming.stepId
+    ) {
+      setConfirming(null);
+    }
+  }, [rewindGrantAnswer, confirming]);
 
   const navigate = useAppStore((s) => s.navigate);
 
@@ -261,6 +295,9 @@ export const AutomationPage: React.FC = () => {
                   </span>
                   {blockedSteps(p.steps, orgIds, {
                     syncConfigs,
+                    ...(seedTemplates ? { seedTemplates } : {}),
+                    ...(maskingTemplates ? { maskingTemplates } : {}),
+                    ...(stepAround.tierOf ? { tierOf: stepAround.tierOf } : {}),
                     declared: new Set((p.variables ?? []).map((variable) => variable.name)),
                   }).length > 0 && (
                     <Badge variant="warning" data-testid={`saved-pipeline-blocked-${p.id}`}>
@@ -346,7 +383,17 @@ export const AutomationPage: React.FC = () => {
               </div>
               <div className="flex gap-(--sf-space-4)">
                 <div className="flex-1">
-                  {isRunning ? (
+                  {confirmingStep && confirmingOrg && confirming && !isRunning ? (
+                    <RewindStepConfirm
+                      step={confirmingStep}
+                      org={confirmingOrg}
+                      checkpoint={confirming.checkpoint}
+                      onClose={() => setConfirming(null)}
+                      onConfirm={(typed) => handleConfirmRewind(confirming.stepId, typed)}
+                      pending={rewindGrantPending}
+                      answer={rewindGrantAnswer}
+                    />
+                  ) : isRunning ? (
                     <PipelineExecutionView
                       execution={executionData}
                       onCancel={handleCancelRun}
@@ -358,6 +405,7 @@ export const AutomationPage: React.FC = () => {
                       orgIds={orgIds}
                       declared={declaredVariables}
                       syncConfigs={syncConfigs}
+                      around={stepAround}
                       selectedStepId={selectedStepId}
                       onSelectStep={(id) => {
                         setSelectedStepId(id);
@@ -372,6 +420,17 @@ export const AutomationPage: React.FC = () => {
                     step={pipeline?.steps.find((s) => s.id === selectedStepId)}
                     onUpdate={handleUpdateStep}
                     syncConfigs={syncConfigs}
+                    seedTemplates={seedTemplates}
+                    maskingTemplates={maskingTemplates}
+                    rewind={{
+                      ...(rewindSteps ? { steps: rewindSteps } : {}),
+                      ...(savedSteps ? { savedSteps } : {}),
+                      blocker: runBlockers.find((blocked) => blocked.stepId === selectedStepId)
+                        ?.blocker,
+                      onPreview: (stepId, checkpoint) => setConfirming({ stepId, checkpoint }),
+                      onRevoke: handleRevokeRewind,
+                      answer: rewindGrantAnswer,
+                    }}
                   />
                 </div>
               </div>

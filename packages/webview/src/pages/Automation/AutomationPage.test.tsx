@@ -340,10 +340,10 @@ describe('AutomationPage', () => {
     fireEvent.click(screen.getByText('Marketplace'));
     const notice = screen.getByTestId('automation-marketplace-steps-note');
     expect(notice.textContent).toContain(
-      'Backup, Compare, Pre-Check, Notification, Delay, Condition, Approval and Sync steps run in a pipeline',
+      'Backup, Checkpoint, Compare, Pre-Check, Notification, Delay, Condition, Approval, Sync, Seed, Anonymize and Rewind steps run in a pipeline',
     );
     expect(notice.textContent).toContain(
-      'Seed, Restore, Anonymize and Delete write to an org, so they run only from their own pages',
+      'Restore and Delete write to an org, so they run only from their own pages',
     );
     expect(notice.textContent).not.toMatch(/Script|Loop|Parallel/);
     expect(notice.textContent).not.toMatch(/Coming soon|\byet\b|report success/i);
@@ -363,7 +363,7 @@ describe('AutomationPage', () => {
           config: { seconds: 5 },
           continueOnError: false,
         },
-        { id: 's-seed', name: 'Load Target', type: 'seed', config: {}, continueOnError: true },
+        { id: 's-delete', name: 'Clear Target', type: 'delete', config: {}, continueOnError: true },
       ],
       triggers: [],
       variables: [],
@@ -387,10 +387,10 @@ describe('AutomationPage', () => {
       expect(notice.textContent).toContain(
         'This pipeline cannot run. Remove or fix these steps first:',
       );
-      // Seed writes to an org: it runs from the Seed page, where Production
-      // Guard asks first, and never unattended in a pipeline.
-      expect(screen.getByTestId('pipeline-blocked-s-seed').textContent).toBe(
-        'Load Target (Seed) — A pipeline does not run this step: ' +
+      // Delete writes to an org: it runs from the DataOps page, where
+      // Production Guard asks first, and never unattended in a pipeline.
+      expect(screen.getByTestId('pipeline-blocked-s-delete').textContent).toBe(
+        'Clear Target (Delete) — A pipeline does not run this step: ' +
           'run it from its own page, where Production Guard asks before a write to a production org.',
       );
       // The Delay step has its seconds: it is not what blocks the pipeline.
@@ -486,7 +486,7 @@ describe('AutomationPage', () => {
             description: 'Anonymize, then seed',
             category: 'environment',
             author: 'SandForge',
-            stepTypes: ['anonymize', 'seed', 'notification', 'seed'],
+            stepTypes: ['anonymize', 'restore', 'notification', 'delete', 'restore'],
           },
           {
             id: 'tpl-b',
@@ -513,7 +513,7 @@ describe('AutomationPage', () => {
     // Notification runs now: only the steps that write to an org are named.
     expect(screen.getByTestId('marketplace-template-blocked-tpl-a').textContent).toBe(
       'Cannot run' +
-        'Cannot run as a pipeline. These step types do not run in one: Anonymize, Seed.',
+        'Cannot run as a pipeline. These step types do not run in one: Restore, Delete.',
     );
     expect(screen.queryByTestId('marketplace-template-blocked-tpl-b')).toBeNull();
     // A card that does not say what its steps are is not guessed at.

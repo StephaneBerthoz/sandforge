@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StepLibrary } from './StepLibrary';
-import { PIPELINE_STEP_TYPES } from '@sandforge/shared';
+import {
+  PIPELINE_STEP_TYPES,
+  pipelineCheckpointStepConfigSchema,
+  pipelineRewindStepConfigSchema,
+} from '@sandforge/shared';
 import type { PipelineStepType } from '@sandforge/shared';
 
 describe('StepLibrary', () => {
@@ -54,10 +58,46 @@ describe('StepLibrary', () => {
       expect([...typeValues].sort()).toEqual([...PIPELINE_STEP_TYPES].sort());
     });
 
-    it('says Checkpoint and Rewind do not run in a pipeline yet, and gives them no default a rewind would run with', () => {
-      for (const type of ['checkpoint', 'rewind'] as const) {
-        expect(library.getStepType(type)?.description).toMatch(/not runnable in a pipeline yet$/);
-        expect(library.getDefaultConfig(type)).toEqual({});
+    it('gives a Rewind step the defaults its schema reads, and no bound on records', () => {
+      // Every acceptance off and the refusal while people are active on, as
+      // `pipelineRewindStepConfigSchema` reads a configuration that says
+      // nothing of them; `maxRecords` is the step's to be given.
+      const config = library.getDefaultConfig('rewind');
+      expect(config).toEqual({
+        orgId: '',
+        checkpointId: '',
+        acceptAutomation: false,
+        acceptNoUndo: false,
+        acceptRecreate: false,
+        acceptOutside: false,
+        acceptUnseen: false,
+        refuseWhenActive: true,
+      });
+      expect(pipelineRewindStepConfigSchema.safeParse({ ...config, maxRecords: 1 }).success).toBe(
+        false,
+      );
+      const read = pipelineRewindStepConfigSchema.parse({
+        orgId: 'org-1',
+        checkpointId: 'ck-20261030-020000-abcd',
+        maxRecords: 1,
+      });
+      for (const key of Object.keys(config).filter((key) => key.startsWith('accept'))) {
+        expect(read[key as keyof typeof read]).toBe(config[key]);
+      }
+      expect(read.refuseWhenActive).toBe(config['refuseWhenActive']);
+    });
+
+    it('gives a Checkpoint step the defaults a take on the page has, and none of the keys that come with picked', () => {
+      const config = library.getDefaultConfig('checkpoint');
+      expect(config).toEqual({ orgId: '', mode: 'everything', keepDays: 30 });
+      expect(
+        pipelineCheckpointStepConfigSchema.safeParse({ ...config, orgId: 'org-1' }).success,
+      ).toBe(true);
+    });
+
+    it('says none of the steps that run in a pipeline is not runnable there', () => {
+      for (const type of ['seed', 'anonymize', 'checkpoint', 'rewind'] as const) {
+        expect(library.getStepType(type)?.description).not.toMatch(/yet|not runnable/i);
       }
     });
   });
@@ -82,8 +122,7 @@ describe('StepLibrary', () => {
     it('should return default values matching the schema types', () => {
       const config = library.getDefaultConfig('seed');
 
-      expect(config).toHaveProperty('objectName', '');
-      expect(config).toHaveProperty('count', 0);
+      expect(config).toEqual({ orgId: '', templateId: '' });
     });
 
     it('should return an empty array for array schema fields', () => {
@@ -100,19 +139,19 @@ describe('StepLibrary', () => {
   describe('validateStepConfig', () => {
     it('should return empty array for a valid config', () => {
       const errors = library.validateStepConfig('seed', {
-        objectName: 'Account',
-        count: 100,
+        orgId: 'org-1',
+        templateId: 'prebuilt-sales',
       });
       expect(errors).toHaveLength(0);
     });
 
     it('should return error for wrong type on a field', () => {
       const errors = library.validateStepConfig('seed', {
-        objectName: 123,
-        count: 100,
+        orgId: 'org-1',
+        templateId: 123,
       });
       expect(errors).toHaveLength(1);
-      expect(errors[0]).toContain('objectName');
+      expect(errors[0]).toContain('templateId');
       expect(errors[0]).toContain('string');
     });
 
