@@ -312,6 +312,16 @@ import type {
   PipelineApprovalAnswerRequest,
   PipelineSyncConfigsRequest,
   PipelineSyncConfigsResponse,
+  PipelineSeedTemplatesRequest,
+  PipelineSeedTemplatesResponse,
+  PipelineMaskingTemplatesRequest,
+  PipelineMaskingTemplatesResponse,
+  PipelineRewindStepsRequest,
+  PipelineRewindStepsResponse,
+  PipelineRewindGrantRequest,
+  PipelineRewindGrantResponse,
+  PipelineRewindRevokeRequest,
+  PipelineRewindRevokeResponse,
   MigrationImportRequest,
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
@@ -583,6 +593,14 @@ import type {
   CheckpointIgnoreFieldsResponse,
   CheckpointRewindsRequest,
   CheckpointRewindsResponse,
+  CheckpointPlanSelectionRequest,
+  CheckpointPlanSelectionResponse,
+  CheckpointExportRequest,
+  CheckpointExportResponse,
+  CheckpointImportReadRequest,
+  CheckpointImportReadResponse,
+  CheckpointImportRequest,
+  CheckpointImportResponse,
   CheckpointErrorResponse,
 } from './checkpoint.messages.js';
 
@@ -714,6 +732,11 @@ export type WebViewToExtensionMessage =
   | PipelineTemplatesRequest
   | PipelineApprovalAnswerRequest
   | PipelineSyncConfigsRequest
+  | PipelineSeedTemplatesRequest
+  | PipelineMaskingTemplatesRequest
+  | PipelineRewindStepsRequest
+  | PipelineRewindGrantRequest
+  | PipelineRewindRevokeRequest
   | MigrationImportRequest
   | MigrationImportSfdmuRequest
   | MigrationSaveSyncConfigRequest
@@ -829,7 +852,11 @@ export type WebViewToExtensionMessage =
   | CheckpointKeepRequest
   | CheckpointRenameRequest
   | CheckpointIgnoreFieldsRequest
-  | CheckpointRewindsRequest;
+  | CheckpointRewindsRequest
+  | CheckpointPlanSelectionRequest
+  | CheckpointExportRequest
+  | CheckpointImportReadRequest
+  | CheckpointImportRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -983,6 +1010,11 @@ export type ExtensionToWebViewMessage =
   | PipelineStepUpdate
   | PipelineErrorResponse
   | PipelineSyncConfigsResponse
+  | PipelineSeedTemplatesResponse
+  | PipelineMaskingTemplatesResponse
+  | PipelineRewindStepsResponse
+  | PipelineRewindGrantResponse
+  | PipelineRewindRevokeResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse
   | MigrationSaveSyncConfigResponse
@@ -1146,4 +1178,8 @@ export type ExtensionToWebViewMessage =
   | CheckpointRenameResponse
   | CheckpointIgnoreFieldsResponse
   | CheckpointRewindsResponse
+  | CheckpointPlanSelectionResponse
+  | CheckpointExportResponse
+  | CheckpointImportReadResponse
+  | CheckpointImportResponse
   | CheckpointErrorResponse;

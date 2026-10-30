@@ -1,5 +1,6 @@
 import type { BaseMessage } from './base.messages.js';
 import type {
+  CheckpointArchiveSummary,
   CheckpointEmails,
   CheckpointEstimate,
   CheckpointListEntry,
@@ -14,6 +15,7 @@ import type {
   OrgCheckpoint,
   RewindDiff,
   RewindResult,
+  RewindSelectionPlan,
 } from '../checkpoint.types.js';
 import type { ForgeTargetAutomation } from '../forge.types.js';
 
@@ -105,7 +107,19 @@ export interface CheckpointTakeRequest extends BaseMessage {
  */
 export interface CheckpointPreviewRequest extends BaseMessage {
   type: 'checkpoint:preview';
-  payload: { checkpointId: string };
+  payload: {
+    checkpointId: string;
+    /**
+     * The objects of the checkpoint a rewind would be limited to, by API
+     * name: its estimate, the automation and emails its writes fire, and the
+     * refusal it would meet are those of a rewind of them alone. The diff
+     * still reads every object the checkpoint holds, which the plan of a
+     * selection reads the parents and children of; what the selection would
+     * do and leave is `checkpoint:plan-selection`'s to say. Absent, every
+     * object.
+     */
+    objects?: string[];
+  };
 }
 
 /**
@@ -118,6 +132,13 @@ export interface CheckpointRewindRequest extends BaseMessage {
   payload: {
     checkpointId: string;
     previewId: string;
+    /**
+     * The objects of the checkpoint it is limited to, by API name: it writes
+     * to the others only what rewinding these brings about, and its result
+     * says what it left of them (`RewindResult.scope`). A dependency of the
+     * objects named is never added to them. Absent, every object.
+     */
+    objects?: string[];
     /** Rewind even though the org runs automation as its records are updated, deleted or brought back. */
     acceptAutomation: boolean;
     /** Rewind even though Undo couldn't bring back records it deletes. */
@@ -201,6 +222,75 @@ export interface CheckpointIgnoreFieldsRequest extends BaseMessage {
 export interface CheckpointRewindsRequest extends BaseMessage {
   type: 'checkpoint:rewinds';
   payload?: { orgIds?: string[] };
+}
+
+/**
+ * `checkpoint:plan-selection`. WebView -> Extension. What a rewind limited to
+ * the objects picked would do and leave, and the objects not picked it
+ * depends on: planned on this machine from the preview named, by the plan the
+ * rewind itself makes, the org not read and nothing kept. The page asks again
+ * as the selection changes; a dependency is proposed, never added.
+ */
+export interface CheckpointPlanSelectionRequest extends BaseMessage {
+  type: 'checkpoint:plan-selection';
+  payload: {
+    checkpointId: string;
+    previewId: string;
+    /** The objects picked, by API name. */
+    objects: string[];
+    /**
+     * Whether deleting records outside what the rewind rewinds is accepted,
+     * as `checkpoint:rewind`'s `acceptOutside`: without it, the records whose
+     * deletion takes such records along are left, and planned so.
+     */
+    acceptOutside: boolean;
+  };
+}
+
+/**
+ * `checkpoint:export`. WebView -> Extension. Export a checkpoint kept on this
+ * machine into an encrypted `.sfcheckpoint` file, at the place the person
+ * picks in the extension's save dialog: the page names no path. The key it is
+ * encrypted under is new, answered once and kept nowhere. The org is not
+ * contacted. A checkpoint whose take is under way, failed, or whose file is
+ * damaged is refused.
+ */
+export interface CheckpointExportRequest extends BaseMessage {
+  type: 'checkpoint:export';
+  payload: { checkpointId: string };
+}
+
+/**
+ * `checkpoint:import-read`. WebView -> Extension. Open a `.sfcheckpoint` file
+ * the person picks in the extension's open dialog and read its header, what
+ * the file holds and of which org, before any key is asked. The extension
+ * keeps where the file is behind a token; the page names no path, then or at
+ * the import. A file that is no checkpoint file, or one a newer SandForge
+ * made, is refused.
+ */
+export interface CheckpointImportReadRequest extends BaseMessage {
+  type: 'checkpoint:import-read';
+}
+
+/**
+ * `checkpoint:import`. WebView -> Extension. Keep on this machine the
+ * checkpoint the file a `checkpoint:import-read` answered holds, decrypted
+ * with the key the person gives, for the org named: refused, before anything
+ * is decrypted on the disk, for another org than the file's, a production
+ * org, or a user who would not see in the org all the file holds.
+ */
+export interface CheckpointImportRequest extends BaseMessage {
+  type: 'checkpoint:import';
+  payload: {
+    /** The token `checkpoint:import-read` answered for the file. */
+    token: string;
+    /** The org it is imported for, by its id in SandForge: the file's own org, connected here. */
+    orgId: string;
+    /** The key the file was exported under, as it was shown: its groups and dashes or not. */
+    key: string;
+    /** Days it is kept here; 0 keeps it until it is deleted. */
+    keepDays: number;
+  };
 }
 
 /** `checkpoint:list:response`. Extension -> WebView. */
@@ -319,6 +409,77 @@ export interface CheckpointIgnoreFieldsResponse extends BaseMessage {
 export interface CheckpointRewindsResponse extends BaseMessage {
   type: 'checkpoint:rewinds:response';
   payload: { rewinds: CheckpointRewindListed[] };
+}
+
+/** `checkpoint:plan-selection:response`. Extension -> WebView. The plan of the selection, for the preview named. */
+export interface CheckpointPlanSelectionResponse extends BaseMessage {
+  type: 'checkpoint:plan-selection:response';
+  payload: { checkpointId: string; previewId: string; plan: RewindSelectionPlan };
+}
+
+/**
+ * `checkpoint:export:response`. Extension -> WebView. The file written, by
+ * its name alone, with the key it is encrypted under — the one time it is
+ * shown — and what it holds; or that the person closed the save dialog.
+ */
+export interface CheckpointExportResponse extends BaseMessage {
+  type: 'checkpoint:export:response';
+  payload:
+    | {
+        status: 'saved';
+        checkpointId: string;
+        /** The file's name, without the folder it was saved in. */
+        fileName: string;
+        /** The key, in groups of four letters and digits: shown once, kept nowhere. */
+        key: string;
+        /** Records it holds, every object together. */
+        records: number;
+        objects: number;
+        /** Bytes of the file written. */
+        bytes: number;
+      }
+    | { status: 'cancelled'; checkpointId: string };
+}
+
+/**
+ * `checkpoint:import-read:response`. Extension -> WebView. What the file
+ * holds, read from its header alone, the token the import names it by, and
+ * the registered orgs it could be imported for; or that the person closed the
+ * open dialog.
+ */
+export interface CheckpointImportReadResponse extends BaseMessage {
+  type: 'checkpoint:import-read:response';
+  payload:
+    | {
+        status: 'read';
+        /** What `checkpoint:import` names the file by, for as long as the panel is open. */
+        token: string;
+        /** The file's name, without its folder. */
+        fileName: string;
+        summary: CheckpointArchiveSummary;
+        /**
+         * The orgs registered here whose Organization Id is the file's: those
+         * it can be imported for. None when the org is not connected here.
+         */
+        orgIds: string[];
+        /**
+         * Set when a checkpoint of its id is kept here already: the import
+         * says it is kept already when that one is the same, and is refused
+         * when it is not.
+         */
+        keptHere?: true;
+      }
+    | { status: 'cancelled' };
+}
+
+/**
+ * `checkpoint:import:response`. Extension -> WebView. The checkpoint kept,
+ * listed now among the org's; `alreadyKept` when the same one was kept here
+ * already, and nothing was written.
+ */
+export interface CheckpointImportResponse extends BaseMessage {
+  type: 'checkpoint:import:response';
+  payload: { checkpoint: OrgCheckpoint; outcome: 'imported' | 'alreadyKept' };
 }
 
 /**

@@ -3,15 +3,21 @@ import * as z from 'zod';
 import type {
   BaseMessage,
   CheckpointDeleteRequest,
+  CheckpointExportRequest,
   CheckpointIgnoreFieldsRequest,
+  CheckpointImportRequest,
   CheckpointKeepRequest,
   CheckpointListRequest,
+  CheckpointPlanSelectionRequest,
   CheckpointPreviewRequest,
   CheckpointRenameRequest,
   CheckpointRewindRequest,
   CheckpointScopeRequest,
   CheckpointTakeRequest,
   CheckpointUndoRequest,
+  PipelineRewindGrantRequest,
+  PipelineRewindRevokeRequest,
+  PipelineRewindStepsRequest,
 } from '@sandforge/shared';
 import { CSV_IMPORT_MAX_COLUMNS, CSV_IMPORT_MAX_ROWS } from '@sandforge/shared';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
@@ -47,6 +53,12 @@ import {
   checkpointKeepPayloadSchema,
   checkpointRenamePayloadSchema,
   checkpointIgnoreFieldsPayloadSchema,
+  checkpointPlanSelectionPayloadSchema,
+  checkpointExportPayloadSchema,
+  checkpointImportPayloadSchema,
+  pipelineRewindStepsPayloadSchema,
+  pipelineRewindGrantPayloadSchema,
+  pipelineRewindRevokePayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
 
@@ -668,6 +680,60 @@ describe('pipelineApprovalPayloadSchema', () => {
   });
 });
 
+describe('pipeline:rewind-* payloads', () => {
+  const step = { pipelineId: 'pipeline-1', stepId: 'step-1' };
+
+  it('validates each request as the shared contract declares its payload', () => {
+    expectTypeOf<z.infer<typeof pipelineRewindStepsPayloadSchema>>().toEqualTypeOf<
+      PipelineRewindStepsRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof pipelineRewindGrantPayloadSchema>>().toEqualTypeOf<
+      PipelineRewindGrantRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof pipelineRewindRevokePayloadSchema>>().toEqualTypeOf<
+      PipelineRewindRevokeRequest['payload']
+    >();
+  });
+
+  it('reads the Rewind steps of a pipeline named by its saved id', () => {
+    expect(pipelineRewindStepsPayloadSchema.safeParse({ pipelineId: 'pipeline-1' }).success).toBe(
+      true,
+    );
+    // A pipeline not saved yet has an empty id: it has no Rewind step kept.
+    expect(pipelineRewindStepsPayloadSchema.safeParse({ pipelineId: '' }).success).toBe(false);
+    expect(pipelineRewindStepsPayloadSchema.safeParse(undefined).success).toBe(false);
+  });
+
+  it('keeps what was typed to confirm a step as it was typed, spaces and case', () => {
+    const typed = ' Dev-SB ';
+    expect(pipelineRewindGrantPayloadSchema.parse({ ...step, typed }).typed).toBe(typed);
+  });
+
+  it('refuses a confirmation with nothing typed, too much typed, or a step not saved', () => {
+    for (const wrong of [
+      { typed: '' },
+      { typed: 'x'.repeat(256) },
+      { typed: 42 },
+      { pipelineId: '' },
+      { stepId: '' },
+    ]) {
+      expect(
+        pipelineRewindGrantPayloadSchema.safeParse({ ...step, typed: 'DEV-SB', ...wrong }).success,
+      ).toBe(false);
+    }
+  });
+
+  it('takes back the confirmation of a saved step, named by both its ids', () => {
+    expect(pipelineRewindRevokePayloadSchema.safeParse(step).success).toBe(true);
+    expect(pipelineRewindRevokePayloadSchema.safeParse({ pipelineId: 'pipeline-1' }).success).toBe(
+      false,
+    );
+    expect(pipelineRewindRevokePayloadSchema.safeParse({ ...step, stepId: '' }).success).toBe(
+      false,
+    );
+  });
+});
+
 describe('seedCsvPayloadSchema', () => {
   /** An import of `rows` rows over `columns` mapped columns. */
   const csvImport = (rows: number, columns: number): Record<string, unknown> => ({
@@ -739,6 +805,106 @@ describe('checkpoint:* payloads', () => {
     expectTypeOf<z.infer<typeof checkpointIgnoreFieldsPayloadSchema>>().toEqualTypeOf<
       CheckpointIgnoreFieldsRequest['payload']
     >();
+    expectTypeOf<z.infer<typeof checkpointPlanSelectionPayloadSchema>>().toEqualTypeOf<
+      CheckpointPlanSelectionRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointExportPayloadSchema>>().toEqualTypeOf<
+      CheckpointExportRequest['payload']
+    >();
+    expectTypeOf<z.infer<typeof checkpointImportPayloadSchema>>().toEqualTypeOf<
+      CheckpointImportRequest['payload']
+    >();
+  });
+
+  it('limits a preview and a rewind to the objects named, by API name, each once, at least one', () => {
+    const rewind = {
+      checkpointId: CHECKPOINT,
+      previewId: 'pv-20261022-141030-c3d4',
+      acceptAutomation: false,
+      acceptNoUndo: false,
+      acceptRecreate: false,
+      acceptOutside: false,
+      acceptUnseen: false,
+    };
+    for (const objects of [undefined, ['Case'], ['Case', 'Contact']]) {
+      expect(
+        checkpointPreviewPayloadSchema.safeParse({ checkpointId: CHECKPOINT, objects }).success,
+      ).toBe(true);
+      expect(checkpointRewindPayloadSchema.safeParse({ ...rewind, objects }).success).toBe(true);
+    }
+    // Read so, the objects reach the handler: a rewind of one object is not
+    // turned into a rewind of all of them by a schema that drops the field.
+    expect(checkpointRewindPayloadSchema.parse({ ...rewind, objects: ['Case'] }).objects).toEqual([
+      'Case',
+    ]);
+    for (const objects of [[], ['Case', 'Case'], ['Case WHERE Id != null'], 'Case']) {
+      expect(
+        checkpointPreviewPayloadSchema.safeParse({ checkpointId: CHECKPOINT, objects }).success,
+      ).toBe(false);
+      expect(checkpointRewindPayloadSchema.safeParse({ ...rewind, objects }).success).toBe(false);
+    }
+  });
+
+  it('plans a selection from a preview named by its id, the objects picked and whether records outside may go', () => {
+    const plan = {
+      checkpointId: CHECKPOINT,
+      previewId: 'pv-20261022-141030-c3d4',
+      objects: ['Case'],
+      acceptOutside: false,
+    };
+    expect(checkpointPlanSelectionPayloadSchema.safeParse(plan).success).toBe(true);
+    for (const wrong of [
+      { objects: undefined },
+      { objects: [] },
+      { objects: ['Case', 'Case'] },
+      { acceptOutside: undefined },
+      { acceptOutside: 'no' },
+      { previewId: '../pv-20261022-141030-c3d4' },
+      { previewId: CHECKPOINT },
+    ]) {
+      expect(checkpointPlanSelectionPayloadSchema.safeParse({ ...plan, ...wrong }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('exports a checkpoint named by its id alone', () => {
+    expect(checkpointExportPayloadSchema.safeParse({ checkpointId: CHECKPOINT }).success).toBe(
+      true,
+    );
+    expect(
+      checkpointExportPayloadSchema.safeParse({ checkpointId: '../../ck-20261022-140512-a1b2' })
+        .success,
+    ).toBe(false);
+    // A path the page would name is no field of the request, and is not kept.
+    expect(
+      checkpointExportPayloadSchema.parse({ checkpointId: CHECKPOINT, out: '/tmp/x.sfcheckpoint' }),
+    ).toEqual({ checkpointId: CHECKPOINT });
+  });
+
+  it('imports the file a read answered by its token, for an org, with a key and a keeping time', () => {
+    const asked = {
+      token: 'imp-3f2a9c',
+      orgId: 'org-1',
+      key: 'ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-ABCD-EFGH-IJKL-MNOP-QRST',
+      keepDays: 30,
+    };
+    expect(checkpointImportPayloadSchema.safeParse(asked).success).toBe(true);
+    expect(checkpointImportPayloadSchema.safeParse({ ...asked, keepDays: 0 }).success).toBe(true);
+    for (const wrong of [
+      { token: '' },
+      { orgId: '' },
+      { key: '' },
+      { key: 'x'.repeat(201) },
+      { keepDays: -1 },
+      { keepDays: 3651 },
+      { keepDays: 1.5 },
+    ]) {
+      expect(checkpointImportPayloadSchema.safeParse({ ...asked, ...wrong }).success).toBe(false);
+    }
+    expect(
+      checkpointImportPayloadSchema.parse({ ...asked, file: '/home/someone/x.sfcheckpoint' }),
+    ).toEqual(asked);
   });
 
   it('lists the checkpoints of one org, or of every org when none is named', () => {

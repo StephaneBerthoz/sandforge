@@ -1,5 +1,12 @@
 import type { BaseMessage } from './base.messages.js';
-import type { PipelineSyncConfigInfo, PipelineTriggerStatus } from '../automation.types.js';
+import type {
+  PipelineMaskingTemplateInfo,
+  PipelineRewindStepInfo,
+  PipelineRewindStepInvalidReason,
+  PipelineSeedTemplateInfo,
+  PipelineSyncConfigInfo,
+  PipelineTriggerStatus,
+} from '../automation.types.js';
 
 /**
  * Response for `pipeline:execute` — the pipeline execution
@@ -63,6 +70,113 @@ export interface PipelineSyncConfigsRequest extends BaseMessage {
 export interface PipelineSyncConfigsResponse extends BaseMessage {
   type: 'pipeline:sync-configs:response';
   payload: { configs: PipelineSyncConfigInfo[] };
+}
+
+/** The Seed templates a pipeline's Seed step can run: those the Seed page saved, and those SandForge ships. */
+export interface PipelineSeedTemplatesRequest extends BaseMessage {
+  type: 'pipeline:seed-templates';
+}
+
+/**
+ * Each Seed template, with whether it reads and whether it holds an AI rule —
+ * what the page checks a Seed step against before Run, as the extension does
+ * before the run.
+ */
+export interface PipelineSeedTemplatesResponse extends BaseMessage {
+  type: 'pipeline:seed-templates:response';
+  payload: { templates: PipelineSeedTemplateInfo[] };
+}
+
+/** The masking templates a pipeline's Anonymize step can run: those DataOps ships, and those its page saved. */
+export interface PipelineMaskingTemplatesRequest extends BaseMessage {
+  type: 'pipeline:masking-templates';
+}
+
+/** Each masking template, with the objects its rules name: what an Anonymize step offers to pick from. */
+export interface PipelineMaskingTemplatesResponse extends BaseMessage {
+  type: 'pipeline:masking-templates:response';
+  payload: { templates: PipelineMaskingTemplateInfo[] };
+}
+
+/**
+ * The Rewind steps of a saved pipeline, as the extension reads them on this
+ * machine: whether each can rewind, and whether it is confirmed for its
+ * configuration as saved. Asked again once the pipeline is saved: an edit on
+ * the canvas changes nothing until then.
+ */
+export interface PipelineRewindStepsRequest extends BaseMessage {
+  type: 'pipeline:rewind-steps';
+  payload: { pipelineId: string };
+}
+
+/** The saved pipeline's Rewind steps, in pipeline order; none for a pipeline that is not saved. */
+export interface PipelineRewindStepsResponse extends BaseMessage {
+  type: 'pipeline:rewind-steps:response';
+  payload: { pipelineId: string; steps: PipelineRewindStepInfo[] };
+}
+
+/**
+ * Confirm a Rewind step of a saved pipeline, as the person typed it below its
+ * preview: the org's alias, or its username when it has none. The extension
+ * reads the step from the pipeline as saved, never from the page, compares
+ * `typed` to the org it names character for character, checks the checkpoint
+ * is kept here, valid and of that org, and keeps the confirmation on this
+ * machine, bound to the step's configuration (`rewindGrantDigest`): saving a
+ * change to it voids the confirmation, and changing it back does not bring
+ * it back.
+ */
+export interface PipelineRewindGrantRequest extends BaseMessage {
+  type: 'pipeline:rewind-grant';
+  payload: { pipelineId: string; stepId: string; typed: string };
+}
+
+/**
+ * Why a Rewind step's confirmation was not kept, as a code the page words in
+ * the reader's language:
+ *
+ * - `NOT_SAVED`: the saved pipeline holds no Rewind step of that id — the
+ *   page shows a pipeline or a step not saved yet, or one deleted since;
+ * - `CONFIG_INVALID`: the saved step's configuration does not read
+ *   (`pipelineRewindStepConfigSchema`); `reason` is its first issue;
+ * - `ORG_UNKNOWN`: the org it names is not registered here;
+ * - `CHECKPOINT_INVALID`: its checkpoint cannot be rewound to here; `why`
+ *   says which way (`PipelineRewindStepInvalidReason`);
+ * - `TYPED_MISMATCH`: what was typed is not the org's alias, or its username
+ *   when it has none, character for character.
+ */
+export type PipelineRewindGrantRefusal =
+  'NOT_SAVED' | 'CONFIG_INVALID' | 'ORG_UNKNOWN' | 'CHECKPOINT_INVALID' | 'TYPED_MISMATCH';
+
+/** The step as it stands once confirmed, or why its confirmation was not kept: nothing kept then. */
+export interface PipelineRewindGrantResponse extends BaseMessage {
+  type: 'pipeline:rewind-grant:response';
+  payload:
+    | { granted: true; pipelineId: string; stepId: string; step: PipelineRewindStepInfo }
+    | {
+        granted: false;
+        pipelineId: string;
+        stepId: string;
+        code: PipelineRewindGrantRefusal;
+        /** With `CHECKPOINT_INVALID`: why the checkpoint cannot be rewound to. */
+        why?: PipelineRewindStepInvalidReason;
+        /** With `CONFIG_INVALID`: the schema's first issue. */
+        reason?: string;
+      };
+}
+
+/**
+ * Take back a Rewind step's confirmation: the step no longer runs until a
+ * person confirms it again. Nothing else of the pipeline changes.
+ */
+export interface PipelineRewindRevokeRequest extends BaseMessage {
+  type: 'pipeline:rewind-revoke';
+  payload: { pipelineId: string; stepId: string };
+}
+
+/** Whether a confirmation was kept for the step, and is no longer. */
+export interface PipelineRewindRevokeResponse extends BaseMessage {
+  type: 'pipeline:rewind-revoke:response';
+  payload: { pipelineId: string; stepId: string; revoked: boolean };
 }
 
 /** Error response for pipeline operations (emitted via sendHandlerError). */

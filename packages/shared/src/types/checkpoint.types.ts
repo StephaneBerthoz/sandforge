@@ -349,6 +349,26 @@ export interface CheckpointArchiveHeader {
   chunkBytes: number;
 }
 
+/**
+ * What the page is told of a `.sfcheckpoint` file before it asks for the key:
+ * its header without the values its blocks are decrypted with, which nobody
+ * reads.
+ */
+export type CheckpointArchiveSummary = Pick<
+  CheckpointArchiveHeader,
+  | 'formatVersion'
+  | 'checkpointFormat'
+  | 'sandforgeVersion'
+  | 'organizationId'
+  | 'orgTier'
+  | 'checkpointId'
+  | 'takenAt'
+  | 'records'
+  | 'objects'
+  | 'files'
+  | 'bytes'
+>;
+
 // ─── Listing, scope and estimates ────────────────────────────────────────────
 
 /**
@@ -498,6 +518,12 @@ export interface CheckpointEstimate {
  * (`IMPORT_KEY`), a file changed or damaged since it was exported
  * (`IMPORT_DAMAGED`), too little room on this machine's disk (`IMPORT_DISK`),
  * and another checkpoint of its id kept here already (`IMPORT_KEPT_OTHER`).
+ *
+ * A rewind held to bounds ({@link RewindBounds}) — a pipeline's Rewind step,
+ * whose bounds stand in for the person who would read the preview, or the
+ * command line given `--max-records` or `--refuse-when-active` — is refused
+ * besides with `TOO_MANY_TO_REWIND`, `PEOPLE_ACTIVE`,
+ * `UNDELETABLE_UNATTENDED` and `NOT_CONFIRMED`, each said below.
  */
 export type CheckpointRefusalCode =
   | 'PRODUCTION'
@@ -518,7 +544,60 @@ export type CheckpointRefusalCode =
   | 'IMPORT_KEY'
   | 'IMPORT_DAMAGED'
   | 'IMPORT_DISK'
-  | 'IMPORT_KEPT_OTHER';
+  | 'IMPORT_KEPT_OTHER'
+  /**
+   * The rewind would delete, give back, bring back and make again more
+   * records, all together, than its bound allows ({@link RewindBounds.maxRecords}):
+   * a Rewind step's limit, or the command line's `--max-records`. Said with
+   * both numbers. Not `TOO_MANY_RECORDS`, which is a take's limit.
+   */
+  | 'TOO_MANY_TO_REWIND'
+  /**
+   * Held to {@link RewindBounds.refuseWhenActive}: users other than the
+   * rewind's own writers — the user it runs as and the org's Automated
+   * Process — changed records of the checkpoint's objects in the hour before
+   * the rewind began reading, whose work it would take back. Said with how
+   * many people. A rewind from the panel shows them in its preview instead.
+   */
+  | 'PEOPLE_ACTIVE'
+  /**
+   * A rewind nobody watches — a pipeline's Rewind step — would delete records
+   * of objects its user may not delete. The panel asks a person whether to
+   * delete the rest; with nobody to ask, the answer is no: the deletion is
+   * left untouched, nothing is written, and the objects are named.
+   */
+  | 'UNDELETABLE_UNATTENDED'
+  /**
+   * A pipeline's Rewind step that no person confirmed for its configuration
+   * as saved: never confirmed, or confirmed before its configuration changed
+   * (`rewindGrantDigest`). Said with the step's name, and that typing the
+   * org's alias on the step confirms it.
+   */
+  | 'NOT_CONFIRMED';
+
+/**
+ * What a rewind nobody watches is held to, in the place of the person who
+ * would read its preview first: a pipeline's Rewind step, whose bounds are
+ * its configuration, or the command line given `--max-records` or
+ * `--refuse-when-active`. The acceptances and the refusals every rewind
+ * meets (`EMAILS` among them, which nothing lifts) apply besides.
+ */
+export interface RewindBounds {
+  /**
+   * The most records the rewind may delete, give back, bring back and make
+   * again, all together, as its plan counts them; past it, `TOO_MANY_TO_REWIND`.
+   * Absent, no such bound: the command line without `--max-records`.
+   */
+  maxRecords?: number;
+  /**
+   * Whether the rewind is refused (`PEOPLE_ACTIVE`) when anyone but its own
+   * writers changed records of the checkpoint's objects in the hour before it
+   * began reading. On a Developer Edition whose people share the user
+   * SandForge connects as, their changes are that user's, and are not told
+   * apart.
+   */
+  refuseWhenActive: boolean;
+}
 
 /**
  * A write a rewind or an undo makes, as the org's automation fires on it:
@@ -1028,6 +1107,92 @@ export interface RewindResult {
   /** API requests it used, counted by SandForge, and the requests the org has left today. */
   apiRequests: { used: number; leftToday: number };
   finishedAt: ISODateString;
+  /**
+   * A rewind's alone, limited to some of the checkpoint's objects: see
+   * {@link RewindScope}. Absent from a rewind of every object, and from an
+   * undo's result.
+   */
+  scope?: RewindScope;
+}
+
+/**
+ * The objects a rewind of some of a checkpoint's objects was limited to, and
+ * what it left of the others. Its verification compares the objects picked
+ * alone: what still differs in the others is counted here, never among the
+ * residual, and never makes the rewind partial.
+ */
+export interface RewindScope {
+  /** The objects picked, by API name. */
+  objects: string[];
+  /** The objects not picked that still differ from the checkpoint, and their records that do. */
+  notRewound: { objects: string[]; records: number };
+}
+
+// ─── A rewind of some objects: its plan, made from a preview ────────────────
+
+/**
+ * Why a rewind limited to some objects leaves a record that differs, as its
+ * plan made from the preview says before it runs:
+ *
+ * - `needsUnpickedParent`: it comes back only with a parent of an object not
+ *   picked, which this rewind leaves deleted; or a lookup of it names such a
+ *   parent, deleted since: its other fields are given back, that lookup left;
+ * - `heldByUnpicked`: some of its values are held in place by children of an
+ *   object not picked, created since (an opportunity's amount under its
+ *   products): those fields are left;
+ * - `outsideNotAccepted`: deleting it would take along records outside what
+ *   this rewind rewinds — of an object not picked, or outside the
+ *   checkpoint — and that was not accepted;
+ * - `holdsLeft`: a record left hangs from it, which its deletion would take
+ *   along;
+ * - `keyTaken`: a row of a custom setting to bring back whose owner or name a
+ *   live row holds.
+ */
+export type RewindSelectionLeftReason =
+  'needsUnpickedParent' | 'heldByUnpicked' | 'outsideNotAccepted' | 'holdsLeft' | 'keyTaken';
+
+/**
+ * What a rewind limited to the objects picked would do to one object. An
+ * object not picked is among them for what the rewind itself brings about
+ * alone: children of it created since, which come back with a parent the
+ * rewind brings back, deleted again.
+ */
+export interface RewindSelectionAct {
+  objectApiName: string;
+  /** Whether the object is one of those picked. */
+  picked: boolean;
+  toDelete: number;
+  toGiveBack: number;
+  toBringBack: number;
+  toRecreate: number;
+}
+
+/**
+ * What a rewind limited to the objects picked would do and leave, planned on
+ * this machine from a preview with the rewind's own plan, the org not read:
+ * the counts the rewind that follows it acts on, the preview's still holding.
+ * A dependency is proposed, never added: the rewind does no more than what
+ * was confirmed.
+ */
+export interface RewindSelectionPlan {
+  /** The objects picked, by API name. */
+  objects: string[];
+  /** Per object it would write to, in the checkpoint's reading order. */
+  acts: RewindSelectionAct[];
+  /** Records that differ it would leave, per object and reason. */
+  left: Array<{ objectApiName: string; reason: RewindSelectionLeftReason; count: number }>;
+  /**
+   * Objects not picked that records of those picked need to be rewound with,
+   * each with how many of the records picked need it: what the page offers to
+   * add, one by one.
+   */
+  needs: Array<{ objectApiName: string; records: number }>;
+  /**
+   * Records it deletes that Undo couldn't bring back, per object and reason
+   * ({@link RewindUndoCannot}): a record deleted on its own because its
+   * parent is not picked among them. The rewind needs them accepted.
+   */
+  undoCannot: RewindUndoCannot[];
 }
 
 // ─── The rewinds of an org, as the histories mark the runs they took back ────

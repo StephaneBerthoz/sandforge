@@ -357,6 +357,18 @@ const AutomationMessages = [
   // The saved Sync configurations a Sync step can run, with Production Guard's verdict.
   msg('pipeline:sync-configs'),
   msg('pipeline:sync-configs:response'),
+  // The Seed and masking templates a Seed or Anonymize step can run.
+  msg('pipeline:seed-templates'),
+  msg('pipeline:seed-templates:response'),
+  msg('pipeline:masking-templates'),
+  msg('pipeline:masking-templates:response'),
+  // A saved pipeline's Rewind steps, and the confirmation each is kept with on this machine.
+  msg('pipeline:rewind-steps'),
+  msg('pipeline:rewind-steps:response'),
+  msg('pipeline:rewind-grant'),
+  msg('pipeline:rewind-grant:response'),
+  msg('pipeline:rewind-revoke'),
+  msg('pipeline:rewind-revoke:response'),
   msg('marketplace:list'),
   msg('marketplace:list:response'),
   msg('marketplace:install'),
@@ -696,6 +708,16 @@ const CheckpointMessages = [
   // The rewinds the ledger keeps, read from this machine alone: the histories' marks.
   msg('checkpoint:rewinds'),
   msg('checkpoint:rewinds:response'),
+  // What a rewind of the objects picked would do and leave, planned from a preview.
+  msg('checkpoint:plan-selection'),
+  msg('checkpoint:plan-selection:response'),
+  // A checkpoint out to an encrypted file and in from one, the paths kept by the extension.
+  msg('checkpoint:export'),
+  msg('checkpoint:export:response'),
+  msg('checkpoint:import-read'),
+  msg('checkpoint:import-read:response'),
+  msg('checkpoint:import'),
+  msg('checkpoint:import:response'),
   // Error channel for every checkpoint request: refusals, malformed payloads, failures.
   msg('checkpoint:error'),
 ] as const;

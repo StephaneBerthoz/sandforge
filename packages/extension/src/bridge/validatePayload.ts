@@ -1263,7 +1263,12 @@ export const checkpointTakePayloadSchema = z
     ignoredFields: checkpointIgnoredFieldsSchema.optional(),
   })
   .refine(objectsMatchMode, OBJECTS_MATCH_MODE);
-export const checkpointPreviewPayloadSchema = z.object({ checkpointId: checkpointIdSchema });
+// The objects a rewind is limited to are named as a take names those it
+// picks: by API name, each once, at least one. Absent, every object.
+export const checkpointPreviewPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  objects: checkpointObjectsSchema.optional(),
+});
 // Each acceptance is said, never assumed: a rewind that deletes what Undo
 // couldn't bring back, makes records again with new Ids, fires the org's
 // automation, or deletes records whose delete takes along what its user is
@@ -1271,11 +1276,38 @@ export const checkpointPreviewPayloadSchema = z.object({ checkpointId: checkpoin
 export const checkpointRewindPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
   previewId: previewIdSchema,
+  objects: checkpointObjectsSchema.optional(),
   acceptAutomation: z.boolean(),
   acceptNoUndo: z.boolean(),
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
   acceptUnseen: z.boolean(),
+});
+// The plan of a selection is read from the preview's folder on this
+// machine, named by its id as a rewind names it.
+export const checkpointPlanSelectionPayloadSchema = z.object({
+  checkpointId: checkpointIdSchema,
+  previewId: previewIdSchema,
+  objects: checkpointObjectsSchema,
+  acceptOutside: z.boolean(),
+});
+export const checkpointExportPayloadSchema = z.object({ checkpointId: checkpointIdSchema });
+
+/**
+ * The longest key an import is given: the 52 letters of one, with the dashes
+ * between its groups or spaces, and room for a pasted line. What is not a
+ * key at all is the import's to refuse, as one that is not the file's, in the
+ * reader's words rather than as a malformed request.
+ */
+const MAX_ARCHIVE_KEY_LENGTH = 200;
+
+// The page names the file by the token its read was answered, never by a
+// path: where the file is stays with the extension.
+export const checkpointImportPayloadSchema = z.object({
+  token: opaqueIdSchema,
+  orgId: orgIdSchema,
+  key: z.string().min(1).max(MAX_ARCHIVE_KEY_LENGTH),
+  keepDays: z.number().int().min(0).max(MAX_CHECKPOINT_KEEP_DAYS),
 });
 export const checkpointUndoPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
@@ -1861,6 +1893,33 @@ export const pipelineApprovalPayloadSchema = z.object({
   stepId: opaqueIdSchema,
   decision: z.enum(['approved', 'rejected']),
 });
+
+/**
+ * The longest an org's alias or username may be typed to confirm a Rewind
+ * step: past a username's 80 characters, with room for an alias.
+ */
+const MAX_TYPED_CONFIRMATION_LENGTH = 255;
+
+/**
+ * A Rewind step of a saved pipeline, by the ids it was saved with: a
+ * confirmation is kept for a step that was saved, so neither id is empty, as
+ * a pipeline not saved yet would have it.
+ */
+const savedRewindStepShape = { pipelineId: opaqueIdSchema, stepId: opaqueIdSchema };
+
+/** `pipeline:rewind-steps` — the Rewind steps of a saved pipeline. */
+export const pipelineRewindStepsPayloadSchema = z.object({ pipelineId: opaqueIdSchema });
+/**
+ * `pipeline:rewind-grant` — what the person typed to confirm a Rewind step,
+ * as typed: compared with the org's alias character for character, so it is
+ * neither trimmed nor folded to one case here.
+ */
+export const pipelineRewindGrantPayloadSchema = z.object({
+  ...savedRewindStepShape,
+  typed: z.string().min(1).max(MAX_TYPED_CONFIRMATION_LENGTH),
+});
+/** `pipeline:rewind-revoke` — the Rewind step whose confirmation is taken back. */
+export const pipelineRewindRevokePayloadSchema = z.object(savedRewindStepShape);
 export const marketplaceListPayloadSchema = z
   .object({
     category: z.string().max(100).optional(),

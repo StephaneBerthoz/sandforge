@@ -36,7 +36,7 @@ function envelope(type: string) {
 }
 
 describe('checkpoint messages', () => {
-  it('declares the eleven checkpoint requests, each with its answer', () => {
+  it('declares the fifteen checkpoint requests, each with its answer', () => {
     const literals = declaredLiterals();
     const requests = literals.filter((literal) => !isReply(literal));
     expect(requests).toEqual([
@@ -51,6 +51,10 @@ describe('checkpoint messages', () => {
       'checkpoint:rename',
       'checkpoint:ignore-fields',
       'checkpoint:rewinds',
+      'checkpoint:plan-selection',
+      'checkpoint:export',
+      'checkpoint:import-read',
+      'checkpoint:import',
     ]);
     // The page's bridge hooks wait on `<request>:response` unless told otherwise.
     const unanswered = requests.filter((request) => !literals.includes(`${request}:response`));
@@ -79,6 +83,21 @@ describe('checkpoint messages', () => {
       'checkpoint:take:error',
     ]) {
       expect(BridgeMessageSchema.safeParse(envelope(stray)).success).toBe(false);
+    }
+  });
+
+  it('names no path in what the page sends to export or import a checkpoint file', () => {
+    // The page's requests name a checkpoint, or the token a read answered:
+    // where a file is stays with the extension, behind its dialogs.
+    const src = readFileSync(join(__dirname, 'checkpoint.messages.ts'), 'utf8');
+    for (const request of [
+      'CheckpointExportRequest',
+      'CheckpointImportReadRequest',
+      'CheckpointImportRequest',
+    ]) {
+      const body = src.match(new RegExp(`export interface ${request} [^{]*\\{([\\s\\S]*?)\\n\\}`));
+      expect(body, request).not.toBeNull();
+      expect(body?.[1] ?? '', request).not.toMatch(/\b(?:path|file|folder|dir)\w*\??:/i);
     }
   });
 });

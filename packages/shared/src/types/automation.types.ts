@@ -1,10 +1,16 @@
 import type { UUID, ISODateString } from './common.types.js';
+import type { CheckpointInvalidReason } from './checkpoint.types.js';
 
 /** Pipeline run status */
 export type PipelineRunStatus =
   'idle' | 'queued' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled';
 
-/** Pipeline step type — the building blocks of a pipeline */
+/**
+ * Pipeline step type — the building blocks of a pipeline. A Checkpoint step
+ * takes a checkpoint of an org; a Rewind step puts an org back to a
+ * checkpoint kept on this machine, once a person has confirmed its
+ * configuration by typing the org's alias.
+ */
 export type PipelineStepType =
   | 'seed'
   | 'sync'
@@ -12,6 +18,8 @@ export type PipelineStepType =
   | 'restore'
   | 'anonymize'
   | 'delete'
+  | 'checkpoint'
+  | 'rewind'
   | 'compare'
   | 'precheck'
   | 'notification'
@@ -70,6 +78,71 @@ export interface PipelineSyncConfigInfo {
    * whatever anyone answers. Absent for a configuration that does not read.
    */
   guard?: 'allowed' | 'asks' | 'refused';
+}
+
+/**
+ * A Seed template as a pipeline's Seed step sees it: one the Seed page saved,
+ * or one SandForge ships (`prebuilt-*`), whether it reads as a run of the page
+ * is read, and whether it holds an AI rule, which a pipeline refuses: such a
+ * rule sends field names to Anthropic on each run, with nobody there to see it.
+ */
+export interface PipelineSeedTemplateInfo {
+  id: string;
+  name: string;
+  /** Whether SandForge ships it, rather than the Seed page having saved it. */
+  builtIn: boolean;
+  /** Whether it reads as one a seed can run, offline: its payload, then the Seed validator. */
+  valid: boolean;
+  /** Whether a rule of it is an AI rule. */
+  usesAi: boolean;
+}
+
+/**
+ * A masking template as a pipeline's Anonymize step sees it: one DataOps
+ * ships (`tpl-*`), or one the DataOps page saved, and the objects its rules
+ * name, which a masking run of it writes to unless the step names one.
+ */
+export interface PipelineMaskingTemplateInfo {
+  id: string;
+  name: string;
+  /** Whether DataOps ships it, rather than the DataOps page having saved it. */
+  builtIn: boolean;
+  /** The objects its rules name, by API name. */
+  objects: string[];
+}
+
+/**
+ * Why a Rewind step's saved configuration cannot rewind, as the extension
+ * reads it on this machine: its configuration does not read (`config`), its
+ * checkpoint is not kept here (`missing`: deleted, expired, or the pipeline
+ * came from another machine), the checkpoint is of another org than the one
+ * the step names (`otherOrg`), or it is kept and can no longer be rewound to
+ * ({@link CheckpointInvalidReason}).
+ */
+export type PipelineRewindStepInvalidReason =
+  'config' | 'missing' | 'otherOrg' | CheckpointInvalidReason;
+
+/**
+ * A Rewind step of a saved pipeline as the extension sees it on this machine:
+ * whether the checkpoint it names can be rewound to, and whether a person
+ * confirmed it by typing the org's alias. The confirmation is kept on this
+ * machine beside the pipeline, never in it: a pipeline imported, installed
+ * from the Marketplace or drafted by the AI arrives unconfirmed.
+ */
+export interface PipelineRewindStepInfo {
+  stepId: string;
+  /** The checkpoint its saved configuration names; absent when the configuration does not read. */
+  checkpointId?: string;
+  /** Whether the step could rewind as saved, its confirmation aside. */
+  valid: boolean;
+  /** Why it could not, when it could not. */
+  why?: PipelineRewindStepInvalidReason;
+  /**
+   * The confirmation kept for it, when one is: when it was given, and whether
+   * it was given for the configuration saved now (`rewindGrantDigest`). One
+   * that no longer matches does not let the step run.
+   */
+  granted?: { at: ISODateString; digestMatches: boolean };
 }
 
 /** Trigger type for automated pipeline execution */

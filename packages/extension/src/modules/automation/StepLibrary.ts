@@ -64,6 +64,28 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     icon: 'trash',
     configSchema: { objectName: { type: 'string' }, where: { type: 'string' } },
   },
+  // Checkpoint and Rewind have no handler yet: a pipeline holding either is
+  // refused before it starts, as not runnable in a pipeline yet. Their
+  // configurations are read by `pipelineCheckpointStepConfigSchema` and
+  // `pipelineRewindStepConfigSchema`, whose defaults — a rewind refused while
+  // people are active, its bound on records required — no key listed here
+  // could give.
+  {
+    type: 'checkpoint',
+    label: 'Checkpoint',
+    description: 'Take a checkpoint of an org; not runnable in a pipeline yet',
+    category: 'data',
+    icon: 'bookmark',
+    configSchema: {},
+  },
+  {
+    type: 'rewind',
+    label: 'Rewind',
+    description: 'Put an org back to a checkpoint; not runnable in a pipeline yet',
+    category: 'data',
+    icon: 'history',
+    configSchema: {},
+  },
   {
     type: 'compare',
     label: 'Compare Orgs',

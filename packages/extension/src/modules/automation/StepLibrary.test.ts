@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { StepLibrary } from './StepLibrary';
+import { PIPELINE_STEP_TYPES } from '@sandforge/shared';
 import type { PipelineStepType } from '@sandforge/shared';
 
 describe('StepLibrary', () => {
@@ -10,9 +11,9 @@ describe('StepLibrary', () => {
   });
 
   describe('getStepTypes', () => {
-    it('should return all 12 step types', () => {
+    it('should return all 14 step types', () => {
       const types = library.getStepTypes();
-      expect(types).toHaveLength(12);
+      expect(types).toHaveLength(14);
     });
 
     it('should include all expected step type values', () => {
@@ -26,6 +27,8 @@ describe('StepLibrary', () => {
         'restore',
         'anonymize',
         'delete',
+        'checkpoint',
+        'rewind',
         'compare',
         'precheck',
         'condition',
@@ -43,6 +46,18 @@ describe('StepLibrary', () => {
       const typeValues: string[] = library.getStepTypes().map((t) => t.type);
       for (const retired of ['script', 'loop', 'parallel']) {
         expect(typeValues).not.toContain(retired);
+      }
+    });
+
+    it('lists every step type there is, each once', () => {
+      const typeValues = library.getStepTypes().map((t) => t.type);
+      expect([...typeValues].sort()).toEqual([...PIPELINE_STEP_TYPES].sort());
+    });
+
+    it('says Checkpoint and Rewind do not run in a pipeline yet, and gives them no default a rewind would run with', () => {
+      for (const type of ['checkpoint', 'rewind'] as const) {
+        expect(library.getStepType(type)?.description).toMatch(/not runnable in a pipeline yet$/);
+        expect(library.getDefaultConfig(type)).toEqual({});
       }
     });
   });

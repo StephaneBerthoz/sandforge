@@ -25,11 +25,12 @@ function createContext(overrides?: Partial<StepContext>): StepContext {
 }
 
 /**
- * The ten step types the executor has no handler of its own for. Each of
+ * The twelve step types the executor has no handler of its own for. Each of
  * them used to go to a pass-through that answered "completed" without doing
  * anything. Six — Backup, Compare, Pre-check, Notification, Approval, Sync —
  * run once the extension registers the module flows they use (see
- * `pipelineSteps.ts`).
+ * `pipelineSteps.ts`). Checkpoint and Rewind are types of this release with
+ * no handler registered yet: refused as not runnable yet, never run.
  */
 const UNRUNNABLE_TYPES: PipelineStepType[] = [
   'seed',
@@ -38,6 +39,8 @@ const UNRUNNABLE_TYPES: PipelineStepType[] = [
   'restore',
   'anonymize',
   'delete',
+  'checkpoint',
+  'rewind',
   'compare',
   'precheck',
   'notification',

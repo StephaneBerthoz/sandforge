@@ -309,11 +309,23 @@ export {
   APPROVAL_MAX_TIMEOUT_MINUTES,
   approvalDefect,
   approvalTimeoutMinutes,
+  CHECKPOINT_STEP_DATE,
+  CHECKPOINT_STEP_DEFAULT_KEEP_DAYS,
+  CHECKPOINT_STEP_MAX_KEEP_DAYS,
   isPipelineStepType,
   isRetiredPipelineStepType,
   PIPELINE_STEP_TYPES,
+  pipelineAnonymizeStepConfigSchema,
+  pipelineCheckpointStepConfigSchema,
+  pipelineRewindStepConfigSchema,
+  pipelineSeedStepConfigSchema,
   RETIRED_PIPELINE_STEP_TYPES,
+  rewindGrantDigest,
   type ApprovalDefect,
+  type PipelineAnonymizeStepConfig,
+  type PipelineCheckpointStepConfig,
+  type PipelineRewindStepConfig,
+  type PipelineSeedStepConfig,
 } from './utils/pipelineStepRules.js';
 export { pipelineWriteVerdict, type PipelineWriteVerdict } from './utils/pipelineWriteVerdict.js';
 
