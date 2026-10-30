@@ -65,9 +65,17 @@ overrides:
   # Dev only. qs arrives through typed-rest-client, which Stryker's reporter and
   # vsce's publishing client both use, and typed-rest-client 2.x pins it to
   # 6.15.1 exactly, so no parent range can lift it. 6.16.0 closes
-  # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx and GHSA-q8mj-m7cp-5q26 and keeps
-  # the 6.x API.
-  'qs@>=2.2.5 <6.16.0': '>=6.16.0 <7'
+  # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx and GHSA-q8mj-m7cp-5q26, 6.16.1
+  # GHSA-6pq8-jhm2-2vcw, and both keep the 6.x API. Held at 6.16.1 exactly:
+  # on 2026-10-30 every later 6.x (6.16.2, 6.17.0, 6.17.1) was under four days
+  # old; widen to '>=6.16.1 <7' once they have aged.
+  'qs@>=2.2.5 <6.16.1': '6.16.1'
+  # Shipped: zod validates the extension's inputs, and the Anthropic SDK it
+  # vendors takes it as a peer. Below 4.6.6, GHSA-mrhx-c7xc-m3w5 (high) lets
+  # an oversized constrained collection exhaust memory while it is validated.
+  # The packages ask for ^4.6.7; this lifts
+  # the copy Stryker's ^4.1.12 kept at 4.6.5 in the lockfile. Same 4.x API.
+  'zod@>=4.0.0 <4.6.6': '>=4.6.6 <5'
   # Dev only, through jsdom in the webview tests. 8.21.0 closes
   # GHSA-96hv-2xvq-fx4p; the 8.x API is unchanged.
   'ws@>=8.0.0 <8.21.0': '>=8.21.0 <9'
