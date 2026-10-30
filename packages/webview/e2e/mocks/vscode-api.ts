@@ -1,9 +1,5 @@
 import type { Page } from '@playwright/test';
-import {
-  MODULE_HOW_TO,
-  howToHiddenKey,
-  type HowToModule,
-} from '../../src/components/ui/howToKeys';
+import { MODULE_HOW_TO, howToHiddenKey, type HowToModule } from '../../src/components/ui/howToKeys';
 
 /** Options of the mocked webview API. */
 export interface VSCodeApiMockOptions {
