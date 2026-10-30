@@ -48,6 +48,7 @@ import {
   namespaceMismatches,
   parseRecordTypeRows,
   warnUnmappedRecordType,
+  withoutMasterRecordType,
   type RecordTypeInfo,
   type RecordTypeMapping,
 } from '../sync/RecordTypeMapper.js';
@@ -2207,14 +2208,18 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     return entries.length > 0 ? { currenciesReplaced: entries } : {};
   }
 
-  /** `RecordTypeId` as the target knows it, when the two orgs' record types were matched. */
+  /**
+   * `RecordTypeId` as the target knows it, when the two orgs' record types
+   * were matched; none for a record on the master record type, matched or
+   * not, which the target refuses as read (`withoutMasterRecordType`).
+   */
   private translateRecordTypes(
     objectApiName: string,
     payload: Record<string, unknown>[],
   ): Record<string, unknown>[] {
     const mappings = this.recordTypeMappings;
     if (!mappings || !payload.some((record) => typeof record['RecordTypeId'] === 'string')) {
-      return payload;
+      return payload.map(withoutMasterRecordType);
     }
     return new RecordTypeMapper().apply(payload, mappings, (recordTypeId) => {
       if (this.unmappedRecordTypes.has(recordTypeId)) return;

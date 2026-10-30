@@ -41,6 +41,7 @@ import {
   type RecordTypeAvailability,
 } from '../../core/metadata/recordTypeAvailability.js';
 import { recordTypeNameOf } from '../../core/metadata/recordTypeNames.js';
+import { namesMasterRecordType } from './RecordTypeMapper.js';
 import type { SyncRecordTypes } from './syncRecordTypes.js';
 import type { TargetWriteFields } from './targetWriteFields.js';
 import type { ContactPointNeutralizer } from '../forge/stages/ContactPointNeutralizer.js';
@@ -58,12 +59,6 @@ import {
 
 /** A Salesforce id, as a lookup holds one. */
 const RECORD_ID = /^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$/;
-
-/**
- * The master record type: an object with no record type of its own stores
- * this id, the same in every org, and it is never in a mapping.
- */
-const MASTER_RECORD_TYPE = /^012000000000000(AAA)?$/;
 
 /** An id by its first fifteen characters: the case-sensitive id both forms share. */
 function idKey(id: string): string {
@@ -558,10 +553,17 @@ export function prepareSyncRows(input: PrepareSyncRowsInput): PreparedSyncRows {
       }
     }
 
-    // The record type the row goes in with, mapped to the target's.
+    // The record type the row goes in with, mapped to the target's. A row on
+    // the master record type goes without one, as Forge sends it: read as
+    // `RecordTypeId: null` and sent so, an opportunity the simulation counted
+    // written was refused "Record Type ID: this ID value isn't valid for the
+    // user" by a target whose user had a record type of Opportunity
+    // (`withoutMasterRecordType`).
     const value = payload['RecordTypeId'];
     let recordTypeSent: string | undefined;
-    if (typeof value === 'string' && RECORD_ID.test(value) && !MASTER_RECORD_TYPE.test(value)) {
+    if (namesMasterRecordType(value)) {
+      delete payload['RecordTypeId'];
+    } else if (typeof value === 'string' && RECORD_ID.test(value)) {
       const type = recordTypeOf(value, infos, run?.recordTypes);
       if ('unmapped' in type) {
         const name = type.unmapped;

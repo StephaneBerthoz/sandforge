@@ -48,6 +48,40 @@ export function parseRecordTypeRows(rows: unknown): RecordTypeInfo[] {
 const MASTER_RECORD_TYPE_ID_RE = /^012000000000000(AAA)?$/;
 
 /**
+ * Whether a `RecordTypeId` as read names the master record type: empty, as
+ * the org reads a record on it, or the master's own id.
+ */
+export function namesMasterRecordType(value: unknown): boolean {
+  return (
+    value === null ||
+    value === '' ||
+    (typeof value === 'string' && MASTER_RECORD_TYPE_ID_RE.test(value))
+  );
+}
+
+/**
+ * A record on the master record type, as a write sends it: without
+ * `RecordTypeId`, for the target to give it the running user's default.
+ *
+ * Sent, neither the master's id nor an empty value goes in once the running
+ * user has a record type of the object of their own. Run between two scratch
+ * orgs whose Opportunity had one open to the admin, an opportunity on the
+ * master record type sent with `RecordTypeId: null` was refused
+ * "INVALID_CROSS_REFERENCE_KEY: Record Type ID: this ID value isn't valid for
+ * the user: ", and sent with the master's id, refused the same, naming it,
+ * although the describe called the master available and the user's default.
+ * Sent without the field, it was taken, with the one record type the user had.
+ *
+ * @returns The record itself when it names a record type of its own, or none.
+ */
+export function withoutMasterRecordType(record: Record<string, unknown>): Record<string, unknown> {
+  if (!namesMasterRecordType(record['RecordTypeId'])) return record;
+  const copy = { ...record };
+  delete copy['RecordTypeId'];
+  return copy;
+}
+
+/**
  * Log a RecordTypeId that has no counterpart on the target org. The record
  * keeps the source Id, so its insert is refused with an error that names the
  * field but not why the value was wrong; this line in the output is the link.
@@ -191,7 +225,8 @@ export class RecordTypeMapper {
   /**
    * Apply record type mappings to a set of records.
    * Replaces RecordTypeId values with the corresponding target org ID.
-   * Records with unmapped RecordTypeId values are left unchanged.
+   * Records with unmapped RecordTypeId values are left unchanged; a record on
+   * the master record type goes without one ({@link withoutMasterRecordType}).
    *
    * @param onUnmapped - Called once per distinct RecordTypeId that has no
    *   mapping. Such a record still carries the source org's Id, which the
@@ -211,7 +246,8 @@ export class RecordTypeMapper {
 
     return records.map((record) => {
       const recordTypeId = record.RecordTypeId;
-      if (typeof recordTypeId !== 'string' || MASTER_RECORD_TYPE_ID_RE.test(recordTypeId)) {
+      if (namesMasterRecordType(recordTypeId)) return withoutMasterRecordType(record);
+      if (typeof recordTypeId !== 'string') {
         return { ...record };
       }
 

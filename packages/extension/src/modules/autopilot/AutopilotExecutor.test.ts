@@ -2212,6 +2212,47 @@ describe('AutopilotExecutor — record types matched by name', () => {
     expect(result.nodeErrors?.['Product2']).toContain('record type SalesProduct (Sales)');
   });
 
+  it('sends a record on the master record type without RecordTypeId, the types matched or not', async () => {
+    // Sent `RecordTypeId: null`, as the org reads a record on the master
+    // record type, or the master's id, a target whose user had a record type
+    // of the object refused it: "Record Type ID: this ID value isn't valid
+    // for the user". Without the field, it took it.
+    const onMaster = {
+      Product2: [
+        { Id: 'p1', Name: 'Widget', RecordTypeId: null },
+        { Id: 'p2', Name: 'Gadget', RecordTypeId: '012000000000000AAA' },
+        { Id: 'p3', Name: 'Sales', RecordTypeId: SOURCE_SALES },
+      ],
+    };
+    const matched = makeDeps({
+      query: sourceOf(onMaster),
+      querySource: org(SOURCE_SALES),
+      queryTarget: org(TARGET_SALES),
+      insert: insertAs({ Product2: '01tT' }),
+      batchSize: 200,
+    });
+    // No way to read either org's record types: nothing is matched.
+    const unmatched = makeDeps({
+      query: sourceOf({ Product2: onMaster.Product2.slice(0, 2) }),
+      insert: insertAs({ Product2: '01tT' }),
+      batchSize: 200,
+    });
+
+    await new AutopilotExecutor(matched).execute(wavesOf('Product2'), [], [], countsOf(onMaster));
+    await new AutopilotExecutor(unmatched).execute(
+      wavesOf('Product2'),
+      [],
+      [],
+      countsOf({ Product2: onMaster.Product2.slice(0, 2) }),
+    );
+
+    const sentMatched = vi.mocked(matched.insert).mock.calls[0][1];
+    expect(sentMatched.map((record) => 'RecordTypeId' in record)).toEqual([false, false, true]);
+    expect(sentMatched[2]['RecordTypeId']).toBe(TARGET_SALES);
+    const sentUnmatched = vi.mocked(unmatched.insert).mock.calls[0][1];
+    expect(sentUnmatched.map((record) => 'RecordTypeId' in record)).toEqual([false, false]);
+  });
+
   it('keeps the id of a type the target does not have, and says so once', async () => {
     const warn = vi.spyOn(logger, 'warn');
     const twice = { Product2: [...rows.Product2, { ...rows.Product2[0], Id: 'p2' }] };

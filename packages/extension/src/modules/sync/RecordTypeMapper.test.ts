@@ -12,6 +12,7 @@ import {
   namespaceMismatches,
   parseRecordTypeRows,
   warnUnmappedRecordType,
+  withoutMasterRecordType,
 } from './RecordTypeMapper';
 import type { RecordTypeInfo, RecordTypeMapping } from './RecordTypeMapper';
 
@@ -301,10 +302,15 @@ describe('RecordTypeMapper', () => {
       ]);
     });
 
-    it('keeps the master record type Id, which is the same in every org, without reporting it', () => {
+    it('sends a record on the master record type without RecordTypeId, which the target refuses as read, and reports none', () => {
+      // A target whose user has a record type of the object refused both the
+      // master's id and an empty value: "Record Type ID: this ID value isn't
+      // valid for the user"; without the field, it took the record.
       const records = [
         { Name: 'A', RecordTypeId: '012000000000000AAA' },
         { Name: 'B', RecordTypeId: '012000000000000' },
+        { Name: 'C', RecordTypeId: null },
+        { Name: 'D', RecordTypeId: '' },
       ];
       const unmapped: string[] = [];
 
@@ -315,7 +321,42 @@ describe('RecordTypeMapper', () => {
       );
 
       expect(unmapped).toEqual([]);
-      expect(result.map((r) => r.RecordTypeId)).toEqual(['012000000000000AAA', '012000000000000']);
+      expect(result).toEqual([{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }, { Name: 'D' }]);
+      // The records read are left as they were.
+      expect(records[2]).toEqual({ Name: 'C', RecordTypeId: null });
+    });
+
+    it('still sends a record type of its own, mapped, beside one on the master record type', () => {
+      const result = mapper.apply(
+        [
+          { Name: 'A', RecordTypeId: 'src-1' },
+          { Name: 'B', RecordTypeId: null },
+        ],
+        [{ sourceId: 'src-1', targetId: 'tgt-1', developerName: 'Business' }],
+      );
+
+      expect(result).toEqual([{ Name: 'A', RecordTypeId: 'tgt-1' }, { Name: 'B' }]);
+    });
+  });
+
+  describe('withoutMasterRecordType', () => {
+    it('hands back the record itself when it names a record type of its own, or none', () => {
+      const typed = { Name: 'A', RecordTypeId: '012000000000001AAA' };
+      const untyped = { Name: 'B' };
+
+      expect(withoutMasterRecordType(typed)).toBe(typed);
+      expect(withoutMasterRecordType(untyped)).toBe(untyped);
+    });
+
+    it('leaves out an empty RecordTypeId and the master’s id, in either form, on a copy', () => {
+      for (const value of [null, '', '012000000000000AAA', '012000000000000']) {
+        const record = { Name: 'A', RecordTypeId: value };
+
+        const sent = withoutMasterRecordType(record);
+
+        expect(sent).toEqual({ Name: 'A' });
+        expect(record.RecordTypeId).toBe(value);
+      }
     });
   });
 

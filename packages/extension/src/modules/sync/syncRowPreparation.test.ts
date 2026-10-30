@@ -326,6 +326,45 @@ describe('prepareSyncRows — record types', () => {
 
     expect(prepared.payloads[0].RecordTypeId).toBe(TARGET_BUSINESS);
   });
+
+  it('sends a row on the master record type without RecordTypeId, read empty or as the master’s id', () => {
+    // Sent `RecordTypeId: null`, as the org reads a record on the master
+    // record type, the target refused it: "Record Type ID: this ID value
+    // isn't valid for the user: ". Without the field, it took it.
+    const rows = [
+      { ...BUSINESS_ROW, RecordTypeId: null },
+      { ...BUSINESS_ROW, Id: SOURCE_ACCOUNT_2, RecordTypeId: '012000000000000AAA' },
+    ];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig(),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.held).toEqual([]);
+    expect(prepared.notes).toEqual([]);
+    expect(prepared.payloads).toEqual([
+      { Name: 'Acme', Phone: '+33 6 39 98 00 01' },
+      { Name: 'Acme', Phone: '+33 6 39 98 00 01' },
+    ]);
+  });
+
+  it('sends an update of a row on the master record type without RecordTypeId, the target’s record keeping its own', () => {
+    const rows = [{ ...BUSINESS_ROW, RecordTypeId: null }];
+
+    const prepared = prepareSyncRows({
+      config: objectConfig({ operation: 'update' }),
+      records: rows,
+      target: personAccountTarget(),
+      run: { links: new SyncRunLinks(), sources: rows, recordTypes: RECORD_TYPES },
+    });
+
+    expect(prepared.payloads).toEqual([
+      { Id: SOURCE_ACCOUNT_1, Name: 'Acme', Phone: '+33 6 39 98 00 01' },
+    ]);
+  });
 });
 
 describe('prepareSyncRows — the records the run wrote and refused', () => {
