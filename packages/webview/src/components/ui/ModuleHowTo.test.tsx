@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ModuleHowTo, HowToSteps } from './ModuleHowTo';
-import { MODULE_HOW_TO, howToHiddenKey } from './moduleHowTo';
+import { MODULE_HOW_TO, howToHiddenKey } from './howToKeys';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

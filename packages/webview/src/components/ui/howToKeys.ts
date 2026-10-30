@@ -2,7 +2,7 @@
  * The keys of each module's how-to, in the order its steps are taken: the
  * module's page shows them in ModuleHowTo, its Help section in HowToSteps, and
  * scripts/sync-module-howto.mjs writes their English into its docs page.
- * moduleHowTo.test.ts holds this list to the `howTo` section of every locale.
+ * howToKeys.test.ts holds this list to the `howTo` section of every locale.
  */
 export const MODULE_HOW_TO = {
   forge: {

@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { useAppStore } from '../../stores/useAppStore';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import { HowToSteps } from '../../components/ui/ModuleHowTo';
-import { hasHowTo, howToKeys } from '../../components/ui/moduleHowTo';
+import { hasHowTo, howToKeys } from '../../components/ui/howToKeys';
 
 /** Accordion section definition. */
 interface HelpSection {

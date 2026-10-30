@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, Lightbulb } from 'lucide-react';
 import { cn } from '../../theme';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
-import { MODULE_HOW_TO, howToHiddenKey, type HowToModule } from './moduleHowTo';
+import { MODULE_HOW_TO, howToHiddenKey, type HowToModule } from './howToKeys';
 
 /** Props for HowToSteps and ModuleHowTo. */
 export interface HowToProps {

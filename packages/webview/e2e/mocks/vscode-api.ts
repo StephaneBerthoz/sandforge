@@ -3,7 +3,7 @@ import {
   MODULE_HOW_TO,
   howToHiddenKey,
   type HowToModule,
-} from '../../src/components/ui/moduleHowTo';
+} from '../../src/components/ui/howToKeys';
 
 /** Options of the mocked webview API. */
 export interface VSCodeApiMockOptions {

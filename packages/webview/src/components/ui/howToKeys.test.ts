@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MODULE_HOW_TO, hasHowTo, howToKeys, type HowToModule } from './moduleHowTo';
+import { MODULE_HOW_TO, hasHowTo, howToKeys, type HowToModule } from './howToKeys';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
 import de from '../../i18n/locales/de.json';
