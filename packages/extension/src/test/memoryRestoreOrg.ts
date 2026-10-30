@@ -6,13 +6,26 @@
  * A record a test names in `refuseUpdate` is refused with the answer given,
  * and a field a test names in `heldByChildren` is refused while live records
  * of another object name its record. An update that points a lookup at a
- * record in the recycle bin is refused, `ENTITY_IS_DELETED`, as the org
- * refused one live.
+ * record in the recycle bin is refused as the org refused one live, in the
+ * words it refuses an update of a record no longer there: `ENTITY_IS_DELETED`,
+ * no field named.
  *
  * Lives under `src/test/`: a helper, not a suite.
  */
 
 import { MEMORY_ORG_USER, MemoryRemovalOrg } from './memoryRemovalOrg.js';
+
+/**
+ * The org's refusal of an update of a record in the recycle bin, and of one
+ * that sets a lookup to such a record, alike, in a single write as in a
+ * collection. An account's parent and a contact's manager set live to
+ * records in the bin were answered `{statusCode: ENTITY_IS_DELETED, message:
+ * "entity is deleted", fields: []}`: the answer names no field, and tells
+ * nothing of which of the two the org no longer has.
+ */
+function entityIsDeleted(): { statusCode: string; message: string; fields: string[] } {
+  return { statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [] };
+}
 
 /** See the module's comment. */
 export class MemoryRestoreOrg extends MemoryRemovalOrg {
@@ -77,8 +90,10 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
    * Insert records as a REST collection does, one answer per record in their
    * order: each made with a new id of its object's prefix, dated now, to the
    * second, as created and last modified by the session's user. A lookup
-   * naming a record of an object the org holds that is no longer live is
-   * refused, as the org refuses one: `INVALID_CROSS_REFERENCE_KEY`.
+   * naming a record in the recycle bin is refused as an update setting one
+   * is, naming no field, as the org refused an account made under a parent
+   * in the bin live; one naming a record of an object the org holds that is
+   * gone past the bin, `INVALID_CROSS_REFERENCE_KEY`.
    */
   async create(objectApiName: string, records: Array<Record<string, unknown>>): Promise<unknown> {
     this.requests++;
@@ -90,6 +105,9 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
       const dangling = Object.entries(record).find(
         ([, value]) => this.namesKnownRecord(value) && !this.isLive(String(value)),
       );
+      if (dangling && this.namesBinned(dangling[1])) {
+        return { success: false, errors: [entityIsDeleted()] };
+      }
       if (dangling) {
         return {
           success: false,
@@ -168,27 +186,13 @@ export class MemoryRestoreOrg extends MemoryRemovalOrg {
       const held = this.heldOf(objectApiName, record);
       if (held.length > 0) return { id, success: false, errors: held };
       // A lookup to a record in the recycle bin, refused as the org refused
-      // one live, the record left as it was.
-      const binned = Object.entries(record).find(
+      // one live, the record left as it was: in the very words it refuses a
+      // record itself deleted, naming no field.
+      const binned = Object.entries(record).some(
         ([field, value]) => field !== 'Id' && this.namesBinned(value),
       );
-      if (binned) {
-        return {
-          id,
-          success: false,
-          errors: [
-            { statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [binned[0]] },
-          ],
-        };
-      }
       const row = this.liveRow(objectApiName, id);
-      if (!row) {
-        return {
-          id,
-          success: false,
-          errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
-        };
-      }
+      if (binned || !row) return { id, success: false, errors: [entityIsDeleted()] };
       // The record keeps its id, whichever length the update named it by.
       Object.assign(row, record, { Id: row.Id });
       this.restamp(row, MEMORY_ORG_USER);

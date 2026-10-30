@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { restoreOverwrites, sameValue, type BackupReader } from './SyncRunRestore';
 import { MemoryRestoreOrg } from '../../test/memoryRestoreOrg';
 
@@ -139,26 +139,182 @@ describe('restoreOverwrites', () => {
     });
   });
 
-  it('reads a lookup to a record deleted since as a field refused, not the record as gone', async () => {
-    const id = fakeId('001', 10);
-    const gone = fakeId('001', 11);
-    org.add('Account', { Id: id, Name: 'After 10', ParentId: null }, minutesAgo(10));
-    org.refuseValue.set('ParentId', {
-      value: gone,
-      statusCode: 'ENTITY_IS_DELETED',
-      message: 'entity is deleted',
+  describe('a lookup from before that names a record in the recycle bin, which the org refuses naming no field, as it refuses a record itself deleted', () => {
+    const PARENT = fakeId('001', 20);
+    /** Accounts the run wrote over, each held under the parent before it; the parent deleted since. */
+    const children = [fakeId('001', 21), fakeId('001', 22), fakeId('001', 23)];
+    const LEFT_WORDS =
+      'Account.ParentId: the value from before is no longer taken ' +
+      '(ENTITY_IS_DELETED: entity is deleted) — left as the run wrote it';
+
+    /** The statements the restore sends, in order. */
+    function watched(): string[] {
+      const sent: string[] = [];
+      const query = org.query.bind(org);
+      vi.spyOn(org, 'query').mockImplementation(async (soql, options) => {
+        sent.push(soql);
+        return query(soql, options);
+      });
+      return sent;
+    }
+
+    beforeEach(() => {
+      org.add('Account', { Id: PARENT, Name: 'Parent' }, minutesAgo(600));
+      for (const id of children) {
+        org.add('Account', { Id: id, Name: 'After', ParentId: null }, minutesAgo(10));
+      }
+      org.trash('Account', PARENT);
     });
 
-    const outcome = await restoreOverwrites({
-      org,
-      plan: [{ objectApiName: 'Account', backup: BACKUP, ids: [id] }],
-      backups: backups({ Account: [{ Id: id, Name: 'Before 10', ParentId: gone }] }),
-      lastWriteAt: minutesAgo(10),
-      includeChanged: false,
+    it('gives each record still there its other fields, leaves the lookup as the run wrote it and names it, never counting the record gone', async () => {
+      const sent = watched();
+      const told: string[] = [];
+
+      const outcome = await restoreOverwrites({
+        org,
+        plan: [{ objectApiName: 'Account', backup: BACKUP, ids: children }],
+        backups: backups({
+          Account: children.map((id) => ({ Id: id, Name: 'Before', ParentId: PARENT })),
+        }),
+        lastWriteAt: minutesAgo(10),
+        includeChanged: false,
+        counted: (id, as) => told.push(`${id} ${as}`),
+      });
+
+      expect(outcome.objects[0]).toMatchObject({
+        planned: 3,
+        restored: 0,
+        restoredWithout: 3,
+        alreadyGone: 0,
+        refused: 0,
+        reasons: [LEFT_WORDS],
+      });
+      expect(outcome.left).toEqual([]);
+      expect(told).toEqual([]);
+      for (const id of children) {
+        expect(org.all('Account').find((row) => row.Id === id)).toMatchObject({
+          Name: 'Before',
+          ParentId: null,
+        });
+      }
+      // One read of the refused records, whatever their number, and one
+      // update of what is left of them once the lookup is set aside.
+      expect(sent).toHaveLength(2);
+      expect(sent[1]).toMatch(/^SELECT Id FROM Account WHERE Id IN \(/);
+      expect(org.updates.map(({ records }) => records)).toEqual([
+        children.map((id) => ({ Id: id, Name: 'Before', ParentId: PARENT })),
+        children.map((id) => ({ Id: id, Name: 'Before' })),
+      ]);
     });
 
-    expect(outcome.objects[0]).toMatchObject({ alreadyGone: 0, restoredWithout: 1 });
-    expect(org.all('Account').find((row) => row.Id === id)).toMatchObject({ Name: 'Before 10' });
+    it('refuses, naming the lookup, a record still there with nothing else to give back, and offers it again', async () => {
+      const [only] = children;
+      org.edit('Account', only, { Name: 'Before' });
+      org.touch('Account', only, minutesAgo(10));
+
+      const outcome = await restoreOverwrites({
+        org,
+        plan: [{ objectApiName: 'Account', backup: BACKUP, ids: [only] }],
+        backups: backups({ Account: [{ Id: only, Name: 'Before', ParentId: PARENT }] }),
+        lastWriteAt: minutesAgo(10),
+        includeChanged: false,
+      });
+
+      expect(outcome.objects[0]).toMatchObject({
+        restored: 0,
+        alreadyGone: 0,
+        refused: 1,
+        reasons: [LEFT_WORDS],
+      });
+      expect(outcome.objects[0].restoredWithout).toBeUndefined();
+      expect(outcome.left).toEqual([only]);
+      expect(org.updates).toHaveLength(1);
+    });
+
+    it('counts gone a record deleted between its read and its write, read again before it is, and sends it nothing more', async () => {
+      const [deleted, ...others] = children;
+      const update = org.update.bind(org);
+      vi.spyOn(org, 'update').mockImplementationOnce(async (objectApiName, records) => {
+        org.trash('Account', deleted);
+        return update(objectApiName, records);
+      });
+      const told: string[] = [];
+
+      const outcome = await restoreOverwrites({
+        org,
+        plan: [{ objectApiName: 'Account', backup: BACKUP, ids: children }],
+        backups: backups({
+          Account: [
+            { Id: deleted, Name: 'Before', ParentId: PARENT },
+            ...others.map((id) => ({ Id: id, Name: 'Before' })),
+          ],
+        }),
+        lastWriteAt: minutesAgo(10),
+        includeChanged: false,
+        counted: (id, as) => told.push(`${id} ${as}`),
+      });
+
+      expect(outcome.objects[0]).toMatchObject({ restored: 2, alreadyGone: 1, refused: 0 });
+      expect(outcome.objects[0].restoredWithout).toBeUndefined();
+      expect(told.sort()).toEqual(
+        [`${deleted} alreadyGone`, ...others.map((id) => `${id} restored`)].sort(),
+      );
+      expect(org.updates).toHaveLength(1);
+    });
+
+    it('of several lookups, sends each alone and leaves the one the org refuses, the others given back', async () => {
+      const [one] = children;
+      const partner = fakeId('001', 30);
+      org.add('Account', { Id: partner, Name: 'Partner' }, minutesAgo(600));
+
+      const outcome = await restoreOverwrites({
+        org,
+        plan: [{ objectApiName: 'Account', backup: BACKUP, ids: [one] }],
+        backups: backups({
+          Account: [{ Id: one, Name: 'Before', ParentId: PARENT, Partner__c: partner }],
+        }),
+        lastWriteAt: minutesAgo(10),
+        includeChanged: false,
+      });
+
+      expect(outcome.objects[0]).toMatchObject({
+        restored: 0,
+        restoredWithout: 1,
+        alreadyGone: 0,
+        refused: 0,
+        reasons: [LEFT_WORDS],
+      });
+      expect(org.all('Account').find((row) => row.Id === one)).toMatchObject({
+        Name: 'Before',
+        ParentId: null,
+        Partner__c: partner,
+      });
+      expect(org.updates.map(({ records }) => records)).toEqual([
+        [{ Id: one, Name: 'Before', ParentId: PARENT, Partner__c: partner }],
+        [{ Id: one, ParentId: PARENT }],
+        [{ Id: one, Partner__c: partner }],
+        [{ Id: one, Name: 'Before' }],
+      ]);
+    });
+
+    it('sends no read of its own when the org refuses nothing', async () => {
+      org.untrash(PARENT);
+      const sent = watched();
+
+      const outcome = await restoreOverwrites({
+        org,
+        plan: [{ objectApiName: 'Account', backup: BACKUP, ids: children }],
+        backups: backups({
+          Account: children.map((id) => ({ Id: id, Name: 'Before', ParentId: PARENT })),
+        }),
+        lastWriteAt: minutesAgo(10),
+        includeChanged: false,
+      });
+
+      expect(outcome.objects[0]).toMatchObject({ restored: 3, alreadyGone: 0 });
+      expect(sent).toHaveLength(1);
+      expect(org.updates).toHaveLength(1);
+    });
   });
 
   it('says which encrypted fields it could not give back, kept by no run that read them masked', async () => {

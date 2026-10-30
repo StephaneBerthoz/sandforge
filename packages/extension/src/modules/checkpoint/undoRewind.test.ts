@@ -541,6 +541,53 @@ describe('undoRewind, on the memory org', () => {
     paced(60_000),
   );
 
+  it('refuses, naming the lookup, never counting it gone, a record whose value from before names a record the org would not bring back', async () => {
+    const org = orgBeforeTheRewind();
+    const folder = await checkpointFolder();
+    const rewindId = await rewound(folder, org);
+
+    vi.setSystemTime(TR + 10 * 60_000);
+    // NC stays in the bin: R, which the rewind made report to BOSS again, is
+    // given back its manager from before, NC, and the org refuses it in the
+    // words it refuses a record itself deleted.
+    const outcome = await undoRewind({
+      folder,
+      rewindId,
+      lock,
+      objects: READ_ORDER,
+      org,
+      undelete: async (ids) => {
+        const others = ids.filter((each) => each !== NC);
+        const answers = others.length > 0 ? ((await org.undelete(others)) as unknown[]) : [];
+        return ids.map((each) =>
+          each === NC
+            ? {
+                id: NC,
+                success: false,
+                errors: [
+                  { statusCode: 'UNDELETE_FAILED', message: 'Entity is not in the recycle bin' },
+                ],
+              }
+            : answers[others.indexOf(each)],
+        );
+      },
+    });
+
+    expect(outcome.restored.find(({ objectApiName }) => objectApiName === 'Contact')).toEqual(
+      expect.objectContaining({
+        restored: 0,
+        alreadyGone: 0,
+        refused: 1,
+        reasons: [
+          'Contact.ReportsToId: the value from before is no longer taken ' +
+            '(ENTITY_IS_DELETED: entity is deleted) — left as the run wrote it',
+        ],
+      }),
+    );
+    expect(org.all('Contact').find((row) => row.Id === R)?.ReportsToId).toBe(BOSS);
+    expect(outcome.status).toBe('partial');
+  });
+
   it('keeps what a colleague changed since the rewind as they made it, and counts it: the undo is partial', async () => {
     const org = orgBeforeTheRewind();
     const folder = await checkpointFolder();

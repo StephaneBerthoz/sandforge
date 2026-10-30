@@ -13,7 +13,10 @@
  * under way when it stopped, which the target never took — is counted put
  * back and not written. A record gone from the target, a record whose values
  * are no longer kept — its backup deleted, or past its retention — and what
- * the target refuses are counted apart, the refusals in its words.
+ * the target refuses are counted apart, the refusals in its words. A value
+ * from before the target no longer takes — a lookup to a record in its
+ * recycle bin among them — is left as the run wrote it and named, the
+ * record's other fields given back.
  *
  * The removal of the run makes it before its first delete
  * (`SyncRunRemoval`): a record the run wrote over that now names a record the
@@ -39,7 +42,7 @@ import type {
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
-import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
+import { idLists, isRecordId, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import type { BackupRecord } from '../dataops/BackupRecordStore.js';
 import { CLOCK_LEEWAY_MS, type RemovalOrg } from '../forge/ForgeRunRemoval.js';
 import type { SyncRunOverwritten } from './SyncRunCreations.js';
@@ -304,8 +307,9 @@ const FIELD_OF_CODE: Readonly<Record<string, string>> = {
  * The fields of `sent` a refusal is about, as the org names them in
  * `errors[].fields` or by its code: the values from before it no longer
  * takes — a restricted picklist value deactivated since, an owner no longer
- * active, a lookup to a record deleted since. None when it names no field of
- * the update, the whole record refused.
+ * active. None when it names no field of the update: the whole record
+ * refused, or a lookup to a record in the recycle bin, which the org refuses
+ * naming no field (`ENTITY_IS_DELETED`, see {@link restoreOverwrites}).
  */
 function refusedFields(answer: UpdateAnswer, sent: Readonly<Record<string, unknown>>): string[] {
   const named = new Set<string>();
@@ -343,6 +347,43 @@ function refusalOf(answer: UpdateAnswer): { code?: string; words: string } {
     ...(code ? { code } : {}),
     words: code && message ? `${code}: ${message}` : code || message,
   };
+}
+
+/** Fields of a record left as the run wrote them, and the org's words for why. */
+interface FieldsLeft {
+  fields: string[];
+  why: string;
+}
+
+/** Fields left as the run wrote them, said with why the org no longer takes their values from before. */
+function fieldsLeftWords(objectApiName: string, { fields, why }: FieldsLeft): string {
+  return (
+    `${fields.map((field) => `${objectApiName}.${field}`).join(', ')}: the value from ` +
+    `before is no longer taken (${why}) — left as the run wrote it`
+  );
+}
+
+/**
+ * Of `ids`, the records of `object` still in the org, by key, read by their
+ * Ids, up to 200 a query; or, when the org could not be read, why.
+ */
+async function stillThere(
+  org: Pick<RemovalOrg, 'query'>,
+  object: string,
+  ids: readonly string[],
+): Promise<{ live: Set<string>; unread?: undefined } | { unread: string }> {
+  const live = new Set<string>();
+  try {
+    for (const list of idLists(ids)) {
+      const answer = await org.query(`SELECT Id FROM ${object} WHERE Id IN (${list})`);
+      for (const row of answer.records as Array<Record<string, unknown>>) {
+        if (typeof row.Id === 'string') live.add(recordKey(row.Id));
+      }
+    }
+  } catch (err: unknown) {
+    return { unread: extractErrorMessage(err) };
+  }
+  return { live };
 }
 
 /** The tally of one object. */
@@ -567,13 +608,68 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
      */
     const again: Array<{
       record: Record<string, unknown> & { Id: string };
-      fields: string[];
-      why: string;
+      leftOut: FieldsLeft[];
     }> = [];
+    /**
+     * The records refused `ENTITY_IS_DELETED` naming no field, and why. The
+     * org answers so, word for word, an update of a record no longer there
+     * and one that sets a lookup to a record in its recycle bin, in a single
+     * write as in a collection. Read as gone, a record whose parent stays in
+     * the bin would be counted no longer in the org, and none of its other
+     * fields written.
+     */
+    const unnamed: Array<{ record: Record<string, unknown> & { Id: string }; why: string }> = [];
     const refused = (record: { Id: string }, words: string): void => {
       tally.result.refused++;
       tally.reason(words);
       left.push(wanted.get(recordKey(record.Id)) ?? record.Id);
+    };
+    const whole = (record: { Id: string }): void => {
+      tally.result.restored++;
+      input.counted?.(wanted.get(recordKey(record.Id)) ?? record.Id, 'restored');
+    };
+    const gone = (record: { Id: string }): void => {
+      tally.result.alreadyGone++;
+      input.counted?.(wanted.get(recordKey(record.Id)) ?? record.Id, 'alreadyGone');
+    };
+    const stopped = (records: ReadonlyArray<{ Id: string }>): void => {
+      cancelled = true;
+      tally.result.notReached = (tally.result.notReached ?? 0) + records.length;
+      left.push(...records.map((record) => wanted.get(recordKey(record.Id)) ?? record.Id));
+    };
+    /**
+     * A record still there whose `lookups` the org was sent: those it no
+     * longer takes left as the run wrote them, and named; the rest of the
+     * record sent once more, or, nothing else to send, the record given back
+     * but for them — refused when none of its lookups was written either.
+     */
+    const settleLookups = (
+      record: Record<string, unknown> & { Id: string },
+      lookups: readonly string[],
+      leftOut: FieldsLeft[],
+      givenAlone: boolean,
+    ): void => {
+      const rest = Object.keys(record).filter(
+        (field) => field !== 'Id' && !lookups.includes(field),
+      );
+      if (rest.length > 0) {
+        const without: Record<string, unknown> & { Id: string } = { Id: record.Id };
+        for (const field of rest) without[field] = record[field];
+        again.push({ record: without, leftOut });
+        return;
+      }
+      if (leftOut.length === 0) {
+        whole(record);
+        return;
+      }
+      const [first, ...others] = leftOut;
+      if (givenAlone) {
+        tally.without();
+        tally.reason(fieldsLeftWords(objectApiName, first));
+      } else {
+        refused(record, fieldsLeftWords(objectApiName, first));
+      }
+      for (const fields of others) tally.reason(fieldsLeftWords(objectApiName, fields));
     };
     const send = async (
       batch: ReadonlyArray<Record<string, unknown> & { Id: string }>,
@@ -631,18 +727,14 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       const answers = await send(batch);
       answers.forEach((answer, place) => {
         const record = batch[place];
-        const id = wanted.get(recordKey(record.Id)) ?? record.Id;
         if (answer.success === true) {
-          tally.result.restored++;
-          input.counted?.(id, 'restored');
+          whole(record);
           return;
         }
         const refusal = refusalOf(answer);
         const fields = refusedFields(answer, record);
-        // A lookup to a record deleted since names its field: the record is there.
         if (refusal.code === 'ENTITY_IS_DELETED' && fields.length === 0) {
-          tally.result.alreadyGone++;
-          input.counted?.(id, 'alreadyGone');
+          unnamed.push({ record, why: refusal.words });
           return;
         }
         const rest = Object.keys(record).filter(
@@ -651,12 +743,97 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
         if (fields.length > 0 && rest.length > 0) {
           const without: Record<string, unknown> & { Id: string } = { Id: record.Id };
           for (const field of rest) without[field] = record[field];
-          again.push({ record: without, fields, why: refusal.words });
+          again.push({ record: without, leftOut: [{ fields, why: refusal.words }] });
           return;
         }
         refused(record, refusal.words);
       });
     }
+
+    // Gone, or a lookup to a record in the bin: told apart by whether the
+    // record is still there, one read of up to 200 of them by their Ids, sent
+    // only once the org refused some. Still there, the refused lookup is the
+    // one the org was sent, or, of several, the one it refuses alone.
+    /** Records still there that were sent several lookups, and what each one sent alone met. */
+    const probes: Array<{
+      record: Record<string, unknown> & { Id: string };
+      lookups: string[];
+      given: string[];
+      refusedAlone: Array<{ field: string; why: string }>;
+    }> = [];
+    if (unnamed.length > 0 && input.signal?.aborted) {
+      stopped(unnamed.map(({ record }) => record));
+    } else if (unnamed.length > 0) {
+      const there = await stillThere(
+        org,
+        object,
+        unnamed.map(({ record }) => record.Id),
+      );
+      if (there.unread !== undefined) {
+        tally.reason(
+          `Whether ${unnamed.length} ${objectApiName} record(s) refused as deleted are still in ` +
+            `the org could not be read (${there.unread}): left to be given back again`,
+        );
+      }
+      for (const { record, why } of unnamed) {
+        if (there.unread !== undefined) {
+          refused(record, why);
+          continue;
+        }
+        if (!there.live.has(recordKey(record.Id))) {
+          gone(record);
+          continue;
+        }
+        const lookups = Object.keys(record).filter(
+          (field) => field !== 'Id' && isRecordId(record[field]),
+        );
+        if (lookups.length === 0) {
+          // There, and sent no lookup: refused for something else of it.
+          refused(record, why);
+        } else if (lookups.length === 1) {
+          settleLookups(record, lookups, [{ fields: lookups, why }], false);
+        } else {
+          probes.push({ record, lookups, given: [], refusedAlone: [] });
+        }
+      }
+    }
+    let probing = probes.length > 0;
+    for (let round = 0; probing && probes.some(({ lookups }) => lookups.length > round); round++) {
+      const sent = probes.filter(({ lookups }) => lookups.length > round);
+      for (let at = 0; at < sent.length; at += RECORDS_PER_CALL) {
+        if (input.signal?.aborted) {
+          stopped(probes.map(({ record }) => record));
+          probing = false;
+          break;
+        }
+        const batch = sent.slice(at, at + RECORDS_PER_CALL);
+        const answers = await send(
+          batch.map(({ record, lookups }) => ({
+            Id: record.Id,
+            [lookups[round]]: record[lookups[round]],
+          })),
+        );
+        answers.forEach((answer, place) => {
+          const probe = batch[place];
+          const field = probe.lookups[round];
+          if (answer.success === true) probe.given.push(field);
+          else probe.refusedAlone.push({ field, why: refusalOf(answer).words });
+        });
+      }
+    }
+    for (const probe of probing ? probes : []) {
+      const byWhy = new Map<string, string[]>();
+      for (const { field, why } of probe.refusedAlone) {
+        byWhy.set(why, [...(byWhy.get(why) ?? []), field]);
+      }
+      settleLookups(
+        probe.record,
+        probe.lookups,
+        [...byWhy].map(([why, fields]) => ({ fields, why })),
+        probe.given.length > 0,
+      );
+    }
+
     for (let at = 0; at < again.length; at += RECORDS_PER_CALL) {
       const batch = again.slice(at, at + RECORDS_PER_CALL);
       if (input.signal?.aborted) {
@@ -669,15 +846,17 @@ export async function restoreOverwrites(input: SyncRestoreInput): Promise<SyncRe
       }
       const answers = await send(batch.map(({ record }) => record));
       answers.forEach((answer, place) => {
-        const { record, fields, why } = batch[place];
+        const { record, leftOut } = batch[place];
         if (answer.success === true) {
+          // Each of its lookups written alone, none refused: given back whole.
+          if (leftOut.length === 0) {
+            whole(record);
+            return;
+          }
           // Given back but for those fields, which keep the run's values: the
           // run settles, and nothing more is sent for them.
           tally.without();
-          tally.reason(
-            `${fields.map((field) => `${objectApiName}.${field}`).join(', ')}: the value from ` +
-              `before is no longer taken (${why}) — left as the run wrote it`,
-          );
+          for (const fields of leftOut) tally.reason(fieldsLeftWords(objectApiName, fields));
           return;
         }
         refused(record, refusalOf(answer).words);

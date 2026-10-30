@@ -45,10 +45,49 @@ describe('MemoryRestoreOrg', () => {
       {
         id: A2,
         success: false,
-        errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted' }],
+        errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [] }],
       },
     ]);
     expect(org.all('Account')[0]).toMatchObject({ Name: 'After' });
+  });
+
+  it('refuses a lookup set to a record in the recycle bin in the words it refuses a record itself in the bin, naming no field, as the org answered both live', async () => {
+    const org = new MemoryRestoreOrg();
+    const parent = '001000000000003AAA';
+    const contact = '003000000000001AAA';
+    const manager = '003000000000002AAA';
+    org.add('Account', { Id: A1, Name: 'Child', ParentId: null });
+    org.add('Account', { Id: parent, Name: 'Parent' });
+    org.add('Contact', { Id: contact, LastName: 'Report', ReportsToId: null });
+    org.add('Contact', { Id: manager, LastName: 'Manager' });
+    org.add('Account', { Id: A2, Name: 'Binned' });
+    org.trash('Account', parent);
+    org.trash('Contact', manager);
+    org.trash('Account', A2);
+
+    const lookup = await org.update('Account', [
+      { Id: A1, ParentId: parent, Name: 'Written?' },
+      { Id: A2, Name: 'Itself in the bin' },
+    ]);
+    const single = await org.update('Contact', [{ Id: contact, ReportsToId: manager }]);
+
+    const refused = {
+      success: false,
+      errors: [{ statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [] }],
+    };
+    expect(lookup).toEqual([
+      { id: A1, ...refused },
+      { id: A2, ...refused },
+    ]);
+    expect(single).toEqual([{ id: contact, ...refused }]);
+    // Refused whole: nothing of the record is written, its lookup stays empty.
+    expect(org.all('Account').find((row) => row.Id === A1)).toMatchObject({
+      Name: 'Child',
+      ParentId: null,
+    });
+    expect(org.all('Contact').find((row) => row.Id === contact)).toMatchObject({
+      ReportsToId: null,
+    });
   });
 
   it('refuses a field while live records of another object name the record, naming the field, and writes it once they are gone', async () => {
@@ -93,9 +132,12 @@ describe('MemoryRestoreOrg', () => {
 
   it('makes records under new ids of their object’s prefix, dated now as the session’s user, refusing one a test names and one whose lookup names a record no longer live', async () => {
     const org = new MemoryRestoreOrg({}, { now: () => Date.parse('2026-10-22T20:17:26.731Z') });
+    const purged = '001000000000003AAA';
     org.add('Account', { Id: A1, Name: 'Live' });
-    org.add('Account', { Id: A2, Name: 'Gone' });
+    org.add('Account', { Id: A2, Name: 'In the bin' });
+    org.add('Account', { Id: purged, Name: 'Past the bin' });
     org.trash('Account', A2);
+    org.hardDelete('Account', purged);
     org.refuseCreate = (_objectApiName, record) =>
       record.LastName === 'Refused'
         ? { statusCode: 'DUPLICATES_DETECTED', message: 'dup' }
@@ -105,11 +147,16 @@ describe('MemoryRestoreOrg', () => {
       { LastName: 'Made', AccountId: A1 },
       { LastName: 'Refused', AccountId: A1 },
       { LastName: 'Orphan', AccountId: A2 },
+      { LastName: 'Stray', AccountId: purged },
     ])) as Array<{ id?: string; success: boolean; errors: unknown[] }>;
 
-    expect(answer.map(({ success }) => success)).toEqual([true, false, false]);
+    expect(answer.map(({ success }) => success)).toEqual([true, false, false, false]);
     expect(answer[1].errors).toEqual([{ statusCode: 'DUPLICATES_DETECTED', message: 'dup' }]);
+    // Under a parent in the bin, refused as an update setting it is: no field named.
     expect(answer[2].errors).toEqual([
+      { statusCode: 'ENTITY_IS_DELETED', message: 'entity is deleted', fields: [] },
+    ]);
+    expect(answer[3].errors).toEqual([
       expect.objectContaining({ statusCode: 'INVALID_CROSS_REFERENCE_KEY', fields: ['AccountId'] }),
     ]);
     const [made] = org.all('Contact');

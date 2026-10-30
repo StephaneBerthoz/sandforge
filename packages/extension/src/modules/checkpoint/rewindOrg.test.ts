@@ -1443,17 +1443,29 @@ describe('rewindOrg: records emptied from the recycle bin that Salesforce still 
     expect(result.status).toBe('partial');
     // The contact who reported to the boss gets its lookup back only once the
     // boss is: the org refuses a lookup to a record in the bin (P-B1, P-D4).
+    // It refuses it in the words it refuses a record itself deleted, naming
+    // no field: the contact, still there, is named refused for its lookup,
+    // never counted gone.
     expect(sortedIds(result.residual)).toEqual([
       {
         objectApiName: 'Contact',
         reason: 'refused',
         count: 1,
         ids: [REPORT],
-        message: 'ENTITY_IS_DELETED: entity is deleted',
+        message:
+          "Contact.ReportsToId: the checkpoint's value is no longer taken " +
+          '(ENTITY_IS_DELETED: entity is deleted) — left as it is',
       },
       { objectApiName: 'Contact', reason: 'notInBin', count: 3, ids: [P1, P2, BOSS] },
       { objectApiName: 'Account', reason: 'notInBin', count: 2, ids: [P, C] },
     ]);
+    expect(result.restored.find(({ objectApiName }) => objectApiName === 'Contact')).toMatchObject({
+      alreadyGone: 0,
+      refused: 1,
+    });
+    expect(t.org.all('Contact').find((row) => row.Id === REPORT)).toMatchObject({
+      ReportsToId: null,
+    });
     expect(result.undeleted.flatMap(({ reasons }) => reasons)).toEqual([
       NOT_REMADE_WORDS,
       NOT_REMADE_WORDS,

@@ -325,6 +325,52 @@ describe('removeSyncRun, of a run that wrote over records of the target', () => 
     expect(syncRestorePlan({ ...overwriting(), removal: store.state })).toEqual([]);
   });
 
+  it('gives back the rest of a record whose account from before is in the recycle bin since, names the lookup left, never counts the record gone, and keeps the account it stays under', async () => {
+    const org = written();
+    // Deleted since by a colleague: the org refuses the lookup to it in the
+    // words it refuses a record itself deleted.
+    org.trash('Account', OLD_ACCOUNT, fakeId('005', 42));
+    const store = stateStore();
+
+    const { result } = await removeSyncRun({
+      run: overwriting(),
+      org,
+      includeChanged: false,
+      store,
+      backups,
+    });
+
+    expect(result.restored).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Contact',
+        planned: 1,
+        restored: 0,
+        restoredWithout: 1,
+        alreadyGone: 0,
+        refused: 0,
+        reasons: [
+          'Contact.AccountId: the value from before is no longer taken ' +
+            '(ENTITY_IS_DELETED: entity is deleted) — left as the run wrote it',
+        ],
+      }),
+    ]);
+    expect(org.all('Contact')).toEqual([
+      expect.objectContaining({ Id: HELD, AccountId: A1, LastName: 'Before' }),
+    ]);
+    // Still under the run's account, which its delete would take along: kept for it.
+    expect(result.objects).toEqual([
+      expect.objectContaining({
+        objectApiName: 'Account',
+        deleted: 0,
+        keptDependents: 1,
+        heldBy: ['Contact'],
+      }),
+    ]);
+    expect(org.all('Account').map((row) => row.Id)).toEqual([A1]);
+    // Nothing more to send for it: given back but for the lookup.
+    expect(store.state.restoreLeft).toEqual([]);
+  });
+
   it('removes a run that only wrote over records, and leaves one changed since to the next removal', async () => {
     const org = written();
     org.touch('Contact', HELD, new Date(Date.now() + 60_000).toISOString());
