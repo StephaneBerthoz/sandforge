@@ -824,7 +824,7 @@ describe('docs/modules/checkpoint.md', () => {
     expect(REWIND).toContain('await this.withPlanned(remake, plan.recreate)');
     expect(REWIND).toContain("tally.mark('notInBin', objectApiName, id);");
     const PAGE = source('packages/webview/src/pages/Checkpoint/RewindPreview.tsx');
-    expect(PAGE).toContain('const bringsBack = rewindTotals(diff).toBringBack > 0;');
+    expect(PAGE).toContain('const bringsBack = rewindTotals(counted).toBringBack > 0;');
     expect(PAGE).toContain('(remade.length === 0 || ticked.recreate) &&');
     expect(source('packages/extension/src/test/memoryRemovalOrg.ts')).toContain(
       'emptiedStillListed: true,',

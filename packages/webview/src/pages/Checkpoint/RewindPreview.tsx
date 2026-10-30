@@ -1,19 +1,23 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CheckCircle } from 'lucide-react';
 import { blindedBy, firedOnRemovalStepsOf, removalStepsBypassesOf } from '@sandforge/shared';
 import type {
   CheckpointEmails,
+  CheckpointPlanSelectionResponse,
   CheckpointPreviewResponse,
   CheckpointRefusalCode,
   ForgeRemovalStep,
   OrgCheckpoint,
   RewindDiff,
   RewindDiffObject,
+  RewindSelectionLeftReason,
+  RewindSelectionPlan,
   RewindUndoCannotReason,
   SalesforceOrg,
 } from '@sandforge/shared';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useFocusOnChange } from '../../hooks/useFocusOnChange';
 import { Button } from '../../components/ui/Button';
@@ -43,22 +47,63 @@ import {
   cannotUndoLines,
   carriersOf,
   carriersTotal,
+  deletedAgain,
+  deletesPicked,
   filesBroughtBack,
   heldAsItWas,
   lastChangers,
   linkWrites,
   outsideLines,
+  pickedDiff,
   recreateLines,
   rewindSteps,
   rewindTotals,
   rewindWrites,
   rowOf,
+  selectionDiff,
   unseenChildren,
   type CannotUndoLine,
+  type RewindRow,
 } from './rewindPreviewFacts';
 
 /** What `checkpoint:preview` answers. */
 type PreviewAnswer = CheckpointPreviewResponse['payload'];
+
+/** What `checkpoint:plan-selection` answers. */
+type PlanAnswer = CheckpointPlanSelectionResponse['payload'];
+
+/**
+ * How long the ticks of the Rewind column rest before the plan of what is
+ * ticked is asked for: made on this machine from the preview's reads, the
+ * org not read, it comes back quickly, and a click is rarely the last one.
+ */
+const SELECTION_SETTLE_MS = 400;
+
+/**
+ * How long the plan of a selection is waited for: read from the preview's
+ * folder and the checkpoint on this machine's disk, as long as the command
+ * line waits for it.
+ */
+const PLAN_TIMEOUT_MS = 5 * 60_000;
+
+/** What the preview says a rewind of some objects leaves of them, by reason. */
+const SELECTION_LEFT_KEYS: Readonly<Record<RewindSelectionLeftReason, string>> = {
+  needsUnpickedParent: 'checkpoint.preview.selection.left.needsUnpickedParent',
+  heldByUnpicked: 'checkpoint.preview.selection.left.heldByUnpicked',
+  outsideNotAccepted: 'checkpoint.preview.selection.left.outsideNotAccepted',
+  holdsLeft: 'checkpoint.preview.selection.left.holdsLeft',
+  keyTaken: 'checkpoint.preview.selection.left.keyTaken',
+};
+
+/** `value`, once it has stopped changing for `ms`. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 /**
  * How long a preview is waited for. It reads the org, writing nothing: a
@@ -162,6 +207,12 @@ export interface RewindAcceptances {
    * rewind is refused (`UNSEEN`), writing nothing.
    */
   acceptUnseen: boolean;
+  /**
+   * The objects the rewind is limited to, those ticked in the Rewind column,
+   * in the checkpoint's reading order; absent when every object is, a rewind
+   * of every object.
+   */
+  objects?: string[];
 }
 
 /** Props for {@link RewindPreview}. */
@@ -216,6 +267,15 @@ interface Ticked {
  * Read object by object, the preview says so: what another user deleted
  * since stays in the recycle bin, and an object the user no longer holds
  * whole is among those it could not read, named with the user.
+ *
+ * The table's Rewind column, every object ticked to begin with, limits the
+ * rewind to some objects. As the ticks settle, the page asks the extension
+ * for the plan of the objects ticked (`checkpoint:plan-selection`), made on
+ * this machine from the preview's reads by the rewind's own plan, the org not
+ * read: the numbers, the boxes and the confirmation are then that plan's,
+ * with what it leaves of the objects ticked and why, and the objects it needs
+ * to rewind those too, each with a button that ticks it. A dependency is
+ * proposed, never added; Rewind waits for the plan of what is ticked.
  */
 export const RewindPreview: React.FC<RewindPreviewProps> = ({
   org,
@@ -404,8 +464,55 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const tick = (box: keyof Ticked, value: boolean): void =>
     setTicked((was) => ({ ...was, [box]: value }));
 
-  const writes = rewindWrites(diff);
-  const steps = rewindSteps(diff);
+  // The objects left unticked in the Rewind column: none, a rewind of every
+  // object, which asks for no plan.
+  const [unticked, setUnticked] = useState<readonly string[]>([]);
+  const rowNames = diff.objects.map((object) => object.objectApiName);
+  const picks = rowNames.filter((name) => !unticked.includes(name));
+  const selecting = unticked.length > 0;
+  const pickRow = (name: string, value: boolean): void =>
+    setUnticked((was) =>
+      value ? was.filter((each) => each !== name) : was.includes(name) ? was : [...was, name],
+    );
+  // The plan of what is ticked, asked once the ticks have settled, by what it
+  // is asked: the same choice is asked once, and an answer is the plan of
+  // the choice it was asked for alone.
+  const askedKey =
+    selecting && picks.length > 0
+      ? JSON.stringify({
+          checkpointId: diff.checkpointId,
+          previewId: diff.previewId,
+          objects: picks,
+          acceptOutside: ticked.outside,
+        })
+      : '';
+  const settledKey = useSettled(askedKey, SELECTION_SETTLE_MS);
+  const planning = useBridgeMutation<PlanAnswer>('checkpoint:plan-selection', {
+    timeoutMs: PLAN_TIMEOUT_MS,
+  });
+  const askPlan = planning.mutate;
+  const [sentKey, setSentKey] = useState('');
+  const sent = useRef('');
+  useEffect(() => {
+    if (settledKey === '' || settledKey === sent.current) return;
+    sent.current = settledKey;
+    setSentKey(settledKey);
+    askPlan(JSON.parse(settledKey) as Record<string, unknown>);
+  }, [settledKey, askPlan]);
+  const asked = askedKey !== '' && sentKey === askedKey;
+  const plan: RewindSelectionPlan | null =
+    asked && planning.data !== null ? planning.data.plan : null;
+  const planError = asked && planning.error !== null;
+  // What the rewind writes, by which every number, box and step is counted:
+  // the whole diff, or the plan of what is ticked — the diff of those objects
+  // until it comes.
+  const counted = !selecting ? diff : plan ? selectionDiff(diff, plan) : pickedDiff(diff, picks);
+
+  // The table stays while a rewind of every object writes anything: what is
+  // unticked is ticked again there.
+  const writesAny = rewindWrites(diff);
+  const writes = rewindWrites(counted);
+  const steps = rewindSteps(counted);
   const fired = automation
     ? firedOnRemovalStepsOf(automation, steps).map((each) => ({
         part: each.step,
@@ -422,16 +529,23 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
   const automationFound =
     automation !== undefined &&
     (fired.length > 0 || blindedBy(automation.unread) || emailsUncounted !== undefined);
-  const outside = outsideLines(diff);
-  const remade = recreateLines(diff);
+  const outside = outsideLines(counted);
+  const remade = recreateLines(counted);
   // Read object by object: what the deletions take along out of the user's
   // sight, which no read counts.
-  const unseen = diff.unseen ?? [];
+  const unseen = counted.unseen ?? [];
   // Salesforce lists a record emptied from the bin as deleted: only the
   // undelete's answer says it is gone. The box is offered whenever records
   // come back, and required only for those counted to make again.
-  const bringsBack = rewindTotals(diff).toBringBack > 0;
+  const bringsBack = rewindTotals(counted).toBringBack > 0;
   const picked = checkpoint.scope.mode === 'picked';
+  // Of a rewind of some objects, records of an object not ticked made since
+  // under a record it deletes are outside it too: the plan keeps that record
+  // unless deleting them is accepted, by the same box as what goes along
+  // outside a checkpoint of picked objects, offered where that one is not.
+  const outsideBoxed = picked && outside.length > 0;
+  const leftForOutside = plan?.left.some((entry) => entry.reason === 'outsideNotAccepted') ?? false;
+  const unpickedBox = selecting && !outsideBoxed && (leftForOutside || ticked.outside);
 
   const lifted = refusal ? LIFTED_BY[refusal.code] : undefined;
   const refused = refusal !== undefined && (lifted === undefined || !ticked[lifted]);
@@ -439,7 +553,8 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     writes &&
     !readingAgain &&
     !refused &&
-    (diff.undoCannot.length === 0 || ticked.noUndo) &&
+    (!selecting || plan !== null) &&
+    (counted.undoCannot.length === 0 || ticked.noUndo) &&
     (remade.length === 0 || ticked.recreate) &&
     (unseen.length === 0 || ticked.unseen) &&
     (!automationFound || ticked.automation);
@@ -449,16 +564,18 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
     setConfirming({
       previewId: diff.previewId,
       acceptAutomation: automationFound && ticked.automation,
-      acceptNoUndo: diff.undoCannot.length > 0 && ticked.noUndo,
+      acceptNoUndo: counted.undoCannot.length > 0 && ticked.noUndo,
       acceptRecreate: (remade.length > 0 || bringsBack) && ticked.recreate,
       // A checkpoint of everything people work in takes them along, as the
-      // preview said: only a checkpoint of picked objects asks.
-      acceptOutside: outside.length > 0 && (!picked || ticked.outside),
+      // preview said: only a checkpoint of picked objects asks — and a rewind
+      // of some objects, for the records of the others, as its plan was asked.
+      acceptOutside: selecting ? ticked.outside : outside.length > 0 && (!picked || ticked.outside),
       acceptUnseen: unseen.length > 0 && ticked.unseen,
+      ...(selecting ? { objects: picks } : {}),
     });
   };
   const confirmed = (): void => {
-    if (confirming && onRewind) onRewind(confirming, diff);
+    if (confirming && onRewind) onRewind(confirming, counted);
     setConfirming(null);
   };
 
@@ -484,11 +601,37 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </p>
       )}
 
-      {writes ? (
+      {writesAny ? (
         <>
-          <Numbers diff={diff} />
-          <People diff={diff} checkpoint={checkpoint} org={org} />
-          <ObjectTable diff={diff} settings={settings} />
+          <Numbers diff={counted} />
+          <People diff={counted} checkpoint={checkpoint} org={org} />
+          <ObjectTable
+            diff={diff}
+            counted={counted}
+            settings={settings}
+            {...(onRewind && rowNames.length > 1 ? { unticked, onPick: pickRow } : {})}
+          />
+          {selecting && (
+            <Selection
+              picks={picks}
+              rows={rowNames}
+              plan={plan}
+              planning={picks.length > 0 && plan === null && !planError}
+              error={planError ? planning.error : null}
+              errorCode={planError ? planning.errorCode : null}
+              onRetry={() => askPlan(JSON.parse(sentKey) as Record<string, unknown>)}
+              onAdd={(name) => pickRow(name, true)}
+              writes={writes}
+              {...(unpickedBox
+                ? {
+                    outsideBox: {
+                      checked: ticked.outside,
+                      onChange: (value: boolean) => tick('outside', value),
+                    },
+                  }
+                : {})}
+            />
+          )}
         </>
       ) : (
         <p
@@ -510,12 +653,18 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </p>
       )}
 
-      <Details diff={diff} />
+      <Details diff={counted} />
       <Unread diff={diff} />
-      <Files diff={diff} orgName={orgName} username={org.username} />
-      <CannotUndo diff={diff} orgName={orgName} user={org.username} writes={writes} />
+      <Files diff={counted} orgName={orgName} username={org.username} />
+      <CannotUndo
+        diff={counted}
+        orgName={orgName}
+        user={org.username}
+        writes={writes}
+        holdsFiles={diff.files !== undefined}
+      />
 
-      {diff.undoCannot.length > 0 && (
+      {counted.undoCannot.length > 0 && (
         <section
           aria-labelledby={undoCannotId}
           className="flex flex-col gap-1.5"
@@ -525,7 +674,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
             {t('checkpoint.preview.undoCannot.title')}
           </h3>
           <ul className="ml-4 list-disc">
-            {diff.undoCannot.map((item) => {
+            {counted.undoCannot.map((item) => {
               // Each reason its own sentence: a record deleted before a
               // record it points at is said apart from one Salesforce
               // undeletes only with a parent that stays.
@@ -698,7 +847,7 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         </div>
       )}
 
-      {writes && onRewind && (
+      {writesAny && onRewind && (
         <div>
           <Button
             variant="danger"
@@ -715,8 +864,26 @@ const PreviewBody: React.FC<PreviewBodyProps> = ({
         open={confirming !== null}
         onClose={() => setConfirming(null)}
         onConfirm={confirmed}
-        title={t('checkpoint.preview.confirm.title', { org: orgName, name: checkpoint.name })}
-        description={confirmDescription(t, diff, orgName, takenFrom, settings, org.username)}
+        title={
+          selecting
+            ? t('checkpoint.preview.confirm.titleObjects', {
+                objects: listWords(picks, t),
+                org: orgName,
+                name: checkpoint.name,
+              })
+            : t('checkpoint.preview.confirm.title', { org: orgName, name: checkpoint.name })
+        }
+        description={confirmDescription(
+          t,
+          counted,
+          orgName,
+          takenFrom,
+          settings,
+          org.username,
+          selecting
+            ? { objects: picks, deletesAgain: plan ? deletedAgain(plan).length > 0 : false }
+            : undefined,
+        )}
         confirmText={orgName}
       />
     </div>
@@ -755,7 +922,9 @@ function settingRowsWritten(diff: RewindDiff, settings: ReadonlySet<string>): nu
  * then, of those records, the rows of custom settings: configuration, which
  * the user named at the take, and which the rewind sets back too; and, read
  * object by object, what its deletions take along that `user` can't see,
- * which no number counts.
+ * which no number counts. A rewind of some objects names them, and says what
+ * it does to the others: nothing, or delete again what comes back with a
+ * record it brings back.
  */
 function confirmDescription(
   t: TFunction,
@@ -764,6 +933,7 @@ function confirmDescription(
   takenFrom: string,
   settings: ReadonlySet<string>,
   user: string,
+  limited?: { objects: readonly string[]; deletesAgain: boolean },
 ): string {
   const totals = rewindTotals(diff);
   const parts: Array<[count: number, key: string]> = [
@@ -777,15 +947,29 @@ function confirmDescription(
   const changes = parts
     .filter(([count]) => count > 0)
     .map(([count, key]) => t(key, { count, formatted: formatNumber(count) }));
-  const description = t('checkpoint.preview.confirm.description', {
-    org: orgName,
-    date: takenFrom,
-    changes: listWords(changes, t),
-  });
+  const description = limited
+    ? t('checkpoint.preview.confirm.descriptionObjects', {
+        objects: listWords(limited.objects, t),
+        org: orgName,
+        date: takenFrom,
+        changes: listWords(changes, t),
+      })
+    : t('checkpoint.preview.confirm.description', {
+        org: orgName,
+        date: takenFrom,
+        changes: listWords(changes, t),
+      });
   const rows = settingRowsWritten(diff, settings);
   const unseen = unseenChildren(diff);
   return [
     description,
+    ...(limited
+      ? [
+          limited.deletesAgain
+            ? t('checkpoint.preview.confirm.othersDeletedAgain')
+            : t('checkpoint.preview.confirm.othersLeft'),
+        ]
+      : []),
     ...(rows > 0
       ? [
           t('checkpoint.preview.confirm.customSettings', {
@@ -917,16 +1101,51 @@ const People: React.FC<{ diff: RewindDiff; checkpoint: OrgCheckpoint; org: Sales
   );
 };
 
+/** Props for the preview's table. */
+interface ObjectTableProps {
+  /** The whole diff: a row for each of its objects, ticked or not. */
+  diff: RewindDiff;
+  /** What the rewind writes: its numbers are each row's. */
+  counted: RewindDiff;
+  settings: ReadonlySet<string>;
+  /** The objects left unticked in the Rewind column; the column is offered with {@link onPick}. */
+  unticked?: readonly string[];
+  /** Tick an object for the rewind, or untick it. */
+  onPick?: (objectApiName: string, picked: boolean) => void;
+}
+
 /**
  * Object by object: what a rewind deletes, gives back, brings back, makes
- * again and cannot undo; a custom setting named as one, configuration.
+ * again and cannot undo; a custom setting named as one, configuration. With
+ * a Rewind column, every object ticked to begin with, each object can be
+ * left out of the rewind: its row then says it is not rewound, and its
+ * numbers are what the rewind of the others does to it — nothing, or the
+ * records made since it deletes again with a record it brings back.
  */
-const ObjectTable: React.FC<{ diff: RewindDiff; settings: ReadonlySet<string> }> = ({
+const ObjectTable: React.FC<ObjectTableProps> = ({
   diff,
+  counted,
   settings,
+  unticked = [],
+  onPick,
 }) => {
   const { t } = useTranslation();
-  const rows = diff.objects.map(rowOf);
+  const rewindHeaderId = useId();
+  const nameId = useId();
+  const writtenTo = new Map(counted.objects.map((object) => [object.objectApiName, object]));
+  const rows = diff.objects.map((object): RewindRow => {
+    const written = writtenTo.get(object.objectApiName);
+    return written
+      ? rowOf(written)
+      : {
+          objectApiName: object.objectApiName,
+          toDelete: 0,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+          cannotUndo: 0,
+        };
+  });
   // A column of its own only when the rewind makes any record again.
   const remakes = rows.some((row) => row.toRecreate > 0);
   const cell = 'py-1 pr-3';
@@ -957,35 +1176,233 @@ const ObjectTable: React.FC<{ diff: RewindDiff; settings: ReadonlySet<string> }>
           <th scope="col" className={`${header} text-right`}>
             {t('checkpoint.preview.table.cannotUndo')}
           </th>
+          {onPick && (
+            <th scope="col" id={rewindHeaderId} className={`${header} text-center`}>
+              {t('checkpoint.preview.table.rewind')}
+            </th>
+          )}
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr
-            key={row.objectApiName}
-            className="border-b border-subtle last:border-0"
-            data-testid={`checkpoint-preview-row-${row.objectApiName}`}
-          >
-            <th scope="row" className={`${cell} text-left font-mono font-normal break-all`}>
-              {row.objectApiName}
-              {settings.has(row.objectApiName) && (
-                <span
-                  className="block font-sans text-text-secondary"
-                  data-testid={`checkpoint-preview-setting-${row.objectApiName}`}
-                >
-                  {t('checkpoint.preview.table.customSetting')}
-                </span>
+        {rows.map((row, at) => {
+          const left = unticked.includes(row.objectApiName);
+          return (
+            <tr
+              key={row.objectApiName}
+              className="border-b border-subtle last:border-0"
+              data-testid={`checkpoint-preview-row-${row.objectApiName}`}
+            >
+              <th scope="row" className={`${cell} text-left font-mono font-normal break-all`}>
+                <span id={`${nameId}-${at}`}>{row.objectApiName}</span>
+                {settings.has(row.objectApiName) && (
+                  <span
+                    className="block font-sans text-text-secondary"
+                    data-testid={`checkpoint-preview-setting-${row.objectApiName}`}
+                  >
+                    {t('checkpoint.preview.table.customSetting')}
+                  </span>
+                )}
+                {left && (
+                  <span
+                    className="block font-sans text-text-secondary"
+                    data-testid={`checkpoint-preview-not-rewound-${row.objectApiName}`}
+                  >
+                    {t('checkpoint.preview.table.notRewound')}
+                  </span>
+                )}
+              </th>
+              <td className={number}>{formatNumber(row.toDelete)}</td>
+              <td className={number}>{formatNumber(row.toGiveBack)}</td>
+              <td className={number}>{formatNumber(row.toBringBack)}</td>
+              {remakes && <td className={number}>{formatNumber(row.toRecreate)}</td>}
+              <td className={number}>{formatNumber(row.cannotUndo)}</td>
+              {onPick && (
+                <td className={`${cell} text-center`}>
+                  {/* Named by its column and its object, as the row reads. */}
+                  <input
+                    type="checkbox"
+                    checked={!left}
+                    onChange={(event) => onPick(row.objectApiName, event.target.checked)}
+                    aria-labelledby={`${rewindHeaderId} ${nameId}-${at}`}
+                    data-testid={`checkpoint-preview-pick-${row.objectApiName}`}
+                  />
+                </td>
               )}
-            </th>
-            <td className={number}>{formatNumber(row.toDelete)}</td>
-            <td className={number}>{formatNumber(row.toGiveBack)}</td>
-            <td className={number}>{formatNumber(row.toBringBack)}</td>
-            {remakes && <td className={number}>{formatNumber(row.toRecreate)}</td>}
-            <td className={number}>{formatNumber(row.cannotUndo)}</td>
-          </tr>
-        ))}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
+  );
+};
+
+/** Props for what a rewind of some objects would do and leave. */
+interface SelectionProps {
+  /** The objects ticked, in the checkpoint's reading order. */
+  picks: readonly string[];
+  /** The objects of the table: those a dependency can be ticked among. */
+  rows: readonly string[];
+  /** The plan of what is ticked, once the extension answered it. */
+  plan: RewindSelectionPlan | null;
+  /** The plan of what is ticked is being asked for. */
+  planning: boolean;
+  error: string | null;
+  errorCode: string | null;
+  onRetry: () => void;
+  /** Tick an object a record ticked needs. */
+  onAdd: (objectApiName: string) => void;
+  /** Whether the rewind of what is ticked writes anything. */
+  writes: boolean;
+  /**
+   * The box that accepts deleting the records of objects not ticked made
+   * since under a record the rewind deletes, when no other box offers it.
+   */
+  outsideBox?: { checked: boolean; onChange: (checked: boolean) => void };
+}
+
+/**
+ * What a rewind limited to the objects ticked would do and leave, as its own
+ * plan says it: the objects it is limited to, and that the others are left
+ * as they are; what it deletes again of the others; the records of the
+ * objects ticked it leaves, by why; the objects those need, each with a
+ * button that ticks it; and that a lookup of another object to a record it
+ * deletes is emptied by Salesforce.
+ */
+const Selection: React.FC<SelectionProps> = ({
+  picks,
+  rows,
+  plan,
+  planning,
+  error,
+  errorCode,
+  onRetry,
+  onAdd,
+  writes,
+  outsideBox,
+}) => {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const objects = listWords(picks, t);
+  const counted = (count: number): { count: number; formatted: string } => ({
+    count,
+    formatted: formatNumber(count),
+  });
+  const lines: Array<{ id: string; text: string }> = plan
+    ? [
+        ...deletedAgain(plan).map((act) => ({
+          id: `again-${act.objectApiName}`,
+          text: t('checkpoint.preview.selection.deletedAgain', {
+            ...counted(act.toDelete),
+            object: act.objectApiName,
+          }),
+        })),
+        ...plan.left.map((entry) => ({
+          id: `left-${entry.objectApiName}-${entry.reason}`,
+          text: t(SELECTION_LEFT_KEYS[entry.reason], {
+            ...counted(entry.count),
+            object: entry.objectApiName,
+          }),
+        })),
+        ...(deletesPicked(plan)
+          ? [{ id: 'lookups', text: t('checkpoint.preview.selection.lookupsEmptied') }]
+          : []),
+      ]
+    : [];
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col gap-1.5"
+      data-testid="checkpoint-preview-selection"
+    >
+      <h3 id={headingId} className="text-sm font-semibold">
+        {picks.length > 0
+          ? t('checkpoint.preview.selection.title', { objects })
+          : t('checkpoint.preview.selection.noneTitle')}
+      </h3>
+      {picks.length > 0 ? (
+        <p>{t('checkpoint.preview.selection.limited')}</p>
+      ) : (
+        <p role="status" data-testid="checkpoint-preview-selection-none">
+          {t('checkpoint.preview.selection.none')}
+        </p>
+      )}
+      {planning && (
+        <p
+          role="status"
+          className="text-text-secondary"
+          data-testid="checkpoint-preview-selection-planning"
+        >
+          {t('checkpoint.preview.selection.planning', { objects })}
+        </p>
+      )}
+      {error !== null && (
+        <div className="flex flex-col items-start gap-2">
+          <ErrorBanner
+            message={error}
+            code={errorCode}
+            data-testid="checkpoint-preview-selection-error"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onRetry}
+            data-testid="checkpoint-preview-selection-retry"
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
+      {lines.length > 0 && (
+        <ul className="ml-4 list-disc" data-testid="checkpoint-preview-selection-lines">
+          {lines.map((line) => (
+            <li key={line.id} data-testid={`checkpoint-preview-selection-${line.id}`}>
+              {line.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {plan && plan.needs.length > 0 && (
+        <ul className="flex flex-col gap-1" data-testid="checkpoint-preview-selection-needs">
+          {plan.needs.map((need) => (
+            <li
+              key={need.objectApiName}
+              className="flex flex-wrap items-center gap-2"
+              data-testid={`checkpoint-preview-needs-${need.objectApiName}`}
+            >
+              <span>
+                {t('checkpoint.preview.selection.needs', {
+                  ...counted(need.records),
+                  object: need.objectApiName,
+                })}
+              </span>
+              {rows.includes(need.objectApiName) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onAdd(need.objectApiName)}
+                  data-testid={`checkpoint-preview-add-${need.objectApiName}`}
+                >
+                  {t('checkpoint.preview.selection.add', { object: need.objectApiName })}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {outsideBox && (
+        <Box
+          checked={outsideBox.checked}
+          onChange={outsideBox.onChange}
+          label={t('checkpoint.preview.selection.acceptOutside')}
+          testId="checkpoint-preview-accept-outside-unpicked"
+        />
+      )}
+      {plan && !writes && (
+        <p data-testid="checkpoint-preview-selection-writes-nothing">
+          {t('checkpoint.preview.selection.writesNothing')}
+        </p>
+      )}
+    </section>
   );
 };
 
@@ -1192,7 +1609,12 @@ const CannotUndo: React.FC<{
   /** The user the preview read the org as: who field-level security hides a field from. */
   user: string;
   writes: boolean;
-}> = ({ diff, orgName, user, writes }) => {
+  /**
+   * Whether the checkpoint holds files, which `diff` does not say when it is
+   * of a rewind of some objects that leaves the files out.
+   */
+  holdsFiles: boolean;
+}> = ({ diff, orgName, user, writes, holdsFiles }) => {
   const { t } = useTranslation();
   const headingId = useId();
   const field = (object: string, name: string): string => `${object}.${name}`;
@@ -1268,7 +1690,7 @@ const CannotUndo: React.FC<{
           // A checkpoint taken before files were held, or whose scope left
           // them out, rewinds as SandForge 1.69 did: what was attached since
           // stays.
-          ...(diff.files === undefined
+          ...(!holdsFiles
             ? [{ id: 'filesNotHeld', text: t('checkpoint.preview.cannot.filesNotHeld') }]
             : []),
         ]

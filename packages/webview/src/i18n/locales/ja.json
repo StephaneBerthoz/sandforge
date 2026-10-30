@@ -5416,7 +5416,29 @@
         "bringBack": "復元",
         "cannotUndo": "巻き戻し不可",
         "recreate": "再作成",
-        "customSetting": "カスタム設定 (設定データ)"
+        "customSetting": "カスタム設定 (設定データ)",
+        "rewind": "巻き戻す",
+        "notRewound": "巻き戻さない"
+      },
+      "selection": {
+        "title": "{{objects}} に限定",
+        "noneTitle": "チェックしたオブジェクトはありません",
+        "limited": "チェックしていないオブジェクトはそのまま残ります。そこでまだ異なるものは、巻き戻しの完了後に別に数えます。",
+        "none": "巻き戻すオブジェクトを「巻き戻す」列でチェックしてください。",
+        "planning": "このプレビューから {{objects}} の巻き戻しを計画しています。組織は読み取りません。",
+        "deletedAgain_other": "{{object}} (チェックなし): その後に作成された {{formatted}} 件のレコードは、この巻き戻しで復元するレコードと一緒に戻り、再び削除されます。残すと、存在したことのない状態になるためです。",
+        "left": {
+          "needsUnpickedParent_other": "{{object}}: {{formatted}} 件のレコードを残します。この巻き戻しが削除されたままにする親と一緒にしか戻らないか、削除されたままにするレコードを参照しており、Salesforce がそれを拒否するためです。その参照項目は残し、残りは書き込みます。",
+          "heldByUnpicked_other": "{{object}}: {{formatted}} 件のレコードの値を戻しますが、チェックしていないオブジェクトのその後に作成されたレコードが固定している値は除きます。",
+          "outsideNotAccepted_other": "{{object}}: {{formatted}} 件のレコードを残します。チェックしていないオブジェクトのその後に作成されたレコードが依存しており、削除するとそれらも削除されるためです。",
+          "holdsLeft_other": "{{object}}: {{formatted}} 件のレコードを残します。この巻き戻しがそのままにするレコードが依存しており、削除するとそれらも削除されるためです。",
+          "keyTaken_other": "{{object}}: {{formatted}} 行は、その所有者または名前を持つ、その後に作成された行がなくなってから復元します。"
+        },
+        "lookupsEmptied": "チェックしていないオブジェクトのレコードが、この巻き戻しで削除するレコードを参照している場合、その参照項目は Salesforce によって空にされ、その時刻が記録されます。",
+        "needs_other": "これらも巻き戻すには {{object}} を追加してください: {{formatted}} 件のレコードが必要としています。",
+        "add": "{{object}} を追加",
+        "acceptOutside": "これらのレコードも、依存しているチェックなしのオブジェクトのその後に作成されたレコードと一緒に削除する",
+        "writesNothing": "これらのオブジェクトだけの巻き戻しでは何も書き込みません。残すものは上に示しています。"
       },
       "detail": {
         "deletedWhileTaken_other": "{{object}}: チェックポイントの作成中に削除された {{formatted}} 件のレコードは、当時の値で戻ります。",
@@ -5492,6 +5514,10 @@
       "confirm": {
         "title": "{{org}} を「{{name}}」に巻き戻しますか？",
         "description": "この巻き戻しは {{org}} を {{date}} の状態に戻します: {{changes}}。誰が変更したかは問いません。",
+        "titleObjects": "{{org}} の {{objects}} を「{{name}}」に巻き戻しますか？",
+        "descriptionObjects": "この巻き戻しは {{org}} の {{objects}} を {{date}} の状態に戻します: {{changes}}。誰が変更したかは問いません。",
+        "othersLeft": "ほかのオブジェクトはそのまま残ります。",
+        "othersDeletedAgain": "ほかのオブジェクトでは、復元するレコードと一緒に戻る、その後に作成されたレコードだけを削除します。",
         "delete_other": "その後に追加されたレコード {{formatted}} 件を削除",
         "giveBack_other": "レコード {{formatted}} 件の値を当時に戻す",
         "bringBack_other": "レコード {{formatted}} 件をごみ箱から復元",
@@ -5556,6 +5582,11 @@
       "success": "{{org}} は「{{name}}」に戻りました。読み直した結果、保持するオブジェクトと項目に違いはありません。",
       "partial_other": "{{org}} は「{{name}}」に戻りました。ただし次の {{formatted}} 件を除きます:",
       "partialListed": "{{org}} は「{{name}}」に戻りました。ただし以下に示すものを除きます。",
+      "successObjects": "{{org}} の {{objects}} は「{{name}}」に戻りました。読み直した結果、違いはありません。",
+      "partialObjects_other": "{{org}} の {{objects}} は「{{name}}」に戻りました。ただし次の {{formatted}} 件を除きます:",
+      "partialListedObjects": "{{org}} の {{objects}} は「{{name}}」に戻りました。ただし下に示すものを除きます。",
+      "notRewound_other": "巻き戻していないもの: {{objects}} の {{formatted}} 件のレコードはまだ「{{name}}」と異なり、そのまま残ります。この巻き戻しはチェックしたオブジェクトに限定されていました。",
+      "notRewoundNone": "チェックしていないオブジェクトも「{{name}}」と一致しています。",
       "unstable": "巻き戻しの間も {{org}} への書き込みが続きました: {{people}}。これらは変更されたまま残しています。書き込みが止まってから、もう一度巻き戻してください。",
       "unstableUnnamed": "巻き戻しの間も {{org}} への書き込みが続きました。変更された内容はそのまま残しています。書き込みが止まってから、もう一度巻き戻してください。",
       "changedBy_other": "{{name}} が {{formatted}} 件のレコードを変更",

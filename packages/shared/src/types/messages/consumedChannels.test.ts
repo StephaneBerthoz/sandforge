@@ -101,11 +101,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason:
       'sandforge-frozen remove --preview sends it through the handler it drives; the Load tab offers no preview of a removal yet.',
   },
-  {
-    channel: 'checkpoint:plan-selection',
-    reason:
-      'sandforge-checkpoint preview --object and rewind --object send it through the handler they drive; the Checkpoints page offers no selection of objects yet.',
-  },
 ];
 
 function repoPath(...parts: string[]): string {

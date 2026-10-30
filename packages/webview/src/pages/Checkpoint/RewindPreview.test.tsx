@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import '../../i18n';
-import type { ForgeTargetAutomation, OrgCheckpoint } from '@sandforge/shared';
+import type {
+  ForgeTargetAutomation,
+  OrgCheckpoint,
+  RewindDiff,
+  RewindSelectionPlan,
+} from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { dateTimeFormat } from '../../utils/formatters';
 import {
@@ -25,7 +30,8 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => host.current?.api,
 }));
 
-import { RewindPreview } from './RewindPreview';
+import { RewindPreview, type RewindAcceptances } from './RewindPreview';
+import { rewindTotals } from './rewindPreviewFacts';
 
 const ID = 'ck-20261020-140512-a1b2';
 
@@ -61,13 +67,14 @@ function confirmRewind(): void {
   fireEvent.click(screen.getByTestId('danger-confirm-btn'));
 }
 
-/** The text of each cell of an object's row of the table, its name first. */
+/** The text of each cell of an object's row of the table, its name first, its Rewind box left out. */
 function rowCells(objectApiName: string): string[] {
   const row = screen.getByTestId(`checkpoint-preview-row-${objectApiName}`);
   return [
     within(row).getByRole('rowheader').textContent ?? '',
     ...within(row)
       .getAllByRole('cell')
+      .filter((cell) => within(cell).queryByRole('checkbox') === null)
       .map((cell) => cell.textContent ?? ''),
   ];
 }
@@ -188,7 +195,7 @@ describe('RewindPreview', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
-    ).toEqual(['Object', 'Delete', 'Give back', 'Bring back', 'Cannot undo']);
+    ).toEqual(['Object', 'Delete', 'Give back', 'Bring back', 'Cannot undo', 'Rewind']);
     expect(rowCells('Contact')).toEqual(['Contact', '5', '2', '0', '0']);
     expect(rowCells('Account')).toEqual(['Account', '3', '4', '1', '0']);
     expect(rowCells('Case')).toEqual(['Case', '0', '0', '0', '2']);
@@ -1296,5 +1303,463 @@ describe('RewindPreview', () => {
     const { onClose } = renderPreview();
     fireEvent.click(screen.getByTestId('checkpoint-preview-back'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A preview of three objects, as a scratch org read one: an account deleted
+ * since with its contact, which comes back only with it, a contact and an
+ * account created since, an account whose parent account lookup the deletion
+ * emptied, and cases changed since.
+ */
+function threeObjects(): Parameters<typeof previewAnswer>[0] {
+  return {
+    diff: previewDiff({
+      objects: [
+        diffObject('Contact', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+          lastChangedBy: { [USERS.alice]: 1 },
+        }),
+        diffObject('Account', {
+          toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack: { records: 1, fields: 1, clearedLookups: 1 },
+          toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0 },
+          lastChangedBy: { [USERS.alice]: 2 },
+        }),
+        diffObject('Case', {
+          toGiveBack: { records: 3, fields: 3, clearedLookups: 0 },
+          lastChangedBy: { [USERS.integration]: 3 },
+        }),
+      ],
+    }),
+  };
+}
+
+/**
+ * The plan of a rewind of the contacts alone, as the extension answered it on
+ * that org: the contact created since deleted, the one deleted with its
+ * account left, which needs the account.
+ */
+function contactPlan(overrides: Partial<RewindSelectionPlan> = {}): RewindSelectionPlan {
+  return {
+    objects: ['Contact'],
+    acts: [
+      {
+        objectApiName: 'Contact',
+        picked: true,
+        toDelete: 1,
+        toGiveBack: 0,
+        toBringBack: 0,
+        toRecreate: 0,
+      },
+    ],
+    left: [{ objectApiName: 'Contact', reason: 'needsUnpickedParent', count: 1 }],
+    needs: [{ objectApiName: 'Account', records: 1 }],
+    undoCannot: [],
+    ...overrides,
+  };
+}
+
+describe('RewindPreview, limited to some objects', () => {
+  beforeEach(() => {
+    host.current = fakeHost();
+    useOrgStore.setState({ orgs: [developerOrg()], selectedOrgId: 'org-dev' });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date(2026, 9, 22, 12, 0, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    useOrgStore.setState({ orgs: [], selectedOrgId: null });
+  });
+
+  /** Tick or untick an object in the Rewind column. */
+  function pick(objectApiName: string): void {
+    fireEvent.click(screen.getByTestId(`checkpoint-preview-pick-${objectApiName}`));
+  }
+
+  /** Let the ticks settle, as the page waits before it asks for their plan. */
+  function settle(ms = 400): void {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+  }
+
+  /** Answer the last `checkpoint:plan-selection` with `plan`. */
+  function answerPlan(plan: RewindSelectionPlan): void {
+    act(() =>
+      host.current?.answer('checkpoint:plan-selection', 'checkpoint:plan-selection:response', {
+        checkpointId: ID,
+        previewId: 'pv-1',
+        plan,
+      }),
+    );
+  }
+
+  it('offers a Rewind column, every object ticked, and asks for no plan of a rewind of every object', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    for (const name of ['Contact', 'Account', 'Case']) {
+      const box = screen.getByRole('checkbox', { name: `Rewind ${name}` });
+      expect(box).toBeChecked();
+    }
+    settle(1_000);
+    expect(host.current?.sent('checkpoint:plan-selection')).toEqual([]);
+    expect(screen.queryByTestId('checkpoint-preview-selection')).toBeNull();
+  });
+
+  it('offers no Rewind column for a preview of one object, nor without a Rewind', () => {
+    renderPreview();
+    answerPreview({ diff: previewDiff({ objects: [previewDiff().objects[0]] }) });
+    expect(screen.queryByTestId('checkpoint-preview-pick-Contact')).toBeNull();
+    cleanup();
+    renderPreview(readyCheckpoint(), false);
+    answerPreview(threeObjects());
+    expect(screen.queryByTestId('checkpoint-preview-pick-Contact')).toBeNull();
+  });
+
+  it('asks once, as the ticks settle, for the plan of the objects still ticked, and says its numbers, what it leaves by why and what that needs', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Case');
+    settle(200);
+    pick('Account');
+    settle(399);
+    // Planning, the org not read: nothing asked while the ticks move.
+    expect(host.current?.sent('checkpoint:plan-selection')).toEqual([]);
+    settle(1);
+    expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(1);
+    expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual({
+      checkpointId: ID,
+      previewId: 'pv-1',
+      objects: ['Contact'],
+      acceptOutside: false,
+    });
+    expect(screen.getByTestId('checkpoint-preview-selection-planning').textContent).toBe(
+      'Planning the rewind of Contact from this preview: the org is not read.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+
+    answerPlan(contactPlan());
+    expect(screen.queryByTestId('checkpoint-preview-selection-planning')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Limited to Contact' })).toBeInTheDocument();
+    // The plan's numbers, not the diff's: the contact deleted with its account stays.
+    expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('1 to delete');
+    expect(screen.getByTestId('checkpoint-preview-number-give-back').textContent).toBe(
+      '0 to give back',
+    );
+    expect(screen.getByTestId('checkpoint-preview-number-bring-back').textContent).toBe(
+      '0 to bring back',
+    );
+    expect(rowCells('Contact')).toEqual(['Contact', '1', '0', '0', '0']);
+    expect(rowCells('Account')).toEqual(['AccountNot rewound', '0', '0', '0', '0']);
+    expect(rowCells('Case')).toEqual(['CaseNot rewound', '0', '0', '0', '0']);
+    expect(screen.getByTestId('checkpoint-preview-last-changed').textContent).toBe(
+      'Last changed by: Alice Martin 1',
+    );
+    expect(
+      screen.getByTestId('checkpoint-preview-selection-left-Contact-needsUnpickedParent')
+        .textContent,
+    ).toBe(
+      'Contact: 1 record left — it comes back only with a parent this rewind leaves deleted, or looks up a record it leaves deleted, which Salesforce refuses: that lookup is left, the rest written.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-needs-Account')).toHaveTextContent(
+      'To rewind it too, add Account: 1 record needs it.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-selection-lookups').textContent).toBe(
+      'A record of an object not ticked that looks up a record this rewind deletes has that lookup emptied by Salesforce, and is dated that second.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeEnabled();
+    // Still one ask: the answer asked nothing more.
+    settle(1_000);
+    expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(1);
+  });
+
+  it('ticks an object a record needs on Add, and asks for the plan again', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Account');
+    pick('Case');
+    settle();
+    answerPlan(contactPlan());
+    fireEvent.click(screen.getByRole('button', { name: 'Add Account' }));
+    expect(screen.getByRole('checkbox', { name: 'Rewind Account' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Rewind Case' })).not.toBeChecked();
+    // The plan of Contact alone no longer counts: Rewind waits for the next.
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    settle();
+    expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(2);
+    expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual(
+      expect.objectContaining({ objects: ['Contact', 'Account'] }),
+    );
+  });
+
+  it('names the objects ticked in its typed question, and rewinds them alone with the plan’s numbers', () => {
+    const { onRewind } = renderPreview();
+    answerPreview(threeObjects());
+    pick('Case');
+    settle();
+    const plan = contactPlan({
+      objects: ['Contact', 'Account'],
+      acts: [
+        {
+          objectApiName: 'Contact',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 0,
+          toBringBack: 1,
+          toRecreate: 0,
+        },
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 1,
+          toBringBack: 2,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+    });
+    answerPlan(plan);
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(screen.getByTestId('danger-title').textContent).toBe(
+      'Rewind Contact and Account of DEV-SB to “Before UAT”?',
+    );
+    const date = dateTimeFormat({ dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date('2026-10-20T14:05:12.000Z'),
+    );
+    expect(
+      screen.getByText(
+        `This rewind returns Contact and Account of DEV-SB to ${date}: it deletes the 2 records added since, gives 1 record its values from then back and brings back 3 records from the recycle bin, whoever made these changes. The other objects are left as they are.`,
+      ),
+    ).toBeInTheDocument();
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledTimes(1);
+    const [acceptances, counted] = onRewind.mock.calls[0] as [RewindAcceptances, RewindDiff];
+    expect(acceptances).toEqual({
+      previewId: 'pv-1',
+      acceptAutomation: false,
+      acceptNoUndo: false,
+      acceptRecreate: false,
+      acceptOutside: false,
+      acceptUnseen: false,
+      objects: ['Contact', 'Account'],
+    });
+    // The run says the phases of what it rewinds: the plan's, never the diff's cases.
+    expect(counted.objects.map((object) => object.objectApiName)).toEqual(['Contact', 'Account']);
+    expect(rewindTotals(counted)).toEqual({
+      toDelete: 2,
+      toGiveBack: 1,
+      toBringBack: 3,
+      toRecreate: 0,
+    });
+  });
+
+  it('rewinds every object again, naming none, once every object is ticked again', () => {
+    const { onRewind } = renderPreview();
+    answerPreview(threeObjects());
+    pick('Case');
+    settle();
+    pick('Case');
+    expect(screen.queryByTestId('checkpoint-preview-selection')).toBeNull();
+    expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('2 to delete');
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(screen.getByTestId('danger-title').textContent).toBe('Rewind DEV-SB to “Before UAT”?');
+    confirmRewind();
+    expect(onRewind.mock.calls[0]?.[0]).not.toHaveProperty('objects');
+  });
+
+  it('says so when no object is ticked, asks for no plan and holds Rewind', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Contact');
+    pick('Account');
+    pick('Case');
+    settle();
+    expect(host.current?.sent('checkpoint:plan-selection')).toEqual([]);
+    expect(screen.getByTestId('checkpoint-preview-selection-none').textContent).toBe(
+      'Tick in the Rewind column the objects to rewind.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+  });
+
+  it('says what it deletes again of an object not ticked: made since, they come back with a record it brings back', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Contact');
+    pick('Case');
+    settle();
+    answerPlan({
+      objects: ['Account'],
+      acts: [
+        {
+          objectApiName: 'Contact',
+          picked: false,
+          toDelete: 2,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 1,
+          toBringBack: 2,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+      undoCannot: [],
+    });
+    expect(screen.getByTestId('checkpoint-preview-selection-again-Contact').textContent).toBe(
+      'Contact, not ticked: 2 records made since come back with a record this rewind brings back, and are deleted again — leaving them would make a state that never existed.',
+    );
+    expect(rowCells('Contact')).toEqual(['ContactNot rewound', '2', '0', '0', '0']);
+    expect(screen.getByTestId('checkpoint-preview-number-delete').textContent).toBe('3 to delete');
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    expect(
+      screen.getByText(/Of the other objects, it deletes only the records made since/),
+    ).toBeInTheDocument();
+  });
+
+  it('holds Rewind until what Undo could not bring back of the plan is accepted, as the rewind refuses it', () => {
+    const { onRewind } = renderPreview();
+    answerPreview(threeObjects());
+    pick('Account');
+    pick('Case');
+    settle();
+    // The diff had nothing Undo could not bring back: the plan deletes a
+    // contact on its own, its account not picked.
+    answerPlan(contactPlan({ undoCannot: [{ objectApiName: 'Contact', count: 1 }] }));
+    expect(screen.getByTestId('checkpoint-preview-undo-cannot-Contact').textContent).toBe(
+      '1 Contact record this rewind deletes: Salesforce undeletes it only with its parent record, which stays.',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-accept-no-undo'));
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptNoUndo: true, objects: ['Contact'] }),
+      expect.anything(),
+    );
+  });
+
+  it('asks again with deleting accepted what an object not ticked hangs from a record it deletes, and rewinds with it accepted', () => {
+    const { onRewind } = renderPreview();
+    answerPreview(threeObjects());
+    pick('Contact');
+    pick('Case');
+    settle();
+    answerPlan({
+      objects: ['Account'],
+      acts: [
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 0,
+          toGiveBack: 1,
+          toBringBack: 2,
+          toRecreate: 0,
+        },
+      ],
+      left: [{ objectApiName: 'Account', reason: 'outsideNotAccepted', count: 1 }],
+      needs: [{ objectApiName: 'Contact', records: 1 }],
+      undoCannot: [],
+    });
+    expect(
+      screen.getByTestId('checkpoint-preview-selection-left-Account-outsideNotAccepted')
+        .textContent,
+    ).toBe(
+      'Account: 1 record kept — records of an object not ticked, made since, hang from it, which its deletion would take along.',
+    );
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete these records too, with the records of objects not ticked made since that hang from them',
+      }),
+    );
+    settle();
+    expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(2);
+    expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual(
+      expect.objectContaining({ objects: ['Account'], acceptOutside: true }),
+    );
+    answerPlan({
+      objects: ['Account'],
+      acts: [
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 1,
+          toBringBack: 2,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+      undoCannot: [],
+    });
+    // Ticked, it stays offered to untick, the plan no longer leaving the record.
+    expect(screen.getByTestId('checkpoint-preview-accept-outside-unpicked')).toBeChecked();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+    confirmRewind();
+    expect(onRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptOutside: true, objects: ['Account'] }),
+      expect.anything(),
+    );
+  });
+
+  it('says nothing of the links between files and records of a rewind that leaves the files out, never that the checkpoint holds none', () => {
+    renderPreview(readyCheckpoint({ files: { documents: 3, links: 4, anchored: 3 } }));
+    answerPreview({ diff: filesDiff() });
+    expect(screen.getByTestId('checkpoint-preview-files')).toBeInTheDocument();
+    pick('ContentDocument');
+    settle();
+    answerPlan({
+      objects: ['Account'],
+      acts: [
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+      undoCannot: [],
+    });
+    expect(screen.queryByTestId('checkpoint-preview-files')).toBeNull();
+    expect(screen.getByTestId('checkpoint-preview-cannot')).toBeInTheDocument();
+    expect(screen.queryByTestId('checkpoint-preview-cannot-filesNotHeld')).toBeNull();
+    expect(screen.queryByTestId('checkpoint-preview-cannot-newFileVersion')).toBeNull();
+  });
+
+  it('says a plan it could not make, holding Rewind, and asks again on Retry', () => {
+    renderPreview();
+    answerPreview(threeObjects());
+    pick('Case');
+    settle();
+    act(() =>
+      host.current?.fail('checkpoint:plan-selection', {
+        message:
+          "The preview to plan this selection from is no longer kept on this machine: preview the rewind to 'Before UAT' again. No record was read or written.",
+        code: 'PREVIEW_GONE',
+      }),
+    );
+    expect(screen.getByTestId('checkpoint-preview-selection-error')).toHaveTextContent(
+      'The preview to plan this selection from is no longer kept on this machine',
+    );
+    expect(screen.getByTestId('checkpoint-preview-rewind')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('checkpoint-preview-selection-retry'));
+    expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(2);
+    expect(host.current?.lastPayload('checkpoint:plan-selection')).toEqual(
+      expect.objectContaining({ objects: ['Contact', 'Account'] }),
+    );
   });
 });

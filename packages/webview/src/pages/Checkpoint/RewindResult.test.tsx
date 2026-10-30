@@ -634,3 +634,103 @@ describe('RewindResult', () => {
     );
   });
 });
+
+describe('RewindResult of a rewind limited to some objects', () => {
+  beforeEach(() => {
+    host.current = fakeHost();
+    polyfillDialog();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T14:02:30.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * A rewind of the contacts alone, as a scratch org answered one: the contact
+   * made since deleted, the accounts left as they are, four of their records
+   * still differing.
+   */
+  function contactsAlone(overrides: Partial<RewindOutcome> = {}): RewindOutcome {
+    return rewindResult({
+      deleted: [deletedObject('Contact', { planned: 1, deleted: 1 })],
+      restored: [],
+      undeleted: [],
+      scope: { objects: ['Contact'], notRewound: { objects: ['Account'], records: 4 } },
+      ...overrides,
+    });
+  }
+
+  it('says the objects it was limited to are back, then what still differs in the others apart, and stays a success, with Rewind again for them', () => {
+    const { onRewindAgain } = renderResult(contactsAlone());
+    expect(headline()).toBe(
+      'Contact of DEV-SB: back at “Before UAT”. Read again, nothing differs among them.',
+    );
+    const icon = screen.getByTestId('checkpoint-result-headline').querySelector('svg');
+    expect(icon?.getAttribute('class')).toContain('text-status-success');
+    expect(screen.getByTestId('checkpoint-result-not-rewound').textContent).toBe(
+      'Not rewound: 4 records of Account still differ from “Before UAT”, left as they are — this rewind was limited to the objects ticked.',
+    );
+    // Never among what still differs, which would call it partial.
+    expect(screen.queryByTestId('checkpoint-result-residual')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Undo this rewind' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Rewind again' }));
+    expect(onRewindAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the objects not ticked match the checkpoint too when nothing differs in them, with nothing more to rewind', () => {
+    renderResult(
+      contactsAlone({
+        scope: { objects: ['Contact', 'Case'], notRewound: { objects: [], records: 0 } },
+      }),
+    );
+    expect(headline()).toBe(
+      'Contact and Case of DEV-SB: back at “Before UAT”. Read again, nothing differs among them.',
+    );
+    expect(screen.getByTestId('checkpoint-result-not-rewound').textContent).toBe(
+      'The objects not ticked match “Before UAT” too.',
+    );
+    expect(screen.queryByTestId('checkpoint-result-rewind-again')).toBeNull();
+  });
+
+  it('says what still differs among the objects it was limited to, as its plan left it, with the others apart (live: a contact deleted with its account, left)', () => {
+    renderResult(
+      contactsAlone({
+        status: 'partial',
+        residual: [
+          {
+            objectApiName: 'Contact',
+            reason: 'kept',
+            count: 1,
+            ids: [],
+            message:
+              'Left: it comes back only with a parent this rewind leaves deleted, or a lookup of it names a record this rewind leaves deleted (Account), which the org refuses to point at. Rewind Account with it to put it back.',
+          },
+        ],
+      }),
+    );
+    expect(headline()).toBe('Contact of DEV-SB: back at “Before UAT”, except 1 record:');
+    expect(screen.getByTestId('checkpoint-result-residual-kept-Contact')).toHaveTextContent(
+      'Rewind Account with it to put it back.',
+    );
+    expect(screen.getByTestId('checkpoint-result-not-rewound').textContent).toBe(
+      'Not rewound: 4 records of Account still differ from “Before UAT”, left as they are — this rewind was limited to the objects ticked.',
+    );
+  });
+
+  it('says nothing of the objects not ticked when it stopped before reading the org again', () => {
+    renderResult(
+      contactsAlone({
+        status: 'cancelled',
+        scope: { objects: ['Contact'], notRewound: { objects: [], records: 0 } },
+      }),
+    );
+    expect(screen.queryByTestId('checkpoint-result-not-rewound')).toBeNull();
+  });
+
+  it('says of an undo nothing of what its rewind was limited to', () => {
+    renderResult(withoutUndo(contactsAlone()), 'undo');
+    expect(headline()).toBe('DEV-SB is back as it was before its last rewind.');
+    expect(screen.queryByTestId('checkpoint-result-not-rewound')).toBeNull();
+  });
+});

@@ -6,7 +6,9 @@ import {
   carriersTotal,
   changedDuringRewind,
   comparableFields,
+  deletedAgain,
   deletedStatus,
+  deletesPicked,
   filesBroughtBack,
   filesLeft,
   heldAsItWas,
@@ -15,7 +17,9 @@ import {
   keptChangedSinceRewind,
   lastChangers,
   linkWrites,
+  notRewound,
   outsideLines,
+  pickedDiff,
   recreateLines,
   remadeDeleted,
   residualGroups,
@@ -25,6 +29,7 @@ import {
   rewindTotals,
   rewindWrites,
   rowOf,
+  selectionDiff,
   unseenChildren,
 } from './rewindPreviewFacts';
 import {
@@ -352,6 +357,179 @@ describe('rewindPreviewFacts', () => {
         }),
       ),
     ).toEqual([{ objectApiName: 'Account', count: 2 }]);
+  });
+});
+
+describe('a rewind of some objects', () => {
+  /**
+   * A diff as a scratch org read one: an account deleted since with its
+   * contact, which comes back only with it, a contact and an account created
+   * since, a lookup the deletion emptied, a file added since, and what Undo
+   * couldn't bring back of a product.
+   */
+  const diff = filesDiff();
+  const whole = previewDiff({
+    objects: [
+      diffObject('Contact', {
+        toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+        toGiveBack: { records: 2, fields: 5, clearedLookups: 1 },
+        toBringBack: { inBin: 0, withParent: 1, deletedWhileTaken: 0 },
+        lastChangedBy: { [USERS.alice]: 1 },
+      }),
+      diffObject('Account', {
+        toDelete: { createdSince: 1, broughtBackSince: 0, comesBackWithParent: 0 },
+        toGiveBack: { records: 1, fields: 1, clearedLookups: 1 },
+        toBringBack: { inBin: 2, withParent: 0, deletedWhileTaken: 0, carriers: 1 },
+        cannotUndo: [{ reason: 'goneForGood', count: 1 }],
+        touched: 2,
+        lastChangedBy: { [USERS.alice]: 2 },
+      }),
+    ],
+    undoCannot: [{ objectApiName: 'OpportunityLineItem', count: 1 }],
+    unseen: [{ objectApiName: 'Account', children: ['Task'], records: 1 }],
+    files: diff.files,
+  });
+
+  it('counts the objects picked alone before their plan comes, their links between files and records only with the files', () => {
+    const contacts = pickedDiff(whole, ['Contact']);
+    expect(contacts.objects.map((object) => object.objectApiName)).toEqual(['Contact']);
+    expect(contacts.undoCannot).toEqual([]);
+    expect(contacts.unseen).toEqual([]);
+    expect(contacts.files).toBeUndefined();
+    expect(pickedDiff(whole, ['ContentDocument', 'Contact']).files).toEqual(diff.files);
+    // The rest of the read is the preview's.
+    expect(contacts.previewId).toBe(whole.previewId);
+    expect(contacts.userNames).toEqual(whole.userNames);
+  });
+
+  it('counts by the plan’s numbers, the details of a class kept only when the plan acts on all of it, and Undo’s limits as the plan says them', () => {
+    const counted = selectionDiff(whole, {
+      objects: ['Contact', 'Account'],
+      acts: [
+        {
+          objectApiName: 'Contact',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 1,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+        {
+          objectApiName: 'Account',
+          picked: true,
+          toDelete: 1,
+          toGiveBack: 1,
+          toBringBack: 1,
+          toRecreate: 0,
+        },
+      ],
+      left: [{ objectApiName: 'Contact', reason: 'needsUnpickedParent', count: 2 }],
+      needs: [],
+      undoCannot: [{ objectApiName: 'Contact', count: 1 }],
+    });
+    const [contact, account] = counted.objects;
+    expect(rowOf(contact)).toEqual({
+      objectApiName: 'Contact',
+      toDelete: 1,
+      toGiveBack: 1,
+      toBringBack: 0,
+      toRecreate: 0,
+      cannotUndo: 0,
+    });
+    // One of its two to give back: the diff's five values and its lookup are not this rewind's.
+    expect(contact.toGiveBack).toEqual({ records: 1, fields: 0, clearedLookups: 0 });
+    expect(contact.toDelete).toEqual(whole.objects[0].toDelete);
+    // All of what the account gives back: its field and lookup are said.
+    expect(account.toGiveBack).toEqual({ records: 1, fields: 1, clearedLookups: 1 });
+    // One of its two to bring back: the plan's number alone, its carrier kept.
+    expect(account.toBringBack).toEqual({
+      inBin: 1,
+      withParent: 0,
+      deletedWhileTaken: 0,
+      carriers: 1,
+    });
+    expect(account.cannotUndo).toEqual([{ reason: 'goneForGood', count: 1 }]);
+    expect(counted.undoCannot).toEqual([{ objectApiName: 'Contact', count: 1 }]);
+    expect(rewindTotals(counted)).toEqual({
+      toDelete: 2,
+      toGiveBack: 2,
+      toBringBack: 1,
+      toRecreate: 0,
+    });
+  });
+
+  it('counts of an object not picked only the records it deletes again, nothing else said of it', () => {
+    const plan = {
+      objects: ['Account'],
+      acts: [
+        {
+          objectApiName: 'Contact',
+          picked: false,
+          toDelete: 2,
+          toGiveBack: 0,
+          toBringBack: 0,
+          toRecreate: 0,
+        },
+      ],
+      left: [],
+      needs: [],
+      undoCannot: [],
+    };
+    const counted = selectionDiff(
+      previewDiff({
+        objects: [
+          diffObject('Contact', {
+            toGiveBack: { records: 4, fields: 9, clearedLookups: 0 },
+            cannotUndo: [{ reason: 'goneForGood', count: 3 }],
+            outside: [{ objectApiName: 'Task', count: 2, parents: 1 }],
+            touched: 5,
+            lastChangedBy: { [USERS.alice]: 4 },
+          }),
+          diffObject('Account', {}),
+          diffObject('Case', { toGiveBack: { records: 1, fields: 1, clearedLookups: 0 } }),
+        ],
+      }),
+      plan,
+    );
+    expect(counted.objects.map((object) => object.objectApiName)).toEqual(['Contact', 'Account']);
+    expect(counted.objects[0]).toEqual(
+      diffObject('Contact', {
+        toDelete: { createdSince: 2, broughtBackSince: 0, comesBackWithParent: 0 },
+        toRecreate: 0,
+      }),
+    );
+    expect(deletedAgain(plan)).toEqual([plan.acts[0]]);
+    expect(deletesPicked(plan)).toBe(false);
+    expect(lastChangers(counted)).toEqual([]);
+    expect(outsideLines(counted)).toEqual([]);
+  });
+
+  it('says a rewind deletes records of the objects picked, whose lookups from the others Salesforce empties', () => {
+    expect(
+      deletesPicked({
+        acts: [
+          {
+            objectApiName: 'Account',
+            picked: true,
+            toDelete: 1,
+            toGiveBack: 0,
+            toBringBack: 0,
+            toRecreate: 0,
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it('names what a rewind of some objects left of the others, and nothing of a rewind of every object', () => {
+    expect(
+      notRewound(
+        rewindResult({
+          scope: { objects: ['Contact'], notRewound: { objects: ['Account'], records: 4 } },
+        }),
+      ),
+    ).toEqual({ objects: ['Account'], records: 4 });
+    expect(notRewound(rewindResult())).toEqual({ objects: [], records: 0 });
   });
 });
 

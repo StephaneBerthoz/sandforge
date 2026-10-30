@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { MockBridge, checkAccessibility, formatViolations } from './helpers';
 import { themeContrastShortfalls } from './helpers/theme-contrast';
 import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX, type MockOrg } from './fixtures';
+import { listEntry, plainPreview, readyCheckpoint } from './fixtures/checkpoints';
 import { VSCODE_DEFAULT_STYLES } from './fixtures/vscode-default-styles';
 import { sendExtensionMessage } from './mocks/vscode-api';
 import { hostColours, vscodeTheme } from '../src/styles/testing/vscodeThemes';
@@ -6084,6 +6085,66 @@ for (const theme of SCANNED_THEMES) {
       await expect(page.getByTestId('autopilot-seed-instead')).toBeVisible({ timeout: 10_000 });
 
       await expectReadable(page, theme);
+    });
+
+    test('Checkpoint preview of a rewind limited to some objects: an object unticked, what the plan leaves and the object it needs, with Add', async ({
+      page,
+    }) => {
+      const checkpoint = readyCheckpoint({ checkpointId: 'ck-axe-pick' });
+      await openPanel(bridge, page, 'checkpoint', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await bridge.waitForMessage('checkpoint:list', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:list', 'checkpoint:list:response', {
+        checkpoints: [listEntry(checkpoint)],
+      });
+      await page.getByTestId('checkpoint-rewind-ck-axe-pick').click();
+      await bridge.waitForMessage('checkpoint:preview', { timeout: 10_000 });
+      await answerAll(page, 'checkpoint:preview', 'checkpoint:preview:response', {
+        ...plainPreview('ck-axe-pick', 'pv-axe-pick'),
+      });
+      await page.getByRole('checkbox', { name: 'Rewind Account' }).uncheck();
+      await bridge.waitForMessage('checkpoint:plan-selection', { timeout: 10_000 });
+      // The contacts alone: the one made since deleted, one deleted with its
+      // account left, which needs the account.
+      await answerAll(page, 'checkpoint:plan-selection', 'checkpoint:plan-selection:response', {
+        checkpointId: 'ck-axe-pick',
+        previewId: 'pv-axe-pick',
+        plan: {
+          objects: ['Contact'],
+          acts: [
+            {
+              objectApiName: 'Contact',
+              picked: true,
+              toDelete: 5,
+              toGiveBack: 2,
+              toBringBack: 0,
+              toRecreate: 0,
+            },
+          ],
+          left: [{ objectApiName: 'Contact', reason: 'needsUnpickedParent', count: 1 }],
+          needs: [{ objectApiName: 'Account', records: 1 }],
+          undoCannot: [],
+        },
+      });
+      await expect(page.getByTestId('checkpoint-preview-not-rewound-Account')).toHaveText(
+        'Not rewound',
+      );
+      await expect(page.getByRole('button', { name: 'Add Account' })).toBeVisible();
+      await expect(page.getByTestId('checkpoint-preview-rewind')).toBeEnabled();
+      await page.getByTestId('checkpoint-preview-selection').scrollIntoViewIfNeeded();
+
+      const results = await checkAccessibility(page);
+      expectNoViolations(results);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="checkpoint-preview-selection"]'),
+        'axe measured no text of what the plan leaves',
+      ).toBeGreaterThan(2);
+      expect(
+        await contrastMeasuredIn(page, results, '[data-testid="checkpoint-preview-row-Account"]'),
+        'axe measured no text of the row not rewound',
+      ).toBeGreaterThan(0);
+      const shortfalls = await themeContrastShortfalls(page, vscodeTheme(theme));
+      expect(shortfalls, shortfalls.join('\n')).toEqual([]);
     });
   });
 

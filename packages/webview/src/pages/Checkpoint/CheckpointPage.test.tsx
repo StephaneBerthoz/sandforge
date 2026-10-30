@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -310,6 +310,53 @@ describe('CheckpointPage', () => {
         'Delete 8 records added since, children first',
       );
       expect(screen.queryByTestId('checkpoint-preview')).toBeNull();
+    });
+
+    it('rewinds the objects ticked alone: its request names them, and its run says the phases of their plan', async () => {
+      render(<CheckpointPage />);
+      answerList();
+      await openPreview();
+      fireEvent.click(screen.getByTestId('checkpoint-preview-pick-Account'));
+      await waitFor(() => expect(host.current?.sent('checkpoint:plan-selection')).toHaveLength(1));
+      act(() =>
+        host.current?.answer('checkpoint:plan-selection', 'checkpoint:plan-selection:response', {
+          checkpointId: ID,
+          previewId: 'pv-1',
+          plan: {
+            objects: ['Contact'],
+            acts: [
+              {
+                objectApiName: 'Contact',
+                picked: true,
+                toDelete: 5,
+                toGiveBack: 2,
+                toBringBack: 0,
+                toRecreate: 0,
+              },
+            ],
+            left: [],
+            needs: [],
+            undoCannot: [],
+          },
+        }),
+      );
+      fireEvent.click(screen.getByTestId('checkpoint-preview-rewind'));
+      confirmTyped();
+      expect(host.current?.lastPayload('checkpoint:rewind')).toEqual({
+        checkpointId: ID,
+        previewId: 'pv-1',
+        objects: ['Contact'],
+        acceptAutomation: false,
+        acceptNoUndo: false,
+        acceptRecreate: false,
+        acceptOutside: false,
+        acceptUnseen: false,
+      });
+      await screen.findByTestId('checkpoint-run');
+      expect(screen.getByTestId('checkpoint-run-phase-delete').textContent).toBe(
+        'Delete 5 records added since, children first',
+      );
+      expect(screen.queryByTestId('checkpoint-run-phase-bringBack')).toBeNull();
     });
 
     it('says what the rewind did, reads the list again, and comes back to its Rewind… on Done', async () => {

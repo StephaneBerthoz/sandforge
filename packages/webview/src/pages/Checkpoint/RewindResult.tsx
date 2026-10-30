@@ -26,6 +26,7 @@ import {
   changedDuringRewind,
   deletedStatus,
   keptChangedSinceRewind,
+  notRewound,
   remadeDeleted,
   residualGroups,
   residualTotal,
@@ -294,6 +295,10 @@ export interface RewindResultProps {
  * cost, and until when it can be undone. An undo says what it sent back to
  * the recycle bin on its own that had gone there with a record the rewind
  * brought back for a moment, which stays there.
+ *
+ * A rewind limited to some objects was compared on them alone: it says they
+ * are back, and apart, what still differs in the objects it left as they
+ * are, which never makes it partial; Rewind again then rewinds them.
  */
 export const RewindResult: React.FC<RewindResultProps> = ({
   kind,
@@ -321,6 +326,11 @@ export const RewindResult: React.FC<RewindResultProps> = ({
   const carriers = rewinding && result.status !== 'failure' ? (result.carriers ?? []) : [];
   const carriedAlone = rewinding ? [] : (result.carriedAlone ?? []);
   const automation = automationObjects(result);
+  // What a rewind limited to some objects left of the others: read again
+  // after its last pass only, so a run that ended before says nothing of it.
+  const scope = rewinding ? result.scope : undefined;
+  const others = notRewound(result);
+  const othersRead = result.status === 'success' || result.status === 'partial';
   const undoUntil = rewinding && result.undo ? result.undo : undefined;
   const until = undoUntil
     ? (formatStoredDate(undoUntil.until, (d) => formatDate(d)) ?? t('common.dateUnknown'))
@@ -335,6 +345,18 @@ export const RewindResult: React.FC<RewindResultProps> = ({
         result={result}
         userNames={userNames}
       />
+      {scope && (others.records > 0 || othersRead) && (
+        <p data-testid="checkpoint-result-not-rewound">
+          {others.records > 0
+            ? t('checkpoint.result.notRewound', {
+                count: others.records,
+                formatted: formatNumber(others.records),
+                objects: listWords(others.objects, t),
+                name: checkpoint.name,
+              })
+            : t('checkpoint.result.notRewoundNone', { name: checkpoint.name })}
+        </p>
+      )}
 
       {groups.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="checkpoint-result-residual">
@@ -458,7 +480,7 @@ export const RewindResult: React.FC<RewindResultProps> = ({
             {t('checkpoint.undo.open')}
           </Button>
         )}
-        {rewinding && !settled && (
+        {rewinding && (!settled || others.records > 0) && (
           <Button
             variant="secondary"
             onClick={onRewindAgain}
@@ -498,12 +520,17 @@ interface HeadlineProps {
   userNames: Readonly<Record<string, string>>;
 }
 
-/** What a result says first: where the org stands now, by how the run ended. */
+/**
+ * What a result says first: where the org stands now, by how the run ended;
+ * of a rewind limited to some objects, where they stand, compared alone.
+ */
 const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, userNames }) => {
   const { t } = useTranslation();
   const org = orgName;
   const name = checkpoint.name;
   const left = residualTotal(result);
+  const limitedTo = kind === 'rewind' ? result.scope?.objects : undefined;
+  const objects = limitedTo ? listWords(limitedTo, t) : '';
   let text: string;
   if (kind === 'undo') {
     const kept = keptChangedSinceRewind(result);
@@ -522,7 +549,9 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
                 })
               : t('checkpoint.result.undo.partialListed', { org });
   } else if (result.status === 'success') {
-    text = t('checkpoint.result.success', { org, name });
+    text = limitedTo
+      ? t('checkpoint.result.successObjects', { objects, org, name })
+      : t('checkpoint.result.success', { org, name });
   } else if (result.status === 'cancelled') {
     const stopped = t('checkpoint.result.cancelled', { org, name });
     text = result.undo ? `${stopped} ${t('checkpoint.result.cancelledUndo', { org })}` : stopped;
@@ -542,6 +571,17 @@ const Headline: React.FC<HeadlineProps> = ({ kind, orgName, checkpoint, result, 
       people.length > 0
         ? t('checkpoint.result.unstable', { org, people: listWords(people, t) })
         : t('checkpoint.result.unstableUnnamed', { org });
+  } else if (limitedTo) {
+    text =
+      left > 0
+        ? t('checkpoint.result.partialObjects', {
+            count: left,
+            formatted: formatNumber(left),
+            objects,
+            org,
+            name,
+          })
+        : t('checkpoint.result.partialListedObjects', { objects, org, name });
   } else {
     text =
       left > 0

@@ -9,6 +9,8 @@ import type {
   RewindResidual,
   RewindResidualReason,
   RewindResult,
+  RewindSelectionAct,
+  RewindSelectionPlan,
   RewindStatus,
 } from '@sandforge/shared';
 
@@ -318,6 +320,131 @@ export function rewindSteps(
       links?.unlink ?? 0,
     ),
   };
+}
+
+// ─── A rewind of some objects ────────────────────────────────────────────────
+
+/**
+ * The diff of the objects `picked` alone, as the extension counts a rewind of
+ * them before their plan is made (`diffOfPicked` of its rewindPlan): their
+ * objects, what Undo couldn't bring back of them, what they take along out
+ * of sight, and the links between files and records only when the files are
+ * among them.
+ */
+export function pickedDiff(diff: RewindDiff, picked: readonly string[]): RewindDiff {
+  const names = new Set(picked);
+  const of = <E extends { objectApiName: string }>(entries: readonly E[]): E[] =>
+    entries.filter((entry) => names.has(entry.objectApiName));
+  const { files, ...rest } = diff;
+  return {
+    ...rest,
+    objects: of(diff.objects),
+    undoCannot: of(diff.undoCannot),
+    unread: of(diff.unread),
+    ...(diff.withParentDeleted ? { withParentDeleted: of(diff.withParentDeleted) } : {}),
+    ...(diff.unseen ? { unseen: of(diff.unseen) } : {}),
+    ...(files !== undefined && names.has(FILE_OBJECT) ? { files } : {}),
+  };
+}
+
+/**
+ * The diff a rewind limited to the objects of `plan` is counted by, as the
+ * command line counts it (`selectionDiff` of sandforge-checkpoint): the
+ * objects picked and those not picked the plan writes to, each with the
+ * plan's numbers in place of the diff's, and what Undo couldn't bring back as
+ * the plan says it. A class the plan acts on whole keeps what the diff says
+ * of it — the field values to give back, the records that come back with a
+ * parent — and one it acts on in part says only the plan's number, as the
+ * diff's details would count what the plan leaves. Of an object not picked,
+ * the records made since that come back with a record the rewind brings back
+ * are all it deletes, and nothing else of it is said: who changed it, what it
+ * cannot undo, its fields, are of a rewind that leaves it as it is.
+ */
+export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): RewindDiff {
+  const picked = new Set(plan.objects);
+  const actOf = new Map(plan.acts.map((act) => [act.objectApiName, act]));
+  const base = pickedDiff(diff, plan.objects);
+  return {
+    ...base,
+    objects: diff.objects
+      .filter((object) => picked.has(object.objectApiName) || actOf.has(object.objectApiName))
+      .map((object): RewindDiffObject => {
+        const act = actOf.get(object.objectApiName);
+        const row = rowOf(object);
+        const deletes = act?.toDelete ?? 0;
+        const gives = act?.toGiveBack ?? 0;
+        const brings = act?.toBringBack ?? 0;
+        if (!picked.has(object.objectApiName)) {
+          return {
+            objectApiName: object.objectApiName,
+            toDelete: { createdSince: deletes, broughtBackSince: 0, comesBackWithParent: 0 },
+            toGiveBack: { records: gives, fields: 0, clearedLookups: 0 },
+            toBringBack: { inBin: brings, withParent: 0, deletedWhileTaken: 0 },
+            toRecreate: act?.toRecreate ?? 0,
+            cannotUndo: [],
+            outside: [],
+            touched: 0,
+            unexplained: 0,
+            lastChangedBy: {},
+            notCompared: object.notCompared,
+          };
+        }
+        return {
+          ...object,
+          toDelete:
+            deletes === row.toDelete
+              ? object.toDelete
+              : { createdSince: deletes, broughtBackSince: 0, comesBackWithParent: 0 },
+          toGiveBack:
+            gives === row.toGiveBack
+              ? object.toGiveBack
+              : { records: gives, fields: 0, clearedLookups: 0 },
+          toBringBack:
+            brings === row.toBringBack
+              ? object.toBringBack
+              : {
+                  inBin: brings,
+                  withParent: 0,
+                  deletedWhileTaken: 0,
+                  ...(object.toBringBack.carriers !== undefined
+                    ? { carriers: object.toBringBack.carriers }
+                    : {}),
+                },
+          toRecreate: act?.toRecreate ?? 0,
+        };
+      }),
+    undoCannot: [...plan.undoCannot],
+  };
+}
+
+/**
+ * Of the objects not picked, those a rewind limited to the plan's objects
+ * deletes records of: made since, they come back with a record it brings
+ * back, and leaving them would make a state that never existed.
+ */
+export function deletedAgain(plan: Pick<RewindSelectionPlan, 'acts'>): RewindSelectionAct[] {
+  return plan.acts.filter((act) => !act.picked && act.toDelete > 0);
+}
+
+/**
+ * Whether a rewind limited to the plan's objects deletes records of them: a
+ * record of an object not picked that looks up one has that lookup emptied
+ * by Salesforce, and is dated that second.
+ */
+export function deletesPicked(plan: Pick<RewindSelectionPlan, 'acts'>): boolean {
+  return plan.acts.some((act) => act.picked && act.toDelete > 0);
+}
+
+/**
+ * The objects a rewind limited to some of a checkpoint's objects left as they
+ * are that still differ, and their records that do: none when it rewound
+ * every object, or when the others match the checkpoint too.
+ */
+export function notRewound(result: Pick<RewindResult, 'scope'>): {
+  objects: string[];
+  records: number;
+} {
+  return result.scope?.notRewound ?? { objects: [], records: 0 };
 }
 
 // ─── What a rewind, or its undo, did ─────────────────────────────────────────
