@@ -38,6 +38,15 @@
  * a rewind that would bring back more than is left is refused
  * (`FILE_STORAGE`) before it writes. The diff says what is left, and what the
  * files it deletes would take again, were Undo to bring them back.
+ *
+ * A preview of a rewind limited to some objects (`objects`) reads every
+ * object all the same — the plan of a selection needs the classes of their
+ * parents and children —, and answers the whole diff; its estimate, the
+ * emails its writes send, the automation they fire and the refusal it would
+ * meet are those of a rewind of the objects picked, the automation read on
+ * every object that rewind writes to, as its own plan says
+ * (`planSelection`): an object not picked among them for the children of it
+ * that come back with a parent it brings back, deleted again.
  */
 
 import {
@@ -63,12 +72,14 @@ import {
 import { compositeReader, type CompositeReader } from './compositeQueries.js';
 import {
   newFolderId,
+  previewDirOf,
   type CheckpointFolder,
   type OrgCheckpointStore,
   type OrgLockHolder,
 } from './OrgCheckpointStore.js';
 import { actAccessOf } from './rewindAccess.js';
 import { rewindDiff } from './rewindDiff.js';
+import { diffOfPicked, planSelection, snapshotRowsOf } from './rewindPlan.js';
 import {
   checkpointEmails,
   checkpointEmailsUncounted,
@@ -118,6 +129,12 @@ export interface PreviewRequest {
   registered: OrgTypeAndEdition | undefined;
   /** The user SandForge connects as. */
   username: string;
+  /**
+   * The objects of the checkpoint a rewind would be limited to, by their API
+   * names as the checkpoint holds them: see the module's comment. Absent,
+   * every object.
+   */
+  objects?: readonly string[];
 }
 
 /** How a preview ended, when it was not stopped and did not fail. */
@@ -313,7 +330,24 @@ export async function previewCheckpoint(
     diff.files.storage.remaining = storage.remaining * BYTES_PER_MB;
   }
 
-  const written = objectsWrittenBy(diff);
+  // Of a rewind limited to some objects, what it writes, as its own plan says.
+  const picked = request.objects !== undefined ? new Set(request.objects) : undefined;
+  const selected = diffOfPicked(diff, picked);
+  const written = objectsWrittenBy(selected);
+  if (picked !== undefined) {
+    const plan = await planSelection({
+      checkpoint,
+      previewDir: previewDirOf(request.folder, previewId),
+      readAt,
+      objects: picked,
+      acceptOutside: false,
+      heldRows: snapshotRowsOf(checkpoint, request.folder),
+      ...(signal ? { signal } : {}),
+    });
+    for (const { objectApiName } of plan.acts) {
+      if (!written.includes(objectApiName)) written.push(objectApiName);
+    }
+  }
   let automation: ForgeTargetAutomation | undefined;
   if (written.length > 0 && deps.readAutomation) {
     try {
@@ -345,12 +379,12 @@ export async function previewCheckpoint(
   }
   const cost = rewindEstimate({
     objects: checkpoint.objects,
-    diff,
+    diff: selected,
     automationRequests: automation?.requests ?? 0,
     relationships,
   });
   const estimate: CheckpointEstimate = { ...cost, apiRequestsLeft: budget.remaining };
-  const records = writtenByDiff(diff.objects);
+  const records = writtenByDiff(selected.objects);
   const emails = automation ? checkpointEmails(records, automation, budget.emails) : [];
   const emailsUncounted = automation ? checkpointEmailsUncounted(records, automation) : undefined;
 
@@ -363,10 +397,10 @@ export async function previewCheckpoint(
         ? ({ code: 'RUN_WRITING', message: writing } satisfies CheckpointRefusal)
         : (budgetRefusal('rewind', cost.apiRequests, budget, orgName) ??
           emailsRefusal('rewind', emails, orgName) ??
-          (diff.files !== undefined
+          (selected.files !== undefined
             ? fileStorageRefusal(
                 'rewind',
-                { files: filesBroughtBack(diff), bytes: diff.files.storage.bringBack },
+                { files: filesBroughtBack(selected), bytes: selected.files.storage.bringBack },
                 storage?.remaining,
                 orgName,
               )

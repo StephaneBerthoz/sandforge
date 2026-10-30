@@ -310,6 +310,7 @@ export const checkpointRewindEndedSchema = z.object({
   organizationId: checkpointOrganizationIdSchema,
   mode: checkpointScopeModeSchema,
   objects: z.array(apiNameSchema).max(10_000),
+  limitedTo: z.array(apiNameSchema).min(1).max(10_000).optional(),
   readFrom: instantSchema,
   takenAt: instantSchema,
   startedAt: instantSchema,

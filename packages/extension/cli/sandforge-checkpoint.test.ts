@@ -186,6 +186,7 @@ describe('parseArgs', () => {
       command: 'rewind',
       org: 'DEV-SB',
       checkpoint: 'latest',
+      objects: [],
       dryRun: false,
       acceptAutomation: false,
       acceptNoUndo: false,
@@ -230,6 +231,44 @@ describe('parseArgs', () => {
       ignoreFields: ['Case.Last_Touched__c'],
       json: true,
     });
+  });
+
+  it('limits a preview and a rewind to the objects --object names, each once whatever its case, and refuses a name that is no API name, exit 2', () => {
+    expect(parseArgs(argv('preview', '--org', 'DEV-SB'))).toMatchObject({ objects: [] });
+    expect(
+      parseArgs(
+        argv(
+          'rewind',
+          '--org',
+          'DEV-SB',
+          '--object',
+          'Contact',
+          '--object',
+          'Case',
+          '--object',
+          'contact',
+        ),
+      ),
+    ).toMatchObject({ command: 'rewind', objects: ['Contact', 'Case'] });
+    expect(
+      parseArgs(argv('preview', '--org', 'DEV-SB', '--object', 'Case', '--fail-on-change')),
+    ).toMatchObject({ command: 'preview', objects: ['Case'], failOnChange: true });
+
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as never);
+    try {
+      expect(() =>
+        parseArgs(argv('rewind', '--org', 'DEV-SB', '--object', 'Case,Contact')),
+      ).toThrow('exit 2');
+      expect(() => parseArgs(argv('undo', '--org', 'DEV-SB', '--object', 'Case'))).toThrow(
+        'exit 2',
+      );
+    } finally {
+      exit.mockRestore();
+      err.mockRestore();
+    }
   });
 
   it('undoes the org’s last rewind unless a checkpoint is named', () => {
@@ -342,6 +381,9 @@ describe('parseArgs', () => {
       '--accept-outside               (a checkpoint of picked objects) also delete the records outside it',
       '--ignore-field <Object.Field>  stop comparing a field from now on; kept in the checkpoint',
       '--yes                          do not ask before writing; without it and with no terminal — a CI',
+      '--object <ApiName>             limit the rewind to an object of the checkpoint; repeat for more',
+      'with --object, limitedTo,',
+      'an --object the checkpoint does not hold,',
       '--max-total <n>                refuse, before reading, more than <n> records (default: 500000)',
       '--keep-days <n>                when it expires (default: 30; 0 keeps it until deleted)',
       'A production org is refused before anything is read or written, exit 1. No flag lifts it.',

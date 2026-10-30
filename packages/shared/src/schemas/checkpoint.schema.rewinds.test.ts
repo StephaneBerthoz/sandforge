@@ -89,6 +89,17 @@ describe('the rewind ledger’s lines and their schemas', () => {
     expect(checkpointRewindRecordSchema.safeParse({ ...ENDED, kind: 'take' }).success).toBe(false);
   });
 
+  it('reads the objects a rewind was limited to, and a line without them as before', () => {
+    const limited = { ...ENDED, limitedTo: ['Contact'] };
+
+    expect(checkpointRewindRecordSchema.parse(limited)).toEqual(limited);
+    expect(checkpointRewindRecordSchema.parse(ENDED)).not.toHaveProperty('limitedTo');
+    expect(checkpointRewindEndedSchema.safeParse({ ...ENDED, limitedTo: [] }).success).toBe(false);
+    expect(
+      checkpointRewindEndedSchema.safeParse({ ...ENDED, limitedTo: ['Contact; DELETE'] }).success,
+    ).toBe(false);
+  });
+
   it('refuses a clock read more than a year off this machine’s', () => {
     const year = 366 * 86_400_000;
 

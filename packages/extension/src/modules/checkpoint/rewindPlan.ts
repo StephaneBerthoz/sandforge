@@ -110,9 +110,42 @@
  * objects keeps for what it is shared with outside it has its links to the
  * records it holds removed (`unlinkFrom`), the file left where it is. A
  * checkpoint taken before files were held has no link to plan.
+ *
+ * **A rewind of some objects** (`objects`) reads the same two diffs, of every
+ * object, and acts on the objects picked alone, plus what rewinding them
+ * brings about: the children of an object not picked created since that come
+ * back with a parent it brings back go again, as leaving them would make a
+ * state that never existed. It never does more than confirmed, so it never
+ * extends itself to what the records picked depend on: it leaves them, and
+ * names the object to add (`needs`).
+ *
+ * - A record to bring back that comes back only with a parent the rewind
+ *   leaves in the bin — the parent's object not picked, or that parent left
+ *   itself — is left (`needsUnpickedParent`); so is one to make again whose
+ *   parent, through a field whose parent's delete takes it along, the rewind
+ *   leaves deleted. A carrier of an object not picked is not brought back.
+ * - A lookup of a record given back or made again that names a record the
+ *   rewind leaves deleted is left, the record's other fields written: the org
+ *   refuses a lookup to a record in the recycle bin (`ENTITY_IS_DELETED`,
+ *   P-D4). The snapshot's values are read for it (`heldRows`).
+ * - A record to delete under which records of an object not picked hang,
+ *   created since, is kept unless deleting what hangs from it outside what the
+ *   rewind rewinds was accepted (`outsideNotAccepted`); one under which records
+ *   of such an object that stay hang — changed since, moved under it — is kept
+ *   (`holdsLeft`): the removal would keep it for them all the same.
+ * - A record given back under which records of an object not picked hang,
+ *   created since, has the values they hold in place refused by the org (an
+ *   opportunity's price book under its products): named (`heldByUnpicked`),
+ *   given back for the rest.
+ *
+ * A lookup of a record not picked that names a record the rewind deletes,
+ * through a field whose parent's delete does not take it along, is emptied by
+ * the org, the record dated that second (P-D4): said, never written. Of the
+ * links between files and records, a rewind that leaves files out writes none.
  */
 
-import { appendFile, readdir } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { appendFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   sanitizeSoqlObjectName,
@@ -120,6 +153,11 @@ import {
   type CheckpointTakenBy,
   type ForgeRemovalSpan,
   type OrgCheckpoint,
+  type RewindDiff,
+  type RewindSelectionAct,
+  type RewindSelectionLeftReason,
+  type RewindSelectionPlan,
+  type RewindUndoCannot,
 } from '@sandforge/shared';
 import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import { orgDateTime } from '../sync/SyncDelta.js';
@@ -132,10 +170,14 @@ import {
   type FileLinkClass,
 } from './checkpointFiles.js';
 import { FILE_LINK_OBJECT, FILE_OBJECT, customSettingKeyOf } from './checkpointScope.js';
-import { CHECKPOINT_FILE_MODE, makePrivateDir } from './OrgCheckpointStore.js';
+import {
+  CHECKPOINT_FILE_MODE,
+  makePrivateDir,
+  type CheckpointFolder,
+} from './OrgCheckpointStore.js';
 import { deletedSpoolOf, liveSpoolOf, spooledRows } from './orgStreams.js';
 import { classFileOf } from './rewindDiff.js';
-import type { Recreated } from './snapshotIndex.js';
+import { SNAPSHOT_CHUNK_IDS, SnapshotIndex, type Recreated } from './snapshotIndex.js';
 import {
   IdSpoolWriter,
   RecordKeySet,
@@ -243,7 +285,18 @@ const DELETED: ReadonlySet<ActedClass> = new Set(['createdSince', 'broughtBackSi
  *   be made again with a new Id, and that its Id is new was not accepted;
  * - `keyTaken`: a row of a custom setting to bring back, whose owner or name
  *   a live row made, changed or brought back since holds: brought back by the
- *   next pass, once that row is gone, and left in the bin by the last.
+ *   next pass, once that row is gone, and left in the bin by the last;
+ *
+ * and, of a rewind limited to some objects, of the records of those picked:
+ *
+ * - `needsUnpickedParent`: it comes back only with a parent the rewind leaves
+ *   in the bin, or is made again under one; or a lookup of it names a record
+ *   the rewind leaves deleted, and that lookup alone is left;
+ * - `heldByUnpicked`: records of an object not picked created since hang from
+ *   it and hold some of its values in place, which the org refuses to give
+ *   back while they are there; it is given back for the rest;
+ * - `outsideNotAccepted` and `holdsLeft` as above, the records that hang from
+ *   it being of an object not picked.
  */
 export type RewindPlanLeftReason =
   | 'changedSincePreview'
@@ -253,7 +306,9 @@ export type RewindPlanLeftReason =
   | 'noUndoNotAccepted'
   | 'beforeParentNotAccepted'
   | 'recreateNotAccepted'
-  | 'keyTaken';
+  | 'keyTaken'
+  | 'needsUnpickedParent'
+  | 'heldByUnpicked';
 
 /** The reasons, each as a flag of the records left for it. */
 const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
@@ -265,6 +320,8 @@ const LEFT_FLAG: Readonly<Record<RewindPlanLeftReason, number>> = {
   beforeParentNotAccepted: 32,
   recreateNotAccepted: 64,
   keyTaken: 128,
+  needsUnpickedParent: 256,
+  heldByUnpicked: 512,
 };
 
 /** Records of one object a plan left for one reason. */
@@ -273,9 +330,36 @@ export interface RewindPlanLeft {
   reason: RewindPlanLeftReason;
   /** The user who changed them after Tr, for `changedDuringRewind`. */
   by?: string;
+  /**
+   * Of a rewind limited to some objects, the object not picked these records
+   * need rewound with them: what adding to the objects picked lifts it.
+   */
+  needs?: string;
   count: number;
   /** The first of their ids: {@link count} says how many there are. */
   ids: string[];
+}
+
+/** What a plan limited to some objects says of them, beside what it does: see the module's comment. */
+export interface RewindPlanLimited {
+  /** The objects picked, in the checkpoint's reading order. */
+  objects: string[];
+  /**
+   * Objects not picked that records picked need rewound with them, each with
+   * how many records picked need it, in the checkpoint's reading order.
+   */
+  needs: Array<{ objectApiName: string; records: number }>;
+  /**
+   * Of the records picked it leaves, in whole or in part, for what an object
+   * not picked holds, by key: why, in the rewind's words, which the verify
+   * names them by.
+   */
+  why: ReadonlyMap<string, string>;
+  /**
+   * The fields left of records given back or made again, a line a record,
+   * `{"Id", "fields"}`: lookups that name a record the rewind leaves deleted.
+   */
+  leftFields: { file: string; count: number };
 }
 
 /** What a plan sets out to do with one object, in counts. */
@@ -357,6 +441,18 @@ export interface RewindPlanInput {
    * expected back with it.
    */
   recreated?: Pick<Recreated, 'originalOf'>;
+  /**
+   * The objects of the checkpoint the rewind is limited to, by their API
+   * names as the checkpoint holds them: see the module's comment. Absent,
+   * every object.
+   */
+  objects?: ReadonlySet<string>;
+  /**
+   * The snapshot's rows of `ids` of `objectApiName`, those it holds: what a
+   * plan limited to some objects reads the lookups of what it gives back and
+   * makes again from. Without it, none is left.
+   */
+  heldRows?: (objectApiName: string, ids: readonly string[]) => AsyncIterable<OrgRow>;
   /** Where the plan is written: a folder of its own, made when missing, empty when not. */
   dir: string;
   /** Stops it between two objects. */
@@ -417,6 +513,8 @@ export interface RewindPlan {
   left: RewindPlanLeft[];
   /** What it does to the links between files and records: see {@link RewindPlanLinks}. */
   links: RewindPlanLinks;
+  /** Set when it is limited to some objects: see {@link RewindPlanLimited}. */
+  limited?: RewindPlanLimited;
 }
 
 /** Links of one class a pass writes, in a file of the plan's folder, one a line. */
@@ -539,11 +637,24 @@ class ClassLines {
 class LeftTally {
   private readonly entries = new Map<string, RewindPlanLeft>();
 
-  add(objectApiName: string, reason: RewindPlanLeftReason, id: string, by?: string): void {
-    const at = `${objectApiName}\u0000${reason}\u0000${by ?? ''}`;
+  add(
+    objectApiName: string,
+    reason: RewindPlanLeftReason,
+    id: string,
+    by?: string,
+    needs?: string,
+  ): void {
+    const at = `${objectApiName}\u0000${reason}\u0000${by ?? ''}\u0000${needs ?? ''}`;
     let entry = this.entries.get(at);
     if (!entry) {
-      entry = { objectApiName, reason, ...(by !== undefined ? { by } : {}), count: 0, ids: [] };
+      entry = {
+        objectApiName,
+        reason,
+        ...(by !== undefined ? { by } : {}),
+        ...(needs !== undefined ? { needs } : {}),
+        count: 0,
+        ids: [],
+      };
       this.entries.set(at, entry);
     }
     entry.count++;
@@ -551,11 +662,14 @@ class LeftTally {
   }
 
   all(order: ReadonlyMap<string, number>): RewindPlanLeft[] {
+    const text = (a: string | undefined, b: string | undefined): number =>
+      (a ?? '') < (b ?? '') ? -1 : (a ?? '') > (b ?? '') ? 1 : 0;
     return [...this.entries.values()].sort(
       (a, b) =>
         (order.get(a.objectApiName) ?? 0) - (order.get(b.objectApiName) ?? 0) ||
-        (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0) ||
-        ((a.by ?? '') < (b.by ?? '') ? -1 : (a.by ?? '') > (b.by ?? '') ? 1 : 0),
+        text(a.reason, b.reason) ||
+        text(a.by, b.by) ||
+        text(a.needs, b.needs),
     );
   }
 }
@@ -728,6 +842,237 @@ async function planLinks(
   };
 }
 
+// ─── A rewind of some objects ────────────────────────────────────────────────
+
+/** The classes whose records a rewind brings back from the recycle bin. */
+const BROUGHT_BACK: readonly ActedClass[] = ['inBin', 'withParent', 'deletedWhileTaken', 'carrier'];
+
+/** The stamps and the id of a snapshot's row, which name no record to keep a lookup to. */
+const NOT_LOOKUPS: ReadonlySet<string> = new Set([
+  'id',
+  'createdbyid',
+  'lastmodifiedbyid',
+  'systemmodstamp',
+  'createddate',
+  'lastmodifieddate',
+]);
+
+/** What a plan limited to some objects reads before it plans: see {@link limitsOf}. */
+interface Limits {
+  /**
+   * By key, the records the rewind brings back from the recycle bin: of the
+   * objects picked on their own, and whatever comes back with one of them,
+   * whichever its object.
+   */
+  comes: ReadonlySet<string>;
+  /** By key, the records picked to bring back or make again it leaves for a parent it leaves deleted, with the object that parent needs. */
+  left: ReadonlyMap<string, string | undefined>;
+  /** By key, the lookups of records given back or made again that name a record it leaves deleted. */
+  fields: ReadonlyMap<string, { fields: string[]; needs: string | undefined }>;
+}
+
+/** The ids `fields` of `row` name, by key: the parents of a record through them. */
+function keysIn(fields: readonly string[], row: OrgRow): string[] {
+  return fields.flatMap((field) => {
+    const parent = row[field];
+    return typeof parent === 'string' && RECORD_ID.test(parent) ? [parent.slice(0, 15)] : [];
+  });
+}
+
+/**
+ * The fields of a snapshot's row that name a record `absent` holds, each with
+ * the object it needs; of `among` alone, when given — the fields a give-back
+ * writes.
+ */
+function namingAbsent(
+  row: OrgRow,
+  absent: ReadonlyMap<string, string | undefined>,
+  among: readonly string[] | undefined,
+): Array<{ field: string; needs: string | undefined }> {
+  const wanted = among === undefined ? undefined : new Set(among.map((f) => f.toLowerCase()));
+  return Object.entries(row).flatMap(([field, value]) => {
+    const name = field.toLowerCase();
+    if (NOT_LOOKUPS.has(name) || (wanted !== undefined && !wanted.has(name))) return [];
+    if (typeof value !== 'string' || !RECORD_ID.test(value)) return [];
+    const key = value.slice(0, 15);
+    return absent.has(key) ? [{ field, needs: absent.get(key) }] : [];
+  });
+}
+
+/**
+ * What a plan limited to the objects `picked` says yes to reads of the fresh
+ * diff before it plans, every object's:
+ *
+ * - what comes back: the records of the objects picked brought back on their
+ *   own, and, as far down as it goes, what comes back with one of them — a
+ *   carrier of an object not picked is not brought back;
+ * - what the rewind of every object would bring back or make again that this
+ *   one leaves deleted: the records of the objects not picked, and those
+ *   picked that come back only with a parent left in the bin, or are made
+ *   again under one — each with the object not picked that lifts it;
+ * - read from the snapshot, the lookups of what it gives back or makes again
+ *   that name such a record, parents first: the org refuses them.
+ */
+async function limitsOf(
+  input: RewindPlanInput,
+  objects: readonly CheckpointObject[],
+  picked: (objectApiName: string) => boolean,
+): Promise<Limits> {
+  const { freshDir, heldRows } = input;
+  const ownerOf = new Map<string, string>();
+  const classOf = new Map<string, ActedClass>();
+  for (const object of objects) {
+    for (const cls of [...BROUGHT_BACK, 'toRecreate', 'comesBackWithParent'] as const) {
+      const file = classFileOf(freshDir, object.objectApiName, cls);
+      for await (const row of rowsOf(file)) {
+        const key = idOf(row, file).slice(0, 15);
+        ownerOf.set(key, object.objectApiName);
+        classOf.set(key, cls);
+      }
+    }
+  }
+  // What comes back with a parent, and the parents it went with, as the bin holds it.
+  const parentsOf = new Map<string, string[]>();
+  for (const object of objects) {
+    if (object.cascadeParents.length === 0) continue;
+    for await (const row of rowsOf(deletedSpoolOf(freshDir, object.objectApiName))) {
+      if (typeof row.Id !== 'string' || !RECORD_ID.test(row.Id)) continue;
+      const key = row.Id.slice(0, 15);
+      const cls = classOf.get(key);
+      if (cls === 'withParent' || cls === 'comesBackWithParent') {
+        parentsOf.set(key, keysIn(object.cascadeParents, row));
+      }
+    }
+  }
+  const comes = new Set<string>();
+  for (const [key, cls] of classOf) {
+    const alone = cls === 'inBin' || cls === 'deletedWhileTaken' || cls === 'carrier';
+    if (alone && picked(ownerOf.get(key) ?? '')) comes.add(key);
+  }
+  for (let grew = comes.size > 0; grew;) {
+    grew = false;
+    for (const [key, parents] of parentsOf) {
+      if (comes.has(key) || !parents.some((parent) => comes.has(parent))) continue;
+      comes.add(key);
+      grew = true;
+    }
+  }
+  /** The object not picked a record left in the bin needs: its own, or its parent's. */
+  const needsOf = (key: string, seen: Set<string> = new Set()): string | undefined => {
+    const owner = ownerOf.get(key);
+    if (owner === undefined || seen.has(key)) return undefined;
+    if (!picked(owner)) return owner;
+    seen.add(key);
+    for (const parent of parentsOf.get(key) ?? []) {
+      if (comes.has(parent)) continue;
+      const needs = needsOf(parent, seen);
+      if (needs !== undefined) return needs;
+    }
+    return undefined;
+  };
+  const absent = new Map<string, string | undefined>();
+  const left = new Map<string, string | undefined>();
+  for (const [key, cls] of classOf) {
+    if (comes.has(key) || cls === 'comesBackWithParent') continue;
+    const owner = ownerOf.get(key) ?? '';
+    if (!picked(owner)) {
+      absent.set(key, owner);
+    } else if (cls === 'withParent') {
+      const needs = needsOf(key);
+      left.set(key, needs);
+      absent.set(key, needs);
+    }
+  }
+
+  const fields = new Map<string, { fields: string[]; needs: string | undefined }>();
+  if (heldRows === undefined) return { comes, left, fields };
+  for (const object of [...objects].reverse()) {
+    const name = object.objectApiName;
+    if (!picked(name)) continue;
+    const cascade = new Set(object.cascadeParents.map((field) => field.toLowerCase()));
+    // Made again under a parent left deleted it cannot be; with a lookup to one, without it.
+    const remade: string[] = [];
+    const remadeFile = classFileOf(freshDir, name, 'toRecreate');
+    for await (const row of rowsOf(remadeFile)) remade.push(idOf(row, remadeFile));
+    if (remade.length > 0) {
+      for await (const row of heldRows(name, remade)) {
+        if (typeof row.Id !== 'string' || !RECORD_ID.test(row.Id)) continue;
+        const key = row.Id.slice(0, 15);
+        const named = namingAbsent(row, absent, undefined);
+        if (named.length === 0) continue;
+        const parent = named.find(({ field }) => cascade.has(field.toLowerCase()));
+        if (parent !== undefined) {
+          left.set(key, parent.needs);
+          absent.set(key, parent.needs);
+        } else {
+          fields.set(key, { fields: named.map(({ field }) => field), needs: named[0].needs });
+        }
+      }
+    }
+    // Given back: the fields that differ of what changed since; every field
+    // of what comes back, given its values once back.
+    const given = new Map<string, { id: string; differ: string[] | undefined }>();
+    const givenFile = classFileOf(freshDir, name, 'giveBack');
+    for await (const row of rowsOf(givenFile)) {
+      const id = idOf(row, givenFile);
+      const differ = Array.isArray(row.fields)
+        ? row.fields.filter((field): field is string => typeof field === 'string')
+        : undefined;
+      given.set(id.slice(0, 15), { id, differ });
+    }
+    for (const cls of ['inBin', 'withParent'] as const) {
+      const file = classFileOf(freshDir, name, cls);
+      for await (const row of rowsOf(file)) {
+        const id = idOf(row, file);
+        if (comes.has(id.slice(0, 15))) given.set(id.slice(0, 15), { id, differ: undefined });
+      }
+    }
+    if (given.size === 0) continue;
+    for await (const row of heldRows(
+      name,
+      [...given.values()].map(({ id }) => id),
+    )) {
+      if (typeof row.Id !== 'string' || !RECORD_ID.test(row.Id)) continue;
+      const key = row.Id.slice(0, 15);
+      const held = given.get(key);
+      if (held === undefined) continue;
+      const named = namingAbsent(row, absent, held.differ);
+      if (named.length > 0) {
+        fields.set(key, { fields: named.map(({ field }) => field), needs: named[0].needs });
+      }
+    }
+  }
+  return { comes, left, fields };
+}
+
+/** Why a plan limited to some objects leaves a record picked, in the words the verify names it by. */
+function limitedWords(reason: RewindPlanLeftReason, needs: string | undefined): string {
+  const add = needs !== undefined ? ` Rewind ${needs} with it to put it back.` : '';
+  const of = needs ?? 'an object this rewind was not limited to';
+  switch (reason) {
+    case 'needsUnpickedParent':
+      return (
+        `Left: it comes back only with a parent this rewind leaves deleted, or a lookup of it ` +
+        `names a record this rewind leaves deleted (${of}), which the org refuses to point at.${add}`
+      );
+    case 'heldByUnpicked':
+      return (
+        `Given back but for the values records of ${of} created since hold in place: this rewind ` +
+        `leaves them, so the org refuses to change those values.${add}`
+      );
+    case 'outsideNotAccepted':
+      return (
+        `Kept: records of ${of} created since hang from it, which its deletion would take along, ` +
+        `and deleting them was not accepted.${add}`
+      );
+    default:
+      return (
+        `Kept: records of ${of} this rewind leaves as they are hang from it, and its deletion ` +
+        `would take them along.${add}`
+      );
+  }
+}
+
 // ─── The plan ────────────────────────────────────────────────────────────────
 
 /**
@@ -778,7 +1123,36 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     idsIn(object.restrictParents ?? [], row);
   const left = new LeftTally();
 
-  /** Every record this pass would delete, before what it keeps out. */
+  // ─── A rewind of some objects: what it brings back, and what it leaves ───
+  const isPicked = (objectApiName: string): boolean =>
+    input.objects === undefined || input.objects.has(objectApiName);
+  const limits = input.objects !== undefined ? await limitsOf(input, objects, isPicked) : undefined;
+  /** Of a plan limited to some objects, the records picked it leaves for what is not, by key: why. */
+  const why = new Map<string, string>();
+  /** Per object not picked, the records picked that need it. */
+  const needed = new Map<string, RecordKeySet>();
+  const leftFieldLines = new ClassLines(join(dir, 'leftFields.ndjson'));
+  let leftFieldCount = 0;
+  const leaveFor = (
+    objectApiName: string,
+    reason: RewindPlanLeftReason,
+    id: string,
+    needs: string | undefined,
+  ): void => {
+    left.add(objectApiName, reason, id, undefined, needs);
+    why.set(id.slice(0, 15), limitedWords(reason, needs));
+    if (needs === undefined) return;
+    let records = needed.get(needs);
+    if (!records) {
+      records = new RecordKeySet();
+      needed.set(needs, records);
+    }
+    records.add(id);
+  };
+  /** The records of the objects picked it gives back changed since; flags: their object's place, plus one. */
+  const givenBack = new RecordKeySet();
+
+  /** Every record this pass would delete, before what it keeps out; flags: its object's place, plus one. */
   const toDelete = new RecordKeySet();
   /** Records kept out of the deletion, or left, each flagged with why. */
   const kept = new RecordKeySet();
@@ -794,6 +1168,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   for (const object of objects) {
     stopped();
     const name = object.objectApiName;
+    const picked = isPicked(name);
+    const place = (order.get(name) ?? 0) + 1;
     const tally = countsOf(name);
     const confirmed = new RecordKeySet();
     for (const cls of ACTED) {
@@ -813,20 +1189,59 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       return held;
     };
     for (const cls of ACTED) {
+      // Of an object not picked, only what rewinding those picked brings
+      // about: its children created since that come back with a parent the
+      // rewind brings back, deleted again — found back by the second pass.
+      if (!picked && cls !== 'comesBackWithParent' && cls !== 'createdSince') continue;
       const file = classFileOf(freshDir, name, cls);
       for await (const row of rowsOf(file)) {
         const id = idOf(row, file);
         const isConfirmed = (confirmed.flagsOf(id) & CONFIRMED_AS[cls]) !== 0;
+        if (
+          !picked &&
+          !(pass === 2
+            ? isConfirmed
+            : cls === 'comesBackWithParent' && isConfirmed && limits?.comes.has(id.slice(0, 15)))
+        ) {
+          continue;
+        }
         if (isConfirmed) confirmed.add(id, STILL_TO_DO);
         if (isConfirmed && DELETED.has(cls) && (confirmed.flagsOf(id) & CLASS_FLAG.carrier) !== 0) {
           carried.add(id);
         }
         const other = after?.other.flagsOf(id) ?? 0;
-        if (other > 0 || !(isConfirmed || after?.own.has(id) === true)) {
+        const ownSince = picked && after?.own.has(id) === true;
+        if (other > 0 || !(isConfirmed || ownSince)) {
           const reason = other > 0 ? 'changedDuringRewind' : 'changedSincePreview';
           left.add(name, reason, id, other > 0 ? users[other - 1] : undefined);
           if (DELETED.has(cls)) kept.add(id, LEFT_FLAG[reason]);
           continue;
+        }
+        if (limits !== undefined && picked) {
+          const key = id.slice(0, 15);
+          // Its parent stays in the bin: it does not come back, nothing to delete again.
+          if (cls === 'comesBackWithParent' && !limits.comes.has(key)) continue;
+          if ((cls === 'withParent' || cls === 'toRecreate') && limits.left.has(key)) {
+            leaveFor(name, 'needsUnpickedParent', id, limits.left.get(key));
+            continue;
+          }
+          const lookups = limits.fields.get(key);
+          if (
+            lookups !== undefined &&
+            (cls === 'giveBack' || cls === 'toRecreate' || cls === 'inBin' || cls === 'withParent')
+          ) {
+            leaveFor(name, 'needsUnpickedParent', id, lookups.needs);
+            await leftFieldLines.add({ Id: id, fields: lookups.fields });
+            leftFieldCount++;
+            const differ = Array.isArray(row.fields) ? row.fields : [];
+            const rest = differ.filter(
+              (field) =>
+                typeof field === 'string' &&
+                !lookups.fields.some((held) => held.toLowerCase() === field.toLowerCase()),
+            );
+            // Nothing else of it to give back.
+            if (cls === 'giveBack' && differ.length > 0 && rest.length === 0) continue;
+          }
         }
         // A record made again gets a new Id: made only once that was accepted.
         if (cls === 'toRecreate' && !input.acceptRecreate) {
@@ -834,7 +1249,8 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
           continue;
         }
         await lineOf(cls).add(cls === 'giveBack' ? row : { Id: id });
-        if (DELETED.has(cls)) toDelete.add(id);
+        if (cls === 'giveBack' && limits !== undefined) givenBack.add(id, place);
+        if (DELETED.has(cls)) toDelete.add(id, place);
         else if (cls === 'comesBackWithParent') {
           comesBack.add(id);
           tally.nextPassDeleted++;
@@ -852,7 +1268,56 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
       }
     }
     for (const held of lines.values()) await held.flush();
-    tally.skipped = confirmed.count((flags) => (flags & STILL_TO_DO) === 0);
+    // Of an object not picked, what it does not rewind is not skipped: it was not asked.
+    tally.skipped = picked ? confirmed.count((flags) => (flags & STILL_TO_DO) === 0) : 0;
+  }
+  await leftFieldLines.flush();
+
+  // ─── A rewind of some objects: what records not picked hold ───
+  /** Of the records kept for what hangs from them, by key, the object not picked that holds them. */
+  const keptNeeds = new Map<string, string>();
+  if (limits !== undefined) {
+    /** Of the records given back, those records not picked created since hang from, said once. */
+    const heldSaid = new RecordKeySet();
+    for (const object of objects) {
+      const name = object.objectApiName;
+      if (isPicked(name) || object.cascadeParents.length === 0) continue;
+      // Created since, or brought back since: the rewind of every object deletes them.
+      const staying = new RecordKeySet();
+      for (const cls of DELETED) {
+        const file = classFileOf(freshDir, name, cls);
+        for await (const row of rowsOf(file)) staying.add(idOf(row, file));
+      }
+      for await (const row of rowsOf(liveSpoolOf(freshDir, name))) {
+        if (typeof row.Id !== 'string' || !RECORD_ID.test(row.Id)) continue;
+        // Deleted again by this pass, come back with a parent: it holds nothing.
+        if (toDelete.has(row.Id)) continue;
+        const created = staying.has(row.Id);
+        // As the removal tells one that goes with its parent: made since T1, unchanged since Tr.
+        const along =
+          created && dateMs(row.CreatedDate) >= t1 && dateMs(row.LastModifiedDate) <= before;
+        for (const parent of cascadeOf(object, row)) {
+          const deleting = toDelete.flagsOf(parent);
+          if (deleting > 0) {
+            if (kept.has(parent) || (along && input.acceptOutside)) continue;
+            const of = objects[deleting - 1].objectApiName;
+            keptNeeds.set(parent.slice(0, 15), name);
+            if (along) {
+              kept.add(parent, LEFT_FLAG.outsideNotAccepted);
+              leaveFor(of, 'outsideNotAccepted', parent, name);
+            } else {
+              // The removal keeps it for them all the same: older than T1, or changed since Tr.
+              kept.add(parent, LEFT_FLAG.holdsLeft);
+            }
+            continue;
+          }
+          const giving = givenBack.flagsOf(parent);
+          if (created && giving > 0 && heldSaid.add(parent)) {
+            leaveFor(objects[giving - 1].objectApiName, 'heldByUnpicked', parent, name);
+          }
+        }
+      }
+    }
   }
 
   // ─── What is kept out of the deletion ───
@@ -881,9 +1346,11 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     for (const { object, file } of holding) {
       for await (const row of rowsOf(file)) {
         if (!kept.has(row.Id)) continue;
+        const needs = keptNeeds.get(String(row.Id).slice(0, 15));
         for (const parent of cascadeOf(object, row)) {
           if (!toDelete.has(parent) || kept.has(parent)) continue;
           kept.add(parent, LEFT_FLAG.holdsLeft);
+          if (needs !== undefined) keptNeeds.set(parent.slice(0, 15), needs);
           grew = true;
         }
       }
@@ -892,7 +1359,10 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
   for (const { object, file } of holding) {
     for await (const row of rowsOf(file)) {
       if (toDelete.has(row.Id) && kept.flagsOf(row.Id) === LEFT_FLAG.holdsLeft) {
-        left.add(object.objectApiName, 'holdsLeft', idOf(row, file));
+        const id = idOf(row, file);
+        const needs = keptNeeds.get(id.slice(0, 15));
+        if (needs !== undefined) leaveFor(object.objectApiName, 'holdsLeft', id, needs);
+        else left.add(object.objectApiName, 'holdsLeft', id);
       }
     }
   }
@@ -1104,9 +1574,10 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     }
   }
   // A checkpoint taken before files were held rewinds as it did then: no
-  // link is written on its own, whatever its folders hold.
+  // link is written on its own, whatever its folders hold; nor does a rewind
+  // that leaves its files out.
   const linked =
-    checkpoint.files === undefined
+    checkpoint.files === undefined || !isPicked(FILE_OBJECT)
       ? noLinks(dir)
       : await planLinks({
           confirmedDir,
@@ -1167,7 +1638,192 @@ export async function rewindPlan(input: RewindPlanInput): Promise<RewindPlan> {
     beforeParent: beforeParent.reverse(),
     left: left.all(order),
     links: { ...linked, unlinkFrom: await unlinkFrom.finish() },
+    ...(limits !== undefined
+      ? {
+          limited: {
+            objects: objects.map(({ objectApiName }) => objectApiName).filter(isPicked),
+            needs: [...needed]
+              .sort(([a], [b]) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
+              .map(([objectApiName, records]) => ({ objectApiName, records: records.size })),
+            why,
+            leftFields: { file: leftFieldLines.file, count: leftFieldCount },
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * The diff of the objects `picked` alone: what an estimate of a rewind of
+ * them counts it writes, the emails it sends, and what it cannot take back.
+ * Its links between files and records are left out with the files. The
+ * whole diff, every object, when none is picked.
+ */
+export function diffOfPicked<
+  T extends Pick<RewindDiff, 'objects' | 'undoCannot' | 'unread'> &
+    Partial<Pick<RewindDiff, 'withParentDeleted' | 'unseen' | 'files'>>,
+>(diff: T, picked: ReadonlySet<string> | undefined): T {
+  if (picked === undefined) return diff;
+  const of = <E extends { objectApiName: string }>(entries: readonly E[]): E[] =>
+    entries.filter((entry) => picked.has(entry.objectApiName));
+  const { files, ...rest } = diff;
+  return {
+    ...rest,
+    objects: of(diff.objects),
+    undoCannot: of(diff.undoCannot),
+    unread: of(diff.unread),
+    ...(diff.withParentDeleted ? { withParentDeleted: of(diff.withParentDeleted) } : {}),
+    ...(diff.unseen ? { unseen: of(diff.unseen) } : {}),
+    ...(files !== undefined && picked.has(FILE_OBJECT) ? { files } : {}),
+  } as T;
+}
+
+/** Rows of the snapshot a plan's read of it takes at a time. */
+const HELD_ROWS_PER_BATCH = 200;
+
+/**
+ * The snapshot's rows of the records named, a chunk of the snapshot at a
+ * time, read from the checkpoint's folder on this machine: what a plan
+ * limited to some objects reads the lookups of (`RewindPlanInput.heldRows`).
+ */
+export function snapshotRowsOf(
+  checkpoint: Pick<OrgCheckpoint, 'snapshotId'>,
+  folder: CheckpointFolder,
+): NonNullable<RewindPlanInput['heldRows']> {
+  return async function* (objectApiName, ids) {
+    if (ids.length === 0) return;
+    const index = await SnapshotIndex.read(folder, checkpoint.snapshotId, objectApiName);
+    for (let at = 0; at < ids.length; at += SNAPSHOT_CHUNK_IDS) {
+      const batches = await index
+        .chunk(ids.slice(at, at + SNAPSHOT_CHUNK_IDS))
+        .batches(checkpoint.snapshotId, objectApiName, HELD_ROWS_PER_BATCH);
+      for await (const batch of batches ?? []) yield* batch;
+    }
+  };
+}
+
+// ─── The plan of a selection, as the page is told it ─────────────────────────
+
+/** The reasons a plan leaves a record picked for that the page names, as the shared contract words them. */
+const SELECTION_LEFT: ReadonlySet<RewindPlanLeftReason> = new Set<RewindSelectionLeftReason>([
+  'needsUnpickedParent',
+  'heldByUnpicked',
+  'outsideNotAccepted',
+  'holdsLeft',
+  'keyTaken',
+]);
+
+/** Records of `objectApiName` a plan's class file names that are given back changed since: its lines that name fields. */
+async function changedGivenBack(dir: string, objectApiName: string): Promise<number> {
+  let count = 0;
+  for await (const row of rowsOf(classFileOf(dir, objectApiName, 'giveBack'))) {
+    if (Array.isArray(row.fields)) count++;
+  }
+  return count;
+}
+
+/**
+ * What a first pass limited to some objects sets out to do and leaves, as the
+ * page is told it (`RewindSelectionPlan`): the plan's own counts — what the
+ * removal is handed, what goes with a parent it deletes, and what the second
+ * pass deletes again; what is given back changed since; what is brought back
+ * on its own or with its parent; what is made again —, its records left for
+ * what the selection leaves, the objects to add, and what Undo couldn't bring
+ * back of what it deletes.
+ */
+export async function selectionPlanOf(plan: RewindPlan): Promise<RewindSelectionPlan> {
+  const picked = new Set(plan.limited?.objects ?? plan.objects.map((o) => o.objectApiName));
+  const acts: RewindSelectionAct[] = [];
+  for (const object of plan.objects) {
+    const act: RewindSelectionAct = {
+      objectApiName: object.objectApiName,
+      picked: picked.has(object.objectApiName),
+      toDelete:
+        object.deleted + object.withParentDeleted + object.nextPassDeleted - (object.carriers ?? 0),
+      toGiveBack: await changedGivenBack(plan.dir, object.objectApiName),
+      toBringBack: object.broughtBack + object.backWithParent,
+      toRecreate: object.recreated,
+    };
+    if (act.toDelete + act.toGiveBack + act.toBringBack + act.toRecreate > 0) acts.push(act);
+  }
+  const left = new Map<string, RewindSelectionPlan['left'][number]>();
+  for (const entry of plan.left) {
+    if (!picked.has(entry.objectApiName) || !SELECTION_LEFT.has(entry.reason)) continue;
+    const at = `${entry.objectApiName}\u0000${entry.reason}`;
+    const held = left.get(at);
+    if (held) held.count += entry.count;
+    else {
+      left.set(at, {
+        objectApiName: entry.objectApiName,
+        reason: entry.reason as RewindSelectionLeftReason,
+        count: entry.count,
+      });
+    }
+  }
+  const undoCannot: RewindUndoCannot[] = plan.undoCannot.flatMap(({ objectApiName, count }) => {
+    const before = plan.beforeParent.find((entry) => entry.objectApiName === objectApiName);
+    const first = count - (before?.count ?? 0);
+    return [
+      ...(first > 0 ? [{ objectApiName, count: first }] : []),
+      ...(before !== undefined && before.count > 0
+        ? [{ objectApiName, count: before.count, reason: 'deletedBeforeParent' as const }]
+        : []),
+    ];
+  });
+  return {
+    objects: [...picked],
+    acts,
+    left: [...left.values()],
+    needs: plan.limited?.needs ?? [],
+    undoCannot,
+  };
+}
+
+/** What the plan of a selection is made from: a preview's folder on this machine, and what was picked. */
+export interface SelectionPlanInput {
+  checkpoint: RewindPlanInput['checkpoint'];
+  /** The preview's folder, which the plan reads both diffs from: the rewind that follows confirms it. */
+  previewDir: string;
+  /** Tr of the preview: when it read the org. */
+  readAt: string;
+  objects: ReadonlySet<string>;
+  /** As the rewind is asked it: without it, a record whose deletion takes such records along is left. */
+  acceptOutside: boolean;
+  heldRows?: RewindPlanInput['heldRows'];
+  signal?: AbortSignal;
+}
+
+/**
+ * The plan of a rewind limited to `objects`, made on this machine from the
+ * preview's folder by the rewind's own plan, the org not read: what the
+ * rewind that follows acts on, while the org has not moved since the preview.
+ * Undo's limits and new Ids are planned as accepted, and said
+ * (`undoCannot`, `toRecreate`), as the rewind refuses them unaccepted. The
+ * plan's folder is made beside the preview's reads and removed once the plan
+ * is told.
+ */
+export async function planSelection(input: SelectionPlanInput): Promise<RewindSelectionPlan> {
+  const dir = join(input.previewDir, `selection-${randomBytes(4).toString('hex')}`);
+  try {
+    const plan = await rewindPlan({
+      checkpoint: input.checkpoint,
+      pass: 1,
+      confirmedDir: input.previewDir,
+      freshDir: input.previewDir,
+      readAt: input.readAt,
+      ownWriters: [],
+      acceptOutside: input.acceptOutside,
+      acceptNoUndo: true,
+      acceptRecreate: true,
+      objects: input.objects,
+      ...(input.heldRows ? { heldRows: input.heldRows } : {}),
+      dir,
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    return await selectionPlanOf(plan);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /**

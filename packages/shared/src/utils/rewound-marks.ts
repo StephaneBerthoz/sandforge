@@ -67,6 +67,12 @@ export interface RewoundMark {
   undoneAt?: string;
   /** The objects the run wrote that the checkpoint did not hold, as the run names them: not rewound. */
   outside: string[];
+  /**
+   * Of a rewind limited to some objects, those the checkpoint held that it
+   * left out and the run wrote — every one left out when the run's history
+   * does not say what it wrote —: not rewound either. Absent when none.
+   */
+  notPicked?: string[];
 }
 
 /** A rewind's bounds on this machine's clock, in milliseconds. */
@@ -94,14 +100,16 @@ interface Covering {
   bounds: Bounds;
   kind: RewoundMarkKind;
   outside: string[];
+  notPicked: string[];
   undo?: CheckpointRewindUndone;
 }
 
 /**
- * How `rewind` took back a run of `start` to `end`, and what of its objects
- * the checkpoint did not hold; undefined when it took back nothing of it: the
- * run ended before the take began, began after the rewind ended, or wrote
- * only objects the checkpoint did not hold.
+ * How `rewind` took back a run of `start` to `end`, what of its objects the
+ * checkpoint did not hold, and what of them a rewind limited to some objects
+ * left out; undefined when it took back nothing of it: the run ended before
+ * the take began, began after the rewind ended, or wrote only objects the
+ * rewind did not take back.
  */
 function coveringOf(
   rewind: CheckpointRewindEnded,
@@ -115,14 +123,24 @@ function coveringOf(
   if (end < bounds.t0 - m || start > bounds.end + m) return undefined;
   const held = new Set(rewind.objects.map((name) => name.toLowerCase()));
   const outside = objects.filter((name) => !held.has(name.toLowerCase()));
-  if (objects.length > 0 && outside.length === objects.length) return undefined;
+  // A line written before a rewind could be limited took back every object.
+  const limited =
+    rewind.limitedTo === undefined
+      ? undefined
+      : new Set(rewind.limitedTo.map((name) => name.toLowerCase()));
+  const leftOut = (name: string): boolean =>
+    limited !== undefined && held.has(name.toLowerCase()) && !limited.has(name.toLowerCase());
+  // A run whose history does not say what it wrote may have written any object
+  // the rewind left out.
+  const notPicked = objects.length > 0 ? objects.filter(leftOut) : rewind.objects.filter(leftOut);
+  if (objects.length > 0 && outside.length + notPicked.length === objects.length) return undefined;
   const kind: RewoundMarkKind =
     rewind.status === 'cancelled'
       ? 'stopped'
       : start > bounds.t1 + m && end < bounds.tr - m
         ? 'rewound'
         : 'partly';
-  return { rewind, bounds, kind, outside };
+  return { rewind, bounds, kind, outside, notPicked };
 }
 
 /** The run's objects, each named once, whatever its case. */
@@ -193,7 +211,7 @@ export function rewoundMarkOf(
     kept[kept.length - 1] ??
     covering[covering.length - 1];
   if (chosen === undefined) return undefined;
-  const { rewind, bounds, kind, outside, undo } = chosen;
+  const { rewind, bounds, kind, outside, notPicked, undo } = chosen;
   return {
     kind,
     rewindId: rewind.rewindId,
@@ -204,6 +222,7 @@ export function rewoundMarkOf(
       rewind.status === 'partial' || rewind.status === 'unstable' || rewind.status === 'failure',
     ...(undo ? { undoneAt: undo.undoneAt } : {}),
     outside,
+    ...(notPicked.length > 0 ? { notPicked } : {}),
   };
 }
 

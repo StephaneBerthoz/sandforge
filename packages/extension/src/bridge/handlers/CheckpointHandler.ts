@@ -33,6 +33,7 @@ import {
   checkpointIgnoreFieldsPayloadSchema,
   checkpointKeepPayloadSchema,
   checkpointListPayloadSchema,
+  checkpointPlanSelectionPayloadSchema,
   checkpointPreviewPayloadSchema,
   checkpointRenamePayloadSchema,
   checkpointRewindPayloadSchema,
@@ -69,6 +70,7 @@ const CHECKPOINT_TYPES = new Set([
   'checkpoint:scope',
   'checkpoint:take',
   'checkpoint:preview',
+  'checkpoint:plan-selection',
   'checkpoint:rewind',
   'checkpoint:undo',
   'checkpoint:delete',
@@ -193,7 +195,7 @@ export type CheckpointImportAnswer =
 
 /** The modules a checkpoint's acts run through, loaded on the first request, off the activation path. */
 async function loadCheckpointModules() {
-  const [store, take, preview, rewind, undo, guard, archive] = await Promise.all([
+  const [store, take, preview, rewind, undo, guard, archive, plan] = await Promise.all([
     import('../../modules/checkpoint/OrgCheckpointStore.js'),
     import('../../modules/checkpoint/takeCheckpoint.js'),
     import('../../modules/checkpoint/previewCheckpoint.js'),
@@ -201,8 +203,11 @@ async function loadCheckpointModules() {
     import('../../modules/checkpoint/undoCheckpoint.js'),
     import('../../modules/checkpoint/checkpointGuard.js'),
     import('../../modules/checkpoint/checkpointArchive.js'),
+    import('../../modules/checkpoint/rewindPlan.js'),
   ]);
   return {
+    planSelection: plan.planSelection,
+    snapshotRowsOf: plan.snapshotRowsOf,
     guardCheckpoint: guard.guardCheckpoint,
     newArchiveKey: archive.newArchiveKey,
     archiveKeyText: archive.archiveKeyText,
@@ -260,6 +265,30 @@ function sameOrganization(a: string | undefined, b: string | undefined): boolean
 /** An Organization Id, in its 15- or 18-character form. */
 const ORGANIZATION_ID = /^00D[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?$/;
 
+/**
+ * The objects a rewind is limited to, by their API names as `checkpoint`
+ * holds them, whatever the case they were asked in, each once; undefined when
+ * none was asked, every object. One the checkpoint does not hold is refused.
+ */
+function heldObjectsOf(
+  checkpoint: OrgCheckpoint,
+  asked: readonly string[] | undefined,
+): string[] | undefined {
+  if (asked === undefined) return undefined;
+  const byName = new Map(
+    checkpoint.objects.map(({ objectApiName }) => [objectApiName.toLowerCase(), objectApiName]),
+  );
+  const unknown = asked.filter((name) => !byName.has(name.toLowerCase()));
+  if (unknown.length > 0) {
+    throw new Refused(
+      'NOT_HELD',
+      `The checkpoint '${checkpoint.name}' holds no ${unknown.join(', ')}: a rewind is limited ` +
+        'to objects it holds. No record was read or written.',
+    );
+  }
+  return [...new Set(asked.flatMap((name) => byName.get(name.toLowerCase()) ?? []))];
+}
+
 /** How the user knows an org: its alias, else its username. */
 function nameOf(org: Pick<SalesforceOrg, 'alias' | 'username'>): string {
   return org.alias || org.username;
@@ -308,7 +337,14 @@ function holderWords(holder: OrgLockHolder): string {
  *   nothing and answers `CANCELLED`. A take kept answers with the requests
  *   it sent the org, phase by phase, beside what it estimated.
  * - `checkpoint:preview` — what a rewind would do, read from the org, nothing
- *   written (`previewCheckpoint`).
+ *   written (`previewCheckpoint`); of a rewind limited to some objects, its
+ *   estimate, automation and refusal those of a rewind of them.
+ * - `checkpoint:plan-selection` — what a rewind limited to the objects picked
+ *   would do and leave, and the objects it depends on: planned on this
+ *   machine by the rewind's own plan (`planSelection`) from the folder of the
+ *   preview named, as that preview read the org — the org not read, the
+ *   plan's folder removed once it is told. A preview this handler did not
+ *   answer, or no longer kept, is refused: preview again.
  * - `checkpoint:rewind` — the rewind (`rewindOrg`) on the preview it names,
  *   and `checkpoint:undo` — the undo of the org's last rewind
  *   (`undoCheckpoint`): each under the id of its request, as a take is, in
@@ -361,6 +397,11 @@ export class CheckpointHandler implements DomainHandler {
    * preview as it was read: see {@link rewindFromPreviewsAnswered}.
    */
   private previewsAnswered?: Map<string, RewindDiff>;
+  /**
+   * When each preview this handler answered read the org, by its id: what the
+   * plan of a selection made from its folder holds the records to.
+   */
+  private readonly previewReads = new Map<string, { checkpointId: string; readAt: string }>();
   /** Told each time the checkpoints kept on this machine change: see {@link onCheckpointsChanged}. */
   private readonly changeListeners = new Set<() => void>();
 
@@ -423,6 +464,9 @@ export class CheckpointHandler implements DomainHandler {
         return true;
       case 'checkpoint:preview':
         await this.handlePreview(msg);
+        return true;
+      case 'checkpoint:plan-selection':
+        await this.handlePlanSelection(msg);
         return true;
       case 'checkpoint:rewind':
         await this.handleRewind(msg);
@@ -1128,6 +1172,7 @@ export class CheckpointHandler implements DomainHandler {
         checkpointId: checkpoint.checkpointId,
         ...(rewindId !== undefined ? { rewindId } : {}),
         ...(result ? { status: result.status, passes: result.passes } : {}),
+        ...(result?.scope ? { limitedTo: result.scope.objects.join(', ') } : {}),
       },
     });
   }
@@ -1345,6 +1390,7 @@ export class CheckpointHandler implements DomainHandler {
       const store = await this.openedStore();
       const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
       this.usable(m, checkpoint, 'preview');
+      const objects = heldObjectsOf(checkpoint, parsed.objects);
       const org = this.connectedOrgOf(checkpoint, `preview the checkpoint '${checkpoint.name}'`);
       const conn = await this.connect(org);
       const outcome = await m.previewCheckpoint(
@@ -1365,10 +1411,15 @@ export class CheckpointHandler implements DomainHandler {
           orgName: nameOf(org),
           registered: org,
           username: org.username,
+          ...(objects !== undefined ? { objects } : {}),
         },
       );
       if (!outcome.previewed) throw this.refusalOf(outcome.refusal);
       this.previewsAnswered?.set(outcome.diff.previewId, outcome.diff);
+      this.previewReads.set(outcome.diff.previewId, {
+        checkpointId: checkpoint.checkpointId,
+        readAt: outcome.diff.readAt,
+      });
       this.respond(msg, 'checkpoint:preview:response', {
         diff: outcome.diff,
         ...(outcome.automation ? { automation: outcome.automation } : {}),
@@ -1381,6 +1432,48 @@ export class CheckpointHandler implements DomainHandler {
       });
     } catch (err: unknown) {
       this.fail(msg, err, 'PREVIEW_ERROR');
+    }
+  }
+
+  /** The plan of a selection: see the class's comment. */
+  private async handlePlanSelection(msg: InboundRequest): Promise<void> {
+    const parsed = validatePayload(
+      checkpointPlanSelectionPayloadSchema,
+      msg,
+      'checkpoint:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    try {
+      const m = await this.modules();
+      const store = await this.openedStore();
+      const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
+      this.usable(m, checkpoint, 'preview');
+      const objects = heldObjectsOf(checkpoint, parsed.objects) ?? [];
+      const previewDir = m.previewDirOf(folder, parsed.previewId);
+      const read = this.previewReads.get(parsed.previewId);
+      if (read?.checkpointId !== checkpoint.checkpointId || !(await isFolder(previewDir))) {
+        throw new Refused(
+          'PREVIEW_GONE',
+          'The preview to plan this selection from is no longer kept on this machine: preview ' +
+            `the rewind to '${checkpoint.name}' again. No record was read or written.`,
+        );
+      }
+      const plan = await m.planSelection({
+        checkpoint,
+        previewDir,
+        readAt: read.readAt,
+        objects: new Set(objects),
+        acceptOutside: parsed.acceptOutside,
+        heldRows: m.snapshotRowsOf(checkpoint, folder),
+      });
+      this.respond(msg, 'checkpoint:plan-selection:response', {
+        checkpointId: checkpoint.checkpointId,
+        previewId: parsed.previewId,
+        plan,
+      });
+    } catch (err: unknown) {
+      this.fail(msg, err, 'PLAN_SELECTION_ERROR');
     }
   }
 
@@ -1401,6 +1494,7 @@ export class CheckpointHandler implements DomainHandler {
       const store = await this.openedStore();
       const { folder, checkpoint } = await this.checkpointOf(store, parsed.checkpointId);
       this.usable(m, checkpoint, 'rewind');
+      const objects = heldObjectsOf(checkpoint, parsed.objects);
       // A rewind acts on what its user confirmed: a preview no longer kept
       // would leave it nothing confirmed, and every difference named as new.
       if (!(await isFolder(m.previewDirOf(folder, parsed.previewId)))) {
@@ -1454,6 +1548,7 @@ export class CheckpointHandler implements DomainHandler {
               username: org.username,
               previewId: parsed.previewId,
               ...(reused ? { reusesPreview: reused } : {}),
+              ...(objects !== undefined ? { objects } : {}),
               acceptAutomation: parsed.acceptAutomation,
               acceptNoUndo: parsed.acceptNoUndo,
               acceptRecreate: parsed.acceptRecreate,

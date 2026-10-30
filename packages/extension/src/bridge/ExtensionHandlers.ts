@@ -1077,6 +1077,7 @@ export class ExtensionHandlers {
         'checkpoint:scope',
         'checkpoint:take',
         'checkpoint:preview',
+        'checkpoint:plan-selection',
         'checkpoint:rewind',
         'checkpoint:undo',
         'checkpoint:delete',

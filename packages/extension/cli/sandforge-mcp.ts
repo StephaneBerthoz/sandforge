@@ -267,6 +267,17 @@ const confirmOf = (of: string) =>
 const checkpointRef = (of: string) =>
   z.string().min(1).max(200).regex(ON_A_LINE, 'one line, not starting with "-"').describe(of);
 const acceptance = (of: string) => z.boolean().optional().describe(of);
+/** The objects of a checkpoint a rewind, or its preview, is limited to. */
+const rewindObjects = () =>
+  z
+    .array(z.string().regex(API_NAME, 'an object API name'))
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(
+      'Limit the rewind to these objects of the checkpoint, by API name (default: every ' +
+        'object). What they depend on is never added: the answer names it.',
+    );
 const envFile = () =>
   z
     .string()
@@ -522,17 +533,28 @@ export const TOOLS: readonly ServedTool[] = [
       'What a rewind of org to a checkpoint would do: the records it would delete, give back ' +
       'and bring back, who last changed them, what the org runs as the rewind writes, the ' +
       'emails and API requests it takes, what neither a rewind nor its undo can take back, and ' +
-      'the refusal a rewind would meet now. Reads the org, writes nothing.',
+      'the refusal a rewind would meet now. Given objects, those of a rewind limited to them, ' +
+      'with what it would leave of them and the objects it needs added. Reads the org, writes ' +
+      'nothing.',
     readOnly: true,
     args: z.strictObject({
       org: alias('The org: its sf CLI alias.'),
       checkpoint: checkpointRef(
         'A checkpoint of it: its id, its name, or latest (the default).',
       ).optional(),
+      objects: rewindObjects(),
     }),
     run: (args) => ({
       script: 'sandforge-checkpoint',
-      args: ['preview', '--org', args.org, '--checkpoint', args.checkpoint ?? 'latest', '--json'],
+      args: [
+        'preview',
+        '--org',
+        args.org,
+        '--checkpoint',
+        args.checkpoint ?? 'latest',
+        ...(args.objects ?? []).flatMap((object) => ['--object', object]),
+        '--json',
+      ],
     }),
   }),
   tool({
@@ -592,7 +614,9 @@ export const TOOLS: readonly ServedTool[] = [
       'as the rewind writes, without acceptNoUndo when Undo could not bring back records it ' +
       'deletes, without acceptRecreate when records no longer in the recycle bin would be made ' +
       'again with new Ids, without acceptUnseen when, for a user without View All Data and ' +
-      'Modify All Data, what it deletes takes along records the user is not proven to see. A ' +
+      'Modify All Data, what it deletes takes along records the user is not proven to see. ' +
+      'Given objects, it rewinds those alone, never adding what they depend on: its answer names ' +
+      'what it left of them, the objects to add, and what still differs in the others. A ' +
       'production org is refused.',
     readOnly: false,
     destructive: true,
@@ -624,6 +648,7 @@ export const TOOLS: readonly ServedTool[] = [
           'takes along records of objects the user is not proven to see, tasks and events among ' +
           'them, which no count holds.',
       ),
+      objects: rewindObjects(),
     }),
     writesTo: (args) => args.org,
     writes:
@@ -646,6 +671,7 @@ export const TOOLS: readonly ServedTool[] = [
         '--checkpoint',
         args.checkpoint,
         '--yes',
+        ...(args.objects ?? []).flatMap((object) => ['--object', object]),
         ...(args.acceptAutomation === true ? ['--accept-automation'] : []),
         ...(args.acceptNoUndo === true ? ['--accept-no-undo'] : []),
         ...(args.acceptRecreate === true ? ['--accept-recreate'] : []),

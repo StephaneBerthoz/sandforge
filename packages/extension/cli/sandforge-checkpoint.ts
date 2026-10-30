@@ -70,6 +70,8 @@ import {
   type RewindDiffObject,
   type RewindResidual,
   type RewindResult,
+  type RewindSelectionLeftReason,
+  type RewindSelectionPlan,
   type RewindStatus,
   type RewindUndoCannot,
   type RewindUndoCannotReason,
@@ -93,6 +95,7 @@ import {
   type OrgCheckpointStore,
 } from '../src/modules/checkpoint/OrgCheckpointStore.js';
 import { objectsWrittenBy } from '../src/modules/checkpoint/previewCheckpoint.js';
+import { diffOfPicked } from '../src/modules/checkpoint/rewindPlan.js';
 import { undoPlansOf } from '../src/modules/checkpoint/rewindJournal.js';
 import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL } from '../src/modules/checkpoint/takeCheckpoint.js';
@@ -142,6 +145,12 @@ take:
 preview, rewind, undo, delete, export:
   --checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went
                                  back to; rewind and undo with --yes need it named, by id or name)
+preview, rewind:
+  --object <ApiName>             limit the rewind to an object of the checkpoint; repeat for more
+                                 (default: every object). It writes the others only to delete again
+                                 the records made since that come back with a record it brings
+                                 back, and never adds what the objects named depend on: what it
+                                 leaves of them for that is said, with the --object to add
 preview:
   --fail-on-change               exit 3 when the org differs from the checkpoint
 rewind:
@@ -300,7 +309,14 @@ JSON (--json), one value on stdout:
                      object by object, with the API requests that read; diff.unseen, read
                      object by object: [{objectApiName, children, records}], of the records to
                      delete of an object, the objects whose records their delete takes along
-                     out of the user's sight
+                     out of the user's sight; with --object, objects, the objects named, and
+                     selection, {objects, acts: [{objectApiName, picked, toDelete, toGiveBack,
+                     toBringBack, toRecreate}], left: [{objectApiName, reason, count}], needs:
+                     [{objectApiName, records}], undoCannot}, what a rewind of them alone would
+                     do and leave — reason needsUnpickedParent, heldByUnpicked,
+                     outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
+                     numbers, differs and estimate are then the rewind's of those objects,
+                     diff the whole diff
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -314,7 +330,10 @@ JSON (--json), one value on stdout:
                      before a record they point at, which the rewind deleted next; carriers, of
                      what it brought back and deleted, the records brought back for a moment;
                      files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
-                     files and records it wrote, when it wrote one
+                     files and records it wrote, when it wrote one; with --object, limitedTo,
+                     the objects named, and notRewound, {objects, records}, the objects not
+                     named that still differ and their records that do, which the status
+                     does not count
   undo               as rewind, without recreated, cannotUndo, carriers and undo, with
                      carriedAlone?: [{object, count}], the records sent back to the recycle bin
                      on their own that had gone there with a record the rewind brought back for
@@ -330,7 +349,8 @@ JSON (--json), one value on stdout:
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
-org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
+org matches among the objects and fields compared — with --object, among the objects named,
+whatever still differs in the others; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
 kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
@@ -341,7 +361,8 @@ has left today, files to bring back taking more file storage than it has left, a
 the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
 of another org's file, with the wrong key, of a file changed since its export), or nothing
 done; 2 a bad command line, a --checkpoint name several checkpoints
-have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
+have, an --object the checkpoint does not hold,
+rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes; import's key: --key-env); 3 partial (rewind and undo: records still differ, each said
 with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
@@ -397,7 +418,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   preview: {
     words: 1,
     switches: [...COMMON.switches, '--fail-on-change'],
-    values: [...COMMON.values, '--checkpoint'],
+    values: [...COMMON.values, '--checkpoint', '--object'],
   },
   rewind: {
     words: 1,
@@ -411,7 +432,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       '--accept-unseen',
       '--yes',
     ],
-    values: [...COMMON.values, '--checkpoint', '--ignore-field'],
+    values: [...COMMON.values, '--checkpoint', '--ignore-field', '--object'],
   },
   undo: {
     words: 1,
@@ -468,11 +489,20 @@ interface CommonArgs {
 export type CliArgs =
   | (CommonArgs & { command: 'take'; org: string; take: TakeAsked; estimate: boolean })
   | (CommonArgs & { command: 'list'; org?: string })
-  | (CommonArgs & { command: 'preview'; org: string; checkpoint: string; failOnChange: boolean })
+  | (CommonArgs & {
+      command: 'preview';
+      org: string;
+      checkpoint: string;
+      failOnChange: boolean;
+      /** The objects a rewind would be limited to; every object when none. */
+      objects: string[];
+    })
   | (CommonArgs & {
       command: 'rewind';
       org: string;
       checkpoint: string;
+      /** The objects the rewind is limited to; every object when none. */
+      objects: string[];
       dryRun: boolean;
       acceptAutomation: boolean;
       acceptNoUndo: boolean;
@@ -517,6 +547,9 @@ export type CliArgs =
       keyEnv?: string;
       keepDays: number;
     });
+
+/** An object's API name, as `--object` takes one. */
+const OBJECT_API_NAME = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** Stop the command, exit 2, on a line it cannot read: said on stderr, nothing on stdout. */
 function refuseLine(line: string): never {
@@ -608,6 +641,16 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
     }
   };
 
+  // The objects a rewind is limited to, each once, by API name.
+  const objectsNamed = (): string[] => {
+    const named = values('--object');
+    const bad = named.find((name) => !OBJECT_API_NAME.test(name));
+    if (bad !== undefined) refuseLine(`--object takes an object's API name, not "${bad}".`);
+    return named.filter(
+      (name, at) => named.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === at,
+    );
+  };
+
   switch (command) {
     case 'list':
       return { ...common, command, ...(org !== undefined ? { org } : {}) };
@@ -654,6 +697,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         org: orgNamed(),
         checkpoint: single('--checkpoint') ?? 'latest',
         failOnChange: args.includes('--fail-on-change'),
+        objects: objectsNamed(),
       };
     case 'rewind': {
       const named = orgNamed();
@@ -671,6 +715,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         command,
         org: named,
         checkpoint: checkpoint ?? 'latest',
+        objects: objectsNamed(),
         dryRun: args.includes('--dry-run'),
         acceptAutomation: args.includes('--accept-automation'),
         acceptNoUndo: args.includes('--accept-no-undo'),
@@ -1795,7 +1840,10 @@ export function previewJson(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'checkpointId' | 'name' | 'takenAt'>,
   answer: PreviewAnswer,
+  selection?: Selection,
 ): Record<string, unknown> {
+  // Of a rewind limited to some objects, its numbers; the diff whole.
+  const counted = selection?.diff ?? answer.diff;
   return {
     checkpoint: {
       id: checkpoint.checkpointId,
@@ -1803,9 +1851,11 @@ export function previewJson(
       takenAt: checkpoint.takenAt,
       org: orgName,
     },
-    ...previewTotals(answer.diff),
-    carriers: answer.diff.objects.reduce((total, o) => total + carriersOf(o), 0),
-    differs: orgDiffers(answer.diff),
+    ...(selection ? { objects: [...selection.plan.objects] } : {}),
+    ...previewTotals(counted),
+    carriers: counted.objects.reduce((total, o) => total + carriersOf(o), 0),
+    differs: orgDiffers(counted),
+    ...(selection ? { selection: selection.plan } : {}),
     diff: answer.diff,
     estimate: answer.estimate,
     ...(answer.automation ? { automation: answer.automation } : {}),
@@ -1825,6 +1875,166 @@ export function previewExitCode(
   failOnChange: boolean,
 ): number {
   return failOnChange && orgDiffers(diff) ? PARTIAL_EXIT : DONE_EXIT;
+}
+
+// ─── A rewind of some objects ────────────────────────────────────────────────
+
+/**
+ * A rewind limited to some objects, as its preview and its plan say it
+ * (`checkpoint:plan-selection`): the diff counted as that rewind writes, and
+ * the plan itself.
+ */
+export interface Selection {
+  plan: RewindSelectionPlan;
+  diff: RewindDiff;
+}
+
+/**
+ * The diff a rewind limited to the plan's objects is counted by, beside the
+ * whole one: of the objects picked, and of those not picked it writes to, the
+ * plan's numbers in place of the diff's, what it cannot take back and the
+ * objects it could not read of the objects picked alone, and what Undo
+ * couldn't bring back as the plan says it.
+ */
+export function selectionDiff(diff: RewindDiff, plan: RewindSelectionPlan): RewindDiff {
+  const picked = new Set(plan.objects);
+  const actOf = new Map(plan.acts.map((act) => [act.objectApiName, act]));
+  const base = diffOfPicked(diff, picked);
+  return {
+    ...base,
+    objects: diff.objects
+      .filter((o) => picked.has(o.objectApiName) || actOf.has(o.objectApiName))
+      .map((o): RewindDiffObject => {
+        const act = actOf.get(o.objectApiName);
+        const own = picked.has(o.objectApiName);
+        return {
+          ...o,
+          toDelete: {
+            createdSince: act?.toDelete ?? 0,
+            broughtBackSince: 0,
+            comesBackWithParent: 0,
+          },
+          toGiveBack: { ...o.toGiveBack, records: act?.toGiveBack ?? 0 },
+          toBringBack: {
+            inBin: act?.toBringBack ?? 0,
+            withParent: 0,
+            deletedWhileTaken: 0,
+            ...(own && o.toBringBack.carriers !== undefined
+              ? { carriers: o.toBringBack.carriers }
+              : {}),
+          },
+          toRecreate: act?.toRecreate ?? 0,
+          cannotUndo: own ? o.cannotUndo : [],
+          unexplained: own ? o.unexplained : 0,
+        };
+      }),
+    undoCannot: [...plan.undoCannot],
+  };
+}
+
+/** Why a rewind limited to some objects leaves records of them, as the lines say it. */
+const SELECTION_LEFT_WORDS: Readonly<Record<RewindSelectionLeftReason, string>> = {
+  needsUnpickedParent:
+    'they come back only with a parent this rewind leaves deleted, or look up a record it ' +
+    'leaves deleted, which Salesforce refuses: those lookups are left, the rest written',
+  heldByUnpicked:
+    'records of an object not named made since hang from them and hold some of their values ' +
+    'in place: given back but for those',
+  outsideNotAccepted:
+    'records of an object not named made since hang from them, which their deletion would ' +
+    'take along: kept, unless --accept-outside',
+  holdsLeft:
+    'records this rewind leaves as they are hang from them, which their deletion would take ' +
+    'along: kept',
+  keyTaken:
+    'rows of a custom setting whose owner or name a row made since holds: brought back once it ' +
+    'is gone',
+};
+
+/** What a preview of a rewind limited to some objects adds: what it leaves of them and why, and the objects to add. */
+export function selectionLines(plan: RewindSelectionPlan): string[] {
+  const lines = [
+    `  limited to ${plan.objects.join(', ')}: the other objects are left as they are, and what ` +
+      'still differs in them is counted apart',
+  ];
+  const others = plan.acts.filter((act) => !act.picked && act.toDelete > 0);
+  if (others.length > 0) {
+    lines.push(
+      `  also deletes again ${someOf(others.map((a) => `${a.objectApiName} ${count(a.toDelete)}`))} ` +
+        '— made since, they come back with a record it brings back: leaving them would make a ' +
+        'state that never existed',
+    );
+  }
+  for (const left of plan.left) {
+    lines.push(
+      `  left: ${count(left.count)} ${left.objectApiName} record(s) — ${SELECTION_LEFT_WORDS[left.reason]}`,
+    );
+  }
+  if (plan.needs.length > 0) {
+    lines.push(
+      `  to rewind those too, add ${plan.needs
+        .map((n) => `--object ${n.objectApiName} (${count(n.records)} record(s) need it)`)
+        .join(', ')}`,
+    );
+  }
+  if (plan.acts.some((act) => act.picked && act.toDelete > 0)) {
+    lines.push(
+      '  a record of an object not named that looks up a record it deletes has that lookup ' +
+        'emptied by Salesforce, and is dated that second',
+    );
+  }
+  return lines;
+}
+
+/**
+ * The objects `asked` names as `checkpoint` holds them, whatever their case,
+ * or a stop, exit 2, naming those it does not hold: the line asks what
+ * cannot be.
+ */
+export function heldObjectsOrStop(checkpoint: OrgCheckpoint, asked: readonly string[]): string[] {
+  const byName = new Map(
+    checkpoint.objects.map(({ objectApiName }) => [objectApiName.toLowerCase(), objectApiName]),
+  );
+  const unknown = asked.filter((name) => !byName.has(name.toLowerCase()));
+  if (unknown.length > 0) {
+    throw new Stop(
+      {
+        code: 'NOT_HELD',
+        message:
+          `--object: '${checkpoint.name}' holds no ${unknown.join(', ')}. It holds ` +
+          `${someOf(checkpoint.objects.map((o) => o.objectApiName))}. Nothing was run.`,
+      },
+      2,
+    );
+  }
+  return asked.flatMap((name) => byName.get(name.toLowerCase()) ?? []);
+}
+
+/**
+ * The plan of the rewind of `objects` the preview `diff` would make, asked of
+ * the host: read from the preview's folder on this machine, the org not read.
+ */
+async function selectionOf(
+  host: PanelHost,
+  diff: RewindDiff,
+  objects: readonly string[],
+  acceptOutside: boolean,
+): Promise<Selection> {
+  const answer = await host.request({
+    type: 'checkpoint:plan-selection',
+    payload: {
+      checkpointId: diff.checkpointId,
+      previewId: diff.previewId,
+      objects: [...objects],
+      acceptOutside,
+    },
+    timeoutMs: LOCAL_TIMEOUT_MS,
+  });
+  if (answer.outcome !== 'answered') {
+    throw new Stop(refusalOfAnswer(answer, 'The plan of the objects named'));
+  }
+  const plan = payloadOf(answer).plan as RewindSelectionPlan;
+  return { plan, diff: selectionDiff(diff, plan) };
 }
 
 // ─── What a rewind and an undo say, and how they end the command ─────────────
@@ -1972,7 +2182,10 @@ export function rewindQuestion(
   orgName: string,
   checkpoint: Pick<OrgCheckpoint, 'name' | 'takenAt'>,
   diff: Pick<RewindDiff, 'objects'> & Partial<Pick<RewindDiff, 'files'>>,
+  objects?: readonly string[],
 ): string {
+  const what =
+    objects !== undefined && objects.length > 0 ? `${objects.join(', ')} of ${orgName}` : orgName;
   const totals = previewTotals(diff);
   const remade =
     totals.toRecreate > 0
@@ -1991,7 +2204,7 @@ export function rewindQuestion(
       ? `, and puts ${count(links)} link(s) between files and records back as they were`
       : '';
   return (
-    `Rewind ${orgName} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
+    `Rewind ${what} to '${checkpoint.name}': it deletes the ${count(totals.toDelete)} ` +
     `record(s) created since ${when(checkpoint.takenAt)}, gives ${count(totals.toGiveBack)} ` +
     `record(s) their values from then back, and brings back ${count(totals.toBringBack)} ` +
     `record(s) from the recycle bin${carried}${remade}${linked} — whoever made these changes. What it changes is ` +
@@ -2132,9 +2345,24 @@ export function rewindLines(
       `finish: it takes up from what still differs, and undo still returns ${orgName} to how it ` +
       'was before the rewind.',
   };
+  const scope = result.scope;
+  if (scope !== undefined && result.status === 'success') {
+    head.success =
+      `${scope.objects.join(', ')} of ${orgName} ${scope.objects.length > 1 ? 'are' : 'is'} back ` +
+      `at '${checkpoint.name}': read again, nothing differs among them.`;
+  }
   const tallies = talliesOf(result);
   const cameBack = sumOf(result.undeleted, (o) => o.alreadyBack);
   const lines = [head[result.status]];
+  if (scope !== undefined) {
+    const { objects, records } = scope.notRewound;
+    lines.push(
+      records > 0
+        ? `  not rewound: ${count(records)} record(s) of ${someOf(objects)} still differ, left as ` +
+            'they are — the rewind was limited to the objects named; add them with --object'
+        : '  the objects not named match the checkpoint too',
+    );
+  }
   if (tallies.deleted.done > 0) {
     lines.push(
       `  deleted ${count(tallies.deleted.done)} record(s) added since the checkpoint — created, ` +
@@ -2390,6 +2618,9 @@ export function resultJson(
     },
     rewindId: result.rewindId,
     status: result.status,
+    ...(result.scope
+      ? { limitedTo: [...result.scope.objects], notRewound: { ...result.scope.notRewound } }
+      : {}),
     ...talliesOf(result),
     ...(act === 'rewind'
       ? {
@@ -2641,20 +2872,27 @@ export async function main(
         const invalid = invalidRefusal(entry);
         if (invalid) throw new Stop(invalid);
         const checkpoint = entry.checkpoint as OrgCheckpoint;
+        const objects =
+          args.objects.length > 0 ? heldObjectsOrStop(checkpoint, args.objects) : undefined;
         const org = await connect(args.org);
         sameOrgOrStop(org, entry, checkpoint, args.org, 'preview');
         const answer = await host.request({
           type: 'checkpoint:preview',
-          payload: { checkpointId: entry.checkpointId },
+          payload: { checkpointId: entry.checkpointId, ...(objects ? { objects } : {}) },
           timeoutMs: PREVIEW_TIMEOUT_MS,
         });
         if (answer.outcome !== 'answered') {
           throw new Stop(refusalOfAnswer(answer, 'The preview'));
         }
         const preview = payloadOf(answer) as unknown as PreviewAnswer;
-        for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
-        answerJson(previewJson(args.org, checkpoint, preview));
-        endWith(previewExitCode(preview.diff, args.failOnChange));
+        const selection = objects
+          ? await selectionOf(host, preview.diff, objects, false)
+          : undefined;
+        const shown = selection ? { ...preview, diff: selection.diff } : preview;
+        for (const line of previewLines(args.org, checkpoint, shown, org.username)) say(line);
+        for (const line of selection ? selectionLines(selection.plan) : []) say(line);
+        answerJson(previewJson(args.org, checkpoint, preview, selection));
+        endWith(previewExitCode(shown.diff, args.failOnChange));
         return;
       }
       case 'rewind':
@@ -3174,16 +3412,24 @@ async function rewind(
     );
   }
 
+  const objects = args.objects.length > 0 ? heldObjectsOrStop(checkpoint, args.objects) : undefined;
   const org = await context.connect(args.org);
   sameOrgOrStop(org, entry, checkpoint, args.org, 'rewind');
   const previewed = await host.request({
     type: 'checkpoint:preview',
-    payload: { checkpointId: entry.checkpointId },
+    payload: { checkpointId: entry.checkpointId, ...(objects ? { objects } : {}) },
     timeoutMs: PREVIEW_TIMEOUT_MS,
   });
   if (previewed.outcome !== 'answered') throw new Stop(refusalOfAnswer(previewed, 'The preview'));
-  const preview = payloadOf(previewed) as unknown as PreviewAnswer;
+  const whole = payloadOf(previewed) as unknown as PreviewAnswer;
+  // Of a rewind limited to some objects, its own plan: what the gate, the
+  // question and the lines count.
+  const selection = objects
+    ? await selectionOf(host, whole.diff, objects, args.acceptOutside)
+    : undefined;
+  const preview = selection ? { ...whole, diff: selection.diff } : whole;
   for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
+  for (const line of selection ? selectionLines(selection.plan) : []) say(line);
   const writes = objectsWrittenBy(preview.diff).length > 0;
   const gate = writes ? acceptanceRefusal(args.org, preview, args, org.username) : undefined;
   const outsideStays =
@@ -3198,13 +3444,13 @@ async function rewind(
   }
   if (args.dryRun) {
     if (gate && !preview.refusal) say(`  a rewind now would be refused: ${gate.message}`);
-    answerJson(previewJson(args.org, checkpoint, preview));
+    answerJson(previewJson(args.org, checkpoint, whole, selection));
     return;
   }
   if (preview.refusal) throw new Stop(preview.refusal);
   if (gate) throw new Stop(gate);
   if (writes && !args.yes) {
-    const answer = await typed(rewindQuestion(args.org, checkpoint, preview.diff));
+    const answer = await typed(rewindQuestion(args.org, checkpoint, preview.diff, objects));
     if (answer !== args.org) throw new Stop({ code: 'DECLINED', message: 'Nothing was written.' });
   }
 
@@ -3218,6 +3464,7 @@ async function rewind(
         payload: {
           checkpointId: entry.checkpointId,
           previewId: preview.diff.previewId,
+          ...(objects ? { objects } : {}),
           acceptAutomation: args.acceptAutomation,
           acceptNoUndo: args.acceptNoUndo,
           acceptRecreate: args.acceptRecreate,

@@ -1240,6 +1240,12 @@ export interface CheckpointRewindEnded {
   mode: CheckpointScopeMode;
   /** The objects the checkpoint held: all the rewind could take back. */
   objects: string[];
+  /**
+   * The objects the rewind was limited to, of {@link objects}: a run's writes
+   * to the others it did not take back. Absent from a rewind of every object,
+   * and from a line written before a rewind could be limited, read as one.
+   */
+  limitedTo?: string[];
   /** T0 of the checkpoint. */
   readFrom: ISODateString;
   /** T1 of the checkpoint. */

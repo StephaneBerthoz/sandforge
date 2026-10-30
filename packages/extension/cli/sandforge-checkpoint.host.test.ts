@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1177,6 +1177,116 @@ describe('sandforge-checkpoint rewind', () => {
     expect((JSON.parse(stdout) as { refusal: { code: string } }).refusal.code).toBe('PRODUCTION');
     expect(stateOf(h.org)).toEqual(before);
     expect(h.org.updates).toEqual([]);
+  });
+});
+
+describe('sandforge-checkpoint, a rewind of some objects', () => {
+  it('previews a rewind of the objects named: their numbers, the plan of what it does and leaves, exit 3 with --fail-on-change only when they differ', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    demo(h);
+
+    const cases = await h.run(
+      'preview',
+      '--org',
+      'DEV-SB',
+      '--object',
+      'case',
+      '--fail-on-change',
+      '--json',
+    );
+
+    expect(cases.code).toBe(3);
+    const answer = JSON.parse(cases.stdout) as Record<string, unknown>;
+    expect(answer).toMatchObject({
+      objects: ['Case'],
+      toDelete: 1,
+      toGiveBack: 0,
+      toBringBack: 1,
+      differs: true,
+      selection: {
+        objects: ['Case'],
+        acts: [{ objectApiName: 'Case', picked: true, toDelete: 1, toBringBack: 1 }],
+        left: [],
+        needs: [],
+      },
+    });
+    // The diff whole: the accounts renamed are in it, not in the numbers.
+    const diff = answer.diff as { objects: Array<{ objectApiName: string }> };
+    expect(diff.objects.map((o) => o.objectApiName).sort()).toEqual(['Account', 'Case']);
+    expect(cases.stderr).toContain('  1 to delete · 0 to give back · 1 to bring back');
+    expect(cases.stderr).toContain('  limited to Case: the other objects are left as they are');
+  });
+
+  it('refuses an --object the checkpoint does not hold, exit 2 and nothing on stdout, before the org is reached', async () => {
+    const h = harness();
+    await taken(h, '--name', 'Before UAT');
+    const connected = h.connected.length;
+
+    const preview = await h.run('preview', '--org', 'DEV-SB', '--object', 'Lead', '--json');
+    const rewind = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--object',
+      'Lead',
+      '--yes',
+    );
+    const line = await h.run('preview', '--org', 'DEV-SB', '--object', 'Lead;Case');
+
+    expect(preview).toMatchObject({ code: 2, stdout: '' });
+    expect(preview.stderr).toContain("--object: 'Before UAT' holds no Lead.");
+    expect(rewind.code).toBe(2);
+    expect(line.code).toBe(2);
+    expect(line.stderr).toContain('--object takes an object\'s API name, not "Lead;Case".');
+    expect(h.connected).toHaveLength(connected);
+  });
+
+  it('rewinds the objects named alone: exit 0 once they match, the JSON naming what still differs in the others, the ledger the objects it was limited to', async () => {
+    const h = harness();
+    const checkpoint = await taken(h, '--name', 'Before UAT');
+    const atCheckpoint = stateOf(h.org) as { live: { Account: unknown[]; Case: unknown[] } };
+    demo(h);
+
+    const { code, stdout, stderr } = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--checkpoint',
+      'Before UAT',
+      '--object',
+      'Case',
+      '--yes',
+      '--accept-automation',
+      '--json',
+    );
+
+    expect(code, stderr).toBe(0);
+    const now = stateOf(h.org) as { live: { Account: unknown[]; Case: unknown[] } };
+    expect(now.live.Case).toEqual(atCheckpoint.live.Case);
+    expect(now.live.Account).not.toEqual(atCheckpoint.live.Account);
+    const answer = JSON.parse(stdout) as RewindJson & Record<string, unknown>;
+    expect(answer).toMatchObject({
+      status: 'success',
+      limitedTo: ['Case'],
+      notRewound: { objects: ['Account'], records: 2 },
+      deleted: { done: 1 },
+      broughtBack: { done: 1 },
+      residual: [],
+    });
+    expect(stderr).toContain("Case of DEV-SB is back at 'Before UAT': read again, nothing differs");
+    expect(stderr).toContain('  not rewound: 2 record(s) of Account still differ');
+    const ledger = h.store.folderOf(ORG_ID, checkpoint.checkpointId).dir;
+    const lines = readFileSync(join(ledger, '..', 'rewinds.ndjson'), 'utf8')
+      .trim()
+      .split('\n');
+    expect(JSON.parse(lines[lines.length - 1] ?? '{}')).toMatchObject({
+      kind: 'rewind',
+      objects: ['Account', 'Case'],
+      limitedTo: ['Case'],
+    });
   });
 });
 

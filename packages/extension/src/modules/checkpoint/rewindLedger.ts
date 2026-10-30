@@ -22,7 +22,8 @@
  * stays small enough to be read whole each time a history opens.
  *
  * A line holds dates, names and counts — the checkpoint's times and objects,
- * the rewind's times, how it ended and what it did in all — and never a
+ * those a rewind of some objects was limited to, the rewind's times, how it
+ * ended and what it did in all — and never a
  * record's id or value: what is written is what `checkpointRewindRecordSchema`
  * parsed. The ledger informs and drives no write: a line that does not parse
  * — written half by a process killed as it wrote, or by a SandForge that
@@ -266,6 +267,11 @@ export function rewindEndedRecord(
     organizationId: checkpoint.org.organizationId,
     mode: checkpoint.scope.mode,
     objects: checkpoint.objects.map(({ objectApiName }) => objectApiName),
+    // Limited to some objects, it took back nothing of the others: the
+    // histories mark no run of theirs.
+    ...(result.scope !== undefined && result.scope.objects.length > 0
+      ? { limitedTo: [...result.scope.objects] }
+      : {}),
     readFrom: checkpoint.readFrom,
     takenAt: checkpoint.takenAt,
     startedAt: ended.startedAt,

@@ -148,6 +148,18 @@
  * brought back by the rewind reads, live and not in the snapshot, as
  * unexplained: it is the rewind's own, and never named.
  *
+ * **A rewind of some objects** (`objects`) reads every object, as its plan
+ * needs the classes of their parents and children (`rewindPlan`), and writes
+ * the objects picked alone, with what rewinding them brings about: children
+ * of an object not picked created since that come back with a parent it
+ * brings back, which its second pass deletes again. A lookup its plan leaves,
+ * as it names a record the rewind leaves deleted, is neither given back nor
+ * set on a record made again. The verify compares the objects picked alone,
+ * what the plan left of them named with the object to add; what still
+ * differs in the others is counted (`RewindResult.scope`), never among what
+ * still differs, and never makes the rewind partial. Its line in the ledger
+ * names the objects it was limited to.
+ *
  * **Stop** reaches every phase: between two pages, two batches, two chunks,
  * two phases and two passes. A rewind stopped part way, or killed, leaves its
  * journal open: the next rewind of the checkpoint takes it up, reads the org
@@ -186,6 +198,7 @@ import {
   type RewindResidualReason,
   type RewindRecreatedObject,
   type RewindResult,
+  type RewindScope,
   type RewindStatus,
   type RewindUndoCannot,
   type SyncRestoreObjectResult,
@@ -296,8 +309,10 @@ import {
 import { noteRewindEnded, OrgClockWatch } from './rewindLedger.js';
 import {
   heldInPlaceReason,
+  diffOfPicked,
   rewindPlan,
   rewindWriters,
+  snapshotRowsOf,
   type RewindPlan,
   type RewindPlanLeft,
   type RewindPlanLeftReason,
@@ -676,6 +691,12 @@ export interface RewindRequest {
    * diff is read, and its Tr is the rewind's.
    */
   reusesPreview?: RewindDiff;
+  /**
+   * The objects of the checkpoint the rewind is limited to, by their API
+   * names as the checkpoint holds them: see the module's comment. Absent,
+   * every object.
+   */
+  objects?: readonly string[];
   /** Rewind even though the org runs automation as the rewind writes. */
   acceptAutomation: boolean;
   /** Delete records Undo couldn't bring back. */
@@ -1617,6 +1638,14 @@ class Rewind {
   private readonly clock = new OrgClockWatch(() => this.now().getTime());
   /** What its user may read and write of each object, read once it reads the org. */
   private access: ActAccess = ORG_ACCESS;
+  /** The objects it is limited to, by their API names as the checkpoint holds them; every object when absent. */
+  private readonly picked: ReadonlySet<string> | undefined;
+  /**
+   * Per record, by key, the lookups its plans leave, by their names in lower
+   * case: they name a record the rewind leaves deleted, and are neither given
+   * back nor set on the record made again.
+   */
+  private readonly leftFields = new Map<string, Set<string>>();
 
   constructor(
     private readonly deps: RewindDeps,
@@ -1632,6 +1661,7 @@ class Rewind {
     this.signal = deps.signal;
     this.now = deps.now ?? (() => new Date());
     this.kept = keepingDescribes(compositeReader(this.org, this.signal));
+    this.picked = request.objects !== undefined ? new Set(request.objects) : undefined;
   }
 
   private stopped(): boolean {
@@ -1687,6 +1717,12 @@ class Rewind {
         : {}),
       ...(pass === 2 && this.spans.length > 0 ? { removalSpans: [...this.spans] } : {}),
       ...(pass === 2 ? { recreated: await Recreated.read(this.request.folder) } : {}),
+      ...(this.picked !== undefined
+        ? {
+            objects: this.picked,
+            heldRows: snapshotRowsOf(this.request.checkpoint, this.request.folder),
+          }
+        : {}),
       dir: join(fresh.dir, `plan${pass}-${randomBytes(4).toString('hex')}`),
       ...(this.signal ? { signal: this.signal } : {}),
     });
@@ -1817,7 +1853,7 @@ class Rewind {
     // writes and the reads after them take.
     const rest = rewindWritesCost({
       objects: checkpoint.objects,
-      diff: fresh.diff,
+      diff: diffOfPicked(fresh.diff, this.picked),
       automationRequests: 0,
       relationships: await this.relationships(),
       ...(reused ? { reusesPreview: true } : {}),
@@ -1879,17 +1915,20 @@ class Rewind {
     remaining: number,
   ): Promise<RewindOutcome> {
     const residual = await this.residualOf(fresh, fresh, [first], new PassTally());
+    const unread = this.pickedOnly(fresh.diff.unread);
+    const scope = await this.scopeOf(fresh, fresh);
     this.ended = true;
     return {
       rewound: true,
       result: this.resultOf({
         rewindId: newFolderId('rw', this.now()),
-        status: residual.length > 0 || fresh.diff.unread.length > 0 ? 'partial' : 'success',
+        status: residual.length > 0 || unread.length > 0 ? 'partial' : 'success',
         tally: { deleted: [], restored: [], undeleted: [], recreated: [] },
         residual,
-        unread: fresh.diff.unread,
+        unread,
         passes: 1,
         leftToday: remaining,
+        ...(scope ? { scope } : {}),
       }),
       notes: this.notes,
     };
@@ -1954,7 +1993,8 @@ class Rewind {
     const tally = await passesTally({ tally: one, plan: first.plan }, second);
     const residual =
       !cancelled && verify ? await this.residualOf(verify, fresh, made, one, second?.tally) : [];
-    const unread = !cancelled && verify ? verify.diff.unread : [];
+    const unread = !cancelled && verify ? this.pickedOnly(verify.diff.unread) : [];
+    const scope = await this.scopeOf(!cancelled ? verify : undefined, fresh);
     const did =
       tally.deleted.some((object) => object.deleted > 0) ||
       tally.restored.some((object) => object.restored + (object.restoredWithout ?? 0) > 0) ||
@@ -2040,6 +2080,7 @@ class Rewind {
         removedJournals,
         carriers,
         ...(files ? { files } : {}),
+        ...(scope ? { scope } : {}),
       }),
       notes: this.notes,
     };
@@ -2172,6 +2213,8 @@ class Rewind {
     carriers?: RewindResult['carriers'];
     /** What it did to the links between files and records. */
     files?: RewindFilesResult;
+    /** Of a rewind limited to some objects, those objects, and what it left of the others. */
+    scope?: RewindScope;
   }): RewindResult {
     const used = this.count.used();
     return {
@@ -2197,7 +2240,84 @@ class Rewind {
       ...(parts.files ? { files: parts.files } : {}),
       apiRequests: { used, leftToday: Math.max(0, parts.leftToday - used) },
       finishedAt: this.now().toISOString(),
+      ...(parts.scope ? { scope: parts.scope } : {}),
     };
+  }
+
+  /** Of `entries`, those of the objects it is limited to; every one of a rewind of every object. */
+  private pickedOnly<T extends { objectApiName: string }>(entries: readonly T[]): T[] {
+    const picked = this.picked;
+    return picked === undefined
+      ? [...entries]
+      : entries.filter((entry) => picked.has(entry.objectApiName));
+  }
+
+  /**
+   * Of a rewind limited to some objects, those objects, and the objects not
+   * picked that `verify` still finds differing, with their records that do —
+   * but those gone for good when the rewind began, which no rewind reaches —
+   * and the links between files and records when it leaves the files out.
+   * Nothing of a rewind of every object; nothing of the others' when there is
+   * no read after its last pass (a rewind stopped part way).
+   */
+  private async scopeOf(
+    verify: DiffRead | undefined,
+    fresh: DiffRead,
+  ): Promise<RewindScope | undefined> {
+    const picked = this.picked;
+    if (picked === undefined) return undefined;
+    const { checkpoint } = this.request;
+    const objects = checkpoint.objects
+      .map(({ objectApiName }) => objectApiName)
+      .filter((name) => picked.has(name));
+    const differing: string[] = [];
+    let records = 0;
+    if (verify !== undefined) {
+      const ordered = [...checkpoint.objects].sort((a, b) => a.readOrder - b.readOrder);
+      for (const { objectApiName: name } of ordered) {
+        if (picked.has(name)) continue;
+        const goneBefore = new RecordKeySet();
+        for await (const row of rowsOf(classFileOf(fresh.dir, name, 'goneForGood'))) {
+          if (typeof row.Id === 'string') goneBefore.add(row.Id);
+        }
+        const seen = new RecordKeySet();
+        for (const cls of STILL_DIFFERING) {
+          for await (const row of rowsOf(classFileOf(verify.dir, name, cls))) {
+            if (typeof row.Id !== 'string' || goneBefore.has(row.Id)) continue;
+            seen.add(row.Id);
+          }
+        }
+        if (seen.size > 0) {
+          differing.push(name);
+          records += seen.size;
+        }
+      }
+      if (checkpoint.files !== undefined && !picked.has(FILE_OBJECT)) {
+        const links = new RecordKeySet();
+        for (const cls of ['linkAdded', 'linkRemoved', 'linkChanged'] as const) {
+          for await (const row of rowsOf(fileLinkClassFileOf(verify.dir, cls))) {
+            if (typeof row.Id === 'string') links.add(row.Id);
+          }
+        }
+        if (links.size > 0) {
+          differing.push(FILE_LINK_OBJECT);
+          records += links.size;
+        }
+      }
+    }
+    return { objects, notRewound: { objects: differing, records } };
+  }
+
+  /** Add the lookups a plan leaves to those of the plans before it. */
+  private async readLeftFields(plan: RewindPlan): Promise<void> {
+    const left = plan.limited?.leftFields;
+    if (left === undefined || left.count === 0) return;
+    for await (const row of rowsOf(left.file)) {
+      if (typeof row.Id !== 'string' || !Array.isArray(row.fields)) continue;
+      const held = this.leftFields.get(keyOf(row.Id)) ?? new Set<string>();
+      for (const field of row.fields) if (typeof field === 'string') held.add(field.toLowerCase());
+      this.leftFields.set(keyOf(row.Id), held);
+    }
   }
 
   /** Delete the folders of the reads it made, and of the preview it acted on once it went through. */
@@ -2219,6 +2339,7 @@ class Rewind {
     pass: 1 | 2,
   ): Promise<PassTally> {
     const tally = new PassTally();
+    await this.readLeftFields(plan);
     const passStamps: Record<string, string> = {};
     const stamp = (stamps: Readonly<Record<string, string>>): void => {
       Object.assign(passStamps, stamps);
@@ -2797,6 +2918,8 @@ class Rewind {
           const records = batch.map((row, place) => {
             const written = rowToWriteBack(objectApiName, row, insert.fields);
             delete written.Id;
+            // Named by a record the rewind leaves deleted, which the org refuses: made without it.
+            withoutLeft(written, this.leftFields.get(keyOf(from[place])));
             for (const field of insert.lookups) {
               const target = written[field];
               if (typeof target !== 'string' || target.length < 15 || !planned.has(target)) {
@@ -3392,7 +3515,7 @@ class Rewind {
           const outcome = await restoreOverwrites({
             org: this.org,
             plan: [{ objectApiName, backup: checkpoint.snapshotId, ids: [...chunk] }],
-            backups: writtenBack(index.chunk(chunk), objectApiName, written, rows),
+            backups: writtenBack(index.chunk(chunk), objectApiName, written, rows, this.leftFields),
             fields: { [objectApiName]: [...written] },
             changedAfter: plan.restore.changedAfter,
             ownWriters: rewindWriters(checkpoint.takenBy, this.userId),
@@ -3497,6 +3620,8 @@ class Rewind {
     const throughCarriers = await this.throughCarriers(verify.dir);
     for (const object of objects) {
       const name = object.objectApiName;
+      // Of a rewind limited to some objects, the others are counted apart (`scopeOf`).
+      if (this.picked !== undefined && !this.picked.has(name)) continue;
       const found: Array<{ cls: RewindClass; id: string }> = [];
       for (const cls of STILL_DIFFERING) {
         for await (const row of rowsOf(classFileOf(verify.dir, name, cls))) {
@@ -3539,6 +3664,15 @@ class Rewind {
         const own = after && this.isOwn(id, row);
         if (after && !own) {
           add(name, 'changedDuringRewind', id, row?.by ? { by: row.by } : {});
+          continue;
+        }
+        // Left, in whole or in part, for what an object not picked holds:
+        // named with the object to add, in the words of the plan that left it.
+        const limited = made
+          .map(({ plan }) => plan.limited?.why.get(keyOf(id)))
+          .find((words) => words !== undefined);
+        if (limited !== undefined) {
+          add(name, 'kept', id, { message: limited });
           continue;
         }
         const acted = made.some(({ acted: actedOn }) => actedOn.get(name)?.has(id) === true);
@@ -3623,6 +3757,8 @@ class Rewind {
     ) => void,
   ): Promise<void> {
     if (this.request.checkpoint.files === undefined) return;
+    // A rewind that leaves the files out counts their links apart (`scopeOf`).
+    if (this.picked !== undefined && !this.picked.has(FILE_OBJECT)) return;
     const pairOf = (link: Pick<FileLinkLine, 'ContentDocumentId' | 'LinkedEntityId'>): string =>
       `${keyOf(link.ContentDocumentId)}:${keyOf(link.LinkedEntityId)}`;
     const acted = new Set<string>();
@@ -3836,6 +3972,7 @@ function writtenBack(
   objectApiName: string,
   fields: readonly string[],
   rows?: (row: OrgRow) => boolean,
+  left?: ReadonlyMap<string, ReadonlySet<string>>,
 ): BackupReader {
   return {
     batches: async (operationId, object, size) => {
@@ -3846,13 +3983,33 @@ function writtenBack(
           for await (const batch of batches) {
             const written = batch
               .filter((row) => rows?.(row) ?? true)
-              .map((row) => rowToWriteBack(objectApiName, row, fields));
+              .map((row) =>
+                withoutLeft(
+                  rowToWriteBack(objectApiName, row, fields),
+                  typeof row.Id === 'string' ? left?.get(keyOf(row.Id)) : undefined,
+                ),
+              );
             if (written.length > 0) yield written;
           }
         },
       };
     },
   };
+}
+
+/**
+ * `row` without the fields `left` names, in lower case: a record's lookups a
+ * rewind of some objects leaves, as they name a record it leaves deleted.
+ */
+function withoutLeft<T extends Record<string, unknown>>(
+  row: T,
+  left: ReadonlySet<string> | undefined,
+): T {
+  if (left === undefined) return row;
+  for (const field of Object.keys(row)) {
+    if (field !== 'Id' && left.has(field.toLowerCase())) delete row[field];
+  }
+  return row;
 }
 
 /** One record's answer to an insert or an update, as the org gives it in a collection call. */

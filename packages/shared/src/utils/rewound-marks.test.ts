@@ -192,6 +192,34 @@ describe('rewoundMarkOf', () => {
     expect(between([])?.outside).toEqual([]);
   });
 
+  it('marks nothing on a run of objects a rewind limited to others left out, and names those left out of a run it took back in part', () => {
+    const limited = rewind({ limitedTo: ['Account'] });
+    const between = (objects: string[]) =>
+      rewoundMarkOf(run(ms(at('11:00')), ms(at('11:05')), { objects }), [limited], NOW);
+
+    // A Sync of contacts, after a rewind of the accounts alone: not taken back.
+    expect(between(['Contact'])).toBeUndefined();
+    expect(between(['contact', 'Opportunity'])).toBeUndefined();
+    // A run of both: its accounts taken back, its contacts not.
+    const both = between(['Account', 'Contact']);
+    expect(both?.kind).toBe('rewound');
+    expect(both?.notPicked).toEqual(['Contact']);
+    expect(between(['Account'])?.notPicked).toBeUndefined();
+    // A history that does not say what it wrote: every object left out is named.
+    expect(between([])?.notPicked).toEqual(['Contact']);
+  });
+
+  it('reads a line written before a rewind could be limited as a rewind of every object', () => {
+    const mark = rewoundMarkOf(
+      run(ms(at('11:00')), ms(at('11:05')), { objects: ['Contact'] }),
+      [rewind()],
+      NOW,
+    );
+
+    expect(mark?.kind).toBe('rewound');
+    expect(mark?.notPicked).toBeUndefined();
+  });
+
   it('marks nothing for a run or a rewind whose dates are not dates', () => {
     const between = run(ms(at('11:00')), ms(at('11:05')));
 

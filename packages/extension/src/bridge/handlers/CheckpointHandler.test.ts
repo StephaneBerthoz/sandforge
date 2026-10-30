@@ -1714,6 +1714,151 @@ describe('CheckpointHandler — the rewind and its undo', () => {
   });
 });
 
+// ─── A rewind of some objects ────────────────────────────────────────────────
+
+describe('CheckpointHandler — a rewind of some objects', () => {
+  it('previews a rewind of the objects named, the diff whole, its automation read on those it writes alone, and refuses one the checkpoint does not hold', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const asked: Array<readonly string[]> = [];
+    h.handler.setTargetAutomation({
+      read: (_orgId, objects) => {
+        asked.push(objects);
+        return Promise.resolve({
+          objectsRead: [...objects],
+          objects: [],
+          unread: [],
+          conditionsNotRead: 0,
+          conditionsBound: 0,
+          requests: 0,
+        } satisfies ForgeTargetAutomation);
+      },
+    });
+
+    await h.send('wv-preview-1', 'checkpoint:preview', { checkpointId, objects: ['case'] });
+
+    const answer = answerOf(h, 'wv-preview-1');
+    expect(answer.type).toBe('checkpoint:preview:response');
+    const diff = answer.payload.diff as { objects: Array<{ objectApiName: string }> };
+    expect(diff.objects.map((o) => o.objectApiName).sort()).toEqual(['Account', 'Case']);
+    expect(asked).toEqual([['Case']]);
+    // The case created since and the case deleted since: not the account renamed.
+    expect(answer.payload).toMatchObject({ estimate: { records: 2 } });
+
+    const sent = h.org.requests;
+    await h.send('wv-preview-2', 'checkpoint:preview', { checkpointId, objects: ['Lead'] });
+    expect(answerOf(h, 'wv-preview-2')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'NOT_HELD' },
+    });
+    expect(h.org.requests).toBe(sent);
+  });
+
+  it('plans the selection from the preview without reading the org, and the rewind that follows does what it planned, to the objects picked alone', async () => {
+    const h = harness();
+    noAutomation(h);
+    const checkpointId = await taken(h);
+    changedSince(h);
+    const previewId = await previewed(h, checkpointId, 'wv-preview-1');
+
+    const sent = h.org.requests + h.org.soapCalls;
+    await h.send('wv-plan-1', 'checkpoint:plan-selection', {
+      checkpointId,
+      previewId,
+      objects: ['Case'],
+      acceptOutside: false,
+    });
+    expect(h.org.requests + h.org.soapCalls).toBe(sent);
+    const answer = answerOf(h, 'wv-plan-1');
+    expect(answer.type).toBe('checkpoint:plan-selection:response');
+    expect(answer.payload).toEqual({
+      checkpointId,
+      previewId,
+      plan: {
+        objects: ['Case'],
+        acts: [
+          {
+            objectApiName: 'Case',
+            picked: true,
+            toDelete: 1,
+            toGiveBack: 0,
+            toBringBack: 1,
+            toRecreate: 0,
+          },
+        ],
+        left: [],
+        needs: [],
+        undoCannot: [],
+      },
+    });
+    // Nothing kept of the plan beside the preview it was read from.
+    const folder = (await h.store.read(checkpointId))?.folder;
+    expect(
+      readdirSync(join(folder?.dir ?? '', 'previews', previewId)).filter((name) =>
+        name.startsWith('selection-'),
+      ),
+    ).toEqual([]);
+
+    h.org.ticking = true;
+    await h.send('wv-rewind-1', 'checkpoint:rewind', {
+      ...rewindOf(checkpointId, previewId),
+      objects: ['Case'],
+    });
+    const result = resultOf(h, 'wv-rewind-1', 'checkpoint:rewind:response') as ReturnType<
+      typeof resultOf
+    > & {
+      deleted: Array<{ objectApiName: string; deleted: number }>;
+      undeleted: Array<{ objectApiName: string; undeleted: number }>;
+      restored: unknown[];
+      scope?: unknown;
+    };
+    expect(result.status).toBe('success');
+    expect(result.deleted.map(({ objectApiName, deleted }) => [objectApiName, deleted])).toEqual([
+      ['Case', 1],
+    ]);
+    expect(
+      result.undeleted.map(({ objectApiName, undeleted }) => [objectApiName, undeleted]),
+    ).toEqual([['Case', 1]]);
+    expect(result.restored).toEqual([]);
+    expect(result.scope).toEqual({
+      objects: ['Case'],
+      notRewound: { objects: ['Account'], records: 1 },
+    });
+    expect(h.org.all('Account').find((row) => row.Id === id('001', 1))).toMatchObject({
+      Name: 'Renamed',
+    });
+    expect(h.trail()[0]?.details).toMatchObject({ limitedTo: 'Case' });
+  });
+
+  it('refuses to plan a selection from a preview it did not answer, and a malformed one, on the domain’s error channel', async () => {
+    const h = harness();
+    const checkpointId = await taken(h);
+
+    await h.send('wv-plan-1', 'checkpoint:plan-selection', {
+      checkpointId,
+      previewId: 'pv-20261022-140512-a1b2',
+      objects: ['Case'],
+      acceptOutside: false,
+    });
+    expect(answerOf(h, 'wv-plan-1')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'PREVIEW_GONE' },
+    });
+
+    await h.send('wv-plan-2', 'checkpoint:plan-selection', {
+      checkpointId,
+      previewId: 'pv-20261022-140512-a1b2',
+      objects: [],
+      acceptOutside: false,
+    });
+    expect(answerOf(h, 'wv-plan-2')).toMatchObject({
+      type: 'checkpoint:error',
+      payload: { code: 'INVALID_PAYLOAD' },
+    });
+  });
+});
+
 // ─── The side bar's line under Checkpoints ───────────────────────────────────
 
 /** A later id than any take of these tests makes: the list names it first. */

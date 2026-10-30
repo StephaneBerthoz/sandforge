@@ -299,6 +299,40 @@ describe('the lines of a rewind and of an undo', () => {
     });
   });
 
+  it('names the objects a rewind of some objects was limited to, and none of a rewind of every object', () => {
+    const checkpoint = {
+      checkpointId: ENDED.checkpointId,
+      name: ENDED.checkpointName,
+      org: { organizationId: ORG },
+      scope: { mode: 'picked' },
+      objects: [{ objectApiName: 'Account' }, { objectApiName: 'Contact' }],
+      readFrom: ENDED.readFrom,
+      takenAt: ENDED.takenAt,
+    } as never;
+    const clock = new OrgClockWatch(() => Date.parse(ENDED.endedAt));
+    const limited = rewindEndedRecord({
+      checkpoint,
+      result: {
+        ...RESULT,
+        status: 'success',
+        scope: { objects: ['Contact'], notRewound: { objects: ['Account'], records: 3 } },
+      },
+      startedAt: ENDED.startedAt,
+      endedAt: ENDED.endedAt,
+      clock,
+    });
+    const whole = rewindEndedRecord({
+      checkpoint,
+      result: { ...RESULT, status: 'success' },
+      startedAt: ENDED.startedAt,
+      endedAt: ENDED.endedAt,
+      clock,
+    });
+
+    expect(limited).toMatchObject({ objects: ['Account', 'Contact'], limitedTo: ['Contact'] });
+    expect(whole).not.toHaveProperty('limitedTo');
+  });
+
   it('turns a ledger that cannot be written into a note, never a failure', async () => {
     const folder = store.folderOf(ORG, ENDED.checkpointId);
     // A folder where the ledger's file should be: it cannot be opened to append.

@@ -695,6 +695,60 @@ describe('sandforge-mcp: confirm', () => {
     await c.close();
   });
 
+  it('limits a rewind and its preview to the objects named, each as an --object of the script, and refuses a name that is no API name before any script runs', async () => {
+    const { ran, run } = scripts(() => ({ stdout: '{}' }));
+    const c = client(run);
+    await c.initialized();
+
+    await c.call('checkpoint_preview', { org: 'DEV', objects: ['Contact', 'Case'] });
+    await c.call('checkpoint_rewind', {
+      org: 'DEV',
+      checkpoint: 'Before UAT',
+      confirm: 'DEV',
+      objects: ['Contact'],
+    });
+    const refused = await c.call('checkpoint_rewind', {
+      org: 'DEV',
+      checkpoint: 'Before UAT',
+      confirm: 'DEV',
+      objects: ['--accept-outside'],
+    });
+
+    expect(ran).toEqual([
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'preview',
+          '--org',
+          'DEV',
+          '--checkpoint',
+          'latest',
+          '--object',
+          'Contact',
+          '--object',
+          'Case',
+          '--json',
+        ],
+      },
+      {
+        script: 'sandforge-checkpoint',
+        args: [
+          'rewind',
+          '--org',
+          'DEV',
+          '--checkpoint',
+          'Before UAT',
+          '--yes',
+          '--object',
+          'Contact',
+          '--json',
+        ],
+      },
+    ]);
+    expect(JSON.stringify(refused)).toContain('objects');
+    await c.close();
+  });
+
   it('refuses, before any script runs, a value the script would read as a flag and an argument the tool does not read', async () => {
     const { ran, run } = scripts();
     const c = client(run);

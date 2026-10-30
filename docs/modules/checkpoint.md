@@ -189,25 +189,26 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 `sandforge-checkpoint` takes, lists, previews, rewinds, undoes, deletes, exports and imports checkpoints without the editor, over the same store, from a checkout of this repository (`pnpm install` and `pnpm build:shared` first):
 
-| Command   | What it does                                                                                                                                                                                                    |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones `--object` names; `--estimate` says the records, API requests, time and disk it would take, and stops          |
-| `list`    | Names the checkpoints kept, newest first, with what a rewind and an undo can still reach; without `--org`, every org of the store. It never contacts the org                                                    |
-| `preview` | Says what a rewind would delete, give back and bring back, who last changed it, and what it and an undo cannot take back; writes nothing. `--fail-on-change` exits `3` when the org differs from the checkpoint |
-| `rewind`  | Shows the preview, asks you to type the org's alias, then rewinds from that preview as it read the org; `--dry-run` stops after the preview                                                                     |
-| `undo`    | Takes back the org's last rewind; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                             |
-| `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                 |
-| `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                      |
-| `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`              |
+| Command   | What it does                                                                                                                                                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `take`    | Reads the org's records and keeps them as a checkpoint: every object people work in, or the ones `--object` names; `--estimate` says the records, API requests, time and disk it would take, and stops                                                        |
+| `list`    | Names the checkpoints kept, newest first, with what a rewind and an undo can still reach; without `--org`, every org of the store. It never contacts the org                                                                                                  |
+| `preview` | Says what a rewind would delete, give back and bring back, who last changed it, and what it and an undo cannot take back; writes nothing. `--fail-on-change` exits `3` when the org differs from the checkpoint; `--object` previews a rewind of some objects |
+| `rewind`  | Shows the preview, asks you to type the org's alias, then rewinds from that preview as it read the org; `--dry-run` stops after the preview; `--object` rewinds some objects alone                                                                            |
+| `undo`    | Takes back the org's last rewind; without `--checkpoint`, the rewind of the checkpoint the last rewind went back to                                                                                                                                           |
+| `delete`  | Deletes a checkpoint, or with `--all` every checkpoint of the org, from this machine, after asking; the org is not touched, and never contacted                                                                                                               |
+| `export`  | Writes a checkpoint to a `.sfcheckpoint` file, encrypted under a key shown once on stderr, or the one `--key-env` names, for a teammate who rewinds the same org; the org is not contacted                                                                    |
+| `import`  | Keeps a `.sfcheckpoint` file as a checkpoint of the org on this machine once the org answers that it is the file's and its user sees all data, the key typed without echo or read from `--key-env`                                                            |
 
 - **Which checkpoint**: `--checkpoint` takes an id, a name or `latest`, the default. `rewind --yes` and `undo --yes`, which do not ask, need it named by its id or its name: `latest` could be a checkpoint taken since by someone else. A name two checkpoints share is refused, exit `2`, with their ids.
 - **The acceptances**: `--accept-automation` for automation that runs as records are updated, deleted or brought back, `--accept-no-undo` for deletions Undo could not bring back, `--accept-recreate` for the records the recycle bin no longer gives back, made again with new Ids, `--accept-outside` for the records outside a checkpoint of picked objects, `--accept-unseen`, for a user without View All Data and Modify All Data, for the records of objects the user is not proven to see that the records it deletes take along. Without `--accept-outside`, the records they hang from stay; without any other, such a rewind writes nothing, exit `1`.
+- **One object, or a few**: `preview --object Contact` and `rewind --object Contact --object Case` limit the rewind to the objects named, each repeated `--object` one more; an object the checkpoint does not hold is refused, exit `2`, before the org is reached. The org is still read whole, and the preview's numbers, its estimate and the automation it reads are those of a rewind of the objects named. The rewind never adds what they depend on: it leaves what cannot be rewound without another object, says why, and names the `--object` to add -- records that come back from the recycle bin only with a parent left deleted (contacts deleted with their account, products with their opportunity); a lookup naming a record left deleted, which Salesforce refuses, the record's other fields given back; a record created since that records of an object not named created since hang from, kept unless `--accept-outside`, or that a record of the checkpoint was moved under, kept; the values products created since hold in place on their opportunity, its other fields given back. It writes the other objects only to delete again the records created since that come back with a record it brings back. A record of an object not named that looks up a record it deletes has that lookup emptied by Salesforce, as any delete empties it. Once read again, the objects named alone are compared: exit `0` when they match, whatever still differs in the others, which `--json` names (`notRewound`), and the histories of Seed, Sync and Forge mark as rewound only the runs on the objects named.
 - **Fields not to compare**: `take --ignore-field Case.Last_Touched__c`, or `rewind --ignore-field …` once, kept in the checkpoint from then on: a field your automation sets on every save otherwise keeps every rewind partial.
 - **What its write check sees**: the org's lock alone. A take, a rewind or an undo of the org under way on this machine, in the editor or in another command line, refuses a take, a rewind and an undo; the runs the panel sees writing to the org are not seen here. What any other run changes after the preview read the org is left as it made it, and said.
 - **No terminal**: a rewind, an undo or a delete without `--yes` in a CI step stops at its question, exit `2`, having written nothing.
 - **Stopping**: Ctrl-C stops a take between two reads, and nothing of it is kept; a second Ctrl-C ends it at once, and leaves a checkpoint listed as never taken, which `delete` removes. Ctrl-C, SIGTERM or SIGHUP stops a rewind or an undo before its next call to the org, exit `130`, `143` or `129`, and leaves its journal: `rewind` again takes up from what still differs, and `undo` still returns the org to how it was before the rewind.
 
-Exit codes: `0` done; `1` refused before it read or wrote, or nothing done; `2` a bad command line, a `--checkpoint` name several checkpoints have, `rewind` or `undo` with `--yes` and no checkpoint named, or a question with no terminal; `3` partial -- records still differ, each said with why; with `--fail-on-change`, the org differs; a `delete` kept some checkpoints, each said with why -- and fields set aside with `--ignore-field` do not count; `4` unstable, someone else changed records during the rewind or the undo. With `--json`, the answer goes alone on stdout and every other line on stderr; [Every flag](#every-flag) gives its shape for each command.
+Exit codes: `0` done -- with `--object`, the objects named match; `1` refused before it read or wrote, or nothing done; `2` a bad command line, a `--checkpoint` name several checkpoints have, an `--object` the checkpoint does not hold, `rewind` or `undo` with `--yes` and no checkpoint named, or a question with no terminal; `3` partial -- records still differ, each said with why, of the objects named alone with `--object`; with `--fail-on-change`, the org differs; a `delete` kept some checkpoints, each said with why -- and fields set aside with `--ignore-field` do not count; `4` unstable, someone else changed records during the rewind or the undo. With `--json`, the answer goes alone on stdout and every other line on stderr; [Every flag](#every-flag) gives its shape for each command.
 
 An AI agent runs these commands as the tools of the MCP server of this repository -- `checkpoint_take`, `checkpoint_list`, `checkpoint_preview`, `checkpoint_rewind`, `checkpoint_undo` and `checkpoint_delete` -- each answering with this script's JSON, a rewind, an undo or a delete only with the org's alias given again as `confirm`: [SandForge for AI agents](../mcp.md).
 
@@ -281,6 +282,12 @@ take:
 preview, rewind, undo, delete, export:
   --checkpoint <id|name|latest>  which one (default: latest, for undo the one the last rewind went
                                  back to; rewind and undo with --yes need it named, by id or name)
+preview, rewind:
+  --object <ApiName>             limit the rewind to an object of the checkpoint; repeat for more
+                                 (default: every object). It writes the others only to delete again
+                                 the records made since that come back with a record it brings
+                                 back, and never adds what the objects named depend on: what it
+                                 leaves of them for that is said, with the --object to add
 preview:
   --fail-on-change               exit 3 when the org differs from the checkpoint
 rewind:
@@ -439,7 +446,14 @@ JSON (--json), one value on stdout:
                      object by object, with the API requests that read; diff.unseen, read
                      object by object: [{objectApiName, children, records}], of the records to
                      delete of an object, the objects whose records their delete takes along
-                     out of the user's sight
+                     out of the user's sight; with --object, objects, the objects named, and
+                     selection, {objects, acts: [{objectApiName, picked, toDelete, toGiveBack,
+                     toBringBack, toRecreate}], left: [{objectApiName, reason, count}], needs:
+                     [{objectApiName, records}], undoCannot}, what a rewind of them alone would
+                     do and leave — reason needsUnpickedParent, heldByUnpicked,
+                     outsideNotAccepted, holdsLeft or keyTaken — and the objects to add; the
+                     numbers, differs and estimate are then the rewind's of those objects,
+                     diff the whole diff
   rewind --dry-run   as preview
   rewind             {checkpoint: {id, name, takenAt, org}, rewindId, status, deleted, givenBack,
                       broughtBack, recreated (each {planned, done, left}), cannotUndo: [{object,
@@ -453,7 +467,10 @@ JSON (--json), one value on stdout:
                      before a record they point at, which the rewind deleted next; carriers, of
                      what it brought back and deleted, the records brought back for a moment;
                      files?: {unlinked, relinked, linksUpdated, linksRefused}, the links between
-                     files and records it wrote, when it wrote one
+                     files and records it wrote, when it wrote one; with --object, limitedTo,
+                     the objects named, and notRewound, {objects, records}, the objects not
+                     named that still differ and their records that do, which the status
+                     does not count
   undo               as rewind, without recreated, cannotUndo, carriers and undo, with
                      carriedAlone?: [{object, count}], the records sent back to the recycle bin
                      on their own that had gone there with a record the rewind brought back for
@@ -469,7 +486,8 @@ JSON (--json), one value on stdout:
   A bad command line (exit 2) prints nothing on stdout.
 
 Exit codes: 0 done (take: every record of its objects is kept; rewind and undo: read again, the
-org matches among the objects and fields compared; preview, rewind --dry-run and list answered;
+org matches among the objects and fields compared — with --object, among the objects named,
+whatever still differs in the others; preview, rewind --dry-run and list answered;
 delete: every checkpoint named is deleted; export: the file is written; import: the checkpoint is
 kept, or was already); 1 refused before it read or wrote (a production org,
 missing permissions, automation without --accept-automation, deletions undo could not bring back
@@ -480,7 +498,8 @@ has left today, files to bring back taking more file storage than it has left, a
 the org before a refresh or of an expired scratch org, a SandForge run writing to it; an import
 of another org's file, with the wrong key, of a file changed since its export), or nothing
 done; 2 a bad command line, a --checkpoint name several checkpoints
-have, rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
+have, an --object the checkpoint does not hold,
+rewind or undo with --yes and no checkpoint named, or a question with no terminal (give
 --yes; import's key: --key-env); 3 partial (rewind and undo: records still differ, each said
 with why; with
 --fail-on-change, the org differs: records to delete, give back, bring back or make again,
