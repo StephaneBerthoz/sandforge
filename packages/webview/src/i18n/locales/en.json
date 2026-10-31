@@ -3202,9 +3202,9 @@
       "tip": "SandForge cannot remove what an Autopilot run writes: try it on a scratch org or a sandbox you can refresh."
     },
     "frozen": {
-      "step1": "On the Extract tab, fill in Root object (business folder) and click Save configuration.",
+      "step1": "On the Extract tab, fill in Root object and click Save configuration.",
       "step2": "Click Run selection: it picks the root records in the org selected in the side panel.",
-      "step3": "Put the pseudonymization rules in ~/.sandforge-sas/rules.json, then click Run extraction.",
+      "step3": "Click Create rules file (every field without a rule is cleared), then click Run extraction.",
       "step4": "On the Load tab, pick the Target org (sandbox) to fill, then click Run load.",
       "step5": "Read the Post-load verification that follows the load; Re-verify runs it again.",
       "tip": "Preview writes nothing, a load never goes into a production org, and Remove the records this load created deletes them."
@@ -4533,30 +4533,36 @@
     },
     "config": {
       "title": "Project configuration",
-      "rootObject": "Root object (business folder)",
+      "rootObject": "Root object",
       "budget": "Volume budget (records)",
       "axes": "Coverage axes",
       "addAxis": "Add axis",
       "axisName": "Name",
       "axisLabel": "Label",
       "axisField": "Filter field",
-      "axisSoql": "Aggregate SOQL (axisValue)",
+      "axisSoql": "Values query (SOQL, alias axisValue)",
       "removeAxis": "Remove axis",
       "edgeCases": "Edge cases",
       "addEdgeCase": "Add edge case",
       "edgeName": "Name",
       "edgeLabel": "Label",
-      "edgeWhere": "WHERE fragment",
+      "edgeWhere": "Records it covers (SOQL WHERE)",
       "removeEdgeCase": "Remove edge case",
-      "advanced": "Advanced configuration (JSON: protected envs, identity keys, picklist rules, placeholders, mocks…)",
+      "advanced": "Advanced configuration (JSON)",
       "invalidJson": "Invalid JSON — the advanced configuration must be a JSON object.",
       "save": "Save configuration",
-      "saved": "Configuration saved"
+      "saved": "Configuration saved",
+      "rootObjectHint": "Each unit of the dataset is one record of this object, with everything under it.",
+      "axisLabelExample": "Priority",
+      "edgeLabelExample": "Escalated",
+      "advancedHint": "Every other key of the configuration: protected orgs, identity keys, picklist rules, placeholders, callout mock detection.",
+      "configKeys": "Configuration keys",
+      "unsaved": "Unsaved changes",
+      "saveFirst": "Save the configuration first: the runs read the saved one."
     },
     "selection": {
       "title": "Coverage-matrix selection",
       "run": "Run selection",
-      "volumetry": "{{total}} records measured (budget: {{budget}})",
       "combination": "Combination",
       "axes": "Axis values",
       "edgeCase": "Edge case",
@@ -4579,14 +4585,20 @@
         "measure": "It was measuring the roots it kept, together.",
         "notProbed": "Never probed: {{keys}}"
       },
-      "summed": "Each kept root's own records, added up: the roots were not measured together, so a record two of them share is counted twice."
+      "summed": "Each kept root's own records, added up: the roots were not measured together, so a record two of them share is counted twice.",
+      "volumetry_one": "{{count}} record measured (budget: {{budget}})",
+      "volumetry_other": "{{count}} records measured (budget: {{budget}})",
+      "source": "Source: {{org}}"
     },
     "extract": {
       "title": "Extraction & pseudonymization",
       "run": "Run extraction",
-      "summary_one": "{{count}} record frozen across {{files}} files",
-      "summary_other": "{{count}} records frozen across {{files}} files",
-      "saltHint": "Every pseudonym is drawn with this editor's salt, made on the first extraction and kept in VS Code's secret storage. To extract the same pseudonyms as a teammate, set theirs with \"SandForge: Use a Frozen Dataset Salt\"; give yours with \"SandForge: Copy Frozen Dataset Salt\". SANDFORGE_FROZEN_SALT, where it is set, wins over both. A load does not need the salt."
+      "saltHint": "Every pseudonym is drawn with this editor's salt, made on the first extraction and kept in VS Code's secret storage. To extract the same pseudonyms as a teammate, set theirs with \"SandForge: Use a Frozen Dataset Salt\"; give yours with \"SandForge: Copy Frozen Dataset Salt\". SANDFORGE_FROZEN_SALT, where it is set, wins over both. A load does not need the salt.",
+      "summary": "{{records}} across {{files}}",
+      "summaryRecords_one": "{{count}} record frozen",
+      "summaryRecords_other": "{{count}} records frozen",
+      "summaryFiles_one": "{{count}} file",
+      "summaryFiles_other": "{{count}} files"
     },
     "control": {
       "check": "Check",
@@ -4601,14 +4613,14 @@
     "guards": {
       "title": "Entry guards",
       "sandboxOnly": "Never a production org",
-      "protectedEnvs_one": "{{count}} protected env",
-      "protectedEnvs_other": "{{count}} protected envs",
-      "mocksConfigured": "Unmocked callouts checked",
-      "mocksNotConfigured": "Unmocked callouts not checked"
+      "protectedEnvs_one": "{{count}} protected org",
+      "protectedEnvs_other": "{{count}} protected orgs",
+      "mocksConfigured": "Checks the target mocks its callouts",
+      "mocksNotConfigured": "Does not check the target mocks its callouts"
     },
     "load": {
       "targetOrg": "Target org (sandbox)",
-      "pilot": "Pilot (1 folder)",
+      "pilot": "Pilot (one root record first)",
       "reload": "Reload without refresh",
       "writeEncrypted": "Write encrypted fields as the dataset holds them",
       "writeEncryptedHint": "This dataset does not say whether its extraction left out the encrypted fields it read masked: they may hold masks such as ****1234, and are left out unless this is ticked.",
@@ -4619,7 +4631,20 @@
       "preview": "Preview",
       "stopping": "Stopping: the load ends before its next write. What it wrote stays in the org, named in the mapping for a removal or a reload.",
       "cancelRefused": "Could not cancel the load",
-      "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window."
+      "cancelRefusedDetail": "The load is no longer in progress, or it was not started from this window.",
+      "pilotHint": "Loads one root record and what hangs under it, to try the load before the whole dataset.",
+      "reloadHint": "Deletes from the target what earlier loads of this dataset created and this one does not find again, then loads.",
+      "runReload": "Reload",
+      "pickTarget": "Pick the sandbox to fill.",
+      "sourceNote": "(source of this dataset)",
+      "targetIsSource": "{{org}} is the org this dataset was extracted from: pick another sandbox.",
+      "reloadConfirm": {
+        "title": "Reload into {{org}}",
+        "description_one": "This reload deletes from {{org}} {{count}} record that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
+        "description_other": "This reload deletes from {{org}} {{count}} records that earlier loads of this dataset created and this one does not find again, then loads the dataset.",
+        "deactivate_one": "It deactivates {{count}} more, of an object the platform does not delete.",
+        "deactivate_other": "It deactivates {{count}} more, of objects the platform does not delete."
+      }
     },
     "preview": {
       "title": "What a load into {{org}} would do",
@@ -4775,6 +4800,32 @@
       "persist": "Saving",
       "done": "Done",
       "verify": "Verification"
+    },
+    "rulesFile": {
+      "found_one": "Rules file: {{path}} (rules {{version}}, {{count}} rule)",
+      "found_other": "Rules file: {{path}} (rules {{version}}, {{count}} rules)",
+      "missing": "No rules file at {{path}}: Run extraction needs one.",
+      "invalid": "The rules file at {{path}} is not one the extraction can read: {{reason}}",
+      "create": "Create rules file",
+      "createHint": "Writes an empty file and opens it: every field without a rule is cleared, and the extraction then lists what it kept without one.",
+      "open": "Open rules file",
+      "format": "Rules format",
+      "notOpened": "Written at {{path}}; it could not be opened in an editor.",
+      "failed": "The rules file was not written: {{reason}}"
+    },
+    "refusal": {
+      "configMissing": {
+        "explanation": "No project configuration is saved, and the runs read the saved one.",
+        "action": "Click Save configuration on the Extract tab first."
+      },
+      "rulesMissing": {
+        "explanation": "No pseudonymization rules file at {{path}}: the extraction needs one.",
+        "action": "Click Create rules file on the Extract tab: an empty file clears every field without a rule."
+      },
+      "sourceIsTarget": {
+        "explanation": "{{org}} is the org this dataset was extracted from: a load never goes back into its source, and nothing was written.",
+        "action": "Pick another sandbox as the target."
+      }
     }
   },
   "runRemoval": {

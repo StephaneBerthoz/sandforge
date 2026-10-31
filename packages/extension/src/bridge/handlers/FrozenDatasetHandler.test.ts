@@ -589,6 +589,12 @@ describe('FrozenDatasetHandler', () => {
         'Refusing frozen-dataset load on production org org-2: loads go into sandboxes and ' +
           'Developer Edition orgs only.',
       );
+      // Which guard, and what it refused, beside the English: the panel words it.
+      expect(errors[0].payload).toMatchObject({
+        guard: 'non-sandbox',
+        orgId: 'org-2',
+        tier: 'production',
+      });
       expect(posted(deps, 'frozen:load:response')).toEqual([]);
       expect(conn.query).not.toHaveBeenCalled();
       expect(conn.describe).not.toHaveBeenCalled();
@@ -938,6 +944,28 @@ describe('FrozenDatasetHandler', () => {
         const errors = posted(deps, 'frozen:load:preview:error');
         expect(errors.map((error) => error.payload.code)).toEqual(['GUARD_REFUSED']);
         expect(posted(deps, 'frozen:load:preview:response')).toEqual([]);
+      });
+
+      // Refused in English alone, the first load the Load tab offered — into
+      // the org just extracted from — read "manifest source.orgId" in every
+      // locale: the guard and the org go beside it, for the panel to word.
+      it("names the guard and the org beside a refusal of the dataset's own source", async () => {
+        const { config } = writeDataset();
+        wire(config);
+        loaderPlan.mockReset();
+        vi.mocked(deps.orgManager.getOrg).mockReturnValue({ orgType: 'Sandbox' } as never);
+
+        await handler.handle(
+          buildMsg('frozen:load:preview', { targetOrgId: '00D000000000002AAA' }),
+        );
+
+        expect(posted(deps, 'frozen:load:preview:error').map((error) => error.payload)).toEqual([
+          expect.objectContaining({
+            code: 'GUARD_REFUSED',
+            guard: 'source-is-target',
+            orgId: '00D000000000002AAA',
+          }),
+        ]);
       });
 
       it('validates its payload as a load does', async () => {
@@ -2943,12 +2971,147 @@ describe('FrozenDatasetHandler', () => {
       await handler.handle(buildMsg('frozen:rules:clear', { fields: [] }));
 
       expect(posted(deps, 'frozen:rules:clear:error').map((m) => m.payload.code)).toEqual([
-        'LOAD_CONFIG',
+        'RULES_MISSING',
         'INVALID_PAYLOAD',
         'INVALID_PAYLOAD',
       ]);
+      expect(posted(deps, 'frozen:rules:clear:error')[0].payload.rulesPath).toBe(
+        path.join(config.sasDir as string, 'rules.json'),
+      );
       expect(posted(deps, 'frozen:rules:clear:response')).toEqual([]);
       expect(fs.existsSync(path.join(config.sasDir as string, 'rules.json'))).toBe(false);
+    });
+
+    // An extraction is refused without the rules file, and nothing in the
+    // panel made one: a first-time user was stuck after the selection.
+    describe('the rules file the panel writes', () => {
+      /** The handler with `config` saved and its editor recorded. */
+      function withEditor(config: FrozenProjectConfig, open = vi.fn(async () => undefined)) {
+        deps = createMockDeps(config);
+        handler = new FrozenDatasetHandler(deps);
+        handler.setRulesEditor(open);
+        return open;
+      }
+
+      it('says the file is missing where the extraction reads it, refuses the extraction for it, and names the path', async () => {
+        vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+        const config = realConfig();
+        await readyToExtract(config);
+        const rulesPath = path.join(config.sasDir as string, 'rules.json');
+        fs.rmSync(rulesPath);
+        withEditor(config);
+
+        await handler.handle(buildMsg('frozen:status'));
+        await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+
+        expect(posted(deps, 'frozen:status:response')[0].payload.status).toMatchObject({
+          rules: { path: rulesPath, found: false },
+        });
+        expect(posted(deps, 'frozen:extract:error').map((m) => m.payload)).toEqual([
+          expect.objectContaining({ code: 'RULES_MISSING', rulesPath }),
+        ]);
+      });
+
+      it('writes the empty file there, opens it, and the extraction it was refused for then runs past it', async () => {
+        vi.stubEnv('SANDFORGE_FROZEN_SALT', 'test-salt');
+        const { conn } = fakeOrg(false, true);
+        vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+        const config = realConfig();
+        await readyToExtract(config);
+        const rulesPath = path.join(config.sasDir as string, 'rules.json');
+        fs.rmSync(rulesPath);
+        const open = withEditor(config);
+
+        await handler.handle(buildMsg('frozen:rules:create'));
+
+        expect(posted(deps, 'frozen:rules:create:response')[0].payload).toEqual({
+          rulesPath,
+          created: true,
+          opened: true,
+        });
+        expect(JSON.parse(fs.readFileSync(rulesPath, 'utf8'))).toEqual({
+          rulesVersion: '1.0.0',
+          rules: {},
+        });
+        expect(open).toHaveBeenCalledWith(rulesPath);
+
+        await handler.handle(buildMsg('frozen:status'));
+        expect(posted(deps, 'frozen:status:response')[0].payload.status).toMatchObject({
+          rules: { path: rulesPath, found: true, rulesVersion: '1.0.0', ruleCount: 0 },
+        });
+        await handler.handle(buildMsg('frozen:extract', { sourceOrgId: 'org-1' }));
+        expect(posted(deps, 'frozen:extract:error')).toEqual([]);
+        expect(posted(deps, 'frozen:extract:response')).toHaveLength(1);
+      });
+
+      it('never writes over a file already there, whatever it holds, and opens it as it is', async () => {
+        const config = realConfig();
+        const rulesPath = path.join(config.sasDir as string, 'rules.json');
+        fs.writeFileSync(rulesPath, '{ "half written');
+        const open = withEditor(config);
+
+        await handler.handle(buildMsg('frozen:rules:create'));
+        await handler.handle(buildMsg('frozen:status'));
+
+        expect(fs.readFileSync(rulesPath, 'utf8')).toBe('{ "half written');
+        expect(posted(deps, 'frozen:rules:create:response')[0].payload).toEqual({
+          rulesPath,
+          created: false,
+          opened: true,
+        });
+        expect(open).toHaveBeenCalledWith(rulesPath);
+        const { rules } = posted(deps, 'frozen:status:response')[0].payload.status as {
+          rules: { found: boolean; invalid?: string };
+        };
+        expect(rules.found).toBe(true);
+        expect(rules.invalid).toBeTruthy();
+      });
+
+      it('writes where rulesFilePath points, its folder made, before any configuration is saved too', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sandforge-frozen-rules-'));
+        tmpDirs.push(root);
+        const rulesPath = path.join(root, 'nested', 'pseudonyms.json');
+        withEditor({ ...realConfig(), rulesFilePath: rulesPath });
+
+        await handler.handle(buildMsg('frozen:rules:create'));
+        expect(posted(deps, 'frozen:rules:create:response')[0].payload).toMatchObject({
+          rulesPath,
+          created: true,
+        });
+
+        // No configuration: the default, `rules.json` in the sas under the home folder.
+        deps = createMockDeps();
+        handler = new FrozenDatasetHandler(deps);
+        await handler.handle(buildMsg('frozen:status'));
+        expect(posted(deps, 'frozen:status:response')[0].payload.status).toMatchObject({
+          rules: { path: path.join(os.homedir(), '.sandforge-sas', 'rules.json') },
+        });
+      });
+
+      it('answers written and not opened when no editor opens it, and an error when the file cannot be written', async () => {
+        const config = realConfig();
+        withEditor(
+          config,
+          vi.fn(async () => {
+            throw new Error('no editor');
+          }),
+        );
+        await handler.handle(buildMsg('frozen:rules:create'));
+        expect(posted(deps, 'frozen:rules:create:response')[0].payload).toMatchObject({
+          created: true,
+          opened: false,
+        });
+
+        // A folder where the file goes: the write is refused, nothing is opened.
+        const blocked = realConfig();
+        fs.mkdirSync(path.join(blocked.sasDir as string, 'rules.json'));
+        const open = withEditor(blocked);
+        await handler.handle(buildMsg('frozen:rules:create'));
+        expect(posted(deps, 'frozen:rules:create:error').map((m) => m.payload.code)).toEqual([
+          'RULES_CREATE_ERROR',
+        ]);
+        expect(open).not.toHaveBeenCalled();
+      });
     });
 
     it('records in the manifest the tracked change it left out, which no load could write', async () => {

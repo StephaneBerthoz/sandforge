@@ -84,6 +84,29 @@ describe('assertLoadGuards', () => {
     const error = await assertLoadGuards(makeInput({ manifest })).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(LoadGuardError);
     expect((error as LoadGuardError).code).toBe('source-is-target');
+    // Named beside the English, for the panel to word it: refused as the
+    // English alone, the first load into the source read "manifest
+    // source.orgId" in every locale.
+    expect((error as LoadGuardError).params).toEqual({ orgId: '00D-target' });
+  });
+
+  it('names the org each refusal is of, and its tier where the tier is why', async () => {
+    const tier = await assertLoadGuards(makeInput({ orgTier: 'production' })).catch(
+      (e: unknown) => e,
+    );
+    expect((tier as LoadGuardError).params).toEqual({ orgId: '00D-target', tier: 'production' });
+    const protectedOrg = await assertLoadGuards(
+      makeInput({ protectedOrgIds: ['00D-target'] }),
+    ).catch((e: unknown) => e);
+    expect((protectedOrg as LoadGuardError).params).toEqual({ orgId: '00D-target' });
+    const unmocked = await assertLoadGuards(
+      makeInput({ mockDetector: { areCalloutsMocked: vi.fn().mockResolvedValue(false) } }),
+    ).catch((e: unknown) => e);
+    expect((unmocked as LoadGuardError).params).toEqual({ orgId: '00D-target' });
+    const empty = await assertLoadGuards(makeInput({ dataset: makeDataset(0) })).catch(
+      (e: unknown) => e,
+    );
+    expect((empty as LoadGuardError).params).toEqual({});
   });
 
   it('refuses unmocked callouts with a deploy-config remediation', async () => {

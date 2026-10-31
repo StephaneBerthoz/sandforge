@@ -205,6 +205,26 @@ export interface FrozenRulesClearResponse extends BaseMessage {
   payload: { rulesPath: string; rulesVersion: string; cleared: string[]; alreadyRuled: string[] };
 }
 
+/**
+ * `frozen:rules:create`. WebView -> Extension. Write an empty pseudonymization
+ * rules file, `{"rulesVersion":"1.0.0","rules":{}}`, where the extraction
+ * reads it — never over a file already there — and open it in an editor (no
+ * payload). Empty is valid and safe: every field without a rule is cleared.
+ */
+export interface FrozenRulesCreateRequest extends BaseMessage {
+  type: 'frozen:rules:create';
+}
+
+/**
+ * `frozen:rules:create:response`. Extension -> WebView. The file, whether
+ * this request wrote it (false: one was there, left as it was), and whether
+ * it opened in an editor.
+ */
+export interface FrozenRulesCreateResponse extends BaseMessage {
+  type: 'frozen:rules:create:response';
+  payload: { rulesPath: string; created: boolean; opened: boolean };
+}
+
 /** `frozen:config:get:response`. Extension -> WebView. */
 export interface FrozenConfigGetResponse extends BaseMessage {
   type: 'frozen:config:get:response';
@@ -402,9 +422,18 @@ export interface FrozenRemoveSweepErrorMessage extends BaseMessage {
 }
 
 /**
+ * `frozen:rules:create:error`. Extension -> WebView. The rules file could not
+ * be written (`RULES_CREATE_ERROR`): its folder or the file refused it.
+ */
+export interface FrozenRulesCreateErrorMessage extends BaseMessage {
+  type: 'frozen:rules:create:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
  * `frozen:rules:clear:error`. Extension -> WebView. No configuration saved
  * (`CONFIG_MISSING`), no rules file where the configuration points
- * (`LOAD_CONFIG`), or a file that could not be read, parsed or written.
+ * (`RULES_MISSING`, its `rulesPath` beside), or a file that could not be read, parsed or written.
  */
 export interface FrozenRulesClearErrorMessage extends BaseMessage {
   type: 'frozen:rules:clear:error';

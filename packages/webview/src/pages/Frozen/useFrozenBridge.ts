@@ -13,14 +13,10 @@ import type { BridgeMutationState } from '../../hooks/useBridgeMutation';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import type { BaseMessage } from '@sandforge/shared';
 import { useFrozenStore } from '../../stores/useFrozenStore';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { muteRefusalWords } from '../../utils/muteRefusal';
-
-/** Error payload shape of the `frozen:*:error` channels. */
-interface FrozenErrorPayload {
-  message: string;
-  code: string;
-  retryable: boolean;
-}
+import { frozenErrorWords } from './frozenErrorWords';
+import type { FrozenErrorPayload } from './frozenErrorWords';
 
 /**
  * Bridge mutation bound to a `frozen:*` request type. Extends
@@ -40,6 +36,7 @@ export function useFrozenMutation<T>(
   const setLastError = useFrozenStore((s) => s.setLastError);
   const replaceActiveRequestId = useFrozenStore((s) => s.replaceActiveRequestId);
   const removeActiveRequestId = useFrozenStore((s) => s.removeActiveRequestId);
+  const orgs = useOrgStore((s) => s.orgs);
 
   /*
    * The push channels carry no request of their own, only the correlationId of
@@ -73,15 +70,22 @@ export function useFrozenMutation<T>(
 
   useMessageListener(`${requestType}:error`, (msg: BaseMessage) => {
     if (mutation.requestId === null || msg.correlationId !== mutation.requestId) return;
-    const payload = (msg as BaseMessage & { payload?: FrozenErrorPayload }).payload;
-    // A load asked to mute that could not be is said in the interface
-    // language: the host words it in English.
-    const muteWords = i18n.isInitialized
-      ? muteRefusalWords(payload?.code, payload?.message, (key, options) => i18n.t(key, options))
+    const payload = (
+      msg as BaseMessage & { payload?: FrozenErrorPayload & { retryable?: boolean } }
+    ).payload;
+    // A load asked to mute that could not be, and the refusals a first run
+    // meets — nothing saved, no rules file, the source as the target — are
+    // said in the interface language: the host words them in English.
+    const translate = (key: string, options?: Record<string, unknown>): string =>
+      i18n.t(key, options);
+    const aliasOf = (orgId: string): string => orgs.find((org) => org.id === orgId)?.alias ?? orgId;
+    const words = i18n.isInitialized
+      ? (muteRefusalWords(payload?.code, payload?.message, translate) ??
+        frozenErrorWords(payload, translate, aliasOf))
       : undefined;
     setLastError({
       source: requestType,
-      message: muteWords ?? payload?.message ?? 'Unknown error',
+      message: words ?? payload?.message ?? 'Unknown error',
       code: payload?.code ?? 'UNKNOWN',
       retryable: payload?.retryable ?? false,
     });

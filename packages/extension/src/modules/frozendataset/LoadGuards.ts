@@ -29,11 +29,18 @@ export type LoadGuardCode =
   | 'empty-dataset'
   | 'guard-refused';
 
-/** Error thrown when an entry guard refuses the load. */
+/**
+ * Error thrown when an entry guard refuses the load: its code, the English the
+ * log and the command line print, and what the refusal names (`orgId`, the
+ * org it refused; `tier`, that org's), from which the panel words it in the
+ * interface language. Shown as the English alone, a first load into the org
+ * just extracted from read "manifest source.orgId" in every locale.
+ */
 export class LoadGuardError extends Error {
   constructor(
     readonly code: LoadGuardCode,
     message: string,
+    readonly params: Readonly<Record<string, string>> = {},
   ) {
     super(message);
     this.name = 'LoadGuardError';
@@ -73,6 +80,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
         'sandboxes and Developer Edition orgs only. Remediation: target a Developer/Scratch ' +
         'sandbox or a Developer Edition org — deploy the required configuration THERE; ' +
         'never run DML against a shared or source org.',
+      { orgId: input.orgId, tier: input.orgTier },
     );
   }
 
@@ -83,6 +91,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
       `Refusing frozen-dataset load on protected environment ${input.orgId}: it is listed ` +
         'in the protectedOrgIds configuration. Remediation: pick an unprotected sandbox, ' +
         'or review the protected-environment configuration if this org was retired.',
+      { orgId: input.orgId },
     );
   }
 
@@ -93,6 +102,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
       `Refusing frozen-dataset load on ${input.orgId}: this org is the dataset SOURCE ` +
         '(manifest source.orgId). Loading would mix pseudonymized records with their ' +
         'origin. Remediation: target a fresh dev sandbox instead.',
+      { orgId: input.orgId },
     );
   }
 
@@ -104,6 +114,7 @@ export async function assertLoadGuards(input: LoadGuardInput): Promise<void> {
         'Records under load would trigger real external calls. Remediation: deploy the ' +
         'mock configuration to the TARGET org (e.g. the custom metadata flag read by ' +
         'CustomMetadataCalloutMockDetector), then retry — never edit data on the source org.',
+      { orgId: input.orgId },
     );
   }
 

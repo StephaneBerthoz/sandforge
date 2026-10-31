@@ -16,6 +16,7 @@ import type {
   FrozenProjectConfig,
   FrozenRemovalPreview,
   FrozenRemovalResult,
+  FrozenRulesFileInfo,
   FrozenSelectProgress,
   FrozenSelectionSummary,
   FrozenStatusInfo,
@@ -121,6 +122,7 @@ import {
   CoverageMatrixSelector,
   CustomMetadataCalloutMockDetector,
   DeterministicPseudonymizer,
+  EMPTY_RULES_FILE,
   FrozenDatasetAnonymizer,
   FrozenDatasetExtractor,
   FrozenDatasetLoader,
@@ -161,7 +163,9 @@ import {
   readDiscoveryFromSas,
   readSelectionFromSas,
   requiredFieldsLeftEmpty,
+  rulesFileStateOf,
   schemaStampOf,
+  serializePseudonymRules,
   whyNotReused,
   withFieldsCleared,
   withSchemaDefaults,
@@ -222,6 +226,7 @@ const FROZEN_TYPES = new Set([
   'frozen:remove:preview',
   'frozen:status',
   'frozen:rules:clear',
+  'frozen:rules:create',
 ]);
 
 /**
@@ -266,6 +271,31 @@ const TOKENS_FILE_NAME = 'tokens.json';
 
 /** Default rules file name when the config does not point at one. */
 const DEFAULT_RULES_FILE_NAME = 'rules.json';
+
+/**
+ * No rules file where the extraction reads it. Its own code, and the path
+ * beside the message, so the panel says it in the interface language and
+ * points at the button that writes one: refused in raw English, a first
+ * extraction stopped there with nothing on the page saying what to write.
+ */
+class RulesFileMissingError extends Error {
+  constructor(
+    readonly rulesPath: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RulesFileMissingError';
+  }
+}
+
+/** Opens a file in an editor of the window. */
+type OpenInEditor = (filePath: string) => Promise<void>;
+
+/** The window's own editor, the VS Code API fetched on first use as the other adapters do. */
+const openInVsCodeEditor: OpenInEditor = async (filePath) => {
+  const vscode = await import('vscode');
+  await vscode.window.showTextDocument(vscode.Uri.file(filePath), { preview: false });
+};
 
 /** Default dataset semver when the config does not declare one. */
 const DEFAULT_DATASET_VERSION = '0.1.0';
@@ -791,6 +821,8 @@ export class FrozenDatasetHandler implements DomainHandler {
   private reader?: Promise<TargetAutomationReader>;
   /** What keeps the pseudonymization salt between extractions: see {@link setSaltKeeper}. */
   private saltKeeper: FrozenSaltKeeper = commandLineSaltKeeper();
+  /** Where the rules file `frozen:rules:create` writes is opened: see {@link setRulesEditor}. */
+  private openInEditor: OpenInEditor = openInVsCodeEditor;
 
   /** The mappings whose load is being removed, by file: one removal at a time each. */
   private readonly removing = new Set<string>();
@@ -855,6 +887,11 @@ export class FrozenDatasetHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /** Where `frozen:rules:create` opens the file it writes, in place of the window's editor. */
+  setRulesEditor(open: OpenInEditor): void {
+    this.openInEditor = open;
   }
 
   /** Inject the tracker the Monitor's Live Operations panel lists. */
@@ -963,6 +1000,9 @@ export class FrozenDatasetHandler implements DomainHandler {
       case 'frozen:rules:clear':
         await this.handleRulesClear(msg);
         return true;
+      case 'frozen:rules:create':
+        await this.handleRulesCreate(msg);
+        return true;
       default:
         return false;
     }
@@ -1015,10 +1055,22 @@ export class FrozenDatasetHandler implements DomainHandler {
    * points, else `rules.json` in the sas. The extraction reads it and the
    * panel's "clear these" writes it, so both name the same file.
    */
-  private resolveRulesPath(config: FrozenProjectConfig): string {
+  private resolveRulesPath(config: FrozenProjectConfig | null): string {
     return path.resolve(
-      config.rulesFilePath ?? path.join(this.resolveSasDir(config), DEFAULT_RULES_FILE_NAME),
+      config?.rulesFilePath ?? path.join(this.resolveSasDir(config), DEFAULT_RULES_FILE_NAME),
     );
+  }
+
+  /** The rules file where the extraction reads it, as `frozen:status` says it. */
+  private async rulesFileInfo(config: FrozenProjectConfig | null): Promise<FrozenRulesFileInfo> {
+    const rulesPath = this.resolveRulesPath(config);
+    let text: string | null = null;
+    try {
+      text = (await pathExists(rulesPath)) ? await fs.readFile(rulesPath, 'utf8') : null;
+    } catch (err: unknown) {
+      return { path: rulesPath, found: true, invalid: extractErrorMessage(err) };
+    }
+    return { path: rulesPath, ...rulesFileStateOf(text) };
   }
 
   // ── Engine wiring ──────────────────────────────────────────────────────
@@ -1521,6 +1573,7 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   /** Classify an engine error into an actionable bridge error code. */
   private errorCodeFor(err: unknown, fallback: string): string {
+    if (err instanceof RulesFileMissingError) return 'RULES_MISSING';
     if (err instanceof LoadGuardError) return 'GUARD_REFUSED';
     if (err instanceof InsideRepoPathError) return 'SAS_PATH_REFUSED';
     if (err instanceof MissingSaltError) return 'SALT_MISSING';
@@ -1529,6 +1582,18 @@ export class FrozenDatasetHandler implements DomainHandler {
     if (err instanceof LoadRecordsExceededError) return 'MAX_RECORDS';
     if (err instanceof TimeoutError) return 'TIMEOUT';
     return fallback;
+  }
+
+  /**
+   * What an error names beside its message, for the panel to word it in the
+   * interface language: the guard that refused a load and what it refused
+   * (`guard`, `orgId`, `tier`), or the rules file the extraction looked for
+   * (`rulesPath`). Nothing for any other error.
+   */
+  private errorDetailOf(err: unknown): Record<string, unknown> | undefined {
+    if (err instanceof RulesFileMissingError) return { rulesPath: err.rulesPath };
+    if (err instanceof LoadGuardError) return { guard: err.code, ...err.params };
+    return undefined;
   }
 
   /** Load the saved config or emit the actionable CONFIG_MISSING error. */
@@ -1824,7 +1889,8 @@ export class FrozenDatasetHandler implements DomainHandler {
       const tokens = await this.loadTokens(sasDir, guard);
       const rulesPath = this.resolveRulesPath(config);
       if (!(await pathExists(rulesPath))) {
-        throw new LoadConfigError(
+        throw new RulesFileMissingError(
+          rulesPath,
           `Pseudonymization rules file not found at ${rulesPath} — it is the source of truth ` +
             '(object.field → generator). Create it, or set rulesFilePath in the configuration.',
         );
@@ -2006,6 +2072,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendHandlerError(this.deps, 'frozen:extract', 'frozen:extract:error', msg, err, {
         code: this.errorCodeFor(err, 'EXTRACT_ERROR'),
         retryable: err instanceof TimeoutError,
+        extraPayload: this.errorDetailOf(err),
       });
     }
   }
@@ -2036,7 +2103,8 @@ export class FrozenDatasetHandler implements DomainHandler {
     try {
       const rulesPath = this.resolveRulesPath(config);
       if (!(await pathExists(rulesPath))) {
-        throw new LoadConfigError(
+        throw new RulesFileMissingError(
+          rulesPath,
           `Pseudonymization rules file not found at ${rulesPath} — nothing was written. Create ` +
             'it, or set rulesFilePath in the configuration.',
         );
@@ -2064,8 +2132,61 @@ export class FrozenDatasetHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'frozen:rules:clear', 'frozen:rules:clear:error', msg, err, {
         code: this.errorCodeFor(err, 'RULES_CLEAR_ERROR'),
+        extraPayload: this.errorDetailOf(err),
       });
     }
+  }
+
+  // ── frozen:rules:create ────────────────────────────────────────────────
+
+  /**
+   * Write the empty rules file where the extraction reads it, and open it.
+   *
+   * An extraction is refused without the file, and nothing in the panel made
+   * one or said what it holds: a first-time user was stuck after the
+   * selection. Empty is valid and safe — every field without a rule is
+   * cleared, and the extraction's result then lists what it kept without a
+   * rule for review. A file already there is never written over, whatever it
+   * holds: it is opened as it is.
+   */
+  private async handleRulesCreate(msg: InboundRequest): Promise<void> {
+    const rulesPath = this.resolveRulesPath(this.loadConfig());
+    let created = false;
+    try {
+      await fs.mkdir(path.dirname(rulesPath), { recursive: true });
+      try {
+        // `wx`: the write fails rather than replace a file that is there.
+        await fs.writeFile(rulesPath, serializePseudonymRules(EMPTY_RULES_FILE), {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
+        created = true;
+        this.deps.log(`[INFO] frozen: empty rules file written at ${rulesPath}`);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        // Something is there: a file is left as it is, anything else is no rules file.
+        if (!(await fs.stat(rulesPath)).isFile()) {
+          throw new Error(`${rulesPath} is not a file: no rules file can be written there.`);
+        }
+      }
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'frozen:rules:create', 'frozen:rules:create:error', msg, err, {
+        code: 'RULES_CREATE_ERROR',
+      });
+      return;
+    }
+    let opened = false;
+    try {
+      await this.openInEditor(rulesPath);
+      opened = true;
+    } catch (err: unknown) {
+      // Written is what was asked: an editor that would not open it leaves
+      // the file where the line on the page names it.
+      this.deps.log(`[WARN] frozen: rules file not opened: ${extractErrorMessage(err)}`);
+    }
+    this.deps.broker.postToWebview(
+      buildResponse(this.deps, msg, 'frozen:rules:create:response', { rulesPath, created, opened }),
+    );
   }
 
   // ── frozen:manifest:get ────────────────────────────────────────────────
@@ -2411,6 +2532,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
         code: muteRefused?.code ?? this.errorCodeFor(cause, 'LOAD_ERROR'),
         retryable: cause instanceof TimeoutError,
+        extraPayload: this.errorDetailOf(cause),
       });
       // The load's end, as every write run posts it: with the error alone,
       // the recent operations and the side panel showed a failed load running
@@ -2639,6 +2761,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       sendHandlerError(this.deps, 'frozen:load:preview', 'frozen:load:preview:error', msg, err, {
         code: this.errorCodeFor(err, 'PREVIEW_ERROR'),
         retryable: err instanceof TimeoutError,
+        extraPayload: this.errorDetailOf(err),
       });
     }
   }
@@ -3747,6 +3870,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       lastLoads: this.lastLoadInfos(),
       lastVerifies: this.lastVerifyInfos(),
       ...(loadRecords.length > 0 ? { loadRecords } : {}),
+      rules: await this.rulesFileInfo(config),
     };
     const response = buildResponse(this.deps, msg, 'frozen:status:response', { status });
     this.deps.broker.postToWebview(response);

@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, Play, ShieldCheck, Square } from 'lucide-react';
+import { Eye, Play, RotateCw, ShieldCheck, Square } from 'lucide-react';
 import type {
   ErrorHint,
   ForgeFieldRefusal,
@@ -34,6 +34,7 @@ import { unresolvedCycleLookups, unresolvedLinks } from './frozenUnresolvedLinks
 import { WRITE_RUN_TIMEOUT_MS } from '../../hooks/writeRunTimeout';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 import { MutedAutomationResult } from '../../components/ui/MutedAutomationResult';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 
 /**
  * The code the extension refuses a reload with, before anything is written,
@@ -73,6 +74,17 @@ const REFUSED_BY_KEYS: Readonly<Record<ForgeFieldRefusal, string>> = {
   'restricted-picklist': 'runResults.writtenWithoutFields.byRestrictedPicklist',
   'lookup-filter': 'runResults.writtenWithoutFields.byLookupFilter',
 };
+
+/** What a reload's purge would take, by the preview's plan: records deleted, and deactivated. */
+function purgeOf(plan: FrozenLoadPlanInfo): { deleted: number; deactivated: number } {
+  return plan.perObject.reduce(
+    (sum, o) => ({
+      deleted: sum.deleted + o.toPurge,
+      deactivated: sum.deactivated + o.toDeactivate,
+    }),
+    { deleted: 0, deactivated: 0 },
+  );
+}
 
 /** Sum a numeric field across per-object load results. */
 function sumPerObject(
@@ -146,7 +158,6 @@ function purgedRows(purge: FrozenLoadReportInfo['purge']): Array<Record<string, 
 export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus }) => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
-  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const status = useFrozenStore((s) => s.status);
   const config = useFrozenStore((s) => s.config);
   const progress = useFrozenStore((s) => s.progress);
@@ -214,8 +225,22 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     if (lastError?.source === 'frozen:load') onRefetchStatus();
   }, [lastError, onRefetchStatus]);
 
-  const effectiveTarget = targetOrgId || selectedOrgId || '';
+  /*
+   * No target until one is picked. Defaulted to the side panel's org — the
+   * org the Extract tab had just read from — the first click of the tab was a
+   * load into the dataset's own source, refused in English.
+   */
+  const effectiveTarget = targetOrgId;
+  const sourceOrgId = status?.manifest?.source.orgId;
+  const targetIsSource = effectiveTarget !== '' && effectiveTarget === sourceOrgId;
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
+  const ids = {
+    pickTarget: useId(),
+    pilotHint: useId(),
+    reloadHint: useId(),
+  };
+  /** No target to load into: none picked, or the dataset's source, which a load refuses. */
+  const noTarget = effectiveTarget === '' || targetIsSource;
   // A verification checks the last load into the org it is asked about.
   // Offered once any org had a load, Verify on an org no load went into
   // ended in NO_LOAD; the extension's refusal stays behind this.
@@ -255,6 +280,68 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
     // Only the load mutes: its preview writes nothing.
     loadMutation.mutate({ ...loadOptions(), ...(muteAutomation ? { muteAutomation: true } : {}) });
   };
+
+  /*
+   * A reload deletes from the target what earlier loads created and this one
+   * does not find again. Ticked, the box said nothing of it, and Run load ran
+   * it with no confirmation: only Preview stated the purge. Now the button
+   * says Reload, and a reload that would delete or deactivate anything asks
+   * first, with what the preview's plan counts. A pilot's reload purges
+   * nothing, and asks nothing.
+   */
+  const purges = reload && !pilot;
+  /** What the reload being confirmed would purge, by its plan; null when none is asked. */
+  const [reloadPurge, setReloadPurge] = useState<ReturnType<typeof purgeOf> | null>(null);
+  /** A reload asked for whose plan the preview is reading. */
+  const [reloadAwaitingPlan, setReloadAwaitingPlan] = useState(false);
+  /** The plan of a reload into the target as it is asked now, or undefined. */
+  const reloadPlanOf = (
+    candidate: FrozenLoadPlanInfo | undefined,
+  ): FrozenLoadPlanInfo | undefined =>
+    candidate &&
+    candidate.orgId === effectiveTarget &&
+    candidate.mode.reload &&
+    !candidate.mode.pilot
+      ? candidate
+      : undefined;
+  /** Ask before a reload that purges anything; load at once one that purges nothing. */
+  const confirmOrLoad = (reloadPlan: FrozenLoadPlanInfo): void => {
+    const purge = purgeOf(reloadPlan);
+    if (purge.deleted + purge.deactivated > 0) setReloadPurge(purge);
+    else handleLoad();
+  };
+  const handleRun = (): void => {
+    if (!purges) {
+      handleLoad();
+      return;
+    }
+    const known = reloadPlanOf(previewMutation.data?.plan);
+    if (known) {
+      confirmOrLoad(known);
+      return;
+    }
+    dismissRefusal();
+    setReloadAwaitingPlan(true);
+    previewMutation.mutate(loadOptions());
+  };
+  // The preview a reload waits on has answered — or failed, its error said
+  // where every preview's is. Read through a ref: the answer is acted on once,
+  // with the options as they are then.
+  const confirmOrLoadRef = useRef(confirmOrLoad);
+  useEffect(() => {
+    confirmOrLoadRef.current = confirmOrLoad;
+  });
+  const answeredPlan = previewMutation.data?.plan;
+  const previewPending = previewMutation.loading || previewMutation.requestId !== null;
+  useEffect(() => {
+    if (!reloadAwaitingPlan) return;
+    if (answeredPlan) {
+      setReloadAwaitingPlan(false);
+      confirmOrLoadRef.current(answeredPlan);
+    } else if (!previewPending) {
+      setReloadAwaitingPlan(false);
+    }
+  }, [reloadAwaitingPlan, answeredPlan, previewPending]);
 
   const plan = previewMutation.data?.plan;
   const planMasks = maybeMasks(plan?.removals);
@@ -434,39 +521,80 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
       {/* ── Target + options ──────────────────────────────────────────── */}
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-secondary">{t('frozen.load.targetOrg')}</span>
-              <OrgDropdown
-                value={effectiveTarget}
-                onChange={(orgId) => {
-                  dismissRefusal();
-                  setTargetOrgId(orgId);
-                }}
-                orgs={connectedOrgs}
-                ariaLabel={t('frozen.load.targetOrg')}
-                testId="frozen-load-target"
-              />
-            </label>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 text-xs text-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={pilot}
-                  onChange={(e) => setPilot(e.target.checked)}
-                  data-testid="frozen-load-pilot"
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-secondary">
+                  {t('frozen.load.targetOrg')}
+                </span>
+                <OrgDropdown
+                  value={effectiveTarget}
+                  onChange={(orgId) => {
+                    dismissRefusal();
+                    setTargetOrgId(orgId);
+                  }}
+                  orgs={connectedOrgs}
+                  ariaLabel={t('frozen.load.targetOrg')}
+                  testId="frozen-load-target"
+                  // The dataset's source is listed, not offered: a load never goes back into it.
+                  {...(sourceOrgId
+                    ? { unavailable: { orgId: sourceOrgId, note: t('frozen.load.sourceNote') } }
+                    : {})}
                 />
-                {t('frozen.load.pilot')}
               </label>
-              <label className="flex items-center gap-2 text-xs text-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={reload}
-                  onChange={(e) => setReload(e.target.checked)}
-                  data-testid="frozen-load-reload"
-                />
-                {t('frozen.load.reload')}
-              </label>
+              {noTarget && (
+                <p
+                  id={ids.pickTarget}
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-load-pick-target"
+                >
+                  {targetIsSource
+                    ? t('frozen.load.targetIsSource', { org: targetName })
+                    : t('frozen.load.pickTarget')}
+                </p>
+              )}
+            </div>
+            {/* What each box changes, under it: Reload deleted from the target
+                with nothing said, and "1 folder" named no unit anyone knew. */}
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-0.5">
+                <label className="flex items-center gap-2 text-xs text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={pilot}
+                    onChange={(e) => setPilot(e.target.checked)}
+                    aria-describedby={ids.pilotHint}
+                    data-testid="frozen-load-pilot"
+                  />
+                  {t('frozen.load.pilot')}
+                </label>
+                <p
+                  id={ids.pilotHint}
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-load-pilot-hint"
+                >
+                  {t('frozen.load.pilotHint')}
+                </p>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className="flex items-center gap-2 text-xs text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={reload}
+                    onChange={(e) => setReload(e.target.checked)}
+                    aria-describedby={ids.reloadHint}
+                    data-testid="frozen-load-reload"
+                  />
+                  {t('frozen.load.reload')}
+                </label>
+                <p
+                  id={ids.reloadHint}
+                  className="text-[11px] text-text-secondary"
+                  data-testid="frozen-load-reload-hint"
+                >
+                  {t('frozen.load.reloadHint')}
+                </p>
+              </div>
             </div>
           </div>
           {encryptedUnchecked && (
@@ -487,32 +615,28 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
             </div>
           )}
           {/* The load's gate reads what the target runs as it starts: the box
-              says what muting does, the report what it did. */}
-          <AutomationMuteBox
-            offer="atStart"
-            checked={muteAutomation}
-            onChange={setMuteAutomation}
-            org={targetName}
-            testId="frozen-load-mute"
-          />
+              says what muting does, the report what it did. It names the
+              target, so it waits for one. */}
+          {effectiveTarget !== '' && (
+            <AutomationMuteBox
+              offer="atStart"
+              checked={muteAutomation}
+              onChange={setMuteAutomation}
+              org={targetName}
+              testId="frozen-load-mute"
+            />
+          )}
+          {/* The check that writes nothing first, then the write, as Forge
+              orders Simulate and its run. */}
           <div className="flex items-center gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Play className="w-3 h-3" />}
-              loading={loadMutation.loading}
-              disabled={!effectiveTarget || !status?.manifest}
-              onClick={handleLoad}
-              data-testid="frozen-load-run"
-            >
-              {pilot ? t('frozen.load.runPilot') : t('frozen.load.run')}
-            </Button>
             <Button
               variant="secondary"
               size="sm"
               icon={<Eye className="w-3 h-3" />}
-              loading={previewMutation.loading}
-              disabled={!effectiveTarget || !status?.manifest || loadMutation.loading}
+              loading={previewMutation.loading && !reloadAwaitingPlan}
+              disabled={noTarget || !status?.manifest || loadMutation.loading || reloadAwaitingPlan}
+              focusableWhenDisabled
+              aria-describedby={noTarget ? ids.pickTarget : undefined}
               onClick={() => {
                 dismissRefusal();
                 previewMutation.mutate(loadOptions());
@@ -520,6 +644,23 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
               data-testid="frozen-load-preview"
             >
               {t('frozen.load.preview')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={purges ? <RotateCw className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+              loading={loadMutation.loading || reloadAwaitingPlan}
+              disabled={noTarget || !status?.manifest}
+              focusableWhenDisabled
+              aria-describedby={noTarget ? ids.pickTarget : undefined}
+              onClick={handleRun}
+              data-testid="frozen-load-run"
+            >
+              {pilot
+                ? t('frozen.load.runPilot')
+                : purges
+                  ? t('frozen.load.runReload')
+                  : t('frozen.load.run')}
             </Button>
             <Button
               variant="secondary"
@@ -543,10 +684,37 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 onClick={cancelLoad}
                 data-testid="frozen-load-cancel"
               >
-                {t('common.cancelRun')}
+                {t('common.stopRun')}
               </Button>
             )}
           </div>
+          {/* Typed, as a removal of a load's records is: the purge deletes the
+              same kind of records, children before parents. */}
+          <DangerConfirm
+            open={reloadPurge !== null}
+            onClose={() => setReloadPurge(null)}
+            onConfirm={() => {
+              setReloadPurge(null);
+              handleLoad();
+            }}
+            title={t('frozen.load.reloadConfirm.title', { org: targetName })}
+            description={t('frozen.load.reloadConfirm.description', {
+              count: reloadPurge?.deleted ?? 0,
+              org: targetName,
+            })}
+            confirmText={targetName}
+          >
+            {(reloadPurge?.deactivated ?? 0) > 0 && (
+              <p
+                className="text-xs text-text-secondary"
+                data-testid="frozen-reload-confirm-deactivate"
+              >
+                {t('frozen.load.reloadConfirm.deactivate', {
+                  count: reloadPurge?.deactivated ?? 0,
+                })}
+              </p>
+            )}
+          </DangerConfirm>
           {noLoadIntoTarget && (
             <p
               id="frozen-verify-no-load"

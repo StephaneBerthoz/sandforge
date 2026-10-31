@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Snowflake } from 'lucide-react';
-import type { FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
+import type { FrozenLastVerifyInfo, FrozenManifestInfo, FrozenStatusInfo } from '@sandforge/shared';
 import { useAppStore } from '../../stores/useAppStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenStore } from '../../stores/useFrozenStore';
@@ -79,10 +79,18 @@ export const FrozenPage: React.FC = () => {
    * The last verification of the org the Load tab loads into, as it picks
    * it: each org keeps its own. Kept as one, the strip showed the verdict of
    * whichever org was verified last beside another picked as the target.
+   * Before a target is picked — the tab no longer takes the side panel's org,
+   * the dataset's source as often as not — the latest of any org, named.
    */
-  const target = targetOrgId || selectedOrgId;
-  const lastVerify = status?.lastVerifies.find((verify) => verify.orgId === target);
-  const targetAlias = orgs.find((org) => org.id === target)?.alias;
+  const lastVerify = targetOrgId
+    ? status?.lastVerifies.find((verify) => verify.orgId === targetOrgId)
+    : status?.lastVerifies.reduce<FrozenLastVerifyInfo | undefined>(
+        (latest, verify) =>
+          latest === undefined || verify.measuredAt > latest.measuredAt ? verify : latest,
+        undefined,
+      );
+  const verifiedOrg = targetOrgId || lastVerify?.orgId;
+  const targetAlias = orgs.find((org) => org.id === verifiedOrg)?.alias;
 
   /*
    * The salt keys every pseudonym an extraction writes. A load replays the

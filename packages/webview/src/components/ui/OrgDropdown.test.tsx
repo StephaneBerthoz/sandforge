@@ -115,6 +115,65 @@ describe('OrgDropdown', () => {
   });
 });
 
+describe('OrgDropdown with an org listed but not offered', () => {
+  /** The dropdown open, `org-1` unavailable with a note, `onChange` spied. */
+  function openWithUnavailable(onChange = vi.fn()) {
+    render(
+      <OrgDropdown
+        value=""
+        onChange={onChange}
+        orgs={mockOrgs}
+        ariaLabel="Target Org"
+        testId="test-dd"
+        unavailable={{ orgId: 'org-1', note: '(source of this dataset)' }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('test-dd'));
+    return onChange;
+  }
+
+  // The org a Frozen dataset was extracted from was offered as a target, and
+  // the first load refused in English.
+  it('lists it disabled, with why beside its name, and a click picks nothing', () => {
+    const onChange = openWithUnavailable();
+
+    const option = screen.getByTestId('test-dd-option-org-1') as HTMLButtonElement;
+    expect(option.disabled).toBe(true);
+    expect(option.textContent).toContain('DevOrg');
+    expect(screen.getByTestId('test-dd-option-org-1-note').textContent).toBe(
+      '(source of this dataset)',
+    );
+    fireEvent.click(option);
+    expect(onChange).not.toHaveBeenCalled();
+    expect((screen.getByTestId('test-dd-option-org-2') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('walks the arrows over it', () => {
+    openWithUnavailable();
+    const panel = screen.getByTestId('test-dd-panel');
+    const empty = screen.getByTestId('test-dd-option-empty');
+    empty.focus();
+
+    fireEvent.keyDown(panel, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByTestId('test-dd-option-org-2'));
+    fireEvent.keyDown(panel, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(empty);
+  });
+
+  it('offers every org as before when none is named', () => {
+    render(
+      <OrgDropdown value="" onChange={vi.fn()} orgs={mockOrgs} ariaLabel="Org" testId="test-dd" />,
+    );
+    fireEvent.click(screen.getByTestId('test-dd'));
+    for (const id of ['org-1', 'org-2']) {
+      expect((screen.getByTestId(`test-dd-option-${id}`) as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    }
+    expect(screen.queryByTestId('test-dd-option-org-1-note')).toBeNull();
+  });
+});
+
 describe('OrgDropdown status without colour', () => {
   it('says the selected org and its status in the trigger name', () => {
     render(

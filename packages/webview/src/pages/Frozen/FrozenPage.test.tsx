@@ -3,6 +3,10 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import i18n from '../../i18n';
 import en from '../../i18n/locales/en.json';
 import fr from '../../i18n/locales/fr.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ptBR from '../../i18n/locales/pt-BR.json';
+import ja from '../../i18n/locales/ja.json';
 import { FrozenPage } from './FrozenPage';
 import { useFrozenStore } from '../../stores/useFrozenStore';
 import type { FrozenStatusInfo } from '@sandforge/shared';
@@ -28,10 +32,12 @@ vi.mock('../../stores/useAppStore', () => ({
 const mockMutate = vi.fn();
 /** The request types whose mutation is in flight, each under the id `req-<type>`. */
 const mockLoading = new Set<string>();
+/** What a request answered, by its type; none answered unless a test says so. */
+const mockData: Record<string, unknown> = {};
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => ({
     mutate: (payload?: Record<string, unknown>) => mockMutate(requestType, payload),
-    data: null,
+    data: mockData[requestType] ?? null,
     loading: mockLoading.has(requestType),
     error: null,
     reset: vi.fn(),
@@ -116,6 +122,7 @@ describe('FrozenPage', () => {
     mockNavigate.mockClear();
     mockMutate.mockClear();
     mockLoading.clear();
+    for (const key of Object.keys(mockData)) delete mockData[key];
     resetStore();
   });
 
@@ -161,6 +168,7 @@ describe('FrozenPage', () => {
   });
 
   it('dispatches frozen:select with the selected org', () => {
+    useFrozenStore.setState({ status: statusFixture() });
     render(<FrozenPage />);
     fireEvent.click(screen.getByTestId('frozen-select-run'));
     expect(mockMutate).toHaveBeenCalledWith('frozen:select', { sourceOrgId: 'org-1' });
@@ -168,6 +176,7 @@ describe('FrozenPage', () => {
 
   it('dispatches frozen:extract once a selection exists', () => {
     useFrozenStore.setState({
+      status: statusFixture(),
       selection: {
         combinations: [{ combinationKey: 'type=RC', axisValues: { type: 'RC' } }],
         uncovered: [],
@@ -179,6 +188,197 @@ describe('FrozenPage', () => {
     render(<FrozenPage />);
     fireEvent.click(screen.getByTestId('frozen-extract-run'));
     expect(mockMutate).toHaveBeenCalledWith('frozen:extract', { sourceOrgId: 'org-1' });
+  });
+
+  describe('the Extract tab, before it runs', () => {
+    /** The text of what an element's `aria-describedby` names. */
+    function describedBy(element: HTMLElement): string {
+      return (element.getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ')
+        .trim();
+    }
+
+    /** A selection kept, which Run extraction waits for. */
+    const SELECTION = {
+      combinations: [{ combinationKey: 'type=RC', axisValues: { type: 'RC' } }],
+      uncovered: [],
+      volumetry: { measured: { Case: 1 }, total: 1, budgetMax: 2500 },
+      selectedAt: '2026-08-01T09:00:00Z',
+      selectionPath: '/tmp/sas/selection.json',
+    };
+
+    // Run selection was offered before anything was saved, and failed on
+    // "frozen:config:save: coverage axes, …".
+    it('offers no run before a configuration is saved, and says to save it', () => {
+      render(<FrozenPage />);
+
+      for (const id of ['frozen-select-run', 'frozen-extract-run']) {
+        expect(screen.getByTestId(id).getAttribute('aria-disabled')).toBe('true');
+      }
+      expect(describedBy(screen.getByTestId('frozen-select-run'))).toBe(
+        'Save the configuration first: the runs read the saved one.',
+      );
+      fireEvent.click(screen.getByTestId('frozen-select-run'));
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+
+    // The runs read the saved configuration, and "Saved" stayed beside the
+    // button after the form was edited again.
+    it('says an edit since the save is not saved, hides "Saved", and offers no run until it is', () => {
+      useFrozenStore.setState({ status: statusFixture(), selection: SELECTION });
+      mockData['frozen:config:save'] = { success: true };
+      const { rerender } = render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-config-saved').textContent).toBe('Configuration saved');
+      expect(screen.getByTestId('frozen-select-run').getAttribute('aria-disabled')).toBeNull();
+
+      fireEvent.change(screen.getByTestId('frozen-config-root-object'), {
+        target: { value: 'Opportunity' },
+      });
+
+      expect(screen.queryByTestId('frozen-config-saved')).toBeNull();
+      expect(screen.getByTestId('frozen-config-unsaved').textContent).toBe('Unsaved changes');
+      for (const id of ['frozen-select-run', 'frozen-extract-run']) {
+        expect(screen.getByTestId(id).getAttribute('aria-disabled')).toBe('true');
+        expect(describedBy(screen.getByTestId(id))).toContain('Save the configuration first');
+        fireEvent.click(screen.getByTestId(id));
+      }
+      expect(mockMutate).not.toHaveBeenCalled();
+
+      // Saved again, the runs are offered and read what is shown.
+      mockData['frozen:config:save'] = null;
+      rerender(<FrozenPage />);
+      mockData['frozen:config:save'] = { success: true };
+      rerender(<FrozenPage />);
+      expect(screen.queryByTestId('frozen-config-unsaved')).toBeNull();
+      fireEvent.click(screen.getByTestId('frozen-select-run'));
+      expect(mockMutate).toHaveBeenCalledWith('frozen:select', { sourceOrgId: 'org-1' });
+    });
+
+    it('counts an added or removed row, and the advanced JSON, as an edit', () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('frozen-axis-add'));
+      expect(screen.getByTestId('frozen-config-unsaved')).toBeTruthy();
+    });
+
+    it('names the org the runs read on the Selection and Extraction cards', () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-selection-source').textContent).toBe('Source: Dev');
+      expect(screen.getByTestId('frozen-extract-source').textContent).toBe('Source: Dev');
+    });
+
+    // The extraction is refused without the file, which nothing made or named.
+    it('offers no extraction while the rules file is missing, says where it goes, and offers to write it', () => {
+      useFrozenStore.setState({
+        status: statusFixture({ rules: { path: '/tmp/sas/rules.json', found: false } }),
+        selection: SELECTION,
+      });
+      render(<FrozenPage />);
+
+      const run = screen.getByTestId('frozen-extract-run');
+      expect(run.getAttribute('aria-disabled')).toBe('true');
+      expect(describedBy(run)).toBe(
+        'No rules file at /tmp/sas/rules.json: Run extraction needs one.',
+      );
+      fireEvent.click(run);
+      fireEvent.click(screen.getByTestId('frozen-rules-create'));
+      expect(mockMutate.mock.calls).toEqual([['frozen:rules:create', undefined]]);
+    });
+
+    it('offers the extraction once the rules file is there', () => {
+      useFrozenStore.setState({
+        status: statusFixture({
+          rules: { path: '/tmp/sas/rules.json', found: true, rulesVersion: '1.0.0', ruleCount: 0 },
+        }),
+        selection: SELECTION,
+      });
+      render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-rules-found').textContent).toBe(
+        'Rules file: /tmp/sas/rules.json (rules 1.0.0, 0 rules)',
+      );
+      fireEvent.click(screen.getByTestId('frozen-extract-run'));
+      expect(mockMutate).toHaveBeenCalledWith('frozen:extract', { sourceOrgId: 'org-1' });
+    });
+
+    // "1 records measured", "9 records frozen across 1 files".
+    it('says a count of one in the singular, records and files each by its own count', () => {
+      useFrozenStore.setState({ status: statusFixture(), selection: SELECTION });
+      mockData['frozen:extract'] = {
+        datasetDir: '/tmp/sas/dataset',
+        files: ['Case.json'],
+        recordCount: 9,
+        manifest: statusFixture().manifest,
+      };
+      render(<FrozenPage />);
+      expect(screen.getByTestId('frozen-selection-volumetry').textContent).toBe(
+        '1 record measured (budget: 2500)',
+      );
+      expect(screen.getByTestId('frozen-extract-summary').textContent).toBe(
+        '9 records frozen across 1 file',
+      );
+    });
+
+    it('names each axis and edge-case input by the header over its column, and shows an example in it', () => {
+      useFrozenStore.setState({ status: statusFixture() });
+      render(<FrozenPage />);
+      fireEvent.click(screen.getByTestId('frozen-axis-add'));
+      fireEvent.click(screen.getByTestId('frozen-edge-add'));
+
+      const query = screen.getByRole('textbox', { name: 'Values query (SOQL, alias axisValue)' });
+      expect(query.getAttribute('placeholder')).toBe(
+        'SELECT Priority axisValue FROM Case GROUP BY Priority',
+      );
+      fireEvent.change(query, {
+        target: { value: 'SELECT Origin axisValue FROM Case GROUP BY Origin' },
+      });
+      // Typed, the input keeps its name: the placeholder was all it had.
+      expect(screen.getByRole('textbox', { name: 'Values query (SOQL, alias axisValue)' })).toBe(
+        query,
+      );
+      expect(
+        screen
+          .getByRole('textbox', { name: 'Records it covers (SOQL WHERE)' })
+          .getAttribute('placeholder'),
+      ).toBe("Status = 'Escalated'");
+      expect(screen.getByTestId('frozen-axis-headers').textContent).toContain('Filter field');
+    });
+
+    it('says once under Root object what a unit of the dataset is', () => {
+      render(<FrozenPage />);
+      const root = screen.getByTestId('frozen-config-root-object');
+      expect(screen.getByText('Root object')).toBeTruthy();
+      expect(describedBy(root)).toBe(
+        'Each unit of the dataset is one record of this object, with everything under it.',
+      );
+    });
+
+    // "Business folder" read as nothing a Salesforce consultant knows, and
+    // German made it "Vorgang", which its Salesforce users read as Case.
+    it('names the unit a root record, in every language, and never a folder', () => {
+      const FOLDER =
+        /business folder|\bfolder\b|dossier|Vorgang\)|\(Vorgang|1 Vorgang|expediente|pasta|案件/i;
+      const ROOT_RECORD: Record<string, RegExp> = {
+        de: /Stammdatensatz/,
+        ja: /ルートレコード/,
+      };
+      for (const [locale, bundle] of Object.entries({ en, fr, de, es, 'pt-BR': ptBR, ja })) {
+        const said = [
+          bundle.frozen.config.rootObject,
+          bundle.frozen.config.rootObjectHint,
+          bundle.frozen.load.pilot,
+          bundle.frozen.load.pilotHint,
+          bundle.howTo.frozen.step1,
+        ];
+        expect({ locale, folder: said.filter((text) => FOLDER.test(text)) }).toEqual({
+          locale,
+          folder: [],
+        });
+        if (ROOT_RECORD[locale]) expect(bundle.frozen.load.pilot).toMatch(ROOT_RECORD[locale]);
+      }
+    });
   });
 
   it('says beside the extraction where its salt comes from and how a teammate gets it', () => {
@@ -297,12 +497,19 @@ describe('FrozenPage', () => {
   });
 
   it('dispatches frozen:load with the pilot flag', () => {
-    useFrozenStore.setState({ tab: 'load', status: statusFixture() });
+    mockOrgState = {
+      orgs: [
+        { id: 'org-1', alias: 'Dev', status: 'connected' },
+        { id: 'org-2', alias: 'QA', status: 'connected' },
+      ],
+      selectedOrgId: 'org-1',
+    };
+    useFrozenStore.setState({ tab: 'load', status: statusFixture(), targetOrgId: 'org-2' });
     render(<FrozenPage />);
     fireEvent.click(screen.getByTestId('frozen-load-pilot'));
     fireEvent.click(screen.getByTestId('frozen-load-run'));
     expect(mockMutate).toHaveBeenCalledWith('frozen:load', {
-      targetOrgId: 'org-1',
+      targetOrgId: 'org-2',
       pilot: true,
     });
   });
@@ -1195,11 +1402,14 @@ describe('FrozenPage', () => {
       return card;
     }
 
-    it("shows the selected org's, named, as long as no target is picked", () => {
+    // The Load tab no longer takes the side panel's org for its target —
+    // the dataset's source as often as not: until one is picked, the latest
+    // verification, of whichever org, named.
+    it('shows the latest, named, as long as no target is picked', () => {
       render(<FrozenPage />);
 
-      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('Passed');
-      expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('Dev');
+      expect(within(lastVerifyCard()).getByTestId('kpi-value').textContent).toBe('Failed');
+      expect(within(lastVerifyCard()).getByTestId('kpi-subtitle').textContent).toBe('QA');
     });
 
     it("shows the target's once one is picked in the Load tab, and none for an org never verified", () => {
@@ -1252,10 +1462,14 @@ describe('FrozenPage', () => {
       const { unmount } = render(<FrozenPage />);
       fireEvent.click(screen.getByTestId('page-tab-load'));
       const verifyButton = (): HTMLElement => screen.getByTestId('frozen-verify-run');
+      // No target yet: nothing to verify.
+      expect(verifyButton().getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-3'));
 
       expect(verifyButton().getAttribute('aria-disabled')).toBe('true');
       expect(screen.getByTestId('frozen-verify-no-load').textContent).toBe(
-        'No load into Dev is recorded: load the dataset into it before verifying it.',
+        'No load into UAT is recorded: load the dataset into it before verifying it.',
       );
       expect(verifyButton().getAttribute('aria-describedby')).toBe('frozen-verify-no-load');
       fireEvent.click(verifyButton());

@@ -3202,9 +3202,9 @@
       "tip": "O SandForge não pode remover o que uma execução do Autopilot grava: teste-a em uma scratch org ou em uma sandbox que você possa atualizar."
     },
     "frozen": {
-      "step1": "Na aba Extrair, informe o Objeto raiz (pasta de negócio) e clique em Salvar configuração.",
+      "step1": "Na aba Extrair, informe o Objeto raiz e clique em Salvar configuração.",
       "step2": "Clique em Executar seleção: ela escolhe os registros raiz na org selecionada no painel lateral.",
-      "step3": "Coloque as regras de pseudonimização em ~/.sandforge-sas/rules.json e clique em Executar extração.",
+      "step3": "Clique em Criar arquivo de regras (todo campo sem regra é limpo) e depois em Executar extração.",
       "step4": "Na aba Carregar, escolha a Org de destino (sandbox) a preencher e clique em Executar carga.",
       "step5": "Leia a Verificação pós-carga, que é executada após a carga; Verificar novamente a repete.",
       "tip": "Pré-visualizar não grava nada, uma carga nunca vai para uma org de produção e Remover os registros que esta carga criou os apaga."
@@ -4533,30 +4533,36 @@
     },
     "config": {
       "title": "Configuração do projeto",
-      "rootObject": "Objeto raiz (pasta de negócio)",
+      "rootObject": "Objeto raiz",
       "budget": "Orçamento de volume (registros)",
       "axes": "Eixos de cobertura",
       "addAxis": "Adicionar eixo",
       "axisName": "Nome",
       "axisLabel": "Rótulo",
       "axisField": "Campo de filtro",
-      "axisSoql": "SOQL de agregação (axisValue)",
+      "axisSoql": "Consulta de valores (SOQL, alias axisValue)",
       "removeAxis": "Remover eixo",
       "edgeCases": "Casos extremos",
       "addEdgeCase": "Adicionar caso extremo",
       "edgeName": "Nome",
       "edgeLabel": "Rótulo",
-      "edgeWhere": "Fragmento WHERE",
+      "edgeWhere": "Registros que cobre (SOQL WHERE)",
       "removeEdgeCase": "Remover caso extremo",
-      "advanced": "Configuração avançada (JSON: ambientes protegidos, chaves de identidade, regras de lista de opções, placeholders, mocks…)",
+      "advanced": "Configuração avançada (JSON)",
       "invalidJson": "JSON inválido — a configuração avançada deve ser um objeto JSON.",
       "save": "Salvar configuração",
-      "saved": "Configuração salva"
+      "saved": "Configuração salva",
+      "rootObjectHint": "Cada unidade do dataset é um registro deste objeto, com tudo o que está abaixo dele.",
+      "axisLabelExample": "Prioridade",
+      "edgeLabelExample": "Escalados",
+      "advancedHint": "Todas as outras chaves da configuração: orgs protegidas, chaves de identidade, regras de lista de opções, placeholders, detecção de mocks de callouts.",
+      "configKeys": "Chaves de configuração",
+      "unsaved": "Alterações não salvas",
+      "saveFirst": "Salve a configuração primeiro: as execuções leem a configuração salva."
     },
     "selection": {
       "title": "Seleção por matriz de cobertura",
       "run": "Executar seleção",
-      "volumetry": "{{total}} registros medidos (orçamento: {{budget}})",
       "combination": "Combinação",
       "axes": "Valores dos eixos",
       "edgeCase": "Caso extremo",
@@ -4579,14 +4585,20 @@
         "measure": "Ela media juntas as raízes retidas.",
         "notProbed": "Nunca examinadas: {{keys}}"
       },
-      "summed": "Os registros próprios de cada raiz retida, somados: as raízes não foram medidas juntas, então um registro que duas delas compartilham é contado duas vezes."
+      "summed": "Os registros próprios de cada raiz retida, somados: as raízes não foram medidas juntas, então um registro que duas delas compartilham é contado duas vezes.",
+      "volumetry_one": "{{count}} registro medido (orçamento: {{budget}})",
+      "volumetry_other": "{{count}} registros medidos (orçamento: {{budget}})",
+      "source": "Origem: {{org}}"
     },
     "extract": {
       "title": "Extração e pseudonimização",
       "run": "Executar extração",
-      "summary_one": "{{count}} registro congelado em {{files}} arquivos",
-      "summary_other": "{{count}} registros congelados em {{files}} arquivos",
-      "saltHint": "Cada pseudônimo é tirado com o salt deste editor, criado na primeira extração e guardado no armazenamento secreto do VS Code. Para extrair os mesmos pseudônimos que um colega, defina o dele com \"SandForge: Usar um salt para o dataset congelado\"; passe o seu com \"SandForge: Copiar o salt do dataset congelado\". SANDFORGE_FROZEN_SALT, onde está definido, prevalece sobre ambos. Uma carga não precisa do salt."
+      "saltHint": "Cada pseudônimo é tirado com o salt deste editor, criado na primeira extração e guardado no armazenamento secreto do VS Code. Para extrair os mesmos pseudônimos que um colega, defina o dele com \"SandForge: Usar um salt para o dataset congelado\"; passe o seu com \"SandForge: Copiar o salt do dataset congelado\". SANDFORGE_FROZEN_SALT, onde está definido, prevalece sobre ambos. Uma carga não precisa do salt.",
+      "summary": "{{records}} em {{files}}",
+      "summaryRecords_one": "{{count}} registro congelado",
+      "summaryRecords_other": "{{count}} registros congelados",
+      "summaryFiles_one": "{{count}} arquivo",
+      "summaryFiles_other": "{{count}} arquivos"
     },
     "control": {
       "check": "Verificação",
@@ -4601,14 +4613,14 @@
     "guards": {
       "title": "Guardas de entrada",
       "sandboxOnly": "Nunca uma org de produção",
-      "protectedEnvs_one": "{{count}} ambiente protegido",
-      "protectedEnvs_other": "{{count}} ambientes protegidos",
-      "mocksConfigured": "Callouts não simulados verificados",
-      "mocksNotConfigured": "Callouts não simulados não verificados"
+      "protectedEnvs_one": "{{count}} org protegida",
+      "protectedEnvs_other": "{{count}} orgs protegidas",
+      "mocksConfigured": "Verifica se o destino simula seus callouts",
+      "mocksNotConfigured": "Não verifica se o destino simula seus callouts"
     },
     "load": {
       "targetOrg": "Org de destino (sandbox)",
-      "pilot": "Piloto (1 pasta)",
+      "pilot": "Piloto (primeiro um registro raiz)",
       "reload": "Recarga sem refresh",
       "writeEncrypted": "Gravar os campos criptografados como o dataset os contém",
       "writeEncryptedHint": "Este dataset não diz se a extração deixou de fora os campos criptografados que leu mascarados: eles podem conter máscaras como ****1234 e ficam de fora a menos que esta opção esteja marcada.",
@@ -4619,7 +4631,20 @@
       "preview": "Pré-visualizar",
       "stopping": "Parando: a carga termina antes da próxima gravação. O que ela gravou fica na org, nomeado no mapeamento para uma remoção ou uma recarga.",
       "cancelRefused": "Não foi possível cancelar a carga",
-      "cancelRefusedDetail": "A carga não está mais em andamento, ou não foi iniciada a partir desta janela."
+      "cancelRefusedDetail": "A carga não está mais em andamento, ou não foi iniciada a partir desta janela.",
+      "pilotHint": "Carrega um registro raiz e o que está abaixo dele, para testar a carga antes do dataset inteiro.",
+      "reloadHint": "Exclui do destino o que as cargas anteriores deste dataset criaram e esta não reencontra, depois carrega.",
+      "runReload": "Recarregar",
+      "pickTarget": "Escolha a sandbox a preencher.",
+      "sourceNote": "(origem deste dataset)",
+      "targetIsSource": "{{org}} é a org da qual este dataset foi extraído: escolha outra sandbox.",
+      "reloadConfirm": {
+        "title": "Recarregar {{org}}",
+        "description_one": "Esta recarga exclui de {{org}} {{count}} registro que cargas anteriores deste dataset criaram e que esta não reencontra, depois carrega o dataset.",
+        "description_other": "Esta recarga exclui de {{org}} {{count}} registros que cargas anteriores deste dataset criaram e que esta não reencontra, depois carrega o dataset.",
+        "deactivate_one": "Ela desativa mais {{count}}, de um objeto que a plataforma não exclui.",
+        "deactivate_other": "Ela desativa mais {{count}}, de objetos que a plataforma não exclui."
+      }
     },
     "preview": {
       "title": "O que uma carga em {{org}} faria",
@@ -4775,6 +4800,32 @@
       "persist": "Salvamento",
       "done": "Concluído",
       "verify": "Verificação"
+    },
+    "rulesFile": {
+      "found_one": "Arquivo de regras: {{path}} (regras {{version}}, {{count}} regra)",
+      "found_other": "Arquivo de regras: {{path}} (regras {{version}}, {{count}} regras)",
+      "missing": "Nenhum arquivo de regras em {{path}}: Executar extração precisa de um.",
+      "invalid": "A extração não consegue ler o arquivo de regras em {{path}}: {{reason}}",
+      "create": "Criar arquivo de regras",
+      "createHint": "Grava um arquivo vazio e o abre: todo campo sem regra é limpo, e a extração lista depois o que manteve sem regra.",
+      "open": "Abrir arquivo de regras",
+      "format": "Formato das regras",
+      "notOpened": "Gravado em {{path}}; não foi possível abri-lo em um editor.",
+      "failed": "O arquivo de regras não foi gravado: {{reason}}"
+    },
+    "refusal": {
+      "configMissing": {
+        "explanation": "Nenhuma configuração de projeto está salva, e as execuções leem a configuração salva.",
+        "action": "Clique primeiro em Salvar configuração, na aba Extrair."
+      },
+      "rulesMissing": {
+        "explanation": "Nenhum arquivo de regras de pseudonimização em {{path}}: a extração precisa de um.",
+        "action": "Clique em Criar arquivo de regras, na aba Extrair: um arquivo vazio limpa todo campo sem regra."
+      },
+      "sourceIsTarget": {
+        "explanation": "{{org}} é a org da qual este dataset foi extraído: uma carga nunca volta para a origem, e nada foi gravado.",
+        "action": "Escolha outra sandbox como destino."
+      }
     }
   },
   "runRemoval": {

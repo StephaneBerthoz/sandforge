@@ -4,11 +4,13 @@ import { DeterministicPseudonymizer } from './DeterministicPseudonymizer.js';
 import { FrozenDatasetAnonymizer } from './FrozenDatasetAnonymizer.js';
 import { NonReidentificationControl } from './NonReidentificationControl.js';
 import {
+  EMPTY_RULES_FILE,
   keptWithoutARule,
   parsePseudonymRules,
   requiredFieldsLeftEmpty,
   resolveGenerator,
   RulesFileError,
+  rulesFileStateOf,
   serializePseudonymRules,
   withFieldsCleared,
   withSchemaDefaults,
@@ -16,6 +18,43 @@ import {
 } from './rulesFile.js';
 import { to18 } from '../../core/common/salesforceId.js';
 import type { ExtractedDataset } from './types.js';
+
+describe('the empty rules file and what a rules file holds', () => {
+  // Nothing made the file an extraction is refused without: the panel's
+  // "Create rules file" writes this one.
+  it('writes the empty file as the extraction reads it, a valid file with no rule', () => {
+    const text = serializePseudonymRules(EMPTY_RULES_FILE);
+    expect(JSON.parse(text)).toEqual({ rulesVersion: '1.0.0', rules: {} });
+    expect(parsePseudonymRules(JSON.parse(text))).toEqual({ rulesVersion: '1.0.0', rules: {} });
+    expect(rulesFileStateOf(text)).toEqual({ found: true, rulesVersion: '1.0.0', ruleCount: 0 });
+  });
+
+  it('says a file absent, the rules it gives, and why one is no rules file, as the extraction parses it', () => {
+    expect(rulesFileStateOf(null)).toEqual({ found: false });
+    expect(
+      rulesFileStateOf(
+        JSON.stringify({
+          rulesVersion: '1.2.0',
+          rules: {
+            'Account.Name': { generator: 'companyName' },
+            'Case.Subject': { generator: 'clear' },
+          },
+        }),
+      ),
+    ).toEqual({ found: true, rulesVersion: '1.2.0', ruleCount: 2 });
+
+    const keepUnapproved = rulesFileStateOf(
+      JSON.stringify({
+        rulesVersion: '1.0.0',
+        rules: { 'Account.Industry': { generator: 'keep' } },
+      }),
+    );
+    expect(keepUnapproved).toMatchObject({ found: true });
+    expect('invalid' in keepUnapproved && keepUnapproved.invalid).toMatch(/approved/);
+    const notJson = rulesFileStateOf('{ rulesVersion: 1');
+    expect('invalid' in notJson && notJson.invalid).toBeTruthy();
+  });
+});
 
 describe('parsePseudonymRules', () => {
   it('parses a valid versioned rules file', () => {

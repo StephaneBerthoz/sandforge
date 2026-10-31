@@ -3202,9 +3202,9 @@
       "tip": "SandForge kann nicht entfernen, was ein Autopilot-Lauf schreibt: Probieren Sie ihn in einer Scratch-Org oder einer Sandbox aus, die Sie aktualisieren können."
     },
     "frozen": {
-      "step1": "Geben Sie auf dem Tab Extrahieren das Stammobjekt (Vorgang) ein und klicken Sie auf Konfiguration speichern.",
+      "step1": "Geben Sie auf dem Tab Extrahieren das Stammobjekt ein und klicken Sie auf Konfiguration speichern.",
       "step2": "Klicken Sie auf Auswahl starten: Die Stammdatensätze werden aus der im Seitenpanel ausgewählten Org gewählt.",
-      "step3": "Legen Sie die Pseudonymisierungsregeln in ~/.sandforge-sas/rules.json ab und klicken Sie auf Extraktion starten.",
+      "step3": "Klicken Sie auf Regeldatei erstellen (jedes Feld ohne Regel wird geleert) und dann auf Extraktion starten.",
       "step4": "Wählen Sie auf dem Tab Laden die zu befüllende Ziel-Org (Sandbox) und klicken Sie auf Ladevorgang starten.",
       "step5": "Lesen Sie die Prüfung nach dem Laden, die auf den Ladevorgang folgt; Erneut prüfen führt sie noch einmal aus.",
       "tip": "Vorschau schreibt nichts, ein Ladevorgang geht nie in eine Produktions-Org, und Die von diesem Ladevorgang erstellten Datensätze entfernen löscht sie."
@@ -4533,30 +4533,36 @@
     },
     "config": {
       "title": "Projektkonfiguration",
-      "rootObject": "Stammobjekt (Vorgang)",
+      "rootObject": "Stammobjekt",
       "budget": "Volumenbudget (Datensätze)",
       "axes": "Abdeckungsachsen",
       "addAxis": "Achse hinzufügen",
       "axisName": "Name",
       "axisLabel": "Bezeichnung",
       "axisField": "Filterfeld",
-      "axisSoql": "Aggregat-SOQL (axisValue)",
+      "axisSoql": "Werteabfrage (SOQL, Alias axisValue)",
       "removeAxis": "Achse entfernen",
       "edgeCases": "Grenzfälle",
       "addEdgeCase": "Grenzfall hinzufügen",
       "edgeName": "Name",
       "edgeLabel": "Bezeichnung",
-      "edgeWhere": "WHERE-Fragment",
+      "edgeWhere": "Erfasste Datensätze (SOQL WHERE)",
       "removeEdgeCase": "Grenzfall entfernen",
-      "advanced": "Erweiterte Konfiguration (JSON: geschützte Umgebungen, Identitätsschlüssel, Picklist-Regeln, Platzhalter, Mocks…)",
+      "advanced": "Erweiterte Konfiguration (JSON)",
       "invalidJson": "Ungültiges JSON — die erweiterte Konfiguration muss ein JSON-Objekt sein.",
       "save": "Konfiguration speichern",
-      "saved": "Konfiguration gespeichert"
+      "saved": "Konfiguration gespeichert",
+      "rootObjectHint": "Jede Einheit des Datasets ist ein Stammdatensatz dieses Objekts, mit allem, was darunter hängt.",
+      "axisLabelExample": "Priorität",
+      "edgeLabelExample": "Eskaliert",
+      "advancedHint": "Alle übrigen Schlüssel der Konfiguration: geschützte Orgs, Identitätsschlüssel, Picklist-Regeln, Platzhalter, Erkennung von Callout-Mocks.",
+      "configKeys": "Konfigurationsschlüssel",
+      "unsaved": "Nicht gespeicherte Änderungen",
+      "saveFirst": "Speichern Sie zuerst die Konfiguration: Die Läufe lesen die gespeicherte."
     },
     "selection": {
       "title": "Abdeckungsmatrix-Auswahl",
       "run": "Auswahl starten",
-      "volumetry": "{{total}} Datensätze gemessen (Budget: {{budget}})",
       "combination": "Kombination",
       "axes": "Achsenwerte",
       "edgeCase": "Grenzfall",
@@ -4579,14 +4585,20 @@
         "measure": "Sie maß gerade die behaltenen Wurzeln gemeinsam.",
         "notProbed": "Nie geprüft: {{keys}}"
       },
-      "summed": "Die eigenen Datensätze jeder behaltenen Wurzel, addiert: Die Wurzeln wurden nicht gemeinsam gemessen, daher wird ein Datensatz, den zwei von ihnen teilen, doppelt gezählt."
+      "summed": "Die eigenen Datensätze jeder behaltenen Wurzel, addiert: Die Wurzeln wurden nicht gemeinsam gemessen, daher wird ein Datensatz, den zwei von ihnen teilen, doppelt gezählt.",
+      "volumetry_one": "{{count}} Datensatz gemessen (Budget: {{budget}})",
+      "volumetry_other": "{{count}} Datensätze gemessen (Budget: {{budget}})",
+      "source": "Quelle: {{org}}"
     },
     "extract": {
       "title": "Extraktion & Pseudonymisierung",
       "run": "Extraktion starten",
-      "summary_one": "{{count}} Datensatz in {{files}} Dateien eingefroren",
-      "summary_other": "{{count}} Datensätze in {{files}} Dateien eingefroren",
-      "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des eingefrorenen Datasets kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht."
+      "saltHint": "Jedes Pseudonym wird mit dem Salt dieses Editors gezogen, das bei der ersten Extraktion erstellt und im geheimen Speicher von VS Code aufbewahrt wird. Um dieselben Pseudonyme wie jemand im Team zu extrahieren, setzen Sie dessen Salt mit „SandForge: Ein Salt für das eingefrorene Dataset verwenden“; Ihres geben Sie mit „SandForge: Salt des eingefrorenen Datasets kopieren“ weiter. SANDFORGE_FROZEN_SALT hat, wo es gesetzt ist, Vorrang vor beiden. Ein Laden braucht das Salt nicht.",
+      "summary": "{{records}} in {{files}}",
+      "summaryRecords_one": "{{count}} Datensatz eingefroren",
+      "summaryRecords_other": "{{count}} Datensätze eingefroren",
+      "summaryFiles_one": "{{count}} Datei",
+      "summaryFiles_other": "{{count}} Dateien"
     },
     "control": {
       "check": "Prüfung",
@@ -4601,14 +4613,14 @@
     "guards": {
       "title": "Eingangsprüfungen",
       "sandboxOnly": "Nie eine Produktions-Org",
-      "protectedEnvs_one": "{{count}} geschützte Umgebung",
-      "protectedEnvs_other": "{{count}} geschützte Umgebungen",
-      "mocksConfigured": "Nicht gemockte Callouts geprüft",
-      "mocksNotConfigured": "Nicht gemockte Callouts nicht geprüft"
+      "protectedEnvs_one": "{{count}} geschützte Org",
+      "protectedEnvs_other": "{{count}} geschützte Orgs",
+      "mocksConfigured": "Prüft, dass das Ziel seine Callouts mockt",
+      "mocksNotConfigured": "Prüft nicht, dass das Ziel seine Callouts mockt"
     },
     "load": {
       "targetOrg": "Ziel-Org (Sandbox)",
-      "pilot": "Pilot (1 Vorgang)",
+      "pilot": "Pilot (zuerst ein Stammdatensatz)",
       "reload": "Neuladen ohne Refresh",
       "writeEncrypted": "Verschlüsselte Felder so schreiben, wie das Dataset sie enthält",
       "writeEncryptedHint": "Dieses Dataset sagt nicht, ob seine Extraktion die verschlüsselten Felder weggelassen hat, die sie maskiert las: Sie können Masken wie ****1234 enthalten und werden weggelassen, sofern dies nicht angekreuzt ist.",
@@ -4619,7 +4631,20 @@
       "preview": "Vorschau",
       "stopping": "Wird angehalten: Der Ladevorgang endet vor seinem nächsten Schreibvorgang. Was er geschrieben hat, bleibt in der Org und ist im Mapping für ein Entfernen oder ein Neuladen benannt.",
       "cancelRefused": "Der Ladevorgang konnte nicht abgebrochen werden",
-      "cancelRefusedDetail": "Der Ladevorgang läuft nicht mehr, oder er wurde nicht aus diesem Fenster gestartet."
+      "cancelRefusedDetail": "Der Ladevorgang läuft nicht mehr, oder er wurde nicht aus diesem Fenster gestartet.",
+      "pilotHint": "Lädt einen Stammdatensatz und was darunter hängt, um das Laden vor dem ganzen Dataset zu erproben.",
+      "reloadHint": "Löscht aus dem Ziel, was frühere Ladevorgänge dieses Datasets erstellt haben und dieser nicht wiederfindet, und lädt dann.",
+      "runReload": "Neu laden",
+      "pickTarget": "Wählen Sie die zu befüllende Sandbox.",
+      "sourceNote": "(Quelle dieses Datasets)",
+      "targetIsSource": "{{org}} ist die Org, aus der dieses Dataset extrahiert wurde: Wählen Sie eine andere Sandbox.",
+      "reloadConfirm": {
+        "title": "{{org}} neu laden",
+        "description_one": "Dieses Neuladen löscht aus {{org}} {{count}} Datensatz, den frühere Ladevorgänge dieses Datasets erstellt haben und den dieser nicht wiederfindet, und lädt dann das Dataset.",
+        "description_other": "Dieses Neuladen löscht aus {{org}} {{count}} Datensätze, die frühere Ladevorgänge dieses Datasets erstellt haben und die dieser nicht wiederfindet, und lädt dann das Dataset.",
+        "deactivate_one": "Es deaktiviert {{count}} weiteren Datensatz eines Objekts, das die Plattform nicht löscht.",
+        "deactivate_other": "Es deaktiviert {{count}} weitere Datensätze von Objekten, die die Plattform nicht löscht."
+      }
     },
     "preview": {
       "title": "Was ein Ladevorgang in {{org}} tun würde",
@@ -4775,6 +4800,32 @@
       "persist": "Speichern",
       "done": "Fertig",
       "verify": "Überprüfung"
+    },
+    "rulesFile": {
+      "found_one": "Regeldatei: {{path}} (Regeln {{version}}, {{count}} Regel)",
+      "found_other": "Regeldatei: {{path}} (Regeln {{version}}, {{count}} Regeln)",
+      "missing": "Keine Regeldatei unter {{path}}: Extraktion starten braucht eine.",
+      "invalid": "Die Regeldatei unter {{path}} kann die Extraktion nicht lesen: {{reason}}",
+      "create": "Regeldatei erstellen",
+      "createHint": "Schreibt eine leere Datei und öffnet sie: Jedes Feld ohne Regel wird geleert, und die Extraktion listet danach, was sie ohne Regel behalten hat.",
+      "open": "Regeldatei öffnen",
+      "format": "Regelformat",
+      "notOpened": "Unter {{path}} geschrieben; sie konnte in keinem Editor geöffnet werden.",
+      "failed": "Die Regeldatei wurde nicht geschrieben: {{reason}}"
+    },
+    "refusal": {
+      "configMissing": {
+        "explanation": "Es ist keine Projektkonfiguration gespeichert, und die Läufe lesen die gespeicherte.",
+        "action": "Klicken Sie zuerst auf dem Tab Extrahieren auf Konfiguration speichern."
+      },
+      "rulesMissing": {
+        "explanation": "Keine Pseudonymisierungs-Regeldatei unter {{path}}: Die Extraktion braucht eine.",
+        "action": "Klicken Sie auf dem Tab Extrahieren auf Regeldatei erstellen: Eine leere Datei leert jedes Feld ohne Regel."
+      },
+      "sourceIsTarget": {
+        "explanation": "{{org}} ist die Org, aus der dieses Dataset extrahiert wurde: Ein Ladevorgang geht nie in seine Quelle zurück, und nichts wurde geschrieben.",
+        "action": "Wählen Sie eine andere Sandbox als Ziel."
+      }
     }
   },
   "runRemoval": {

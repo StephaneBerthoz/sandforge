@@ -144,11 +144,12 @@ function previewRows(): string[][] {
 describe('FrozenLoadTab', () => {
   beforeEach(() => {
     for (const key of Object.keys(answers)) delete answers[key];
-    mutate.mockClear();
+    mutate.mockReset();
     useNotificationStore.setState({ notifications: [] });
+    // A target picked: the tab offers none until one is (see "the target").
     useFrozenStore.setState({
       status: STATUS,
-      targetOrgId: '',
+      targetOrgId: 'org-dev',
       progress: [],
       loadReport: null,
       verdict: null,
@@ -161,7 +162,7 @@ describe('FrozenLoadTab', () => {
 
     const guards = screen.getByTestId('frozen-guards').textContent ?? '';
     expect(guards).toContain('Never a production org');
-    expect(guards).toContain('Unmocked callouts');
+    expect(guards).toContain('Checks the target mocks its callouts');
     expect(guards).not.toMatch(/salt/i);
     expect(guards).not.toContain('Sandbox only');
   });
@@ -617,10 +618,14 @@ describe('FrozenLoadTab', () => {
 
     it('says on the last load’s card what the reload would leave and why, in the extension’s words, and takes the load back first, the records changed since included, once the org’s name is typed', () => {
       answers['frozen:load'] = { requestId: 'req-load-1' };
+      answers['frozen:load:preview'] = { data: { plan: PLAN }, requestId: 'req-preview-0' };
       render(tab());
 
       fireEvent.click(screen.getByTestId('frozen-load-reload'));
       fireEvent.click(screen.getByTestId('frozen-load-run'));
+      // Asked first, with what the preview's plan purges; then sent.
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
       expect(mutate).toHaveBeenCalledWith('frozen:load', { targetOrgId: 'org-dev', reload: true });
       refuse('frozen:load', 'req-load-1');
 
@@ -724,6 +729,203 @@ describe('FrozenLoadTab', () => {
       render(tab());
       expect(screen.getByTestId('frozen-error').textContent).toContain('No frozen dataset found');
       expect(screen.queryByTestId('frozen-reload-refused')).toBeNull();
+    });
+  });
+
+  describe('the target', () => {
+    /** The text of the element an `aria-describedby` names. */
+    function describedBy(element: HTMLElement): string {
+      return (element.getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ');
+    }
+
+    // It took the side panel's org: the org the Extract tab had just read,
+    // so the first click of the tab was a load into the dataset's source.
+    it('is none until one is picked, and Preview and Run load say so instead of running', () => {
+      useFrozenStore.setState({ targetOrgId: '' });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-load-target').textContent).toContain('Select an org');
+      for (const id of ['frozen-load-preview', 'frozen-load-run']) {
+        const button = screen.getByTestId(id);
+        expect(button.getAttribute('aria-disabled')).toBe('true');
+        expect(describedBy(button)).toBe('Pick the sandbox to fill.');
+        fireEvent.click(button);
+      }
+      expect(mutate).not.toHaveBeenCalled();
+      // The box names the org it would read: none yet.
+      expect(screen.queryByTestId('frozen-load-mute')).toBeNull();
+    });
+
+    it("lists the dataset's source org without offering it, and says why beside it", () => {
+      useFrozenStore.setState({
+        targetOrgId: '',
+        status: {
+          ...STATUS,
+          manifest: STATUS.manifest && {
+            ...STATUS.manifest,
+            source: { orgId: 'org-dev', decisionDate: '2026-09-24' },
+          },
+        },
+      });
+      render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-target'));
+      const source = screen.getByTestId('frozen-load-target-option-org-dev') as HTMLButtonElement;
+      expect(source.disabled).toBe(true);
+      expect(screen.getByTestId('frozen-load-target-option-org-dev-note').textContent).toBe(
+        '(source of this dataset)',
+      );
+      fireEvent.click(source);
+      expect(useFrozenStore.getState().targetOrgId).toBe('');
+
+      fireEvent.click(screen.getByTestId('frozen-load-target-option-org-qa'));
+      expect(useFrozenStore.getState().targetOrgId).toBe('org-qa');
+      expect(screen.getByTestId('frozen-load-run').getAttribute('aria-disabled')).toBeNull();
+    });
+
+    it('says the target is the source when one picked before is, and runs nothing into it', () => {
+      useFrozenStore.setState({
+        targetOrgId: 'org-dev',
+        status: {
+          ...STATUS,
+          manifest: STATUS.manifest && {
+            ...STATUS.manifest,
+            source: { orgId: 'org-dev', decisionDate: '2026-09-24' },
+          },
+        },
+      });
+      render(tab());
+
+      expect(screen.getByTestId('frozen-load-pick-target').textContent).toBe(
+        'DEV-SANDBOX is the org this dataset was extracted from: pick another sandbox.',
+      );
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      fireEvent.click(screen.getByTestId('frozen-load-preview'));
+      expect(mutate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the options and the buttons', () => {
+    it('says under Pilot and Reload what each does, read with its box', () => {
+      render(tab());
+
+      const pilot = screen.getByTestId('frozen-load-pilot');
+      const reload = screen.getByTestId('frozen-load-reload');
+      expect(pilot.parentElement?.textContent).toBe('Pilot (one root record first)');
+      expect(
+        document.getElementById(pilot.getAttribute('aria-describedby') ?? '')?.textContent,
+      ).toBe(
+        'Loads one root record and what hangs under it, to try the load before the whole dataset.',
+      );
+      expect(
+        document.getElementById(reload.getAttribute('aria-describedby') ?? '')?.textContent,
+      ).toBe(
+        'Deletes from the target what earlier loads of this dataset created and this one does not find again, then loads.',
+      );
+    });
+
+    it('puts Preview, which writes nothing, before the run, and names the run by what it does', () => {
+      render(tab());
+      const preview = screen.getByTestId('frozen-load-preview');
+      const run = screen.getByTestId('frozen-load-run');
+      expect(preview.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(run.textContent).toBe('Run load');
+
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      expect(run.textContent).toBe('Reload');
+      // A pilot's reload purges nothing: it stays a pilot.
+      fireEvent.click(screen.getByTestId('frozen-load-pilot'));
+      expect(run.textContent).toBe('Run pilot');
+    });
+
+    it('stops a running load with "Stop the run", as its confirmation and Forge say it', () => {
+      answers['frozen:load'] = { loading: true, requestId: 'req-load-7' };
+      render(tab());
+      expect(screen.getByTestId('frozen-load-cancel').textContent).toBe('Stop the run');
+    });
+  });
+
+  describe('a reload', () => {
+    it('reads the plan first, then asks with what it would delete and deactivate, and loads once the org is typed', () => {
+      // As the bridge does, a request sent is in flight under its id.
+      mutate.mockImplementation((requestType: string) => {
+        if (requestType === 'frozen:load:preview') {
+          answers[requestType] = { loading: true, requestId: 'req-preview-1' };
+        }
+      });
+      const { rerender } = render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load:preview', { targetOrgId: 'org-dev', reload: true }],
+      ]);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByTestId('frozen-load-run').getAttribute('aria-busy')).toBe('true');
+
+      const withDeactivated: FrozenLoadPlanInfo = {
+        ...PLAN,
+        perObject: [
+          ...PLAN.perObject,
+          { ...PLAN.perObject[1], objectApiName: 'Asset', toDeactivate: 2 },
+        ],
+      };
+      answers['frozen:load:preview'] = {
+        data: { plan: withDeactivated },
+        requestId: 'req-preview-1',
+      };
+      rerender(tab());
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('heading').textContent).toBe('Reload into DEV-SANDBOX');
+      expect(dialog.textContent).toContain(
+        'This reload deletes from DEV-SANDBOX 5 records that earlier loads of this dataset created and this one does not find again, then loads the dataset.',
+      );
+      expect(screen.getByTestId('frozen-reload-confirm-deactivate').textContent).toBe(
+        'It deactivates 2 more, of objects the platform does not delete.',
+      );
+      expect(screen.getByTestId('danger-confirm-btn')).toHaveProperty('disabled', true);
+      expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([]);
+
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DEV-SANDBOX' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+      expect(mutate.mock.calls.filter(([type]) => type === 'frozen:load')).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
+      ]);
+    });
+
+    it('loads at once when the plan it reads purges nothing', () => {
+      const nothing: FrozenLoadPlanInfo = {
+        ...PLAN,
+        perObject: PLAN.perObject.map((o) => ({ ...o, toPurge: 0, toDeactivate: 0 })),
+      };
+      answers['frozen:load:preview'] = { data: { plan: nothing }, requestId: 'req-preview-1' };
+      render(tab());
+
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev', reload: true }],
+      ]);
+    });
+
+    it('asks nothing of a load or a pilot, which purge nothing', () => {
+      render(tab());
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+      fireEvent.click(screen.getByTestId('frozen-load-reload'));
+      fireEvent.click(screen.getByTestId('frozen-load-pilot'));
+      fireEvent.click(screen.getByTestId('frozen-load-run'));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(mutate.mock.calls).toEqual([
+        ['frozen:load', { targetOrgId: 'org-dev' }],
+        ['frozen:load', { targetOrgId: 'org-dev', pilot: true, reload: true }],
+      ]);
     });
   });
 });

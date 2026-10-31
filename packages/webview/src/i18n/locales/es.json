@@ -3202,9 +3202,9 @@
       "tip": "SandForge no puede quitar lo que escribe una ejecución de Autopilot: pruébela en una scratch org o en un sandbox que pueda actualizar."
     },
     "frozen": {
-      "step1": "En la pestaña Extraer, indique el Objeto raíz (expediente) y haga clic en Guardar configuración.",
+      "step1": "En la pestaña Extraer, indique el Objeto raíz y haga clic en Guardar configuración.",
       "step2": "Haga clic en Ejecutar selección: elige los registros raíz en la org seleccionada en el panel lateral.",
-      "step3": "Coloque las reglas de seudonimización en ~/.sandforge-sas/rules.json y haga clic en Ejecutar extracción.",
+      "step3": "Haga clic en Crear archivo de reglas (todo campo sin regla se borra) y luego en Ejecutar extracción.",
       "step4": "En la pestaña Cargar, elija la Org de destino (sandbox) que va a llenar y haga clic en Ejecutar carga.",
       "step5": "Lea la Verificación posterior a la carga, que se ejecuta después de la carga; Volver a verificar la repite.",
       "tip": "Vista previa no escribe nada, una carga nunca va a una org de producción y Eliminar los registros que creó esta carga los borra."
@@ -4533,30 +4533,36 @@
     },
     "config": {
       "title": "Configuración del proyecto",
-      "rootObject": "Objeto raíz (expediente)",
+      "rootObject": "Objeto raíz",
       "budget": "Presupuesto de volumen (registros)",
       "axes": "Ejes de cobertura",
       "addAxis": "Añadir eje",
       "axisName": "Nombre",
       "axisLabel": "Etiqueta",
       "axisField": "Campo de filtro",
-      "axisSoql": "SOQL de agregado (axisValue)",
+      "axisSoql": "Consulta de valores (SOQL, alias axisValue)",
       "removeAxis": "Quitar eje",
       "edgeCases": "Casos límite",
       "addEdgeCase": "Añadir caso límite",
       "edgeName": "Nombre",
       "edgeLabel": "Etiqueta",
-      "edgeWhere": "Fragmento WHERE",
+      "edgeWhere": "Registros que cubre (SOQL WHERE)",
       "removeEdgeCase": "Quitar caso límite",
-      "advanced": "Configuración avanzada (JSON: entornos protegidos, claves de identidad, reglas de picklist, placeholders, mocks…)",
+      "advanced": "Configuración avanzada (JSON)",
       "invalidJson": "JSON no válido: la configuración avanzada debe ser un objeto JSON.",
       "save": "Guardar configuración",
-      "saved": "Configuración guardada"
+      "saved": "Configuración guardada",
+      "rootObjectHint": "Cada unidad del dataset es un registro de este objeto, con todo lo que cuelga de él.",
+      "axisLabelExample": "Prioridad",
+      "edgeLabelExample": "Escalados",
+      "advancedHint": "Todas las demás claves de la configuración: orgs protegidas, claves de identidad, reglas de picklist, placeholders, detección de mocks de callouts.",
+      "configKeys": "Claves de configuración",
+      "unsaved": "Cambios sin guardar",
+      "saveFirst": "Guarde primero la configuración: las ejecuciones leen la guardada."
     },
     "selection": {
       "title": "Selección por matriz de cobertura",
       "run": "Ejecutar selección",
-      "volumetry": "{{total}} registros medidos (presupuesto: {{budget}})",
       "combination": "Combinación",
       "axes": "Valores de ejes",
       "edgeCase": "Caso límite",
@@ -4579,14 +4585,20 @@
         "measure": "Estaba midiendo juntas las raíces retenidas.",
         "notProbed": "Nunca examinadas: {{keys}}"
       },
-      "summed": "Los registros propios de cada raíz retenida, sumados: las raíces no se midieron juntas, así que un registro que comparten dos de ellas se cuenta dos veces."
+      "summed": "Los registros propios de cada raíz retenida, sumados: las raíces no se midieron juntas, así que un registro que comparten dos de ellas se cuenta dos veces.",
+      "volumetry_one": "{{count}} registro medido (presupuesto: {{budget}})",
+      "volumetry_other": "{{count}} registros medidos (presupuesto: {{budget}})",
+      "source": "Origen: {{org}}"
     },
     "extract": {
       "title": "Extracción y seudonimización",
       "run": "Ejecutar extracción",
-      "summary_one": "{{count}} registro congelado en {{files}} archivos",
-      "summary_other": "{{count}} registros congelados en {{files}} archivos",
-      "saltHint": "Cada seudónimo se saca con la sal de este editor, creada en la primera extracción y guardada en el almacenamiento secreto de VS Code. Para extraer los mismos seudónimos que un compañero, defina la suya con «SandForge: Usar una sal para el dataset congelado»; pase la suya con «SandForge: Copiar la sal del dataset congelado». SANDFORGE_FROZEN_SALT, donde está definida, se impone a ambas. Una carga no necesita la sal."
+      "saltHint": "Cada seudónimo se saca con la sal de este editor, creada en la primera extracción y guardada en el almacenamiento secreto de VS Code. Para extraer los mismos seudónimos que un compañero, defina la suya con «SandForge: Usar una sal para el dataset congelado»; pase la suya con «SandForge: Copiar la sal del dataset congelado». SANDFORGE_FROZEN_SALT, donde está definida, se impone a ambas. Una carga no necesita la sal.",
+      "summary": "{{records}} en {{files}}",
+      "summaryRecords_one": "{{count}} registro congelado",
+      "summaryRecords_other": "{{count}} registros congelados",
+      "summaryFiles_one": "{{count}} archivo",
+      "summaryFiles_other": "{{count}} archivos"
     },
     "control": {
       "check": "Control",
@@ -4601,14 +4613,14 @@
     "guards": {
       "title": "Guardas de entrada",
       "sandboxOnly": "Nunca una org de producción",
-      "protectedEnvs_one": "{{count}} entorno protegido",
-      "protectedEnvs_other": "{{count}} entornos protegidos",
-      "mocksConfigured": "Callouts sin simular comprobados",
-      "mocksNotConfigured": "Callouts sin simular no comprobados"
+      "protectedEnvs_one": "{{count}} org protegida",
+      "protectedEnvs_other": "{{count}} orgs protegidas",
+      "mocksConfigured": "Comprueba que el destino simula sus callouts",
+      "mocksNotConfigured": "No comprueba que el destino simule sus callouts"
     },
     "load": {
       "targetOrg": "Org de destino (sandbox)",
-      "pilot": "Piloto (1 expediente)",
+      "pilot": "Piloto (primero un registro raíz)",
       "reload": "Recarga sin refresco",
       "writeEncrypted": "Escribir los campos cifrados tal como los contiene el dataset",
       "writeEncryptedHint": "Este dataset no dice si su extracción dejó fuera los campos cifrados que leyó enmascarados: pueden contener máscaras como ****1234, y se dejan fuera salvo que se marque esta casilla.",
@@ -4619,7 +4631,20 @@
       "preview": "Vista previa",
       "stopping": "Deteniendo: la carga termina antes de su próxima escritura. Lo que escribió queda en la org, nombrado en el mapeo para una eliminación o una recarga.",
       "cancelRefused": "No se pudo cancelar la carga",
-      "cancelRefusedDetail": "La carga ya no está en curso, o no se inició desde esta ventana."
+      "cancelRefusedDetail": "La carga ya no está en curso, o no se inició desde esta ventana.",
+      "pilotHint": "Carga un registro raíz y lo que cuelga de él, para probar la carga antes de todo el dataset.",
+      "reloadHint": "Borra del destino lo que las cargas anteriores de este dataset crearon y esta no vuelve a encontrar, y luego carga.",
+      "runReload": "Recargar",
+      "pickTarget": "Elija el sandbox que va a llenar.",
+      "sourceNote": "(origen de este dataset)",
+      "targetIsSource": "{{org}} es la org de la que se extrajo este dataset: elija otro sandbox.",
+      "reloadConfirm": {
+        "title": "Recargar {{org}}",
+        "description_one": "Esta recarga borra de {{org}} {{count}} registro que cargas anteriores de este dataset crearon y que esta no vuelve a encontrar, y luego carga el dataset.",
+        "description_other": "Esta recarga borra de {{org}} {{count}} registros que cargas anteriores de este dataset crearon y que esta no vuelve a encontrar, y luego carga el dataset.",
+        "deactivate_one": "Desactiva {{count}} más, de un objeto que la plataforma no borra.",
+        "deactivate_other": "Desactiva {{count}} más, de objetos que la plataforma no borra."
+      }
     },
     "preview": {
       "title": "Lo que haría una carga en {{org}}",
@@ -4775,6 +4800,32 @@
       "persist": "Guardado",
       "done": "Hecho",
       "verify": "Verificación"
+    },
+    "rulesFile": {
+      "found_one": "Archivo de reglas: {{path}} (reglas {{version}}, {{count}} regla)",
+      "found_other": "Archivo de reglas: {{path}} (reglas {{version}}, {{count}} reglas)",
+      "missing": "No hay archivo de reglas en {{path}}: Ejecutar extracción lo necesita.",
+      "invalid": "La extracción no puede leer el archivo de reglas de {{path}}: {{reason}}",
+      "create": "Crear archivo de reglas",
+      "createHint": "Escribe un archivo vacío y lo abre: todo campo sin regla se borra, y la extracción lista después lo que conservó sin regla.",
+      "open": "Abrir archivo de reglas",
+      "format": "Formato de las reglas",
+      "notOpened": "Escrito en {{path}}; no se pudo abrir en un editor.",
+      "failed": "El archivo de reglas no se escribió: {{reason}}"
+    },
+    "refusal": {
+      "configMissing": {
+        "explanation": "No hay ninguna configuración de proyecto guardada, y las ejecuciones leen la guardada.",
+        "action": "Haga clic primero en Guardar configuración, en la pestaña Extraer."
+      },
+      "rulesMissing": {
+        "explanation": "No hay archivo de reglas de seudonimización en {{path}}: la extracción lo necesita.",
+        "action": "Haga clic en Crear archivo de reglas, en la pestaña Extraer: un archivo vacío borra todo campo sin regla."
+      },
+      "sourceIsTarget": {
+        "explanation": "{{org}} es la org de la que se extrajo este dataset: una carga nunca vuelve a su origen, y no se escribió nada.",
+        "action": "Elija otro sandbox como destino."
+      }
     }
   },
   "runRemoval": {

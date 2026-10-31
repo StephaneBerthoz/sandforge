@@ -3202,9 +3202,9 @@
       "tip": "SandForge ne peut pas retirer ce qu'une exécution d'Autopilot écrit : essayez-la sur une scratch org ou une sandbox que vous pouvez rafraîchir."
     },
     "frozen": {
-      "step1": "Dans l'onglet Extraire, remplissez le champ Objet racine (dossier), puis cliquez sur Enregistrer la configuration.",
+      "step1": "Dans l'onglet Extraire, remplissez le champ Objet racine, puis cliquez sur Enregistrer la configuration.",
       "step2": "Cliquez sur Lancer la sélection : elle choisit les enregistrements racines de l'org sélectionnée dans le panneau latéral.",
-      "step3": "Placez les règles de pseudonymisation dans ~/.sandforge-sas/rules.json, puis cliquez sur Lancer l'extraction.",
+      "step3": "Cliquez sur Créer le fichier de règles (tout champ sans règle est effacé), puis sur Lancer l'extraction.",
       "step4": "Dans l'onglet Charger, choisissez l'Org cible (sandbox) à remplir, puis cliquez sur Lancer le chargement.",
       "step5": "Lisez la Vérification post-chargement qui suit le chargement ; Re-vérifier la relance.",
       "tip": "Aperçu n'écrit rien, un chargement ne va jamais dans une org de production, et Supprimer les enregistrements créés par ce chargement les efface."
@@ -4533,30 +4533,36 @@
     },
     "config": {
       "title": "Configuration du projet",
-      "rootObject": "Objet racine (dossier)",
+      "rootObject": "Objet racine",
       "budget": "Budget de volumétrie (enregistrements)",
       "axes": "Axes de couverture",
       "addAxis": "Ajouter un axe",
       "axisName": "Nom",
       "axisLabel": "Libellé",
       "axisField": "Champ de filtre",
-      "axisSoql": "SOQL d'agrégat (axisValue)",
+      "axisSoql": "Requête des valeurs (SOQL, alias axisValue)",
       "removeAxis": "Retirer l'axe",
       "edgeCases": "Cas limites",
       "addEdgeCase": "Ajouter un cas limite",
       "edgeName": "Nom",
       "edgeLabel": "Libellé",
-      "edgeWhere": "Fragment WHERE",
+      "edgeWhere": "Enregistrements couverts (SOQL WHERE)",
       "removeEdgeCase": "Retirer le cas limite",
-      "advanced": "Configuration avancée (JSON : envs protégés, clés d'identité, règles picklist, placeholders, mocks…)",
+      "advanced": "Configuration avancée (JSON)",
       "invalidJson": "JSON invalide — la configuration avancée doit être un objet JSON.",
       "save": "Enregistrer la configuration",
-      "saved": "Configuration enregistrée"
+      "saved": "Configuration enregistrée",
+      "rootObjectHint": "Chaque unité du jeu de données est un enregistrement de cet objet, avec tout ce qui en dépend.",
+      "axisLabelExample": "Priorité",
+      "edgeLabelExample": "Escaladés",
+      "advancedHint": "Toutes les autres clés de la configuration : orgs protégées, clés d'identité, règles de picklist, placeholders, détection des mocks de callouts.",
+      "configKeys": "Clés de configuration",
+      "unsaved": "Modifications non enregistrées",
+      "saveFirst": "Enregistrez d'abord la configuration : les exécutions lisent celle qui est enregistrée."
     },
     "selection": {
       "title": "Sélection par matrice de couverture",
       "run": "Lancer la sélection",
-      "volumetry": "{{total}} enregistrements mesurés (budget : {{budget}})",
       "combination": "Combinaison",
       "axes": "Valeurs d'axes",
       "edgeCase": "Cas limite",
@@ -4579,14 +4585,20 @@
         "measure": "Elle mesurait ensemble les racines retenues.",
         "notProbed": "Jamais examinées : {{keys}}"
       },
-      "summed": "Les enregistrements propres à chaque racine retenue, additionnés : les racines n'ont pas été mesurées ensemble, donc un enregistrement que deux d'entre elles partagent est compté deux fois."
+      "summed": "Les enregistrements propres à chaque racine retenue, additionnés : les racines n'ont pas été mesurées ensemble, donc un enregistrement que deux d'entre elles partagent est compté deux fois.",
+      "volumetry_one": "{{count}} enregistrement mesuré (budget : {{budget}})",
+      "volumetry_other": "{{count}} enregistrements mesurés (budget : {{budget}})",
+      "source": "Source : {{org}}"
     },
     "extract": {
       "title": "Extraction & pseudonymisation",
       "run": "Lancer l'extraction",
-      "summary_one": "{{count}} enregistrement figé dans {{files}} fichiers",
-      "summary_other": "{{count}} enregistrements figés dans {{files}} fichiers",
-      "saltHint": "Chaque pseudonyme est tiré avec le sel de cet éditeur, créé à la première extraction et gardé dans le stockage secret de VS Code. Pour extraire les mêmes pseudonymes qu'un collègue, définissez le sien avec « SandForge : Utiliser un sel pour le Jeu de données figé » ; transmettez le vôtre avec « SandForge : Copier le sel du Jeu de données figé ». SANDFORGE_FROZEN_SALT, là où il est défini, l'emporte sur les deux. Un chargement n'a pas besoin du sel."
+      "saltHint": "Chaque pseudonyme est tiré avec le sel de cet éditeur, créé à la première extraction et gardé dans le stockage secret de VS Code. Pour extraire les mêmes pseudonymes qu'un collègue, définissez le sien avec « SandForge : Utiliser un sel pour le Jeu de données figé » ; transmettez le vôtre avec « SandForge : Copier le sel du Jeu de données figé ». SANDFORGE_FROZEN_SALT, là où il est défini, l'emporte sur les deux. Un chargement n'a pas besoin du sel.",
+      "summary": "{{records}} dans {{files}}",
+      "summaryRecords_one": "{{count}} enregistrement figé",
+      "summaryRecords_other": "{{count}} enregistrements figés",
+      "summaryFiles_one": "{{count}} fichier",
+      "summaryFiles_other": "{{count}} fichiers"
     },
     "control": {
       "check": "Contrôle",
@@ -4601,14 +4613,14 @@
     "guards": {
       "title": "Gardes d'entrée",
       "sandboxOnly": "Jamais une org de production",
-      "protectedEnvs_one": "{{count}} env. protégé",
-      "protectedEnvs_other": "{{count}} env. protégés",
-      "mocksConfigured": "Callouts non simulés vérifiés",
-      "mocksNotConfigured": "Callouts non simulés non vérifiés"
+      "protectedEnvs_one": "{{count}} org protégée",
+      "protectedEnvs_other": "{{count}} orgs protégées",
+      "mocksConfigured": "Vérifie que la cible simule ses callouts",
+      "mocksNotConfigured": "Ne vérifie pas que la cible simule ses callouts"
     },
     "load": {
       "targetOrg": "Org cible (sandbox)",
-      "pilot": "Pilote (1 dossier)",
+      "pilot": "Pilote (un enregistrement racine d'abord)",
       "reload": "Rechargement sans refresh",
       "writeEncrypted": "Écrire les champs chiffrés tels que le jeu de données les contient",
       "writeEncryptedHint": "Ce jeu de données ne dit pas si son extraction a laissé de côté les champs chiffrés qu'elle lisait masqués : ils peuvent contenir des masques comme ****1234, et sont laissés de côté sauf si cette case est cochée.",
@@ -4619,7 +4631,20 @@
       "preview": "Aperçu",
       "stopping": "Arrêt en cours : le chargement s'arrête avant sa prochaine écriture. Ce qu'il a écrit reste dans l'org, nommé dans le mapping pour une suppression ou un rechargement.",
       "cancelRefused": "Impossible d'annuler le chargement",
-      "cancelRefusedDetail": "Le chargement n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre."
+      "cancelRefusedDetail": "Le chargement n'est plus en cours, ou il n'a pas été lancé depuis cette fenêtre.",
+      "pilotHint": "Charge un enregistrement racine et ce qui en dépend, pour essayer le chargement avant tout le jeu de données.",
+      "reloadHint": "Supprime de la cible ce que les chargements antérieurs de ce jeu de données ont créé et que celui-ci ne retrouve pas, puis charge.",
+      "runReload": "Recharger",
+      "pickTarget": "Choisissez la sandbox à remplir.",
+      "sourceNote": "(source de ce jeu de données)",
+      "targetIsSource": "{{org}} est l'org dont ce jeu de données a été extrait : choisissez une autre sandbox.",
+      "reloadConfirm": {
+        "title": "Recharger {{org}}",
+        "description_one": "Ce rechargement supprime de {{org}} {{count}} enregistrement que des chargements antérieurs de ce jeu de données ont créé et que celui-ci ne retrouve pas, puis charge le jeu de données.",
+        "description_other": "Ce rechargement supprime de {{org}} {{count}} enregistrements que des chargements antérieurs de ce jeu de données ont créés et que celui-ci ne retrouve pas, puis charge le jeu de données.",
+        "deactivate_one": "Il en désactive {{count}} de plus, d'un objet que la plateforme ne supprime pas.",
+        "deactivate_other": "Il en désactive {{count}} de plus, d'objets que la plateforme ne supprime pas."
+      }
     },
     "preview": {
       "title": "Ce que ferait un chargement dans {{org}}",
@@ -4775,6 +4800,32 @@
       "persist": "Enregistrement",
       "done": "Terminé",
       "verify": "Vérification"
+    },
+    "rulesFile": {
+      "found_one": "Fichier de règles : {{path}} (règles {{version}}, {{count}} règle)",
+      "found_other": "Fichier de règles : {{path}} (règles {{version}}, {{count}} règles)",
+      "missing": "Aucun fichier de règles à {{path}} : Lancer l'extraction en a besoin.",
+      "invalid": "Le fichier de règles à {{path}} n'est pas lisible par l'extraction : {{reason}}",
+      "create": "Créer le fichier de règles",
+      "createHint": "Écrit un fichier vide et l'ouvre : tout champ sans règle est effacé, puis l'extraction liste ce qu'elle a gardé sans règle.",
+      "open": "Ouvrir le fichier de règles",
+      "format": "Format des règles",
+      "notOpened": "Écrit à {{path}} ; il n'a pas pu être ouvert dans un éditeur.",
+      "failed": "Le fichier de règles n'a pas été écrit : {{reason}}"
+    },
+    "refusal": {
+      "configMissing": {
+        "explanation": "Aucune configuration de projet n'est enregistrée, et les exécutions lisent celle qui l'est.",
+        "action": "Cliquez d'abord sur Enregistrer la configuration dans l'onglet Extraire."
+      },
+      "rulesMissing": {
+        "explanation": "Aucun fichier de règles de pseudonymisation à {{path}} : l'extraction en a besoin.",
+        "action": "Cliquez sur Créer le fichier de règles dans l'onglet Extraire : un fichier vide efface tout champ sans règle."
+      },
+      "sourceIsTarget": {
+        "explanation": "{{org}} est l'org dont ce jeu de données a été extrait : un chargement ne retourne jamais dans sa source, et rien n'a été écrit.",
+        "action": "Choisissez une autre sandbox comme cible."
+      }
     }
   },
   "runRemoval": {

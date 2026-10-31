@@ -5,12 +5,14 @@ import { QA_SANDBOX } from './fixtures';
 import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * The Frozen page's Reload, which replaces the loads before it: refused by
- * the extension before anything is written while a removal of those loads
- * would leave records in the org, it says on the last load's card what and
- * why, in the extension's words, and offers to take the load back first --
- * the records changed since included, typed as every removal of the panel
- * is -- or to cancel. Its purge deleted those records without a word.
+ * The Frozen page's Reload, which replaces the loads before it. It reads the
+ * plan of its purge first: refused by the extension before anything is
+ * written while a removal of those loads would leave records in the org, it
+ * says on the last load's card what and why, in the extension's words, and
+ * offers to take the load back first -- the records changed since included,
+ * typed as every removal of the panel is -- or to cancel. Planned, it asks
+ * with how many records its purge deletes before it loads. Its purge deleted
+ * those records without a word.
  */
 
 /** The last load into the QA sandbox: an account and two contacts it created. */
@@ -86,8 +88,38 @@ async function answerAll(
   }
 }
 
-/** The Load tab, the QA sandbox picked, Reload ticked and run, and refused. */
-async function refusedReload(page: Page): Promise<MockBridge> {
+/** What a reload into the QA sandbox would do: two contacts the last load created purged. */
+const RELOAD_PLAN = {
+  orgId: QA_SANDBOX.id,
+  mode: { pilot: false, reload: true },
+  plannedAt: '2026-10-24T11:00:00.000Z',
+  perObject: [
+    {
+      objectApiName: 'Contact',
+      fromFiles: 2,
+      toInsert: 2,
+      reusedByKeys: 0,
+      reusedFromCatalog: 0,
+      fieldsDropped: 0,
+      picklistsRewritten: 0,
+      notSent: 0,
+      toPurge: 2,
+      toDeactivate: 0,
+    },
+  ],
+  excludedObjects: [],
+  removals: [],
+  placeholders: [],
+  requiredDefaults: [],
+  recordTypeIssues: 0,
+  personContacts: 0,
+  earlierLoads: 1,
+};
+
+/** The Load tab, the QA sandbox picked, Reload ticked and clicked: the plan of its purge asked. */
+async function reloadAsked(
+  page: Page,
+): Promise<{ bridge: MockBridge; preview: Record<string, unknown> }> {
   const bridge = new MockBridge();
   await bridge.setup(page);
   await page.addInitScript(() => {
@@ -104,18 +136,22 @@ async function refusedReload(page: Page): Promise<MockBridge> {
   await page.getByTestId('frozen-removal').waitFor({ timeout: 10_000 });
 
   await page.getByTestId('frozen-load-reload').check();
+  await expect(page.getByTestId('frozen-load-run')).toHaveText('Reload');
   await page.getByTestId('frozen-load-run').click();
-  const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
-  // The panel sends the reload as it always did: the extension makes it a replace.
-  expect(load.payload).toEqual({ targetOrgId: QA_SANDBOX.id, reload: true });
+  const preview = await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+  expect(preview.payload).toEqual({ targetOrgId: QA_SANDBOX.id, reload: true });
+  return { bridge, preview };
+}
+
+/** The reload asked, and refused at its plan, before anything is written. */
+async function refusedReload(page: Page): Promise<MockBridge> {
+  const { bridge, preview } = await reloadAsked(page);
   await sendExtensionMessage(page, {
-    type: 'frozen:load:error',
-    id: 'err-load-1',
-    correlationId: load.id,
+    type: 'frozen:load:preview:error',
+    id: 'err-preview-1',
+    correlationId: preview.id,
     payload: { message: REFUSAL, code: 'REPLACE_LEAVES_RECORDS', retryable: false },
   });
-  // The tab reads the status again after a load's error, as after any.
-  await answerAll(page, 'frozen:status', 'frozen:status:response', { status: STATUS });
   return bridge;
 }
 
@@ -155,8 +191,8 @@ test.describe('the Frozen page’s Reload, refused while records would be left',
     });
     await expect(page.getByTestId('frozen-reload-refused')).toHaveCount(0);
     await expect(page.getByTestId('frozen-removal-removing')).toBeVisible();
-    // Nothing is loaded again until the user asks.
-    expect(await bridge.getMessages('frozen:load')).toHaveLength(1);
+    // Nothing is loaded until the user asks.
+    expect(await bridge.getMessages('frozen:load')).toEqual([]);
   });
 
   test('cancelled, leaves the org as it is: no removal, no load', async ({ page }) => {
@@ -168,6 +204,32 @@ test.describe('the Frozen page’s Reload, refused while records would be left',
     await expect(page.getByTestId('frozen-error')).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await bridge.getMessages('frozen:remove')).toEqual([]);
-    expect(await bridge.getMessages('frozen:load')).toHaveLength(1);
+    expect(await bridge.getMessages('frozen:load')).toEqual([]);
+  });
+});
+
+test.describe('the Frozen page’s Reload, planned', () => {
+  test('asks with how many records its purge deletes, and loads once the org is typed', async ({
+    page,
+  }) => {
+    const { bridge } = await reloadAsked(page);
+    await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+      plan: RELOAD_PLAN,
+    });
+
+    const dialog = page.getByRole('dialog', { name: `Reload into ${QA_SANDBOX.alias}` });
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    await expect(dialog).toContainText(
+      `This reload deletes from ${QA_SANDBOX.alias} 2 records that earlier loads of this ` +
+        'dataset created and this one does not find again, then loads the dataset.',
+    );
+    await expect(dialog.getByTestId('danger-confirm-btn')).toBeDisabled();
+    expect(await bridge.getMessages('frozen:load')).toEqual([]);
+    await dialog.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+    await dialog.getByTestId('danger-confirm-btn').click();
+
+    const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+    // The panel sends the reload as it always did: the extension makes it a replace.
+    expect(load.payload).toEqual({ targetOrgId: QA_SANDBOX.id, reload: true });
   });
 });

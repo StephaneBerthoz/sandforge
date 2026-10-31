@@ -1166,6 +1166,7 @@ export class ExtensionHandlers {
         'frozen:remove:preview',
         'frozen:status',
         'frozen:rules:clear',
+        'frozen:rules:create',
       ],
       this.frozenHandler,
     );

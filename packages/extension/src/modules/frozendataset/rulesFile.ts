@@ -169,6 +169,39 @@ export function serializePseudonymRules(file: PseudonymRulesFile): string {
   return `${JSON.stringify({ rulesVersion: file.rulesVersion, rules: sorted }, null, 2)}\n`;
 }
 
+/**
+ * The rules file a first extraction starts from: no rule at all. Valid and
+ * safe — every field without a rule is cleared, the platform's own words
+ * aside — and after that extraction, what it kept without a rule is listed
+ * for review. An example rule could name a field the org does not hold.
+ */
+export const EMPTY_RULES_FILE: PseudonymRulesFile = { rulesVersion: '1.0.0', rules: {} };
+
+/** What a rules file holds, as the panel says it: absent, valid, or why it is not. */
+export type RulesFileState =
+  | { found: false }
+  | { found: true; rulesVersion: string; ruleCount: number }
+  | { found: true; invalid: string };
+
+/**
+ * What the text read where the rules file goes makes of it: `null` for no
+ * file there. Parsed as an extraction parses it, so a file the panel calls
+ * valid is one the extraction takes.
+ */
+export function rulesFileStateOf(text: string | null): RulesFileState {
+  if (text === null) return { found: false };
+  try {
+    const parsed = parsePseudonymRules(JSON.parse(text));
+    return {
+      found: true,
+      rulesVersion: parsed.rulesVersion,
+      ruleCount: Object.keys(parsed.rules).length,
+    };
+  } catch (err: unknown) {
+    return { found: true, invalid: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** The days a business hours record keeps a start and an end time for. */
 const WEEK_DAYS = [
   'Monday',

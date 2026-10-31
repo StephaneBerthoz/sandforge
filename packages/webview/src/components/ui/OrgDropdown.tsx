@@ -18,6 +18,12 @@ export interface OrgDropdownProps {
   testId?: string;
   /** Additional CSS classes. */
   className?: string;
+  /**
+   * An org listed but not offered, and why, said beside its name: the org a
+   * Frozen dataset was extracted from, which a load of it refuses. Offered,
+   * it was the first click of the Load tab, and the refusal came in English.
+   */
+  unavailable?: { orgId: string; note: string };
 }
 
 /** CSS class for org status indicator dot. */
@@ -82,6 +88,7 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
   ariaLabel,
   testId = 'org-dropdown',
   className,
+  unavailable,
 }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -111,9 +118,11 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  /** The options drawn in the panel, in order. */
+  /** The options drawn in the panel that can be picked, in order: the arrows pass over the others. */
   const options = (): HTMLButtonElement[] =>
-    Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
+    Array.from(
+      panelRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [],
+    );
 
   /** Open the panel and put the focus on the current org, or the first option. */
   const openOnOption = (): void => {
@@ -234,36 +243,50 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
           >
             {t('common.selectOrg')}
           </button>
-          {sortedOrgs.map((org) => (
-            <button
-              key={org.id}
-              type="button"
-              data-testid={`${testId}-option-${org.id}`}
-              // The current org, said as well as tinted.
-              aria-current={org.id === value ? 'true' : undefined}
-              onClick={() => handleSelect(org.id)}
-              className={cn(
-                'w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors',
-                org.id === value
-                  ? 'bg-forge/10 text-hue-forge'
-                  : 'text-text-secondary hover:bg-surface-2',
-              )}
-            >
-              <StatusDot status={org.status} />
-              <span className="truncate">{org.alias || org.username}</span>
-              <span className="sr-only">{t(`common.orgStatus_${org.status}`)}</span>
-              {org.alias && (
-                <span
-                  className={cn(
-                    'text-[10px] truncate ml-auto',
-                    org.id === value ? 'text-text-primary' : 'text-text-secondary',
-                  )}
-                >
-                  {org.username}
-                </span>
-              )}
-            </button>
-          ))}
+          {sortedOrgs.map((org) => {
+            const note = unavailable?.orgId === org.id ? unavailable.note : undefined;
+            return (
+              <button
+                key={org.id}
+                type="button"
+                data-testid={`${testId}-option-${org.id}`}
+                // The current org, said as well as tinted.
+                aria-current={org.id === value ? 'true' : undefined}
+                disabled={note !== undefined}
+                onClick={() => handleSelect(org.id)}
+                className={cn(
+                  'w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors',
+                  note !== undefined
+                    ? 'text-text-secondary cursor-not-allowed'
+                    : org.id === value
+                      ? 'bg-forge/10 text-hue-forge'
+                      : 'text-text-secondary hover:bg-surface-2',
+                )}
+              >
+                <StatusDot status={org.status} />
+                <span className="truncate">{org.alias || org.username}</span>
+                <span className="sr-only">{t(`common.orgStatus_${org.status}`)}</span>
+                {note !== undefined && (
+                  <span
+                    className="text-[10px] shrink-0"
+                    data-testid={`${testId}-option-${org.id}-note`}
+                  >
+                    {note}
+                  </span>
+                )}
+                {org.alias && (
+                  <span
+                    className={cn(
+                      'text-[10px] truncate ml-auto',
+                      org.id === value ? 'text-text-primary' : 'text-text-secondary',
+                    )}
+                  >
+                    {org.username}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

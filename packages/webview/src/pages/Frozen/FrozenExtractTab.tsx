@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Plus, Save, Trash2 } from 'lucide-react';
+import { ExternalLink, Play, Plus, Save, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import type {
   BaseMessage,
@@ -24,6 +24,7 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { useFrozenMutation } from './useFrozenBridge';
 import { FrozenCoverageNotes } from './FrozenCoverageNotes';
 import { FrozenKeptWithoutARule } from './FrozenKeptWithoutARule';
+import { CONFIGURATION_KEYS_URL, FrozenRulesFileLine } from './FrozenRulesFileLine';
 
 /** Draft row for one coverage axis. */
 interface AxisDraft {
@@ -45,6 +46,21 @@ const FORM_KEYS = new Set(['rootObject', 'budgetMaxRecords', 'axes', 'edgeCases'
 
 const EMPTY_AXIS: AxisDraft = { name: '', label: '', filterField: '', valuesSoql: '' };
 const EMPTY_EDGE: EdgeCaseDraft = { name: '', label: '', whereFragment: '' };
+
+/*
+ * Examples in the placeholders, on the object the root object's own
+ * placeholder names: the inputs showed their column's name and nothing of
+ * what an axis query looks like, and the name was gone once a value was
+ * typed. The SOQL and the API names are the same in every language.
+ */
+const AXIS_NAME_EXAMPLE = 'priority';
+const AXIS_FIELD_EXAMPLE = 'Priority';
+const AXIS_SOQL_EXAMPLE = 'SELECT Priority axisValue FROM Case GROUP BY Priority';
+const EDGE_NAME_EXAMPLE = 'escalated';
+const EDGE_WHERE_EXAMPLE = "Status = 'Escalated'";
+
+/** A column header over the axis and edge-case rows. */
+const columnHeaderClass = 'text-[10px] text-text-secondary';
 
 /**
  * On the input background: that is the surface the theme sizes its placeholder
@@ -135,6 +151,8 @@ export interface FrozenExtractTabProps {
 export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchStatus }) => {
   const { t } = useTranslation();
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const orgs = useOrgStore((s) => s.orgs);
+  const status = useFrozenStore((s) => s.status);
   const selection = useFrozenStore((s) => s.selection);
   const setSelection = useFrozenStore((s) => s.setSelection);
   const controlReport = useFrozenStore((s) => s.controlReport);
@@ -149,6 +167,25 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   const [edgeCases, setEdgeCases] = useState<EdgeCaseDraft[]>([]);
   const [advancedJson, setAdvancedJson] = useState('{}');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  /*
+   * An edit since the configuration was last saved or read. The runs send the
+   * org alone, and the extension reads the saved configuration: an edit not
+   * saved was ignored, while "Saved" stayed beside the button as if it were.
+   */
+  const [dirty, setDirty] = useState(false);
+  const ids = {
+    rootHint: useId(),
+    advancedHint: useId(),
+    saveFirst: useId(),
+    rulesBlocking: useId(),
+    axisName: useId(),
+    axisLabel: useId(),
+    axisField: useId(),
+    axisSoql: useId(),
+    edgeName: useId(),
+    edgeLabel: useId(),
+    edgeWhere: useId(),
+  };
 
   const configQuery = useBridgeQuery<{
     config: FrozenProjectConfig | null;
@@ -166,9 +203,28 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
     setAxes(draft.axes);
     setEdgeCases(draft.edgeCases);
     setAdvancedJson(draft.advancedJson);
+    setDirty(false);
   }, [configQuery.data, setConfig]);
 
   const saveMutation = useFrozenMutation<{ success: boolean }>('frozen:config:save');
+  const saved = saveMutation.data?.success === true;
+  useEffect(() => {
+    if (saved) setDirty(false);
+  }, [saved]);
+  /*
+   * What the runs read: a configuration saved — this session or before. With
+   * none, Run selection was offered and failed on an internal message type.
+   */
+  const configSaved = saved || configQuery.data?.config != null || status?.configured === true;
+  const saveFirst = dirty || !configSaved;
+  /*
+   * The rules file the extraction reads, missing or unreadable: the run is
+   * refused for it, so it is not offered. Before the status is read, nothing
+   * is said of it.
+   */
+  const rulesBlock =
+    status?.rules !== undefined && (!status.rules.found || status.rules.invalid !== undefined);
+  const sourceAlias = orgs.find((org) => org.id === selectedOrgId)?.alias ?? selectedOrgId ?? '';
   // Past the host's ten minutes: a selection that runs out of time answers
   // with what it kept, and the page waits long enough to hear it.
   const selectMutation = useFrozenMutation<FrozenSelectResponse['payload']>('frozen:select', {
@@ -235,11 +291,20 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
   };
 
   const updateAxis = (index: number, patch: Partial<AxisDraft>): void => {
+    setDirty(true);
     setAxes((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
   };
   const updateEdgeCase = (index: number, patch: Partial<EdgeCaseDraft>): void => {
+    setDirty(true);
     setEdgeCases((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)));
   };
+  /** Every other edit of the form: what it changes, and the form no longer saved. */
+  const edited =
+    <T,>(apply: (value: T) => void) =>
+    (value: T): void => {
+      setDirty(true);
+      apply(value);
+    };
 
   const combinationRows = (selection?.combinations ?? []).map((c) => ({
     combinationKey: c.combinationKey,
@@ -269,6 +334,15 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
     violations: c.violations.length,
   }));
 
+  // Each count of the extraction's summary with its own plural: it read "9
+  // records frozen across 1 files", pluralized on the records alone.
+  const extractedRecords = t('frozen.extract.summaryRecords', {
+    count: extractMutation.data?.recordCount ?? 0,
+  });
+  const extractedFiles = t('frozen.extract.summaryFiles', {
+    count: extractMutation.data?.files.length ?? 0,
+  });
+
   const failedViolations = (controlReport?.checks ?? []).flatMap((c) =>
     c.violations.slice(0, 5).map((v) => ({
       key: `${c.name}:${v.objectApiName}:${v.referenceId}:${v.field ?? ''}`,
@@ -291,18 +365,31 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
         <CardBody className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-text-primary">{t('frozen.config.title')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-text-secondary">
-                {t('frozen.config.rootObject')}
-              </span>
-              <input
-                className={inputClass}
-                value={rootObject}
-                onChange={(e) => setRootObject(e.target.value)}
-                placeholder="Case"
-                data-testid="frozen-config-root-object"
-              />
-            </label>
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-text-secondary">
+                  {t('frozen.config.rootObject')}
+                </span>
+                <input
+                  className={inputClass}
+                  value={rootObject}
+                  onChange={(e) => edited(setRootObject)(e.target.value)}
+                  placeholder="Case"
+                  aria-describedby={ids.rootHint}
+                  data-testid="frozen-config-root-object"
+                />
+              </label>
+              {/* The unit of the dataset, said once: "business folder" read as
+                  nothing a Salesforce consultant knows, and German translated
+                  it as the word its users read as Case. */}
+              <p
+                id={ids.rootHint}
+                className="text-[10px] text-text-secondary"
+                data-testid="frozen-config-root-object-hint"
+              >
+                {t('frozen.config.rootObjectHint')}
+              </p>
+            </div>
             <label className="flex flex-col gap-1">
               <span className="text-[10px] text-text-secondary">{t('frozen.config.budget')}</span>
               <input
@@ -310,7 +397,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 type="number"
                 min={1}
                 value={budget}
-                onChange={(e) => setBudget(e.target.value)}
+                onChange={(e) => edited(setBudget)(e.target.value)}
                 data-testid="frozen-config-budget"
               />
             </label>
@@ -326,12 +413,35 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 variant="ghost"
                 size="sm"
                 icon={<Plus className="w-3 h-3" />}
-                onClick={() => setAxes((prev) => [...prev, { ...EMPTY_AXIS }])}
+                onClick={() => edited(setAxes)([...axes, { ...EMPTY_AXIS }])}
                 data-testid="frozen-axis-add"
               >
                 {t('frozen.config.addAxis')}
               </Button>
             </div>
+            {/* Headers over the columns, which name each input: the inputs had
+                their name as a placeholder alone, gone once a value was typed. */}
+            {axes.length > 0 && (
+              <div
+                className="grid grid-cols-[1fr_1fr_1fr_2fr_auto] gap-2 items-center"
+                data-testid="frozen-axis-headers"
+              >
+                <span id={ids.axisName} className={columnHeaderClass}>
+                  {t('frozen.config.axisName')}
+                </span>
+                <span id={ids.axisLabel} className={columnHeaderClass}>
+                  {t('frozen.config.axisLabel')}
+                </span>
+                <span id={ids.axisField} className={columnHeaderClass}>
+                  {t('frozen.config.axisField')}
+                </span>
+                <span id={ids.axisSoql} className={columnHeaderClass}>
+                  {t('frozen.config.axisSoql')}
+                </span>
+                {/* The width of the remove button under it. */}
+                <span className="w-7" aria-hidden="true" />
+              </div>
+            )}
             {axes.map((axis, index) => (
               <div
                 key={index}
@@ -341,25 +451,29 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 <input
                   className={inputClass}
                   value={axis.name}
-                  placeholder={t('frozen.config.axisName')}
+                  placeholder={AXIS_NAME_EXAMPLE}
+                  aria-labelledby={ids.axisName}
                   onChange={(e) => updateAxis(index, { name: e.target.value })}
                 />
                 <input
                   className={inputClass}
                   value={axis.label}
-                  placeholder={t('frozen.config.axisLabel')}
+                  placeholder={t('frozen.config.axisLabelExample')}
+                  aria-labelledby={ids.axisLabel}
                   onChange={(e) => updateAxis(index, { label: e.target.value })}
                 />
                 <input
                   className={inputClass}
                   value={axis.filterField}
-                  placeholder={t('frozen.config.axisField')}
+                  placeholder={AXIS_FIELD_EXAMPLE}
+                  aria-labelledby={ids.axisField}
                   onChange={(e) => updateAxis(index, { filterField: e.target.value })}
                 />
                 <input
                   className={inputClass}
                   value={axis.valuesSoql}
-                  placeholder={t('frozen.config.axisSoql')}
+                  placeholder={AXIS_SOQL_EXAMPLE}
+                  aria-labelledby={ids.axisSoql}
                   onChange={(e) => updateAxis(index, { valuesSoql: e.target.value })}
                 />
                 <Button
@@ -367,7 +481,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                   size="sm"
                   icon={<Trash2 className="w-3 h-3" />}
                   aria-label={t('frozen.config.removeAxis')}
-                  onClick={() => setAxes((prev) => prev.filter((_, i) => i !== index))}
+                  onClick={() => edited(setAxes)(axes.filter((_, i) => i !== index))}
                 />
               </div>
             ))}
@@ -383,12 +497,29 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 variant="ghost"
                 size="sm"
                 icon={<Plus className="w-3 h-3" />}
-                onClick={() => setEdgeCases((prev) => [...prev, { ...EMPTY_EDGE }])}
+                onClick={() => edited(setEdgeCases)([...edgeCases, { ...EMPTY_EDGE }])}
                 data-testid="frozen-edge-add"
               >
                 {t('frozen.config.addEdgeCase')}
               </Button>
             </div>
+            {edgeCases.length > 0 && (
+              <div
+                className="grid grid-cols-[1fr_1fr_2fr_auto] gap-2 items-center"
+                data-testid="frozen-edge-headers"
+              >
+                <span id={ids.edgeName} className={columnHeaderClass}>
+                  {t('frozen.config.edgeName')}
+                </span>
+                <span id={ids.edgeLabel} className={columnHeaderClass}>
+                  {t('frozen.config.edgeLabel')}
+                </span>
+                <span id={ids.edgeWhere} className={columnHeaderClass}>
+                  {t('frozen.config.edgeWhere')}
+                </span>
+                <span className="w-7" aria-hidden="true" />
+              </div>
+            )}
             {edgeCases.map((edge, index) => (
               <div
                 key={index}
@@ -398,19 +529,22 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                 <input
                   className={inputClass}
                   value={edge.name}
-                  placeholder={t('frozen.config.edgeName')}
+                  placeholder={EDGE_NAME_EXAMPLE}
+                  aria-labelledby={ids.edgeName}
                   onChange={(e) => updateEdgeCase(index, { name: e.target.value })}
                 />
                 <input
                   className={inputClass}
                   value={edge.label}
-                  placeholder={t('frozen.config.edgeLabel')}
+                  placeholder={t('frozen.config.edgeLabelExample')}
+                  aria-labelledby={ids.edgeLabel}
                   onChange={(e) => updateEdgeCase(index, { label: e.target.value })}
                 />
                 <input
                   className={inputClass}
                   value={edge.whereFragment}
-                  placeholder={t('frozen.config.edgeWhere')}
+                  placeholder={EDGE_WHERE_EXAMPLE}
+                  aria-labelledby={ids.edgeWhere}
                   onChange={(e) => updateEdgeCase(index, { whereFragment: e.target.value })}
                 />
                 <Button
@@ -418,23 +552,40 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
                   size="sm"
                   icon={<Trash2 className="w-3 h-3" />}
                   aria-label={t('frozen.config.removeEdgeCase')}
-                  onClick={() => setEdgeCases((prev) => prev.filter((_, i) => i !== index))}
+                  onClick={() => edited(setEdgeCases)(edgeCases.filter((_, i) => i !== index))}
                 />
               </div>
             ))}
           </div>
 
-          {/* Advanced config (JSON) */}
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-text-secondary">{t('frozen.config.advanced')}</span>
-            <textarea
-              className={`${inputClass} font-mono h-28`}
-              value={advancedJson}
-              onChange={(e) => setAdvancedJson(e.target.value)}
-              spellCheck={false}
-              data-testid="frozen-config-advanced"
-            />
-          </label>
+          {/* What the advanced JSON takes, said once and linked to the docs'
+              table of keys: the label listed jargon over a bare "{}". */}
+          <div className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-text-secondary">{t('frozen.config.advanced')}</span>
+              <textarea
+                className={`${inputClass} font-mono h-28`}
+                value={advancedJson}
+                onChange={(e) => edited(setAdvancedJson)(e.target.value)}
+                spellCheck={false}
+                aria-describedby={ids.advancedHint}
+                data-testid="frozen-config-advanced"
+              />
+            </label>
+            <p id={ids.advancedHint} className="text-[10px] text-text-secondary">
+              {t('frozen.config.advancedHint')}{' '}
+              <a
+                href={CONFIGURATION_KEYS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-text-primary underline"
+                data-testid="frozen-config-keys-link"
+              >
+                {t('frozen.config.configKeys')}
+                <ExternalLink size={10} aria-hidden="true" className="shrink-0" />
+              </a>
+            </p>
+          </div>
           {jsonError && <p className="text-xs text-status-error">{jsonError}</p>}
 
           <div className="flex items-center gap-2">
@@ -448,12 +599,28 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
             >
               {t('frozen.config.save')}
             </Button>
-            {saveMutation.data?.success && (
-              <span className="text-xs text-status-success" data-testid="frozen-config-saved">
-                {t('frozen.config.saved')}
+            {dirty ? (
+              <span className="text-xs text-status-warning" data-testid="frozen-config-unsaved">
+                {t('frozen.config.unsaved')}
               </span>
+            ) : (
+              saved && (
+                <span className="text-xs text-status-success" data-testid="frozen-config-saved">
+                  {t('frozen.config.saved')}
+                </span>
+              )
             )}
           </div>
+          {/* Why the runs are not offered: they read the saved configuration. */}
+          {saveFirst && (
+            <p
+              id={ids.saveFirst}
+              className="text-[11px] text-text-secondary"
+              data-testid="frozen-config-save-first"
+            >
+              {t('frozen.config.saveFirst')}
+            </p>
+          )}
         </CardBody>
       </Card>
 
@@ -469,7 +636,9 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               size="sm"
               icon={<Play className="w-3 h-3" />}
               loading={selectMutation.loading}
-              disabled={!selectedOrgId}
+              disabled={!selectedOrgId || saveFirst}
+              focusableWhenDisabled
+              aria-describedby={saveFirst ? ids.saveFirst : undefined}
               onClick={() => {
                 setSelectStep(null);
                 selectMutation.mutate({ sourceOrgId: selectedOrgId });
@@ -479,6 +648,10 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               {t('frozen.selection.run')}
             </Button>
           </div>
+          {/* The org the run reads: the side panel's, which nothing here named. */}
+          <p className="text-xs text-text-secondary" data-testid="frozen-selection-source">
+            {t('frozen.selection.source', { org: sourceAlias })}
+          </p>
           {selectMutation.loading && selectStep && (
             <p
               role="status"
@@ -506,7 +679,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               )}
               <p className="text-xs text-text-secondary" data-testid="frozen-selection-volumetry">
                 {t('frozen.selection.volumetry', {
-                  total: selection.volumetry.total,
+                  count: selection.volumetry.total,
                   budget: selection.volumetry.budgetMax,
                 })}
               </p>
@@ -567,13 +740,27 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               size="sm"
               icon={<Play className="w-3 h-3" />}
               loading={extractMutation.loading}
-              disabled={!selectedOrgId || !selection}
+              disabled={!selectedOrgId || !selection || saveFirst || rulesBlock}
+              focusableWhenDisabled
+              aria-describedby={
+                [saveFirst ? ids.saveFirst : '', rulesBlock ? ids.rulesBlocking : '']
+                  .filter(Boolean)
+                  .join(' ') || undefined
+              }
               onClick={() => extractMutation.mutate({ sourceOrgId: selectedOrgId })}
               data-testid="frozen-extract-run"
             >
               {t('frozen.extract.run')}
             </Button>
           </div>
+          <p className="text-xs text-text-secondary" data-testid="frozen-extract-source">
+            {t('frozen.selection.source', { org: sourceAlias })}
+          </p>
+          <FrozenRulesFileLine
+            rules={status?.rules}
+            blockingId={ids.rulesBlocking}
+            onCreated={onRefetchStatus}
+          />
           {/* Where the salt comes from and how a teammate gets it: it is made
               on the first extraction, and nothing else said so. */}
           <p className="text-xs text-text-secondary" data-testid="frozen-salt-hint">
@@ -586,8 +773,8 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
             <>
               <p className="text-xs text-text-secondary" data-testid="frozen-extract-summary">
                 {t('frozen.extract.summary', {
-                  count: extractMutation.data.recordCount,
-                  files: extractMutation.data.files.length,
+                  records: extractedRecords,
+                  files: extractedFiles,
                 })}
               </p>
               <FrozenCoverageNotes

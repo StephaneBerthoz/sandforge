@@ -3,8 +3,10 @@ import { renderHook, act } from '@testing-library/react';
 
 import '../../i18n';
 import { useFrozenStore } from '../../stores/useFrozenStore';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { useFrozenMutation, useFrozenPushChannels } from './useFrozenBridge';
 import type { BridgeMutationState } from '../../hooks/useBridgeMutation';
+import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
 const api = {
@@ -152,6 +154,71 @@ describe('useFrozenMutation, a load asked to mute that could not be', () => {
       code: 'MUTE_FAILED',
       retryable: false,
     });
+  });
+});
+
+describe('useFrozenMutation, the refusals a first run meets', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+    useFrozenStore.setState({ lastError: null });
+    useOrgStore.setState({
+      orgs: [{ id: 'org-uat', alias: 'UAT', status: 'connected' } as unknown as SalesforceOrg],
+    });
+  });
+
+  /** Send a request of `requestType` and answer it on its error channel with `payload`. */
+  function refused(requestType: string, payload: Record<string, unknown>): void {
+    const { result } = renderHook(() => useFrozenMutation<{ ok: boolean }>(requestType));
+    act(() => {
+      result.current.mutate({ targetOrgId: 'org-uat' });
+    });
+    const sent = mockPostMessage.mock.calls.at(-1)?.[0] as { payload: { id: string } };
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'host-err',
+            type: `${requestType}:error`,
+            timestamp: Date.now(),
+            correlationId: sent.payload.id,
+            payload: { retryable: false, ...payload },
+          },
+        }),
+      );
+    });
+  }
+
+  // The host words them in English for its log: "manifest source.orgId" on
+  // the first load the Load tab offered, in every locale.
+  it('says a load into the dataset’s own source in the interface language, naming the org', () => {
+    refused('frozen:load', {
+      message: 'Refusing frozen-dataset load on org-uat: this org is the dataset SOURCE',
+      code: 'GUARD_REFUSED',
+      guard: 'source-is-target',
+      orgId: 'org-uat',
+    });
+
+    expect(useFrozenStore.getState().lastError).toMatchObject({
+      code: 'GUARD_REFUSED',
+      message:
+        'UAT is the org this dataset was extracted from: a load never goes back into its source, and nothing was written. Pick another sandbox as the target.',
+    });
+  });
+
+  it('says a run with nothing saved, and an extraction with no rules file, with what to click', () => {
+    refused('frozen:select', { message: 'frozen:config:save: …', code: 'CONFIG_MISSING' });
+    expect(useFrozenStore.getState().lastError?.message).toBe(
+      'No project configuration is saved, and the runs read the saved one. Click Save configuration on the Extract tab first.',
+    );
+
+    refused('frozen:extract', {
+      message: 'Pseudonymization rules file not found at /sas/rules.json',
+      code: 'RULES_MISSING',
+      rulesPath: '/sas/rules.json',
+    });
+    expect(useFrozenStore.getState().lastError?.message).toContain(
+      'No pseudonymization rules file at /sas/rules.json',
+    );
   });
 });
 

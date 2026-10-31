@@ -1371,6 +1371,22 @@ async function openFrozenLastLoad(
   await page.getByTestId('frozen-removal').waitFor({ timeout: 10_000 });
 }
 
+/** Pick `orgId` as the Frozen Load tab's target: the tab offers none until one is picked. */
+async function pickFrozenTarget(page: Page, orgId: string = QA_SANDBOX.id): Promise<void> {
+  await page.getByTestId('frozen-load-target').click();
+  await page.getByTestId(`frozen-load-target-option-${orgId}`).click();
+}
+
+/** Answer the Frozen page's `frozen:config:get` with a saved configuration: the runs read it. */
+async function answerFrozenConfig(bridge: MockBridge, page: Page): Promise<void> {
+  await bridge.waitForMessage('frozen:config:get', { timeout: 10_000 });
+  await answerAll(page, 'frozen:config:get', 'frozen:config:get:response', {
+    config: { rootObject: 'Opportunity', axes: [], edgeCases: [], budgetMaxRecords: 2500 },
+    sasDir: '/home/qa/.sandforge-sas',
+    datasetDir: '/home/qa/.sandforge-sas/dataset',
+  });
+}
+
 /** An account and its contacts, as a Forge discovery answers with them. */
 const FORGE_TWO_NODE_GRAPH = {
   ...FORGE_RUN_GRAPH,
@@ -7334,7 +7350,13 @@ for (const theme of SCANNED_THEMES) {
         status: FROZEN_STATUS_AFTER_LOAD,
       });
       await page.getByTestId('page-tab-load').click();
-      // The panel selected another org than the one the load went into.
+      // No target until one is picked, and nothing to verify.
+      await expect(page.getByTestId('frozen-load-pick-target')).toHaveText(
+        'Pick the sandbox to fill.',
+      );
+      await expect(page.getByTestId('frozen-verify-run')).toHaveAttribute('aria-disabled', 'true');
+      // An org the load did not go into.
+      await pickFrozenTarget(page, DEV_SANDBOX.id);
       await expect(page.getByTestId('frozen-verify-no-load')).toContainText(
         'is recorded: load the dataset into it before verifying it.',
       );
@@ -7345,8 +7367,7 @@ for (const theme of SCANNED_THEMES) {
         await contrastMeasuredIn(page, none, '[data-testid="frozen-verify-no-load"]'),
       ).toBeGreaterThan(0);
 
-      await page.getByTestId('frozen-load-target').click();
-      await page.getByTestId(`frozen-load-target-option-${QA_SANDBOX.id}`).click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-verify-no-load')).toHaveCount(0);
       await expect(page.getByTestId('frozen-verify-run')).not.toHaveAttribute('aria-disabled');
       expectNoViolations(await checkAccessibility(page));
@@ -7387,11 +7408,12 @@ for (const theme of SCANNED_THEMES) {
       });
       await page.getByTestId('frozen-load-reload').check();
       await page.getByTestId('frozen-load-run').click();
-      const load = await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
+      // A reload reads the plan of its purge first, and is refused there.
+      const preview = await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
       await sendExtensionMessage(page, {
-        type: 'frozen:load:error',
-        id: 'err-frozen-load',
-        correlationId: load.id,
+        type: 'frozen:load:preview:error',
+        id: 'err-frozen-preview',
+        correlationId: preview.id,
         payload: {
           message:
             'A removal of the loads this reload replaces would leave 3 of their records in the ' +
@@ -12157,6 +12179,62 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
+    test('Frozen Extract tab saying the rules file is missing, then an edit not saved holding the runs back', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerFrozenConfig(bridge, page);
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: {
+          ...FROZEN_STATUS_WITH_DATASET,
+          rules: { path: '/home/qa/.sandforge-sas/rules.json', found: false },
+        },
+      });
+      await expect(page.getByTestId('frozen-rules-missing')).toHaveText(
+        'No rules file at /home/qa/.sandforge-sas/rules.json: Run extraction needs one.',
+        { timeout: 10_000 },
+      );
+      await expect(page.getByTestId('frozen-rules-create')).toBeVisible();
+      await expect(page.getByTestId('frozen-extract-run')).toHaveAttribute('aria-disabled', 'true');
+      await expectReadable(page, theme);
+
+      await page.getByTestId('frozen-config-root-object').fill('Case');
+      await expect(page.getByTestId('frozen-config-unsaved')).toHaveText('Unsaved changes');
+      await expect(page.getByTestId('frozen-config-saved')).toHaveCount(0);
+      await expect(page.getByTestId('frozen-select-run')).toHaveAttribute('aria-disabled', 'true');
+      await expect(page.getByTestId('frozen-config-save-first')).toBeVisible();
+      await expectReadable(page, theme);
+    });
+
+    test('Frozen Load tab with no target picked, the source listed but not offered, and what each option does', async ({
+      page,
+    }) => {
+      await openPanel(bridge, page, 'frozen', theme);
+      await bridge.seedOrgs(MOCK_ORGS);
+      await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      await answerAll(page, 'frozen:status', 'frozen:status:response', {
+        status: FROZEN_STATUS_WITH_DATASET,
+      });
+      await page.getByTestId('page-tab-load').click();
+      await expect(page.getByTestId('frozen-load-pick-target')).toHaveText(
+        'Pick the sandbox to fill.',
+      );
+      await expect(page.getByTestId('frozen-load-run')).toHaveAttribute('aria-disabled', 'true');
+      await expect(page.getByTestId('frozen-load-pilot-hint')).toBeVisible();
+      await expect(page.getByTestId('frozen-load-reload-hint')).toBeVisible();
+      await expectReadable(page, theme);
+
+      await page.getByTestId('frozen-load-target').click();
+      await expect(page.getByTestId(`frozen-load-target-option-${DEV_SANDBOX.id}`)).toBeDisabled();
+      await expect(page.getByTestId(`frozen-load-target-option-${DEV_SANDBOX.id}-note`)).toHaveText(
+        '(source of this dataset)',
+      );
+      // The open list covers what is under it: read the list.
+      await expectReadable(page, theme, '[data-testid="frozen-load-target-panel"]');
+    });
+
     test('Frozen dataset load report naming what the load did not send', async ({ page }) => {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
@@ -12166,6 +12244,7 @@ for (const theme of STATE_THEMES) {
         status: FROZEN_STATUS_WITH_DATASET,
       });
       await page.getByTestId('page-tab-load').click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-run').click();
       await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
@@ -12219,9 +12298,21 @@ for (const theme of STATE_THEMES) {
         status: FROZEN_STATUS_WITH_DATASET,
       });
       await page.getByTestId('page-tab-load').click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-reload').check();
       await page.getByTestId('frozen-load-run').click();
+      // The plan of its purge first, then the question, typed, with what it deletes.
+      await bridge.waitForMessage('frozen:load:preview', { timeout: 10_000 });
+      await answerAll(page, 'frozen:load:preview', 'frozen:load:preview:response', {
+        plan: FROZEN_RELOAD_PLAN,
+      });
+      const confirm = page.getByRole('dialog', { name: `Reload into ${QA_SANDBOX.alias}` });
+      await confirm.waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(confirm).toContainText(`This reload deletes from ${QA_SANDBOX.alias}`);
+      await expectReadable(page, theme, '[role="dialog"]');
+      await confirm.getByTestId('danger-input').fill(QA_SANDBOX.alias);
+      await confirm.getByTestId('danger-confirm-btn').click();
       await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
       // Per object, what the purge deleted and deactivated; what it left of a
       // load that did not say what it created; and its refusals, grouped by why.
@@ -12252,6 +12343,7 @@ for (const theme of STATE_THEMES) {
         status: FROZEN_STATUS_WITH_DATASET,
       });
       await page.getByTestId('page-tab-load').click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-run').click();
       await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
@@ -12317,10 +12409,12 @@ for (const theme of STATE_THEMES) {
         status: FROZEN_STATUS_WITH_DATASET,
       });
       await page.getByTestId('page-tab-load').click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-load-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-run').click();
       await bridge.waitForMessage('frozen:load', { timeout: 10_000 });
       await page.getByTestId('frozen-load-cancel').waitFor({ state: 'visible', timeout: 10_000 });
+      await expect(page.getByTestId('frozen-load-cancel')).toHaveText('Stop the run');
       await expectReadable(page, theme);
 
       await page.getByTestId('frozen-load-cancel').click();
@@ -12340,6 +12434,7 @@ for (const theme of STATE_THEMES) {
         status: FROZEN_STATUS_WITH_DATASET,
       });
       await page.getByTestId('page-tab-load').click();
+      await pickFrozenTarget(page);
       await expect(page.getByTestId('frozen-load-preview')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-load-reload').check();
       await page.getByTestId('frozen-load-preview').click();
@@ -12383,6 +12478,8 @@ for (const theme of STATE_THEMES) {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      // The runs read the saved configuration, and wait for one.
+      await answerFrozenConfig(bridge, page);
       await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-select-run').click();
       await bridge.waitForMessage('frozen:select', { timeout: 10_000 });
@@ -12451,6 +12548,8 @@ for (const theme of STATE_THEMES) {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      // The runs read the saved configuration, and wait for one.
+      await answerFrozenConfig(bridge, page);
       await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-select-run').click();
       await bridge.waitForMessage('frozen:select', { timeout: 10_000 });
@@ -12514,6 +12613,8 @@ for (const theme of STATE_THEMES) {
       await openPanel(bridge, page, 'frozen', theme);
       await bridge.seedOrgs(MOCK_ORGS);
       await page.getByTestId('frozen-extract-tab').waitFor({ state: 'visible', timeout: 10_000 });
+      // The runs read the saved configuration, and wait for one.
+      await answerFrozenConfig(bridge, page);
       await expect(page.getByTestId('frozen-select-run')).toBeEnabled({ timeout: 10_000 });
       await page.getByTestId('frozen-select-run').click();
       const request = await bridge.waitForMessage('frozen:select', { timeout: 10_000 });

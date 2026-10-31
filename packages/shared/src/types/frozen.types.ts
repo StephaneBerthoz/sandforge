@@ -987,6 +987,25 @@ export interface FrozenLastVerifyInfo {
   measuredAt: string;
 }
 
+/**
+ * The pseudonymization rules file an extraction reads, as `frozen:status`
+ * finds it where the saved configuration points (`rulesFilePath`), else
+ * `rules.json` in the sas. An extraction is refused without it, and nothing
+ * on the page said where it goes or what it holds.
+ */
+export interface FrozenRulesFileInfo {
+  /** The absolute path the extraction reads. */
+  path: string;
+  /** Whether a file is there. */
+  found: boolean;
+  /** Its `rulesVersion`, when it is a valid rules file. */
+  rulesVersion?: string;
+  /** How many fields it gives a rule, when it is a valid rules file. */
+  ruleCount?: number;
+  /** Why the file there is no valid rules file: it cannot be read, or is no JSON rules file. */
+  invalid?: string;
+}
+
 /** Module status snapshot returned by `frozen:status`. */
 export interface FrozenStatusInfo {
   /** True when a project config is persisted. */
@@ -1042,4 +1061,6 @@ export interface FrozenStatusInfo {
    * named. Absent when no load wrote a mapping.
    */
   loadRecords?: FrozenLoadRecordsInfo[];
+  /** The rules file an extraction would read: where it is, and what it holds. */
+  rules?: FrozenRulesFileInfo;
 }

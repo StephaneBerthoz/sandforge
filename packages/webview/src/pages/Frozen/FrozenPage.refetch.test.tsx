@@ -138,9 +138,10 @@ describe('FrozenPage — the status it reads again', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
     useOrgStore.setState({ orgs: [DEV], selectedOrgId: DEV.id });
+    // The target picked: the Load tab offers none until one is.
     useFrozenStore.setState({
       tab: 'load',
-      targetOrgId: '',
+      targetOrgId: DEV.id,
       status: null,
       loadReport: null,
       progress: [],
