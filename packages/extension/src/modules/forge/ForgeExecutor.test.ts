@@ -708,9 +708,9 @@ describe('ForgeExecutor', () => {
        * A run of whole tables — no record to start from, so ids are kept as
        * they are by default — whose accounts the target refuses, every one. A
        * contact can do without its account and names a territory the run does
-       * not write; a contract cannot do without its account, which only its
-       * field says: the graph's edge is that of a lookup discovery never
-       * walked.
+       * not write, which the target holds; a contract cannot do without its
+       * account, which only its field says: the graph's edge is that of a
+       * lookup discovery never walked.
        */
       async function runWithAccountsRefused() {
         const tables: Record<string, Array<Record<string, unknown>>> = {
@@ -740,7 +740,11 @@ describe('ForgeExecutor', () => {
         );
         vi.mocked(deps.queryRecords).mockImplementation(async (org, soql) => {
           const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
-          return org === 'src' ? (tables[object] ?? []).map((row) => ({ ...row })) : [];
+          if (org === 'src') return (tables[object] ?? []).map((row) => ({ ...row }));
+          // The target holds the territory, asked for by id.
+          return object === 'Territory__c' && soql.includes(`'${TERRITORY}'`)
+            ? [{ Id: TERRITORY }]
+            : [];
         });
         vi.mocked(deps.insertRecords).mockImplementation(async (_org, object, rows) =>
           rows.map((_, i) =>
@@ -810,7 +814,7 @@ describe('ForgeExecutor', () => {
         ).toContain('parent failed');
       });
 
-      it('keeps the id a lookup gives of a parent that did not fail', async () => {
+      it('keeps the id a lookup gives of a parent that did not fail, which the target holds', async () => {
         const { sent } = await runWithAccountsRefused();
 
         expect(sent('Contact')[0]?.['Territory__c']).toBe(TERRITORY);
@@ -12084,7 +12088,8 @@ describe('ForgeExecutor', () => {
       /**
        * An account naming its primary contact, and the contact under it: a
        * cycle, written account first. A run of whole tables keeps the ids of
-       * what it does not write — the account's territory — by default.
+       * what it does not write that the target holds — the account's
+       * territory — by default.
        */
       async function accountsAndContacts() {
         const tables: Record<string, Array<Record<string, unknown>>> = {
@@ -12109,7 +12114,11 @@ describe('ForgeExecutor', () => {
         vi.mocked(deps.describeFields).mockImplementation(async (_org, object) => fields[object]);
         vi.mocked(deps.queryRecords).mockImplementation(async (org, soql) => {
           const object = /\bFROM (\w+)/.exec(soql)?.[1] ?? '';
-          return org === 'src' ? (tables[object] ?? []).map((row) => ({ ...row })) : [];
+          if (org === 'src') return (tables[object] ?? []).map((row) => ({ ...row }));
+          // The target holds the territory, asked for by id.
+          return object === 'Territory__c' && soql.includes(`'${TERRITORY}'`)
+            ? [{ Id: TERRITORY }]
+            : [];
         });
         vi.mocked(deps.insertRecords).mockImplementation(async (_org, object, rows) =>
           rows.map((_, i) => ({ id: `${object}NEW${i}`, success: true, errors: [] })),
@@ -12166,7 +12175,7 @@ describe('ForgeExecutor', () => {
         expect(summary.errors).toEqual([]);
       });
 
-      it('still keeps the id of a record the run does not write', async () => {
+      it('still keeps the id of a record the run does not write, which the target holds', async () => {
         const { sent } = await accountsAndContacts();
 
         expect(sent('Account')[0]?.['Territory__c']).toBe(TERRITORY);

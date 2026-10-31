@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { forgeGapId, forgeRunCreatedRecords } from '@sandforge/shared';
 import type { ForgeGraph, ForgeGraphEdge, ForgeGraphNode } from '@sandforge/shared';
 import { selectRows, type FakeRow } from '../../test/fakeSoql.js';
+import { parseSoql, selectFrom } from '../../test/memorySoql.js';
 import { canonicalRecordId } from '../../core/common/existingRecordMatch.js';
 import { PersonaRegistry } from '../autopilot/SmartAnonymizer.js';
 import { ForgeAnonymizer } from './ForgeAnonymizer.js';
@@ -9,6 +10,7 @@ import { ForgeAbortedError, ForgeExecutor } from './ForgeExecutor.js';
 import { ForgeRunStore, memoryRunFile, type RunFile } from './ForgeRunStore.js';
 import { reconcileInFlight, type InFlightTarget } from './ForgeInFlight.js';
 import { partialSummaryOf } from './interruptedRun.js';
+import { finishedRunStatus } from './runResult.js';
 import type { RecordTypeAvailability } from '../../core/metadata/recordTypeAvailability.js';
 import type {
   ExecuteOptions,
@@ -39,6 +41,9 @@ const KEY_PREFIX: Record<string, string> = {
   Contact: '003',
   Contract: '800',
   Opportunity: '006',
+  Invoice__c: 'a0I',
+  Policy__c: 'a0P',
+  Region__c: 'a0R',
 };
 
 const idField: FieldInfo = { name: 'Id', queryable: true, createable: false, isReference: false };
@@ -214,6 +219,31 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
     flow.mostAhead = Math.max(flow.mostAhead, flow.handedOut - flow.written);
     return rows;
   };
+  /**
+   * A read of the target by id, answered from what it holds as Salesforce
+   * answers one: an id of either length matches by its first fifteen
+   * characters, and comes back with eighteen; an id of another object matches
+   * nothing; a value that is no id is refused, as is an object neither org
+   * has. Any other statement is not one: undefined.
+   */
+  const heldById = (soql: string): Row[] | undefined => {
+    const asked = /^SELECT Id FROM (\w+) WHERE Id IN \((.*)\)$/.exec(soql);
+    if (!asked) return undefined;
+    const [, object, list] = asked;
+    for (const literal of list.split(', ')) {
+      if (!/^'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?'$/.test(literal)) {
+        throw new Error(`INVALID_QUERY_FILTER_OPERATOR: invalid ID field: ${literal}`);
+      }
+    }
+    if (schema[object] === undefined && !target.has(object)) {
+      throw new Error(`INVALID_TYPE: sObject type '${object}' is not supported.`);
+    }
+    const rows = [...(target.get(object) ?? new Map<string, Row>())].map(([id, row]) => ({
+      ...row,
+      Id: id,
+    }));
+    return selectFrom(rows, parseSoql(soql)).map((row) => ({ Id: row['Id'] }));
+  };
 
   const deps: ForgeExecutorDeps = {
     describeFields: vi.fn(async (_org: string, object: string) => {
@@ -229,7 +259,7 @@ function fakeOrgs(schema: Schema, options: FakeOrgOptions = {}) {
             { ApiName: 'Activated', StatusCode: 'Activated' },
           ];
         }
-        return [];
+        return heldById(soql) ?? [];
       }
       const counted = recordTypeCounts(schema, soql);
       if (counted) {
@@ -2109,6 +2139,264 @@ describe('a run of whole tables, with owners the target may not have', () => {
 
     expect(asked).toEqual([]);
     expect(owners).toEqual([undefined, undefined, undefined]);
+  });
+});
+
+describe('a run of whole tables, with lookups at objects outside the run', () => {
+  /*
+   * Run for real from one Developer Edition to another, a table of contacts
+   * copied alone, its accounts left out: the simulation said both would be
+   * inserted, and the run had both refused,
+   * INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY on AccountId — the source's
+   * account ids named nothing in the target. Between two sandboxes of one
+   * production the same ids name the same accounts.
+   */
+  const HELD = sourceId('Account', 1);
+  const GONE = sourceId('Account', 2);
+  const POLICY_HELD = sourceId('Policy__c', 1);
+  const POLICY_GONE = sourceId('Policy__c', 2);
+  const REFUSED_CROSS_REFERENCE =
+    'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY: insufficient access rights on cross-reference id';
+
+  /** Contacts naming an account the target holds, and two naming one it does not. */
+  const contacts: Schema = {
+    Account: { fields: [text('Name')], rows: [] },
+    Contact: {
+      fields: [text('LastName'), lookup('AccountId', 'Account', true)],
+      rows: [
+        { Id: sourceId('Contact', 1), LastName: 'One', AccountId: HELD },
+        { Id: sourceId('Contact', 2), LastName: 'Two', AccountId: GONE },
+        { Id: sourceId('Contact', 3), LastName: 'Three', AccountId: GONE },
+      ],
+    },
+  };
+  /** Invoices that may not go without their policy: one the target holds, one it does not. */
+  const invoices: Schema = {
+    Invoice__c: {
+      fields: [text('Name'), lookup('Policy__c', 'Policy__c', false)],
+      rows: [
+        { Id: sourceId('Invoice__c', 1), Name: 'January', Policy__c: POLICY_HELD },
+        { Id: sourceId('Invoice__c', 2), Name: 'February', Policy__c: POLICY_GONE },
+      ],
+    },
+  };
+  /** What the target holds before the run: one account, one policy. */
+  const holds = { Account: [{ Id: HELD, Name: 'Held' }], Policy__c: [{ Id: POLICY_HELD }] };
+  /** The target refuses a lookup naming a record it does not hold, as the platform does. */
+  const refuse = (_object: string, row: Row): string | undefined => {
+    const named = [row['AccountId'], row['Policy__c']].filter((v) => typeof v === 'string');
+    return named.some((id) => id !== HELD && id !== POLICY_HELD)
+      ? REFUSED_CROSS_REFERENCE
+      : undefined;
+  };
+
+  /**
+   * Run `schema`'s tables, read page by page, the accounts left out by name as
+   * the command line leaves out every table it does not name, over a target
+   * that holds `holds` and refuses what the platform refuses.
+   */
+  async function runWith(schema: Schema, options: ExecuteOptions = {}, more: FakeOrgOptions = {}) {
+    const graph = graphOf(
+      Object.entries(schema).map(([object, { rows }]) => node(object, rows.length)),
+      [],
+    );
+    const orgs = fakeOrgs(schema, { targetHolds: holds, refuse, ...more });
+    const events: ForgeProgressEvent[] = [];
+    const summary = await orgs.executor.execute(graph, 'src', 'tgt', (e) => events.push(e), {
+      stream: { pageSize: 2 },
+      excludedObjects: ['Account'],
+      ...options,
+    });
+    const written = (object: string): Row[] => Object.values(orgs.written()[object] ?? {});
+    const asked = vi
+      .mocked(orgs.deps.queryRecords)
+      .mock.calls.filter(
+        ([org, soql]) => org === 'tgt' && /^SELECT Id FROM \w+ WHERE Id IN /.test(soql),
+      )
+      .map(([, soql]) => soql);
+    const lineOf = (object: string): string =>
+      events.find((e) => e.objectName === object && (e.status === 'done' || e.status === 'error'))
+        ?.message ?? '';
+    return { summary, written, asked, lineOf, insertCalls: orgs.insertCalls };
+  }
+
+  /** The report a run ends with of `rows` contacts written without their account. */
+  const withoutTheirAccount = (rows: number) => ({
+    objectApiName: 'Contact',
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: [
+      {
+        recordSummary: `AccountId → Account (${rows} records)`,
+        messages: [
+          'Written without AccountId: the target holds no record of these ids, outside the run.',
+        ],
+      },
+    ],
+  });
+
+  it('keeps a lookup the target holds, and writes without it, and says, a row whose record it does not hold', async () => {
+    const { summary, written, lineOf } = await runWith(contacts);
+
+    expect(summary.successCount).toBe(3);
+    expect(summary.failedCount).toBe(0);
+    expect(
+      written('Contact')
+        .map((row) => [row['LastName'], row['AccountId']])
+        .sort(),
+    ).toEqual([
+      ['One', HELD],
+      ['Three', undefined],
+      ['Two', undefined],
+    ]);
+    expect(lineOf('Contact')).toContain(
+      'written without AccountId on 2: the target holds no record of these ids, outside the run',
+    );
+    expect(summary.errors).toEqual([withoutTheirAccount(2)]);
+    expect(finishedRunStatus(summary)).toBe('success');
+  });
+
+  it('says so in a simulation, which writes nothing', async () => {
+    const { summary, written, lineOf } = await runWith(contacts, { dryRun: true });
+
+    expect(written('Contact')).toEqual([]);
+    expect(summary.wouldInsertCount).toBe(3);
+    expect(summary.failedCount).toBe(0);
+    expect(lineOf('Contact')).toContain(
+      'Simulated Contact: 3 would be inserted, 0 failed, written without AccountId on 2: the ' +
+        'target holds no record of these ids, outside the run',
+    );
+    expect(summary.errors).toEqual([withoutTheirAccount(2)]);
+  });
+
+  it('asks the target once a run for each id, by object, a read by id of either length', async () => {
+    const { asked } = await runWith(contacts, { stream: { pageSize: 1 } });
+
+    expect(asked).toEqual([
+      `SELECT Id FROM Account WHERE Id IN ('${HELD}')`,
+      `SELECT Id FROM Account WHERE Id IN ('${GONE}')`,
+    ]);
+  });
+
+  it('holds back before the write, and says, a row that may not go without a record the target does not hold', async () => {
+    const { summary, written, insertCalls, lineOf } = await runWith(invoices);
+
+    expect(written('Invoice__c').map((row) => row['Name'])).toEqual(['January']);
+    // Never sent: the target was not asked to refuse it.
+    expect(insertCalls.reduce((sum, call) => sum + call.rows, 0)).toBe(1);
+    expect(summary.successCount).toBe(1);
+    expect(summary.failedCount).toBe(1);
+    expect(summary.errors).toEqual([
+      {
+        objectApiName: 'Invoice__c',
+        stage: 'scope',
+        failedCount: 1,
+        attemptedCount: 0,
+        samples: [
+          {
+            recordSummary: 'Policy__c → Policy__c (1 record)',
+            messages: [
+              'Not written: Policy__c may not be left empty, and the target holds no ' +
+                'Policy__c record of the id it names, outside the run.',
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(lineOf('Invoice__c')).toBe(
+      'Completed Invoice__c: 1 succeeded, 1 failed, 1 of them held back for want of their parent',
+    );
+  });
+
+  it('holds the same row back in a simulation, and counts the other among what it would insert', async () => {
+    const { summary } = await runWith(invoices, { dryRun: true });
+
+    expect(summary.wouldInsertCount).toBe(1);
+    expect(summary.failedCount).toBe(1);
+    expect(summary.errors.map((error) => error.samples[0]?.messages[0])).toEqual([
+      'Not written: Policy__c may not be left empty, and the target holds no Policy__c record ' +
+        'of the id it names, outside the run.',
+    ]);
+  });
+
+  it('asks nothing of a record-scoped run, which leaves the lookup empty as before', async () => {
+    const { summary, written, asked } = await runWith(contacts, {
+      stream: undefined,
+      rootObjectApiName: 'Contact',
+      rootRecordId: sourceId('Contact', 2),
+    });
+
+    expect(asked).toEqual([]);
+    expect(written('Contact')).toEqual([{ LastName: 'Two' }]);
+    expect(summary.errors.flatMap((error) => error.samples.flatMap((s) => s.messages))).toEqual([
+      'Written with the lookup empty: the Account record it points at is not in the clone.',
+    ]);
+  });
+
+  it('counts the reads among the requests the run sent, two hundred ids a read', async () => {
+    const many: Schema = {
+      Contact: {
+        fields: [text('LastName'), lookup('AccountId', 'Account', true)],
+        rows: Array.from({ length: 201 }, (_, n) => ({
+          Id: sourceId('Contact', n),
+          LastName: `Contact ${n}`,
+          AccountId: sourceId('Account', 1000 + n),
+        })),
+      },
+    };
+    /** The run's requests, as deps that count each read and write report them. */
+    const requestsOf = async (options: ExecuteOptions) => {
+      const orgs = fakeOrgs(many, { targetHolds: holds });
+      let sent = 0;
+      const { queryRecords, insertRecords } = orgs.deps;
+      orgs.deps.queryRecords = async (...args) => {
+        sent++;
+        return queryRecords(...args);
+      };
+      orgs.deps.insertRecords = async (...args) => {
+        sent++;
+        return insertRecords(...args);
+      };
+      orgs.deps.requestsSent = () => sent;
+      const summary = await new ForgeExecutor(orgs.deps).execute(
+        graphOf([node('Contact', 201)], []),
+        'src',
+        'tgt',
+        () => {},
+        options,
+      );
+      return summary.apiCalls ?? 0;
+    };
+
+    const asking = await requestsOf({});
+    const notAsking = await requestsOf({ fieldExclusions: { Contact: ['AccountId'] } });
+
+    expect(asking - notAsking).toBe(2);
+  });
+
+  it('carries the ids of an object the target will not be read for, and asks it no more', async () => {
+    // Neither org has the regions' object here: the target refuses the read,
+    // INVALID_TYPE, which says nothing of what it holds.
+    const regions = [1, 2, 3].map((n) => sourceId('Region__c', n));
+    const schema: Schema = {
+      Contact: {
+        fields: [text('LastName'), lookup('Region__c', 'Region__c', true)],
+        rows: regions.map((region, n) => ({
+          Id: sourceId('Contact', n),
+          LastName: `Contact ${n}`,
+          Region__c: region,
+        })),
+      },
+    };
+    const { written, asked } = await runWith(
+      schema,
+      { stream: { pageSize: 1 } },
+      { refuse: () => undefined },
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(written('Contact').map((row) => row['Region__c'])).toEqual(regions);
   });
 });
 

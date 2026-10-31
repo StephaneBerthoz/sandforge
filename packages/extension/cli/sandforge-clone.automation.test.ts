@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Connection, DescribeSObjectResult } from 'jsforce';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
@@ -120,7 +123,10 @@ function fakeOrg({
   validationRules = [],
   duplicateActions = {},
   flowActions = [],
+  describes = DESCRIBES,
 }: {
+  /** What it describes of each object: the objects both orgs have, unless told. */
+  describes?: Record<string, DescribeSObjectResult>;
   refuseFlows?: Error;
   noFlows?: boolean;
   moreFlows?: Array<Record<string, unknown>>;
@@ -151,20 +157,20 @@ function fakeOrg({
   };
   const conn = {
     sobject: (name: string) => ({
-      describe: async () => DESCRIBES[name],
+      describe: async () => describes[name],
       create: async (records: unknown[], options?: { headers?: Record<string, string> }) => {
         written.push(name);
         headers.push(options?.headers);
         return records.map((_, i) => ({
-          id: `${DESCRIBES[name].keyPrefix}00000000090${i}AAA`,
+          id: `${describes[name].keyPrefix}00000000090${i}AAA`,
           success: true,
           errors: [],
         }));
       },
     }),
-    describe$: async (name: string) => DESCRIBES[name],
+    describe$: async (name: string) => describes[name],
     describeGlobal: async () => ({
-      sobjects: Object.values(DESCRIBES).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
+      sobjects: Object.values(describes).map(({ name, keyPrefix }) => ({ name, keyPrefix })),
     }),
     query: async (soql: string) => {
       regular.push(soql);
@@ -704,6 +710,90 @@ describe('sandforge-clone target automation', () => {
         ['validation_rule', 'warning', 'validation_rule|Contact|LastName||Name_Format'],
         ['api_budget', 'info', 'api_budget|Account|||'],
       ]);
+    });
+
+    describe('a field only the target requires, which a decision of the run gives a default', () => {
+      /*
+       * Run for real with a --config giving such a field a default, the clone
+       * said it BLOCKING — "the run does not write it" — and then applied the
+       * default to every row. Review shows the same gap decided.
+       */
+      const REQUIRED_WORDS =
+        'required field Region__c (string): only the target requires it, and the run does not ' +
+        'write it (the source has no such field): every row is refused unless it is given a value';
+      /** The target's accounts require a region the source's do not have. */
+      const regionRequired = (): ReturnType<typeof fakeOrg> =>
+        fakeOrg({
+          noFlows: true,
+          duplicateRules: [],
+          describes: {
+            ...DESCRIBES,
+            Account: object(
+              'Account',
+              '001',
+              [{ name: 'Name' }, { name: 'Region__c', nillable: false }],
+              [{ childSObject: 'Contact', field: 'AccountId', relationshipName: 'Contacts' }],
+            ),
+          },
+        });
+      let dir: string;
+
+      /** A --config file holding `choices`. */
+      function configFile(choices: unknown): string {
+        dir = mkdtempSync(join(tmpdir(), 'forge-gap-decisions-'));
+        const file = join(dir, 'config.json');
+        writeFileSync(file, JSON.stringify(choices));
+        return file;
+      }
+
+      afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+      });
+
+      it('says it answered by the default, and no longer BLOCKING', async () => {
+        withOrgs(regionRequired());
+        const file = configFile({
+          defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+        });
+
+        expect(await run(argv('--dry-run', '--skip-preflight', '--config', file))).toBeUndefined();
+
+        expect(printed).toContain(
+          `    answered by the run's decision: default "EMEA" — ${REQUIRED_WORDS}`,
+        );
+        expect(printed.filter((line) => line.includes('BLOCKING'))).toEqual([]);
+      });
+
+      it('still says BLOCKING a gap no decision of the run answers', async () => {
+        withOrgs(regionRequired());
+        const file = configFile({
+          defaultValues: [{ object: 'Account', field: 'Name', value: 'Unnamed' }],
+        });
+
+        expect(await run(argv('--dry-run', '--skip-preflight', '--config', file))).toBeUndefined();
+
+        expect(printed).toContain(`    BLOCKING: ${REQUIRED_WORDS}`);
+      });
+
+      it('gives the decision that answers it under targetGaps in --json', async () => {
+        withOrgs(regionRequired());
+        const file = configFile({
+          defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+        });
+
+        expect(
+          await run(argv('--dry-run', '--skip-preflight', '--json', '--config', file)),
+        ).toBeUndefined();
+
+        const summary = JSON.parse(stdout) as {
+          targetGaps: { gaps: Array<Record<string, unknown>> };
+        };
+        expect(
+          summary.targetGaps.gaps
+            .filter((gap) => gap.kind === 'required_field_missing')
+            .map((gap) => [gap.field, gap.severity, gap.answeredBy]),
+        ).toEqual([['Region__c', 'blocking', 'default "EMEA"']]);
+      });
     });
   });
 

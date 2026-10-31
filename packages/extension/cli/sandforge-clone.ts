@@ -205,7 +205,9 @@ import {
   TargetGapReader,
   gapFieldOf,
   gapLines,
+  gapsWithAnswers,
   toolingQueriesOver,
+  type GapDecisions,
 } from '../src/modules/forge/TargetGapReader.js';
 import {
   DEFAULT_MAX_TOTAL,
@@ -439,7 +441,10 @@ Usage:
   through, the fields only the target requires that the clone does not
   write, the lookup filters of the lookups it writes, and the daily API
   requests the target has left against those the run takes (with --json,
-  under targetGaps). None of it stops the clone. With --dry-run --json,
+  under targetGaps). A gap a decision of --config or --template answers —
+  a default given to a field only the target requires — is said answered
+  by it, as Review shows it decided, and no longer BLOCKING (answeredBy,
+  with --json). None of it stops the clone. With --dry-run --json,
   adminChanges lists, for whoever administers the target, the changes to its
   metadata that would let the rows go in as they are — a picklist value to
   add to a record type, a field to lengthen, a rule to turn off — grouped by
@@ -5559,8 +5564,20 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       excludedObjects: objectsLeftOut,
     },
   );
+  // A gap a decision of the run answers — a default from --config given to
+  // a field only the target requires — is said answered, as Review shows it
+  // decided: said BLOCKING, it stood beside the line that applied the default
+  // to every row.
+  const gapDecisions: GapDecisions = {
+    ...args.decisions,
+    fieldExclusions: args.fieldExclusions,
+    excludedObjects: objectsLeftOut,
+  };
   say('');
-  for (const line of gapLines(targetGaps, args.target, { username: targetOrg.username })) {
+  for (const line of gapLines(targetGaps, args.target, {
+    username: targetOrg.username,
+    decisions: gapDecisions,
+  })) {
     say(line);
   }
   // What --upsert matches the target's records by, when the run writes it
@@ -6110,8 +6127,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     removalRisks,
     // What the target holds against the rows, read from its metadata before
     // the run: each gap with its kind, severity, object, field and the
-    // decisions it allows; what could not be read, and what the read cost.
-    targetGaps,
+    // decisions it allows, and the decision of the run that answers it
+    // (`answeredBy`); what could not be read, and what the read cost.
+    targetGaps: gapsWithAnswers(targetGaps, gapDecisions),
     // Of a dry run, the changes to the target's metadata that would let the
     // rows go in as they are, for whoever administers it.
     ...dryRunAdminChanges(args.dryRun, targetGaps, counted.gaps),

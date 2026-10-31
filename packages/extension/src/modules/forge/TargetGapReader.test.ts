@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { ForgeGap, ForgeGraph, ForgeGraphNode, ForgeTargetGaps } from '@sandforge/shared';
+import type {
+  ForgeConfig,
+  ForgeGap,
+  ForgeGraph,
+  ForgeGraphNode,
+  ForgeTargetGaps,
+} from '@sandforge/shared';
 import { forgeGapId } from '@sandforge/shared';
 import {
   ACTIVE_DUPLICATE_RULES_SOQL,
@@ -9,8 +15,10 @@ import {
   TargetGapReader,
   bypassesOf,
   callsEstimateOf,
+  gapAnsweredBy,
   gapFieldOf,
   gapLines,
+  gapsWithAnswers,
   fieldLabelsSoql,
   readActiveValidationRules,
   toolingQueriesOver,
@@ -1499,5 +1507,180 @@ describe('gapLines', () => {
       '  the validation rules could not be read: refused',
       '  read in 3 request(s) to TGT',
     ]);
+  });
+
+  describe('a gap a decision of the run answers', () => {
+    /*
+     * Run for real with a --config giving a field only the target requires a
+     * default, the command said the field BLOCKING — "the run does not write
+     * it" — and applied the default to every row on the lines that followed.
+     */
+    const twoRequired = () =>
+      readGaps([node('Account')], {
+        targetFields: {
+          Account: [
+            field('Name'),
+            field('Trap_Target_Only__c', { nillable: false }),
+            field('Region__c', { nillable: false }),
+          ],
+        },
+        sourceFields: { Account: [field('Name')] },
+      });
+    const decisions = {
+      defaultValues: [{ object: 'Account', field: 'Trap_Target_Only__c', value: 'cloned' }],
+    };
+
+    it('says the one a default answers answered by it, no longer blocking, and the other still blocking', async () => {
+      const read = await twoRequired();
+
+      const lines = gapLines(read, 'TGT', { decisions });
+
+      expect(lines.slice(1, 4)).toEqual([
+        '  Account',
+        '    BLOCKING: required field Region__c (string): only the target requires it, and the ' +
+          'run does not write it (the source has no such field): every row is refused unless it ' +
+          'is given a value',
+        '    answered by the run\'s decision: default "cloned" — required field ' +
+          'Trap_Target_Only__c (string): only the target requires it, and the run does not ' +
+          'write it (the source has no such field): every row is refused unless it is given a value',
+      ]);
+    });
+
+    it('reads both as the target holds them, for Review to decide from the config it keeps', async () => {
+      // Review answers each gap from its own config as the user decides and
+      // undoes: handed the gap marked answered, an undone default would have
+      // left it unsaid among the gaps that refuse rows. It sends the read its
+      // whole config, decisions with it.
+      const panelConfig: Pick<ForgeConfig, 'inputMode' | 'defaultValues'> = {
+        inputMode: 'soql',
+        ...decisions,
+      };
+      const read = await readGaps(
+        [node('Account')],
+        {
+          targetFields: {
+            Account: [field('Name'), field('Trap_Target_Only__c', { nillable: false })],
+          },
+          sourceFields: { Account: [field('Name')] },
+        },
+        panelConfig,
+      );
+
+      expect(
+        ofKind(read, 'required_field_missing').map((g) => [g.field, g.severity, g.decisions]),
+      ).toEqual([['Trap_Target_Only__c', 'blocking', ['set_default', 'exclude_object']]]);
+      expect(ofKind(read, 'required_field_missing')[0]).not.toHaveProperty('answeredBy');
+    });
+
+    it('gives the decision a gap is answered by, for the command to put in its --json', async () => {
+      const read = await twoRequired();
+
+      expect(
+        gapsWithAnswers(read, decisions)
+          .gaps.filter((gap) => gap.kind === 'required_field_missing')
+          .map((gap) => [gap.field, gap.answeredBy]),
+      ).toEqual([
+        ['Region__c', undefined],
+        ['Trap_Target_Only__c', 'default "cloned"'],
+      ]);
+    });
+  });
+});
+
+describe('gapAnsweredBy', () => {
+  /** A gap of `kind`, offering `decisions`, on the account's `field`. */
+  const gapOf = (
+    kind: ForgeGap['kind'],
+    decisions: ForgeGap['decisions'],
+    more: Partial<ForgeGap> = {},
+  ): ForgeGap => ({
+    id: forgeGapId(kind, 'Account', more.field, more.recordType, more.value),
+    kind,
+    severity: 'blocking',
+    source: 'simulation',
+    objectApiName: 'Account',
+    rows: 2,
+    decisions,
+    ...more,
+  });
+  const required = gapOf('required_field_missing', ['set_default', 'exclude_object'], {
+    field: 'Region__c',
+  });
+  const refused = gapOf('picklist_value_refused', ['map_value', 'leave_empty', 'skip_rows'], {
+    field: 'Rating',
+    value: 'Hot',
+    recordType: 'Retail',
+  });
+
+  it('answers a gap the user ignored, or of an object the run leaves out, whatever it is', () => {
+    expect(gapAnsweredBy(required, { ignoredGaps: [required.id] })).toBe('left as it is');
+    expect(gapAnsweredBy(required, { excludedObjects: ['Account'] })).toBe(
+      'Account left out of the run',
+    );
+  });
+
+  it('answers only with a kind of decision the read offered on the gap', () => {
+    // A default given to a field does not answer a value of it the target refuses.
+    const byDefault = { defaultValues: [{ object: 'Account', field: 'Rating', value: 'Cold' }] };
+    expect(gapAnsweredBy(refused, byDefault)).toBeUndefined();
+    expect(
+      gapAnsweredBy(required, { fieldExclusions: { Account: ['Region__c'] } }),
+    ).toBeUndefined();
+    expect(
+      gapAnsweredBy(required, { truncateFields: [{ object: 'Account', field: 'Region__c' }] }),
+    ).toBeUndefined();
+    expect(
+      gapAnsweredBy(required, {
+        defaultValues: [{ object: 'Account', field: 'Region__c', value: 'EMEA' }],
+      }),
+    ).toBe('default "EMEA"');
+  });
+
+  it("maps a value by its record type's mapping before the one for every record type", () => {
+    const mapping = (recordType: string | undefined, to: string | null) => ({
+      object: 'Account',
+      field: 'Rating',
+      from: 'Hot',
+      to,
+      ...(recordType ? { recordType } : {}),
+    });
+
+    expect(
+      gapAnsweredBy(refused, {
+        picklistValueMappings: [mapping(undefined, 'Cold'), mapping('Retail', 'Warm')],
+      }),
+    ).toBe('written as "Warm"');
+    expect(gapAnsweredBy(refused, { picklistValueMappings: [mapping(undefined, null)] })).toBe(
+      'the field left empty in these rows',
+    );
+    expect(
+      gapAnsweredBy(refused, { picklistValueMappings: [mapping('Trade', 'Warm')] }),
+    ).toBeUndefined();
+    expect(
+      gapAnsweredBy(refused, { skippedRows: [{ object: 'Account', gapId: refused.id }] }),
+    ).toBe('these rows held back');
+  });
+
+  it('maps a record type, and cuts or leaves out a field, where the gap offers it', () => {
+    const recordType = gapOf('record_type_unmapped', ['map_record_type'], { value: 'Retail' });
+    const tooLong = gapOf('value_too_long', ['truncate', 'leave_empty'], { field: 'Notes__c' });
+
+    expect(
+      gapAnsweredBy(recordType, {
+        recordTypeMappings: [{ object: 'Account', from: 'Retail', to: 'Trade' }],
+      }),
+    ).toBe('written as record type Trade');
+    expect(
+      gapAnsweredBy(recordType, {
+        recordTypeMappings: [{ object: 'Account', from: 'Retail', to: null }],
+      }),
+    ).toBe("written with the object's default record type");
+    expect(
+      gapAnsweredBy(tooLong, { truncateFields: [{ object: 'Account', field: 'Notes__c' }] }),
+    ).toBe("cut to the field's length");
+    expect(gapAnsweredBy(tooLong, { fieldExclusions: { Account: ['Notes__c'] } })).toBe(
+      'the field left out of the rows',
+    );
+    expect(gapAnsweredBy(tooLong, {})).toBeUndefined();
   });
 });

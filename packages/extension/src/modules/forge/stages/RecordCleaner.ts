@@ -87,6 +87,13 @@ export interface CleanedRecord {
    * with the user the run writes as. Absent, there were none.
    */
   lookupsNotCarried?: string[];
+  /**
+   * The lookups at an object a clone can create the payload goes without
+   * because the target holds no record of the id it names, outside the run
+   * (`CleanNodeRecordsInput.targetLacks`): written empty, and filled in by no
+   * second pass, the run writing no record of it. Absent, there were none.
+   */
+  lookupsOutsideTheRun?: string[];
 }
 
 /** Field sets derived from the *target* org describe (schema-drift defense). */
@@ -226,11 +233,12 @@ export interface CleanNodeRecordsInput {
   /** Per-object owner remap (source `OwnerId` → target `OwnerId`). */
   ownerMappings: Record<string, string>;
   /**
-   * Ids a lookup at an object no clone creates names — a user, a queue — that
-   * the target was asked for and holds no record of. A run that carries such
-   * ids as read (`referenceFallback: 'keep'`) sends a row without the lookup
-   * naming one, as a run that nullifies sends every such lookup: carried, the
-   * target refused the whole row. See {@link cleanNodeRecords}.
+   * Ids a lookup at an object no clone creates names — a user, a queue — or
+   * at an object outside the run, that the target was asked for and holds no
+   * record of. A run that carries such ids as read (`referenceFallback:
+   * 'keep'`) sends a row without the lookup naming one, as a run that
+   * nullifies sends every such lookup: carried, the target refused the whole
+   * row. See {@link cleanNodeRecords}.
    */
   targetLacks?: ReadonlySet<string>;
   /** Field exclusions resolved for this node. */
@@ -350,6 +358,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     pricedIn,
   } = input;
   const lookupFields = fieldInfos.filter((f) => f.isReference).map((f) => f.name);
+  /** The lookups by name: a text field that holds an id is never taken for one. */
+  const lookupNames = new Set(lookupFields);
   const neutralize = contactPoints?.forObject(objectApiName, fieldInfos, fieldRename);
   /** Whether the insert carries a lookup: createable in both orgs, or written under a rename. */
   const carriedAtInsert = (field: FieldInfo): boolean =>
@@ -492,6 +502,8 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
     const renamed = new Set<string>();
     /** The lookups the row goes without, the target holding no record of their id. */
     const lookupsNotCarried: string[] = [];
+    /** Of those, the lookups at an object a clone can create, outside the run. */
+    const lookupsOutsideTheRun: string[] = [];
     for (const key of Object.keys(remapped)) {
       if (excludedFields.has(key)) continue;
       // Field-mapping path: if the source field is renamed on target,
@@ -545,6 +557,18 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
         const value = remapped[key];
         if (typeof value === 'string' && targetLacks?.has(value)) {
           lookupsNotCarried.push(key);
+          continue;
+        }
+      } else if (referenceFallback === 'keep' && key !== 'RecordTypeId' && lookupNames.has(key)) {
+        // A lookup at an object a clone can create, outside the run, goes
+        // as read for an id the target holds — two sandboxes of one
+        // production share them — and empty for one it was found to hold no
+        // record of: carried, the source's account had the target refuse
+        // every contact of a table copied alone. No second pass fills it in,
+        // the run writing no record of its object.
+        const value = remapped[key];
+        if (typeof value === 'string' && targetLacks?.has(value)) {
+          lookupsOutsideTheRun.push(key);
           continue;
         }
       }
@@ -625,6 +649,7 @@ export function cleanNodeRecords(input: CleanNodeRecordsInput): CleanedRecord[] 
       picklistChanges,
       ...(currencyChange ? { currencyChange } : {}),
       ...(lookupsNotCarried.length > 0 ? { lookupsNotCarried } : {}),
+      ...(lookupsOutsideTheRun.length > 0 ? { lookupsOutsideTheRun } : {}),
     };
   });
 }

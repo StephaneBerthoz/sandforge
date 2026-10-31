@@ -199,7 +199,7 @@ pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
 
 The cleanup does not know what the clone wrote: it selects every record your user created on the target in the `--since` window, including records you made by hand. Read the counts from the preview, and name only the cloned objects in `--objects` before you drop `--dry-run`. A run made in the wizard can instead have exactly its own records removed from **Recent runs** ([above](#remove-what-a-run-created)), and a run of the clone whose `--json` summary you kept can have them removed with `--remove` ([reference](forge-reference.md#the-command-line)).
 
-`--object <ApiName>`, repeated, clones whole tables in place of a record, each `--where <condition>` filtering the `--object` before it:
+`--object <ApiName>`, repeated, clones whole tables in place of a record, each `--where <condition>` filtering the `--object` before it. A lookup at a table it does not write keeps the ids the target holds, and goes empty, said, for those it does not ([how](forge-reference.md#the-command-line)):
 
 ```bash
 pnpm exec tsx packages/extension/cli/sandforge-clone.ts \

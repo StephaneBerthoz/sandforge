@@ -179,6 +179,42 @@ describe('cleanNodeRecords', () => {
     expect(out.nullifiedFks).toEqual([]);
   });
 
+  it('leaves out, under the keep fallback, a lookup naming a record outside the run the target holds none of, and says which', () => {
+    // Carried, the source's account id had the target refuse every contact of
+    // a table copied alone between two unrelated orgs. A text holding the
+    // same id is no lookup, and a nullifying run owes the lookup to the second
+    // pass as before.
+    const fieldInfos: FieldInfo[] = [
+      ...FIELDS,
+      { name: 'Legacy_Id__c', queryable: true, createable: true, isReference: false },
+    ];
+    const input = makeInput({
+      records: [
+        { Id: '003A', Name: 'Gone', AccountId: '001GONE', Legacy_Id__c: '001GONE' },
+        { Id: '003B', Name: 'Held', AccountId: '001HELD' },
+      ],
+      fieldInfos,
+      referenceFallback: 'keep',
+      targetLacks: new Set(['001GONE']),
+      creatableFields: new Set(['Name', 'AccountId', 'Legacy_Id__c']),
+    });
+
+    const [gone, held] = cleanNodeRecords(input);
+
+    expect(gone.cleaned).toEqual({ Name: 'Gone', Legacy_Id__c: '001GONE' });
+    expect(gone.lookupsOutsideTheRun).toEqual(['AccountId']);
+    expect(gone).not.toHaveProperty('lookupsNotCarried');
+    expect(gone.nullifiedFks).toEqual([]);
+    expect(held.cleaned).toEqual({ Name: 'Held', AccountId: '001HELD' });
+    expect(held).not.toHaveProperty('lookupsOutsideTheRun');
+
+    const [nullified] = cleanNodeRecords({ ...input, referenceFallback: 'nullify' });
+    expect(nullified).not.toHaveProperty('lookupsOutsideTheRun');
+    expect(nullified.nullifiedFks).toEqual([
+      { field: 'AccountId', sourceRefId: '001GONE', targetObjects: ['Account'] },
+    ]);
+  });
+
   it('empties a lookup at an object that failed in the run under the keep fallback, and keeps the others', () => {
     // The run tried to write the account and could not: its source id names
     // nothing the run wrote. An id at an object that did not fail is carried

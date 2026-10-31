@@ -424,7 +424,13 @@ export interface ExecuteOptions {
    * and reported by the second pass, and a lookup at the one object it can
    * name, which the run writes, is emptied at insert and filled in by the
    * second pass: see `cleanNodeRecords`. `'keep'` holds for the ids of
-   * records the run does not write.
+   * records the run does not write that the target holds: before the write,
+   * in a simulation too, the target is asked which of the ids a lookup at the
+   * one object it names, outside the run, carries it holds a record of. A row
+   * goes without such a lookup naming one it holds none of, said, and is held
+   * back when it may not leave the lookup empty (`rowsWhoseParentTheTargetLacks`):
+   * between two orgs that do not come from one production, the target refused
+   * every row the source's id went with.
    *
    * `RecordTypeId` is preserved unless a `recordTypeMappings` entry exists
    * for the source value, in which case it is translated to the target ID.
@@ -1367,6 +1373,11 @@ interface PageCarry {
   readonly currencies: CurrencyReplacementTally;
   /** Per lookup, the rows sent without it, the target holding no record of the id it names. */
   readonly lookupsNotCarried: Map<string, number>;
+  /**
+   * Per lookup at an object outside the run, the rows sent without it, the
+   * target holding no record of the id it names.
+   */
+  readonly lookupsOutsideTheRun: Map<string, number>;
   writtenWithoutFields?: WrittenWithoutFields;
   /** The flags of relations linked to that could not be given back. */
   readonly flagsNotKept: string[];
@@ -1402,6 +1413,7 @@ function emptyPageCarry(): PageCarry {
     picklists: new PicklistChangeTally(),
     currencies: new CurrencyReplacementTally(),
     lookupsNotCarried: new Map(),
+    lookupsOutsideTheRun: new Map(),
     flagsNotKept: [],
   };
 }
@@ -1529,10 +1541,19 @@ interface ExecutionState {
   readonly askedForRowsThatNeedThem: Map<string, Set<string>>;
   /**
    * Of the ids a lookup at an object no clone creates names — a user, a queue
-   * — those the target was asked for, each with whether it holds a record of
-   * it: asked once a run. See `idsTheTargetLacks`.
+   * — or at an object outside the run, those the target was asked for, each
+   * with whether it holds a record of it: asked once a run. See
+   * `idsTheTargetLacks`.
    */
   readonly targetHolds: Map<string, boolean>;
+  /** The objects the target refused a read of, asked so: not asked again. */
+  readonly targetReadsRefused: Set<string>;
+  /**
+   * Per object, per lookup at an object outside the run, the rows written
+   * without it, the target holding no record of the id it names: said once,
+   * at the end. See `lookupsOutsideTheRunReports`.
+   */
+  readonly lookupsOutsideTheRun: Map<string, Map<string, LookupOutsideTheRun>>;
   /**
    * Objects no node of the graph holds whose records rows read cannot be
    * written without, read by id once every node has been read: the node each
@@ -2189,6 +2210,11 @@ function requiredParentsOf(
 interface ParentNotWritten {
   field: string;
   parentObject: string;
+  /**
+   * Set when the parent is outside the run, and the target holds no record of
+   * the id the lookup names: see `rowsWhoseParentTheTargetLacks`.
+   */
+  notInTarget?: true;
 }
 
 /**
@@ -2207,9 +2233,14 @@ function groupsOfParentsNotWritten(
   held: Iterable<ParentNotWritten>,
   into: Map<string, ParentNotWritten & { count: number }> = new Map(),
 ): Map<string, ParentNotWritten & { count: number }> {
-  for (const { field, parentObject } of held) {
-    const key = `${field}|${parentObject}`;
-    const group = into.get(key) ?? { field, parentObject, count: 0 };
+  for (const { field, parentObject, notInTarget } of held) {
+    const key = `${field}|${parentObject}|${notInTarget === true ? 'outside' : ''}`;
+    const group = into.get(key) ?? {
+      field,
+      parentObject,
+      ...(notInTarget ? { notInTarget } : {}),
+      count: 0,
+    };
     group.count++;
     into.set(key, group);
   }
@@ -2224,13 +2255,16 @@ function samplesOfParentsNotWritten(
   return [...groups.values()]
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
-    .map(({ field, parentObject, count }) => ({
+    .map(({ field, parentObject, notInTarget, count }) => ({
       recordSummary: `${field} → ${parentObject} (${count} record${count === 1 ? '' : 's'})`,
       messages: [
-        `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
-          (failedObjects.has(parentObject)
-            ? 'failed in this run.'
-            : 'was not written by this run.'),
+        notInTarget
+          ? `Not written: ${field} may not be left empty, and the target holds no ` +
+            `${parentObject} record of the id it names, outside the run.`
+          : `Not written: ${field} may not be left empty, and the ${parentObject} it points at ` +
+            (failedObjects.has(parentObject)
+              ? 'failed in this run.'
+              : 'was not written by this run.'),
       ],
     }));
 }
@@ -2781,6 +2815,58 @@ function countLookupsNotCarried(
   return rows;
 }
 
+/** A lookup at an object outside the run that rows went without: the object, and how many rows. */
+interface LookupOutsideTheRun {
+  readonly parent: string;
+  rows: number;
+}
+
+/**
+ * What an object's line says of the rows a write sends without a lookup at an
+ * object outside the run, the target holding no record of the id it names,
+ * per field. Nothing when no row went without one.
+ */
+function lookupsOutsideTheRunNote(rows: ReadonlyMap<string, number>): string {
+  if (rows.size === 0) return '';
+  const fields = [...rows].map(([field, count]) => `${field} on ${count}`).join(', ');
+  return `, written without ${fields}: the target holds no record of these ids, outside the run`;
+}
+
+/** Count into `rows`, per lookup, the cleaned rows that go without it: see `lookupsOutsideTheRunNote`. */
+function countLookupsOutsideTheRun(
+  rows: Map<string, number>,
+  cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsOutsideTheRun'>>,
+): Map<string, number> {
+  for (const { lookupsOutsideTheRun = [] } of cleaned) {
+    for (const field of lookupsOutsideTheRun) rows.set(field, (rows.get(field) ?? 0) + 1);
+  }
+  return rows;
+}
+
+/**
+ * The rows written without a lookup at an object outside the run, said once
+ * per object among the run's reports, as a record-scoped run says a lookup it
+ * leaves empty for a record outside the clone: counted neither failed nor
+ * attempted, the row being written. Said on the object's line alone, a run of
+ * whole tables left it out of its result, its history and its audit entry.
+ */
+function lookupsOutsideTheRunReports(state: ExecutionState): ExecutionObjectError[] {
+  return [...state.lookupsOutsideTheRun].map(([objectApiName, lookups]): ExecutionObjectError => ({
+    objectApiName,
+    stage: 'scope',
+    failedCount: 0,
+    attemptedCount: 0,
+    samples: [...lookups]
+      .sort(([, a], [, b]) => b.rows - a.rows)
+      .map(([field, { parent, rows }]) => ({
+        recordSummary: `${field} → ${parent} (${rows} record${rows === 1 ? '' : 's'})`,
+        messages: [
+          `Written without ${field}: the target holds no record of these ids, outside the run.`,
+        ],
+      })),
+  }));
+}
+
 /** What an object's progress says of `count` emails waiting for the task each names. */
 function waitingForTheirTask(count: number): string {
   return `${count} on a case waiting for ${count === 1 ? 'its task' : 'their tasks'}`;
@@ -3316,6 +3402,8 @@ export class ForgeExecutor {
       readAgainUnder: new Map<string, NodeReadOnce[]>(),
       askedForRowsThatNeedThem: new Map<string, Set<string>>(),
       targetHolds: new Map<string, boolean>(),
+      targetReadsRefused: new Set<string>(),
+      lookupsOutsideTheRun: new Map<string, Map<string, LookupOutsideTheRun>>(),
       parentsOutside: new Map<string, ForgeGraphNode>(),
       readAsParents: new Map<string, { count: number; neededBy: Set<string> }>(),
       idsRead: store
@@ -4458,16 +4546,20 @@ export class ForgeExecutor {
 
   /**
    * Of the ids `rows` carry in a lookup at an object no clone creates — a
-   * user, a queue — that the write sends (`carried`), those the target holds
-   * no record of: each id asked of every object the lookup can name, once a
-   * run. An owner mapped to a user of the target is not asked about.
+   * user, a queue — or at the one object outside the run it names, that the
+   * write sends (`carried`), those the target holds no record of: each id
+   * asked of every object the lookup can name, once a run, through the reads
+   * the run counts its calls by. An owner mapped to a user of the target, and
+   * an id the run has a counterpart for, are not asked about.
    *
    * A run of whole tables carries such ids as read (`referenceFallback:
    * 'keep'`), which two sandboxes of one production share. Between two orgs
    * that do not share their users — two scratch orgs, a Developer Edition and
    * a sandbox — run for real, the target refused every row with
-   * INVALID_CROSS_REFERENCE_KEY on its owner. An id the target could not be
-   * asked about, a query refused, is carried as before.
+   * INVALID_CROSS_REFERENCE_KEY on its owner, and between two unrelated orgs
+   * every contact of a table copied alone with
+   * INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY on its account. An id the
+   * target could not be asked about, a query refused, is carried as before.
    */
   private async idsTheTargetLacks(
     state: ExecutionState,
@@ -4479,9 +4571,106 @@ export class ForgeExecutor {
       lookups: fieldInfos.filter((field) => field.isReference && carried(field.name)),
       rows,
       ownerMappings: state.config.ownerMappings,
+      outsideTheRun: (objectApiName) => this.isOutsideTheRun(state, objectApiName),
+      mapped: (sourceId) => state.remapper.get(sourceId) !== undefined,
       known: state.targetHolds,
+      refused: state.targetReadsRefused,
       query: (soql) => this.deps.queryRecords(state.targetOrgId, soql),
     });
+  }
+
+  /**
+   * Whether the run neither writes nor links to records of an object, which
+   * the target has: one the user left out, one no node holds, one the target
+   * takes no insert of. Not one that failed in the run, whose lookups are
+   * emptied whatever they name (`cleanNodeRecords`).
+   */
+  private isOutsideTheRun(state: ExecutionState, objectApiName: string): boolean {
+    return (
+      !state.writtenObjects.has(objectApiName) &&
+      !state.failedObjects.has(objectApiName) &&
+      !state.notInTarget.has(objectApiName)
+    );
+  }
+
+  /**
+   * Count, for the run's reports, the cleaned rows of `objectApiName` written
+   * without a lookup at an object outside the run, per lookup with the object
+   * it names: see `lookupsOutsideTheRunReports`.
+   */
+  private noteLookupsOutsideTheRun(
+    state: ExecutionState,
+    objectApiName: string,
+    fieldInfos: readonly FieldInfo[],
+    cleaned: ReadonlyArray<Pick<CleanedRecord, 'lookupsOutsideTheRun'>>,
+  ): void {
+    const rows = countLookupsOutsideTheRun(new Map(), cleaned);
+    if (rows.size === 0) return;
+    const lookups =
+      state.lookupsOutsideTheRun.get(objectApiName) ?? new Map<string, LookupOutsideTheRun>();
+    for (const [field, count] of rows) {
+      const parent = fieldInfos.find((info) => info.name === field)?.referenceTo?.[0] ?? field;
+      const entry = lookups.get(field) ?? { parent, rows: 0 };
+      entry.rows += count;
+      lookups.set(field, entry);
+    }
+    state.lookupsOutsideTheRun.set(objectApiName, lookups);
+  }
+
+  /**
+   * The rows of a run of whole tables that cannot be written for want of their
+   * parent, by index: through a lookup they may not leave empty, at the one
+   * object it names, outside the run, each names a record the target holds
+   * none of (`idsTheTargetLacks`).
+   *
+   * Such a run carries the lookup as read, which two sandboxes of one
+   * production share; between any other two orgs the target refuses the row
+   * for the id it names nothing by. Held back before anything is written for
+   * them, the rows are said and counted as failed, as the rows held back for
+   * a parent the run did not write are (`rowsWithoutTheirParent`), in a
+   * simulation as in a real run. A record-scoped run reads such a parent by
+   * id instead (`readParentsOutsideTheGraph`), and a run that copies orphan
+   * parents copies it: neither asks.
+   *
+   * @param carried - Whether the insert sends a lookup: what is asked about.
+   */
+  private async rowsWhoseParentTheTargetLacks(
+    node: ForgeGraphNode,
+    state: ExecutionState,
+    fieldInfos: readonly FieldInfo[],
+    records: readonly Record<string, unknown>[],
+    carried: (field: string) => boolean,
+  ): Promise<Map<number, ParentNotWritten>> {
+    const held = new Map<number, ParentNotWritten>();
+    const { config } = state;
+    if (config.referenceFallback !== 'keep' || config.expandOrphanParents) return held;
+    const lookups = fieldInfos.filter((field) => {
+      const targets = field.referenceTo ?? [];
+      return (
+        field.isReference &&
+        carried(field.name) &&
+        targets.length === 1 &&
+        !isNeverCopied(targets[0]) &&
+        this.isOutsideTheRun(state, targets[0]) &&
+        isRequiredLookup(node.objectApiName, field.name, field.nillable)
+      );
+    });
+    if (lookups.length === 0 || records.length === 0) return held;
+    const lacking = await this.idsTheTargetLacks(state, lookups, records, () => true);
+    if (lacking.size === 0) return held;
+    records.forEach((record, index) => {
+      for (const field of lookups) {
+        const id = record[field.name];
+        if (typeof id !== 'string' || !lacking.has(id) || state.remapper.get(id)) continue;
+        held.set(index, {
+          field: field.name,
+          parentObject: (field.referenceTo ?? [])[0],
+          notInTarget: true,
+        });
+        return;
+      }
+    });
+    return held;
   }
 
   /**
@@ -5007,6 +5196,7 @@ export class ForgeExecutor {
       picklistChangesNote(carry.picklists.list()) +
       currencyReplacementsNote(carry.currencies.list()) +
       lookupsNotCarriedNote(carry.lookupsNotCarried) +
+      lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun) +
       pricesSwappedNote(state, object);
     const withoutFields = writtenWithoutFieldsNote(carry.writtenWithoutFields);
     const readById = readAsParentsNote(state, object);
@@ -5072,7 +5262,8 @@ export class ForgeExecutor {
         `${ownSentNote(carry.sentOnTheirOwn)}${carry.flagsNotKept.map((flags) => `, ${flags}`).join('')}` +
         `${picklistChangesNote(carry.picklists.list())}` +
         `${currencyReplacementsNote(carry.currencies.list())}` +
-        `${lookupsNotCarriedNote(carry.lookupsNotCarried)}${pricesSwappedNote(state, object)}` +
+        `${lookupsNotCarriedNote(carry.lookupsNotCarried)}` +
+        `${lookupsOutsideTheRunNote(carry.lookupsOutsideTheRun)}${pricesSwappedNote(state, object)}` +
         `${writtenWithoutFieldsNote(carry.writtenWithoutFields)}${leftToThePlatformNote(state, object)}`,
     });
   }
@@ -6264,11 +6455,14 @@ export class ForgeExecutor {
       remapCount: Object.keys(remapTable).length,
       // What the platform writes itself is said once, at the end, whichever
       // reads of its object found it; so are the rows held back for an
-      // object the user excluded, read twice as a node of the catalog is.
+      // object the user excluded, read twice as a node of the catalog is, and
+      // the rows written without a lookup at a record outside the run, page
+      // after page.
       errors: [
         ...state.errors,
         ...heldForExclusionsReports(state),
         ...leftToThePlatformReports(state),
+        ...lookupsOutsideTheRunReports(state),
       ],
       truncatedObjects: [...state.truncatedObjects],
       ...cappedObjectsOf(state),
@@ -10987,6 +11181,23 @@ export class ForgeExecutor {
       // failed, as the rows of a record type held back are — the run read
       // them to clone them — and said why, per lookup and parent object.
       const withoutParent = await this.rowsWithoutTheirParent(node, state, fieldInfos, toWrite);
+      // And, in a run of whole tables, a lookup they may not leave empty at
+      // an object outside the run, naming a record the target holds none of:
+      // see `rowsWhoseParentTheTargetLacks`.
+      const leftOutOfTheWrite = new Set(config.fieldExclusions[node.objectApiName] ?? []);
+      const renames = config.fieldMappings[node.objectApiName] ?? {};
+      for (const [index, why] of await this.rowsWhoseParentTheTargetLacks(
+        node,
+        state,
+        fieldInfos,
+        toWrite,
+        (field) =>
+          effectiveCreatableSet.has(field) &&
+          !leftOutOfTheWrite.has(field) &&
+          renames[field] === undefined,
+      )) {
+        if (!withoutParent.has(index)) withoutParent.set(index, why);
+      }
       if (withoutParent.size > 0) {
         toWrite = toWrite.filter((_, index) => !withoutParent.has(index));
         state.failedCount += withoutParent.size;
@@ -11166,8 +11377,9 @@ export class ForgeExecutor {
             state.prices.convertedInto.get(String(row['Id']))
         : undefined;
       // The users and queues a run that carries such ids as read names that
-      // the target holds no record of: a row goes without the lookup, rather
-      // than be refused for it.
+      // the target holds no record of, and the records outside the run it
+      // holds none of: a row goes without the lookup, rather than be refused
+      // for it.
       const targetLacks =
         config.referenceFallback === 'keep'
           ? await this.idsTheTargetLacks(
@@ -11238,9 +11450,15 @@ export class ForgeExecutor {
         picklistChangesNote(changed.list()) +
         currencyReplacementsNote(currenciesChanged.list()) +
         lookupsNotCarriedNote(countLookupsNotCarried(new Map(), cleanedRecords)) +
+        lookupsOutsideTheRunNote(countLookupsOutsideTheRun(new Map(), cleanedRecords)) +
         (page ? '' : pricesSwappedNote(state, node.objectApiName));
       // Said on the line that ends an object read page by page, for all its pages.
-      if (page) countLookupsNotCarried(page.lookupsNotCarried, cleanedRecords);
+      if (page) {
+        countLookupsNotCarried(page.lookupsNotCarried, cleanedRecords);
+        countLookupsOutsideTheRun(page.lookupsOutsideTheRun, cleanedRecords);
+      }
+      // And among the run's reports, once per object.
+      this.noteLookupsOutsideTheRun(state, node.objectApiName, fieldInfos, cleanedRecords);
       let recordsToInsert = cleanedRecords.map((b) => b.cleaned);
       if (state.recordTypeMapper && config.recordTypeMappings) {
         recordsToInsert = state.recordTypeMapper.apply(

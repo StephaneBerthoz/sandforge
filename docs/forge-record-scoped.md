@@ -445,7 +445,16 @@ neither the history nor a removal plan names it. The clone command keeps the
 journal of every run that writes (`--resume`).
 
 `'keep'` holds for the records the run does not write, whose ids a sandbox
-refreshed from the same production can share with the source. A lookup at the
+refreshed from the same production can share with the source, and that the
+target holds: before the write, in a simulation too, the target is asked which
+of the ids a lookup at the one object it names carries it holds, 200 ids a
+read, each asked once a run and counted among the run's calls. A row naming one
+it holds none of goes without the lookup, said on the object's line and among
+the run's errors, or, when it may not leave the lookup empty, is held back for
+want of its parent before anything is written for it; between two unrelated
+orgs, carried, the source's id had the target refuse the row. A lookup that can
+name several objects is carried as read, and a run that copies orphan parents
+copies a required one rather than hold its row back. A lookup at the
 one object it can name, which the run writes, is emptied at insert and filled
 in by the second pass whichever fallback is set: kept, a cycle's lookup at a
 record written after it named the target's own record rather than the copy,

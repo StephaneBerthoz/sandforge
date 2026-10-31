@@ -47,6 +47,7 @@ import type {
   ForgeConfig,
   ForgeGap,
   ForgeGapDecisionKind,
+  ForgeGapKind,
   ForgeGapSeverity,
   ForgeGraph,
   ForgeTargetGaps,
@@ -1222,6 +1223,129 @@ const SEVERITY_WORDS: Readonly<Record<ForgeGapSeverity, string>> = {
   info: 'info',
 };
 
+/** The decisions of a run's config a gap may be answered by: Review's, or a file's. */
+export type GapDecisions = Partial<
+  Pick<
+    ForgeConfig,
+    | 'ignoredGaps'
+    | 'excludedObjects'
+    | 'skippedRows'
+    | 'picklistValueMappings'
+    | 'recordTypeMappings'
+    | 'defaultValues'
+    | 'truncateFields'
+    | 'fieldExclusions'
+  >
+>;
+
+/** Kinds of gap about one value of a picklist, which `value` names: a currency code is one. */
+const VALUE_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
+  'picklist_value_refused',
+  'dependent_value_invalid',
+  'picklist_value_absent',
+  'currency_inactive',
+]);
+
+/** Kinds of gap about a source record type, which `value` names. */
+const RECORD_TYPE_KINDS: ReadonlySet<ForgeGapKind> = new Set<ForgeGapKind>([
+  'record_type_unmapped',
+  'record_type_unavailable',
+]);
+
+/**
+ * The decision of the run that answers `gap`, in the command's words —
+ * `default "EMEA"` — or undefined while none does.
+ *
+ * Answered by the rules Review's Gaps tab reads a decision back by, for the
+ * gaps the same read hands it (`decisionOf` in the webview's
+ * `utils/forgeGapDecisions.ts`): a gap the user ignored, or of an object the
+ * run leaves out, is answered whatever else it is; otherwise an entry answers
+ * the gap only when the read offered its kind of decision on it — a default
+ * given to a field does not answer a value of that field the target refuses —
+ * and a mapping of a value for one record type comes before one for every
+ * record type. Review shows such a gap decided, and leaves it out of the gaps
+ * it says will refuse rows; the command said it BLOCKING beside the line that
+ * applied the default to every row.
+ */
+export function gapAnsweredBy(gap: ForgeGap, decisions: GapDecisions): string | undefined {
+  if (decisions.ignoredGaps?.includes(gap.id)) return 'left as it is';
+  const object = gap.objectApiName;
+  if (decisions.excludedObjects?.includes(object)) return `${object} left out of the run`;
+  const offers = new Set(gap.decisions);
+  const { field, value } = gap;
+  if (
+    offers.has('skip_rows') &&
+    decisions.skippedRows?.some((entry) => entry.object === object && entry.gapId === gap.id)
+  ) {
+    return 'these rows held back';
+  }
+  if (
+    VALUE_KINDS.has(gap.kind) &&
+    field !== undefined &&
+    value !== undefined &&
+    (offers.has('map_value') || offers.has('leave_empty'))
+  ) {
+    const mappings = (decisions.picklistValueMappings ?? []).filter(
+      (m) => m.object === object && m.field === field && m.from === value,
+    );
+    const entry =
+      mappings.find((m) => m.recordType === gap.recordType) ??
+      mappings.find((m) => m.recordType === undefined);
+    if (entry?.to === null && offers.has('leave_empty'))
+      return 'the field left empty in these rows';
+    if (entry && entry.to !== null && offers.has('map_value')) return `written as "${entry.to}"`;
+  }
+  const from = RECORD_TYPE_KINDS.has(gap.kind) ? (gap.value ?? gap.recordType) : undefined;
+  if (from !== undefined && offers.has('map_record_type')) {
+    const entry = decisions.recordTypeMappings?.find((m) => m.object === object && m.from === from);
+    if (entry) {
+      return entry.to === null
+        ? "written with the object's default record type"
+        : `written as record type ${entry.to}`;
+    }
+  }
+  if (field === undefined) return undefined;
+  const sameField = (ref: { object: string; field: string }): boolean =>
+    ref.object === object && ref.field === field;
+  const byDefault = offers.has('set_default')
+    ? decisions.defaultValues?.find(sameField)
+    : undefined;
+  if (byDefault) return `default "${String(byDefault.value)}"`;
+  if (offers.has('truncate') && decisions.truncateFields?.some(sameField)) {
+    return "cut to the field's length";
+  }
+  if (offers.has('leave_empty') && decisions.fieldExclusions?.[object]?.includes(field)) {
+    return 'the field left out of the rows';
+  }
+  return undefined;
+}
+
+/**
+ * The read's gaps, each a decision of the run answers carrying it in its own
+ * words (`answeredBy`): what the command's `--json` gives a job, which would
+ * otherwise count among the gaps that refuse rows one the run answers.
+ */
+export function gapsWithAnswers(
+  read: ForgeTargetGaps,
+  decisions: GapDecisions,
+): Omit<ForgeTargetGaps, 'gaps'> & { gaps: Array<ForgeGap & { answeredBy?: string }> } {
+  return {
+    ...read,
+    gaps: read.gaps.map((gap) => {
+      const answeredBy = gapAnsweredBy(gap, decisions);
+      return answeredBy === undefined ? gap : { ...gap, answeredBy };
+    }),
+  };
+}
+
+/** A gap's line: its severity, or the decision of the run that answers it, then what it is. */
+function gapLine(gap: ForgeGap, decisions: GapDecisions | undefined): string {
+  const answer = decisions ? gapAnsweredBy(gap, decisions) : undefined;
+  return answer === undefined
+    ? `${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`
+    : `answered by the run's decision: ${answer} — ${gapWords(gap)}`;
+}
+
 /** How each part the read could not read is said in the command's lines. */
 const PART_WORDS: Readonly<Record<GapUnreadPart, string>> = {
   validationRules: 'the validation rules',
@@ -1343,22 +1467,24 @@ function assignLines(gap: ForgeGap, target: string, username: string | undefined
 
 /**
  * What the clone command says of the target's gaps before it writes: per
- * object, each gap with its severity, and under a validation rule what would
- * keep it quiet for the user the run writes as; the API budget; the
- * validation rule formulas the bound left unread; what the read could not
- * read, and what it cost.
+ * object, each gap with its severity — or the decision of the run that
+ * answers it, which is then no longer said to refuse rows — and under a
+ * validation rule what would keep it quiet for the user the run writes as;
+ * the API budget; the validation rule formulas the bound left unread; what
+ * the read could not read, and what it cost.
  *
  * @param read - What the read found.
  * @param target - The alias of the target, as the command names it.
  * @param options - The user the run writes as, whom the command that assigns
  *   a bypass names; without it, the permission set is named and no command.
- *   And the most formulas the read took, when it read them one request each
- *   ({@link FORMULAS_BOUND}).
+ *   The most formulas the read took, when it read them one request each
+ *   ({@link FORMULAS_BOUND}). And the run's decisions, from `--config` or
+ *   `--template`, which answer the gaps they decide ({@link gapAnsweredBy}).
  */
 export function gapLines(
   read: ForgeTargetGaps,
   target: string,
-  options: { username?: string; formulasBound?: number } = {},
+  options: { username?: string; formulasBound?: number; decisions?: GapDecisions } = {},
 ): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
@@ -1369,7 +1495,7 @@ export function gapLines(
   for (const object of objects) {
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
-      lines.push(`    ${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`);
+      lines.push(`    ${gapLine(gap, options.decisions)}`);
       lines.push(...assignLines(gap, target, options.username));
     }
   }
@@ -1380,7 +1506,7 @@ export function gapLines(
         : '  no validation rule, duplicate rule, field only the target requires or lookup filter',
     );
   }
-  for (const gap of budget) lines.push(`  ${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`);
+  for (const gap of budget) lines.push(`  ${gapLine(gap, options.decisions)}`);
   const formulasNotRead = others.filter((gap) => gap.detail?.formula === 'notRead').length;
   if (formulasNotRead > 0) {
     lines.push(
