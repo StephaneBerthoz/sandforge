@@ -27,12 +27,20 @@ description = "Generated trees and resolved dependency metadata, and fake keys i
 #
 # A checkpoint archive's key in a test of the command line, committed in 1.70:
 # 52 letters of the alphabet in order, written in groups of four as SandForge
-# shows a key, drawn by no generator.
+# shows a key, drawn by no generator. The import's payload test, committed in
+# 1.71, ends the same key on QRST.
+#
+# The key and the file token of the checkpoint export and import tests,
+# committed in 1.71: the key is the alphabet and a few digits in base32
+# (MFRG… decodes to abcdefghijklmnopqrstuvwxyz4566), the token one made-up
+# UUID that the page tests, its fixtures and the E2E spec share.
 regexTarget = "line"
 regexes = [
   '''eyJhbGciOiJSUzI1NiJ9\.eyJzdWIiOiJmYWtlIn0\.ZmFrZQ''',
   '''\bkey(?:\s*===?\s*|:\s*)\x27[a-z][a-z0-9]*(?:-[a-z0-9]+){3,}\x27''',
-  '''ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-ABCD-EFGH-IJKL-MNOP-QRSQ''',
+  '''ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567-ABCD-EFGH-IJKL-MNOP-QRS[QT]''',
+  '''MFRG-GZDF-MZTW-Q2LK-NNWG-23TP-OBYX-E43U-OV3H-O6DZ-PI2D-KNRW-G4ZQ''',
+  '''7d0c4c9e-2f6b-4a8e-9a43-0b6f8f6a1c2d''',
 ]
 paths = [
   # Build output and installed packages: third-party bytes, none of them ours,

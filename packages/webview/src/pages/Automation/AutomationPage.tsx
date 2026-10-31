@@ -23,7 +23,7 @@ import { PipelineExecutionView } from './PipelineExecutionView';
 import { TriggerConfigPanel } from './TriggerConfigPanel';
 import { SchedulerCalendar } from './SchedulerCalendar';
 import { PipelineHistoryView } from './PipelineHistoryView';
-import { RewindStepConfirm } from './RewindStepConfirm';
+import { RewindStepConfirm } from './automationParts';
 import { draftSuggestionText, useAutomationPageData } from './useAutomationPageData';
 import { blockedSteps, typeBlocker } from './stepRunnability';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';

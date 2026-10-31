@@ -267,6 +267,10 @@ export const PAGES_THAT_VALIDATE = new Map([
   ['forge', 'a SOQL filter typed in, against the rule the extension holds every filter to'],
   ['dataops', 'a masking template the user saves or imports, against the template schema'],
   ['migration', 'the configuration the user edits, against the Sync configuration schema'],
+  [
+    'automation',
+    "a Checkpoint or Rewind step's configuration, against the schema the extension runs it by",
+  ],
 ]);
 
 /**

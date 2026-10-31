@@ -53,6 +53,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate (typecheck + test + build)
+        # The extension's test typecheck holds 2.8 GB of heap since 1.71's
+        # rewind commits, past what Node gives itself by default on the 7 GB
+        # macOS runner, which ran out of memory there on every push while the
+        # 16 GB ubuntu and windows runners passed. 4 GB, as on a developer's
+        # machine.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm build:shared && pnpm typecheck && pnpm test && pnpm build
 
       # After the build, and on every OS: it reads the paths the extension
