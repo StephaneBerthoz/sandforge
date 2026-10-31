@@ -4,6 +4,7 @@ import type {
   TransformRuleConfig,
   SyncObjectConfig,
 } from '@sandforge/shared';
+import { fieldlessTransformRefusal, fieldlessTransformRules } from '@sandforge/shared';
 
 /**
  * Applies transform rules in sequence to field values.
@@ -25,11 +26,16 @@ export class TransformPipeline {
   }
 
   /**
-   * Apply the transform rules of a SyncObjectConfig to a record. A rule that
-   * names a field changes that field alone; one that names none — as a
-   * configuration saved before rules named a field holds it — runs on every
-   * field. Per-field transform rules defined in fieldMappings are applied to
-   * their respective fields only.
+   * Apply the transform rules of a SyncObjectConfig to a record. A rule
+   * changes the field it names, and that field alone. Per-field transform
+   * rules defined in fieldMappings are applied to their respective fields
+   * only.
+   *
+   * @throws {Error} For a rule that names no field, before the record is
+   *   changed. It ran on every field of the record: an Uppercase with no field
+   *   upper-cased the RecordTypeId with the name, and the run held the
+   *   records back as of a record type the target has not. Every start of a
+   *   run refuses such a rule before it reads anything; this is the last word.
    */
   transformRecord(
     record: Record<string, unknown>,
@@ -48,7 +54,11 @@ export class TransformPipeline {
     };
 
     for (const rule of objectConfig.transformRules) {
-      for (const key of keysOf(result, rule)) {
+      const field = rule.field?.trim();
+      if (!field) {
+        throw new Error(fieldlessTransformRefusal(fieldlessTransformRules([objectConfig])));
+      }
+      for (const key of keysOf(result, field)) {
         if (!changeable(key)) continue;
         result[key] = applyRule(result[key], rule.type, rule.config);
       }
@@ -73,14 +83,13 @@ export class TransformPipeline {
 
 /**
  * The keys of `record` a rule changes: the one its field names, matched as
- * Salesforce matches an API name, whatever its case, or every key when it
- * names none. A field the record does not carry is not added: an update would
- * write the rule's value over what the target holds there, and a real-time
- * change carries only the fields that changed.
+ * Salesforce matches an API name, whatever its case. A field the record does
+ * not carry is not added: an update would write the rule's value over what
+ * the target holds there, and a real-time change carries only the fields that
+ * changed.
  */
-function keysOf(record: Record<string, unknown>, rule: TransformRule): string[] {
-  if (rule.field === undefined) return Object.keys(record);
-  const wanted = rule.field.toLowerCase();
+function keysOf(record: Record<string, unknown>, field: string): string[] {
+  const wanted = field.toLowerCase();
   return Object.keys(record).filter((key) => key.toLowerCase() === wanted);
 }
 

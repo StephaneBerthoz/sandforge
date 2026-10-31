@@ -1486,6 +1486,70 @@ describe('SyncPage', () => {
     expect(length.value).toBe('');
   });
 
+  it('keeps Simulate and Run off while a rule names no field, says why, and runs once its field is picked', () => {
+    // A draft left before rules named a field: its Uppercase ran on every
+    // field of every record, and upper-cased the RecordTypeId with the name.
+    draft.value = {
+      currentStep: 4,
+      direction: 'source_to_target',
+      mode: 'full',
+      conflictStrategy: 'source_wins',
+      sourceOrgId: 'org-1',
+      targetOrgId: 'org-2',
+      objectEntries: [
+        { objectApiName: 'Account', operation: 'insert', externalIdField: '', batchSize: 200 },
+      ],
+      mappingsByObject: {},
+      transforms: [{ type: 'uppercase', config: {} }],
+    };
+    mockFieldsMutationState.data = {
+      objectApiName: 'Account',
+      sourceFields: [],
+      targetFields: [
+        { apiName: 'Name', label: 'Account Name', type: 'string' },
+        { apiName: 'RecordTypeId', label: 'Record Type ID', type: 'reference' },
+      ],
+    };
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    const run = screen.getByTestId('sync-run') as HTMLButtonElement;
+    const simulate = screen.getByTestId('sync-simulate') as HTMLButtonElement;
+    const why = screen.getByTestId('sync-transforms-need-field');
+    expect(why.textContent).toBe(
+      'A transform rule names no field: pick its field in the Transforms step. Simulate and ' +
+        'Run the sync stay off until then, as such a rule would change every field of every record.',
+    );
+    expect(run.disabled).toBe(true);
+    expect(simulate.disabled).toBe(true);
+    expect(run.getAttribute('aria-describedby')).toBe(why.id);
+    fireEvent.click(run);
+    fireEvent.click(simulate);
+    expect(mockExecuteMutate).not.toHaveBeenCalled();
+    expect(mockSimulateMutate).not.toHaveBeenCalled();
+
+    // Its row, on the Transforms step, has the field to pick: a text one.
+    fireEvent.click(screen.getByTestId('sync-transforms-pick-field'));
+    const picker = within(screen.getByTestId('transform-0')).getByLabelText('Field for Uppercase');
+    expect(
+      [...(picker as HTMLSelectElement).options].filter((o) => !o.disabled).map((o) => o.value),
+    ).toEqual(['Name']);
+    fireEvent.change(picker, { target: { value: 'Name' } });
+    expect(screen.getByTestId('transform-0-field').textContent).toBe('Name');
+    expect(screen.queryByTestId('transform-needs-field')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('sync-wizard-next'));
+    fireEvent.click(screen.getByTestId('sync-wizard-next'));
+    expect(screen.queryByTestId('sync-transforms-need-field')).toBeNull();
+    fireEvent.click(screen.getByTestId('sync-run'));
+    const sent = mockExecuteMutate.mock.calls[0][0] as {
+      config: { objects: Array<{ transformRules: unknown[] }> };
+    };
+    expect(sent.config.objects[0].transformRules).toEqual([
+      { type: 'uppercase', field: 'Name', config: {} },
+    ]);
+  });
+
   it('offers only the conflict strategies the resolver acts on, never manual', () => {
     // 'manual' resolved to the source values and wrote them, exactly like
     // source wins: the option named a review the page never showed.

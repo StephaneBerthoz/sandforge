@@ -24,6 +24,7 @@ const rules: SyncTransformRule[] = [
 function renderBuilder(props: Partial<TransformBuilderProps> = {}) {
   const handlers = {
     onAddRule: vi.fn(),
+    onPickField: vi.fn(),
     onRemoveRule: vi.fn(),
     onChangeConfig: vi.fn(),
     onObjectChange: vi.fn(),
@@ -179,17 +180,45 @@ describe('TransformBuilder', () => {
     expect(screen.getByTestId('remove-transform-1').textContent).toBe('');
   });
 
-  it('marks a rule saved before rules named a field, on every object, and says what it does', () => {
+  it('shows a rule saved before rules named a field with its field to pick, never as one on every field', () => {
+    // Kept running on every field, an Uppercase with no field upper-cased
+    // the records' RecordTypeId with their names.
+    const { onPickField } = renderBuilder({
+      rules: [{ type: 'trim', config: {} }],
+    });
+
+    expect(screen.queryByText('Every field')).toBeNull();
+    const picker = screen.getByLabelText('Field for Trim');
+    // The fields a new Trim may name: text, neither Id nor the match key.
+    expect(optionValues(picker)).toEqual(['Name', 'Description', 'Legacy_Key__c']);
+    expect(screen.getByTestId('transform-needs-field').textContent).toBe(
+      'A rule without a field was made before rules named one, and would change every field of ' +
+        'every record: pick on its row the field it changes. Simulate and Run the sync stay off ' +
+        'until every rule names its field.',
+    );
+    fireEvent.change(picker, { target: { value: 'Description' } });
+
+    expect(onPickField).toHaveBeenCalledWith(0, 'Description');
+  });
+
+  it('offers on that row the fields its rule can change, and says so when none', () => {
+    renderBuilder({ rules: [{ type: 'format_date', config: {} }], matchField: 'Founded__c' });
+
+    expect((screen.getByLabelText('Field for Format date') as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByTestId('transform-0-no-field').textContent).toBe(
+      'No field of Account takes Format date.',
+    );
+  });
+
+  it('names the remove button of a rule without a field by its rule', () => {
     const { onRemoveRule } = renderBuilder({
       rules: [{ type: 'trim', config: {} }],
       objectApiName: 'Contact',
     });
 
-    expect(screen.getByTestId('transform-0-every-field').textContent).toBe('Every field');
-    expect(screen.getByTestId('transform-every-field-note').textContent).toContain(
-      'runs on every field of every object in this run',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Trim on every field' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Trim, which names no field' }));
     expect(onRemoveRule).toHaveBeenCalledWith(0);
   });
 
@@ -199,6 +228,6 @@ describe('TransformBuilder', () => {
     expect(screen.getByTestId('transform-none').textContent).toBe(
       'No rule on Account: its fields are written as read.',
     );
-    expect(screen.queryByTestId('transform-every-field-note')).toBeNull();
+    expect(screen.queryByTestId('transform-needs-field')).toBeNull();
   });
 });

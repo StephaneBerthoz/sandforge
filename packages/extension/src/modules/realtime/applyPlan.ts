@@ -1,4 +1,5 @@
 import type { RealTimeApplyObject, SyncConfig } from '@sandforge/shared';
+import { fieldlessTransformRefusal, fieldlessTransformRules } from '@sandforge/shared';
 import type { ApplyPlan } from './RealtimeApplier.js';
 
 /** Mapping types that copy the source value as it is — the only ones a key can come through. */
@@ -18,7 +19,8 @@ const VERBATIM_TYPES = new Set(['direct', 'rename']);
  * @param orgs - The pair the session runs between.
  * @param session - What the session was asked beside its objects.
  * @throws {Error} When the saved configuration picked is gone, runs between
- *   other orgs, or does not carry the object.
+ *   other orgs, does not carry the object, or carries a transform rule on it
+ *   that names no field, which a run of it refuses as well.
  */
 export function applyPlanFor(
   apply: RealTimeApplyObject,
@@ -56,6 +58,14 @@ export function applyPlanFor(
       if (!entry) {
         throw new Error(
           `${apply.objectApiName}: the saved Sync configuration "${config.name}" does not carry it.`,
+        );
+      }
+      // Applied, such a rule would change every field of every change written.
+      const fieldless = fieldlessTransformRules([entry]);
+      if (fieldless.length > 0) {
+        throw new Error(
+          `${apply.objectApiName}: the saved Sync configuration "${config.name}" cannot be ` +
+            `applied. ${fieldlessTransformRefusal(fieldless)}`,
         );
       }
       const keyField = entry.externalIdField?.trim() || 'Id';

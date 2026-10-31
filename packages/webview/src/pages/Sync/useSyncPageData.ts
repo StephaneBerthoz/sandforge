@@ -76,8 +76,8 @@ interface SyncDraftState {
   /**
    * Transform rules, each with the field it changes and the object it was
    * made for. A draft saved before rules named a field holds rules with
-   * neither: they run on every field of every object, as they did then, and
-   * the step says so.
+   * neither: the step shows each with its field to pick, and no run is sent
+   * until it is picked (`transformsNeedField`).
    */
   transforms: SyncTransformRule[];
 }
@@ -206,6 +206,12 @@ export interface SyncPageData {
   handleMappingTypeChange: (index: number, type: MappingType) => void;
   /** Add a transform rule of the given type on a field of the object the step shows. */
   handleAddTransform: (type: TransformRuleType, field: string) => void;
+  /**
+   * Name the field of a rule that names none — a rule of a draft saved before
+   * rules named a field — on the object the step shows, which it becomes a
+   * rule of.
+   */
+  handlePickTransformField: (index: number, field: string) => void;
   /** Remove a transform rule by index. */
   handleRemoveTransform: (index: number) => void;
   /** Set one setting of a transform rule, as typed in its input. */
@@ -253,6 +259,12 @@ export interface SyncPageData {
    * extension refuses a run and a simulation of it, so neither is sent.
    */
   filesNeedSave: boolean;
+  /**
+   * Whether a transform rule of the wizard names no field: the extension
+   * refuses a run and a simulation of it, which would change every field of
+   * every record, so neither is sent until its field is picked.
+   */
+  transformsNeedField: boolean;
   /** Apply a pre-built sync template to populate wizard state. */
   handleApplyTemplate: (template: SyncTemplateConfig) => void;
   /** Whether the wizard can advance to the next step. */
@@ -387,10 +399,11 @@ function isTextTransformConfigKey(key: string): key is TextTransformConfigKey {
 
 /**
  * The rules an object's write carries: those made for it, and those of a
- * draft saved before rules named a field, which ran on every object and still
- * do. Every object of the run was sent every rule, so a rule made on one
- * object's field changed the field of that name on all of them. Sent without
- * the object they were made for: the boundary refuses a key it does not know.
+ * draft saved before rules named a field, which name neither field nor
+ * object and which the extension refuses for each object that carries them.
+ * Every object of the run was sent every rule, so a rule made on one object's
+ * field changed the field of that name on all of them. Sent without the
+ * object they were made for: the boundary refuses a key it does not know.
  */
 function transformRulesOf(
   objectApiName: string,
@@ -869,6 +882,16 @@ export function useSyncPageData(): SyncPageData {
     if (!field || !mappedObject) return;
     setTransforms((prev) => [...prev, { type, field, objectApiName: mappedObject, config: {} }]);
   };
+  const handlePickTransformField = (index: number, field: string) => {
+    if (!field || !mappedObject) return;
+    setTransforms((prev) =>
+      prev.map((rule, i) =>
+        i === index && rule.field === undefined
+          ? { ...rule, field, objectApiName: mappedObject }
+          : rule,
+      ),
+    );
+  };
   const handleRemoveTransform = (index: number) => {
     setTransforms((prev) => prev.filter((_, i) => i !== index));
   };
@@ -1001,6 +1024,16 @@ export function useSyncPageData(): SyncPageData {
    */
   const filesNeedSave = openedConfig === null && copyFiles && savedIdOnScreen === null;
 
+  /**
+   * A rule of the wizard that names no field would change every field of
+   * every record of every object: an Uppercase upper-cased the RecordTypeId,
+   * and the run held the records back. The extension refuses it; the page
+   * sends no run and no simulation of it. A saved configuration opened here
+   * runs as it was saved, not as the wizard holds it.
+   */
+  const transformsNeedField =
+    openedConfig === null && transforms.some((rule) => rule.field === undefined);
+
   /** The objects a delta run would be refused for: see {@link DELTA_OPERATIONS}. */
   const deltaBlockers =
     mode === 'delta'
@@ -1034,7 +1067,7 @@ export function useSyncPageData(): SyncPageData {
       readBackSaved(openedConfig, false, muteAutomation);
       return;
     }
-    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
+    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave || transformsNeedField) return;
     setError(null);
 
     const config = buildConfig(
@@ -1109,7 +1142,7 @@ export function useSyncPageData(): SyncPageData {
       readBackSaved(openedConfig, true, false);
       return;
     }
-    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
+    if (!sourceOrgId || !targetOrgId || busy || filesNeedSave || transformsNeedField) return;
     setError(null);
 
     // Under the saved id too: a simulation of a delta configuration reads
@@ -1226,6 +1259,7 @@ export function useSyncPageData(): SyncPageData {
     handleRemoveMapping,
     handleMappingTypeChange,
     handleAddTransform,
+    handlePickTransformField,
     handleRemoveTransform,
     handleChangeTransformConfig,
     muteAutomation,
@@ -1244,6 +1278,7 @@ export function useSyncPageData(): SyncPageData {
     writeOrderUnread: writeOrderQuery.error !== null,
     writeOrderEncrypted: writeOrderQuery.data?.encrypted ?? [],
     filesNeedSave,
+    transformsNeedField,
     handleApplyTemplate,
     canGoNext,
     isFinished,

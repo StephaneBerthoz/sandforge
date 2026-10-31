@@ -32,7 +32,7 @@ vi.mock('../src/modules/sync/SyncOrchestrator.js', () => ({
   }),
 }));
 
-import { makeConn } from './sfSession.js';
+import { loadOrg, makeConn } from './sfSession.js';
 import { main, savedConfigStore } from './sandforge-sync.js';
 
 /** A fake id: the object's prefix and a counter, the length of a real one. */
@@ -423,5 +423,65 @@ describe('sandforge-sync --config-file', () => {
 
     expect(stderr).toContain('conflictStrategy: Manual conflict review is not available');
     expect(makeConn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a transform rule that names no field, exit 1, before any org is contacted', async () => {
+    // Run on every field, an Uppercase with no field upper-cased the records'
+    // RecordTypeId with their names.
+    const [account] = SAVED.objects;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...SAVED,
+        objects: [{ ...account, transformRules: [{ type: 'uppercase', config: {} }] }],
+      }),
+    );
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string) => {
+      stderr += chunk;
+      return true;
+    }) as never);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    engine.run = async (_deps, config) => answered(config);
+    vi.mocked(loadOrg).mockClear();
+
+    await expect(run()).rejects.toThrow('exit 1');
+
+    expect(stderr).toBe(
+      `--config-file ${file}: The rule Uppercase on Account names no field: open the ` +
+        'configuration and pick its field. Without one it would change every field of every ' +
+        'record, record types and lookups among them. Nothing was read or written.\n',
+    );
+    expect(loadOrg).not.toHaveBeenCalled();
+    expect(makeConn).not.toHaveBeenCalled();
+    expect(engine.deps).toEqual([]);
+    // Not kept in its store either: nothing of it runs.
+    expect(savedConfigStore(store).load('cfg-accounts')).toBeUndefined();
+  });
+
+  it('runs the same configuration once its rule names the field', async () => {
+    const [account] = SAVED.objects;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...SAVED,
+        objects: [
+          { ...account, transformRules: [{ type: 'uppercase', field: 'Name', config: {} }] },
+        ],
+      }),
+    );
+    const given: SyncConfig[] = [];
+    engine.run = async (_deps, config) => {
+      given.push(config);
+      return answered(config);
+    };
+
+    await run();
+
+    expect(given.map((config) => config.objects[0].transformRules)).toEqual([
+      [{ type: 'uppercase', field: 'Name', config: {} }],
+    ]);
   });
 });

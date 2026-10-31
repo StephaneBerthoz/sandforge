@@ -68,6 +68,8 @@ import type {
   SyncWriteCheck,
 } from '@sandforge/shared';
 import {
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
   guardTierOf,
   isDeveloperEdition,
   orgTypeOf,
@@ -267,7 +269,10 @@ Run a saved configuration:
                          mappings, add-ons, mode, and whether it copies files.
                          It runs between the two orgs given, whatever orgs it
                          names. In delta mode, each object reads only what the
-                         source changed since its last good run.
+                         source changed since its last good run. A transform
+                         rule that names no field is refused before any org is
+                         reached, exit 1: it would change every field of every
+                         record.
   --store <dir>          where the configuration is kept between runs, with
                          its watermarks, the files it copied and which record
                          of the target each source record it wrote became, as
@@ -1464,6 +1469,16 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if ('refusal' in read) {
       process.stderr.write(`--config-file ${args.configFile} ${read.refusal}\n`);
       process.exit(2);
+    }
+    // A configuration the panel reads, and refuses to run: a transform rule
+    // that names no field would change every field of every record.
+    const fieldless = fieldlessTransformRules(read.config.objects);
+    if (fieldless.length > 0) {
+      process.stderr.write(
+        `--config-file ${args.configFile}: ${fieldlessTransformRefusal(fieldless)} ` +
+          'Nothing was read or written.\n',
+      );
+      process.exit(1);
     }
     config = read.config;
     saved = savedConfigStore(args.store);

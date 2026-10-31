@@ -48,7 +48,12 @@ export const transformRuleSchema = z.strictObject({
     'format_number',
     'custom_formula',
   ]),
-  /** The target field the rule changes; absent, every field (see `TransformRule.field`). */
+  /**
+   * The target field an object-level rule changes. A rule of a field mapping
+   * changes that mapping's field and names none. An object-level rule that
+   * names none, as a configuration saved before rules named a field holds it,
+   * is still read, and its run refused (see `TransformRule.field`).
+   */
   field: z
     .string()
     .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Invalid field API name')

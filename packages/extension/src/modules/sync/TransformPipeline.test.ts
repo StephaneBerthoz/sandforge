@@ -125,9 +125,12 @@ describe('TransformPipeline', () => {
   });
 
   describe('transformRecord', () => {
-    it('should apply object-level transform rules to all fields', () => {
+    it('should apply object-level transform rules to the fields they name', () => {
       const config = createObjectConfig({
-        transformRules: [{ type: 'trim', config: {} }],
+        transformRules: [
+          { type: 'trim', field: 'Name', config: {} },
+          { type: 'trim', field: 'Industry', config: {} },
+        ],
       });
       const record = { Name: '  Acme  ', Industry: '  Tech  ' };
 
@@ -155,7 +158,7 @@ describe('TransformPipeline', () => {
 
     it('should not modify the original record', () => {
       const config = createObjectConfig({
-        transformRules: [{ type: 'uppercase', config: {} }],
+        transformRules: [{ type: 'uppercase', field: 'Name', config: {} }],
       });
       const record = { Name: 'acme' };
 
@@ -230,20 +233,6 @@ describe('TransformPipeline', () => {
       expect(
         pipeline.transformRecord({ Id: '001S1', Ext_Id__c: 'KEY-1', Name: 'Acme' }, config),
       ).toEqual({ Id: '001S1', Ext_Id__c: 'KEY-1', Name: 'Acme' });
-    });
-
-    it('runs alongside a rule saved without a field, which keeps its effect on every field', () => {
-      const config = createObjectConfig({
-        transformRules: [
-          { type: 'trim', config: {} },
-          { type: 'uppercase', field: 'Name', config: {} },
-        ],
-      });
-
-      expect(pipeline.transformRecord({ Name: '  acme ', Industry: ' tech ' }, config)).toEqual({
-        Name: 'ACME',
-        Industry: 'tech',
-      });
     });
   });
 
@@ -333,26 +322,49 @@ describe('TransformPipeline', () => {
     });
   });
 
-  describe('the field a write matches on', () => {
-    it('is left alone by an object-level rule', () => {
-      const config = createObjectConfig({
-        externalIdField: 'Ext_Id__c',
-        transformRules: [{ type: 'prefix', config: { prefix: 'X-' } }],
-      });
-
-      const result = pipeline.transformRecord(
-        { Id: '001abc', Ext_Id__c: 'KEY-1', Name: 'Acme' },
-        config,
-      );
-
-      expect(result.Id).toBe('001abc');
-      expect(result.Ext_Id__c).toBe('KEY-1');
-      expect(result.Name).toBe('X-Acme');
-    });
-
-    it('is Id when the object upserts on no external id', () => {
+  describe('a rule that names no field', () => {
+    it('is refused, not run on every field of the record', () => {
+      // Run on every field, an Uppercase with no field upper-cased the
+      // RecordTypeId with the name, and the run held both accounts back as of
+      // a record type the target has not.
       const config = createObjectConfig({
         transformRules: [{ type: 'uppercase', config: {} }],
+      });
+      const record = { Name: 'acme', RecordTypeId: '012S1', ParentId: '001S1' };
+
+      expect(() => pipeline.transformRecord(record, config)).toThrow(
+        'The rule Uppercase on Account names no field: open the configuration and pick its field.',
+      );
+      expect(record).toEqual({
+        Name: 'acme',
+        RecordTypeId: '012S1',
+        ParentId: '001S1',
+      });
+    });
+
+    it('is refused beside rules that name theirs, each such rule named', () => {
+      const config = createObjectConfig({
+        objectApiName: 'Contact',
+        transformRules: [
+          { type: 'uppercase', field: 'LastName', config: {} },
+          { type: 'trim', config: {} },
+          { type: 'prefix', config: { prefix: 'X-' } },
+        ],
+      });
+
+      expect(() => pipeline.transformRecord({ LastName: 'doe' }, config)).toThrow(
+        'The rules Trim on Contact and Prefix on Contact name no field',
+      );
+    });
+  });
+
+  describe('the field a write matches on', () => {
+    it('is Id when the object upserts on no external id', () => {
+      const config = createObjectConfig({
+        transformRules: [
+          { type: 'uppercase', field: 'Id', config: {} },
+          { type: 'uppercase', field: 'Name', config: {} },
+        ],
       });
 
       const result = pipeline.transformRecord({ Id: '001abc', Name: 'Acme' }, config);

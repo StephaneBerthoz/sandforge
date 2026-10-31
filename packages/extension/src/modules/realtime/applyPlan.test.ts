@@ -13,7 +13,7 @@ function leadEntry(overrides: Partial<SyncObjectConfig> = {}): SyncObjectConfig 
       { sourceField: 'Website', targetField: 'Ext__c', type: 'rename' },
       { sourceField: 'Title', targetField: 'Title', type: 'direct' },
     ],
-    transformRules: [{ type: 'trim', config: {} }],
+    transformRules: [{ type: 'trim', field: 'Title', config: {} }],
     excludedFields: [],
     addOnFields: [{ fieldApiName: 'LeadSource', value: 'Sync', overwriteExisting: true }],
     batchSize: 200,
@@ -86,7 +86,7 @@ describe('applyPlanFor', () => {
       keyField: 'Ext__c',
       // The mapping says where the key comes from in the source.
       keySource: 'Website',
-      transformRules: [{ type: 'trim', config: {} }],
+      transformRules: [{ type: 'trim', field: 'Title', config: {} }],
       addOnFields: [{ fieldApiName: 'LeadSource', value: 'Sync', overwriteExisting: true }],
     });
     expect(plan.fieldMappings).toHaveLength(2);
@@ -145,6 +145,12 @@ describe('applyPlanFor', () => {
     ['is gone', () => undefined, 'no longer exists'],
     ['runs between other orgs', () => saved({ targetOrgId: 'org-other' }), 'two other orgs'],
     ['does not carry the object', () => saved({ objects: [] }), 'does not carry it'],
+    [
+      'has a rule on it that names no field',
+      () =>
+        saved({ objects: [leadEntry({ transformRules: [{ type: 'uppercase', config: {} }] })] }),
+      'cannot be applied. The rule Uppercase on Lead names no field: open the configuration and pick its field.',
+    ],
   ])('refuses a saved configuration that %s', (_case, load, message) => {
     expect(() =>
       applyPlanFor(

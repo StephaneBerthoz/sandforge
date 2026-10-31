@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 // otherwise have to provide its initialiser.
 import i18n from 'i18next';
 
-import { panelWordingOf, type BaseMessage } from '@sandforge/shared';
+import { TRANSFORM_RULE_NO_FIELD, panelWordingOf, type BaseMessage } from '@sandforge/shared';
 import { offerReconnect } from '../bridge/offerReconnect';
 import { listWords } from '../utils/listWords';
 import { muteRefusalWords } from '../utils/muteRefusal';
@@ -171,9 +171,39 @@ function guardRefusal(
   if (code === 'AUTOPILOT_CONFIRMATION_UNAVAILABLE') {
     return i18n.t('common.refusal.autopilotConfirmationUnavailable');
   }
+  // A Sync run, simulation or save refused for a transform rule that names
+  // no field, each such rule named by the host with its object.
+  if (code === TRANSFORM_RULE_NO_FIELD) return transformNoFieldWords(payload.rules);
   // A run asked to mute the target's automation that could not be: nothing
   // was assigned and nothing written, and the host said why in English.
   return muteRefusalWords(code, message, (key, options) => i18n.t(key, options));
+}
+
+/**
+ * A Sync refusal for transform rules that name no field, each rule in the
+ * interface language on its object, or `undefined` when the host named none.
+ * The rules' names are kept in `common`, which every panel loads, as this
+ * hook answers for every page: the Sync page's own names them the same.
+ */
+function transformNoFieldWords(rules: unknown): string | undefined {
+  if (!Array.isArray(rules) || rules.length === 0) return undefined;
+  const named: string[] = [];
+  for (const rule of rules as unknown[]) {
+    if (typeof rule !== 'object' || rule === null) return undefined;
+    const { objectApiName, type } = rule as { objectApiName?: unknown; type?: unknown };
+    if (typeof objectApiName !== 'string' || typeof type !== 'string') return undefined;
+    const key = `common.transformTypes.${type}`;
+    named.push(
+      i18n.t('common.refusal.transformRuleOn', {
+        rule: i18n.exists(key) ? i18n.t(key) : type,
+        object: objectApiName,
+      }),
+    );
+  }
+  return i18n.t('common.refusal.transformNoField', {
+    count: named.length,
+    rules: listWords(named, (key) => i18n.t(key)),
+  });
 }
 
 /**

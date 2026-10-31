@@ -17,7 +17,10 @@ import type {
   SyncSimulationResult,
 } from '@sandforge/shared';
 import {
+  TRANSFORM_RULE_NO_FIELD,
   auditMutedOf,
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
   sanitizeSoqlObjectName,
   guardTierOf,
   recordWriteHeaders,
@@ -163,6 +166,12 @@ const LIMITS_TIMEOUT_MS = 30_000;
 
 /** How long the read of the target's automation may take, as Forge's may. */
 const AUTOMATION_TIMEOUT_MS = 60_000;
+
+/** What a run refused at its start left undone, as its refusal ends. */
+const NOTHING_DONE = 'Nothing was read or written.';
+
+/** What a simulation refused at its start left undone: it never writes. */
+const NOTHING_READ = 'Nothing was read.';
 
 /** What starts a run nobody watches from the Sync page: a schedule, or a pipeline's Sync step. */
 export type UnattendedSyncOrigin = Extract<
@@ -622,11 +631,54 @@ export class SyncOpsHandler implements DomainHandler {
     }
   }
 
-  /** Save a sync configuration. */
+  /**
+   * Refuse a configuration a transform rule of which names no field, before
+   * anything is read, written or saved: run, the rule would change every
+   * field of every record (`fieldlessTransformRules`). Said on `channel` by
+   * its code, with each such rule and its object for the page to name in its
+   * language; the message is English, and ends with `undone`.
+   *
+   * @returns Whether it was refused.
+   */
+  private refusedFieldless(
+    msg: InboundRequest,
+    config: { objects: Parameters<typeof fieldlessTransformRules>[0] },
+    context: string,
+    channel: string,
+    undone: string,
+  ): boolean {
+    const rules = fieldlessTransformRules(config.objects);
+    if (rules.length === 0) return false;
+    sendHandlerError(
+      this.deps,
+      context,
+      channel,
+      msg,
+      new Error(`${fieldlessTransformRefusal(rules)} ${undone}`),
+      { code: TRANSFORM_RULE_NO_FIELD, extraPayload: { rules } },
+    );
+    return true;
+  }
+
+  /**
+   * Save a sync configuration. One a transform rule of which names no field
+   * is refused: a schedule of it could only ever be refused.
+   */
   private async handleConfigSave(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncConfigSavePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
+    if (
+      this.refusedFieldless(
+        msg,
+        parsed.config,
+        'sync:config:save',
+        'sync:error',
+        'Nothing was saved.',
+      )
+    ) {
+      return;
+    }
     try {
       const config = parsed.config as unknown as SyncConfig;
       this.syncConfigStore.save(config);
@@ -1131,6 +1183,9 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
+    if (this.refusedFieldless(msg, parsed.config, 'sync:execute', 'sync:error', NOTHING_DONE)) {
+      return;
+    }
     await this.startExecution(msg, parsed.config, 'manual', parsed.muteAutomation === true);
   }
 
@@ -1150,6 +1205,9 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncSimulatePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
+    if (this.refusedFieldless(msg, parsed.config, 'sync:simulate', 'sync:error', NOTHING_READ)) {
+      return;
+    }
     const operationId = msg.id;
     const config = parsed.config as unknown as SyncConfig;
     const description = `Simulation of a sync of ${config.objects.length} object(s), writing nothing`;
@@ -1754,6 +1812,17 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps,
     );
     if (!parsed) return;
+    if (
+      this.refusedFieldless(
+        msg,
+        parsed.config,
+        'sync:history:rerun',
+        'sync:history:error',
+        NOTHING_DONE,
+      )
+    ) {
+      return;
+    }
     await this.startExecution(msg, parsed.config, 'rerun');
   }
 
@@ -1792,6 +1861,13 @@ export class SyncOpsHandler implements DomainHandler {
           .map((i) => i.message)
           .join('; ')}`,
       );
+    }
+    // Before the guard is asked: a run refused anyway needs no one's consent.
+    const fieldless = fieldlessTransformRules(parsed.data.config.objects);
+    if (fieldless.length > 0) {
+      throw Object.assign(new Error(`${fieldlessTransformRefusal(fieldless)} ${NOTHING_DONE}`), {
+        code: TRANSFORM_RULE_NO_FIELD,
+      });
     }
     // No webview request waits on a scheduled run: its origin is a listed
     // synthetic request, whose id doubles as the operationId on operation:*.

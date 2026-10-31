@@ -531,6 +531,75 @@ describe('useMessageResponse', () => {
       },
     );
 
+    /** The answer the host gives a Sync run refused for rules that name no field. */
+    function refusedForFieldlessRules(rules: unknown): void {
+      simulateResponse(
+        'org:error',
+        {
+          message: 'The rule Uppercase on Account names no field: open the configuration…',
+          code: 'TRANSFORM_RULE_NO_FIELD',
+          rules,
+        },
+        'req-1',
+      );
+    }
+
+    it('names in the interface language the rule that names no field, and its object', async () => {
+      i18n.addResourceBundle('fr', 'translation', fr);
+      vi.useRealTimers();
+      await i18n.changeLanguage('fr');
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+        act(() => {
+          result.current.setLoading(true);
+          result.current.listen('req-1');
+        });
+        act(() => refusedForFieldlessRules([{ objectApiName: 'Account', type: 'uppercase' }]));
+
+        expect(result.current.errorCode).toBe('TRANSFORM_RULE_NO_FIELD');
+        expect(result.current.error).toBe(
+          'La règle Majuscules sur Account ne nomme aucun champ : ouvrez la configuration et ' +
+            "choisissez son champ. Sans champ, elle modifierait chaque champ de chaque enregistrement, types d'enregistrement et champs de recherche compris. Rien n'a été lu ni écrit.",
+        );
+      } finally {
+        vi.useRealTimers();
+        await i18n.changeLanguage('en');
+        vi.useFakeTimers();
+      }
+    });
+
+    it('names every rule that names no field, listed as the language lists them', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() =>
+        refusedForFieldlessRules([
+          { objectApiName: 'Account', type: 'trim' },
+          { objectApiName: 'Contact', type: 'regex_replace' },
+        ]),
+      );
+
+      expect(result.current.error).toMatch(
+        /^The rules Trim on Account and Regex replace on Contact name no field: open the configuration and pick their fields\./,
+      );
+    });
+
+    it('keeps the host’s words when it names no rule', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => refusedForFieldlessRules(undefined));
+
+      expect(result.current.error).toBe(
+        'The rule Uppercase on Account names no field: open the configuration…',
+      );
+    });
+
     it('says an expired session in the interface language, and offers Reconnect on its org', () => {
       useNotificationStore.setState({ notifications: [] });
       useAppStore.setState({ currentRoute: 'seed', navigationIntent: null });

@@ -116,10 +116,19 @@ on the page what a rule changes:
   `VALUE`, one it cannot work out, or a division by zero leaves the value as
   read. There is no conditional rule
 - A rule saved before rules named a field, in a saved configuration or a draft
-  left on the page, names none: it still applies to all fields of all objects
-  in the run, except `Id` and the External ID the write matches on, and the
-  step marks it **Every field**. Remove it and add it again on the field it is
-  meant for
+  left on the page, names none, and never runs: on every field of every record
+  it rewrote record types, lookups, picklists and every text alike. The step
+  shows such a rule with its field to pick on its row, among the fields the
+  rule can change, and **Simulate** and **Run the sync** stay off, saying why,
+  until it names one
+- A run of a configuration that holds one is refused before anything is read
+  or written, naming each such rule and its object: from the page, by **Run
+  now**, a schedule, a pipeline's Sync step, Migration's **Open in Sync**, a
+  rerun from the history, real-time replication through the configuration, or
+  `sandforge-sync --config-file`, which exits 1. It is not saved either. A
+  saved configuration cannot be opened in the wizard: build it again there and
+  save it, or import its SFDMU export.json again in Migration, which names the
+  field of each rule
 - Value mapping is not offered: it takes a table of replacements the step has
   no box for. A configuration imported from an SFDMU export.json carries each
   field's values mapping as a value mapping rule naming that field, which

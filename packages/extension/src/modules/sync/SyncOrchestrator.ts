@@ -12,7 +12,13 @@ import type {
   SyncWriteOrder,
   GrappeConfig,
 } from '@sandforge/shared';
-import { PRICEBOOK_ENTRY_OBJECT, sanitizeSoqlObjectName } from '@sandforge/shared';
+import {
+  PRICEBOOK_ENTRY_OBJECT,
+  TRANSFORM_RULE_NO_FIELD,
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
+  sanitizeSoqlObjectName,
+} from '@sandforge/shared';
 import {
   buildObjectResult,
   linkedRecordOf,
@@ -612,6 +618,19 @@ function leftOutResult(
 }
 
 /**
+ * Why a run of `config` is refused before it reads anything, or undefined: a
+ * transform rule of it that names no field would change every field of every
+ * record. Each start of a run refuses it first (the bridge, the command line);
+ * the engine does too, whoever calls it.
+ */
+function fieldlessRefusalOf(config: SyncConfig): string | undefined {
+  const fieldless = fieldlessTransformRules(config.objects);
+  return fieldless.length > 0
+    ? `${fieldlessTransformRefusal(fieldless)} Nothing was read or written.`
+    : undefined;
+}
+
+/**
  * Central orchestrator that coordinates all sync sub-services.
  * Manages the full sync lifecycle for each object: data querying, field
  * mapping, conflict resolution and data sync.
@@ -652,6 +671,14 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const operationId = `sync-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
+    const fieldless = fieldlessRefusalOf(config);
+    if (fieldless !== undefined) {
+      throw new SyncRunRefused(
+        fieldless,
+        { ...buildResult(config.id, operationId, [], startTime, 'failure'), error: fieldless },
+        TRANSFORM_RULE_NO_FIELD,
+      );
+    }
 
     const {
       ordered: sortedObjects,
@@ -1686,6 +1713,8 @@ export class SyncOrchestrator {
    * object, with the objects it reached.
    */
   async simulate(config: SyncConfig): Promise<SyncSimulationResult> {
+    const fieldless = fieldlessRefusalOf(config);
+    if (fieldless !== undefined) throw new Error(fieldless);
     const startTime = Date.now();
     const objects: SyncObjectSimulation[] = [];
     // In the order the run writes them, said with the simulation.

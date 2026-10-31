@@ -247,10 +247,11 @@ export interface TransformRule {
   type: TransformRuleType;
   /**
    * The target field the rule changes, by its API name: that field alone, in
-   * every record of the object the run writes. A rule without one, as a
-   * configuration saved before rules named a field holds it, runs on every
-   * field of the record but the key the write matches on and `Id` — an
-   * Uppercase meant for one name rewrote every text of every record.
+   * every record of the object the run writes. A rule of a field mapping
+   * changes that mapping's field and names none. An object-level rule saved
+   * before rules named a field names none either: a run of it is refused
+   * before it reads anything (`fieldlessTransformRules`). It ran on every
+   * field of every record, record types and lookups among them.
    */
   field?: string;
   config: TransformRuleConfig;

@@ -10354,7 +10354,7 @@ for (const theme of STATE_THEMES) {
       await expectReadable(page, theme);
     });
 
-    test('Sync transforms step: a rule on one field of the object, one saved before rules named a field, and the next one being added', async ({
+    test('Sync transforms step: a rule on one field of the object, one saved before rules named a field with its field to pick, and the next one being added', async ({
       page,
     }) => {
       await openSyncExecuteStep(
@@ -10404,8 +10404,21 @@ for (const theme of STATE_THEMES) {
         ],
       });
       await page.getByTestId('add-transform-field').selectOption('Name');
-      await expect(page.getByTestId('transform-1-every-field')).toHaveText('Every field');
-      await expect(page.getByTestId('transform-every-field-note')).toBeVisible();
+      await expect(page.getByTestId('transform-1-pick-field')).toBeEnabled();
+      await expect(page.getByTestId('transform-needs-field')).toBeVisible();
+
+      await expectReadable(page, theme);
+    });
+
+    test('Sync execute step held by a rule that names no field, with why beside Simulate and Run', async ({
+      page,
+    }) => {
+      await openSyncExecuteStep(bridge, page, theme, {
+        transforms: [{ type: 'uppercase', config: {} }],
+      });
+      await page.getByTestId('sync-transforms-need-field').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-run')).toBeDisabled();
+      await expect(page.getByTestId('sync-simulate')).toBeDisabled();
 
       await expectReadable(page, theme);
     });

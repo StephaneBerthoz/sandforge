@@ -237,31 +237,38 @@ describe('SyncOrchestrator — what a transform rule makes a run send', () => {
     });
   });
 
-  it('runs a rule saved before rules named a field on every text field, and leaves the empty ones empty', async () => {
+  it('refuses a rule saved before rules named a field before it reads anything, and writes nothing', async () => {
+    // Run on every field, an Uppercase with no field upper-cased the records'
+    // RecordTypeId with their names, and the run held both accounts back as
+    // of a record type the target has not.
     const target = new MemoryTarget();
+    const querySource = vi.fn(async () => []);
+    const describeTargetFields = vi.fn(target.describe);
+    const engine = new SyncOrchestrator({
+      dataSync: target.dataSync(),
+      conflictResolver: new ConflictResolver(),
+      fieldMapping: new FieldMappingService(),
+      transformPipeline: new TransformPipeline(),
+      querySource,
+      queryTarget: vi.fn(async () => []),
+      describeTargetFields,
+    });
+    const config = throughTheBridge(accountsWith([{ type: 'uppercase', config: {} }]));
 
-    await orchestrator(target).execute(
-      throughTheBridge(accountsWith([{ type: 'uppercase', config: {} }])),
+    await expect(engine.execute(config)).rejects.toMatchObject({
+      name: 'SyncRunRefused',
+      code: 'TRANSFORM_RULE_NO_FIELD',
+      message:
+        'The rule Uppercase on Account names no field: open the configuration and pick its ' +
+        'field. Without one it would change every field of every record, record types and ' +
+        'lookups among them. Nothing was read or written.',
+    });
+    await expect(engine.simulate(config)).rejects.toThrow(
+      'The rule Uppercase on Account names no field',
     );
-
-    expect(target.held()).toEqual([
-      {
-        Name: 'ACME',
-        Description: 'KEPT AS TYPED',
-        Industry: 'TECHNOLOGY',
-        NumberOfEmployees: 250,
-        Phone: null,
-        Founded__c: null,
-      },
-      {
-        Name: 'GLOBEX',
-        Description: null,
-        Industry: null,
-        NumberOfEmployees: null,
-        Phone: null,
-        Founded__c: '2001-04-02',
-      },
-    ]);
+    expect(querySource).not.toHaveBeenCalled();
+    expect(describeTargetFields).not.toHaveBeenCalled();
+    expect(target.sent).toEqual([]);
   });
 
   it('writes the value mapping of an SFDMU export on Status into Status alone', async () => {

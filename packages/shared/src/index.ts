@@ -184,6 +184,12 @@ export * from './utils/persona-field-rules.js';
 export * from './utils/seed-relations.js';
 export * from './utils/account-kinds.js';
 export {
+  TRANSFORM_RULE_NO_FIELD,
+  fieldlessTransformRefusal,
+  fieldlessTransformRules,
+  type FieldlessTransformRule,
+} from './utils/sync-transform-fields.js';
+export {
   FORGE_GUIDE_URL,
   SALESFORCE_HELP_SEARCH_URL,
   bannerHintOf,

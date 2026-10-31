@@ -245,6 +245,7 @@ export const SyncPage: React.FC = () => {
   const contactPointsHintId = React.useId();
   const heldRecordsHintId = React.useId();
   const filesNeedSaveId = React.useId();
+  const transformsNeedFieldId = React.useId();
 
   // Subscribed here rather than in SyncHistoryPanel: an export's save answer
   // arrives after the dialog closes, which the user may well do from another
@@ -301,6 +302,7 @@ export const SyncPage: React.FC = () => {
     handleRemoveMapping,
     handleMappingTypeChange,
     handleAddTransform,
+    handlePickTransformField,
     handleRemoveTransform,
     handleChangeTransformConfig,
     muteAutomation,
@@ -318,6 +320,7 @@ export const SyncPage: React.FC = () => {
     writeOrderUnread,
     writeOrderEncrypted,
     filesNeedSave,
+    transformsNeedField,
     handleApplyTemplate,
     canGoNext,
     isFinished,
@@ -327,6 +330,11 @@ export const SyncPage: React.FC = () => {
 
   const sourceOrg = orgs.find((o) => o.id === sourceOrgId);
   const targetOrg = orgs.find((o) => o.id === targetOrgId);
+  /** What keeps Simulate and Run off, said beside them. */
+  const runHeldBy =
+    [filesNeedSave && filesNeedSaveId, transformsNeedField && transformsNeedFieldId]
+      .filter(Boolean)
+      .join(' ') || undefined;
 
   if (orgs.length < 2) {
     // Sync copies between two orgs. With one, the empty state offered only to
@@ -845,6 +853,7 @@ export const SyncPage: React.FC = () => {
                     ?.externalIdField
                 }
                 onAddRule={handleAddTransform}
+                onPickField={handlePickTransformField}
                 onRemoveRule={handleRemoveTransform}
                 onChangeConfig={handleChangeTransformConfig}
               />
@@ -982,6 +991,31 @@ export const SyncPage: React.FC = () => {
                     </Button>
                   </div>
                 )}
+                {/* A rule that names no field would change every field of
+                  every record: the extension refuses it, so Simulate and Run
+                  wait for its field, which is picked on its row. */}
+                {!busy && transformsNeedField && (
+                  <div className="flex items-center gap-(--sf-space-2)">
+                    <p
+                      id={transformsNeedFieldId}
+                      className="text-xs text-status-warning"
+                      role="status"
+                      data-testid="sync-transforms-need-field"
+                    >
+                      {t('sync.transformNeedsFieldRun')}
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setCurrentStep(2)}
+                      aria-describedby={transformsNeedFieldId}
+                      className="shrink-0"
+                      data-testid="sync-transforms-pick-field"
+                    >
+                      {t('sync.transformOpenStep')}
+                    </Button>
+                  </div>
+                )}
                 {!busy && (
                   <>
                     {/* The run's gate reads what the target runs as it starts:
@@ -999,8 +1033,8 @@ export const SyncPage: React.FC = () => {
                         variant="secondary"
                         size="sm"
                         onClick={handleSimulate}
-                        disabled={filesNeedSave}
-                        aria-describedby={filesNeedSave ? filesNeedSaveId : undefined}
+                        disabled={filesNeedSave || transformsNeedField}
+                        aria-describedby={runHeldBy}
                         data-testid="sync-simulate"
                       >
                         {t('sync.simulation.start')}
@@ -1009,8 +1043,8 @@ export const SyncPage: React.FC = () => {
                         variant="primary"
                         size="sm"
                         onClick={handleExecute}
-                        disabled={filesNeedSave}
-                        aria-describedby={filesNeedSave ? filesNeedSaveId : undefined}
+                        disabled={filesNeedSave || transformsNeedField}
+                        aria-describedby={runHeldBy}
                         data-testid="sync-run"
                       >
                         {t('sync.runNow')}

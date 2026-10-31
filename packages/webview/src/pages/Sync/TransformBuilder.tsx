@@ -13,7 +13,9 @@ import type { FieldInfo } from './FieldMappingCanvas';
  * A rule of the Sync wizard: the rule a run carries, and the object it was
  * made for, which the page keeps to send it with that object alone. A rule of
  * a draft saved before rules named a field has neither field nor object: it
- * runs on every field of every object of the run, as it did then.
+ * ran on every field of every object of the run. It is shown on every object
+ * with its field to pick, which makes it a rule of the object shown, and no
+ * run takes it until then.
  */
 export interface SyncTransformRule extends TransformRule {
   objectApiName?: string;
@@ -37,6 +39,8 @@ export interface TransformBuilderProps {
    */
   matchField?: string;
   onAddRule: (type: TransformRuleType, field: string) => void;
+  /** Name the field of a rule that names none, on the object shown. */
+  onPickField: (index: number, field: string) => void;
   onRemoveRule: (index: number) => void;
   onChangeConfig: (index: number, key: string, value: string) => void;
   className?: string;
@@ -125,6 +129,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
   fieldsLoading = false,
   matchField,
   onAddRule,
+  onPickField,
   onRemoveRule,
   onChangeConfig,
   className,
@@ -136,22 +141,27 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
   const shown = rules
     .map((rule, index) => ({ rule, index }))
     .filter(({ rule }) => rule.objectApiName === undefined || rule.objectApiName === objectApiName);
-  const everyField = shown.some(({ rule }) => rule.field === undefined);
+  const needsField = shown.some(({ rule }) => rule.field === undefined);
 
   const unchangeable = new Set(['id', (matchField ?? '').toLowerCase()]);
-  const offered = fields.filter(
-    (f) => !unchangeable.has(f.apiName.toLowerCase()) && ruleTakes(selectedType, f),
-  );
+  /** The fields of the object a rule of `type` may name, as the field pickers offer them. */
+  const fieldOptionsFor = (type: TransformRuleType) =>
+    fields
+      .filter((f) => !unchangeable.has(f.apiName.toLowerCase()) && ruleTakes(type, f))
+      .map((f) => ({
+        value: f.apiName,
+        label: f.label && f.label !== f.apiName ? `${f.label} (${f.apiName})` : f.apiName,
+      }));
+  const fieldOptions = fieldOptionsFor(selectedType);
   // A field the rule picked next cannot change is not kept as the choice.
-  const field = offered.some((f) => f.apiName === selectedField) ? selectedField : '';
+  const field = fieldOptions.some((f) => f.value === selectedField) ? selectedField : '';
+  const fieldPlaceholder = fieldsLoading
+    ? t('sync.transformFieldsLoading')
+    : t('sync.transformChooseField');
 
   const typeOptions = TRANSFORM_TYPES.map((tt) => ({
     value: tt,
-    label: t(`sync.transformTypes.${tt}`),
-  }));
-  const fieldOptions = offered.map((f) => ({
-    value: f.apiName,
-    label: f.label && f.label !== f.apiName ? `${f.label} (${f.apiName})` : f.apiName,
+    label: t(`common.transformTypes.${tt}`),
   }));
 
   return (
@@ -176,9 +186,13 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
         {t('sync.transforms')} ({shown.length})
       </span>
 
-      {everyField && (
-        <p className="text-xs text-text-primary" data-testid="transform-every-field-note">
-          {t('sync.transformEveryFieldNote')}
+      {needsField && (
+        <p
+          className="text-xs text-status-warning"
+          role="status"
+          data-testid="transform-needs-field"
+        >
+          {t('sync.transformNeedsFieldNote')}
         </p>
       )}
 
@@ -186,11 +200,14 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
       <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
         {shown.map(({ rule, index }) => {
           const configKeys = CONFIG_FIELDS[rule.type] ?? [];
-          const ruleName = t(`sync.transformTypes.${rule.type}`);
+          const ruleName = t(`common.transformTypes.${rule.type}`);
           const removeLabel =
             rule.field === undefined
-              ? t('sync.transformRemoveEveryField', { rule: ruleName })
+              ? t('sync.transformRemoveNoField', { rule: ruleName })
               : t('sync.transformRemove', { rule: ruleName, field: rule.field });
+          // A rule saved before rules named a field: its field is picked here,
+          // among those the rule can change, as a new rule's is.
+          const pickable = rule.field === undefined ? fieldOptionsFor(rule.type) : [];
           return (
             <div
               key={index}
@@ -200,12 +217,29 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
               )}
               data-testid={`transform-${index}`}
             >
+              {rule.field === undefined && (
+                <div className="flex flex-col gap-1 min-w-48">
+                  <Select
+                    label={t('sync.transformFieldFor', { rule: ruleName })}
+                    options={pickable}
+                    placeholder={fieldPlaceholder}
+                    value=""
+                    onChange={(e) => onPickField(index, e.target.value)}
+                    disabled={fieldsLoading || pickable.length === 0}
+                    data-testid={`transform-${index}-pick-field`}
+                  />
+                  {!fieldsLoading && pickable.length === 0 && (
+                    <span
+                      className="text-text-secondary"
+                      data-testid={`transform-${index}-no-field`}
+                    >
+                      {t('sync.transformNoField', { object: objectApiName, rule: ruleName })}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex items-center gap-2 self-center">
-                {rule.field === undefined ? (
-                  <Badge variant="warning" data-testid={`transform-${index}-every-field`}>
-                    {t('sync.transformEveryField')}
-                  </Badge>
-                ) : (
+                {rule.field !== undefined && (
                   <span
                     className="font-mono text-text-primary"
                     data-testid={`transform-${index}-field`}
@@ -252,9 +286,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
           <Select
             label={t('sync.transformField')}
             options={fieldOptions}
-            placeholder={
-              fieldsLoading ? t('sync.transformFieldsLoading') : t('sync.transformChooseField')
-            }
+            placeholder={fieldPlaceholder}
             value={field}
             onChange={(e) => setSelectedField(e.target.value)}
             disabled={fieldsLoading || fieldOptions.length === 0}
@@ -287,7 +319,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
         <p className="text-xs text-text-secondary" data-testid="transform-no-field">
           {t('sync.transformNoField', {
             object: objectApiName,
-            rule: t(`sync.transformTypes.${selectedType}`),
+            rule: t(`common.transformTypes.${selectedType}`),
           })}
         </p>
       )}

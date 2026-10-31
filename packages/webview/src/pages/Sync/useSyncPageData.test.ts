@@ -284,9 +284,10 @@ describe('useSyncPageData', () => {
     });
   });
 
-  it('sends a rule of a draft saved before rules named a field to every object, as it ran then', () => {
+  /** A draft of two objects saved before rules named a field, with one such rule. */
+  function draftWithFieldlessRule(): void {
     draft.value = {
-      currentStep: 2,
+      currentStep: 4,
       direction: 'source_to_target',
       mode: 'full',
       conflictStrategy: 'source_wins',
@@ -299,15 +300,41 @@ describe('useSyncPageData', () => {
       mappingsByObject: {},
       transforms: [{ type: 'trim', config: {} }],
     };
+  }
+
+  it('sends no run and no simulation of a draft holding a rule that names no field', () => {
+    // It was sent to every object and ran on every field of every record:
+    // an Uppercase upper-cased the records' RecordTypeId with their names.
+    draftWithFieldlessRule();
     const { result } = renderHook(() => useSyncPageData());
 
+    expect(result.current.transformsNeedField).toBe(true);
+    act(() => {
+      result.current.handleExecute();
+    });
+    act(() => {
+      result.current.handleSimulate();
+    });
+
+    expect(execution.mutate).not.toHaveBeenCalled();
+    expect(simulation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('runs once the field of that rule is picked, the rule then the object’s and on that field alone', () => {
+    draftWithFieldlessRule();
+    const { result } = renderHook(() => useSyncPageData());
+
+    act(() => {
+      result.current.handlePickTransformField(0, 'Name');
+    });
+    expect(result.current.transformsNeedField).toBe(false);
     act(() => {
       result.current.handleExecute();
     });
 
     expect(sentRules()).toEqual({
-      Account: [{ type: 'trim', config: {} }],
-      Contact: [{ type: 'trim', config: {} }],
+      Account: [{ type: 'trim', field: 'Name', config: {} }],
+      Contact: [],
     });
   });
 

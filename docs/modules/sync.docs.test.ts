@@ -187,18 +187,33 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain("A managed package's objects, such as Vlocity's");
   });
 
-  it('says a transform rule changes the one field it names, and an earlier one every field but the key', () => {
-    // Positive control: a rule walks the key its field names, every key when
-    // it names none, and skips the two the write is addressed by; the page
-    // sends each object the rules made for it.
-    expect(TRANSFORM_PIPELINE).toContain('for (const key of keysOf(result, rule))');
+  it('says a transform rule changes the one field it names, and one that names none is refused', () => {
+    // Positive control: a rule walks the key its field names and skips the
+    // two the write is addressed by; one that names no field is refused by the
+    // pipeline, the engine, every start of the bridge and the command line;
+    // the page holds Simulate and Run while one is there, and sends each
+    // object the rules made for it.
+    expect(TRANSFORM_PIPELINE).toContain('for (const key of keysOf(result, field))');
     expect(TRANSFORM_PIPELINE).toContain(
-      'if (rule.field === undefined) return Object.keys(record);',
+      'throw new Error(fieldlessTransformRefusal(fieldlessTransformRules([objectConfig])));',
     );
+    expect(TRANSFORM_PIPELINE).not.toContain('Object.keys(record);');
     expect(TRANSFORM_PIPELINE).toContain(
       "const matchField = (objectConfig.externalIdField ?? 'Id').toLowerCase();",
     );
     expect(TRANSFORM_PIPELINE).toContain("return name !== matchField && name !== 'id';");
+    expect(SYNC_ORCHESTRATOR).toContain('const fieldless = fieldlessRefusalOf(config);');
+    for (const start of [
+      "this.refusedFieldless(msg, parsed.config, 'sync:execute', 'sync:error', NOTHING_DONE)",
+      "this.refusedFieldless(msg, parsed.config, 'sync:simulate', 'sync:error', NOTHING_READ)",
+      "'sync:history:rerun',",
+      "'sync:config:save',",
+      'const fieldless = fieldlessTransformRules(parsed.data.config.objects);',
+    ]) {
+      expect(SYNC_HANDLER).toContain(start);
+    }
+    expect(SYNC_CLI).toContain('const fieldless = fieldlessTransformRules(read.config.objects);');
+    expect(SYNC_PAGE).toContain('disabled={filesNeedSave || transformsNeedField}');
     expect(SYNC_PAGE_DATA).toContain(
       'transformRules: transformRulesOf(entry.objectApiName, transforms),',
     );
@@ -206,7 +221,11 @@ describe('docs/modules/sync.md', () => {
     expect(DOC).toContain(
       'The rule\n  changes that field alone, in every record of that object the run writes',
     );
-    expect(DOC).toContain('applies to all fields of all objects\n  in the run, except');
+    expect(DOC).toContain('names none, and never runs');
+    expect(DOC).toContain('is refused before anything is read\n  or written');
+    expect(DOC).toContain('`sandforge-sync --config-file`, which exits 1');
+    expect(DOC).not.toContain('applies to all fields of all objects');
+    expect(DOC).not.toContain('**Every field**');
     expect(DOC).not.toContain('Every rule you add applies to all fields');
     expect(DOC).not.toContain('Configurable per-field or per-object');
   });

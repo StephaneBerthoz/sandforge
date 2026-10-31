@@ -366,6 +366,128 @@ test.describe('Sync panel — transforms', () => {
       Contact: [{ type: 'trim', field: 'LastName', config: {} }],
     });
   });
+
+  test('a rule saved before rules named a field holds Simulate and Run until its field is picked on its row', async ({
+    page,
+  }) => {
+    // Kept running on every field, an Uppercase with no field upper-cased the
+    // records' RecordTypeId with their names, and the run held them back.
+    const bridge = await openSyncOnDraft(page, {
+      ...READY_DRAFT,
+      direction: 'source_to_target',
+      conflictStrategy: 'source_wins',
+      transforms: [{ type: 'uppercase', config: {} }],
+    });
+    const why = page.getByTestId('sync-transforms-need-field');
+    await expect(why).toHaveText(
+      'A transform rule names no field: pick its field in the Transforms step. Simulate and Run the sync stay off until then, as such a rule would change every field of every record.',
+    );
+    await expect(page.getByTestId('sync-run')).toBeDisabled();
+    await expect(page.getByTestId('sync-simulate')).toBeDisabled();
+    const held = await checkAccessibility(page);
+    expect(held.violations, formatViolations(held.violations)).toEqual([]);
+
+    await page.getByTestId('sync-transforms-pick-field').click();
+    await answerDescribe(bridge, 'Account', [
+      { apiName: 'Name', label: 'Account Name', type: 'string' },
+      { apiName: 'Legacy_Key__c', label: 'Legacy Key', type: 'string' },
+      { apiName: 'RecordTypeId', label: 'Record Type ID', type: 'reference' },
+    ]);
+    await expect(page.getByText('Every field', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('transform-needs-field')).toBeVisible();
+    // The fields a new Uppercase may name: text, never the key the upsert matches on.
+    const picker = page.getByTestId('transform-0-pick-field');
+    await expect(picker.locator('option:not([disabled])')).toHaveText(['Account Name (Name)']);
+    const picking = await checkAccessibility(page);
+    expect(picking.violations, formatViolations(picking.violations)).toEqual([]);
+    await picker.selectOption('Name');
+    await expect(page.getByTestId('transform-0-field')).toHaveText('Name');
+    await expect(page.getByTestId('transform-needs-field')).toHaveCount(0);
+
+    for (let step = 0; step < 2; step++) await page.getByTestId('sync-wizard-next').click();
+    await expect(page.getByTestId('sync-transforms-need-field')).toHaveCount(0);
+    await page.getByTestId('sync-run').click();
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    const [account] = (run.payload as { config: { objects: Array<{ transformRules: unknown[] }> } })
+      .config.objects;
+    expect(account.transformRules).toEqual([{ type: 'uppercase', field: 'Name', config: {} }]);
+  });
+
+  test('Run now of a saved configuration holding a rule that names no field says, in the page’s words, why it was refused', async ({
+    page,
+  }) => {
+    const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
+    await page.getByTestId('tab-schedules').click();
+    await bridge.waitForMessage('sync:config:list', { timeout: 10_000 });
+    for (const request of await bridge.getMessages('sync:config:list')) {
+      await bridge.respond(
+        'sync:config:list:response',
+        {
+          configs: [
+            {
+              id: 'cfg-old',
+              name: 'Accounts in capitals',
+              description: 'Saved before rules named a field',
+              updatedAt: '2026-09-01T09:00:00.000Z',
+            },
+          ],
+        },
+        String(request.id),
+      );
+    }
+    await page.getByTestId('run-saved-config-cfg-old').click();
+    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    await bridge.respond(
+      'sync:config:load:response',
+      {
+        config: {
+          id: 'cfg-old',
+          name: 'Accounts in capitals',
+          description: 'Saved before rules named a field',
+          sourceOrgId: DEV_SANDBOX.id,
+          targetOrgId: QA_SANDBOX.id,
+          direction: 'source_to_target',
+          mode: 'full',
+          conflictStrategy: 'source_wins',
+          objects: [
+            {
+              objectApiName: 'Account',
+              operation: 'insert',
+              externalIdField: '',
+              batchSize: 200,
+              fieldMappings: [],
+              transformRules: [{ type: 'uppercase', config: {} }],
+              excludedFields: [],
+              addOnFields: [],
+              insertOrder: 0,
+            },
+          ],
+          enableRollback: false,
+          createdAt: '2026-09-01T09:00:00.000Z',
+          updatedAt: '2026-09-01T09:00:00.000Z',
+        },
+      },
+      load.id as string,
+    );
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    // The host's refusal, before anything is read: English words, a code, the rules.
+    await bridge.respond(
+      'sync:error',
+      {
+        message: 'The rule Uppercase on Account names no field: open the configuration…',
+        code: 'TRANSFORM_RULE_NO_FIELD',
+        retryable: false,
+        rules: [{ objectApiName: 'Account', type: 'uppercase' }],
+      },
+      run.id as string,
+    );
+
+    await expect(page.getByTestId('sync-error')).toContainText(
+      'The rule Uppercase on Account names no field: open the configuration and pick its field. Without one it would change every field of every record, record types and lookups among them. Nothing was read or written.',
+    );
+    const refused = await checkAccessibility(page);
+    expect(refused.violations, formatViolations(refused.violations)).toEqual([]);
+  });
 });
 
 /** A configuration as `sync:config:load` reads it back: saved from Migration, say. */
