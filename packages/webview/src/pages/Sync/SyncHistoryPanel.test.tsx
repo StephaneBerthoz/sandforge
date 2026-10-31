@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, within } from '@testing-library/react';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
@@ -19,20 +19,6 @@ vi.mock('../../hooks/useVSCodeApi', () => {
   };
   return { useVSCodeApi: () => api, getVscodeApi: () => api };
 });
-
-// jsdom has no layout: the real virtualizer measures a zero-height container
-// and renders no row. Every row is in view here.
-vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: (opts: { count: number; estimateSize: () => number }) => {
-    const size = opts.estimateSize();
-    const items = Array.from({ length: opts.count }, (_, index) => ({
-      index,
-      start: index * size,
-      size,
-    }));
-    return { getVirtualItems: () => items, getTotalSize: () => opts.count * size };
-  },
-}));
 
 /** Deliver a message from the extension host to the panel's window. */
 function fromHost(data: Record<string, unknown>): void {
@@ -228,6 +214,25 @@ describe('SyncHistoryPanel', () => {
     // With data, the header and export buttons should render
     expect(screen.getByTestId('export-csv-btn')).toBeDefined();
     expect(screen.getByTestId('export-json-btn')).toBeDefined();
+  });
+
+  it('lists every run of the page in the table that holds the header, not in a virtualized one', () => {
+    // Virtualized, the rows sat in a second table under the header's and each
+    // packed its cells into the left third, under Date and Objects.
+    const entries = Array.from({ length: 30 }, (_, i) => makeMockEntry(`h-${i}`));
+    useSyncHistoryStore.setState({ entries, loading: false });
+    render(<SyncHistoryPanel />);
+
+    expect(screen.queryByTestId('virtual-scroll-container')).toBeNull();
+    const table = screen.getByRole('grid');
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(6);
+    // The first page, 25 runs, every one a row of the header's table.
+    const rows = screen.getAllByTestId(/^table-row-/);
+    expect(rows).toHaveLength(25);
+    for (const row of rows) {
+      expect(row.closest('table')).toBe(table);
+      expect(row.style.position).toBe('');
+    }
   });
 
   it('should call fetchHistory on mount', () => {

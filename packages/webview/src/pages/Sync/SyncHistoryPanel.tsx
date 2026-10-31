@@ -49,7 +49,7 @@ function rewoundRunOf(entry: SyncHistoryEntry): RewoundRun {
 }
 
 /**
- * SyncHistoryPanel displays a paginated, virtual-scrolled table of sync execution history.
+ * SyncHistoryPanel displays a paginated table of sync execution history.
  * Includes export buttons (CSV/JSON), refresh, and row click to view details.
  *
  * The extension's answers reach the store through `useSyncHistoryMessages`,
@@ -204,13 +204,14 @@ export const SyncHistoryPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* Table */}
+          {/* Table. Not virtualized: a page holds 100 rows at most, and the
+              virtualized table packed each row's cells under the header's
+              first columns. */}
           <DataTable<HistoryRow>
             columns={columns}
             data={paginatedEntries}
             keyExtractor={(row) => row.id}
             onRowClick={(row) => fetchDetail(row.id)}
-            enableVirtualization
             stickyHeader
             striped
           />

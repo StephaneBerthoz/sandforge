@@ -358,3 +358,103 @@ test.describe('Sync panel — saved configurations', () => {
     expect(running.violations, formatViolations(running.violations)).toEqual([]);
   });
 });
+
+test.describe('Sync panel — the orgs in the header', () => {
+  test('names each org by the type the pickers give it, a sandbox marked Staging as one', async ({
+    page,
+  }) => {
+    // The badges wrote SBX and STG while the Source and Target pickers above
+    // them said SANDBOX: two labels for one org on one page.
+    await openSync(page, [DEV_SANDBOX, { ...QA_SANDBOX, staging: true }]);
+    const source = page.getByLabel('Source', { exact: true });
+    await source.selectOption(DEV_SANDBOX.id);
+    await page.getByLabel('Target', { exact: true }).selectOption(QA_SANDBOX.id);
+
+    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-type');
+    await expect(types).toHaveText(['SANDBOX', 'STAGING']);
+    await expect(source.locator(`option[value="${DEV_SANDBOX.id}"]`)).toHaveText(
+      'DevSandbox [SANDBOX]',
+    );
+    await expect(source.locator(`option[value="${QA_SANDBOX.id}"]`)).toHaveText(
+      'QASandbox [STAGING]',
+    );
+  });
+});
+
+/** A finished run, as the extension lists it on the History tab. */
+function historyEntry(id: string, startTime: string): Record<string, unknown> {
+  return {
+    id,
+    configSnapshot: { ...SAVED_CONFIG, id: `cfg-${id}` },
+    result: {
+      configId: `cfg-${id}`,
+      operationId: `op-${id}`,
+      status: 'success',
+      objectResults: [
+        {
+          objectApiName: 'Account',
+          operation: 'upsert',
+          processed: 3,
+          success: 3,
+          failed: 0,
+          skipped: 0,
+          conflictCount: 0,
+          errors: [],
+        },
+      ],
+      totalProcessed: 3,
+      totalSuccess: 3,
+      totalFailed: 0,
+      totalSkipped: 0,
+      duration: 900,
+      timestamp: startTime,
+    },
+    startTime,
+    endTime: startTime,
+    triggeredBy: 'manual',
+  };
+}
+
+test.describe('Sync panel — history', () => {
+  test('each run sits under the columns its header names, the whole width across', async ({
+    page,
+  }) => {
+    // The table was virtualized: its header spread across the width while
+    // each row packed "10 days ago Account 3 Succeeded 900ms Manual" into the
+    // left third, the Records figure under Objects and Status under nothing.
+    const bridge = await openSyncOnDraft(page, { ...READY_DRAFT, currentStep: 0 });
+    await page.getByTestId('tab-history').click();
+    await bridge.waitForMessage('sync:history:list', { timeout: 10_000 });
+    const entries = [
+      historyEntry('h-1', '2026-10-21T12:00:00.000Z'),
+      historyEntry('h-2', '2026-10-20T12:00:00.000Z'),
+      historyEntry('h-3', '2026-10-19T12:00:00.000Z'),
+    ];
+    // Every request answered: a development build mounts the panel twice.
+    for (const request of await bridge.getMessages('sync:history:list')) {
+      await bridge.respond('sync:history:list:response', { entries }, String(request.id));
+    }
+    await expect(page.getByTestId('table-row-2')).toBeVisible({ timeout: 10_000 });
+
+    const table = page.getByTestId('data-table');
+    const header = await table
+      .locator('thead th')
+      .evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect()));
+    expect(header).toHaveLength(6);
+    for (const index of [0, 1, 2]) {
+      const cells = await page
+        .getByTestId(`table-row-${index}`)
+        .locator('td')
+        .evaluateAll((tds) => tds.map((td) => td.getBoundingClientRect()));
+      expect(cells).toHaveLength(header.length);
+      cells.forEach((cell, column) => {
+        expect(Math.abs(cell.left - header[column].left), `column ${column}`).toBeLessThan(1);
+        expect(Math.abs(cell.width - header[column].width), `column ${column}`).toBeLessThan(1);
+      });
+    }
+    // The last column ends where the table does, as the header's does.
+    const tableBox = await table.boundingBox();
+    const last = header[header.length - 1];
+    expect(tableBox!.x + tableBox!.width - (last.left + last.width)).toBeLessThan(2);
+  });
+});

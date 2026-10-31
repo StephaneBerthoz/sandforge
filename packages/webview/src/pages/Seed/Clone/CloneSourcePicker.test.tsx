@@ -108,6 +108,42 @@ describe('CloneSourcePicker', () => {
     expect(optionValues).toContain('org-other');
   });
 
+  it('names each org as every other picker does, with the type its badge gives', () => {
+    // It read "source-dev (sandbox)", in English whatever the language, while
+    // Sync, Quick Sync and Seed's other flows read "source-dev [SANDBOX]"; and
+    // a production org was "(production)" beside the badge's PROD.
+    const orgs: SalesforceOrg[] = [
+      ...mockOrgs,
+      {
+        ...mockOrgs[2],
+        id: 'org-prod',
+        alias: 'live',
+        orgType: 'Production',
+        metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
+      },
+      { ...mockOrgs[2], id: 'org-scratch', alias: 'feature', orgType: 'Scratch' },
+    ];
+    render(
+      <CloneSourcePicker
+        sourceOrgId=""
+        targetOrgId="org-target"
+        orgs={orgs}
+        onSourceSelected={vi.fn()}
+      />,
+    );
+
+    const select = screen.getByTestId('clone-source-select') as HTMLSelectElement;
+    const labels = Array.from(select.querySelectorAll('option'))
+      .filter((option) => option.value !== '')
+      .map((option) => option.textContent);
+    expect(labels).toEqual([
+      `source-dev [${en.common.orgType.sandbox}]`,
+      `other-dev [${en.common.orgType.sandbox}]`,
+      `live [${en.common.orgType.prod}]`,
+      `feature [${en.common.orgType.scratch}]`,
+    ]);
+  });
+
   it('should call onSourceSelected when selecting an org', () => {
     const onSourceSelected = vi.fn();
     render(

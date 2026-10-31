@@ -1853,10 +1853,25 @@ for (const theme of SCANNED_THEMES) {
       expectNoViolations(results);
     });
 
-    test('Home with a sandbox marked Staging, its badge reading STG', async ({ page }) => {
+    test('Home with an org of each kind, a sandbox marked Staging among them, each badge naming its type', async ({
+      page,
+    }) => {
+      // Each kind fills its badge with its own colour: every one of them read
+      // on every theme, with the type the pickers give it rather than PROD,
+      // SBX, SCR or STG.
       await navigateToModule(bridge, page, 'home', 'home-page', { theme });
-      await bridge.seedOrgs([MOCK_ORGS[0], { ...MOCK_ORGS[1], staging: true } as MockOrg]);
-      await expect(page.getByTestId('org-badge-type').filter({ hasText: /^STG$/ })).toBeVisible();
+      await bridge.seedOrgs([
+        MOCK_ORGS[0],
+        { ...MOCK_ORGS[1], staging: true } as MockOrg,
+        { ...MOCK_ORGS[0], id: 'org-live', alias: 'Live', orgType: 'Production' },
+        { ...MOCK_ORGS[0], id: 'org-feature', alias: 'Feature', orgType: 'Scratch' },
+      ]);
+      await expect(page.getByTestId('health-tile').getByTestId('org-badge-type')).toHaveText([
+        'SANDBOX',
+        'STAGING',
+        'PROD',
+        'SCRATCH',
+      ]);
 
       await expectReadable(page, theme);
     });

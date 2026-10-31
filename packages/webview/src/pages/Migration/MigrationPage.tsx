@@ -22,6 +22,7 @@ import { JsonViewer } from '../../components/ui/JsonViewer';
 import { ObjectSetEditor } from '../Sync/ObjectSetEditor';
 import type { ObjectSetEntry } from '../Sync/ObjectSetEditor';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
+import { orgOptionLabel } from '../../utils/orgFormatters';
 
 /** Import source supported by the migration bridge messages. */
 type ImportType = 'sfdmu' | 'universal';
@@ -227,6 +228,7 @@ export const MigrationPage: React.FC = () => {
   const [filePath, setFilePath] = useState('');
 
   const orgs = useOrgStore((s) => s.orgs);
+  const orgOptions = orgs.map((org) => ({ value: org.id, label: orgOptionLabel(org, t) }));
   // The importer fills sourceOrgId/targetOrgId with fresh UUID placeholders,
   // so an imported config is structurally runnable but points at two orgs that
   // do not exist. The user picks the real ones before it can execute.
@@ -632,17 +634,24 @@ export const MigrationPage: React.FC = () => {
                   </div>
                   <div className="text-xs text-text-secondary">{t('migration.run.subtitle')}</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
+                    {/* Each org named with its type, as every other picker names
+                        it, and none chosen until the user picks: the options
+                        gave the alias alone, so a production org went unsaid
+                        on the page that runs without a review step, and the
+                        first org showed as picked while none was. */}
                     <Select
                       label={t('migration.run.sourceOrg')}
                       data-testid="migration-run-source"
-                      options={orgs.map((o) => ({ value: o.id, label: o.alias || o.username }))}
+                      options={orgOptions}
+                      placeholder={t('common.selectOrg')}
                       value={runSourceOrgId}
                       onChange={(e) => setRunSourceOrgId(e.target.value)}
                     />
                     <Select
                       label={t('migration.run.targetOrg')}
                       data-testid="migration-run-target"
-                      options={orgs.map((o) => ({ value: o.id, label: o.alias || o.username }))}
+                      options={orgOptions}
+                      placeholder={t('common.selectOrg')}
                       value={runTargetOrgId}
                       onChange={(e) => setRunTargetOrgId(e.target.value)}
                     />

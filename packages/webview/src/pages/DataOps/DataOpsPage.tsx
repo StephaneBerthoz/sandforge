@@ -605,17 +605,7 @@ export const DataOpsPage: React.FC = () => {
         // reads as "no org chosen" on a page that is about to write to one.
         subtitle={currentOrg ? undefined : t('dataops.selectOrg')}
         icon="wrench"
-        actions={
-          currentOrg ? (
-            <OrgBadge
-              alias={currentOrg.alias || currentOrg.username}
-              orgType={String(currentOrg.orgType)}
-              status={currentOrg.status}
-              instanceUrl={currentOrg.instanceUrl}
-              staging={currentOrg.staging}
-            />
-          ) : undefined
-        }
+        actions={currentOrg ? <OrgBadge org={currentOrg} /> : undefined}
       />
       <ModuleHowTo module="dataops" />
 

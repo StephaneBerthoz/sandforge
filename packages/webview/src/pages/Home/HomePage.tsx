@@ -298,14 +298,7 @@ export const HomePage: React.FC = () => {
             {hasOrgs ? (
               <div className="flex flex-col gap-2" data-testid="connected-orgs-card">
                 {connectedOrgs.slice(0, 4).map((org) => (
-                  <OrgBadge
-                    key={org.id}
-                    alias={org.alias}
-                    orgType={org.orgType}
-                    status={org.status}
-                    instanceUrl={org.instanceUrl}
-                    staging={org.staging}
-                  />
+                  <OrgBadge key={org.id} org={org} />
                 ))}
                 {connectedOrgs.length > 4 && (
                   <Button variant="ghost" size="sm" onClick={() => navigate('orgs')}>

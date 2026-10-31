@@ -166,17 +166,7 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
               title={t('seed.title')}
               subtitle={t(SEED_STEPS[state.currentStep].labelKey)}
               icon="database"
-              actions={
-                state.selectedOrg ? (
-                  <OrgBadge
-                    alias={state.selectedOrg.alias || state.selectedOrg.username}
-                    orgType={String(state.selectedOrg.orgType)}
-                    status={state.selectedOrg.status}
-                    instanceUrl={state.selectedOrg.instanceUrl}
-                    staging={state.selectedOrg.staging}
-                  />
-                ) : undefined
-              }
+              actions={state.selectedOrg ? <OrgBadge org={state.selectedOrg} /> : undefined}
             />
 
             {state.error && (

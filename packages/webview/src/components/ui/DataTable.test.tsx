@@ -46,15 +46,18 @@ vi.mock('framer-motion', async () => {
 /* Mock @tanstack/react-virtual */
 let mockVirtualItems: Array<{ index: number; start: number; size: number }> = [];
 let mockTotalSize = 0;
+/** The first row in view, as if the table had been scrolled down to it. */
+let mockFirstIndex = 0;
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: (opts: { count: number; estimateSize: () => number; overscan: number }) => {
     const rowHeight = opts.estimateSize();
     const overscan = opts.overscan ?? 5;
     /* Simulate: visible area fits ~10 rows, plus overscan on each side */
-    const visibleCount = Math.min(opts.count, 10 + overscan * 2);
+    const first = Math.min(mockFirstIndex, opts.count);
+    const visibleCount = Math.min(opts.count - first, 10 + overscan * 2);
     const items: Array<{ index: number; start: number; size: number }> = [];
-    for (let i = 0; i < visibleCount; i++) {
+    for (let i = first; i < first + visibleCount; i++) {
       items.push({ index: i, start: i * rowHeight, size: rowHeight });
     }
     mockVirtualItems = items;
@@ -439,12 +442,63 @@ describe('DataTable - Virtual Scrolling', () => {
     expect(screen.getByText('No virtual items')).toBeDefined();
   });
 
-  it('should apply absolute positioning on virtual rows', () => {
+  it('holds the header and the rows in one table, which gives both the same columns', () => {
+    // The header had a table of its own above the scrolling one, and each row
+    // was positioned absolutely, out of its table: the rows packed their
+    // cells into the left third while the header spread across the width.
+    render(
+      <DataTable
+        columns={columns}
+        data={generateLargeData(500)}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+      />,
+    );
+    const table = screen.getByRole('grid');
+    expect(screen.queryAllByRole('table')).toHaveLength(0);
+    expect(screen.getByText('Name').closest('table')).toBe(table);
+    for (const row of screen.getAllByTestId(/^table-row-/)) {
+      expect(row.closest('table')).toBe(table);
+      expect(row.style.position).toBe('');
+      expect(row.style.transform).toBe('');
+    }
+    expect(screen.getByTestId('virtual-scroll-container').contains(table)).toBe(true);
+  });
+
+  it('stands an empty row of their height in for the rows out of view, above and below', () => {
+    mockFirstIndex = 100;
+    try {
+      render(
+        <DataTable
+          columns={columns}
+          data={generateLargeData(500)}
+          keyExtractor={keyExtractor}
+          enableVirtualization
+          estimatedRowHeight={40}
+        />,
+      );
+      const rows = screen.getAllByTestId(/^table-row-/);
+      expect(rows[0].getAttribute('data-testid')).toBe('table-row-100');
+      expect(rows).toHaveLength(20);
+      const above = screen.getByTestId('virtual-space-above');
+      const below = screen.getByTestId('virtual-space-below');
+      expect(above.style.height).toBe(`${100 * 40}px`);
+      expect(below.style.height).toBe(`${(500 - 120) * 40}px`);
+      // Neither is a row a screen reader counts; the grid says how many there are.
+      expect(above.getAttribute('aria-hidden')).toBe('true');
+      expect(below.getAttribute('aria-hidden')).toBe('true');
+      expect(screen.getByRole('grid').getAttribute('aria-rowcount')).toBe('501');
+      expect(rows[0].getAttribute('aria-rowindex')).toBe('102');
+    } finally {
+      mockFirstIndex = 0;
+    }
+  });
+
+  it('adds no empty row where no row is out of view', () => {
     render(
       <DataTable columns={columns} data={data} keyExtractor={keyExtractor} enableVirtualization />,
     );
-    const row0 = screen.getByTestId('table-row-0');
-    expect(row0.style.position).toBe('absolute');
-    expect(row0.style.transform).toContain('translateY');
+    expect(screen.queryByTestId('virtual-space-above')).toBeNull();
+    expect(screen.queryByTestId('virtual-space-below')).toBeNull();
   });
 });

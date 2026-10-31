@@ -236,61 +236,63 @@ export function DataTable<T extends Record<string, unknown>>({
   );
 
   if (enableVirtualization) {
+    // One table holds the header and the rows, so the browser gives both the
+    // same columns. The header sat in a table of its own above the scrolling
+    // one, and each row was positioned absolutely, which takes a row out of
+    // its table: the header spread across the width while every row packed
+    // its cells into the left third. The rows the window leaves out are stood
+    // in for by an empty row above and one below, of the height they take.
+    const virtualItems = virtualizer.getVirtualItems();
+    const lastItem = virtualItems[virtualItems.length - 1];
+    const spaceAbove = virtualItems[0]?.start ?? 0;
+    const spaceBelow = lastItem ? virtualizer.getTotalSize() - (lastItem.start + lastItem.size) : 0;
+    const spacer = (height: number, testId: string) =>
+      height > 0 ? (
+        <tr aria-hidden="true" style={{ height: `${height}px` }} data-testid={testId}>
+          <td colSpan={columns.length} style={{ padding: 0 }} />
+        </tr>
+      ) : null;
     return (
       <div
         data-testid="data-table"
         className={cn('rounded-(--sf-radius-md) border border-(--sf-border)', className)}
       >
-        <table
-          className="w-full border-collapse"
-          style={{ fontSize: 'var(--sf-font-size)' }}
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table that implements the grid keyboard pattern is what the grid role is for — see handleTableKeyDown below.
-          role="grid"
-        >
-          {renderHeader()}
-        </table>
         <div
           ref={scrollContainerRef}
           data-testid="virtual-scroll-container"
           style={{ maxHeight, overflowY: 'auto' }}
         >
-          {sortedData.length === 0 ? (
-            <table className="w-full border-collapse" style={{ fontSize: 'var(--sf-font-size)' }}>
-              <tbody>{renderEmptyRow()}</tbody>
-            </table>
-          ) : (
-            <div
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-                width: '100%',
-                position: 'relative',
-              }}
-            >
-              <table className="w-full border-collapse" style={{ fontSize: 'var(--sf-font-size)' }}>
-                {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the grid role the table carries promises arrow-key navigation, and this is where it is implemented. */}
-                <tbody ref={tbodyRef} onKeyDown={handleTableKeyDown}>
-                  {virtualizer.getVirtualItems().map((virtualItem) => {
+          <table
+            className="w-full border-collapse"
+            style={{ fontSize: 'var(--sf-font-size)' }}
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table that implements the grid keyboard pattern is what the grid role is for — see handleTableKeyDown below.
+            role="grid"
+            // Only the rows in view are in the page: the count says how many there are.
+            aria-rowcount={sortedData.length + 1}
+          >
+            {renderHeader()}
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the grid role the table carries promises arrow-key navigation, and this is where it is implemented. */}
+            <tbody ref={tbodyRef} onKeyDown={handleTableKeyDown}>
+              {sortedData.length === 0 ? (
+                renderEmptyRow()
+              ) : (
+                <>
+                  {spacer(spaceAbove, 'virtual-space-above')}
+                  {virtualItems.map((virtualItem) => {
                     const row = sortedData[virtualItem.index];
                     const rowIndex = virtualItem.index;
                     return (
                       <tr
                         key={keyExtractor(row, rowIndex)}
+                        ref={virtualizer.measureElement}
+                        data-index={rowIndex}
                         className={cn(
                           'transition-colors hover:bg-(--sf-bg-hover)',
                           onRowClick && 'cursor-pointer',
                           striped && rowIndex % 2 === 1 && 'bg-(--sf-bg-secondary)',
                           focusedRow === rowIndex && 'ring-1 ring-(--sf-accent) outline-hidden',
                         )}
-                        style={{
-                          transitionDuration: 'var(--sf-transition-fast)',
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: `${virtualItem.size}px`,
-                          transform: `translateY(${virtualItem.start}px)`,
-                          display: 'table-row',
-                        }}
+                        style={{ transitionDuration: 'var(--sf-transition-fast)' }}
                         onClick={() => {
                           setFocusedRow(rowIndex);
                           onRowClick?.(row, rowIndex);
@@ -319,10 +321,11 @@ export function DataTable<T extends Record<string, unknown>>({
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  {spacer(spaceBelow, 'virtual-space-below')}
+                </>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     );

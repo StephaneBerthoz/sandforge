@@ -77,26 +77,12 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
       </div>
 
       {(sourceOrg || targetOrg) && (
-        <div className="flex items-center gap-3" data-testid="quick-sync-org-badges">
-          {sourceOrg && (
-            <OrgBadge
-              alias={sourceOrg.alias || sourceOrg.username}
-              orgType={String(sourceOrg.orgType)}
-              status={sourceOrg.status}
-              instanceUrl={sourceOrg.instanceUrl}
-            />
-          )}
+        <div className="flex flex-wrap items-center gap-3" data-testid="quick-sync-org-badges">
+          {sourceOrg && <OrgBadge org={sourceOrg} />}
           {sourceOrg && targetOrg && (
             <span className="codicon codicon-arrow-right text-text-secondary" aria-hidden="true" />
           )}
-          {targetOrg && (
-            <OrgBadge
-              alias={targetOrg.alias || targetOrg.username}
-              orgType={String(targetOrg.orgType)}
-              status={targetOrg.status}
-              instanceUrl={targetOrg.instanceUrl}
-            />
-          )}
+          {targetOrg && <OrgBadge org={targetOrg} />}
         </div>
       )}
 

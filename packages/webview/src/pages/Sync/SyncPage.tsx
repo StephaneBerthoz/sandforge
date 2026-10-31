@@ -364,31 +364,18 @@ export const SyncPage: React.FC = () => {
         subtitle={t('sync.selectOrgsDesc')}
         icon="sync"
         actions={
-          <div className="flex items-center gap-(--sf-space-2)">
-            {sourceOrg && (
-              <OrgBadge
-                alias={sourceOrg.alias || sourceOrg.username}
-                orgType={String(sourceOrg.orgType)}
-                status={sourceOrg.status}
-                instanceUrl={sourceOrg.instanceUrl}
-                staging={sourceOrg.staging}
-              />
-            )}
+          // The two badges go on two lines when the panel is too narrow for
+          // both: on one, the German header ran 43 pixels past an 800-pixel
+          // panel once each badge named its type in a word.
+          <div className="flex flex-wrap items-center justify-end gap-(--sf-space-2)">
+            {sourceOrg && <OrgBadge org={sourceOrg} />}
             {sourceOrg && targetOrg && (
               <span
                 className="codicon codicon-arrow-right text-(--sf-text-secondary)"
                 aria-hidden="true"
               />
             )}
-            {targetOrg && (
-              <OrgBadge
-                alias={targetOrg.alias || targetOrg.username}
-                orgType={String(targetOrg.orgType)}
-                status={targetOrg.status}
-                instanceUrl={targetOrg.instanceUrl}
-                staging={targetOrg.staging}
-              />
-            )}
+            {targetOrg && <OrgBadge org={targetOrg} />}
           </div>
         }
       />

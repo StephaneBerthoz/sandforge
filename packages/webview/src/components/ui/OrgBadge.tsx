@@ -1,19 +1,19 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { SalesforceOrg } from '@sandforge/shared';
+import { guardTierOf, registeredOrgType } from '@sandforge/shared';
 import { cn } from '../../theme';
+import { orgTypeLabel } from '../../utils/orgFormatters';
 
 /** Props for the OrgBadge component. */
 export interface OrgBadgeProps {
-  /** Salesforce org alias. */
-  alias: string;
-  /** Type of the Salesforce org. */
-  orgType: string;
-  /** Connection status of the org. */
-  status: string;
-  /** Optional Salesforce instance URL. */
-  instanceUrl?: string;
-  /** A sandbox the user marked Staging, which Production Guard asks about. */
-  staging?: boolean;
+  /**
+   * The org, as the store holds it. The badge used to be handed its type as a
+   * bare string and wrote PROD, SBX, SCR or STG in English whatever the
+   * language, while the side panel and the pickers named the same org by its
+   * translated type: one org, two labels from one page to the next.
+   */
+  org: SalesforceOrg;
   /** Additional CSS classes. */
   className?: string;
 }
@@ -25,41 +25,34 @@ const statusColors: Record<string, string> = {
 };
 
 /**
- * The type label fills with a severity token and writes in the editor
- * background, which the token is sized to read against on every measured theme
- * but Solarized Light: white on the raw errorForeground read 2.5:1 on Dark+.
+ * The fill of the type label. It writes in the editor background, which each
+ * severity token is sized to read against on every measured theme but
+ * Solarized Light: white on the raw errorForeground read 2.5:1 on Dark+.
+ *
+ * Keyed on the type the org is read with (`registeredOrgType`), the one
+ * {@link orgTypeLabel} names: a Developer Edition org an earlier build
+ * registered as a production org wore a red PROD. A sandbox marked Staging,
+ * which Production Guard asks about, is told apart from the others.
  */
-const orgTypeConfig: Record<string, { label: string; bg: string }> = {
-  Production: { label: 'PROD', bg: 'bg-status-error' },
-  Sandbox: { label: 'SBX', bg: 'bg-status-info' },
-  Scratch: { label: 'SCR', bg: 'bg-status-success' },
-};
-
-/** A sandbox marked Staging: told apart from the others, as Production Guard tells it. */
-const STAGING_TYPE = { label: 'STG', bg: 'bg-status-warning' };
+function typeFillOf(org: SalesforceOrg): string {
+  if (guardTierOf(org) === 'staging') return 'bg-status-warning';
+  const orgType = registeredOrgType(org.orgType, org.metadata?.edition);
+  if (orgType === 'Production') return 'bg-status-error';
+  if (orgType === 'Scratch') return 'bg-status-success';
+  return 'bg-status-info';
+}
 
 /**
  * Displays a Salesforce org connection badge with status indicator,
  * alias, org type label, and optional instance URL.
  */
-export const OrgBadge: React.FC<OrgBadgeProps> = ({
-  alias,
-  orgType,
-  status,
-  instanceUrl,
-  staging,
-  className,
-}) => {
+export const OrgBadge: React.FC<OrgBadgeProps> = ({ org, className }) => {
   const { t, i18n } = useTranslation();
+  const { status, instanceUrl } = org;
   const dotClass = statusColors[status] ?? statusColors.error;
   // A status the catalogue has no word for is read as the host wrote it.
   const statusKey = `common.orgStatus_${status}`;
   const statusLabel = i18n.exists(statusKey) ? t(statusKey) : status;
-  const typeInfo = (staging === true && orgType === 'Sandbox' ? STAGING_TYPE : undefined) ??
-    orgTypeConfig[orgType] ?? {
-      label: orgType.slice(0, 3).toUpperCase(),
-      bg: 'bg-status-info',
-    };
 
   /** Truncate instance URL to hostname only. */
   const truncatedUrl = instanceUrl
@@ -94,21 +87,21 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
         className="font-semibold text-(--sf-text-primary) truncate"
         data-testid="org-badge-alias"
       >
-        {alias}
+        {org.alias || org.username}
       </span>
 
-      {/* Org type badge */}
+      {/* Org type badge: the label the side panel and the pickers give it. */}
       <span
         className={cn(
-          'inline-flex items-center px-1.5 py-0.5',
+          'inline-flex items-center px-1.5 py-0.5 whitespace-nowrap',
           'text-[10px] font-bold leading-none',
           'rounded-(--sf-radius-sm)',
           'text-(--sf-bg-primary)',
-          typeInfo.bg,
+          typeFillOf(org),
         )}
         data-testid="org-badge-type"
       >
-        {typeInfo.label}
+        {orgTypeLabel(org, t)}
       </span>
 
       {/* Instance URL */}

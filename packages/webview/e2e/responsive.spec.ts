@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, type Page } from '@playwright/test';
 import { injectVSCodeApiMock, sendExtensionMessage } from './mocks/vscode-api';
 import { MockBridge } from './helpers';
-import { MOCK_ORGS } from './fixtures';
+import { DEV_SANDBOX, MOCK_ORGS, QA_SANDBOX } from './fixtures';
 
 /**
  * Layout behaviour across panel widths.
@@ -257,6 +258,53 @@ test.describe('Responsive layout', () => {
       expect(box.width).toBe(1280);
       expect(box.height).toBe(720);
     }
+  });
+
+  test.describe('in German', () => {
+    test.use({ locale: 'de-DE' });
+
+    test('the Sync header keeps both org badges inside an 800-pixel panel, each naming its type', async ({
+      page,
+    }) => {
+      // Once each badge named its type in a word ("DEV PRO", "STAGING" where it
+      // wrote SBX and STG), the German header ran 43 pixels past the panel's
+      // right edge: the badges now go on two lines when both do not fit.
+      await page.setViewportSize({ width: 800, height: 700 });
+      const bridge = new MockBridge();
+      await bridge.setup(page);
+      await page.addInitScript(() => {
+        (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'sync';
+      });
+      await page.goto('/');
+      await bridge.respondToNext(
+        'i18n:locale',
+        'i18n:locale:response',
+        {
+          lng: 'de',
+          bundle: JSON.parse(
+            readFileSync(new URL('../src/i18n/locales/de.json', import.meta.url), 'utf8'),
+          ) as Record<string, unknown>,
+        },
+        { timeout: 10_000 },
+      );
+      await bridge.seedOrgs([
+        { ...DEV_SANDBOX, sandboxType: 'DeveloperPro' },
+        { ...QA_SANDBOX, staging: true },
+      ]);
+      await expect(page.getByRole('heading', { name: 'Daten synchronisieren' })).toBeVisible();
+      await page.getByLabel('Quelle', { exact: true }).selectOption(DEV_SANDBOX.id);
+      await page.getByLabel('Ziel', { exact: true }).selectOption(QA_SANDBOX.id);
+
+      const types = page.getByTestId('page-header-actions').getByTestId('org-badge-type');
+      await expect(types).toHaveText(['DEV PRO', 'STAGING']);
+      const overflow = await measureOverflow(page);
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+      expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.documentClientWidth);
+      for (const badge of await page.getByTestId('org-badge').all()) {
+        const box = await badge.boundingBox();
+        expect(box!.x + box!.width).toBeLessThanOrEqual(overflow.clientWidth);
+      }
+    });
   });
 
   test('content area is scrollable when content overflows', async ({ page }) => {

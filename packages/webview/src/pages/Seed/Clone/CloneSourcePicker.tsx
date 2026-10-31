@@ -6,6 +6,7 @@ import { OrgBadge } from '../../../components/ui/OrgBadge';
 import { Badge } from '../../../components/ui/Badge';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { ArrowRight } from 'lucide-react';
+import { orgOptionLabel } from '../../../utils/orgFormatters';
 
 /** Props for the CloneSourcePicker component. */
 export interface CloneSourcePickerProps {
@@ -52,9 +53,12 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           </span>
           <Select
             label={t('seed.clone.sourcePicker.sourceLabel')}
+            // Named as every other picker names an org. It read "DevSandbox
+            // (sandbox)" here and "DevSandbox [SANDBOX]" on Sync, in English
+            // whatever the language, a Developer Edition org as production.
             options={availableSourceOrgs.map((org) => ({
               value: org.id,
-              label: `${org.alias || org.username} (${String(org.orgType).toLowerCase()})`,
+              label: orgOptionLabel(org, t),
             }))}
             value={sourceOrgId}
             onChange={(e) => onSourceSelected(e.target.value)}
@@ -62,15 +66,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
             data-testid="clone-source-select"
           />
           {loading && <Skeleton variant="text" width="60%" height="1em" />}
-          {selectedSourceOrg && (
-            <OrgBadge
-              alias={selectedSourceOrg.alias || selectedSourceOrg.username}
-              orgType={String(selectedSourceOrg.orgType)}
-              status={selectedSourceOrg.status}
-              instanceUrl={selectedSourceOrg.instanceUrl}
-              staging={selectedSourceOrg.staging}
-            />
-          )}
+          {selectedSourceOrg && <OrgBadge org={selectedSourceOrg} />}
         </div>
 
         {/* Direction arrow. A bare div may not carry a label: axe refused it
@@ -93,13 +89,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
             {t('seed.clone.sourcePicker.targetHint')}
           </span>
           {targetOrg ? (
-            <OrgBadge
-              alias={targetOrg.alias || targetOrg.username}
-              orgType={String(targetOrg.orgType)}
-              status={targetOrg.status}
-              instanceUrl={targetOrg.instanceUrl}
-              staging={targetOrg.staging}
-            />
+            <OrgBadge org={targetOrg} />
           ) : (
             // The target is the org selected in SandForge: with none, the
             // column stayed empty, and the preview went out without one.

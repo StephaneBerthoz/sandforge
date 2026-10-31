@@ -326,8 +326,8 @@ describe('MigrationPage — running an imported config', () => {
     };
     useOrgStore.setState({
       orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
       ] as never,
     });
     mockSfdmuState = {
@@ -355,6 +355,32 @@ describe('MigrationPage — running an imported config', () => {
     expect(sent.config.targetOrgId).toBe('org-b');
     // The rest of the converted config must survive untouched.
     expect(sent.config.objects).toEqual(sfdmuConfig.objects);
+  });
+
+  it('names each org with its type, and picks none until the user does', () => {
+    // The options gave the alias alone, so a production target went unsaid on
+    // the page that runs without a review step; and with no empty option the
+    // first org showed as picked while the page held none.
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
+        { id: 'org-p', alias: '', username: 'p@e.com', orgType: 'Production', tags: [] },
+      ] as never,
+    });
+    render(<MigrationPage />);
+
+    for (const testId of ['migration-run-source', 'migration-run-target']) {
+      const select = screen.getByTestId(testId) as HTMLSelectElement;
+      const options = Array.from(select.querySelectorAll('option'));
+      expect(options.map((option) => option.textContent)).toEqual([
+        'Select an org',
+        'devA [SANDBOX]',
+        'p@e.com [PROD]',
+      ]);
+      expect(select.value).toBe('');
+      expect(options[0].selected).toBe(true);
+      expect(options[0].disabled).toBe(true);
+    }
   });
 
   it('refuses to run into the org it reads from', () => {
@@ -476,8 +502,8 @@ describe('MigrationPage — editing the imported config before a run', () => {
     };
     useOrgStore.setState({
       orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
       ] as never,
     });
     mockSfdmuState = {
@@ -599,8 +625,8 @@ describe('MigrationPage — saving the import as a Sync configuration', () => {
     };
     useOrgStore.setState({
       orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
       ] as never,
     });
     mockSfdmuState = {
