@@ -18,7 +18,16 @@
  * - `UserPermissionAccess` answers the connection user's own permissions, one
  *   row; a field the org does not let that user read refuses the query whole
  *   (`INVALID_FIELD`).
- * - Ids are 18 characters, the form every query answers.
+ * - Ids are 18 characters, the form every query answers; an id given in a
+ *   query matches in 15 characters as in 18.
+ * - `SetupEntityAccess` holds one row per setup entity a set gives access to,
+ *   whatever its type — custom permissions, Apex classes, pages —, its
+ *   `SetupEntityType` the type's name: a query that does not filter by it
+ *   gets them all. `Parent` comes back as a nested record with its
+ *   `attributes`, as jsforce gives a relationship; `COUNT(Id) n` grouped by
+ *   `ParentId` answers one row per set.
+ * - `CustomPermission` answers by `DeveloperName` or by `Id`, its
+ *   `NamespacePrefix` null for one of the org's own.
  *
  * Every write is logged in the order it was made, so a test can hold the
  * lease to the order it journals and assigns in.
@@ -30,6 +39,22 @@ import type { Connection } from 'jsforce';
 export interface MemoryPermissionSet {
   id: string;
   name: string;
+  namespace?: string;
+  label?: string;
+  /** The custom permissions it grants, by id. */
+  customPermissions?: string[];
+  /** The other setup entities it gives access to — Apex classes, pages —, by id. */
+  otherEntities?: string[];
+  /** A profile's own set, which no user is assigned. */
+  ownedByProfile?: boolean;
+  /** The objects it gives permissions on (`ObjectPermissions`), by count. */
+  objects?: number;
+}
+
+/** A custom permission of the org. */
+export interface MemoryCustomPermission {
+  id: string;
+  developerName: string;
   namespace?: string;
 }
 
@@ -48,6 +73,9 @@ export interface MemoryPermissionOrgSetup {
   sandbox?: boolean;
   edition?: string;
   sets?: MemoryPermissionSet[];
+  customPermissions?: MemoryCustomPermission[];
+  /** Refuse every query of `SetupEntityAccess` with this code, as an org that will not let the user read it. */
+  refuseSetupEntityAccess?: string;
   assignments?: MemoryAssignment[];
   /** The connection user's `PermissionsAssignPermissionSets`; `unreadable` refuses the query. */
   canAssign?: boolean | 'unreadable';
@@ -81,6 +109,11 @@ function inList(soql: string, field: string): string[] {
     .split(',')
     .map((v) => v.trim().replace(/^'|'$/g, ''))
     .filter((v) => v !== '');
+}
+
+/** An id as SOQL matches it, whichever length it is written in. */
+function key15(id: string): string {
+  return id.slice(0, 15);
 }
 
 /** The value of `field = '…'` in a SOQL WHERE. */
@@ -134,6 +167,48 @@ export function memoryPermissionOrg(setup: MemoryPermissionOrgSetup = {}): Memor
     return id;
   };
 
+  /** `SetupEntityAccess` as the org answers it: every set's grants, filtered and projected as asked. */
+  const setupEntityAccess = (soql: string): Array<Record<string, unknown>> => {
+    const type = equalTo(soql, 'SetupEntityType');
+    const parents = /\bParentId\s+IN/i.test(soql) ? inList(soql, 'ParentId').map(key15) : null;
+    const entities = /\bSetupEntityId\s+IN/i.test(soql)
+      ? inList(soql, 'SetupEntityId').map(key15)
+      : null;
+    const assignable = /Parent\.IsOwnedByProfile\s*=\s*false/i.test(soql);
+    const rows = sets.flatMap((set) => [
+      ...(set.customPermissions ?? []).map((id) => ({ set, id, type: 'CustomPermission' })),
+      ...(set.otherEntities ?? []).map((id) => ({ set, id, type: 'ApexClass' })),
+    ]);
+    const kept = rows.filter(
+      (row) =>
+        (type === undefined || row.type === type) &&
+        (parents === null || parents.includes(key15(row.set.id))) &&
+        (entities === null || entities.includes(key15(row.id))) &&
+        (!assignable || row.set.ownedByProfile !== true),
+    );
+    if (/COUNT\(Id\)/i.test(soql)) {
+      const counts = new Map<string, number>();
+      for (const row of kept) counts.set(row.set.id, (counts.get(row.set.id) ?? 0) + 1);
+      return [...counts].map(([ParentId, n]) => ({ ParentId, n }));
+    }
+    const asked = /SELECT\s+(.*?)\s+FROM/i.exec(soql)?.[1] ?? '';
+    return kept.map((row) => ({
+      ...(/\bParentId\b/.test(asked) ? { ParentId: row.set.id } : {}),
+      ...(/\bSetupEntityId\b/.test(asked) ? { SetupEntityId: row.id } : {}),
+      ...(/\bSetupEntityType\b/.test(asked) ? { SetupEntityType: row.type } : {}),
+      ...(/\bParent\./.test(asked)
+        ? {
+            Parent: {
+              attributes: { type: 'PermissionSet' },
+              Name: row.set.name,
+              Label: row.set.label ?? row.set.name,
+              NamespacePrefix: row.set.namespace ?? null,
+            },
+          }
+        : {}),
+    }));
+  };
+
   const query = async (soql: string) => {
     queries.push(soql);
     const records = ((): Array<Record<string, unknown>> => {
@@ -165,6 +240,36 @@ export function memoryPermissionOrg(setup: MemoryPermissionOrgSetup = {}): Memor
             Id: a.id,
             PermissionSetId: a.permissionSetId,
             PermissionSet: { Name: sets.find((s) => s.id === a.permissionSetId)?.name },
+          }));
+      }
+      if (/FROM SetupEntityAccess/i.test(soql)) {
+        if (setup.refuseSetupEntityAccess) {
+          throw new OrgRefusal(
+            setup.refuseSetupEntityAccess,
+            `${setup.refuseSetupEntityAccess}: the org refused the query of SetupEntityAccess`,
+          );
+        }
+        return setupEntityAccess(soql);
+      }
+      if (/FROM ObjectPermissions\b/i.test(soql) && /COUNT\(Id\)/i.test(soql)) {
+        const parents = inList(soql, 'ParentId').map(key15);
+        return sets
+          .filter((set) => parents.includes(key15(set.id)) && (set.objects ?? 0) > 0)
+          .map((set) => ({ ParentId: set.id, n: set.objects }));
+      }
+      if (/FROM CustomPermission\b/i.test(soql)) {
+        const byName = inList(soql, 'DeveloperName').map((n) => n.toLowerCase());
+        const byId = /\bDeveloperName\s+IN/i.test(soql) ? [] : inList(soql, '\\bId').map(key15);
+        return (setup.customPermissions ?? [])
+          .filter((p) =>
+            byName.length > 0
+              ? byName.includes(p.developerName.toLowerCase())
+              : byId.includes(key15(p.id)),
+          )
+          .map((p) => ({
+            Id: p.id,
+            DeveloperName: p.developerName,
+            NamespacePrefix: p.namespace ?? null,
           }));
       }
       if (/FROM PermissionSet\b/i.test(soql)) {

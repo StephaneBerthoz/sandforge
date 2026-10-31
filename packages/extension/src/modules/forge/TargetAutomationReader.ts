@@ -52,7 +52,12 @@
  * - for a bypass that user does not hold, the permission sets that include
  *   it, from `SetupEntityAccess` joined to `PermissionSet`, and what each
  *   grants, counted from `SetupEntityAccess` and `ObjectPermissions`: the
- *   command that would assign the smallest is shown, never run.
+ *   command that would assign the smallest is shown, never run;
+ * - of those sets, the custom permissions each grants (`SetupEntityAccess`
+ *   of the set, then `CustomPermission` by id), and the validation rules of
+ *   the objects whose formula a custom permission keeps quiet, read as the
+ *   gap reader reads them (`readValidationRuleBypasses`): what a run's mute,
+ *   assigning a set for one bypass, lifts with it.
  *
  * A part the org refuses — no access, an API turned off — is said, and the
  * others are read all the same: the read never stops a run.
@@ -1963,6 +1968,8 @@ export class TargetAutomationReader {
     const named = [...flows, ...placedProcesses, ...activeRules].flatMap(
       (read) => read.flow.permissions,
     );
+    /** The custom permissions the user holds, by their key; undefined when not read. */
+    let heldKeys: Set<string> | undefined;
     if (named.length > 0) {
       const [held] = await inFlight(
         [ask('userPermissions', query(USER_PERMISSIONS_SOQL))],
@@ -1972,6 +1979,7 @@ export class TargetAutomationReader {
         const keys = new Set(
           held.map((row) => permissionKey(text(row.NamespacePrefix), text(row.DeveloperName))),
         );
+        heldKeys = keys;
         for (const permission of named) {
           permission.held = keys.has(permission.name.toLowerCase());
         }
@@ -1980,7 +1988,9 @@ export class TargetAutomationReader {
 
     // The permission sets that would give the user the bypasses it does not
     // hold, for the command that assigns the smallest of them: four requests
-    // at most, sent only when such a bypass is named.
+    // at most, sent only when such a bypass is named; and, of those sets,
+    // the custom permissions each grants, two more: a set assigned for one
+    // bypass lifts every other it holds.
     const missing = [
       ...new Set(named.filter((p) => p.bypass && p.held !== true).map((p) => p.name)),
     ];
@@ -1990,8 +2000,50 @@ export class TargetAutomationReader {
             missing,
             (soql) => ask('permissionSets', query(soql))(),
             () => unread.some((u) => u.part === 'permissionSets'),
+            async (soql) => {
+              try {
+                const answer = await this.deps.query(targetOrgId, soql);
+                requests += answer.requests;
+                return answer.records;
+              } catch (err: unknown) {
+                requests++;
+                throw err;
+              }
+            },
           )
         : undefined;
+
+    // What a set a mute would assign lifts beside the bypass it holds: the
+    // validation rules a custom permission keeps quiet, read only when a set
+    // is there to assign. On the trap org, the set a mute assigned for a
+    // flow's bypass held two validation rules' too.
+    const lifts: Pick<
+      ForgeTargetAutomation,
+      'validationRuleBypasses' | 'validationRulesNotRead' | 'validationRulesUnread'
+    > = {};
+    if (bypassGrants?.some((grant) => grant.permissionSets.length > 0)) {
+      const { toolingQueries, toolingRetrieves } = this.deps;
+      try {
+        // Imported as it is needed: the gap reader imports this one.
+        const { readValidationRuleBypasses } = await import('./TargetGapReader.js');
+        const read = await readValidationRuleBypasses(
+          (soql) => this.deps.toolingQuery(targetOrgId, soql),
+          objectApiNames,
+          toolingQueries && ((soqls) => toolingQueries(targetOrgId, soqls)),
+          toolingRetrieves && ((reads) => toolingRetrieves(targetOrgId, reads)),
+        );
+        requests += read.requests;
+        lifts.validationRuleBypasses = read.rules.flatMap((rule) => {
+          // What the user holds keeps the rule quiet already: the mute changes nothing of it.
+          if (rule.permissions.some((name) => heldKeys?.has(name.toLowerCase()))) return [];
+          return [rule];
+        });
+        if (read.notRead > 0) lifts.validationRulesNotRead = read.notRead;
+      } catch (err: unknown) {
+        requests++;
+        lifts.validationRulesUnread = extractErrorMessage(err);
+      }
+    }
 
     const assignmentRules = (object: string): ForgeTargetAssignmentRule[] =>
       assignmentRows
@@ -2059,6 +2111,7 @@ export class TargetAutomationReader {
       definitionsNotRead: definitionsToRead.length - definitionsReading.length,
       definitionsBound,
       ...(bypassGrants ? { bypassGrants } : {}),
+      ...lifts,
       requests,
     };
   }
@@ -2086,6 +2139,7 @@ export async function readBypassGrants(
   bypasses: readonly string[],
   read: (soql: string) => Promise<Array<Record<string, unknown>>>,
   failed: () => boolean,
+  readGranted?: (soql: string) => Promise<Array<Record<string, unknown>>>,
 ): Promise<ForgeBypassGrant[] | undefined> {
   // `ns__Name` names the custom permission `Name` of the namespace `ns`.
   const named = bypasses.flatMap((name) => {
@@ -2128,6 +2182,20 @@ export async function readBypassGrants(
       grants.set(key, (grants.get(key) ?? 0) + (Number.isFinite(n) ? n : 0));
     }
   }
+  const nameOf = new Map<string, string>();
+  for (const row of permissions) {
+    const id = text(row.Id);
+    if (SF_ID_RE.test(id)) {
+      nameOf.set(
+        idKey(id),
+        withNamespacePrefix(text(row.NamespacePrefix), text(row.DeveloperName)),
+      );
+    }
+  }
+  const granted =
+    readGranted && setIds.length > 0
+      ? await customPermissionsGranted(setIds, nameOf, readGranted)
+      : undefined;
   return named.map(({ name }) => {
     const id = idOf.get(name.toLowerCase());
     const sets = new Map<string, ForgePermissionSetGrant>();
@@ -2142,6 +2210,11 @@ export async function readBypassGrants(
         name: namespace ? `${namespace}__${apiName}` : apiName,
         label: text(field(parent, 'Label')) || apiName,
         grants: grants.get(setId) ?? 0,
+        ...(granted === undefined
+          ? {}
+          : 'refused' in granted
+            ? { customPermissionsUnread: granted.refused }
+            : { customPermissions: granted.bySet.get(setId) ?? [] }),
       });
     }
     return {
@@ -2151,6 +2224,77 @@ export async function readBypassGrants(
       ),
     };
   });
+}
+
+/** A custom permission's name as `$Permission.<name>` gives it: after its namespace and two underscores. */
+function withNamespacePrefix(namespace: string, developerName: string): string {
+  return namespace ? `${namespace}__${developerName}` : developerName;
+}
+
+/** The custom permissions these permission sets grant, as `SetupEntityAccess` lists them. */
+export function setCustomPermissionsSoql(permissionSetIds: readonly string[]): string {
+  const ids = permissionSetIds.map((id) => `'${id}'`).join(', ');
+  return (
+    "SELECT ParentId, SetupEntityId FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission' " +
+    `AND ParentId IN (${ids})`
+  );
+}
+
+/** Custom permissions by id: their names and namespaces. */
+export function customPermissionsByIdSoql(customPermissionIds: readonly string[]): string {
+  const ids = customPermissionIds.map((id) => `'${id}'`).join(', ');
+  return `SELECT Id, DeveloperName, NamespacePrefix FROM CustomPermission WHERE Id IN (${ids})`;
+}
+
+/**
+ * What each of the permission sets `setIds` grants of custom permissions, by
+ * set (`PermissionSet` → `SetupEntityAccess` → `CustomPermission`): the
+ * permissions it gives access to, then the names of those not named already.
+ * A refusal of either is said, and nothing guessed of any set.
+ *
+ * @param named - Custom permission names already read, by id.
+ * @param read - Runs one query on the target, every page; throws on a refusal.
+ */
+async function customPermissionsGranted(
+  setIds: readonly string[],
+  named: ReadonlyMap<string, string>,
+  read: (soql: string) => Promise<Array<Record<string, unknown>>>,
+): Promise<{ bySet: Map<string, string[]> } | { refused: string }> {
+  try {
+    const rows = await read(setCustomPermissionsSoql(setIds));
+    const names = new Map(named);
+    const unknown = [
+      ...new Set(
+        rows
+          .map((row) => text(row.SetupEntityId))
+          .filter((id) => SF_ID_RE.test(id) && !names.has(idKey(id))),
+      ),
+    ];
+    if (unknown.length > 0) {
+      for (const row of await read(customPermissionsByIdSoql(unknown))) {
+        const id = text(row.Id);
+        if (SF_ID_RE.test(id)) {
+          names.set(
+            idKey(id),
+            withNamespacePrefix(text(row.NamespacePrefix), text(row.DeveloperName)),
+          );
+        }
+      }
+    }
+    const bySet = new Map<string, string[]>();
+    for (const row of rows) {
+      const setId = idKey(text(row.ParentId));
+      const name = names.get(idKey(text(row.SetupEntityId)));
+      if (!name) continue;
+      const list = bySet.get(setId) ?? [];
+      if (!list.includes(name)) list.push(name);
+      bySet.set(setId, list);
+    }
+    for (const list of bySet.values()) list.sort((a, b) => a.localeCompare(b));
+    return { bySet };
+  } catch (err: unknown) {
+    return { refused: extractErrorMessage(err) };
+  }
 }
 
 /** How each write and timing reads in the command's lines. */

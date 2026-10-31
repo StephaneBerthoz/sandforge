@@ -6224,14 +6224,16 @@
       "silences": "Für den Durchlauf stummgeschaltet:",
       "stillRuns": "Läuft trotzdem:",
       "atStart": "Was stummgeschaltet wird, wird beim Start des Durchlaufs aus {{org}} gelesen: Die Berechtigungssätze mit den Bypässen, die ihre Flows, Prozesse und Workflow-Regeln prüfen, werden dem Benutzer zugewiesen, als der der Durchlauf schreibt, nur für diesen Durchlauf, und an seinem Ende wieder entzogen. Der Durchlauf fragt dann nur nach dem, was trotzdem läuft, und sein Ergebnis sagt, was stummgeschaltet wurde.",
-      "never": "Nichts wird deaktiviert, und kein anderer Benutzer wird berührt. Abgelehnt in einer Produktions-Org und für einen Benutzer, der keine Berechtigungssätze zuweisen darf: Der Durchlauf schreibt dann nichts."
+      "never": "Nichts wird deaktiviert, und kein anderer Benutzer wird berührt. Abgelehnt in einer Produktions-Org und für einen Benutzer, der keine Berechtigungssätze zuweisen darf: Der Durchlauf schreibt dann nichts.",
+      "alsoLifts": "Hebt außerdem auf, durch das, was diese Sätze sonst gewähren:"
     },
     "bypass": "Bypass {{permission}}",
     "kind": {
       "flow": "Flow: {{name}}",
       "trigger": "Apex-Trigger: {{name}}",
       "process": "Prozess: {{name}}",
-      "workflowRule": "Workflow-Regel: {{name}}"
+      "workflowRule": "Workflow-Regel: {{name}}",
+      "validationRule": "Validierungsregel: {{name}}"
     },
     "why": {
       "noBypass": "nichts darin prüft einen Bypass",
@@ -6252,7 +6254,13 @@
       "planned_one": "Ein echter Durchlauf würde dem Benutzer, als der er in {{org}} schreibt, den Berechtigungssatz mit {{bypasses}} zuweisen, nur für den Durchlauf; dieser hat nichts zugewiesen.",
       "planned_other": "Ein echter Durchlauf würde dem Benutzer, als der er in {{org}} schreibt, die Berechtigungssätze mit {{bypasses}} zuweisen, nur für den Durchlauf; dieser hat nichts zugewiesen.",
       "silenced": "Stummgeschaltet:",
-      "stillRan": "Lief trotzdem:"
+      "stillRan": "Lief trotzdem:",
+      "alsoLifted": "Außerdem aufgehoben, durch das, was diese Sätze sonst gewähren:"
+    },
+    "liftedBy": "{{permission}}, im Satz {{set}}",
+    "liftsUnread": {
+      "grants": "Was {{set}} gewährt, konnte nicht gelesen werden: Was er sonst noch aufhebt, ist nicht bekannt.",
+      "validationRules": "Nicht alle Validierungsregeln konnten gelesen werden: Ob die Sätze weitere aufheben, ist nicht bekannt."
     }
   }
 }

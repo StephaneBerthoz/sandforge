@@ -187,6 +187,7 @@ import {
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
 import {
+  dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
   muteLines,
@@ -1820,27 +1821,31 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (args.dryRun) {
     log('\nsimulating… (DRY-RUN: nothing is written)');
     const simulation = await orchestrator.simulate(config);
-    // What a run with --mute-automation would assign, silence and leave
-    // running, read as the run's gate reads it: nothing assigned.
+    // What a run with --mute-automation would assign, silence, leave
+    // running and lift beside, read as the run's gate reads it: nothing
+    // assigned, and said in the summary as in the lines.
+    let planned: RunMute | undefined;
+    let muteRefused: string | undefined;
     if (args.muteAutomation) {
       const objects = config.objects.map((object) => object.objectApiName);
       const read = await measures
         .readAutomation(objects)
         .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
       try {
-        const planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
+        planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
           writes: syncRunWrites,
         });
         for (const line of muteLines(planned.muted, args.target)) log(line);
       } catch (err: unknown) {
         if (!isMuteRefusedError(err)) throw err;
+        muteRefused = err.message;
         log(`a real run would be refused: ${err.message}`);
       }
     }
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
-        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, elapsedMs: elapsed }, null, 2)}\n`,
+        `${JSON.stringify({ tool: 'sandforge-sync', source: args.source, target: args.target, dryRun: true, simulation, ...dryRunMuteOf(planned), ...(muteRefused ? { wouldBeRefused: [muteRefused] } : {}), elapsedMs: elapsed }, null, 2)}\n`,
       );
       return;
     }

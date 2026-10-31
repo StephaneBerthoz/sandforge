@@ -2144,6 +2144,31 @@ export interface ForgePermissionSetGrant {
    * permissions on. The smallest gives the least beside the bypass.
    */
   grants: number;
+  /**
+   * The custom permissions it grants, as `$Permission.<name>` names them,
+   * read from its `SetupEntityAccess` and `CustomPermission`: assigned for
+   * one bypass, it lifts with it whatever else of the target tests these.
+   * Run on the trap org, the set a mute assigned for a flow's bypass held a
+   * validation rule's too, and a contact the rule refused was written,
+   * unsaid. Absent when not read.
+   */
+  customPermissions?: string[];
+  /** Why what it grants could not be read: what else it lifts is then not known. */
+  customPermissionsUnread?: string;
+}
+
+/**
+ * An active validation rule of the target whose formula keeps it from
+ * refusing a record for the user who holds a custom permission
+ * (`NOT($Permission.X)`): what a permission set assigned for a flow's
+ * bypass lifts beside it when it grants that permission too.
+ */
+export interface ForgeValidationRuleBypass {
+  objectApiName: string;
+  /** Its name, after its package's namespace for a packaged one. */
+  name: string;
+  /** The custom permissions that keep it quiet, those the user the run writes as is known to hold left out. */
+  permissions: string[];
 }
 
 /**
@@ -2195,6 +2220,17 @@ export interface ForgeTargetAutomation {
    * when no such bypass was named, or the permission sets could not be read.
    */
   bypassGrants?: ForgeBypassGrant[];
+  /**
+   * The validation rules of the objects read that a custom permission keeps
+   * quiet, and those permissions: read when a permission set holds a bypass
+   * the user lacks, as what assigning it may lift beside what it is assigned
+   * for. Absent when not read.
+   */
+  validationRuleBypasses?: ForgeValidationRuleBypass[];
+  /** Validation rules whose formula was not read — past the bound, or refused — so what they test is not known. */
+  validationRulesNotRead?: number;
+  /** Why the validation rules of the objects read could not be listed. */
+  validationRulesUnread?: string;
   /** The requests the read sent to the target. */
   requests: number;
 }

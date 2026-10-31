@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import type { MutedAutomation } from '@sandforge/shared';
 import i18n from '../../i18n';
 import ja from '../../i18n/locales/ja.json';
@@ -59,6 +59,39 @@ describe('MutedAutomationResult', () => {
     expect(screen.getByTestId('muted-still-ran-Case').textContent).toBe(
       "Case: Process: Escalate · its condition couldn't be read",
     );
+  });
+
+  it('says what the set lifted beside what it silenced, and a set whose grants could not be read', () => {
+    render(
+      <MutedAutomationResult
+        muted={{
+          ...MUTED,
+          alsoLifted: [
+            {
+              objectApiName: 'Contact',
+              kind: 'validationRule',
+              name: 'Lead_Source_Locked',
+              permission: 'Bypass_VR',
+              permissionSet: 'Bypass_Automation',
+            },
+          ],
+          liftsUnread: [{ part: 'grants', permissionSet: 'Bypass_Other' }],
+        }}
+        org="dev-sandbox"
+        testId="muted"
+      />,
+    );
+
+    const lifted = screen.getByTestId('muted-also-lifted');
+    expect(within(lifted).getByText('Also lifted, by what else these sets grant:')).toBeDefined();
+    expect(screen.getByTestId('muted-also-lifted-Contact').textContent).toBe(
+      'Contact: Validation rule: Lead_Source_Locked · Bypass_VR, in Bypass_Automation',
+    );
+    expect(
+      within(lifted).getByText(
+        "What Bypass_Other grants couldn't be read: what else it lifts isn't known.",
+      ),
+    ).toBeDefined();
   });
 
   it('says what was left assigned, and when the next run takes it back, when the org refused to take it back', () => {

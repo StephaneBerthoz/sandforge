@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { MutePlan } from '@sandforge/shared';
 import i18n from '../../i18n';
 import fr from '../../i18n/locales/fr.json';
@@ -72,6 +72,54 @@ describe('AutomationMuteBox', () => {
     // Its words describe the box to a screen reader, the label naming it.
     const described = document.getElementById(toggle.getAttribute('aria-describedby') ?? '');
     expect(described?.textContent).toMatch(/^Assigns the permission set Bypass_Automation/);
+  });
+
+  it('names each rule the set lifts beside what it silences, with the permission and the set, and what of it was not read', () => {
+    render(
+      <AutomationMuteBox
+        offer={{
+          ...PLAN,
+          alsoLifts: [
+            {
+              objectApiName: 'Contact',
+              kind: 'validationRule',
+              name: 'Email_Required',
+              permission: 'Bypass_VR',
+              permissionSet: 'Bypass_Automation',
+            },
+          ],
+          liftsUnread: [{ part: 'validationRules', rules: 2 }],
+        }}
+        checked={false}
+        onChange={vi.fn()}
+        org="dev-sandbox"
+        testId="mute"
+      />,
+    );
+
+    const lifts = screen.getByTestId('mute-also-lifts');
+    expect(within(lifts).getByText('Also lifts, by what else these sets grant:')).toBeDefined();
+    expect(screen.getByTestId('mute-also-lifts-Contact').textContent).toBe(
+      'Contact: Validation rule: Email_Required · Bypass_VR, in Bypass_Automation',
+    );
+    expect(
+      within(lifts).getByText(
+        "Not every validation rule could be read: whether the sets lift more isn't known.",
+      ).className,
+    ).toContain('text-status-warning');
+  });
+
+  it('names nothing lifted for a set that grants nothing beyond its bypass', () => {
+    render(
+      <AutomationMuteBox
+        offer={PLAN}
+        checked={false}
+        onChange={vi.fn()}
+        org="dev-sandbox"
+        testId="mute"
+      />,
+    );
+    expect(screen.queryByTestId('mute-also-lifts')).toBeNull();
   });
 
   it('says whether it is ticked, and hands the tick to its owner', () => {

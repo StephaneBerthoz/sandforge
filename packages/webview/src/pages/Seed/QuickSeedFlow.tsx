@@ -78,7 +78,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
   const records = Object.fromEntries(
     written.map((obj) => [obj.objectApiName, countOf(obj.objectApiName, obj.recordCount)]),
   );
-  const refused = refusedForEmails(automation, records);
+  const refused = refusedForEmails(automation, records, quickSeed.muteAutomation);
 
   /*
    * Each phase is drawn in place of the last, and the button that moved on —

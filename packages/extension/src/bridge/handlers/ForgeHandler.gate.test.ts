@@ -2244,6 +2244,55 @@ describe('forge:execute, the gate before the first write', () => {
       done();
     });
 
+    it('says in its result and its audit entry the validation rule the set lifts beside the flow', async () => {
+      // The trap org's shape: the set held for the flow's bypass grants a validation rule's too.
+      const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+      const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'Data_Load' }] });
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        targetAutomation: readerOf({
+          ...MUTABLE,
+          bypassGrants: [
+            {
+              permission: 'Load_Data',
+              permissionSets: [
+                {
+                  name: 'Data_Load',
+                  label: 'Data load',
+                  grants: 2,
+                  customPermissions: ['Bypass_VR', 'Load_Data'],
+                },
+              ],
+            },
+          ],
+          validationRuleBypasses: [
+            { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Bypass_VR'] },
+          ],
+        }),
+        muteOrg: async () => muteOrgOf(org.connection),
+        muteLeases: { dir, renewEveryMs: 0 },
+      });
+
+      await executeMuted();
+
+      const [response] = posted('forge:execute:response');
+      expect(response.payload.result).toMatchObject({
+        mutedAutomation: {
+          state: 'muted',
+          alsoLifted: [
+            {
+              objectApiName: 'Contact',
+              kind: 'validationRule',
+              name: 'Email_Required',
+              permission: 'Bypass_VR',
+              permissionSet: 'Data_Load',
+            },
+          ],
+        },
+      });
+      expect(runs()[0]).toMatchObject({ muted: { assigned: ['Data_Load'], alsoLifted: 1 } });
+      rmSync(dir, { recursive: true, force: true });
+    });
+
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
       const { org, done } = muting({ canAssign: false });
 

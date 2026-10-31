@@ -287,7 +287,9 @@ export {
   type ForgeRunWrite,
 } from './utils/forge-target-automation.js';
 export {
+  alsoLiftedWords,
   auditMutedOf,
+  liftsUnreadWords,
   mutedAutomationOf,
   mutedEntryWords,
   mutePermissionsOf,
@@ -295,7 +297,9 @@ export {
   stillRunsWords,
   type AuditMutedAutomation,
   type MuteAssignment,
+  type MuteLiftsUnread,
   type MutedAutomation,
+  type MutedAutomationAlsoLifted,
   type MutedAutomationEntry,
   type MutedAutomationSilenced,
   type MutedAutomationStillRunning,

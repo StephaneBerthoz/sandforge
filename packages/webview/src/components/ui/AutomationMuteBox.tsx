@@ -2,6 +2,8 @@ import React, { useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BellOff } from 'lucide-react';
 import type {
+  MuteLiftsUnread,
+  MutedAutomationAlsoLifted,
   MutedAutomationEntry,
   MutedAutomationSilenced,
   MutedAutomationStillRunning,
@@ -15,11 +17,14 @@ import { muteOffered, type MuteOffer } from '../../utils/muteOffer';
  * it in: kept in the box's own namespace, as a page that offers the box need
  * load no other.
  */
-const KIND_KEYS: Readonly<Record<MutedAutomationEntry['kind'], string>> = {
+const KIND_KEYS: Readonly<
+  Record<MutedAutomationEntry['kind'] | MutedAutomationAlsoLifted['kind'], string>
+> = {
   flow: 'automationMute.kind.flow',
   trigger: 'automationMute.kind.trigger',
   process: 'automationMute.kind.process',
   workflowRule: 'automationMute.kind.workflowRule',
+  validationRule: 'automationMute.kind.validationRule',
 };
 
 /** Why an automation still runs for a run that mutes. */
@@ -32,24 +37,38 @@ const WHY_KEYS: Readonly<Record<MuteStillRunsWhy, string>> = {
 
 /** Props for {@link MuteEntryList}. */
 export interface MuteEntryListProps {
-  /** What the list is of, said above it: what is silenced, or what still runs. */
+  /** What the list is of, said above it: what is silenced, still runs, or is lifted beside. */
   title: string;
-  entries: ReadonlyArray<MutedAutomationSilenced | MutedAutomationStillRunning>;
+  entries:
+    | ReadonlyArray<
+        MutedAutomationSilenced | MutedAutomationStillRunning | MutedAutomationAlsoLifted
+      >
+    | undefined;
+  /** What could not be read of what the sets lift beside, said under the list. */
+  unread?: readonly MuteLiftsUnread[] | undefined;
   testId: string;
 }
 
 /**
- * The automations a mute silences or leaves running, one a line: the object,
- * the flow, process, rule or trigger by its kind and name, then the bypass
- * that silences it or why it still runs.
+ * The automations a mute silences, leaves running or lifts beside, one a
+ * line: the object, the flow, process, rule, trigger or validation rule by
+ * its kind and name, then the bypass that silences it, why it still runs, or
+ * the permission and the set that lift it — on the trap org, the set
+ * assigned for a flow's bypass let through a contact two validation rules
+ * refused, unsaid —, and what of that could not be read.
  */
-export const MuteEntryList: React.FC<MuteEntryListProps> = ({ title, entries, testId }) => {
+export const MuteEntryList: React.FC<MuteEntryListProps> = ({
+  title,
+  entries = [],
+  unread = [],
+  testId,
+}) => {
   const { t } = useTranslation();
-  if (entries.length === 0) return null;
+  if (entries.length === 0 && unread.length === 0) return null;
   return (
     <div data-testid={testId}>
-      <p>{title}</p>
-      <ul className="ml-3 flex list-disc flex-col gap-0.5">
+      {entries.length > 0 && <p>{title}</p>}
+      <ul className="ml-3 flex list-disc flex-col gap-0.5" hidden={entries.length === 0}>
         {entries.map((entry) => (
           <li
             key={`${entry.objectApiName}-${entry.kind}-${entry.name}`}
@@ -60,13 +79,25 @@ export const MuteEntryList: React.FC<MuteEntryListProps> = ({ title, entries, te
             {t(KIND_KEYS[entry.kind], { name: entry.name })}
             <span className="text-text-secondary">
               {' · '}
-              {'permission' in entry
-                ? t('automationMute.bypass', { permission: entry.permission })
-                : t(WHY_KEYS[entry.why])}
+              {'permissionSet' in entry
+                ? t('automationMute.liftedBy', {
+                    permission: entry.permission,
+                    set: entry.permissionSet,
+                  })
+                : 'permission' in entry
+                  ? t('automationMute.bypass', { permission: entry.permission })
+                  : t(WHY_KEYS[entry.why])}
             </span>
           </li>
         ))}
       </ul>
+      {unread.map((u) => (
+        <p key={`${u.part}-${u.permissionSet}`} className="text-status-warning">
+          {u.permissionSet
+            ? t('automationMute.liftsUnread.grants', { set: u.permissionSet })
+            : t('automationMute.liftsUnread.validationRules')}
+        </p>
+      ))}
     </div>
   );
 };
@@ -153,6 +184,12 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
               title={t('automationMute.box.stillRuns')}
               entries={offer.stillRuns}
               testId={`${testId}-still-runs`}
+            />
+            <MuteEntryList
+              title={t('automationMute.box.alsoLifts')}
+              entries={offer.alsoLifts}
+              unread={offer.liftsUnread}
+              testId={`${testId}-also-lifts`}
             />
           </>
         )}

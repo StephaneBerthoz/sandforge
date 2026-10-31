@@ -2,13 +2,19 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { firedOnInsert, type ForgeTargetAutomation, type ForgeTargetFlow } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  firedOnInsert,
+  type ForgeTargetAutomation,
+  type ForgeTargetFlow,
+} from '@sandforge/shared';
 import {
   memoryPermissionOrg,
   type MemoryPermissionOrgSetup,
 } from '../../test/memoryPermissionOrg.js';
 import {
   defaultMuteLeasesDir,
+  dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
   muteJournalFileOf,
@@ -58,14 +64,56 @@ const automation: ForgeTargetAutomation = {
   bypassGrants: [
     {
       permission: 'Account_BypassFlow',
-      permissionSets: [{ name: 'PS_BypassFlow', label: 'Bypass flow', grants: 1 }],
+      permissionSets: [
+        {
+          name: 'PS_BypassFlow',
+          label: 'Bypass flow',
+          grants: 1,
+          customPermissions: ['Account_BypassFlow'],
+        },
+      ],
     },
     {
       permission: 'Bypass_VR',
-      permissionSets: [{ name: 'PS_BypassVR', label: 'Bypass VR', grants: 1 }],
+      permissionSets: [
+        { name: 'PS_BypassVR', label: 'Bypass VR', grants: 1, customPermissions: ['Bypass_VR'] },
+      ],
     },
   ],
+  validationRuleBypasses: [],
   requests: 3,
+};
+
+/**
+ * The trap org's shape: the set that holds the flow's bypass grants a
+ * validation rule's too, which keeps two rules of Account quiet.
+ */
+const liftingTwoRules: ForgeTargetAutomation = {
+  ...automation,
+  objects: [
+    {
+      objectApiName: 'Account',
+      flows: [bypassed('Account_BypassFlow', 'Account welcome')],
+      triggers: [],
+    },
+  ],
+  bypassGrants: [
+    {
+      permission: 'Account_BypassFlow',
+      permissionSets: [
+        {
+          name: 'PS_BypassFlow',
+          label: 'Bypass flow',
+          grants: 2,
+          customPermissions: ['Account_BypassFlow', 'Bypass_VR'],
+        },
+      ],
+    },
+  ],
+  validationRuleBypasses: [
+    { objectApiName: 'Account', name: 'Phone_Required', permissions: ['Bypass_VR'] },
+    { objectApiName: 'Account', name: 'Region_Locked', permissions: ['Bypass_VR'] },
+  ],
 };
 
 const SETS = [
@@ -522,5 +570,64 @@ describe('muteLines', () => {
       'mute: a real run would assign the permission set(s) holding Account_BypassFlow, Bypass_VR ' +
         'to the user it writes as in TGT, for the run alone; this dry run assigns nothing',
     );
+  });
+
+  it('names on a dry run and in the result each rule the set lifts beside what it silences', async () => {
+    const org = orgWith();
+    const answer = await prepareMute(muteOrgOf(org.connection), liftingTwoRules, asProcess(100));
+    if ('refused' in answer) throw new Error(answer.refused.message);
+    const lifted = [
+      '  also lifts: validation rule "Phone_Required" on Account (Bypass_VR, in PS_BypassFlow)',
+      '  also lifts: validation rule "Region_Locked" on Account (Bypass_VR, in PS_BypassFlow)',
+    ];
+    expect(muteLines(answer.planned, 'TGT').slice(-2)).toEqual(lifted);
+    const { muted } = await whileMuted(answer, 'run-1', async () => undefined);
+    expect(muted?.alsoLifted?.map((entry) => entry.name)).toEqual([
+      'Phone_Required',
+      'Region_Locked',
+    ]);
+    expect(muteLines(muted!, 'TGT')).toEqual(expect.arrayContaining(lifted));
+    // The audit counts them.
+    expect(auditMutedOf(muted!)).toMatchObject({ alsoLifted: 2 });
+  });
+
+  it('says what a set grants could not be read, rather than naming nothing it lifts', () => {
+    const [grant] = liftingTwoRules.bypassGrants!;
+    const { planned } = planMute({
+      ...liftingTwoRules,
+      bypassGrants: [
+        {
+          ...grant!,
+          permissionSets: [
+            {
+              name: 'PS_BypassFlow',
+              label: 'Bypass flow',
+              grants: 2,
+              customPermissionsUnread: 'INSUFFICIENT_ACCESS: insufficient access rights',
+            },
+          ],
+        },
+      ],
+    });
+    expect(planned.alsoLifted).toEqual([]);
+    expect(muteLines(planned, 'TGT')).toContain(
+      '  what PS_BypassFlow grants could not be read (INSUFFICIENT_ACCESS: ' +
+        'insufficient access rights): what else it lifts is not known',
+    );
+  });
+});
+
+describe('dryRunMuteOf', () => {
+  it('gives a dry run’s summary what its lines say: what a real run would do, and the plan', async () => {
+    const mute = await muteForRun(
+      async () => muteOrgOf(orgWith().connection),
+      liftingTwoRules,
+      asProcess(100),
+    );
+    const summary = dryRunMuteOf(mute);
+    expect(summary.mutedAutomation).toMatchObject({ state: 'planned', assigned: [] });
+    expect(summary.mutePlan?.assign.map((set) => set.permissionSet)).toEqual(['PS_BypassFlow']);
+    expect(summary.mutePlan?.alsoLifts).toHaveLength(2);
+    expect(dryRunMuteOf(undefined)).toEqual({});
   });
 });

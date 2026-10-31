@@ -1,4 +1,4 @@
-import type { MutedAutomation } from '../utils/automation-mute.js';
+import type { MutedAutomation, MutePlan } from '../utils/automation-mute.js';
 import type { UUID, ISODateString, ApiName } from './common.types.js';
 import type {
   ForgeEmailLimit,
@@ -688,6 +688,19 @@ export interface SeedAutomationPreview {
   bypasses: SeedBypassWay[];
   /** The bypasses the user the seed writes as holds: what they keep quiet stays quiet. */
   bypassesHeld: string[];
+  /**
+   * What a seed asked to mute the org's automation would do, planned by the
+   * extension from its read as the run plans it — the sets, what they
+   * silence, what still runs and what they lift beside; absent when nothing
+   * can be muted.
+   */
+  mute?: MutePlan;
+  /**
+   * The emails one record of each object makes the org send while that mute
+   * holds: those of what still runs. A ticked box holds Start back past the
+   * day's limit by these, where it counted the senders the mute silences.
+   */
+  emailsPerRecordMuted?: SeedEmailsPerRecord[];
   /** The parts of the read the org refused, and why. */
   unread: Array<{ part: ForgeTargetAutomationUnread['part']; reason: string }>;
   /** Whether a part read whole was refused: "nothing runs" cannot then be said. */

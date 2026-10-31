@@ -150,9 +150,42 @@ describe('refusedForEmails', () => {
     expect(refusedForEmails({ preview: PREVIEW }, { Account: 25, Contact: 5 })).toBe(false);
     expect(refusedForEmails({ preview: null }, { Contact: 75 })).toBe(false);
   });
+
+  it('counts, with the mute ticked, only the emails of what still runs while it holds', () => {
+    // The welcome email's flow is one the mute silences: one email a contact still goes out.
+    const muting: SeedAutomationPreview = {
+      ...PREVIEW,
+      emailsPerRecordMuted: [
+        { objectApiName: 'Contact', limit: 'SingleEmail', perRecord: 1, sentBy: ['Survey'] },
+      ],
+    };
+    expect(refusedForEmails({ preview: muting }, { Contact: 6 })).toBe(true);
+    expect(refusedForEmails({ preview: muting }, { Contact: 6 }, true)).toBe(false);
+    expect(refusedForEmails({ preview: muting }, { Contact: 16 }, true)).toBe(true);
+    // Without a mute the extension planned, every sender counts.
+    expect(refusedForEmails({ preview: PREVIEW }, { Contact: 6 }, true)).toBe(true);
+  });
 });
 
 describe('seedMutePlanOf', () => {
+  it('is the extension’s plan where it made one: it says what the sets lift beside', () => {
+    const mute = {
+      assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Bypass_Flow'] }],
+      silenced: [],
+      stillRuns: [],
+      alsoLifts: [
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule' as const,
+          name: 'Email_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'PS_Bypass',
+        },
+      ],
+    };
+    expect(seedMutePlanOf({ ...PREVIEW, mute })).toBe(mute);
+  });
+
   /** An entry of the preview, a flow after the save unless told. */
   const entry = (
     over: Partial<SeedAutomationPreview['objects'][number]['entries'][number]>,

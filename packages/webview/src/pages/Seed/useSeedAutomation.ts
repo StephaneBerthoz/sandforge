@@ -39,19 +39,37 @@ export interface SeedAutomationState {
 }
 
 /**
+ * The read as a seed counts its emails: with the mute ticked, those of what
+ * still runs while it holds, as the extension counts them; every sender's
+ * otherwise. Counting the senders the mute silences, Start was held back past
+ * a day's limit the muted run would not reach.
+ */
+export function emailsCountedFor(
+  preview: SeedAutomationPreview,
+  muted: boolean,
+): SeedAutomationPreview {
+  return muted && preview.emailsPerRecordMuted
+    ? { ...preview, emailsPerRecord: preview.emailsPerRecordMuted }
+    : preview;
+}
+
+/**
  * Whether the seed's records, at the counts set, would take the org past what
  * it has left today of a daily email limit, as the read says: the extension
  * would refuse the run, and Start waits. Not when nothing was read.
  *
  * @param records - The records the seed creates, by object.
+ * @param muted - Whether the seed is to mute the org's automation: then only
+ *   what still runs counts.
  */
 export function refusedForEmails(
   automation: Pick<SeedAutomationState, 'preview'>,
   records: Readonly<Record<string, number>>,
+  muted = false,
 ): boolean {
   return (
     automation.preview !== null &&
-    seedEmailsRefused(seedEmailEstimates(automation.preview, records))
+    seedEmailsRefused(seedEmailEstimates(emailsCountedFor(automation.preview, muted), records))
   );
 }
 
@@ -64,9 +82,12 @@ export function refusedForEmails(
  * was not read, or one with no such set still runs. What a bypass the user
  * holds keeps quiet is in neither. The preview names a bypass's set alone,
  * not who installed a flow: one a managed package installed is told by the
- * run's result.
+ * run's result. Where the extension planned the mute itself, its plan is the
+ * one: it says what the sets lift beside what they silence, which only the
+ * read of what they grant tells.
  */
 export function seedMutePlanOf(preview: SeedAutomationPreview): MutePlan {
+  if (preview.mute) return preview.mute;
   const setOf = new Map(
     preview.bypasses.flatMap((way) =>
       way.permissionSet ? [[way.permission.toLowerCase(), way.permissionSet] as const] : [],

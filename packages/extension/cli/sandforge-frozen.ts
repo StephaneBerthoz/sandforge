@@ -65,7 +65,7 @@ import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
 import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
-import type { MutedAutomation } from '@sandforge/shared';
+import type { MutedAutomation, MutePlan } from '@sandforge/shared';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
@@ -1321,6 +1321,10 @@ export interface FrozenAnswer {
   preview?: true;
   /** What a dry run or a removal's preview says a real run would be refused for. */
   refusals?: string[];
+  /** Of a dry run asked to mute: what a real load would assign, silence, leave running and lift beside. */
+  mutedAutomation?: MutedAutomation;
+  /** The plan that is made from. */
+  mutePlan?: MutePlan;
 }
 
 /** What an answer is built from beside what was posted. */
@@ -1333,6 +1337,8 @@ export interface FrozenAnswerContext {
   targetOrgId?: string;
   /** What the step itself says a real run would be refused for. */
   refusals?: readonly string[];
+  /** Of a dry run asked to mute, what a real load's mute would do. */
+  mute?: { mutedAutomation: MutedAutomation; mutePlan: MutePlan };
 }
 
 /** A dataset's folder, digest and version, or undefined when no dataset is there. */
@@ -1484,6 +1490,7 @@ export async function frozenAnswer(
   }
   refusals.push(...(context.refusals ?? []));
   if (refusals.length > 0) answer.refusals = refusals;
+  if (context.mute) Object.assign(answer, context.mute);
   return answer;
 }
 
@@ -1571,6 +1578,8 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     typeof config.datasetDir === 'string' ? config.datasetDir : join(sasDir, 'dataset');
   /** What a dry run says the load would be refused for, beside its plan. */
   const refusals: string[] = [];
+  /** What a dry run asked to mute says a real load's mute would do. */
+  let dryRunMute: FrozenAnswerContext['mute'];
   /**
    * What a step prints on stdout with --json: what the panel would have
    * received, and beside it what an environment reads of the step.
@@ -1582,6 +1591,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
       sasDir,
       ...(targetOrgId ? { targetOrgId } : {}),
       ...(refusals.length > 0 ? { refusals } : {}),
+      ...(dryRunMute ? { mute: dryRunMute } : {}),
     });
     process.stdout.write(
       `${JSON.stringify({ ...answer, ...(ended ? { ended } : {}) }, null, 2)}\n`,
@@ -1670,19 +1680,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             refusals.push(tooMany);
             log(`a load would be refused: ${tooMany}`);
           }
-          // What a load with --mute-automation would assign, silence and leave
-          // running, read from the target as the load would read it; nothing
-          // assigned.
+          // What a load with --mute-automation would assign, silence, leave
+          // running and lift beside, read from the target as the load would
+          // read it; nothing assigned, and said in the summary as in the lines.
           if (args.muteAutomation && plan && targetConn) {
             const automation = await targetAutomationReader(targetConn).read(
               targetOrgId!,
               plan.perObject.map((object) => object.objectApiName),
             );
-            const { planned } = planMute(
+            const { planned, plan: mutePlan } = planMute(
               automation,
               (_objectApiName, write) => write === 'insert' || write === 'update',
             );
             for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
+            dryRunMute = { mutedAutomation: planned, mutePlan };
           }
           break;
         }

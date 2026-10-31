@@ -93,6 +93,7 @@ import {
 } from '../src/modules/forge/ForgeRunGate.js';
 import { targetAutomationReader } from './sandforge-clone.js';
 import {
+  dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
   muteLines,
@@ -589,6 +590,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
               ...(emails.unread !== undefined ? { emailsUnread: emails.unread } : {}),
               refusals,
             },
+            // What a real run's mute would assign, silence, leave running
+            // and lift beside, as the lines say it.
+            ...dryRunMuteOf(mute),
           },
           null,
           2,

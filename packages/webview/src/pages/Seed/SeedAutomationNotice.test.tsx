@@ -302,6 +302,32 @@ describe('SeedAutomationNotice', () => {
     );
   });
 
+  it('counts with the mute ticked only the emails of what still runs, and holds nothing back for the senders it silences', () => {
+    // Both senders are silenced by the mute: no email goes out while it holds.
+    const muting = trapPreview({ emailsPerRecordMuted: [] });
+    const { rerender } = render(
+      <SeedAutomationNotice
+        automation={read(muting)}
+        orgName="my-dev-org"
+        records={CRM}
+        mute={{ checked: false, onChange: vi.fn() }}
+      />,
+    );
+    expect(screen.getByRole('alert').getAttribute('data-testid')).toBe(
+      'seed-automation-refused-SingleEmail',
+    );
+    rerender(
+      <SeedAutomationNotice
+        automation={read(muting)}
+        orgName="my-dev-org"
+        records={CRM}
+        mute={{ checked: true, onChange: vi.fn() }}
+      />,
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('seed-automation-emails-SingleEmail')).toBeNull();
+  });
+
   it('lets the seed through once the counts fit, counted without reading the org again', () => {
     const automation = read(trapPreview());
     render(

@@ -2417,12 +2417,11 @@ export class ForgeHandler implements DomainHandler {
                 await this.withRowsFoundAfterStop(resumed, reconciled.found);
               }
             })
-          : journal.begin(
-              id,
-              config.targetOrgId,
-              new Date(startedAt),
-              this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
-            );
+          : journal.begin(id, config.targetOrgId, new Date(startedAt), {
+              ...this.resumeHeadOf(graph, config, anonymizationRules, readCeiling),
+              // Kept for the run to be muted again when it is taken up.
+              ...(muteAutomation === true ? { muteAutomation: true as const } : {}),
+            });
         store = await begun.then(
           () => journal.open(id),
           (err: unknown) => {
@@ -4446,7 +4445,11 @@ export class ForgeHandler implements DomainHandler {
         graph,
         config,
         ...(anonymizationRules ? { anonymizationRules } : {}),
-        ...(parsed.muteAutomation === true ? { muteAutomation: true } : {}),
+        // A run begun muted is taken up muted, whatever page resumes it: the
+        // history's Resume and Monitor's send no choice of their own.
+        ...(parsed.muteAutomation === true || head.muteAutomation === true
+          ? { muteAutomation: true }
+          : {}),
       },
     });
   }

@@ -1108,6 +1108,28 @@ describe('sandforge-checkpoint rewind', () => {
       'a rewind now would be refused: DEV-SB: what runs as the rewind writes',
     );
     expect(stateOf(h.org)).toEqual(before);
+    expect(JSON.parse(stdout)).not.toHaveProperty('mutePlan');
+
+    // Asked to mute, the preview's JSON says what a rewind's mute would do, and its plan.
+    const muted = await h.run(
+      'rewind',
+      '--org',
+      'DEV-SB',
+      '--dry-run',
+      '--json',
+      '--mute-automation',
+    );
+    expect(muted.code).toBe(0);
+    const answer = JSON.parse(muted.stdout) as {
+      mutedAutomation?: { state: string; assigned: string[] };
+      mutePlan?: { assign: unknown[]; silenced: unknown[]; stillRuns: unknown[] };
+    };
+    expect(answer.mutedAutomation).toMatchObject({ assigned: [] });
+    expect(answer.mutePlan).toMatchObject({
+      assign: expect.any(Array),
+      stillRuns: expect.any(Array),
+    });
+    expect(stateOf(h.org)).toEqual(before);
   });
 
   it('stops comparing a field with --ignore-field from now on, kept in the checkpoint: a difference only there leaves nothing to rewind', async () => {

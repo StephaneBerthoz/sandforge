@@ -51,6 +51,7 @@ import type {
   ForgeGapSeverity,
   ForgeGraph,
   ForgeTargetGaps,
+  MutedAutomationAlsoLifted,
 } from '@sandforge/shared';
 import {
   assignPermsetCommand,
@@ -634,6 +635,109 @@ export async function readActiveValidationRules(
     );
   if (toolingQueries) await markChangeOnlyRules(sorted, toolingQueries, toolingRetrieves);
   return sorted.map(({ rule }) => rule);
+}
+
+/** What {@link readValidationRuleBypasses} found. */
+export interface ValidationRuleBypassRead {
+  /** The rules whose formula a custom permission keeps quiet, with those permissions. */
+  rules: Array<{ objectApiName: string; name: string; permissions: string[] }>;
+  /** The rules whose formula was not read — past the bound, or refused — so what they test is not known. */
+  notRead: number;
+  /** The requests the read sent. */
+  requests: number;
+}
+
+/**
+ * The active validation rules of the objects named whose formula keeps them
+ * from refusing a record for the user who holds a custom permission, read as
+ * {@link TargetGapReader} reads them — the same query, the same formulas,
+ * retrieved 25 a Tooling composite or queried five a composite, one request
+ * each without composites — for the read of the target's automation: what a
+ * permission set a run's mute assigns lifts beside the bypass it is assigned
+ * for. Run on the trap org, the set assigned for a flow's bypass held two
+ * validation rules' as well, and they let through a contact they refused
+ * without it, which nothing said.
+ *
+ * @param toolingQuery - A SOQL query on the target's Tooling API, every page
+ *   of it; a refusal of the list of the rules is thrown.
+ * @param objectApiNames - The objects whose rules are read; one the query
+ *   could not name safely is left out.
+ */
+export async function readValidationRuleBypasses(
+  toolingQuery: (soql: string) => Promise<QueryAnswer>,
+  objectApiNames: readonly string[],
+  toolingQueries?: ToolingQueries,
+  toolingRetrieves?: ToolingRetrieves,
+): Promise<ValidationRuleBypassRead> {
+  const queryable = [...new Set(objectApiNames)].filter((name) => API_NAME_RE.test(name));
+  if (queryable.length === 0) return { rules: [], notRead: 0, requests: 0 };
+  const wanted = new Map(queryable.map((name) => [name.toLowerCase(), name]));
+  const listed = await toolingQuery(validationRulesSoql(queryable));
+  let requests = listed.requests;
+  const rules = listed.records.flatMap((row) => {
+    const named = entityName(row.EntityDefinition);
+    const objectApiName = named === undefined ? undefined : wanted.get(named.toLowerCase());
+    const name = text(row.ValidationName);
+    if (!objectApiName || !name) return [];
+    return [
+      {
+        id: text(row.Id),
+        objectApiName,
+        name: withNamespace(text(row.NamespacePrefix), name),
+        read: false,
+        permissions: [] as string[],
+      },
+    ];
+  });
+  const readable = rules.filter((rule) => SF_ID_RE.test(rule.id));
+  const take = (rule: (typeof rules)[number], metadata: unknown): void => {
+    const formula =
+      typeof metadata === 'object' && metadata !== null
+        ? (metadata as { errorConditionFormula?: unknown }).errorConditionFormula
+        : undefined;
+    if (typeof formula !== 'string') return;
+    rule.read = true;
+    rule.permissions = bypassesOf(formula).permissions;
+  };
+  if (toolingQueries) {
+    requests += await readInComposites(
+      toolingQueries,
+      [
+        {
+          queries: readable.slice(0, FORMULAS_IN_COMPOSITES_BOUND).map((rule) => ({
+            soql: validationFormulaSoql(rule.id),
+            retrieve: { sobject: 'ValidationRule' as const, id: rule.id },
+            take: (records) => take(rule, records[0]?.Metadata),
+            // Unread, the rule is counted among those whose test is not known.
+            refused: () => undefined,
+          })),
+          requests: FORMULA_REQUESTS_BOUND,
+        },
+      ],
+      REQUESTS_IN_FLIGHT,
+      toolingRetrieves,
+    );
+  } else {
+    await inFlight(
+      readable.slice(0, FORMULAS_BOUND).map((rule) => async () => {
+        try {
+          const answer = await toolingQuery(validationFormulaSoql(rule.id));
+          requests += answer.requests;
+          take(rule, answer.records[0]?.Metadata);
+        } catch {
+          requests++;
+        }
+      }),
+      REQUESTS_IN_FLIGHT,
+    );
+  }
+  return {
+    rules: rules
+      .filter((rule) => rule.permissions.length > 0)
+      .map(({ objectApiName, name, permissions }) => ({ objectApiName, name, permissions })),
+    notRead: rules.filter((rule) => !rule.read).length,
+    requests,
+  };
 }
 
 /**
@@ -1338,12 +1442,37 @@ export function gapsWithAnswers(
   };
 }
 
-/** A gap's line: its severity, or the decision of the run that answers it, then what it is. */
-function gapLine(gap: ForgeGap, decisions: GapDecisions | undefined): string {
+/**
+ * A gap's line: its severity, or the decision of the run that answers it, or
+ * the mute that lifts it, then what it is.
+ */
+function gapLine(
+  gap: ForgeGap,
+  decisions: GapDecisions | undefined,
+  lifted?: MutedAutomationAlsoLifted,
+): string {
+  if (lifted) {
+    return `the mute lifts it (${lifted.permission}, in ${lifted.permissionSet}): ${gapWords(gap, true)}`;
+  }
   const answer = decisions ? gapAnsweredBy(gap, decisions) : undefined;
   return answer === undefined
     ? `${SEVERITY_WORDS[gap.severity]}: ${gapWords(gap)}`
     : `answered by the run's decision: ${answer} — ${gapWords(gap)}`;
+}
+
+/** What a run's mute lifts of the validation rule `gap` is, if anything. */
+function liftedRule(
+  gap: ForgeGap,
+  lifted: readonly MutedAutomationAlsoLifted[] | undefined,
+): MutedAutomationAlsoLifted | undefined {
+  if (gap.kind !== 'validation_rule' || !lifted) return undefined;
+  const rule = text(gap.detail?.rule);
+  return lifted.find(
+    (entry) =>
+      entry.kind === 'validationRule' &&
+      entry.name === rule &&
+      entry.objectApiName.toLowerCase() === gap.objectApiName.toLowerCase(),
+  );
 }
 
 /** How each part the read could not read is said in the command's lines. */
@@ -1370,8 +1499,11 @@ const NOT_WRITTEN_WORDS: Readonly<Record<string, string>> = {
 /** A number as the command's lines write it. */
 const count = (value: unknown): string => (typeof value === 'number' ? String(value) : '?');
 
-/** What the command's lines say of one gap. */
-function gapWords(gap: ForgeGap): string {
+/**
+ * What the command's lines say of one gap. A validation rule the run's mute
+ * lifts refuses no row of it, and goes again without nothing.
+ */
+function gapWords(gap: ForgeGap, lifted = false): string {
   const detail = gap.detail ?? {};
   switch (gap.kind) {
     case 'required_field_missing':
@@ -1391,7 +1523,7 @@ function gapWords(gap: ForgeGap): string {
           : []),
         ...(detail.formula === 'notRead' ? ['formula not read'] : []),
         ...(detail.formula === 'unreadable' ? ['formula unreadable'] : []),
-        ...(gap.field ? [`a row it refuses goes again without ${gap.field}`] : []),
+        ...(gap.field && !lifted ? [`a row it refuses goes again without ${gap.field}`] : []),
       ];
       const message = text(detail.message) ? `: "${text(detail.message)}"` : '';
       return `validation rule "${text(detail.rule)}"${on}${message}${notes.length > 0 ? ` (${notes.join('; ')})` : ''}`;
@@ -1480,11 +1612,21 @@ function assignLines(gap: ForgeGap, target: string, username: string | undefined
  *   The most formulas the read took, when it read them one request each
  *   ({@link FORMULAS_BOUND}). And the run's decisions, from `--config` or
  *   `--template`, which answer the gaps they decide ({@link gapAnsweredBy}).
+ *   And what the run's mute lifts beside what it silences
+ *   (`MutePlan.alsoLifts`): a validation rule it lifts is said lifted, with
+ *   the permission and the set, rather than refusing rows that go again
+ *   without a field — on the trap org, the line said the rule's rows would
+ *   go again without Email while the mute let them through whole.
  */
 export function gapLines(
   read: ForgeTargetGaps,
   target: string,
-  options: { username?: string; formulasBound?: number; decisions?: GapDecisions } = {},
+  options: {
+    username?: string;
+    formulasBound?: number;
+    decisions?: GapDecisions;
+    lifted?: readonly MutedAutomationAlsoLifted[];
+  } = {},
 ): string[] {
   const lines = [`target gaps: what ${target} holds against the rows, read from its metadata`];
   const budget = read.gaps.filter((gap) => gap.kind === 'api_budget');
@@ -1495,8 +1637,10 @@ export function gapLines(
   for (const object of objects) {
     lines.push(`  ${object}`);
     for (const gap of others.filter((g) => g.objectApiName === object)) {
-      lines.push(`    ${gapLine(gap, options.decisions)}`);
-      lines.push(...assignLines(gap, target, options.username));
+      const lifted = liftedRule(gap, options.lifted);
+      lines.push(`    ${gapLine(gap, options.decisions, lifted)}`);
+      // The mute assigns the set for the run: no command to show.
+      if (!lifted) lines.push(...assignLines(gap, target, options.username));
     }
   }
   if (others.length === 0) {

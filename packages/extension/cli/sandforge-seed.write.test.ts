@@ -298,6 +298,21 @@ describe('a seed from the command line', () => {
     );
   });
 
+  it('says in a dry run’s --json summary what a real run’s mute would do, as its lines say it', async () => {
+    const org = fakeOrg();
+
+    await main(argv(2, '--dry-run', '--json', '--mute-automation'));
+
+    const summary = JSON.parse(stdout.join('')) as {
+      mutedAutomation?: { state: string; reason?: string };
+      mutePlan?: { assign: unknown[] };
+    };
+    // Nothing the org runs can be muted: said so, and nothing assigned.
+    expect(summary.mutedAutomation).toMatchObject({ state: 'nothing' });
+    expect(summary.mutePlan).toEqual({ assign: [], silenced: [], stillRuns: [] });
+    expect(org.restCalls).toEqual([]);
+  });
+
   it('dry-runs against a production org all the same, which only reads', async () => {
     const org = fakeOrg(undefined, { IsSandbox: false, OrganizationType: 'Enterprise Edition' });
 

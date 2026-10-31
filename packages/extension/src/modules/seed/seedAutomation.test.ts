@@ -165,6 +165,22 @@ describe('seedAutomationPreview', () => {
     });
   });
 
+  it('plans the mute as the run does, and counts the emails that still go out while it holds', () => {
+    const preview = seedAutomationPreview(trapAutomation(), 'my-dev-org', DE_LIMITS);
+
+    expect(preview.mute?.assign.map((set) => set.permissionSet)).toEqual(['Trap_Bypass']);
+    expect(preview.mute?.silenced.map((entry) => entry.name)).toEqual(['Welcome Email']);
+    // The workflow rule's alert still goes out: counted once a contact against both limits.
+    expect(preview.emailsPerRecordMuted?.map((e) => [e.limit, e.perRecord, e.sentBy])).toEqual([
+      ['DailyWorkflowEmails', 1, ['Contact_Welcome']],
+      ['SingleEmail', 1, ['Contact_Welcome']],
+    ]);
+    // Nothing to mute, neither.
+    const held = seedAutomationPreview(trapAutomation({ held: true }), 'my-dev-org', DE_LIMITS);
+    expect(held).not.toHaveProperty('mute');
+    expect(held).not.toHaveProperty('emailsPerRecordMuted');
+  });
+
   it('counts nothing a bypass the user holds keeps quiet', () => {
     const preview = seedAutomationPreview(
       trapAutomation({ held: true, ruleBypass: true }),

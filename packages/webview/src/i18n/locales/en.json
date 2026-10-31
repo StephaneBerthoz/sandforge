@@ -6224,14 +6224,16 @@
       "silences": "Silenced for the run:",
       "stillRuns": "Still runs:",
       "atStart": "What it silences is read from {{org}} as the run starts: the permission sets holding the bypasses its flows, processes and workflow rules test are assigned to the user the run writes as, for this run alone, and taken back as it ends. The run then asks only about what still runs, and its result says what was muted.",
-      "never": "Nothing is deactivated and no other user is touched. Refused on a production org and for a user who can't assign permission sets: the run then writes nothing."
+      "never": "Nothing is deactivated and no other user is touched. Refused on a production org and for a user who can't assign permission sets: the run then writes nothing.",
+      "alsoLifts": "Also lifts, by what else these sets grant:"
     },
     "bypass": "bypass {{permission}}",
     "kind": {
       "flow": "Flow: {{name}}",
       "trigger": "Apex trigger: {{name}}",
       "process": "Process: {{name}}",
-      "workflowRule": "Workflow rule: {{name}}"
+      "workflowRule": "Workflow rule: {{name}}",
+      "validationRule": "Validation rule: {{name}}"
     },
     "why": {
       "noBypass": "nothing in it tests a bypass",
@@ -6252,7 +6254,13 @@
       "planned_one": "A real run would assign the user it writes as in {{org}} the permission set holding {{bypasses}}, for the run alone; this one assigned nothing.",
       "planned_other": "A real run would assign the user it writes as in {{org}} the permission sets holding {{bypasses}}, for the run alone; this one assigned nothing.",
       "silenced": "Silenced:",
-      "stillRan": "Still ran:"
+      "stillRan": "Still ran:",
+      "alsoLifted": "Also lifted, by what else these sets grant:"
+    },
+    "liftedBy": "{{permission}}, in {{set}}",
+    "liftsUnread": {
+      "grants": "What {{set}} grants couldn't be read: what else it lifts isn't known.",
+      "validationRules": "Not every validation rule could be read: whether the sets lift more isn't known."
     }
   }
 }

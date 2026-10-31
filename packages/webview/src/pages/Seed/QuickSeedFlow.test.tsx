@@ -340,6 +340,64 @@ describe('QuickSeedFlow', () => {
       expect(posted('seed:automation')).toHaveLength(1);
     });
 
+    it('holds Start back by the emails of what still runs once the box that mutes is ticked', () => {
+      const quickSeed: QuickSeedState = {
+        ...baseQuickSeed,
+        phase: 'confirm',
+        selectedTemplate: mockTemplate,
+        selectedOrgId: 'org-1',
+      };
+      const { rerender } = render(<QuickSeedFlow quickSeed={quickSeed} orgs={mockOrgs} />);
+      const [asked] = posted('seed:automation') as unknown as Array<{ id: string }>;
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: 'resp-muted-emails',
+              type: 'seed:automation:response',
+              timestamp: Date.now(),
+              correlationId: asked.id,
+              payload: {
+                orgId: 'org-1',
+                objects: ['Account', 'Contact'],
+                preview: {
+                  org: 'dev1',
+                  objectsRead: ['Account', 'Contact'],
+                  objects: [],
+                  // Two a contact, both from the welcome flow a set of the org silences.
+                  emailsPerRecord: [
+                    {
+                      objectApiName: 'Contact',
+                      limit: 'SingleEmail',
+                      perRecord: 2,
+                      sentBy: ['Welcome Email'],
+                    },
+                  ],
+                  emailsPerRecordMuted: [],
+                  limits: { SingleEmail: { max: 15, remaining: 15 } },
+                  alertsAsSingle: true,
+                  bypasses: [],
+                  bypassesHeld: [],
+                  unread: [],
+                  blinded: false,
+                  conditionsNotRead: 0,
+                },
+              },
+            },
+          }),
+        );
+      });
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(true);
+
+      rerender(
+        <QuickSeedFlow quickSeed={{ ...quickSeed, muteAutomation: true }} orgs={mockOrgs} />,
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect((screen.getByTestId('btn-quick-seed-start') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    });
+
     it('offers on the confirmation the box that mutes what a set of the org silences, ticking the run', () => {
       const setMuteAutomation = vi.fn();
       const quickSeed: QuickSeedState = {

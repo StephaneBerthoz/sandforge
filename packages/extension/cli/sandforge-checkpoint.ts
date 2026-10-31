@@ -3386,7 +3386,12 @@ async function rewind(
   }
   if (args.dryRun) {
     if (gate && !preview.refusal) say(`  a rewind now would be refused: ${gate.message}`);
-    answerJson(previewJson(args.org, checkpoint, whole, selection));
+    // What a rewind's mute would assign, silence, leave running and lift
+    // beside, in the summary as in the lines.
+    answerJson({
+      ...previewJson(args.org, checkpoint, whole, selection),
+      ...(muted ? { mutedAutomation: muted.planned, mutePlan: muted.plan } : {}),
+    });
     return;
   }
   if (preview.refusal) throw new Stop(preview.refusal);

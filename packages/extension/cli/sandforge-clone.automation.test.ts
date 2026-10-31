@@ -121,10 +121,16 @@ function fakeOrg({
     { DeveloperName: 'Contact_Rule', MasterLabel: 'Contact rule', SobjectType: 'Contact' },
   ],
   validationRules = [],
+  ruleFormula = 'AND(NOT($Permission.Load_Data), ISBLANK(LastName))',
+  alsoGranted = [],
   duplicateActions = {},
   flowActions = [],
   describes = DESCRIBES,
 }: {
+  /** The formula of each validation rule, as its metadata gives it. */
+  ruleFormula?: string;
+  /** The custom permissions every set of `permissionSets` grants beside `Load_Data`. */
+  alsoGranted?: Array<{ id: string; name: string }>;
   /** What it describes of each object: the objects both orgs have, unless told. */
   describes?: Record<string, DescribeSObjectResult>;
   refuseFlows?: Error;
@@ -184,10 +190,30 @@ function fakeOrg({
       }
       if (soql.includes(' FROM DuplicateRule ')) return page(duplicateRules);
       if (soql.includes(' FROM UserSetupEntityAccess ')) return page([]);
+      if (soql.includes(' FROM CustomPermission WHERE Id IN ')) {
+        return page(
+          alsoGranted.map(({ id, name }) => ({
+            Id: id,
+            DeveloperName: name,
+            NamespacePrefix: null,
+          })),
+        );
+      }
       if (soql.includes(' FROM CustomPermission ')) {
         return page([
           { Id: '0CP000000000001AAA', DeveloperName: 'Load_Data', NamespacePrefix: null },
         ]);
+      }
+      // What each set grants: Load_Data, and what else it is told to.
+      if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' AND ParentId IN ")) {
+        return page(
+          permissionSets.flatMap((_set, i) =>
+            ['0CP000000000001AAA', ...alsoGranted.map(({ id }) => id)].map((SetupEntityId) => ({
+              SetupEntityId,
+              ParentId: `0PS00000000000${i}AAA`,
+            })),
+          ),
+        );
       }
       if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' ")) {
         return page(
@@ -220,13 +246,7 @@ function fakeOrg({
         if (soql.includes(' FROM WorkflowRule')) return page([]);
         if (soql.includes(' FROM ValidationRule WHERE Active = true')) return page(validationRules);
         if (soql.includes(' FROM ValidationRule WHERE Id ')) {
-          return page([
-            {
-              Metadata: {
-                errorConditionFormula: 'AND(NOT($Permission.Load_Data), ISBLANK(LastName))',
-              },
-            },
-          ]);
+          return page([{ Metadata: { errorConditionFormula: ruleFormula } }]);
         }
         return page([{ Metadata: flowMetadata }]);
       },
@@ -250,12 +270,7 @@ function fakeOrg({
                 return {
                   referenceId: sub.referenceId,
                   httpStatusCode: 200,
-                  body: {
-                    Id: ruleId,
-                    Metadata: {
-                      errorConditionFormula: 'AND(NOT($Permission.Load_Data), ISBLANK(LastName))',
-                    },
-                  },
+                  body: { Id: ruleId, Metadata: { errorConditionFormula: ruleFormula } },
                 };
               }
               // A flow version retrieved by id comes whole, its metadata with it.
@@ -1087,6 +1102,78 @@ describe('sandforge-clone target automation', () => {
         '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
           'and updates, or could not be read, above',
       );
+    });
+
+    it('says on a dry run every rule the set lifts beside the flow it silences, in its lines, its gap lines and its summary', async () => {
+      // The trap org's shape: the set assigned for the welcome flow's bypass
+      // holds a validation rule's too.
+      const { target, perms } = mutableTarget();
+      const withRule = fakeOrg({
+        permissionSets: [{ name: 'Data_Load', grants: 2 }],
+        alsoGranted: [{ id: '0CP000000000002AAA', name: 'Bypass_VR' }],
+        validationRules: [
+          {
+            Id: '03d000000000001AAA',
+            ValidationName: 'Name_Required',
+            NamespacePrefix: null,
+            ErrorDisplayField: 'LastName',
+            ErrorMessage: 'A last name is required.',
+            EntityDefinition: { QualifiedApiName: 'Contact' },
+          },
+        ],
+        ruleFormula: 'AND(NOT($Permission.Bypass_VR), ISBLANK(LastName))',
+      });
+      withOrgs({
+        ...target,
+        conn: Object.assign(Object.create(null) as object, target.conn, {
+          query: (soql: string) =>
+            /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+              ? target.conn.query(soql)
+              : withRule.conn.query(soql),
+          tooling: withRule.conn.tooling,
+          request: withRule.conn.request,
+        }) as unknown as Connection,
+      });
+
+      // Without the mute, the rule's rows go again without the field.
+      expect(await run(argv('--skip-preflight', '--dry-run', '--json'))).toBeUndefined();
+      expect(errored).toContain(
+        '    warning: validation rule "Name_Required" on LastName: "A last name is required." ' +
+          '(not when $Permission.Bypass_VR; a row it refuses goes again without LastName)',
+      );
+      errored.length = 0;
+      stdout = '';
+
+      expect(
+        await run(argv('--skip-preflight', '--mute-automation', '--dry-run', '--json')),
+      ).toBeUndefined();
+
+      // With --json, the lines go to stderr.
+      expect(errored).toContain(
+        '    also lifts: validation rule "Name_Required" on Contact (Bypass_VR, in Data_Load)',
+      );
+      // Its gap line says the mute lifts it, its rows going in whole.
+      expect(errored).toContain(
+        '    the mute lifts it (Bypass_VR, in Data_Load): validation rule "Name_Required" on ' +
+          'LastName: "A last name is required." (not when $Permission.Bypass_VR)',
+      );
+      const summary = JSON.parse(stdout) as {
+        mutedAutomation?: { state: string; alsoLifted?: unknown[] };
+        mutePlan?: { assign: Array<{ permissionSet: string }>; alsoLifts?: unknown[] };
+      };
+      expect(summary.mutedAutomation?.state).toBe('planned');
+      expect(summary.mutedAutomation?.alsoLifted).toEqual([
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule',
+          name: 'Name_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'Data_Load',
+        },
+      ]);
+      expect(summary.mutePlan?.assign.map((set) => set.permissionSet)).toEqual(['Data_Load']);
+      expect(summary.mutePlan?.alsoLifts).toHaveLength(1);
+      expect(perms.writes).toEqual([]);
     });
 
     it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {

@@ -54,6 +54,7 @@ import { onStopSignal, stopExitCode, type StopSignal } from './stopSignals.js';
 
 import type {
   ForgeAdminChangeGroup,
+  ForgeAutomationWrite,
   ForgeConfig,
   ForgeConfigInput,
   ForgeContactPointKind,
@@ -234,10 +235,12 @@ import {
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
 import {
+  dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
   muteLines,
   muteOrgOf,
+  planMute,
   type RunMute,
 } from '../src/modules/forge/AutomationMuteLease.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
@@ -5432,6 +5435,12 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let journalPath: string | undefined;
   /** How the part the run takes up ended: said again of this part when it writes nothing. */
   let resumedEnd: { status: ForgeRunPartEnd; forgeId: string } | undefined;
+  /**
+   * Whether the run mutes the target's automation: asked to, or taking up a
+   * run that was. Its journal did not keep the choice, and a muted run taken
+   * up ran unmuted.
+   */
+  let muteAutomation = args.muteAutomation;
   if (journals && targetOrgId !== undefined && args.resume) {
     journalPath = resumedJournalPath(args.resume, journals);
     const refusal = await resumeRefusal(journals, journalPath, {
@@ -5446,6 +5455,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       process.exit(2);
     }
     resumedEnd = await journals.lastEndAt(journalPath);
+    if ((await journals.headAt(journalPath))?.resume?.muteAutomation === true) {
+      muteAutomation = true;
+    }
     say(`taking up the run of ${journalPath}`);
     // The insert calls the run had under way when it stopped, their answer
     // never kept: looked for in the target before anything is read or
@@ -5573,10 +5585,28 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     fieldExclusions: args.fieldExclusions,
     excludedObjects: objectsLeftOut,
   };
+  // What fires as it updates the records it inserted is asked with what
+  // fires as it inserts them: in a client's sandbox, a flow on orders sent
+  // each to an external system as the clone gave it back its status.
+  const updated = objectsUpdatedAfterInsert(graph, {
+    leftOut: new Set(objectsLeftOut),
+    upsert: args.upsert,
+  });
+  const updatedNames = new Set(updated.map((object) => object.objectApiName));
+  /** The writes the run makes, per object: what its mute plans for. */
+  const runWrites = (objectApiName: string, write: ForgeAutomationWrite): boolean =>
+    write === 'insert' || (write === 'update' && updatedNames.has(objectApiName));
+  // A rule the mute would lift refuses no row: its line says so, where it
+  // said its rows would go again without a field — on the trap org, the
+  // rows went in whole.
+  const liftedByMute = muteAutomation
+    ? planMute(targetAutomation, runWrites).plan.alsoLifts
+    : undefined;
   say('');
   for (const line of gapLines(targetGaps, args.target, {
     username: targetOrg.username,
     decisions: gapDecisions,
+    ...(liftedByMute ? { lifted: liftedByMute } : {}),
   })) {
     say(line);
   }
@@ -5605,25 +5635,19 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // with no one to ask, writes nothing unless told to go on regardless. A
   // target that would not say what it runs is taken the same way. A dry run
   // writes nothing, and says what a real one would need.
-  // What fires as it updates the records it inserted is asked with it: in a
-  // client's sandbox, a flow on orders sent each to an external system as the
-  // clone gave it back its status.
-  const updated = objectsUpdatedAfterInsert(graph, {
-    leftOut: new Set(objectsLeftOut),
-    upsert: args.upsert,
-  });
   // Asked to mute, the run plans it from what it read, and its gate asks only
   // for what still runs. Refused on a production org or for a user who cannot
   // assign, a real run writes nothing; a dry run says so, and assigns nothing.
   let mute: RunMute | undefined;
   /** Why a dry run's mute would be refused, said with the rest of its refusals. */
   let muteRefused: string | undefined;
-  if (args.muteAutomation) {
-    const updatedNames = new Set(updated.map((object) => object.objectApiName));
+  if (muteAutomation) {
+    if (!args.muteAutomation) {
+      say('  mute: the run taken up was muted, and so is this part of it');
+    }
     try {
       mute = await muteForRun(async () => muteOrgOf(conns.get(args.target)!), targetAutomation, {
-        writes: (objectApiName, write) =>
-          write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
+        writes: runWrites,
       });
       for (const line of muteLines(mute.muted, args.target)) say(`  ${line}`);
     } catch (err: unknown) {
@@ -6119,8 +6143,9 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     targetAutomation,
     // What the run muted of it, asked with --mute-automation: the permission
     // sets assigned to its user for the run, what they silenced, what still
-    // ran, and whether they were taken back.
-    ...(mutedAutomation ? { mutedAutomation } : {}),
+    // ran, what they lifted beside, and whether they were taken back. Of a
+    // dry run, what a real one would do, and the plan it is made from.
+    ...(mutedAutomation ? { mutedAutomation } : args.dryRun ? dryRunMuteOf(mute) : {}),
     // What may refuse a removal of the run's records, per object: the flows
     // before a delete, the Apex triggers on one, the records that lock past
     // Draft.
@@ -6164,6 +6189,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
         fingerprint,
         targetSalesforceOrgId: targetOrgId,
         ...(args.record ? { recordId: args.record } : {}),
+        // Kept for the run to be muted again when it is taken up.
+        ...(args.muteAutomation ? { muteAutomation: true as const } : {}),
         // The command's own choices are in the fingerprint: `cliRunSetup`. A
         // clone of whole tables keeps the config it ran with, its filters and
         // the objects it left out, which the summary of its journal names.

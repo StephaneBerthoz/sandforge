@@ -286,6 +286,49 @@ describe('the --json answer of each step, as an environment reads it', () => {
     ],
   };
 
+  it('gives a dry run of a load asked to mute what a real load would assign, silence and lift beside', async () => {
+    const mutePlan = {
+      assign: [{ permissionSet: 'PS_Bypass', label: 'Bypass', permissions: ['Bypass_Flow'] }],
+      silenced: [
+        {
+          objectApiName: 'Contact',
+          kind: 'flow' as const,
+          name: 'Welcome',
+          permission: 'Bypass_Flow',
+        },
+      ],
+      stillRuns: [],
+      alsoLifts: [
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule' as const,
+          name: 'Email_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'PS_Bypass',
+        },
+      ],
+    };
+    const mutedAutomation = {
+      state: 'planned' as const,
+      assigned: [],
+      held: [],
+      permissions: ['Bypass_Flow'],
+      silenced: mutePlan.silenced,
+      stillRan: [],
+      alsoLifted: mutePlan.alsoLifts,
+    };
+    const answer = await frozenAnswer('load', [], {
+      ...context(),
+      mute: { mutedAutomation, mutePlan },
+    });
+
+    expect(answer.mutedAutomation?.alsoLifted?.map((entry) => entry.name)).toEqual([
+      'Email_Required',
+    ]);
+    expect(answer.mutePlan?.assign.map((set) => set.permissionSet)).toEqual(['PS_Bypass']);
+    expect(await frozenAnswer('load', [], context())).not.toHaveProperty('mutePlan');
+  });
+
   it('gives an extraction the dataset it froze, its digest and version, and its records per object', async () => {
     const answer = await frozenAnswer(
       'extract',

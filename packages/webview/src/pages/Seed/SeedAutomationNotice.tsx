@@ -11,7 +11,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { formatNumber, uiLocale } from '../../utils/formatters';
 import { listWords } from '../../utils/listWords';
-import { seedMutePlanOf, type SeedAutomationState } from './useSeedAutomation';
+import { emailsCountedFor, seedMutePlanOf, type SeedAutomationState } from './useSeedAutomation';
 import { AutomationMuteBox } from '../../components/ui/AutomationMuteBox';
 
 /** What runs, by kind. */
@@ -133,7 +133,8 @@ export const SeedAutomationNotice: React.FC<SeedAutomationNoticeProps> = ({
       </p>
     );
   } else if (automation.preview) {
-    const preview = automation.preview;
+    // With the mute ticked, the emails of what still runs: what Start is held back by.
+    const preview = emailsCountedFor(automation.preview, mute?.checked === true);
     const written = preview.objects.filter((o) => (records[o.objectApiName] ?? 0) > 0);
     const estimates = seedEmailEstimates(preview, records);
     const alerts = preview.emailsPerRecord.some(

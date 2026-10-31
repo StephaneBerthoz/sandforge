@@ -36,6 +36,8 @@ import { dirname, join } from 'node:path';
 import * as z from 'zod';
 import type { Connection } from 'jsforce';
 import {
+  alsoLiftedWords,
+  liftsUnreadWords,
   mutedAutomationOf,
   mutedEntryWords,
   mutePermissionsOf,
@@ -626,6 +628,12 @@ function plannedOf(
     permissions: mutePermissionsOf(plan),
     silenced: plan.silenced.map((entry) => ({ ...entry })),
     stillRan: plan.stillRuns.map((entry) => ({ ...entry })),
+    // What the sets lift beside what they are assigned for, said wherever
+    // the mute is: the trap org's set lifted two validation rules unsaid.
+    ...(plan.assign.length > 0
+      ? { alsoLifted: (plan.alsoLifts ?? []).map((e) => ({ ...e })) }
+      : {}),
+    ...(plan.liftsUnread ? { liftsUnread: plan.liftsUnread.map((u) => ({ ...u })) } : {}),
     ...(reason ? { reason } : {}),
   };
 }
@@ -928,6 +936,22 @@ export interface RunMute {
   prepared?: MutePrepared;
   /** What the run says of its mute before it writes: planned, or nothing to mute. */
   muted: MutedAutomation;
+  /** The plan it was made from: the sets to assign, what they silence, leave running and lift beside. */
+  plan?: MutePlan;
+}
+
+/**
+ * What a dry run's `--json` summary says of its mute, as its lines say it:
+ * what a real run would assign, what that silences, what still runs and what
+ * the sets lift beside. Its summary held none of it, while its lines named
+ * the sets and what they silenced.
+ */
+export function dryRunMuteOf(mute: Pick<RunMute, 'muted' | 'plan'> | undefined): {
+  mutedAutomation?: MutedAutomation;
+  mutePlan?: MutePlan;
+} {
+  if (!mute) return {};
+  return { mutedAutomation: mute.muted, ...(mute.plan ? { mutePlan: mute.plan } : {}) };
 }
 
 /**
@@ -957,6 +981,7 @@ export async function muteForRun(
     automation: prepared.automation,
     ...(prepared.plan.assign.length > 0 ? { prepared } : {}),
     muted: prepared.planned,
+    plan: prepared.plan,
   };
 }
 
@@ -1019,6 +1044,11 @@ export function muteLines(muted: MutedAutomation, target: string): string[] {
   for (const entry of muted.stillRan) {
     lines.push(`  still runs: ${mutedEntryWords(entry)} (${stillRunsWords(entry.why)})`);
   }
+  for (const entry of muted.alsoLifted ?? []) {
+    lines.push(`  also lifts: ${alsoLiftedWords(entry)}`);
+  }
+  // A sentence of its own: what of the sets' grants or the rules was not read.
+  for (const unread of muted.liftsUnread ?? []) lines.push(`  ${liftsUnreadWords(unread)}`);
   if (muted.released === true && muted.assigned.length > 0) {
     lines.push(`  taken back: ${muted.assigned.join(', ')}, as the run ended`);
   } else if (muted.released === false) {

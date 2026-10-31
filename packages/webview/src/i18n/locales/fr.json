@@ -6224,14 +6224,16 @@
       "silences": "Rendus muets pour l'exécution :",
       "stillRuns": "S'exécutent quand même :",
       "atStart": "Ce qu'elle rend muet est lu dans {{org}} au démarrage de l'exécution : les ensembles d'autorisations qui portent les contournements testés par ses Flows, processus et règles de workflow sont attribués à l'utilisateur sous lequel l'exécution écrit, pour cette exécution seulement, et retirés à sa fin. L'exécution ne demande alors que ce qui s'exécute quand même, et son résultat dit ce qui a été rendu muet.",
-      "never": "Rien n'est désactivé et aucun autre utilisateur n'est touché. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien."
+      "never": "Rien n'est désactivé et aucun autre utilisateur n'est touché. Refusé sur une org de production et pour un utilisateur qui ne peut pas attribuer d'ensembles d'autorisations : l'exécution n'écrit alors rien.",
+      "alsoLifts": "Lève aussi, par ce que ces ensembles accordent d'autre :"
     },
     "bypass": "contournement {{permission}}",
     "kind": {
       "flow": "Flow : {{name}}",
       "trigger": "Déclencheur Apex : {{name}}",
       "process": "Processus : {{name}}",
-      "workflowRule": "Règle de workflow : {{name}}"
+      "workflowRule": "Règle de workflow : {{name}}",
+      "validationRule": "Règle de validation : {{name}}"
     },
     "why": {
       "noBypass": "rien n'y teste de contournement",
@@ -6252,7 +6254,13 @@
       "planned_one": "Une vraie exécution attribuerait à l'utilisateur sous lequel elle écrit dans {{org}} l'ensemble d'autorisations qui porte {{bypasses}}, pour l'exécution seulement ; celle-ci n'a rien attribué.",
       "planned_other": "Une vraie exécution attribuerait à l'utilisateur sous lequel elle écrit dans {{org}} les ensembles d'autorisations qui portent {{bypasses}}, pour l'exécution seulement ; celle-ci n'a rien attribué.",
       "silenced": "Rendus muets :",
-      "stillRan": "Se sont exécutés quand même :"
+      "stillRan": "Se sont exécutés quand même :",
+      "alsoLifted": "Levés aussi, par ce que ces ensembles accordent d'autre :"
+    },
+    "liftedBy": "{{permission}}, dans {{set}}",
+    "liftsUnread": {
+      "grants": "Ce qu'accorde {{set}} n'a pas pu être lu : ce qu'il lève d'autre n'est pas connu.",
+      "validationRules": "Les règles de validation n'ont pas toutes pu être lues : on ne sait pas si les ensembles en lèvent d'autres."
     }
   }
 }

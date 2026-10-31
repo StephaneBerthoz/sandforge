@@ -98,4 +98,72 @@ describe('memoryPermissionOrg', () => {
       organization_id: org.organizationId,
     });
   });
+
+  it('answers SetupEntityAccess as Salesforce does: every type unless filtered, ids in 15 or 18, Parent nested', async () => {
+    const FLOW_CP = '0CPxx0000000001AAA';
+    const VR_CP = '0CPxx0000000002AAA';
+    const CLASS = '01pxx0000000001AAA';
+    const org = memoryPermissionOrg({
+      sets: [
+        {
+          id: SET,
+          name: 'PS_Bypass',
+          label: 'Bypass',
+          customPermissions: [FLOW_CP, VR_CP],
+          otherEntities: [CLASS],
+        },
+        { id: OTHER_SET, name: 'Profile_Own', ownedByProfile: true, customPermissions: [FLOW_CP] },
+      ],
+      customPermissions: [
+        { id: FLOW_CP, developerName: 'Bypass_Flow' },
+        { id: VR_CP, developerName: 'Bypass_VR' },
+      ],
+    });
+    const granted = await conn(org).query(
+      "SELECT ParentId, SetupEntityId FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission' " +
+        `AND ParentId IN ('${SET.slice(0, 15)}')`,
+    );
+    expect(granted.records).toEqual([
+      { ParentId: SET, SetupEntityId: FLOW_CP },
+      { ParentId: SET, SetupEntityId: VR_CP },
+    ]);
+    // Counted whatever their type: the Apex class too.
+    const counted = await conn(org).query(
+      `SELECT ParentId, COUNT(Id) n FROM SetupEntityAccess WHERE ParentId IN ('${SET}') GROUP BY ParentId`,
+    );
+    expect(counted.records).toEqual([{ ParentId: SET, n: 3 }]);
+    const holding = await conn(org).query(
+      'SELECT SetupEntityId, ParentId, Parent.Name, Parent.Label, Parent.NamespacePrefix ' +
+        "FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission' " +
+        `AND SetupEntityId IN ('${FLOW_CP}') AND Parent.IsOwnedByProfile = false ` +
+        'AND Parent.PermissionSetGroupId = null',
+    );
+    expect(holding.records).toEqual([
+      {
+        ParentId: SET,
+        SetupEntityId: FLOW_CP,
+        Parent: {
+          attributes: { type: 'PermissionSet' },
+          Name: 'PS_Bypass',
+          Label: 'Bypass',
+          NamespacePrefix: null,
+        },
+      },
+    ]);
+    const named = await conn(org).query(
+      `SELECT Id, DeveloperName, NamespacePrefix FROM CustomPermission WHERE Id IN ('${VR_CP}')`,
+    );
+    expect(named.records).toEqual([
+      { Id: VR_CP, DeveloperName: 'Bypass_VR', NamespacePrefix: null },
+    ]);
+  });
+
+  it('refuses SetupEntityAccess whole for a user the org will not let read it', async () => {
+    const org = memoryPermissionOrg({ refuseSetupEntityAccess: 'INSUFFICIENT_ACCESS' });
+    await expect(
+      conn(org).query(
+        "SELECT ParentId, SetupEntityId FROM SetupEntityAccess WHERE SetupEntityType = 'CustomPermission'",
+      ),
+    ).rejects.toMatchObject({ errorCode: 'INSUFFICIENT_ACCESS' });
+  });
 });

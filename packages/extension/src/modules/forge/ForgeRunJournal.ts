@@ -130,6 +130,12 @@ const resumeSchema = z.object({
   targetSalesforceOrgId: idSchema.optional(),
   /** The record a clone of one record started from. */
   recordId: idSchema.optional(),
+  /**
+   * The run was asked to mute the target's automation: a part that takes it
+   * up mutes it again, whatever page or command takes it up. Not kept, a
+   * muted run resumed from the history or from Monitor ran unmuted.
+   */
+  muteAutomation: z.literal(true).optional(),
 });
 
 /**

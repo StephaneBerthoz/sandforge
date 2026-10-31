@@ -99,6 +99,16 @@ export const MutedAutomationResult: React.FC<MutedAutomationResultProps> = ({
         entries={muted.stillRan}
         testId={`${testId}-still-ran`}
       />
+      <MuteEntryList
+        title={t(
+          muted.state === 'planned'
+            ? 'automationMute.box.alsoLifts'
+            : 'automationMute.result.alsoLifted',
+        )}
+        entries={muted.alsoLifted}
+        unread={muted.liftsUnread}
+        testId={`${testId}-also-lifted`}
+      />
     </section>
   );
 };

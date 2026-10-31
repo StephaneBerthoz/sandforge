@@ -6224,14 +6224,16 @@
       "silences": "Silenciados durante a execução:",
       "stillRuns": "Rodam mesmo assim:",
       "atStart": "O que ela silencia é lido de {{org}} quando a execução começa: os conjuntos de permissões que contêm os bypasses testados pelos fluxos, processos e regras de fluxo de trabalho são atribuídos ao usuário com o qual a execução grava, só para esta execução, e retirados ao final. A execução então pergunta só pelo que roda mesmo assim, e o resultado diz o que foi silenciado.",
-      "never": "Nada é desativado e nenhum outro usuário é afetado. Recusado em uma org de produção e para um usuário que não pode atribuir conjuntos de permissões: a execução então não grava nada."
+      "never": "Nada é desativado e nenhum outro usuário é afetado. Recusado em uma org de produção e para um usuário que não pode atribuir conjuntos de permissões: a execução então não grava nada.",
+      "alsoLifts": "Também libera, pelo que mais esses conjuntos concedem:"
     },
     "bypass": "pelo bypass {{permission}}",
     "kind": {
       "flow": "Fluxo: {{name}}",
       "trigger": "Gatilho Apex: {{name}}",
       "process": "Processo: {{name}}",
-      "workflowRule": "Regra de fluxo de trabalho: {{name}}"
+      "workflowRule": "Regra de fluxo de trabalho: {{name}}",
+      "validationRule": "Regra de validação: {{name}}"
     },
     "why": {
       "noBypass": "nada nela testa um bypass",
@@ -6252,7 +6254,13 @@
       "planned_one": "Uma execução real atribuiria ao usuário com o qual grava em {{org}} o conjunto de permissões que contém {{bypasses}}, só para a execução; esta não atribuiu nada.",
       "planned_other": "Uma execução real atribuiria ao usuário com o qual grava em {{org}} os conjuntos de permissões que contêm {{bypasses}}, só para a execução; esta não atribuiu nada.",
       "silenced": "Silenciados:",
-      "stillRan": "Rodaram mesmo assim:"
+      "stillRan": "Rodaram mesmo assim:",
+      "alsoLifted": "Também liberados, pelo que mais esses conjuntos concedem:"
+    },
+    "liftedBy": "{{permission}}, em {{set}}",
+    "liftsUnread": {
+      "grants": "Não foi possível ler o que {{set}} concede: não se sabe o que mais ele libera.",
+      "validationRules": "Nem todas as regras de validação puderam ser lidas: não se sabe se os conjuntos liberam outras."
     }
   }
 }

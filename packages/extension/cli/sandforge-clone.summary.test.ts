@@ -649,6 +649,31 @@ describe('sandforge-clone --summary', () => {
       ]);
     });
 
+    it('takes a muted run up muted, though --resume is given without --mute-automation', async () => {
+      const once = vi.spyOn(process, 'once');
+      let stopOnAccount = true;
+      withOrgs(
+        fakeOrg([], (name) => {
+          if (name !== 'Account' || !stopOnAccount) return;
+          (once.mock.calls.find(([event]) => event === 'SIGINT')?.[1] as () => void)();
+        }),
+      );
+      const first = join(dir, 'first.json');
+      expect(await run(argv('--summary', first, '--mute-automation'))).toBe(130);
+      const journal = String(documentOf(first).journal);
+      const journals = nodeRunJournal(String(process.env['SANDFORGE_JOURNAL_DIR']));
+      expect((await journals.headAt(journal))?.resume?.muteAutomation).toBe(true);
+
+      stopOnAccount = false;
+      printed.length = 0;
+      expect(
+        await run(argv('--summary', join(dir, 'second.json'), '--resume', journal)),
+      ).toBeUndefined();
+
+      expect(printed).toContain('  mute: the run taken up was muted, and so is this part of it');
+      expect(printed.some((line) => line.startsWith('  mute: '))).toBe(true);
+    });
+
     it('takes up by its run id a run whose process was killed, its journal left with no end', async () => {
       withOrgs();
       const path = join(dir, 'clone-summary.json');

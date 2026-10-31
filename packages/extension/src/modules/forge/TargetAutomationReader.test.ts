@@ -7,8 +7,14 @@ import type {
   ForgeTargetFlow,
   ForgeTargetObjectAutomation,
 } from '@sandforge/shared';
-import { emailsPerInsertOf } from '@sandforge/shared';
+import { emailsPerInsertOf, mutePlanOf } from '@sandforge/shared';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 import { emailsUncountedOf, insertsOf, writePlanOf } from './ForgeRunGate.js';
+
+/** The memory org's connection, as a read reaches its queries. */
+type MemoryQuery = {
+  query: (soql: string) => Promise<{ records: Array<Record<string, unknown>> }>;
+};
 import {
   ASSIGNMENT_RULES_SOQL,
   CONDITIONS_BOUND,
@@ -34,6 +40,7 @@ import {
   pathsOf,
   permissionsNamed,
   processObjectsSoql,
+  readBypassGrants,
   readInComposites,
   ruleDefinitionSoql,
   switchesNamed,
@@ -750,6 +757,10 @@ type Refusals = {
   duplicateRules?: Error;
   userPermissions?: Error;
   permissionSets?: Error;
+  /** The query of what the permission sets grant, alone. */
+  granted?: Error;
+  /** The list of the validation rules. */
+  validationRules?: Error;
   conditions?: Record<string, Error>;
   /** A whole composite refused, by the id its first query names. */
   composite?: Record<string, Error>;
@@ -856,6 +867,7 @@ function fakeTarget({
   customPermissions = [],
   holdings = [],
   sizes = {},
+  validationRules = [],
   variables = [],
   entities = [],
   starts = {},
@@ -878,6 +890,8 @@ function fakeTarget({
   holdings?: Array<Record<string, unknown>>;
   /** What each permission set grants, by its id: setup entities, then objects. */
   sizes?: Record<string, [number, number]>;
+  /** The active validation rules, as `ValidationRule` lists them; their formulas in `metadata`. */
+  validationRules?: Array<Record<string, unknown>>;
   variables?: Array<Record<string, unknown>>;
   entities?: Array<Record<string, unknown>>;
   starts?: Record<string, unknown>;
@@ -937,6 +951,10 @@ function fakeTarget({
       if (soql.includes(' FROM CustomPermission ')) {
         return answering(part(refuse.permissionSets, customPermissions));
       }
+      // What the sets grant: the same rows of custom permissions, by set.
+      if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' AND ParentId IN ")) {
+        return answering(part(refuse.granted ?? refuse.permissionSets, holdings));
+      }
       if (soql.includes(" WHERE SetupEntityType = 'CustomPermission' ")) {
         return answering(part(refuse.permissionSets, holdings));
       }
@@ -959,6 +977,9 @@ function fakeTarget({
       tooling.push(soql);
       if (soql === TRIGGERS_SOQL) return answering(part(refuse.triggers, triggers));
       if (soql === WORKFLOW_RULES_SOQL) return answering(part(refuse.workflowRules, rules));
+      if (soql.includes(' FROM ValidationRule WHERE Active = true ')) {
+        return answering(part(refuse.validationRules, validationRules));
+      }
       return answering(() => metadataAnswer(soql));
     },
     ...(composites
@@ -1796,9 +1817,15 @@ describe('TargetAutomationReader', () => {
       expect(automation.bypassGrants).toEqual([
         {
           permission: 'Load_Data',
+          // What each grants, as the org's SetupEntityAccess lists its custom permissions.
           permissionSets: [
-            { name: 'Data_Load', label: 'Data load', grants: 1 },
-            { name: 'Integration', label: 'Integration user', grants: 65 },
+            { name: 'Data_Load', label: 'Data load', grants: 1, customPermissions: ['Load_Data'] },
+            {
+              name: 'Integration',
+              label: 'Integration user',
+              grants: 65,
+              customPermissions: ['Load_Data'],
+            },
           ],
         },
         { permission: 'ns__Skip', permissionSets: [] },
@@ -1837,6 +1864,206 @@ describe('TargetAutomationReader', () => {
       expect(automation.bypassGrants).toBeUndefined();
       expect(automation.unread).toEqual([
         { part: 'permissionSets', reason: 'INVALID_TYPE: sObject type is not supported' },
+      ]);
+    });
+
+    /**
+     * The trap org's shape: a contact's flow kept quiet by one permission, a
+     * set holding it and another, and two validation rules that other keeps
+     * quiet.
+     */
+    const TRAP_SHAPE = {
+      flows: [
+        flowRow('Contact', 'Contact_Welcome', 'RecordAfterSave', 'Create', '301000000000001AAA'),
+      ],
+      starts: { '301000000000001AAA': { filterFormula: 'NOT({!$Permission.Bypass_Flow})' } },
+      customPermissions: [
+        { Id: '0CP000000000001AAA', DeveloperName: 'Bypass_Flow', NamespacePrefix: null },
+        { Id: '0CP000000000002AAA', DeveloperName: 'Bypass_VR', NamespacePrefix: null },
+      ],
+      holdings: [
+        {
+          SetupEntityId: '0CP000000000001AAA',
+          ParentId: '0PS000000000001AAA',
+          Parent: { Name: 'PS_Bypass', Label: 'Bypass', NamespacePrefix: null },
+        },
+        {
+          SetupEntityId: '0CP000000000002AAA',
+          ParentId: '0PS000000000001AAA',
+          Parent: { Name: 'PS_Bypass', Label: 'Bypass', NamespacePrefix: null },
+        },
+      ],
+      sizes: { '0PS000000000001AAA': [2, 0] as [number, number] },
+      validationRules: [
+        {
+          Id: '03d000000000001AAA',
+          ValidationName: 'Email_Required',
+          EntityDefinition: { QualifiedApiName: 'Contact' },
+        },
+        {
+          Id: '03d000000000002AAA',
+          ValidationName: 'Lead_Source_Locked',
+          EntityDefinition: { QualifiedApiName: 'Contact' },
+        },
+        {
+          Id: '03d000000000003AAA',
+          ValidationName: 'Phone_Shape',
+          EntityDefinition: { QualifiedApiName: 'Contact' },
+        },
+      ],
+      metadata: {
+        '03d000000000001AAA': {
+          errorConditionFormula: 'AND(NOT($Permission.Bypass_VR), ISBLANK(Email))',
+        },
+        '03d000000000002AAA': {
+          errorConditionFormula: 'AND(NOT($Permission.Bypass_VR), ISCHANGED(LeadSource))',
+        },
+        '03d000000000003AAA': { errorConditionFormula: 'LEN(Phone) > 20' },
+      },
+    };
+
+    it('reads what each set holding a bypass grants, and the validation rules a permission keeps quiet, for the mute to say what it lifts', async () => {
+      const target = fakeTarget(TRAP_SHAPE);
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.bypassGrants?.[0]?.permissionSets).toEqual([
+        {
+          name: 'PS_Bypass',
+          label: 'Bypass',
+          grants: 2,
+          customPermissions: ['Bypass_Flow', 'Bypass_VR'],
+        },
+      ]);
+      expect(automation.validationRuleBypasses).toEqual([
+        { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Bypass_VR'] },
+        { objectApiName: 'Contact', name: 'Lead_Source_Locked', permissions: ['Bypass_VR'] },
+      ]);
+      expect(automation.validationRulesNotRead).toBeUndefined();
+      expect(mutePlanOf(automation).alsoLifts?.map((lifted) => lifted.name)).toEqual([
+        'Email_Required',
+        'Lead_Source_Locked',
+      ]);
+    });
+
+    it('reads the validation rules’ formulas in Tooling composites where the host sends them', async () => {
+      const target = fakeTarget({ ...TRAP_SHAPE, composites: true, retrieves: true });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.validationRuleBypasses?.map((rule) => rule.name)).toEqual([
+        'Email_Required',
+        'Lead_Source_Locked',
+      ]);
+      expect(target.retrievedAs).toEqual(
+        expect.arrayContaining([
+          'ValidationRule/03d000000000001AAA',
+          'ValidationRule/03d000000000002AAA',
+          'ValidationRule/03d000000000003AAA',
+        ]),
+      );
+    });
+
+    it('reads no validation rule where no set holds a bypass: nothing would be assigned', async () => {
+      const target = fakeTarget({ ...TRAP_SHAPE, holdings: [] });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.validationRuleBypasses).toBeUndefined();
+      expect(target.tooling.some((soql) => soql.includes('FROM ValidationRule'))).toBe(false);
+    });
+
+    it('says what the sets grant could not be read, and keeps every set it found', async () => {
+      const target = fakeTarget({
+        ...TRAP_SHAPE,
+        refuse: { granted: refusal('INSUFFICIENT_ACCESS', 'insufficient access rights') },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.bypassGrants?.[0]?.permissionSets).toEqual([
+        {
+          name: 'PS_Bypass',
+          label: 'Bypass',
+          grants: 2,
+          customPermissionsUnread: 'INSUFFICIENT_ACCESS: insufficient access rights',
+        },
+      ]);
+      // Said by the mute, not as a part of the read refused: the bypass's sets were read.
+      expect(automation.unread).toEqual([]);
+      expect(mutePlanOf(automation).liftsUnread).toEqual([
+        {
+          part: 'grants',
+          permissionSet: 'PS_Bypass',
+          reason: 'INSUFFICIENT_ACCESS: insufficient access rights',
+        },
+      ]);
+    });
+
+    it('says the validation rules could not be listed', async () => {
+      const target = fakeTarget({
+        ...TRAP_SHAPE,
+        refuse: { validationRules: refusal('INVALID_TYPE', 'sObject type is not supported') },
+      });
+
+      const automation = await new TargetAutomationReader(target.deps).read('tgt', ['Contact']);
+
+      expect(automation.validationRuleBypasses).toBeUndefined();
+      expect(automation.validationRulesUnread).toBe('INVALID_TYPE: sObject type is not supported');
+    });
+
+    it('reads what each set grants through an org that answers SetupEntityAccess as Salesforce does', async () => {
+      const org = memoryPermissionOrg({
+        sets: [
+          {
+            id: '0PSxx0000000001AAA',
+            name: 'PS_Bypass',
+            label: 'Bypass',
+            customPermissions: ['0CPxx0000000001AAA', '0CPxx0000000002AAA'],
+            otherEntities: ['01pxx0000000001AAA'],
+          },
+          {
+            id: '0PSxx0000000002AAA',
+            name: 'PS_Flow_Only',
+            customPermissions: ['0CPxx0000000001AAA'],
+            objects: 4,
+          },
+        ],
+        customPermissions: [
+          { id: '0CPxx0000000001AAA', developerName: 'Bypass_Flow' },
+          { id: '0CPxx0000000002AAA', developerName: 'Bypass_VR' },
+        ],
+      });
+      const read = async (soql: string) =>
+        (await (org.connection as unknown as MemoryQuery).query(soql)).records;
+
+      const grants = await readBypassGrants(['Bypass_Flow'], read, () => false, read);
+
+      expect(grants).toEqual([
+        {
+          permission: 'Bypass_Flow',
+          permissionSets: [
+            {
+              name: 'PS_Bypass',
+              label: 'Bypass',
+              grants: 3,
+              customPermissions: ['Bypass_Flow', 'Bypass_VR'],
+            },
+            {
+              name: 'PS_Flow_Only',
+              label: 'PS_Flow_Only',
+              grants: 5,
+              customPermissions: ['Bypass_Flow'],
+            },
+          ],
+        },
+      ]);
+      // PermissionSet → SetupEntityAccess → CustomPermission: the second
+      // permission's name read by its id, once.
+      expect(
+        org.queries.filter((soql) => soql.includes('FROM CustomPermission WHERE Id IN')),
+      ).toEqual([
+        "SELECT Id, DeveloperName, NamespacePrefix FROM CustomPermission WHERE Id IN ('0CPxx0000000002AAA')",
       ]);
     });
 

@@ -6,7 +6,9 @@ import type {
   ForgeTargetObjectAutomation,
 } from '../types/forge.types.js';
 import {
+  alsoLiftedWords,
   auditMutedOf,
+  liftsUnreadWords,
   mutedAutomationOf,
   mutedEntryWords,
   mutePermissionsOf,
@@ -79,6 +81,8 @@ describe('mutePlanOf', () => {
         },
       ],
       stillRuns: [],
+      // The read does not say what the set grants: that is said, not taken for nothing.
+      liftsUnread: [{ part: 'grants', permissionSet: 'PS_Small' }],
     });
   });
 
@@ -171,6 +175,166 @@ describe('mutePlanOf', () => {
   });
 });
 
+describe('what a mute lifts beside what it is assigned for', () => {
+  /**
+   * The trap org's shape: one set holding the bypass of a contact's flow and
+   * workflow rule, and the bypass of two of its validation rules.
+   */
+  function trapShape(
+    grants: Partial<{ customPermissions: string[]; customPermissionsUnread: string }>,
+    lifts: Partial<ForgeTargetAutomation> = {},
+  ): ForgeTargetAutomation {
+    return {
+      ...automation(
+        [
+          object({
+            objectApiName: 'Contact',
+            flows: [bypassed('Bypass_Flow', { label: 'Contact welcome email' })],
+            workflowRules: [
+              bypassed('Bypass_Flow', { label: 'Contact welcome', apiName: 'Contact_Welcome' }),
+            ],
+          }),
+        ],
+        [{ permission: 'Bypass_Flow', permissionSets: [{ ...set('PS_Bypass', 3), ...grants }] }],
+      ),
+      validationRuleBypasses: [
+        { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Bypass_VR'] },
+        { objectApiName: 'Contact', name: 'Lead_Source_Locked', permissions: ['Bypass_VR'] },
+      ],
+      ...lifts,
+    };
+  }
+
+  it('names both validation rules a set assigned for a flow’s bypass lifts with the other permission it grants', () => {
+    const plan = mutePlanOf(trapShape({ customPermissions: ['Bypass_Flow', 'Bypass_VR'] }));
+    expect(plan.assign.map((a) => [a.permissionSet, a.permissions])).toEqual([
+      ['PS_Bypass', ['Bypass_Flow']],
+    ]);
+    expect(plan.silenced.map((entry) => entry.name)).toEqual([
+      'Contact welcome',
+      'Contact welcome email',
+    ]);
+    expect(plan.alsoLifts).toEqual([
+      {
+        objectApiName: 'Contact',
+        kind: 'validationRule',
+        name: 'Email_Required',
+        permission: 'Bypass_VR',
+        permissionSet: 'PS_Bypass',
+      },
+      {
+        objectApiName: 'Contact',
+        kind: 'validationRule',
+        name: 'Lead_Source_Locked',
+        permission: 'Bypass_VR',
+        permissionSet: 'PS_Bypass',
+      },
+    ]);
+    expect(plan.liftsUnread).toBeUndefined();
+  });
+
+  it('names nothing for a set that grants nothing beyond the bypass it is assigned for', () => {
+    const plan = mutePlanOf(trapShape({ customPermissions: ['Bypass_Flow'] }));
+    expect(plan.alsoLifts).toBeUndefined();
+    expect(plan.liftsUnread).toBeUndefined();
+  });
+
+  it('says a set whose grants could not be read, and names nothing it may lift', () => {
+    const plan = mutePlanOf(
+      trapShape({ customPermissionsUnread: 'INSUFFICIENT_ACCESS: insufficient access rights' }),
+    );
+    expect(plan.alsoLifts).toBeUndefined();
+    expect(plan.liftsUnread).toEqual([
+      {
+        part: 'grants',
+        permissionSet: 'PS_Bypass',
+        reason: 'INSUFFICIENT_ACCESS: insufficient access rights',
+      },
+    ]);
+  });
+
+  it('says validation rules not listed, or whose formula was not read, rather than taking them for none', () => {
+    const granted = { customPermissions: ['Bypass_Flow', 'Bypass_VR'] };
+    expect(
+      mutePlanOf(
+        trapShape(granted, {
+          validationRuleBypasses: undefined,
+          validationRulesUnread: 'INVALID_TYPE: sObject type is not supported',
+        }),
+      ).liftsUnread,
+    ).toEqual([{ part: 'validationRules', reason: 'INVALID_TYPE: sObject type is not supported' }]);
+    const partly = mutePlanOf(trapShape(granted, { validationRulesNotRead: 3 }));
+    expect(partly.alsoLifts).toHaveLength(2);
+    expect(partly.liftsUnread).toEqual([{ part: 'validationRules', rules: 3 }]);
+  });
+
+  it('names a flow the run’s writes do not start, which the set lets through as the target’s own automation updates', () => {
+    const read = automation(
+      [
+        object({
+          flows: [
+            bypassed('Bypass_Flow', { label: 'On create' }),
+            bypassed('Bypass_Other', { label: 'On update', apiName: 'Upd', startsOn: 'update' }),
+          ],
+        }),
+      ],
+      [
+        {
+          permission: 'Bypass_Flow',
+          permissionSets: [
+            { ...set('PS_Bypass'), customPermissions: ['Bypass_Flow', 'Bypass_Other'] },
+          ],
+        },
+        { permission: 'Bypass_Other', permissionSets: [set('PS_Other')] },
+      ],
+    );
+    const plan = mutePlanOf(
+      { ...read, validationRuleBypasses: [] },
+      (_object, write) => write === 'insert',
+    );
+    expect(plan.silenced.map((entry) => entry.name)).toEqual(['On create']);
+    expect(plan.alsoLifts).toEqual([
+      {
+        objectApiName: 'Account',
+        kind: 'flow',
+        name: 'On update',
+        permission: 'Bypass_Other',
+        permissionSet: 'PS_Bypass',
+      },
+    ]);
+  });
+
+  it('leaves out a rule of an object the run does not write', () => {
+    const plan = mutePlanOf(
+      trapShape(
+        { customPermissions: ['Bypass_Flow', 'Bypass_VR'] },
+        {
+          validationRuleBypasses: [
+            { objectApiName: 'Lead', name: 'Lead_Rule', permissions: ['Bypass_VR'] },
+          ],
+        },
+      ),
+      (object) => object === 'Contact',
+    );
+    expect(plan.alsoLifts).toBeUndefined();
+  });
+
+  it('words what a set lifts as the lines name it', () => {
+    expect(
+      alsoLiftedWords({
+        objectApiName: 'Contact',
+        kind: 'validationRule',
+        name: 'Email_Required',
+        permission: 'Bypass_VR',
+        permissionSet: 'PS_Bypass',
+      }),
+    ).toBe('validation rule "Email_Required" on Contact (Bypass_VR, in PS_Bypass)');
+    expect(
+      liftsUnreadWords({ part: 'grants', permissionSet: 'PS_Bypass', reason: 'refused' }),
+    ).toBe('what PS_Bypass grants could not be read (refused): what else it lifts is not known');
+  });
+});
+
 describe('mutedAutomationOf', () => {
   const read = automation(
     [
@@ -231,6 +395,27 @@ describe('the words of a mute', () => {
       stillRan: 1,
       released: true,
     });
+  });
+
+  it('counts in the audit trail what the sets lifted beside what they were assigned for', () => {
+    const lifted = {
+      objectApiName: 'Contact',
+      kind: 'validationRule' as const,
+      name: 'Email_Required',
+      permission: 'Bypass_VR',
+      permissionSet: 'PS_Bypass',
+    };
+    expect(
+      auditMutedOf({
+        state: 'muted',
+        assigned: ['PS_Bypass'],
+        held: [],
+        permissions: ['Bypass_Flow'],
+        silenced: [],
+        stillRan: [],
+        alsoLifted: [lifted, { ...lifted, name: 'Lead_Source_Locked' }],
+      }),
+    ).toMatchObject({ assigned: ['PS_Bypass'], alsoLifted: 2 });
   });
 
   it('lists each bypass a plan holds once', () => {

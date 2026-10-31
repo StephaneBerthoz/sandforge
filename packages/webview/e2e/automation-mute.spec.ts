@@ -70,12 +70,25 @@ const AUTOMATION: ForgeTargetAutomation = {
       triggers: [{ name: 'AccountGone', events: ['beforeDelete'] }],
     },
   ],
+  // The set holding the flow's bypass grants a validation rule's too: what it lifts beside.
   bypassGrants: [
     {
       permission: 'Skip_Touch',
-      permissionSets: [{ name: 'Touch_Bypass', label: 'Touch bypass', grants: 1 }],
+      permissionSets: [
+        {
+          name: 'Touch_Bypass',
+          label: 'Touch bypass',
+          grants: 2,
+          customPermissions: ['Skip_Touch', 'Skip_VR'],
+        },
+      ],
     },
   ],
+  validationRuleBypasses: [
+    { objectApiName: 'Contact', name: 'Email_Required', permissions: ['Skip_VR'] },
+  ],
+  // One rule's formula the read could not take: whether the set lifts it is said unknown.
+  validationRulesNotRead: 1,
   unread: [],
   conditionsNotRead: 0,
   conditionsBound: 25,
@@ -97,6 +110,16 @@ const MUTED: MutedAutomation = {
     { objectApiName: 'Contact', kind: 'flow', name: 'Contact touch', permission: 'Skip_Touch' },
   ],
   stillRan: [{ objectApiName: 'Account', kind: 'trigger', name: 'AccountGone', why: 'noBypass' }],
+  alsoLifted: [
+    {
+      objectApiName: 'Contact',
+      kind: 'validationRule',
+      name: 'Email_Required',
+      permission: 'Skip_VR',
+      permissionSet: 'Touch_Bypass',
+    },
+  ],
+  liftsUnread: [{ part: 'grants', permissionSet: 'Touch_Extra' }],
   released: true,
 };
 
@@ -268,7 +291,21 @@ for (const theme of THEMES) {
       await expect(
         page.getByTestId('checkpoint-preview-automation-mute-still-runs-Account'),
       ).toHaveText('Account: Apex trigger: AccountGone · nothing in it tests a bypass');
-      await expectReadable(page, theme, '[data-testid="checkpoint-preview-automation-mute"]');
+      // What the set lifts beside the flow it silences: the validation rule its other permission keeps quiet.
+      const lifts = page.getByTestId('checkpoint-preview-automation-mute-also-lifts');
+      await expect(
+        page.getByTestId('checkpoint-preview-automation-mute-also-lifts-Contact'),
+      ).toHaveText('Contact: Validation rule: Email_Required · Skip_VR, in Touch_Bypass');
+      await expect(
+        lifts.getByText(
+          "Not every validation rule could be read: whether the sets lift more isn't known.",
+        ),
+      ).toBeVisible();
+      await expectReadable(
+        page,
+        theme,
+        '[data-testid="checkpoint-preview-automation-mute-also-lifts"]',
+      );
 
       // Ticked, the rewind asks acceptance only for the trigger that still runs.
       await toggle.check();
@@ -303,7 +340,15 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('checkpoint-result-muted-still-ran-Account')).toHaveText(
         'Account: Apex trigger: AccountGone · nothing in it tests a bypass',
       );
-      await expectReadable(page, theme, '[data-testid="checkpoint-result-muted"]');
+      await expect(page.getByTestId('checkpoint-result-muted-also-lifted-Contact')).toHaveText(
+        'Contact: Validation rule: Email_Required · Skip_VR, in Touch_Bypass',
+      );
+      await expect(
+        page
+          .getByTestId('checkpoint-result-muted-also-lifted')
+          .getByText("What Touch_Extra grants couldn't be read: what else it lifts isn't known."),
+      ).toBeVisible();
+      await expectReadable(page, theme, '[data-testid="checkpoint-result-muted-also-lifted"]');
 
       // Its undo reads nothing of the org: the box says what it silences is read as it starts.
       // Tall enough for the whole confirmation: its body scrolls under its

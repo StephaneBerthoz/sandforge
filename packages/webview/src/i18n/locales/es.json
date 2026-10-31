@@ -6224,14 +6224,16 @@
       "silences": "Silenciados durante la ejecución:",
       "stillRuns": "Se ejecutan igualmente:",
       "atStart": "Lo que silencia se lee de {{org}} cuando empieza la ejecución: los conjuntos de permisos que contienen los bypass que prueban sus flujos, procesos y reglas de flujo de trabajo se asignan al usuario con el que la ejecución escribe, solo para esta ejecución, y se retiran al terminar. La ejecución pregunta entonces solo por lo que se ejecuta igualmente, y su resultado dice qué se silenció.",
-      "never": "No se desactiva nada ni se toca a ningún otro usuario. Se rechaza en una org de producción y para un usuario que no puede asignar conjuntos de permisos: la ejecución no escribe nada entonces."
+      "never": "No se desactiva nada ni se toca a ningún otro usuario. Se rechaza en una org de producción y para un usuario que no puede asignar conjuntos de permisos: la ejecución no escribe nada entonces.",
+      "alsoLifts": "También levanta, por lo demás que conceden estos conjuntos:"
     },
     "bypass": "por el bypass {{permission}}",
     "kind": {
       "flow": "Flujo: {{name}}",
       "trigger": "Desencadenador de Apex: {{name}}",
       "process": "Proceso: {{name}}",
-      "workflowRule": "Regla de flujo de trabajo: {{name}}"
+      "workflowRule": "Regla de flujo de trabajo: {{name}}",
+      "validationRule": "Regla de validación: {{name}}"
     },
     "why": {
       "noBypass": "nada en ella prueba un bypass",
@@ -6252,7 +6254,13 @@
       "planned_one": "Una ejecución real asignaría al usuario con el que escribe en {{org}} el conjunto de permisos que contiene {{bypasses}}, solo para la ejecución; esta no asignó nada.",
       "planned_other": "Una ejecución real asignaría al usuario con el que escribe en {{org}} los conjuntos de permisos que contienen {{bypasses}}, solo para la ejecución; esta no asignó nada.",
       "silenced": "Silenciados:",
-      "stillRan": "Se ejecutaron igualmente:"
+      "stillRan": "Se ejecutaron igualmente:",
+      "alsoLifted": "También levantados, por lo demás que conceden estos conjuntos:"
+    },
+    "liftedBy": "{{permission}}, en {{set}}",
+    "liftsUnread": {
+      "grants": "No se pudo leer lo que concede {{set}}: no se sabe qué más levanta.",
+      "validationRules": "No se pudieron leer todas las reglas de validación: no se sabe si los conjuntos levantan más."
     }
   }
 }

@@ -31,7 +31,15 @@ import {
   blindedBy,
   bypassAssignmentsOf,
   emailsPerInsertOf,
+  mutedAutomationOf,
+  mutePermissionsOf,
+  mutePlanOf,
+  type ForgeAutomationWrite,
 } from '@sandforge/shared';
+
+/** The writes a seed makes of its records, as its run's mute plans for them. */
+const SEED_WRITES = (_objectApiName: string, write: ForgeAutomationWrite): boolean =>
+  write === 'insert' || write === 'update';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import {
   alertsCountAsSingle,
@@ -113,6 +121,11 @@ export function seedAutomationPreview(
     )?.permissionSet;
     return set ? { permission, permissionSet: set.name } : { permission };
   });
+  // What a seed asked to mute would assign, silence and lift beside, planned
+  // as its run plans it, and the emails that still go out while it holds:
+  // the panel held Start back counting the senders the mute silences.
+  const mute = mutePlanOf(automation, SEED_WRITES);
+  const muting = mute.assign.length > 0;
   return {
     org,
     objectsRead: [...automation.objectsRead],
@@ -123,6 +136,15 @@ export function seedAutomationPreview(
     alertsAsSingle,
     bypasses: ways,
     bypassesHeld: held,
+    ...(muting
+      ? {
+          mute,
+          emailsPerRecordMuted: emailsCountedPerRecord(
+            emailsPerInsertOf(mutedAutomationOf(automation, mutePermissionsOf(mute))),
+            alertsAsSingle,
+          ),
+        }
+      : {}),
     unread: automation.unread.map(({ part, reason }) => ({ part, reason })),
     blinded: blindedBy(automation.unread),
     conditionsNotRead: automation.conditionsNotRead,

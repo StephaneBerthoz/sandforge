@@ -1,4 +1,8 @@
-import type { ForgeTargetAutomation, ForgeTargetFlow } from '../types/forge.types.js';
+import type {
+  ForgePermissionSetGrant,
+  ForgeTargetAutomation,
+  ForgeTargetFlow,
+} from '../types/forge.types.js';
 import {
   automationFiredOn,
   bypassAssignmentsOf,
@@ -62,6 +66,43 @@ export interface MuteAssignment {
   permissions: string[];
 }
 
+/**
+ * Something of the target a set a mute assigns lifts beside what it was
+ * assigned for: a validation rule, a flow, a process or a workflow rule of an
+ * object the run writes whose formula or condition a custom permission the
+ * set grants keeps quiet. On the trap org, the set assigned to quiet a
+ * workflow rule and a flow held the bypass of two validation rules as well: a
+ * contact those rules refused without the mute was written with it, and
+ * nothing said so. An Apex trigger is never among them: what its code tests
+ * is not read.
+ */
+export interface MutedAutomationAlsoLifted {
+  objectApiName: string;
+  kind: 'validationRule' | 'flow' | 'process' | 'workflowRule';
+  /** The rule's name, or the flow's, process's or rule's label. */
+  name: string;
+  /** The custom permission that keeps it quiet, which the set grants. */
+  permission: string;
+  /** The permission set assigned that grants it, by API name. */
+  permissionSet: string;
+}
+
+/**
+ * What could not be read of what a mute's sets lift, said rather than taken
+ * for nothing: what a set grants (`grants`), or the validation rules of the
+ * objects the run writes (`validationRules`) — none listed, or `rules` of
+ * them whose formula was not read.
+ */
+export interface MuteLiftsUnread {
+  part: 'grants' | 'validationRules';
+  /** The set whose grants were not read. */
+  permissionSet?: string;
+  /** The validation rules whose formula was not read; absent when none could be listed. */
+  rules?: number;
+  /** The org's answer, or what kept the read from it. */
+  reason?: string;
+}
+
 /** What a run that mutes the target's automation would do, planned from the read of it. */
 export interface MutePlan {
   /** The permission sets to hold for the run, the fewest that hold every bypass needed. */
@@ -70,6 +111,10 @@ export interface MutePlan {
   silenced: MutedAutomationSilenced[];
   /** What fires all the same, and why. What a bypass the user already holds keeps quiet is in neither. */
   stillRuns: MutedAutomationStillRunning[];
+  /** What those sets lift beside what they are assigned for ({@link MutedAutomationAlsoLifted}); absent when nothing. */
+  alsoLifts?: MutedAutomationAlsoLifted[];
+  /** What could not be read of what they lift; absent when everything was. */
+  liftsUnread?: MuteLiftsUnread[];
 }
 
 /**
@@ -93,6 +138,10 @@ export interface MutedAutomation {
   permissions: string[];
   silenced: MutedAutomationSilenced[];
   stillRan: MutedAutomationStillRunning[];
+  /** What the sets lifted beside what they were assigned for; absent when nothing. */
+  alsoLifted?: MutedAutomationAlsoLifted[];
+  /** What could not be read of what they lift; absent when everything was. */
+  liftsUnread?: MuteLiftsUnread[];
   /**
    * Whether every assignment made for the run was taken back as it ended.
    * False leaves them to the lease's end, released by the next run of this
@@ -113,6 +162,8 @@ export interface AuditMutedAutomation {
   held: string[];
   silenced: number;
   stillRan: number;
+  /** What the sets lifted beside what they were assigned for, by count; absent when nothing was planned. */
+  alsoLifted?: number;
   released?: boolean;
 }
 
@@ -147,7 +198,8 @@ function bypassesNotHeld(flow: ForgeTargetFlow | undefined): string[] {
  *
  * Each bypass is given the smallest permission set that holds it — the one
  * the automation report names — unless a set already chosen holds it too:
- * the fewest sets, each granting the least beside the bypass.
+ * the fewest sets, each granting the least beside the bypass. What else
+ * those sets lift is planned with them ({@link liftsOf}).
  *
  * @param writes - The writes the run makes, per object; every write of every
  *   object read when not told. A Forge run inserts, and updates what it
@@ -155,7 +207,7 @@ function bypassesNotHeld(flow: ForgeTargetFlow | undefined): string[] {
  *   updates and deletes.
  */
 export function mutePlanOf(
-  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'>,
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'> & LiftsRead,
   writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean = () => true,
 ): MutePlan {
   const seen = new Set<string>();
@@ -213,7 +265,126 @@ export function mutePlanOf(
     }
   }
   for (const set of assign) set.permissions.sort((a, b) => a.localeCompare(b));
-  return { assign, silenced, stillRuns };
+  const { alsoLifts, liftsUnread } = liftsOf(automation, assign, silenced, writes);
+  return {
+    assign,
+    silenced,
+    stillRuns,
+    ...(alsoLifts.length > 0 ? { alsoLifts } : {}),
+    ...(liftsUnread.length > 0 ? { liftsUnread } : {}),
+  };
+}
+
+/** What of the read says what the sets lift: the validation rules a permission keeps quiet. */
+type LiftsRead = Partial<
+  Pick<
+    ForgeTargetAutomation,
+    'validationRuleBypasses' | 'validationRulesNotRead' | 'validationRulesUnread'
+  >
+>;
+
+/** A permission set of the read, by its API name, as the bypass grants list it. */
+function grantOf(
+  automation: Pick<ForgeTargetAutomation, 'bypassGrants'>,
+  permissionSet: string,
+): ForgePermissionSetGrant | undefined {
+  return automation.bypassGrants
+    ?.flatMap((grant) => grant.permissionSets)
+    .find((set) => set.name === permissionSet);
+}
+
+/**
+ * What the sets of `assign` lift beside what the plan assigns them for: per
+ * set, the custom permissions it grants, as the read found them, that keep
+ * quiet a validation rule, or a flow, process or workflow rule the plan does
+ * not silence, of an object the run writes. A flow is named whatever write
+ * starts it: a run that only inserts can update what it inserted through the
+ * target's own automation, which the set then lets through as well. What a
+ * permission the user holds keeps quiet was quiet without the mute, and is
+ * left out. A set whose grants were not read, and validation rules not read,
+ * are said, never taken for nothing.
+ */
+function liftsOf(
+  automation: Pick<ForgeTargetAutomation, 'objects' | 'bypassGrants'> & LiftsRead,
+  assign: readonly MuteAssignment[],
+  silenced: readonly MutedAutomationSilenced[],
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+): { alsoLifts: MutedAutomationAlsoLifted[]; liftsUnread: MuteLiftsUnread[] } {
+  const alsoLifts: MutedAutomationAlsoLifted[] = [];
+  const liftsUnread: MuteLiftsUnread[] = [];
+  if (assign.length === 0) return { alsoLifts, liftsUnread };
+  const granted: Array<{ permissionSet: string; permissions: Set<string> }> = [];
+  for (const { permissionSet } of assign) {
+    const set = grantOf(automation, permissionSet);
+    if (set?.customPermissions === undefined) {
+      liftsUnread.push({
+        part: 'grants',
+        permissionSet,
+        ...(set?.customPermissionsUnread ? { reason: set.customPermissionsUnread } : {}),
+      });
+      continue;
+    }
+    granted.push({
+      permissionSet,
+      permissions: new Set(set.customPermissions.map((name) => name.toLowerCase())),
+    });
+  }
+  if (granted.length === 0) return { alsoLifts, liftsUnread };
+  const grantedBy = (permission: string): string | undefined =>
+    granted.find((set) => set.permissions.has(permission.toLowerCase()))?.permissionSet;
+  const written = (objectApiName: string): boolean =>
+    WRITES.some((write) => writes(objectApiName, write));
+  const quiet = new Set(silenced.map(entryKey));
+  for (const object of automation.objects) {
+    if (!written(object.objectApiName)) continue;
+    const lists: Array<
+      [MutedAutomationEntry['kind'] & MutedAutomationAlsoLifted['kind'], readonly ForgeTargetFlow[]]
+    > = [
+      ['flow', object.flows],
+      ['process', object.processes ?? []],
+      ['workflowRule', object.workflowRules ?? []],
+    ];
+    for (const [kind, flows] of lists) {
+      for (const flow of flows) {
+        const entry = { objectApiName: object.objectApiName, kind, name: flow.label };
+        if (quiet.has(entryKey(entry))) continue;
+        // Quiet for the user already: the mute changes nothing of it.
+        if (flow.permissions.some((p) => p.bypass && p.held === true)) continue;
+        const lifting = flow.permissions.find(
+          (p) => p.bypass && p.held !== true && grantedBy(p.name) !== undefined,
+        );
+        if (lifting) {
+          alsoLifts.push({
+            ...entry,
+            permission: lifting.name,
+            permissionSet: grantedBy(lifting.name)!,
+          });
+        }
+      }
+    }
+  }
+  if (automation.validationRuleBypasses === undefined) {
+    liftsUnread.push({
+      part: 'validationRules',
+      ...(automation.validationRulesUnread ? { reason: automation.validationRulesUnread } : {}),
+    });
+    return { alsoLifts, liftsUnread };
+  }
+  for (const rule of automation.validationRuleBypasses) {
+    if (!written(rule.objectApiName)) continue;
+    const permission = rule.permissions.find((name) => grantedBy(name) !== undefined);
+    if (permission === undefined) continue;
+    alsoLifts.push({
+      objectApiName: rule.objectApiName,
+      kind: 'validationRule',
+      name: rule.name,
+      permission,
+      permissionSet: grantedBy(permission)!,
+    });
+  }
+  const notRead = automation.validationRulesNotRead ?? 0;
+  if (notRead > 0) liftsUnread.push({ part: 'validationRules', rules: notRead });
+  return { alsoLifts, liftsUnread };
 }
 
 /** The bypasses a plan holds, each once, in name order. */
@@ -269,6 +440,7 @@ export function auditMutedOf(muted: MutedAutomation): AuditMutedAutomation {
     held: [...muted.held],
     silenced: muted.silenced.length,
     stillRan: muted.stillRan.length,
+    ...(muted.alsoLifted !== undefined ? { alsoLifted: muted.alsoLifted.length } : {}),
     ...(muted.released !== undefined ? { released: muted.released } : {}),
   };
 }
@@ -297,4 +469,35 @@ export function mutedEntryWords(entry: MutedAutomationEntry): string {
 /** Why an automation still runs, in words. */
 export function stillRunsWords(why: MuteStillRunsWhy): string {
   return WHY_WORDS[why];
+}
+
+/** How a line names what a set lifts beside what it was assigned for. */
+const LIFTED_WORDS: Readonly<Record<MutedAutomationAlsoLifted['kind'], string>> = {
+  validationRule: 'validation rule',
+  flow: 'flow',
+  process: 'process',
+  workflowRule: 'workflow rule',
+};
+
+/**
+ * What a set lifts, as a line names it: its kind, its name, its object, the
+ * permission that keeps it quiet and the set that grants it —
+ * `validation rule "Email_Required" on Contact (Bypass_VR, in PS_Bypass)`.
+ */
+export function alsoLiftedWords(entry: MutedAutomationAlsoLifted): string {
+  return (
+    `${LIFTED_WORDS[entry.kind]} "${entry.name}" on ${entry.objectApiName} ` +
+    `(${entry.permission}, in ${entry.permissionSet})`
+  );
+}
+
+/** What could not be read of what the sets lift, in words. */
+export function liftsUnreadWords(unread: MuteLiftsUnread): string {
+  const why = unread.reason ? ` (${unread.reason})` : '';
+  if (unread.part === 'grants') {
+    return `what ${unread.permissionSet ?? 'a permission set'} grants could not be read${why}: what else it lifts is not known`;
+  }
+  return unread.rules !== undefined
+    ? `${unread.rules} validation rule formula(s) not read: whether the sets lift those rules is not known`
+    : `the validation rules of the objects written could not be read${why}: whether the sets lift any is not known`;
 }

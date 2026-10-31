@@ -133,6 +133,7 @@ import {
   type SeedEmailGate,
 } from '../src/modules/seed/seedAutomation.js';
 import {
+  dryRunMuteOf,
   isMuteRefusedError,
   muteForRun,
   muteLines,
@@ -1992,6 +1993,9 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           // runs: an environment holds several seeds to one day's storage
           // and requests, which each seed alone fits.
           ...(args.dryRun ? dryRunGatesJson(template, personObjects, storage) : {}),
+          // What a real run's mute would assign, silence, leave running and
+          // lift beside, as the dry run's lines say it.
+          ...(args.dryRun ? dryRunMuteOf(mute) : {}),
           result,
           // The run's file, which --remove takes it back from too.
           ...(keptInFile ? { runFile: keptInFile } : {}),

@@ -69,7 +69,8 @@ export const SeedGenerateFlow: React.FC<SeedGenerateFlowProps> = ({ active, onBa
   const wizardRecords = Object.fromEntries(
     state.objectProgress.map((object) => [object.objectApiName, object.total]),
   );
-  const wizardRefused = onExecuteStep && refusedForEmails(wizardAutomation, wizardRecords);
+  const wizardRefused =
+    onExecuteStep && refusedForEmails(wizardAutomation, wizardRecords, state.muteAutomation);
   /** Whether the persona choice of the wizard is unfolded. */
   const [personaOpen, setPersonaOpen] = useState(false);
 

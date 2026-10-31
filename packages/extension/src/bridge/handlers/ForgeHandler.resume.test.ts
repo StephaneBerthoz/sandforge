@@ -22,7 +22,9 @@ import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
+import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -359,6 +361,57 @@ describe('a run taken up where it stopped', () => {
     // The run ended: its journal goes, and nothing is left to take up.
     expect(files.size).toBe(0);
     expect((await history(handler)).some((entry) => entry.resumable)).toBe(false);
+  });
+
+  it('takes a muted run up muted, from the history or Monitor, which send no choice of their own', async () => {
+    const muteOrgCalls: string[] = [];
+    const muting = (execute: Execute): ForgeHandler => {
+      const { handler } = windowRunning(execute);
+      handler.setForgeOrchestrator(
+        {
+          execute: vi.fn(execute),
+          on: vi.fn().mockReturnValue(vi.fn()),
+          abort: vi.fn(),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          clearDiscoveryCache: vi.fn(),
+        } as unknown as ForgeOrchestrator,
+        {
+          targetAutomation: reader,
+          runJournal: journalOnMemory(files),
+          muteOrg: async (orgId) => {
+            muteOrgCalls.push(orgId);
+            return muteOrgOf(memoryPermissionOrg().connection);
+          },
+        },
+      );
+      return handler;
+    };
+    const first = muting(cancelledAfterOne);
+    await send(first, 'wv-execute', 'forge:execute', {
+      graph: GRAPH,
+      config: CONFIG,
+      muteAutomation: true,
+    });
+    const stopped = posted('forge:execute:error')[0]?.payload.result as ForgeExecutionResult;
+    expect(muteOrgCalls).toEqual(['tgt-org']);
+
+    await send(
+      muting(async () => DONE),
+      'wv-resume',
+      'forge:resume-run',
+      {
+        forgeId: stopped.forgeId,
+      },
+    );
+
+    // The part taken up read the target for its mute again, and says what it muted.
+    expect(muteOrgCalls).toEqual(['tgt-org', 'tgt-org']);
+    const answer = posted('forge:execute:response').find((m) => m.correlationId === 'wv-resume');
+    expect(answer?.payload.result).toMatchObject({
+      resumed: true,
+      mutedAutomation: { state: 'nothing' },
+    });
   });
 
   it('takes it up from its results page too, when the page holds the run as it was set up', async () => {

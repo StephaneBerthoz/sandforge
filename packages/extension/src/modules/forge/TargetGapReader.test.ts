@@ -1492,6 +1492,27 @@ describe('gapLines', () => {
     expect(gapLines(read(['Bypass_VR=']), 'TGT')[3]).toBe(
       '      Bypass_VR: no permission set of TGT holds it: an admin creates one that includes it',
     );
+
+    // A run whose mute lifts the rule: its rows are not refused, and go again without nothing.
+    const lifted = gapLines(read(['Bypass_VR=Bypass']), 'TGT', {
+      username: 'user@example.com',
+      lifted: [
+        {
+          objectApiName: 'Contact',
+          kind: 'validationRule',
+          name: 'Email_Required',
+          permission: 'Bypass_VR',
+          permissionSet: 'Bypass',
+        },
+      ],
+    });
+    expect(lifted.slice(1, 4)).toEqual([
+      '  Contact',
+      '    the mute lifts it (Bypass_VR, in Bypass): validation rule "Email_Required" on Email ' +
+        '(not when $Permission.Bypass_VR)',
+      // No command under it: the mute assigns the set for the run.
+      '  read in 1 request(s) to TGT',
+    ]);
   });
 
   it('says when nothing was found, and when nothing could be read to find it', () => {
