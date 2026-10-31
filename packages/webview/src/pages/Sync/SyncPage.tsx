@@ -32,14 +32,20 @@ import type { ObjectSetEntry } from './ObjectSetEditor';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
-import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryMessages } from './useSyncHistoryMessages';
-import { SyncSchedulePanel } from './syncPanels';
+import {
+  ConflictListPanel,
+  ConflictResolutionPanel,
+  RealTimeSyncPanel,
+  SyncHistoryPanel,
+  SyncSchedulePanel,
+} from './syncPanels';
 import { PartBoundary } from '../../components/ui/PartBoundary';
-import { RealTimeSyncPanel } from './RealTimeSyncPanel';
-import { ConflictListPanel } from './ConflictListPanel';
-import { ConflictResolutionPanel } from './ConflictResolutionPanel';
 import { useConflictStore } from '../../stores/useConflictStore';
+// Listens to the extension from the moment it loads: the real-time changes and
+// the conflicts they raise land in their stores while the Real-Time and
+// Conflicts tabs, which load on demand, are closed.
+import '../../stores/useCDCLiveStore';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import { SplitView } from '../../components/ui/SplitView';
 import { Button } from '../../components/ui/Button';
@@ -188,13 +194,23 @@ const ConflictsTabContent: React.FC = () => {
   return (
     <SplitView
       ratio="60/40"
-      left={<ConflictListPanel />}
+      left={
+        <PartBoundary data-testid="sync-conflicts-failed">
+          <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
+            <ConflictListPanel />
+          </Suspense>
+        </PartBoundary>
+      }
       right={
         selectedConflict ? (
           // Keyed on the conflict id so selecting another conflict remounts the
           // panel instead of swapping the prop underneath its local state: the
           // per-field choices of one record can never stay armed on the next.
-          <ConflictResolutionPanel key={selectedConflict.id} conflict={selectedConflict} />
+          <PartBoundary data-testid="sync-conflict-failed">
+            <Suspense fallback={null}>
+              <ConflictResolutionPanel key={selectedConflict.id} conflict={selectedConflict} />
+            </Suspense>
+          </PartBoundary>
         ) : (
           <div
             className="flex items-center justify-center h-full text-xs text-text-secondary"
@@ -432,7 +448,13 @@ export const SyncPage: React.FC = () => {
         data-testid="sync-tabpanel"
       >
         {/* History tab */}
-        {activeTab === 'history' && <SyncHistoryPanel />}
+        {activeTab === 'history' && (
+          <PartBoundary data-testid="sync-history-failed">
+            <Suspense fallback={<SkeletonTable rows={5} columns={5} />}>
+              <SyncHistoryPanel />
+            </Suspense>
+          </PartBoundary>
+        )}
 
         {/* Schedules tab: the schedules, and the saved configurations, each of
           which runs from the execute step of the Sync tab, as the wizard's
@@ -457,7 +479,11 @@ export const SyncPage: React.FC = () => {
 
         {/* Real-time tab */}
         {activeTab === 'realtime' && (
-          <RealTimeSyncPanel sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} />
+          <PartBoundary data-testid="sync-realtime-failed">
+            <Suspense fallback={<SkeletonTable rows={3} columns={4} />}>
+              <RealTimeSyncPanel sourceOrgId={sourceOrgId} targetOrgId={targetOrgId} />
+            </Suspense>
+          </PartBoundary>
         )}
 
         {/* Sync tab (default) */}

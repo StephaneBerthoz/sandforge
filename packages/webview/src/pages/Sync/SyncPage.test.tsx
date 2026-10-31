@@ -164,13 +164,21 @@ const writeOrderAnswer = vi.hoisted(() => ({ value: null as Record<string, unkno
 const objectsAsked = vi.hoisted(() => ({ value: undefined as unknown }));
 
 /*
- * The Schedules tab comes in a chunk of its own (syncPanels.test.tsx); here it
- * is drawn at once, as the page draws it once loaded.
+ * The tabs past Sync come in chunks of their own (syncPanels.test.tsx); here
+ * they are drawn at once, as the page draws them once loaded.
  */
 const schedulesUnreadable = vi.hoisted(() => ({ value: false }));
 vi.mock('./syncPanels', async () => {
   const { SyncSchedulePanel } = await import('./SyncSchedulePanel');
+  const { SyncHistoryPanel } = await import('./SyncHistoryPanel');
+  const { RealTimeSyncPanel } = await import('./RealTimeSyncPanel');
+  const { ConflictListPanel } = await import('./ConflictListPanel');
+  const { ConflictResolutionPanel } = await import('./ConflictResolutionPanel');
   return {
+    SyncHistoryPanel,
+    RealTimeSyncPanel,
+    ConflictListPanel,
+    ConflictResolutionPanel,
     SyncSchedulePanel: (props: React.ComponentProps<typeof SyncSchedulePanel>) => {
       // The tab's chunk could not be fetched, as on a remote window that dropped.
       if (schedulesUnreadable.value) {
