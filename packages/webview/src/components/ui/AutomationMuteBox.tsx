@@ -120,7 +120,7 @@ export const AutomationMuteBox: React.FC<AutomationMuteBoxProps> = ({
   return (
     <div
       data-testid={testId}
-      className={`flex flex-col gap-1 rounded-sm border border-subtle bg-surface-2 p-2 text-[11px] text-text-primary ${className ?? ''}`}
+      className={`flex flex-col gap-1 rounded-sm border border-subtle bg-surface-1 p-2 text-[11px] text-text-primary ${className ?? ''}`}
     >
       <label className="flex cursor-pointer items-start gap-2">
         <input
