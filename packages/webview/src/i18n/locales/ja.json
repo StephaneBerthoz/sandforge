@@ -1687,52 +1687,44 @@
     "delta": {
       "mode": "デルタ",
       "withDeletes": "差分、削除を反映"
-    }
+    },
+    "chooseObject": "オブジェクトを選択…"
   },
   "migration": {
     "title": "移行",
-    "subtitle": "既存の移行定義をインポートし、SandForge の同期設定に変換します。インポートはファイルを読み取るだけで何も変更しません。変換した設定を実行すると、ターゲット組織にレコードが書き込まれます。",
-    "sourceTitle": "ソースファイル",
+    "subtitle": "SFDMU の export.json を Sync 設定に変換します。インポートはファイルを読み取るだけで、どの組織も変更しません。保存した設定は Sync が実行し、ターゲット組織にレコードを書き込みます。",
     "type": {
       "sfdmu": {
         "title": "SFDMU export.json",
         "description": "SFDMU の export.json 定義（オブジェクト、項目マッピング、値マッピング）を変換します。"
-      },
-      "universal": {
-        "title": "CSV または JSON ファイル",
-        "description": "任意の CSV / JSON データファイルをインポートします。列は Salesforce 項目へ自動的にマッピングされます。"
       }
     },
-    "allowedExtensionsSfdmu": ".json ファイル（SFDMU export.json）のみ受け付けます。",
-    "allowedExtensionsUniversal": "受け付けるファイル: .json または .csv。",
     "filePathLabel": "ファイルパス",
-    "filePathPlaceholderSfdmu": "C:/projects/sfdmu/export.json",
-    "filePathPlaceholderUniversal": "C:/projects/data/accounts.csv",
-    "filePathHint": "絶対パス。ファイルは開いているワークスペースフォルダー内またはホームディレクトリ内にある必要があります。",
+    "filePathPlaceholderSfdmu": "/path/to/export.json",
+    "filePathHint": "参照… で選択するか、絶対パスを貼り付けます。ファイルは開いているワークスペースフォルダー内またはホームディレクトリ内にある必要があります。",
     "import": "インポート",
     "importing": "インポート中…",
     "reset": "新しいインポート",
     "successTitle": "インポートが完了しました",
     "successDescription": "変換された設定",
     "unknownError": "不明な理由によりインポートに失敗しました。",
-    "detectedFormat": "検出された形式: {{format}}",
-    "objectsCount_other": "{{count}} 個のオブジェクト",
-    "externalId": "外部 ID: {{field}}",
-    "objectSummary": "{{mappings}} 件の項目マッピング · {{rules}} 件の変換ルール · {{excluded}} 件の除外項目",
+    "objectSummary": {
+      "mappings_other": "項目マッピング {{count}} 件",
+      "rules_other": "変換ルール {{count}} 件",
+      "excluded_other": "除外項目 {{count}} 件"
+    },
     "rawConfig": "未加工の設定",
     "validation": {
       "pathRequired": "インポートするファイルのパスを入力してください。",
-      "pathNotAbsolute": "パスは絶対パスである必要があります（例: C:/projects/export.json または /home/you/export.json）。",
+      "pathNotAbsolute": "パスは絶対パスである必要があります。参照… をクリックしてファイルを選択するか、完全なパスを貼り付けてください。",
       "pathExtension": "サポートされていないファイル拡張子です。期待値: {{extensions}}。"
     },
     "run": {
-      "title": "このインポートを実行",
-      "subtitle": "ソースとターゲットの組織を選択してください。インポートしたファイルが指す組織はここには存在しません。",
+      "title": "Sync から実行",
+      "subtitle": "ソースとターゲットの組織を選択し（インポートしたファイルが指す組織はここには存在しません）、Sync 設定として保存します。Sync で開く を押すと Sync の 実行 ステップに表示され、シミュレーション で確認、同期を実行 で書き込みます。結果には作成したものが表示され、それを削除できます。",
       "sourceOrg": "ソース組織",
       "targetOrg": "ターゲット組織",
-      "action": "同期を実行",
-      "running": "実行中…",
-      "orgsRequired": "このインポートを実行するには、異なる 2 つの組織を選択してください。"
+      "orgsRequired": "このインポートを Sync 用に保存するには、異なる 2 つの組織を選択してください。"
     },
     "edit": {
       "noObjects": "オブジェクトを少なくとも 1 つ残してください。オブジェクトのない実行では何も移動しません。",
@@ -1740,8 +1732,6 @@
       "invalid": "この設定は編集されたままでは実行できません — {{reason}}"
     },
     "saveSync": {
-      "title": "Sync 設定として保存",
-      "subtitle": "ここで編集した内容と上で選択した 2 つの組織のまま、このインポートを Sync の保存済み設定に加えます。Sync ページに一覧表示され、スケジュールから実行できます。",
       "nameLabel": "Sync 設定の名前",
       "action": "Sync 設定として保存",
       "saving": "保存中…",
@@ -1749,8 +1739,15 @@
       "saved": "Sync 設定「{{name}}」として保存しました。Sync ページの保存済み設定に表示され、スケジュールから実行できます。",
       "nameRequired": "設定に名前を付けてから保存してください。",
       "duplicateName": "「{{name}}」という名前の Sync 設定がすでに保存されています。別の名前を選んでください。何も保存されていません。",
-      "cannotCopy": "Sync は {{objects}} をコピーしません。ユーザーとそのアクセス権、メタデータ、レコードの履歴、フィードや共有の行、ファイル、プラットフォームが自ら管理するレコードは、どのコピーでも書き込まれません。これらを除いてから、もう一度保存してください。何も保存されていません。",
-      "invalid": "Sync はこの設定を実行できないため、保存されていません — {{reason}}"
+      "cannotCopy": "Sync は {{objects}} をコピーしません。ユーザーとそのアクセス権、メタデータ、レコードの履歴、フィードや共有の行、ファイルオブジェクト（Sync で これらのレコードのファイルをコピー をオンにすると、レコードのファイルはレコードと一緒にコピーされます）、プラットフォームが自ら管理するレコードは、どのコピーでも書き込まれません。これらを除いてから、もう一度保存してください。何も保存されていません。",
+      "invalid": "Sync はこの設定を実行できないため、保存されていません — {{reason}}",
+      "openInSync": "Sync で開く",
+      "changedSinceSaved": "「{{name}}」として保存した後に変更されています。Sync で開くには、別の名前で保存してください。"
+    },
+    "browse": "参照…",
+    "csvData": {
+      "text": "レコードの CSV ファイルですか？このページは SFDMU の定義だけを変換します。CSV ファイルの行を組織に読み込むのは Seed の CSV アップロード です。",
+      "action": "CSV アップロード を開く"
     }
   },
   "dataops": {
@@ -3069,12 +3066,12 @@
       "tip": "Sync、Seed、匿名化、巻き戻しのステップは組織に書き込みます。Seed と匿名化は本番組織には書き込まず、巻き戻しは確認後に実行されます。"
     },
     "migration": {
-      "step1": "お持ちのファイルに合わせて、SFDMU export.json または CSV または JSON ファイル を選択します。",
-      "step2": "ファイルパス にファイルの絶対パスを入力し、インポート をクリックします。",
-      "step3": "オブジェクトセット で、各オブジェクトの操作、外部 ID、WHERE 句 を確認します。",
-      "step4": "このインポートを実行 で ソース組織 と ターゲット組織 を選び、同期を実行 をクリックします。",
-      "step5": "後で再実行するには、名前を付けて Sync 設定として保存 をクリックします。",
-      "tip": "インポート はどの組織にも書き込みません。書き込むのは 同期を実行 だけで、Production Guard の判定を経てターゲット組織に書き込みます。"
+      "step1": "参照… をクリックして SFDMU の export.json を選ぶか、ファイルパス に絶対パスを貼り付けます。",
+      "step2": "インポート をクリックします。SandForge はファイルを読み取るだけで、どの組織にも書き込みません。",
+      "step3": "オブジェクトセット で、各オブジェクトの操作、外部 ID、バッチサイズ、WHERE 句 を確認します。",
+      "step4": "ソース組織 と ターゲット組織 を選び、名前を付けて Sync 設定として保存 をクリックします。",
+      "step5": "Sync で開く をクリックします。そこで シミュレーション が確認し、同期を実行 が書き込みます。",
+      "tip": "レコードの CSV ファイルは Seed の CSV アップロード で行を読み込みます。書き込むのは Sync だけで、Production Guard の判定を経てから書き込みます。"
     },
     "reports": {
       "step1": "実行 タブで Forge または Sync の実行をクリックし、一覧の下に表示される詳細を確認します。",

@@ -47,17 +47,74 @@ describe('MigrationHandler', () => {
     expect(await handler.handle(createMsg('unknown:type'))).toBe(false);
   });
 
-  it('handles migration:import error when no file reader with correlationId', async () => {
-    const result = await handler.handle(
-      createMsg('migration:import', { filePath: '/tmp/config.json' }),
-    );
-    expect(result).toBe(true);
+  it('takes no CSV or JSON data file any more: the universal import is not one of its channels', async () => {
+    // It read a data file's column names, dropped its rows and named the
+    // object after the file; Seed's CSV Upload loads the rows.
+    expect(
+      await handler.handle(createMsg('migration:import', { filePath: '/home/u/accounts.csv' })),
+    ).toBe(false);
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
+  });
 
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('migration:import:response');
-    expect(response.correlationId).toBe('req-77');
-    expect(response.payload.success).toBe(false);
-    expect(response.payload.error).toContain('Migration services not available');
+  describe('Browse…', () => {
+    function readerPicking(pick: () => Promise<string | undefined>) {
+      return { readFile: vi.fn(), statSize: vi.fn(), pickExportFile: vi.fn(pick) };
+    }
+
+    function answer(): { type: string; correlationId?: string; payload: Record<string, unknown> } {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    }
+
+    it('answers with the file the window’s dialog picked, for the page’s File path', async () => {
+      const reader = readerPicking(async () => '/home/u/sfdmu/export.json');
+      handler.setFileReader(reader);
+
+      expect(await handler.handle(createMsg('migration:pick-file'))).toBe(true);
+
+      expect(reader.pickExportFile).toHaveBeenCalledTimes(1);
+      expect(reader.readFile).not.toHaveBeenCalled();
+      expect(answer()).toMatchObject({
+        type: 'migration:pick-file:response',
+        correlationId: 'req-77',
+        payload: { filePath: '/home/u/sfdmu/export.json' },
+      });
+    });
+
+    it('answers with no path when the dialog was closed', async () => {
+      handler.setFileReader(readerPicking(async () => undefined));
+
+      await handler.handle(createMsg('migration:pick-file'));
+
+      expect(answer()).toMatchObject({ type: 'migration:pick-file:response', payload: {} });
+      expect(answer().payload).not.toHaveProperty('filePath');
+    });
+
+    it('refuses on the error channel, in the dialog’s words, a file it cannot read', async () => {
+      handler.setFileReader(
+        readerPicking(async () => {
+          throw new Error('pick a file there');
+        }),
+      );
+
+      await handler.handle(createMsg('migration:pick-file'));
+
+      expect(answer()).toMatchObject({
+        type: 'migration:error',
+        correlationId: 'req-77',
+        payload: { message: expect.stringContaining('pick a file there') },
+      });
+    });
+
+    it('refuses on the error channel when there is no window to ask in', async () => {
+      handler.setFileReader({ readFile: vi.fn(), statSize: vi.fn() });
+
+      await handler.handle(createMsg('migration:pick-file'));
+
+      expect(answer()).toMatchObject({
+        type: 'migration:error',
+        payload: { message: expect.stringContaining('Migration services not available') },
+      });
+    });
   });
 
   it('handles migration:import-sfdmu error when no file reader with correlationId', async () => {
@@ -104,7 +161,7 @@ describe('MigrationHandler', () => {
       ['relative path', 'config/export.json'],
       ['dot-relative path', './export.json'],
     ])('rejects %s before any read', async (_label, filePath) => {
-      await handler.handle(createMsg('migration:import', { filePath }));
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
 
       const response = lastResponse();
       expect(response.payload.success).toBe(false);
@@ -125,7 +182,7 @@ describe('MigrationHandler', () => {
       const root = path.parse(process.cwd()).root;
       const filePath = path.join(root, 'sandforge-e2e-not-allowed', 'export.json');
 
-      await handler.handle(createMsg('migration:import', { filePath }));
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
 
       const response = lastResponse();
       expect(response.payload.success).toBe(false);
@@ -137,7 +194,7 @@ describe('MigrationHandler', () => {
       ['.exe', path.join(os.homedir(), 'export.exe')],
       ['no extension', path.join(os.homedir(), 'export')],
     ])('rejects unsupported extension (%s)', async (_label, filePath) => {
-      await handler.handle(createMsg('migration:import', { filePath }));
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
 
       const response = lastResponse();
       expect(response.payload.success).toBe(false);
@@ -186,14 +243,14 @@ describe('MigrationHandler', () => {
     it('accepts an uppercase .JSON extension (case-insensitive)', async () => {
       const filePath = path.join(os.homedir(), 'export.JSON');
 
-      await handler.handle(createMsg('migration:import', { filePath }));
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
 
       const response = lastResponse();
       expect(response.payload.error).toContain('READ_ATTEMPTED');
     });
 
     it('rejects a non-string filePath with INVALID_PAYLOAD before any read', async () => {
-      await handler.handle(createMsg('migration:import', { filePath: 42 }));
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath: 42 }));
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -224,7 +281,7 @@ describe('MigrationHandler', () => {
         } as unknown as NonNullable<HandlerDeps['services']>;
         const filePath = path.join(upperBase.toLowerCase(), 'migration', 'export.json');
 
-        await handler.handle(createMsg('migration:import', { filePath }));
+        await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
 
         const response = lastResponse();
         // READ_ATTEMPTED proves the containment check accepted the path.
@@ -251,25 +308,7 @@ describe('MigrationHandler', () => {
       };
     }
 
-    it('rejects a file past the 50 MB cap before reading it (migration:import)', async () => {
-      const readFile = vi.fn();
-      handler.setFileReader({
-        readFile,
-        statSize: vi.fn().mockResolvedValue(51 * 1024 * 1024),
-      });
-      const filePath = path.join(os.homedir(), 'huge.csv');
-
-      await handler.handle(createMsg('migration:import', { filePath }));
-
-      const response = lastResponse();
-      expect(response.payload.success).toBe(false);
-      expect(response.payload.error).toContain('too large');
-      expect(response.payload.error).toContain('50 MB');
-      // The content is never loaded into memory.
-      expect(readFile).not.toHaveBeenCalled();
-    });
-
-    it('rejects a file past the 50 MB cap (migration:import-sfdmu)', async () => {
+    it('rejects a file past the 50 MB cap before reading it', async () => {
       const readFile = vi.fn();
       handler.setFileReader({
         readFile,
@@ -282,33 +321,9 @@ describe('MigrationHandler', () => {
       const response = lastResponse();
       expect(response.payload.success).toBe(false);
       expect(response.payload.error).toContain('too large');
+      expect(response.payload.error).toContain('50 MB');
+      // The content is never loaded into memory.
       expect(readFile).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('single disk read', () => {
-    it('reads the file exactly once for import + format detection', async () => {
-      deps.services = {
-        getWorkspaceFolders: () => [],
-      } as unknown as NonNullable<HandlerDeps['services']>;
-      const content = JSON.stringify([{ Name: 'Acme', Industry: 'Tech' }]);
-      const readFile = vi.fn().mockResolvedValue(content);
-      handler.setFileReader({
-        readFile,
-        statSize: vi.fn().mockResolvedValue(content.length),
-      });
-      const filePath = path.join(os.homedir(), 'accounts.json');
-
-      await handler.handle(createMsg('migration:import', { filePath }));
-
-      expect(readFile).toHaveBeenCalledTimes(1);
-      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
-      const response = calls[calls.length - 1][0] as {
-        type: string;
-        payload: { success: boolean; detectedFormat?: string; error?: string };
-      };
-      expect(response.payload.success).toBe(true);
-      expect(response.payload.detectedFormat).toBe('json');
     });
   });
 

@@ -177,5 +177,8 @@
   "Export": "Exportar",
   "Import a checkpoint file": "Importar um arquivo de ponto de verificação",
   "Import": "Importar",
-  "All files": "Todos os arquivos"
+  "All files": "Todos os arquivos",
+  "Import an SFDMU export.json": "Importar um export.json do SFDMU",
+  "SFDMU export.json": "export.json do SFDMU",
+  "SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.": "O SandForge lê um export.json do SFDMU no disco da máquina em que é executado: escolha um arquivo nesse disco."
 }

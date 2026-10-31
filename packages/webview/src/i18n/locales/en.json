@@ -1803,53 +1803,47 @@
     "delta": {
       "mode": "Delta",
       "withDeletes": "Delta, deletions carried"
-    }
+    },
+    "chooseObject": "Choose an object…"
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Import an existing migration definition and convert it into a SandForge sync configuration. Importing reads the file and changes nothing; running the converted configuration writes records to the target org.",
-    "sourceTitle": "Source file",
+    "subtitle": "Convert an SFDMU export.json into a Sync configuration. Importing reads the file and changes nothing in any org; Sync runs the configuration once it is saved, and writes records to the target org.",
     "type": {
       "sfdmu": {
         "title": "SFDMU export.json",
         "description": "Convert an SFDMU export.json definition: objects, field mappings and value mappings."
-      },
-      "universal": {
-        "title": "CSV or JSON file",
-        "description": "Import any CSV or JSON data file — columns are mapped to Salesforce fields automatically."
       }
     },
-    "allowedExtensionsSfdmu": "Only a .json file (SFDMU export.json) is accepted.",
-    "allowedExtensionsUniversal": "Accepted files: .json or .csv.",
     "filePathLabel": "File path",
-    "filePathPlaceholderSfdmu": "C:/projects/sfdmu/export.json",
-    "filePathPlaceholderUniversal": "C:/projects/data/accounts.csv",
-    "filePathHint": "Absolute path. The file must be inside an open workspace folder or your home directory.",
+    "filePathPlaceholderSfdmu": "/path/to/export.json",
+    "filePathHint": "Browse… to pick it, or paste its absolute path. The file must be inside an open workspace folder or your home directory.",
     "import": "Import",
     "importing": "Importing…",
     "reset": "New import",
     "successTitle": "Import completed",
     "successDescription": "Converted configuration",
     "unknownError": "Import failed for an unknown reason.",
-    "detectedFormat": "Detected format: {{format}}",
-    "objectsCount_one": "{{count}} object",
-    "objectsCount_other": "{{count}} objects",
-    "externalId": "External ID: {{field}}",
-    "objectSummary": "{{mappings}} field mappings · {{rules}} transform rules · {{excluded}} excluded fields",
+    "objectSummary": {
+      "mappings_one": "{{count}} field mapping",
+      "mappings_other": "{{count}} field mappings",
+      "rules_one": "{{count}} transform rule",
+      "rules_other": "{{count}} transform rules",
+      "excluded_one": "{{count}} excluded field",
+      "excluded_other": "{{count}} excluded fields"
+    },
     "rawConfig": "Raw configuration",
     "validation": {
       "pathRequired": "Enter the path of the file to import.",
-      "pathNotAbsolute": "The path must be absolute (e.g. C:/projects/export.json or /home/you/export.json).",
+      "pathNotAbsolute": "The path must be absolute: press Browse… to pick the file, or paste its full path.",
       "pathExtension": "Unsupported file extension. Expected: {{extensions}}."
     },
     "run": {
-      "title": "Run this import",
-      "subtitle": "Pick the source and target orgs — the imported file names its own, which do not exist here.",
+      "title": "Run it from Sync",
+      "subtitle": "Pick the source and target orgs — the imported file names its own, which do not exist here — and save it as a Sync configuration. Open in Sync then shows it on Sync's Execute step: Simulate checks it, Run the sync writes it, and the results say what it created and can remove it.",
       "sourceOrg": "Source org",
       "targetOrg": "Target org",
-      "action": "Run sync",
-      "running": "Running…",
-      "orgsRequired": "Pick two different orgs to run this import."
+      "orgsRequired": "Pick two different orgs to save this import for Sync."
     },
     "edit": {
       "noObjects": "Keep at least one object: a run with none would move nothing.",
@@ -1857,8 +1851,6 @@
       "invalid": "This configuration cannot run as edited — {{reason}}"
     },
     "saveSync": {
-      "title": "Save as a Sync configuration",
-      "subtitle": "Keeps this import, as edited here and between the two orgs picked above, among Sync's saved configurations: the Sync page lists it, and a schedule can run it.",
       "nameLabel": "Name of the Sync configuration",
       "action": "Save as a Sync configuration",
       "saving": "Saving…",
@@ -1866,8 +1858,15 @@
       "saved": "Saved as the Sync configuration “{{name}}”: the Sync page lists it with its saved configurations, and a schedule can run it.",
       "nameRequired": "Give the configuration a name, then save it.",
       "duplicateName": "A saved Sync configuration is already named “{{name}}”. Pick another name: nothing was saved.",
-      "cannotCopy": "Sync does not copy {{objects}}: no copy writes users and their access, metadata, a record's history, feed or sharing rows, files, or the records the platform keeps for itself. Leave them out, then save again: nothing was saved.",
-      "invalid": "Sync cannot run this configuration, so it was not saved — {{reason}}"
+      "cannotCopy": "Sync does not copy {{objects}}: no copy writes users and their access, metadata, a record's history, feed or sharing rows, file objects (a record's files go with it when Copy the files of these records is ticked in Sync), or the records the platform keeps for itself. Leave them out, then save again: nothing was saved.",
+      "invalid": "Sync cannot run this configuration, so it was not saved — {{reason}}",
+      "openInSync": "Open in Sync",
+      "changedSinceSaved": "Changed since it was saved as “{{name}}”: save it under another name to open it in Sync."
+    },
+    "browse": "Browse…",
+    "csvData": {
+      "text": "A CSV file of records? This page converts SFDMU definitions only: Seed's CSV Upload loads a CSV file's rows into an org.",
+      "action": "Open CSV Upload"
     }
   },
   "dataops": {
@@ -3242,12 +3241,12 @@
       "tip": "Sync, Seed, Anonymize and Rewind steps write to an org. Seed and Anonymize never write to a production org; a Rewind runs once confirmed."
     },
     "migration": {
-      "step1": "Pick the kind of file you have: SFDMU export.json, or CSV or JSON file.",
-      "step2": "Type the file's absolute path in File path, then press Import.",
-      "step3": "Under Object Set, check each object's operation, External ID and WHERE clause.",
-      "step4": "Under Run this import, pick the Source org and the Target org, then press Run sync.",
-      "step5": "To run it again later, name it and press Save as a Sync configuration.",
-      "tip": "Import writes nothing to any org; only Run sync writes, to the Target org, once Production Guard has judged the run."
+      "step1": "Press Browse… and pick your SFDMU export.json, or paste its absolute path in File path.",
+      "step2": "Press Import: SandForge reads the file and writes nothing to any org.",
+      "step3": "Under Object Set, check each object's operation, External ID, batch size and WHERE clause.",
+      "step4": "Pick the Source org and the Target org, name it, and press Save as a Sync configuration.",
+      "step5": "Press Open in Sync: Simulate checks it there, and Run the sync writes it.",
+      "tip": "A CSV file of records goes to Seed's CSV Upload, which loads its rows. Only Sync writes, once Production Guard has judged the run."
     },
     "reports": {
       "step1": "On Executions, click a Forge or Sync run to read its details below the list.",

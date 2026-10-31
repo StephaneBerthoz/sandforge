@@ -2137,6 +2137,72 @@ describe('SyncPage Run now on a saved configuration', () => {
     );
   });
 
+  describe('opened by Migration’s Open in Sync', () => {
+    beforeEach(() => {
+      useAppStore.setState({
+        navigationIntent: {
+          route: 'sync',
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          syncConfig: { id: 'cfg-saved', name: 'Nightly accounts' },
+        },
+      });
+      mockSimulateMutationState = { ...mockSimulateMutationState, data: null, loading: false };
+    });
+
+    it('lands on the execute step, the configuration named above its own Simulate and Run', () => {
+      render(<SyncPage />);
+
+      expect(screen.getByTestId('tab-sync').getAttribute('aria-selected')).toBe('true');
+      expect(
+        screen.getAllByTestId('sync-step-execute').some((element) => element.tagName === 'DIV'),
+      ).toBe(true);
+      expect(screen.getByTestId('sync-saved-run').textContent).toBe(
+        'Saved configuration: Nightly accounts',
+      );
+      expect(screen.getByTestId('sync-simulate')).toBeDefined();
+      expect(screen.getByTestId('sync-run')).toBeDefined();
+      // Opening runs nothing.
+      expect(mockLoadConfigMutate).not.toHaveBeenCalled();
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+    });
+
+    it('simulates it as saved, and names it above what the simulation found', () => {
+      const { rerender } = render(<SyncPage />);
+
+      fireEvent.click(screen.getByTestId('sync-simulate'));
+      expect(mockLoadConfigMutate).toHaveBeenCalledWith({ id: 'cfg-saved' });
+      mockLoadConfigMutationState = {
+        ...mockLoadConfigMutationState,
+        data: { config: savedConfig },
+      };
+      rerender(<SyncPage />);
+      expect(mockSimulateMutate).toHaveBeenCalledWith({ config: savedConfig });
+      expect(mockExecuteMutate).not.toHaveBeenCalled();
+
+      mockSimulateMutationState = {
+        ...mockSimulateMutationState,
+        data: {
+          configId: 'cfg-saved',
+          operationId: 'sim-1',
+          direction: 'source_to_target',
+          conflictStrategy: 'source_wins',
+          objects: [],
+          duration: 1,
+          timestamp: '2026-10-31T00:00:00.000Z',
+        },
+      };
+      rerender(<SyncPage />);
+
+      expect(
+        screen.getAllByTestId('sync-step-results').some((element) => element.tagName === 'DIV'),
+      ).toBe(true);
+      expect(screen.getByTestId('sync-saved-run').textContent).toBe(
+        'Saved configuration: Nightly accounts',
+      );
+    });
+  });
+
   it('offers no Run now while a run is under way on the page', () => {
     mockExecuteMutationState = { ...idleExecute, loading: true, requestId: 'sync-run-1' } as never;
     render(<SyncPage />);

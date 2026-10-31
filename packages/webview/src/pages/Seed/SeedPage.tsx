@@ -32,12 +32,14 @@ import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 type SeedMode = 'start' | 'generate' | 'csv' | 'clone';
 
 /**
- * Mode a Home recommendation opens on: the clone wizard, or the start, whose
- * gallery a quick-seed recommendation names and which every other way in
- * opens on too.
+ * Mode a navigation opens on: the clone wizard, CSV Upload — where Migration
+ * sends a CSV file of records — or the start, whose gallery a quick-seed
+ * recommendation names and which every other way in opens on too.
  */
 function modeForIntent(intent: NavigationIntent | null): SeedMode {
-  return intent?.seedMode === 'clone' ? 'clone' : 'start';
+  if (intent?.seedMode === 'clone') return 'clone';
+  if (intent?.seedMode === 'csv') return 'csv';
+  return 'start';
 }
 
 /** The step of each way to seed, which takes the keyboard as the way opens. */

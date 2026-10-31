@@ -53,8 +53,11 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
  */
 export interface NavigationIntent {
   route: ModuleRoute;
-  /** Seed mode to open on: the clone wizard, or the quick-seed template gallery. */
-  seedMode?: 'clone' | 'quick-seed';
+  /**
+   * Seed mode to open on: the clone wizard, the quick-seed template gallery,
+   * or CSV Upload, where Migration sends a CSV file of records.
+   */
+  seedMode?: 'clone' | 'quick-seed' | 'csv';
   /** Org to read from (clone source, sync source). */
   sourceOrgId?: string;
   /** Org to write to (clone target, sync target), or the one a checkpoint is to be taken of. */
@@ -83,6 +86,13 @@ export interface NavigationIntent {
    * would do: Home's "Rewind…", for the org's latest.
    */
   previewCheckpointId?: string;
+  /**
+   * A saved Sync configuration to open on Sync's execute step, by its id and
+   * the name it was saved under: Migration's "Open in Sync", with the two
+   * orgs it runs between in `sourceOrgId` and `targetOrgId`. Sync's own
+   * Simulate, run, results and removal then apply to it.
+   */
+  syncConfig?: { id: string; name: string };
 }
 
 /** Application-level state for routing, sidebar, and extension readiness */

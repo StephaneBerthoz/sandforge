@@ -6,7 +6,6 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
-  migrationImportPayloadSchema,
   migrationImportSfdmuPayloadSchema,
   migrationSaveSyncConfigPayloadSchema,
   syncCannotCopy,
@@ -20,6 +19,12 @@ export interface MigrationFileReader {
   readFile(filePath: string): Promise<string>;
   /** File size in bytes — checked against {@link MAX_IMPORT_FILE_SIZE_BYTES} before any read. */
   statSize(filePath: string): Promise<number>;
+  /**
+   * Browse… on the Migration page: the window's open dialog, for an SFDMU
+   * export.json. The path picked, or undefined when the dialog was closed.
+   * Absent, Browse is refused: there is no window to ask in.
+   */
+  pickExportFile?(): Promise<string | undefined>;
 }
 
 /**
@@ -30,7 +35,7 @@ export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 /** Message types handled by MigrationHandler. */
 const MIGRATION_TYPES = new Set([
-  'migration:import',
+  'migration:pick-file',
   'migration:import-sfdmu',
   'migration:save-sync-config',
 ]);
@@ -39,10 +44,11 @@ const MIGRATION_TYPES = new Set([
 const SAVED_FROM_MIGRATION = 'Saved from the SandForge Migration page';
 
 /**
- * Allowed file extensions per importer. UniversalImporter sniffs JSON and CSV
- * content; SfdmuImporter only accepts an SFDMU `export.json` definition.
+ * The file extension the importer takes: SfdmuImporter accepts an SFDMU
+ * `export.json` definition alone. A CSV of records goes to Seed's CSV Upload,
+ * which loads its rows: the page's "CSV or JSON file" read a data file's
+ * column names, dropped its rows and named the object after the file.
  */
-const UNIVERSAL_IMPORT_EXTENSIONS = new Set(['.json', '.csv']);
 const SFDMU_IMPORT_EXTENSIONS = new Set(['.json']);
 
 /**
@@ -132,9 +138,10 @@ async function assertImportFileSize(
 /**
  * Domain handler for migration import-related webview-to-extension messages.
  *
- * Routes migration:* message types to universal and SFDMU-specific
- * config importers for converting external migration definitions.
- * Every incoming file path is validated against traversal before any read.
+ * Routes migration:* message types: the open dialog of Browse…, the SFDMU
+ * importer that converts an export.json, and the save among Sync's
+ * configurations. Every incoming file path is validated against traversal
+ * before any read.
  */
 export class MigrationHandler implements DomainHandler {
   private fileReader?: MigrationFileReader;
@@ -157,8 +164,8 @@ export class MigrationHandler implements DomainHandler {
     if (!MIGRATION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
-      case 'migration:import':
-        await this.handleImport(msg);
+      case 'migration:pick-file':
+        await this.handlePickFile(msg);
         return true;
       case 'migration:import-sfdmu':
         await this.handleImportSfdmu(msg);
@@ -259,42 +266,30 @@ export class MigrationHandler implements DomainHandler {
     return [...workspaceFolders, os.homedir()];
   }
 
-  private async handleImport(msg: InboundRequest): Promise<void> {
+  /**
+   * Browse…: the window's open dialog, and the file picked, which the page
+   * puts in its File path. The page had a field to type an absolute path in
+   * and nothing else. The path is not trusted for being picked here: the
+   * import checks it as it checks a typed one.
+   */
+  private async handlePickFile(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(migrationImportPayloadSchema, msg, 'migration:error', this.deps);
-    if (!parsed) return;
-    const { filePath } = parsed;
     try {
       const fileReader = this.fileReader;
-      if (!fileReader) {
+      if (!fileReader?.pickExportFile) {
         throw new Error('Migration services not available.');
       }
-      const safePath = validateImportPath(
-        filePath,
-        UNIVERSAL_IMPORT_EXTENSIONS,
-        this.getAllowedBaseDirs(),
+      const filePath = await fileReader.pickExportFile();
+      this.deps.broker.postToWebview(
+        buildResponse(
+          this.deps,
+          msg,
+          'migration:pick-file:response',
+          filePath === undefined ? {} : { filePath },
+        ),
       );
-      await assertImportFileSize(fileReader, safePath);
-      const { UniversalImporter } = await import('../../modules/migration/UniversalImporter.js');
-      const importer = new UniversalImporter(fileReader);
-      // Single disk read: the same content feeds both the conversion and the
-      // format detection reported to the webview.
-      const content = await fileReader.readFile(safePath);
-      const config = importer.importContent(content, safePath);
-      const detectedFormat = importer.detectFormat(content, safePath);
-      const response = buildResponse(this.deps, msg, 'migration:import:response', {
-        success: true,
-        config: config as unknown as Record<string, unknown>,
-        detectedFormat,
-      });
-      this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      this.deps.log(`[ERR] migration:import: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'migration:import:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
+      sendHandlerError(this.deps, 'migration:pick-file', 'migration:error', msg, err);
     }
   }
 

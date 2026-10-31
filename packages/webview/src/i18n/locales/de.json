@@ -1803,53 +1803,47 @@
     "delta": {
       "mode": "Delta",
       "withDeletes": "Delta, Löschungen übertragen"
-    }
+    },
+    "chooseObject": "Objekt auswählen…"
   },
   "migration": {
     "title": "Migration",
-    "subtitle": "Importieren Sie eine vorhandene Migrationsdefinition und konvertieren Sie sie in eine SandForge-Synchronisationskonfiguration. Der Import liest die Datei und ändert nichts; das Ausführen der konvertierten Konfiguration schreibt Datensätze in die Ziel-Org.",
-    "sourceTitle": "Quelldatei",
+    "subtitle": "Konvertieren Sie eine SFDMU-export.json in eine Sync-Konfiguration. Der Import liest die Datei und ändert in keiner Org etwas; Sync führt die Konfiguration aus, sobald sie gespeichert ist, und schreibt Datensätze in die Ziel-Org.",
     "type": {
       "sfdmu": {
         "title": "SFDMU export.json",
         "description": "Konvertiert eine SFDMU-export.json-Definition: Objekte, Feldzuordnungen und Wertezuordnungen."
-      },
-      "universal": {
-        "title": "CSV- oder JSON-Datei",
-        "description": "Importieren Sie beliebige CSV- oder JSON-Datendateien — Spalten werden automatisch Salesforce-Feldern zugeordnet."
       }
     },
-    "allowedExtensionsSfdmu": "Nur eine .json-Datei (SFDMU export.json) wird akzeptiert.",
-    "allowedExtensionsUniversal": "Akzeptierte Dateien: .json oder .csv.",
     "filePathLabel": "Dateipfad",
-    "filePathPlaceholderSfdmu": "C:/projekte/sfdmu/export.json",
-    "filePathPlaceholderUniversal": "C:/projekte/daten/konten.csv",
-    "filePathHint": "Absoluter Pfad. Die Datei muss in einem geöffneten Workspace-Ordner oder in Ihrem Benutzerverzeichnis liegen.",
+    "filePathPlaceholderSfdmu": "/pfad/zu/export.json",
+    "filePathHint": "Mit Durchsuchen… auswählen oder den absoluten Pfad einfügen. Die Datei muss in einem geöffneten Workspace-Ordner oder in Ihrem Benutzerverzeichnis liegen.",
     "import": "Importieren",
     "importing": "Importieren…",
     "reset": "Neuer Import",
     "successTitle": "Import abgeschlossen",
     "successDescription": "Konvertierte Konfiguration",
     "unknownError": "Der Import ist aus unbekanntem Grund fehlgeschlagen.",
-    "detectedFormat": "Erkanntes Format: {{format}}",
-    "objectsCount_one": "{{count}} Objekt",
-    "objectsCount_other": "{{count}} Objekte",
-    "externalId": "Externe ID: {{field}}",
-    "objectSummary": "{{mappings}} Feldzuordnungen · {{rules}} Transformationsregeln · {{excluded}} ausgeschlossene Felder",
+    "objectSummary": {
+      "mappings_one": "{{count}} Feldzuordnung",
+      "mappings_other": "{{count}} Feldzuordnungen",
+      "rules_one": "{{count}} Transformationsregel",
+      "rules_other": "{{count}} Transformationsregeln",
+      "excluded_one": "{{count}} ausgeschlossenes Feld",
+      "excluded_other": "{{count}} ausgeschlossene Felder"
+    },
     "rawConfig": "Rohkonfiguration",
     "validation": {
       "pathRequired": "Geben Sie den Pfad der zu importierenden Datei ein.",
-      "pathNotAbsolute": "Der Pfad muss absolut sein (z. B. C:/projekte/export.json oder /home/sie/export.json).",
+      "pathNotAbsolute": "Der Pfad muss absolut sein: Klicken Sie auf Durchsuchen…, um die Datei auszuwählen, oder fügen Sie ihren vollständigen Pfad ein.",
       "pathExtension": "Nicht unterstützte Dateierweiterung. Erwartet: {{extensions}}."
     },
     "run": {
-      "title": "Diesen Import ausführen",
-      "subtitle": "Wählen Sie Quell- und Ziel-Org — die importierte Datei nennt eigene, die hier nicht existieren.",
+      "title": "Aus Sync ausführen",
+      "subtitle": "Wählen Sie Quell- und Ziel-Org — die importierte Datei nennt eigene, die hier nicht existieren — und speichern Sie sie als Sync-Konfiguration. In Sync öffnen zeigt sie dann im Schritt Ausführen von Sync: Simulieren prüft sie, Synchronisierung starten schreibt sie, und die Ergebnisse nennen, was sie angelegt hat, und können es entfernen.",
       "sourceOrg": "Quell-Org",
       "targetOrg": "Ziel-Org",
-      "action": "Sync starten",
-      "running": "Läuft…",
-      "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import auszuführen."
+      "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import für Sync zu speichern."
     },
     "edit": {
       "noObjects": "Behalten Sie mindestens ein Objekt: Ein Lauf ohne Objekt würde nichts übertragen.",
@@ -1857,8 +1851,6 @@
       "invalid": "Diese Konfiguration kann so bearbeitet nicht laufen — {{reason}}"
     },
     "saveSync": {
-      "title": "Als Sync-Konfiguration speichern",
-      "subtitle": "Behält diesen Import, wie hier bearbeitet und zwischen den beiden oben gewählten Orgs, unter den gespeicherten Sync-Konfigurationen: Die Sync-Seite listet ihn, und ein Zeitplan kann ihn ausführen.",
       "nameLabel": "Name der Sync-Konfiguration",
       "action": "Als Sync-Konfiguration speichern",
       "saving": "Wird gespeichert…",
@@ -1866,8 +1858,15 @@
       "saved": "Als Sync-Konfiguration „{{name}}“ gespeichert: Die Sync-Seite listet sie mit ihren gespeicherten Konfigurationen, und ein Zeitplan kann sie ausführen.",
       "nameRequired": "Geben Sie der Konfiguration einen Namen und speichern Sie sie dann.",
       "duplicateName": "Eine gespeicherte Sync-Konfiguration heißt bereits „{{name}}“. Wählen Sie einen anderen Namen: Es wurde nichts gespeichert.",
-      "cannotCopy": "Sync kopiert {{objects}} nicht: Keine Kopie schreibt Benutzer und ihre Zugriffe, Metadaten, den Verlauf eines Datensatzes, Feed- oder Freigabezeilen, Dateien oder die Datensätze, die die Plattform für sich behält. Lassen Sie sie weg und speichern Sie erneut: Es wurde nichts gespeichert.",
-      "invalid": "Sync kann diese Konfiguration nicht ausführen, daher wurde sie nicht gespeichert — {{reason}}"
+      "cannotCopy": "Sync kopiert {{objects}} nicht: Keine Kopie schreibt Benutzer und ihre Zugriffe, Metadaten, den Verlauf eines Datensatzes, Feed- oder Freigabezeilen, Dateiobjekte (die Dateien eines Datensatzes gehen mit, wenn in Sync „Die Dateien dieser Datensätze kopieren“ aktiviert ist) oder die Datensätze, die die Plattform für sich behält. Lassen Sie sie weg und speichern Sie erneut: Es wurde nichts gespeichert.",
+      "invalid": "Sync kann diese Konfiguration nicht ausführen, daher wurde sie nicht gespeichert — {{reason}}",
+      "openInSync": "In Sync öffnen",
+      "changedSinceSaved": "Seit dem Speichern als „{{name}}“ geändert: Speichern Sie sie unter einem anderen Namen, um sie in Sync zu öffnen."
+    },
+    "browse": "Durchsuchen…",
+    "csvData": {
+      "text": "Eine CSV-Datei mit Datensätzen? Diese Seite konvertiert nur SFDMU-Definitionen: Der CSV-Upload von Seed lädt die Zeilen einer CSV-Datei in eine Org.",
+      "action": "CSV-Upload öffnen"
     }
   },
   "dataops": {
@@ -3242,12 +3241,12 @@
       "tip": "Sync-, Seed-, Anonymisierungs- und Zurücksetzen-Schritte schreiben in eine Org. Seed und Anonymisierung nie in eine Produktions-Org; Zurücksetzen erst nach Bestätigung."
     },
     "migration": {
-      "step1": "Wählen Sie die Art Ihrer Datei: SFDMU export.json oder CSV- oder JSON-Datei.",
-      "step2": "Geben Sie unter Dateipfad den absoluten Pfad der Datei ein und klicken Sie auf Importieren.",
-      "step3": "Prüfen Sie unter Objektgruppe für jedes Objekt die Operation, die Externe ID und die WHERE-Klausel.",
-      "step4": "Wählen Sie unter Diesen Import ausführen die Quell-Org und die Ziel-Org, dann klicken Sie auf Sync starten.",
-      "step5": "Um den Import später erneut auszuführen, benennen Sie ihn und klicken Sie auf Als Sync-Konfiguration speichern.",
-      "tip": "Importieren schreibt in keine Org; erst Sync starten schreibt in die Ziel-Org, nachdem Production Guard den Lauf beurteilt hat."
+      "step1": "Klicken Sie auf Durchsuchen… und wählen Sie Ihre SFDMU-export.json, oder fügen Sie ihren absoluten Pfad unter Dateipfad ein.",
+      "step2": "Klicken Sie auf Importieren: SandForge liest die Datei und schreibt in keine Org.",
+      "step3": "Prüfen Sie unter Objektgruppe für jedes Objekt die Operation, die Externe ID, die Stapelgröße und die WHERE-Klausel.",
+      "step4": "Wählen Sie die Quell-Org und die Ziel-Org, benennen Sie sie und klicken Sie auf Als Sync-Konfiguration speichern.",
+      "step5": "Klicken Sie auf In Sync öffnen: Simulieren prüft sie dort, Synchronisierung starten schreibt sie.",
+      "tip": "Eine CSV-Datei mit Datensätzen gehört in den CSV-Upload von Seed, der ihre Zeilen lädt. Nur Sync schreibt, nachdem Production Guard den Lauf beurteilt hat."
     },
     "reports": {
       "step1": "Klicken Sie unter Ausführungen auf einen Forge- oder Sync-Lauf, um seine Details unter der Liste zu lesen.",

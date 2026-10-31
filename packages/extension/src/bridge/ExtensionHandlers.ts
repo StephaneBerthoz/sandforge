@@ -1194,7 +1194,7 @@ export class ExtensionHandlers {
 
     // Migration
     route(
-      ['migration:import', 'migration:import-sfdmu', 'migration:save-sync-config'],
+      ['migration:pick-file', 'migration:import-sfdmu', 'migration:save-sync-config'],
       this.migrationHandler,
     );
 

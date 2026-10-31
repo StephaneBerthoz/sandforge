@@ -67,8 +67,24 @@ const saving = vi.hoisted(() => ({
   mutate: vi.fn(),
 }));
 
+/** State of the sync:config:load mutation: the saved configuration read back. */
+const readBack = vi.hoisted(() => ({
+  data: null as Record<string, unknown> | null,
+  mutate: vi.fn(),
+}));
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (requestType: string) => {
+    if (requestType === 'sync:config:load') {
+      return {
+        mutate: readBack.mutate,
+        data: readBack.data,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+        requestId: null,
+      };
+    }
     if (requestType === 'sync:config:save') {
       return {
         mutate: saving.mutate,
@@ -802,6 +818,114 @@ describe('useSyncPageData', () => {
     expect(result.current.sourceOrgId).toBe('org-src');
     expect(result.current.targetOrgId).toBe('org-tgt');
     expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
+  describe('a saved configuration Migration opened here', () => {
+    /** A configuration as `sync:config:load` reads it back, a transform of one object alone. */
+    const SAVED = {
+      id: 'cfg-9',
+      name: 'Nightly accounts',
+      sourceOrgId: 'org-src',
+      targetOrgId: 'org-tgt',
+      objects: [
+        {
+          objectApiName: 'Account',
+          operation: 'insert',
+          transformRules: [{ type: 'prefix', config: { prefix: 'QA-' } }],
+          excludedFields: ['CreatedDate'],
+        },
+      ],
+    };
+
+    function openedFromMigration() {
+      useAppStore.setState({
+        navigationIntent: {
+          route: 'sync',
+          sourceOrgId: 'org-src',
+          targetOrgId: 'org-tgt',
+          syncConfig: { id: 'cfg-9', name: 'Nightly accounts' },
+        },
+      });
+      return renderHook(() => useSyncPageData());
+    }
+
+    beforeEach(() => {
+      readBack.data = null;
+      readBack.mutate.mockClear();
+      execution.loading = false;
+      simulation.loading = false;
+      simulation.data = null;
+    });
+
+    it('opens on the execute step, between the orgs it runs between, and names it', () => {
+      const { result } = openedFromMigration();
+
+      expect(result.current.currentStep).toBe(4);
+      expect(result.current.sourceOrgId).toBe('org-src');
+      expect(result.current.targetOrgId).toBe('org-tgt');
+      expect(result.current.openedConfigLabel).toBe('Nightly accounts');
+      // Nothing is read, simulated or run before a button is pressed.
+      expect(readBack.mutate).not.toHaveBeenCalled();
+      expect(execution.mutate).not.toHaveBeenCalled();
+      expect(useAppStore.getState().navigationIntent).toBeNull();
+    });
+
+    it('runs it as it was saved, read back by its id, muted as the box beside Run is left', () => {
+      const { result, rerender } = openedFromMigration();
+
+      act(() => result.current.setMuteAutomation(true));
+      act(() => result.current.handleExecute());
+      expect(readBack.mutate).toHaveBeenCalledWith({ id: 'cfg-9' });
+      expect(execution.mutate).not.toHaveBeenCalled();
+
+      readBack.data = { config: SAVED };
+      rerender();
+
+      expect(execution.mutate).toHaveBeenCalledTimes(1);
+      expect(execution.mutate).toHaveBeenCalledWith({ config: SAVED, muteAutomation: true });
+      expect(simulation.mutate).not.toHaveBeenCalled();
+      expect(result.current.savedRunLabel).toBe('Nightly accounts');
+    });
+
+    it('simulates it as it was saved, and writes nothing', () => {
+      const { result, rerender } = openedFromMigration();
+
+      act(() => result.current.handleSimulate());
+      expect(readBack.mutate).toHaveBeenCalledWith({ id: 'cfg-9' });
+
+      readBack.data = { config: SAVED };
+      rerender();
+
+      expect(simulation.mutate).toHaveBeenCalledWith({ config: SAVED });
+      expect(execution.mutate).not.toHaveBeenCalled();
+    });
+
+    it('is put away once the wizard’s own steps are opened again: Run is the wizard’s then', () => {
+      const { result } = openedFromMigration();
+
+      act(() => result.current.setCurrentStep(3));
+      expect(result.current.openedConfigLabel).toBeNull();
+      act(() => result.current.handleAddObject('Contact'));
+      act(() => result.current.setCurrentStep(4));
+      act(() => result.current.handleExecute());
+
+      expect(readBack.mutate).not.toHaveBeenCalled();
+      const sent = execution.mutate.mock.calls[0][0] as {
+        config: { objects: Array<{ objectApiName: string }> };
+      };
+      expect(sent.config.objects.map((o) => o.objectApiName)).toEqual(['Contact']);
+    });
+
+    it('says it is no longer saved, and runs nothing', () => {
+      const { result, rerender } = openedFromMigration();
+
+      act(() => result.current.handleExecute());
+      readBack.data = { config: null };
+      rerender();
+
+      expect(execution.mutate).not.toHaveBeenCalled();
+      expect(result.current.error).toBe('This configuration is no longer saved: nothing was run.');
+    });
   });
 });
 

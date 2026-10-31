@@ -5212,19 +5212,40 @@ for (const theme of SCANNED_THEMES) {
         updatedAt: '2026-09-01T08:00:00.000Z',
       };
       await navigateToModule(bridge, page, 'migration', 'migration-page', { theme, orgs: true });
-      expectNoViolations(await checkAccessibility(page));
+      // The CSV file of records sent to Seed: no card promising its rows.
+      await expect(page.getByTestId('migration-csv-data')).toBeVisible();
+      const opened = await checkAccessibility(page);
+      expectNoViolations(opened);
+      expect(
+        await contrastMeasuredIn(page, opened, '[data-testid="migration-csv-data"]'),
+      ).toBeGreaterThan(0);
 
-      await page.getByTestId('migration-path-input').fill('/home/qa/sfdmu/export.json');
+      // Browse… asks the window's dialog, and fills File path with its file.
+      await page.getByTestId('migration-browse-btn').click();
+      await bridge.waitForMessage('migration:pick-file', { timeout: 10_000 });
+      await answerAll(page, 'migration:pick-file', 'migration:pick-file:response', {
+        filePath: '/home/qa/sfdmu/export.json',
+      });
+      await expect(page.getByTestId('migration-path-input')).toHaveValue(
+        '/home/qa/sfdmu/export.json',
+      );
       await page.getByTestId('migration-import-btn').click();
       await bridge.waitForMessage('migration:import-sfdmu', { timeout: 10_000 });
       await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
         success: true,
-        detectedFormat: 'sfdmu',
         config: imported,
       });
       await page.getByTestId('migration-edit').waitFor({ timeout: 10_000 });
       await expect(page.getByTestId('object-entry-Contact')).toBeVisible();
-      expectNoViolations(await checkAccessibility(page));
+      // Each column named above the rows, what an object carries under its row.
+      await expect(page.getByTestId('object-detail-Account')).toHaveText(
+        '0 field mappings · 0 transform rules · 1 excluded field',
+      );
+      const editable = await checkAccessibility(page);
+      expectNoViolations(editable);
+      expect(
+        await contrastMeasuredIn(page, editable, '[data-testid="object-set-table"] thead'),
+      ).toBeGreaterThan(0);
 
       // The contact left out, and offered back; the accounts upserted with no key.
       await page.getByTestId('remove-obj-Contact').click();
@@ -5238,16 +5259,25 @@ for (const theme of SCANNED_THEMES) {
       ).toBeGreaterThan(0);
     });
 
-    test('Migration page saving an import as a Sync configuration: refused, then saved', async ({
+    test('Migration page saving an import as a Sync configuration: refused, saved, opened in Sync', async ({
       page,
     }) => {
+      const account = {
+        objectApiName: 'Account',
+        operation: 'insert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 1,
+      };
       await navigateToModule(bridge, page, 'migration', 'migration-page', { theme, orgs: true });
       await page.getByTestId('migration-path-input').fill('/home/qa/sfdmu/export.json');
       await page.getByTestId('migration-import-btn').click();
       await bridge.waitForMessage('migration:import-sfdmu', { timeout: 10_000 });
       await answerAll(page, 'migration:import-sfdmu', 'migration:import-sfdmu:response', {
         success: true,
-        detectedFormat: 'sfdmu',
         config: {
           id: 'cfg-sfdmu',
           name: 'SFDMU Import',
@@ -5255,23 +5285,14 @@ for (const theme of SCANNED_THEMES) {
           targetOrgId: 'imported-target',
           direction: 'source_to_target',
           mode: 'full',
-          objects: [
-            {
-              objectApiName: 'Account',
-              operation: 'insert',
-              fieldMappings: [],
-              transformRules: [],
-              excludedFields: [],
-              addOnFields: [],
-              batchSize: 200,
-              insertOrder: 1,
-            },
-          ],
+          objects: [account],
           conflictStrategy: 'source_wins',
           enableRollback: false,
         },
       });
-      await page.getByTestId('migration-save-sync').waitFor({ timeout: 10_000 });
+      await page.getByTestId('migration-for-sync').waitFor({ timeout: 10_000 });
+      // The page runs nothing: no Run sync, only the save for Sync.
+      await expect(page.getByTestId('migration-run-btn')).toHaveCount(0);
       await expect(page.getByTestId('migration-save-sync-btn')).toBeDisabled();
 
       await page.getByTestId('migration-run-source').selectOption(DEV_SANDBOX.id);
@@ -5313,6 +5334,46 @@ for (const theme of SCANNED_THEMES) {
       expect(
         await contrastMeasuredIn(page, saved, '[data-testid="migration-save-sync-saved"]'),
       ).toBeGreaterThan(0);
+
+      // Open in Sync: Sync's execute step, on that configuration, its own
+      // Simulate and Run beside it.
+      await page.getByTestId('migration-open-in-sync-btn').click();
+      await page.getByTestId('sync-page').waitFor({ timeout: 10_000 });
+      await expect(page.getByTestId('sync-saved-run')).toHaveText(
+        'Saved configuration: Nightly accounts 2',
+      );
+      await expect(page.getByTestId('sync-simulate')).toBeVisible();
+      await expect(page.getByTestId('sync-run')).toBeVisible();
+      const inSync = await checkAccessibility(page);
+      expectNoViolations(inSync);
+      expect(
+        await contrastMeasuredIn(page, inSync, '[data-testid="sync-saved-run"]'),
+      ).toBeGreaterThan(0);
+
+      await page.getByTestId('sync-simulate').click();
+      const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+      expect(load.payload).toEqual({ id: 'cfg-saved' });
+      const savedConfig = {
+        id: 'cfg-saved',
+        name: 'Nightly accounts 2',
+        description: 'Saved from the SandForge Migration page',
+        sourceOrgId: DEV_SANDBOX.id,
+        targetOrgId: QA_SANDBOX.id,
+        direction: 'source_to_target',
+        mode: 'full',
+        objects: [account],
+        conflictStrategy: 'source_wins',
+        enableRollback: false,
+        createdAt: '2026-10-31T08:00:00.000Z',
+        updatedAt: '2026-10-31T08:00:00.000Z',
+      };
+      await answerAll(page, 'sync:config:load', 'sync:config:load:response', {
+        config: savedConfig,
+      });
+      const simulated = await bridge.waitForMessage('sync:simulate', { timeout: 10_000 });
+      expect(simulated.payload).toEqual({ config: savedConfig });
+      // Nothing was written, from Migration or from Sync.
+      expect(await bridge.getMessages('sync:execute')).toEqual([]);
     });
 
     test('Reports page', async ({ page }) => {

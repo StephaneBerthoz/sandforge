@@ -1,22 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileJson, FileUp } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import type {
+  MigrationPickFileResponse,
   MigrationSaveSyncConfigResponse,
-  SyncExecutionResult,
   SyncOperation,
 } from '@sandforge/shared';
 import { syncConfigSchema } from '@sandforge/shared';
-import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { Select } from '../../components/ui/Select';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
-import type { BadgeVariant } from '../../components/ui/Badge';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { JsonViewer } from '../../components/ui/JsonViewer';
 import { ObjectSetEditor } from '../Sync/ObjectSetEditor';
@@ -24,32 +22,15 @@ import type { ObjectSetEntry } from '../Sync/ObjectSetEditor';
 import { ModuleHowTo } from '../../components/ui/ModuleHowTo';
 import { orgOptionLabel } from '../../utils/orgFormatters';
 
-/** Import source supported by the migration bridge messages. */
-type ImportType = 'sfdmu' | 'universal';
-
-/** Response payload of `migration:import(:-sfdmu):response`. */
+/** Response payload of `migration:import-sfdmu:response`. */
 interface MigrationImportResult {
   success: boolean;
   config?: Record<string, unknown>;
-  detectedFormat?: string;
   error?: string;
 }
 
-/** Normalized preview of one imported SyncObjectConfig. */
-interface ImportedObjectPreview {
-  objectApiName: string;
-  operation?: string;
-  externalIdField?: string;
-  fieldMappingCount: number;
-  transformRuleCount: number;
-  excludedFieldCount: number;
-}
-
-/** Allowed extensions per importer — mirrors MigrationHandler's whitelist. */
-const ALLOWED_EXTENSIONS: Record<ImportType, readonly string[]> = {
-  sfdmu: ['.json'],
-  universal: ['.json', '.csv'],
-};
+/** The extension the importer takes — mirrors MigrationHandler's whitelist. */
+const ALLOWED_EXTENSION = '.json';
 
 /**
  * Matches absolute paths on every supported host: POSIX (`/…`),
@@ -57,40 +38,21 @@ const ALLOWED_EXTENSIONS: Record<ImportType, readonly string[]> = {
  */
 const ABSOLUTE_PATH_RE = /^(\/|\\\\|[a-zA-Z]:[\\/])/;
 
-/** Map a sync operation to a badge color. */
-const OPERATION_VARIANTS: Record<string, BadgeVariant> = {
-  insert: 'success',
-  update: 'warning',
-  upsert: 'info',
-  delete: 'error',
-};
-
 /**
- * Map a sync execution status to a badge color and a label — same mapping and
- * wording as SyncPage. Keyed by `string`: the status arrives off the bridge and
- * is not narrowed at runtime, so an unknown value must still render.
+ * How long Browse… waits for the file picked: a person looking through
+ * folders, for as long as that takes, where a request is given thirty seconds.
  */
-const RUN_STATUS_VARIANTS: Record<string, BadgeVariant> = {
-  success: 'success',
-  partial: 'warning',
-  failure: 'error',
-};
-const RUN_STATUS_KEYS: Record<string, string> = {
-  success: 'syncParts.complete',
-  partial: 'syncParts.partial',
-  failure: 'syncParts.failed',
-};
+const PICK_FILE_WAIT_MS = 60 * 60 * 1000;
 
 /**
- * Client-side mirror of the handler's path rules (absolute path, extension
- * whitelist). The handler additionally enforces workspace/home containment —
- * that error surfaces through the bridge response.
+ * Client-side mirror of the handler's path rules (absolute path, `.json`).
+ * The handler additionally enforces workspace/home containment — that error
+ * surfaces through the bridge response.
  *
  * @returns An error message, or null when the path passes local validation.
  */
 function validateFilePath(
   filePath: string,
-  importType: ImportType,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string | null {
   const trimmed = filePath.trim();
@@ -102,36 +64,10 @@ function validateFilePath(
   }
   const dotIndex = trimmed.lastIndexOf('.');
   const extension = dotIndex >= 0 ? trimmed.slice(dotIndex).toLowerCase() : '';
-  const allowed = ALLOWED_EXTENSIONS[importType];
-  if (!allowed.includes(extension)) {
-    return t('migration.validation.pathExtension', { extensions: allowed.join(' / ') });
+  if (extension !== ALLOWED_EXTENSION) {
+    return t('migration.validation.pathExtension', { extensions: ALLOWED_EXTENSION });
   }
   return null;
-}
-
-/**
- * Defensively extract a renderable preview from the imported SyncConfig.
- * The bridge types the config as Record<string, unknown>, so every field is
- * checked before use.
- */
-function extractObjectPreviews(config: Record<string, unknown>): ImportedObjectPreview[] {
-  const objects = config.objects;
-  if (!Array.isArray(objects)) return [];
-  const previews: ImportedObjectPreview[] = [];
-  for (const raw of objects) {
-    if (typeof raw !== 'object' || raw === null) continue;
-    const obj = raw as Record<string, unknown>;
-    if (typeof obj.objectApiName !== 'string') continue;
-    previews.push({
-      objectApiName: obj.objectApiName,
-      operation: typeof obj.operation === 'string' ? obj.operation : undefined,
-      externalIdField: typeof obj.externalIdField === 'string' ? obj.externalIdField : undefined,
-      fieldMappingCount: Array.isArray(obj.fieldMappings) ? obj.fieldMappings.length : 0,
-      transformRuleCount: Array.isArray(obj.transformRules) ? obj.transformRules.length : 0,
-      excludedFieldCount: Array.isArray(obj.excludedFields) ? obj.excludedFields.length : 0,
-    });
-  }
-  return previews;
 }
 
 /** The objects of a config, each the record the importer wrote. */
@@ -155,9 +91,15 @@ function toEntry(obj: Record<string, unknown>): ObjectSetEntry {
   };
 }
 
+/** How many entries a list key of an imported object holds. */
+function countOf(obj: Record<string, unknown> | undefined, key: string): number {
+  const list = obj?.[key];
+  return Array.isArray(list) ? list.length : 0;
+}
+
 /**
  * The config as Sync checks it, the org ids aside: the importer's are
- * placeholders the run replaces with the orgs picked here.
+ * placeholders the save replaces with the orgs picked here.
  */
 const editedConfigSchema = syncConfigSchema.omit({ sourceOrgId: true, targetOrgId: true });
 
@@ -179,17 +121,17 @@ function saveRefusalMessage(
   }
 }
 
-/** Why a config edited here cannot run, or null when it can. */
+/** Why a config edited here cannot be saved, or null when it can. */
 type EditProblem =
   | { kind: 'noObjects' }
   | { kind: 'upsertNeedsKey'; objectApiName: string }
   | { kind: 'invalid'; reason: string };
 
 /**
- * What keeps the edited config from running: no object left, an upsert with
- * no External ID field to match on (the extension refuses one keyed on `Id`,
- * which the target has never issued), or anything else Sync's own schema
- * refuses, by its first issue.
+ * What keeps the edited config from being saved for Sync: no object left, an
+ * upsert with no External ID field to match on (the extension refuses one
+ * keyed on `Id`, which the target has never issued), or anything else Sync's
+ * own schema refuses, by its first issue.
  */
 function editProblem(config: Record<string, unknown>): EditProblem | null {
   const objects = configObjects(config);
@@ -212,64 +154,71 @@ function editProblem(config: Record<string, unknown>): EditProblem | null {
 }
 
 /**
- * Migration page — exposes the SFDMU and universal importers.
+ * Migration page — converts an SFDMU export.json into a Sync configuration.
  *
- * The import itself is non-destructive: the extension reads the file, converts
- * it to a SandForge SyncConfig and returns it for preview. The objects can be
- * edited here before a run (operation, External ID, batch size, filter, or
+ * The import itself is non-destructive: the extension reads the file,
+ * converts it to a SandForge SyncConfig and returns it for preview. The
+ * objects can be edited here (operation, External ID, batch size, filter, or
  * left out), on a copy of the converted config: what the editor does not show
  * (field mappings, excluded and add-on fields, transform rules, query, order)
- * is sent as the import gave it. Handing the config to the Sync wizard instead
+ * is kept as the import gave it. Handing the config to the Sync wizard instead
  * would have lost those, which its draft does not hold.
+ *
+ * The page runs nothing. It saves the config among Sync's configurations, and
+ * "Open in Sync" opens that one on Sync's execute step, where its Simulate,
+ * progress, Stop, refusals, results and removal are Sync's own. Its Run sync
+ * was a second way to run, poorer than the first: it waited 120 seconds, said
+ * "Try again" while the run went on writing, so that a second click wrote
+ * every record twice, and showed totals alone.
  */
 export const MigrationPage: React.FC = () => {
   const { t } = useTranslation();
-  const [importType, setImportType] = useState<ImportType>('sfdmu');
+  const navigate = useAppStore((s) => s.navigate);
   const [filePath, setFilePath] = useState('');
 
   const orgs = useOrgStore((s) => s.orgs);
   const orgOptions = orgs.map((org) => ({ value: org.id, label: orgOptionLabel(org, t) }));
   // The importer fills sourceOrgId/targetOrgId with fresh UUID placeholders,
-  // so an imported config is structurally runnable but points at two orgs that
-  // do not exist. The user picks the real ones before it can execute.
+  // so an imported config points at two orgs that do not exist. The user
+  // picks the real ones before it can be saved for Sync.
   const [runSourceOrgId, setRunSourceOrgId] = useState('');
   const [runTargetOrgId, setRunTargetOrgId] = useState('');
 
-  // The channel answers with the orchestrator's SyncExecutionResult (status +
-  // record totals); a failure never reaches it — it settles on `sync:error`.
-  const runMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
-    responseType: 'sync:execute:response',
-    errorType: 'sync:error',
-    // A real sync moves records in bulk; the 30 s default is far too short.
-    timeoutMs: 120_000,
-  });
-
   // Saves the migration on screen among Sync's configurations, which the Sync
-  // page lists and a schedule runs by id. A converted config could be run
-  // once from here and kept nowhere.
+  // page lists and runs, and a schedule runs by id.
   const saveSyncMutation = useBridgeMutation<MigrationSaveSyncConfigResponse['payload']>(
     'migration:save-sync-config',
   );
   const [syncConfigName, setSyncConfigName] = useState('');
   /** The name the last save was asked under: what its answer is about. */
   const [savedUnder, setSavedUnder] = useState('');
+  /** What was on screen when the last save was asked: the config, the orgs. */
+  const [savedFor, setSavedFor] = useState('');
 
-  const sfdmuMutation = useBridgeMutation<MigrationImportResult>('migration:import-sfdmu');
-  const universalMutation = useBridgeMutation<MigrationImportResult>('migration:import');
-  const activeMutation = importType === 'sfdmu' ? sfdmuMutation : universalMutation;
+  const importMutation = useBridgeMutation<MigrationImportResult>('migration:import-sfdmu');
+
+  // Browse…: the window's open dialog, its file put in File path.
+  const pickMutation = useBridgeMutation<MigrationPickFileResponse['payload']>(
+    'migration:pick-file',
+    { timeoutMs: PICK_FILE_WAIT_MS },
+  );
+  const picked = pickMutation.data;
+  useEffect(() => {
+    if (picked?.filePath) setFilePath(picked.filePath);
+  }, [picked]);
 
   // Validate live once the user has typed something; the empty-path message is
   // only used to gate submission (the disabled button already covers it).
-  const pathError = filePath.trim().length > 0 ? validateFilePath(filePath, importType, t) : null;
-  const canSubmit = validateFilePath(filePath, importType, t) === null;
+  const pathError = filePath.trim().length > 0 ? validateFilePath(filePath, t) : null;
+  const canSubmit = validateFilePath(filePath, t) === null;
 
   const responseError =
-    activeMutation.data && !activeMutation.data.success
-      ? (activeMutation.data.error ?? t('migration.unknownError'))
+    importMutation.data && !importMutation.data.success
+      ? (importMutation.data.error ?? t('migration.unknownError'))
       : null;
-  const displayedError = activeMutation.error ?? responseError;
+  const displayedError = importMutation.error ?? responseError;
   const successResult =
-    activeMutation.data?.success && activeMutation.data.config ? activeMutation.data : null;
+    importMutation.data?.success && importMutation.data.config ? importMutation.data : null;
   /**
    * The copy of the converted config the editor changes, kept with the import
    * it was made from: a new import starts from its own config again.
@@ -281,7 +230,6 @@ export const MigrationPage: React.FC = () => {
   const importedConfig = successResult?.config;
   const workingConfig =
     importedConfig && edited?.source === importedConfig ? edited.config : importedConfig;
-  const objectPreviews = workingConfig ? extractObjectPreviews(workingConfig) : [];
   const configName =
     workingConfig && typeof workingConfig.name === 'string' ? workingConfig.name : undefined;
   const workingObjects = workingConfig ? configObjects(workingConfig) : [];
@@ -341,24 +289,29 @@ export const MigrationPage: React.FC = () => {
     );
   };
 
-  const handleTypeChange = (type: ImportType): void => {
-    if (type === importType) return;
-    setImportType(type);
-    sfdmuMutation.reset();
-    universalMutation.reset();
+  /**
+   * What an object carries that its row does not show, said under it: the
+   * import listed every object a second time, read-only, for these counts.
+   */
+  const objectDetail = (entry: ObjectSetEntry): string => {
+    const obj = workingObjects.find((kept) => kept.objectApiName === entry.objectApiName);
+    return [
+      t('migration.objectSummary.mappings', { count: countOf(obj, 'fieldMappings') }),
+      t('migration.objectSummary.rules', { count: countOf(obj, 'transformRules') }),
+      t('migration.objectSummary.excluded', { count: countOf(obj, 'excludedFields') }),
+    ].join(' · ');
   };
 
   const handleImport = (): void => {
-    if (!canSubmit || activeMutation.loading) return;
-    activeMutation.mutate({ filePath: filePath.trim() });
+    if (!canSubmit || importMutation.loading) return;
+    importMutation.mutate({ filePath: filePath.trim() });
   };
 
   const handleReset = (): void => {
     setFilePath('');
     setEdited(null);
-    sfdmuMutation.reset();
-    universalMutation.reset();
-    runMutation.reset();
+    importMutation.reset();
+    pickMutation.reset();
     saveSyncMutation.reset();
     setSyncConfigName('');
     setRunSourceOrgId('');
@@ -368,10 +321,8 @@ export const MigrationPage: React.FC = () => {
   /** Both orgs picked and distinct — a sync into its own source is not a sync. */
   const orgsPicked =
     runSourceOrgId.length > 0 && runTargetOrgId.length > 0 && runSourceOrgId !== runTargetOrgId;
-  /** The orgs picked, and a config Sync accepts as edited. */
-  const canRunImported = orgsPicked && problem === null;
 
-  /** Why the edited config cannot run, in the page's language. */
+  /** Why the edited config cannot be saved for Sync, in the page's language. */
   const problemMessage =
     problem === null
       ? null
@@ -383,7 +334,10 @@ export const MigrationPage: React.FC = () => {
 
   /** A name, the orgs picked, and a config Sync accepts as edited. */
   const canSaveAsSync =
-    canRunImported && syncConfigName.trim().length > 0 && !saveSyncMutation.loading;
+    orgsPicked && problem === null && syncConfigName.trim().length > 0 && !saveSyncMutation.loading;
+
+  /** The config on screen and the orgs picked: what a save would keep. */
+  const onScreen = JSON.stringify([workingConfig ?? null, runSourceOrgId, runTargetOrgId]);
 
   /**
    * Save the config as edited here, between the orgs picked here, as a Sync
@@ -395,6 +349,7 @@ export const MigrationPage: React.FC = () => {
     if (!workingConfig || !canSaveAsSync) return;
     const name = syncConfigName.trim();
     setSavedUnder(name);
+    setSavedFor(onScreen);
     saveSyncMutation.mutate({
       name,
       config: { ...workingConfig, sourceOrgId: runSourceOrgId, targetOrgId: runTargetOrgId },
@@ -404,26 +359,23 @@ export const MigrationPage: React.FC = () => {
   const saveError =
     saveSyncMutation.error ??
     (saveAnswer && !saveAnswer.success ? saveRefusalMessage(saveAnswer, savedUnder, t) : null);
+  const saved = saveAnswer?.success ? saveAnswer : null;
+  /**
+   * Whether the configuration saved is the one on screen. Changed since, it
+   * is another: "Open in Sync" would open what was saved, not what is shown.
+   */
+  const savedIsOnScreen = saved !== null && savedFor === onScreen;
 
   /**
-   * Run the imported config through the existing sync pipeline.
-   *
-   * `sync:execute` is declared, routed and handled end to end — production
-   * guard, DML dedup, background registry, progress events, history logging.
-   * The import screen simply never sent anything to it, so a converted config
-   * was rendered and then dropped on unmount.
+   * Sync's execute step, on the configuration saved: its Simulate, its run
+   * with progress and Stop, its results with the refusals and the removal.
    */
-  const handleRunImported = (): void => {
-    if (!workingConfig || !canRunImported || runMutation.loading) return;
-    runMutation.mutate({
-      config: {
-        // The copy as edited here: what the editor does not show is the import's.
-        ...workingConfig,
-        // The importer's org ids are generated placeholders; substitute the
-        // orgs the user actually picked.
-        sourceOrgId: runSourceOrgId,
-        targetOrgId: runTargetOrgId,
-      },
+  const handleOpenInSync = (): void => {
+    if (!saved || !savedIsOnScreen) return;
+    navigate('sync', {
+      sourceOrgId: runSourceOrgId,
+      targetOrgId: runTargetOrgId,
+      syncConfig: { id: saved.id, name: saved.name },
     });
   };
 
@@ -448,66 +400,11 @@ export const MigrationPage: React.FC = () => {
       />
       <ModuleHowTo module="migration" />
 
-      {/* Import type selector */}
-      <div
-        className="grid grid-cols-1 sm:grid-cols-2 gap-(--sf-space-3)"
-        data-testid="migration-type-selector"
-      >
-        <button
-          type="button"
-          className={cn(
-            'flex items-start gap-3 rounded-lg p-3 text-left transition-colors border',
-            importType === 'sfdmu'
-              ? 'bg-surface-2 border-active'
-              : 'bg-surface-1 border-subtle hover:bg-surface-2',
-          )}
-          onClick={() => handleTypeChange('sfdmu')}
-          aria-pressed={importType === 'sfdmu'}
-          data-testid="migration-type-sfdmu"
-        >
-          <FileJson className="w-4 h-4 mt-0.5 shrink-0 text-hue-teal" />
-          <span>
-            <span className="block text-sm font-semibold text-text-primary">
-              {t('migration.type.sfdmu.title')}
-            </span>
-            <span className="block text-xs text-text-secondary mt-0.5">
-              {t('migration.type.sfdmu.description')}
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex items-start gap-3 rounded-lg p-3 text-left transition-colors border',
-            importType === 'universal'
-              ? 'bg-surface-2 border-active'
-              : 'bg-surface-1 border-subtle hover:bg-surface-2',
-          )}
-          onClick={() => handleTypeChange('universal')}
-          aria-pressed={importType === 'universal'}
-          data-testid="migration-type-universal"
-        >
-          <FileUp className="w-4 h-4 mt-0.5 shrink-0 text-hue-teal" />
-          <span>
-            <span className="block text-sm font-semibold text-text-primary">
-              {t('migration.type.universal.title')}
-            </span>
-            <span className="block text-xs text-text-secondary mt-0.5">
-              {t('migration.type.universal.description')}
-            </span>
-          </span>
-        </button>
-      </div>
-
       {/* Source file */}
       <Card data-testid="migration-source-card">
         <CardHeader
-          title={t('migration.sourceTitle')}
-          subtitle={t(
-            importType === 'sfdmu'
-              ? 'migration.allowedExtensionsSfdmu'
-              : 'migration.allowedExtensionsUniversal',
-          )}
+          title={t('migration.type.sfdmu.title')}
+          subtitle={t('migration.type.sfdmu.description')}
         />
         <CardBody>
           <div className="flex flex-col gap-(--sf-space-3)">
@@ -515,94 +412,81 @@ export const MigrationPage: React.FC = () => {
               label={t('migration.filePathLabel')}
               value={filePath}
               onChange={(e) => setFilePath(e.target.value)}
-              placeholder={t(
-                importType === 'sfdmu'
-                  ? 'migration.filePathPlaceholderSfdmu'
-                  : 'migration.filePathPlaceholderUniversal',
-              )}
+              placeholder={t('migration.filePathPlaceholderSfdmu')}
               hint={t('migration.filePathHint')}
               error={pathError ?? undefined}
-              disabled={activeMutation.loading}
+              disabled={importMutation.loading}
               data-testid="migration-path-input"
             />
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-(--sf-space-2)">
+              <Button
+                variant="secondary"
+                onClick={() => pickMutation.mutate()}
+                disabled={importMutation.loading}
+                loading={pickMutation.loading}
+                data-testid="migration-browse-btn"
+              >
+                {t('migration.browse')}
+              </Button>
               <Button
                 variant="primary"
                 onClick={handleImport}
                 disabled={!canSubmit}
-                loading={activeMutation.loading}
+                loading={importMutation.loading}
                 data-testid="migration-import-btn"
               >
-                {activeMutation.loading ? t('migration.importing') : t('migration.import')}
+                {importMutation.loading ? t('migration.importing') : t('migration.import')}
               </Button>
             </div>
+            {pickMutation.error && (
+              <ErrorBanner
+                message={pickMutation.error}
+                code={pickMutation.errorCode}
+                onDismiss={() => pickMutation.reset()}
+                data-testid="migration-browse-error"
+              />
+            )}
           </div>
         </CardBody>
       </Card>
 
+      {/* A CSV file of records: the page read its column names and dropped its
+          rows, under a card promising they would be mapped. Seed loads them. */}
+      <div
+        className="flex flex-wrap items-center gap-(--sf-space-3) rounded-lg border border-subtle bg-surface-1 p-3"
+        data-testid="migration-csv-data"
+      >
+        <Upload className="w-4 h-4 shrink-0 text-hue-teal" aria-hidden="true" />
+        <p className="flex-1 min-w-48 text-xs text-text-secondary">{t('migration.csvData.text')}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => navigate('seed', { seedMode: 'csv' })}
+          data-testid="migration-csv-data-btn"
+        >
+          {t('migration.csvData.action')}
+        </Button>
+      </div>
+
       {displayedError && (
         <ErrorBanner
           message={displayedError}
-          code={activeMutation.errorCode}
-          onDismiss={() => activeMutation.reset()}
+          code={importMutation.errorCode}
+          onDismiss={() => importMutation.reset()}
           data-testid="migration-error"
         />
       )}
 
-      {/* Import result preview */}
+      {/* Import result */}
       {successResult && (
         <Card data-testid="migration-result">
           <CardHeader
             title={t('migration.successTitle')}
             subtitle={configName ?? t('migration.successDescription')}
-            action={
-              successResult.detectedFormat ? (
-                <span data-testid="migration-detected-format">
-                  <Badge variant="info">
-                    {t('migration.detectedFormat', { format: successResult.detectedFormat })}
-                  </Badge>
-                </span>
-              ) : undefined
-            }
           />
           <CardBody>
             <div className="flex flex-col gap-(--sf-space-3)">
-              <div className="text-xs text-text-secondary" data-testid="migration-objects-count">
-                {t('migration.objectsCount', { count: objectPreviews.length })}
-              </div>
-              <ul className="flex flex-col gap-(--sf-space-2)" data-testid="migration-objects">
-                {objectPreviews.map((obj) => (
-                  <li
-                    key={obj.objectApiName}
-                    className="flex flex-col gap-1 rounded-sm px-2.5 py-2 bg-surface-1 border border-subtle"
-                    data-testid={`migration-object-${obj.objectApiName}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-text-primary">
-                        {obj.objectApiName}
-                      </span>
-                      {obj.operation && (
-                        <Badge variant={OPERATION_VARIANTS[obj.operation] ?? 'default'}>
-                          {obj.operation}
-                        </Badge>
-                      )}
-                      {obj.externalIdField && (
-                        <span className="text-xs text-text-secondary">
-                          {t('migration.externalId', { field: obj.externalIdField })}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-text-secondary">
-                      {t('migration.objectSummary', {
-                        mappings: obj.fieldMappingCount,
-                        rules: obj.transformRuleCount,
-                        excluded: obj.excludedFieldCount,
-                      })}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {/* The objects as they will run, edited on a copy of the import. */}
+              {/* The objects as Sync will run them, edited on a copy of the import. */}
               <div data-testid="migration-edit">
                 <ObjectSetEditor
                   entries={workingObjects.map(toEntry)}
@@ -610,6 +494,7 @@ export const MigrationPage: React.FC = () => {
                   onAdd={handleObjectAdd}
                   onRemove={handleObjectRemove}
                   onChange={handleObjectChange}
+                  rowDetail={objectDetail}
                 />
               </div>
               {problemMessage !== null && (
@@ -621,153 +506,100 @@ export const MigrationPage: React.FC = () => {
                   {problemMessage}
                 </div>
               )}
-              {/* Until now the import ended here: the converted config was
-                  rendered as JSON and dropped when the page unmounted, with no
-                  way to save or run what had just been imported. */}
-              {successResult.config && (
-                <div
-                  className="flex flex-col gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-3"
-                  data-testid="migration-run"
-                >
-                  <div className="text-sm font-semibold text-text-primary">
-                    {t('migration.run.title')}
-                  </div>
-                  <div className="text-xs text-text-secondary">{t('migration.run.subtitle')}</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
-                    {/* Each org named with its type, as every other picker names
-                        it, and none chosen until the user picks: the options
-                        gave the alias alone, so a production org went unsaid
-                        on the page that runs without a review step, and the
-                        first org showed as picked while none was. */}
-                    <Select
-                      label={t('migration.run.sourceOrg')}
-                      data-testid="migration-run-source"
-                      options={orgOptions}
-                      placeholder={t('common.selectOrg')}
-                      value={runSourceOrgId}
-                      onChange={(e) => setRunSourceOrgId(e.target.value)}
-                    />
-                    <Select
-                      label={t('migration.run.targetOrg')}
-                      data-testid="migration-run-target"
-                      options={orgOptions}
-                      placeholder={t('common.selectOrg')}
-                      value={runTargetOrgId}
-                      onChange={(e) => setRunTargetOrgId(e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    data-testid="migration-run-btn"
-                    disabled={!canRunImported || runMutation.loading}
-                    onClick={handleRunImported}
-                  >
-                    {runMutation.loading ? t('migration.run.running') : t('migration.run.action')}
-                  </Button>
-                  {!orgsPicked && (
-                    <div className="text-xs text-text-secondary" data-testid="migration-run-hint">
-                      {t('migration.run.orgsRequired')}
-                    </div>
-                  )}
-                  {/* The run used to be fire-and-forget: records moved for real
-                      and neither the outcome nor the failure was ever read back
-                      off the mutation. Both are rendered here now. */}
-                  {runMutation.error && (
-                    <ErrorBanner
-                      message={runMutation.error}
-                      code={runMutation.errorCode}
-                      onDismiss={() => runMutation.reset()}
-                      data-testid="migration-run-error"
-                    />
-                  )}
-                  {/* `data` survives a new mutate(), so a re-run would show the
-                      previous outcome as if it were the new one. */}
-                  {runMutation.data && !runMutation.loading && (
-                    <div
-                      className="flex flex-wrap items-center gap-3 text-xs"
-                      data-testid="migration-run-result"
-                    >
-                      {/* A run a cancel stopped reads as cancelled, as on the Sync tab. */}
-                      {runMutation.data.cancelled ? (
-                        <Badge variant="default">{t('home.opStatus.cancelled')}</Badge>
-                      ) : (
-                        <Badge variant={RUN_STATUS_VARIANTS[runMutation.data.status] ?? 'default'}>
-                          {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'syncParts.failed')}
-                        </Badge>
-                      )}
-                      <span>
-                        {t('syncParts.totalProcessed')}:{' '}
-                        <strong>{runMutation.data.totalProcessed}</strong>
-                      </span>
-                      <span>
-                        {t('syncParts.totalSuccess')}:{' '}
-                        <strong>{runMutation.data.totalSuccess}</strong>
-                      </span>
-                      {runMutation.data.totalFailed > 0 && (
-                        <span className="text-status-error">
-                          {t('syncParts.totalFailed')}:{' '}
-                          <strong>{runMutation.data.totalFailed}</strong>
-                        </span>
-                      )}
-                      {runMutation.data.totalSkipped > 0 && (
-                        <span className="text-text-secondary">
-                          {t('syncParts.totalSkipped')}:{' '}
-                          <strong>{runMutation.data.totalSkipped}</strong>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div
-                    className="flex flex-col gap-(--sf-space-2) border-t border-subtle pt-(--sf-space-2)"
-                    data-testid="migration-save-sync"
-                  >
-                    <div className="text-sm font-semibold text-text-primary">
-                      {t('migration.saveSync.title')}
-                    </div>
-                    <div className="text-xs text-text-secondary">
-                      {t('migration.saveSync.subtitle')}
-                    </div>
-                    <Input
-                      label={t('migration.saveSync.nameLabel')}
-                      value={syncConfigName}
-                      onChange={(e) => setSyncConfigName(e.target.value)}
-                      hint={t('migration.saveSync.nameHint')}
-                      maxLength={200}
-                      disabled={saveSyncMutation.loading}
-                      data-testid="migration-save-sync-name"
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      data-testid="migration-save-sync-btn"
-                      disabled={!canSaveAsSync}
-                      onClick={handleSaveAsSync}
-                    >
-                      {saveSyncMutation.loading
-                        ? t('migration.saveSync.saving')
-                        : t('migration.saveSync.action')}
-                    </Button>
-                    {saveAnswer?.success && (
-                      <div
-                        className="text-xs text-status-success"
-                        role="status"
-                        data-testid="migration-save-sync-saved"
-                      >
-                        {t('migration.saveSync.saved', { name: saveAnswer.name })}
-                      </div>
-                    )}
-                    {saveError && (
-                      <ErrorBanner
-                        message={saveError}
-                        code={saveSyncMutation.errorCode}
-                        onDismiss={() => saveSyncMutation.reset()}
-                        data-testid="migration-save-sync-error"
-                      />
-                    )}
-                  </div>
+              <div
+                className="flex flex-col gap-(--sf-space-2) rounded-sm border border-subtle bg-surface-1 p-3"
+                data-testid="migration-for-sync"
+              >
+                <div className="text-sm font-semibold text-text-primary">
+                  {t('migration.run.title')}
                 </div>
-              )}
+                <div className="text-xs text-text-secondary">{t('migration.run.subtitle')}</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-(--sf-space-2)">
+                  {/* Each org named with its type, as every other picker names
+                      it, and none chosen until the user picks. */}
+                  <Select
+                    label={t('migration.run.sourceOrg')}
+                    data-testid="migration-run-source"
+                    options={orgOptions}
+                    placeholder={t('common.selectOrg')}
+                    value={runSourceOrgId}
+                    onChange={(e) => setRunSourceOrgId(e.target.value)}
+                  />
+                  <Select
+                    label={t('migration.run.targetOrg')}
+                    data-testid="migration-run-target"
+                    options={orgOptions}
+                    placeholder={t('common.selectOrg')}
+                    value={runTargetOrgId}
+                    onChange={(e) => setRunTargetOrgId(e.target.value)}
+                  />
+                </div>
+                {!orgsPicked && (
+                  <div className="text-xs text-text-secondary" data-testid="migration-run-hint">
+                    {t('migration.run.orgsRequired')}
+                  </div>
+                )}
+                <Input
+                  label={t('migration.saveSync.nameLabel')}
+                  value={syncConfigName}
+                  onChange={(e) => setSyncConfigName(e.target.value)}
+                  hint={t('migration.saveSync.nameHint')}
+                  maxLength={200}
+                  disabled={saveSyncMutation.loading}
+                  data-testid="migration-save-sync-name"
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="self-start"
+                  data-testid="migration-save-sync-btn"
+                  // Saved as it is shown, a second save would only be refused
+                  // its name: Open in Sync is what comes next.
+                  disabled={!canSaveAsSync || savedIsOnScreen}
+                  onClick={handleSaveAsSync}
+                >
+                  {saveSyncMutation.loading
+                    ? t('migration.saveSync.saving')
+                    : t('migration.saveSync.action')}
+                </Button>
+                {saved && savedIsOnScreen && (
+                  <div className="flex flex-col gap-(--sf-space-2)">
+                    <div
+                      className="text-xs text-status-success"
+                      role="status"
+                      data-testid="migration-save-sync-saved"
+                    >
+                      {t('migration.saveSync.saved', { name: saved.name })}
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="self-start"
+                      onClick={handleOpenInSync}
+                      data-testid="migration-open-in-sync-btn"
+                    >
+                      {t('migration.saveSync.openInSync')}
+                    </Button>
+                  </div>
+                )}
+                {saved && !savedIsOnScreen && (
+                  <div
+                    className="text-xs text-text-secondary"
+                    role="status"
+                    data-testid="migration-save-sync-changed"
+                  >
+                    {t('migration.saveSync.changedSinceSaved', { name: saved.name })}
+                  </div>
+                )}
+                {saveError && (
+                  <ErrorBanner
+                    message={saveError}
+                    code={saveSyncMutation.errorCode}
+                    onDismiss={() => saveSyncMutation.reset()}
+                    data-testid="migration-save-sync-error"
+                  />
+                )}
+              </div>
 
               <details data-testid="migration-raw-config">
                 <summary className="text-xs text-text-secondary cursor-pointer select-none">

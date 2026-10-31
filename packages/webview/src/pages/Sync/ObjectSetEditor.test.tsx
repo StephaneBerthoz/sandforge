@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import { ObjectSetEditor } from './ObjectSetEditor';
 import type { ObjectSetEntry } from './ObjectSetEditor';
@@ -132,6 +132,82 @@ describe('ObjectSetEditor', () => {
     expect(screen.getByTestId('add-object-btn')).toBeDefined();
   });
 
+  it('names each column above the rows, so a filled box still says what it holds', () => {
+    // A bare "200" once typed, with its placeholder gone, said nothing of
+    // being the batch size.
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={['Lead']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(headers).toEqual([
+      'Object',
+      'Operation',
+      'External ID',
+      'Batch Size',
+      'WHERE clause',
+      'Remove Object',
+    ]);
+    // Each row's boxes sit in the column their header names.
+    const row = screen.getByTestId('object-entry-Contact');
+    const cells = Array.from(row.querySelectorAll('td'));
+    expect(cells).toHaveLength(headers.length);
+    expect(within(cells[3]).getByLabelText('Batch Size — Contact')).toBeDefined();
+    expect(within(cells[4]).getByLabelText('WHERE clause — Contact')).toBeDefined();
+  });
+
+  it('removes a row with a named trash icon rather than a bare red x', () => {
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={['Lead']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+    const remove = screen.getByTestId('remove-obj-Account');
+    expect(remove.textContent).toBe('');
+    expect(remove.getAttribute('title')).toBe('Remove Object — Account');
+    expect(within(remove).getByTestId('icon-trash')).toBeDefined();
+  });
+
+  it('offers no add row while there is no object to choose', () => {
+    // Migration's picker was empty until an object was left out, beside a
+    // button that could add nothing.
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={['Account', 'Contact']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('add-object-row')).toBeNull();
+    expect(screen.queryByTestId('add-object-btn')).toBeNull();
+  });
+
+  it('says under a row what its object carries that the row does not show', () => {
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={[]}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+        rowDetail={(entry) => (entry.objectApiName === 'Account' ? '3 field mappings' : undefined)}
+      />,
+    );
+    expect(screen.getByTestId('object-detail-Account').textContent).toBe('3 field mappings');
+    expect(screen.queryByTestId('object-detail-Contact')).toBeNull();
+  });
+
   it('should display object API names as badges', () => {
     render(
       <ObjectSetEditor
@@ -208,9 +284,10 @@ describe('ObjectSetEditor accessible names', () => {
     expect(screen.getByRole('button', { name: 'Remove Object — Contact' })).toBeDefined();
   });
 
-  it('names the add-object select from its placeholder', () => {
+  it('names the add-object select from its placeholder, which is not the button beside it', () => {
     renderEditor();
-    expect(screen.getByLabelText('Add Object').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('Choose an object…').tagName).toBe('SELECT');
+    expect(screen.getByTestId('add-object-btn').textContent).toBe('Add Object');
   });
 
   it('translates the WHERE clause placeholder instead of hardcoding English', () => {

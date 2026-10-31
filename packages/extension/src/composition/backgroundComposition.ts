@@ -180,6 +180,45 @@ export function checkpointFileDialogs(
   };
 }
 
+/**
+ * Browse… on the Migration page: the window's open dialog, for one SFDMU
+ * export.json, opened in the first workspace folder or else the home folder,
+ * where the import takes a file from. The page had only a field to type an
+ * absolute path in, its examples Windows paths on every system.
+ *
+ * @param homeDir - Where the dialog opens when no folder is open.
+ * @returns The path picked on this machine's disk, or undefined when the
+ *   dialog was closed; a refusal in words for a file the import cannot read.
+ */
+export function migrationExportPicker(homeDir: string): () => Promise<string | undefined> {
+  return async () => {
+    const picked = await vscode.window.showOpenDialog({
+      title: vscode.l10n.t('Import an SFDMU export.json'),
+      openLabel: vscode.l10n.t('Import'),
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file(homeDir),
+      filters: {
+        [vscode.l10n.t('SFDMU export.json')]: ['json'],
+        [vscode.l10n.t('All files')]: ['*'],
+      },
+    });
+    const uri = picked?.[0];
+    if (!uri) return undefined;
+    // The import reads it with the disk's own calls, which reach no other
+    // file system the dialog offers.
+    if (uri.scheme !== 'file') {
+      throw new Error(
+        vscode.l10n.t(
+          'SandForge reads an SFDMU export.json from the disk of the machine it runs on: pick a file there.',
+        ),
+      );
+    }
+    return uri.fsPath;
+  };
+}
+
 /** The most entries a run's question lists before it says how many more there are. */
 const LISTED_IN_A_QUESTION = 12;
 

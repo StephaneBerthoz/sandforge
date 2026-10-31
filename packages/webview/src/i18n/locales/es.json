@@ -1803,53 +1803,47 @@
     "delta": {
       "mode": "Delta",
       "withDeletes": "Delta, eliminaciones aplicadas"
-    }
+    },
+    "chooseObject": "Elija un objeto…"
   },
   "migration": {
     "title": "Migración",
-    "subtitle": "Importe una definición de migración existente y conviértala en una configuración de sincronización de SandForge. La importación lee el archivo sin cambiar nada; ejecutar la configuración convertida escribe registros en la org de destino.",
-    "sourceTitle": "Archivo de origen",
+    "subtitle": "Convierta un export.json de SFDMU en una configuración de Sync. La importación lee el archivo sin cambiar nada en ninguna org; Sync ejecuta la configuración una vez guardada y escribe registros en la org de destino.",
     "type": {
       "sfdmu": {
         "title": "export.json de SFDMU",
         "description": "Convierte una definición export.json de SFDMU: objetos, asignaciones de campos y asignaciones de valores."
-      },
-      "universal": {
-        "title": "Archivo CSV o JSON",
-        "description": "Importe cualquier archivo de datos CSV o JSON: las columnas se asignan automáticamente a los campos de Salesforce."
       }
     },
-    "allowedExtensionsSfdmu": "Solo se acepta un archivo .json (export.json de SFDMU).",
-    "allowedExtensionsUniversal": "Archivos aceptados: .json o .csv.",
     "filePathLabel": "Ruta del archivo",
-    "filePathPlaceholderSfdmu": "C:/proyectos/sfdmu/export.json",
-    "filePathPlaceholderUniversal": "C:/proyectos/datos/cuentas.csv",
-    "filePathHint": "Ruta absoluta. El archivo debe estar dentro de una carpeta del espacio de trabajo abierta o en su directorio personal.",
+    "filePathPlaceholderSfdmu": "/ruta/a/export.json",
+    "filePathHint": "Use Examinar… para elegirlo, o pegue su ruta absoluta. El archivo debe estar dentro de una carpeta del espacio de trabajo abierta o en su directorio personal.",
     "import": "Importar",
     "importing": "Importando…",
     "reset": "Nueva importación",
     "successTitle": "Importación completada",
     "successDescription": "Configuración convertida",
     "unknownError": "La importación falló por un motivo desconocido.",
-    "detectedFormat": "Formato detectado: {{format}}",
-    "objectsCount_one": "{{count}} objeto",
-    "objectsCount_other": "{{count}} objetos",
-    "externalId": "ID externo: {{field}}",
-    "objectSummary": "{{mappings}} asignaciones de campos · {{rules}} reglas de transformación · {{excluded}} campos excluidos",
+    "objectSummary": {
+      "mappings_one": "{{count}} asignación de campo",
+      "mappings_other": "{{count}} asignaciones de campos",
+      "rules_one": "{{count}} regla de transformación",
+      "rules_other": "{{count}} reglas de transformación",
+      "excluded_one": "{{count}} campo excluido",
+      "excluded_other": "{{count}} campos excluidos"
+    },
     "rawConfig": "Configuración sin procesar",
     "validation": {
       "pathRequired": "Introduzca la ruta del archivo que desea importar.",
-      "pathNotAbsolute": "La ruta debe ser absoluta (p. ej., C:/proyectos/export.json o /home/usted/export.json).",
+      "pathNotAbsolute": "La ruta debe ser absoluta: pulse Examinar… para elegir el archivo, o pegue su ruta completa.",
       "pathExtension": "Extensión de archivo no admitida. Se esperaba: {{extensions}}."
     },
     "run": {
-      "title": "Ejecutar esta importación",
-      "subtitle": "Elija las orgs de origen y destino: el archivo importado nombra las suyas, que aquí no existen.",
+      "title": "Ejecutarla desde Sync",
+      "subtitle": "Elija las orgs de origen y destino (el archivo importado nombra las suyas, que aquí no existen) y guárdela como configuración de Sync. Abrir en Sync la muestra entonces en el paso Ejecutar de Sync: Simular la comprueba, Ejecutar la sincronización la escribe, y los resultados dicen lo que creó y pueden quitarlo.",
       "sourceOrg": "Org de origen",
       "targetOrg": "Org de destino",
-      "action": "Ejecutar sincronización",
-      "running": "En curso…",
-      "orgsRequired": "Elija dos orgs distintas para ejecutar esta importación."
+      "orgsRequired": "Elija dos orgs distintas para guardar esta importación para Sync."
     },
     "edit": {
       "noObjects": "Conserve al menos un objeto: una ejecución sin objetos no movería nada.",
@@ -1857,8 +1851,6 @@
       "invalid": "Esta configuración no puede ejecutarse tal como está editada — {{reason}}"
     },
     "saveSync": {
-      "title": "Guardar como configuración de Sync",
-      "subtitle": "Guarda esta importación, tal como se editó aquí y entre las dos orgs elegidas arriba, entre las configuraciones guardadas de Sync: la página Sync la muestra y una programación puede ejecutarla.",
       "nameLabel": "Nombre de la configuración de Sync",
       "action": "Guardar como configuración de Sync",
       "saving": "Guardando…",
@@ -1866,8 +1858,15 @@
       "saved": "Guardada como la configuración de Sync «{{name}}»: la página Sync la muestra con sus configuraciones guardadas y una programación puede ejecutarla.",
       "nameRequired": "Dé un nombre a la configuración y luego guárdela.",
       "duplicateName": "Ya hay una configuración de Sync guardada con el nombre «{{name}}». Elija otro nombre: no se guardó nada.",
-      "cannotCopy": "Sync no copia {{objects}}: ninguna copia escribe usuarios y sus accesos, metadatos, el historial de un registro, filas de feed o de uso compartido, archivos ni los registros que la plataforma guarda para sí. Quítelos y vuelva a guardar: no se guardó nada.",
-      "invalid": "Sync no puede ejecutar esta configuración, así que no se guardó — {{reason}}"
+      "cannotCopy": "Sync no copia {{objects}}: ninguna copia escribe usuarios y sus accesos, metadatos, el historial de un registro, filas de feed o de uso compartido, objetos de archivo (los archivos de un registro van con él cuando Copiar los archivos de estos registros está marcado en Sync) ni los registros que la plataforma guarda para sí. Quítelos y vuelva a guardar: no se guardó nada.",
+      "invalid": "Sync no puede ejecutar esta configuración, así que no se guardó — {{reason}}",
+      "openInSync": "Abrir en Sync",
+      "changedSinceSaved": "Cambiada desde que se guardó como «{{name}}»: guárdela con otro nombre para abrirla en Sync."
+    },
+    "browse": "Examinar…",
+    "csvData": {
+      "text": "¿Un archivo CSV de registros? Esta página solo convierte definiciones de SFDMU: Subir CSV de Seed carga las filas de un archivo CSV en una org.",
+      "action": "Abrir Subir CSV"
     }
   },
   "dataops": {
@@ -3242,12 +3241,12 @@
       "tip": "Los pasos Sync, Seed, Anonimización y Retroceso escriben en una org. Seed y Anonimización nunca en producción; un Retroceso se ejecuta una vez confirmado."
     },
     "migration": {
-      "step1": "Elija el tipo de su archivo: export.json de SFDMU, o Archivo CSV o JSON.",
-      "step2": "Escriba la ruta absoluta del archivo en Ruta del archivo y pulse Importar.",
-      "step3": "En Conjunto de objetos, revise la operación, el ID externo y la Cláusula WHERE de cada objeto.",
-      "step4": "En Ejecutar esta importación, elija la Org de origen y la Org de destino, y pulse Ejecutar sincronización.",
-      "step5": "Para volver a ejecutarla más tarde, póngale un nombre y pulse Guardar como configuración de Sync.",
-      "tip": "Importar no escribe en ninguna org; solo Ejecutar sincronización escribe, en la Org de destino, después de que Production Guard juzgue la ejecución."
+      "step1": "Pulse Examinar… y elija su export.json de SFDMU, o pegue su ruta absoluta en Ruta del archivo.",
+      "step2": "Pulse Importar: SandForge lee el archivo y no escribe en ninguna org.",
+      "step3": "En Conjunto de objetos, revise la operación, el ID externo, el tamaño de lote y la Cláusula WHERE de cada objeto.",
+      "step4": "Elija la Org de origen y la Org de destino, póngale un nombre y pulse Guardar como configuración de Sync.",
+      "step5": "Pulse Abrir en Sync: Simular la comprueba allí y Ejecutar la sincronización la escribe.",
+      "tip": "Un archivo CSV de registros va a Subir CSV de Seed, que carga sus filas. Solo Sync escribe, después de que Production Guard juzgue la ejecución."
     },
     "reports": {
       "step1": "En Ejecuciones, pulse una ejecución de Forge o Sync para leer su detalle bajo la lista.",

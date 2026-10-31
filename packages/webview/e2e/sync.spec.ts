@@ -359,6 +359,65 @@ test.describe('Sync panel — saved configurations', () => {
   });
 });
 
+test.describe('Sync panel — a configuration Migration saved and opened here', () => {
+  test('runs from the execute step as saved, between its orgs, with its own Stop', async ({
+    page,
+  }) => {
+    // Migration ran a sync of its own: 120 s of waiting with no progress and
+    // no Stop, "Try again" while the host went on writing, totals alone.
+    const bridge = new MockBridge();
+    await bridge.setup(page);
+    await page.addInitScript(() => {
+      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'migration';
+    });
+    await page.goto('/');
+    await bridge.seedOrgs(MOCK_ORGS);
+    await page.getByTestId('migration-path-input').fill('/home/qa/sfdmu/export.json');
+    await page.getByTestId('migration-import-btn').click();
+    const imported = await bridge.waitForMessage('migration:import-sfdmu', { timeout: 10_000 });
+    await bridge.respond(
+      'migration:import-sfdmu:response',
+      {
+        success: true,
+        config: {
+          ...SAVED_CONFIG,
+          id: 'import-placeholder',
+          sourceOrgId: 'imported-source',
+          targetOrgId: 'imported-target',
+        },
+      },
+      imported.id as string,
+    );
+    await page.getByTestId('migration-run-source').selectOption(DEV_SANDBOX.id);
+    await page.getByTestId('migration-run-target').selectOption(QA_SANDBOX.id);
+    await page.getByTestId('migration-save-sync-name').fill('Nightly accounts');
+    await page.getByTestId('migration-save-sync-btn').click();
+    const save = await bridge.waitForMessage('migration:save-sync-config', { timeout: 10_000 });
+    await bridge.respond(
+      'migration:save-sync-config:response',
+      { success: true, id: 'cfg-saved', name: 'Nightly accounts' },
+      save.id as string,
+    );
+    await page.getByTestId('migration-open-in-sync-btn').click();
+
+    await expect(page.getByTestId('sync-page')).toBeVisible();
+    const types = page.getByTestId('page-header-actions').getByTestId('org-badge-alias');
+    await expect(types).toHaveText([DEV_SANDBOX.alias, QA_SANDBOX.alias]);
+    await page.getByTestId('sync-run').click();
+    const load = await bridge.waitForMessage('sync:config:load', { timeout: 10_000 });
+    expect(load.payload).toEqual({ id: 'cfg-saved' });
+    await bridge.respond('sync:config:load:response', { config: SAVED_CONFIG }, load.id as string);
+
+    const run = await bridge.waitForMessage('sync:execute', { timeout: 10_000 });
+    expect(run.payload).toEqual({ config: SAVED_CONFIG });
+    expect(await bridge.getMessages('sync:execute')).toHaveLength(1);
+    await expect(page.getByTestId('sync-saved-run')).toContainText(
+      'Saved configuration: Nightly accounts',
+    );
+    await expect(page.getByTestId('sync-cancel')).toBeVisible();
+  });
+});
+
 test.describe('Sync panel — the orgs in the header', () => {
   test('names each org by the type the pickers give it, a sandbox marked Staging as one', async ({
     page,

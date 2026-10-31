@@ -373,8 +373,9 @@ const AutomationMessages = [
   msg('marketplace:list:response'),
   msg('marketplace:install'),
   msg('marketplace:install:response'),
-  msg('migration:import'),
-  msg('migration:import:response'),
+  // Browse… on the Migration page: the window's open dialog, and the file picked.
+  msg('migration:pick-file'),
+  msg('migration:pick-file:response'),
   msg('migration:import-sfdmu'),
   msg('migration:import-sfdmu:response'),
   // The migration on screen saved as a Sync configuration.

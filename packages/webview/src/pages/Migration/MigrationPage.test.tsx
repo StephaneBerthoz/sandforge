@@ -1,116 +1,45 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import type { SyncExecutionResult } from '@sandforge/shared';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { MigrationPage } from './MigrationPage';
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
 /* ------------------------------------------------------------------ */
-const mockSfdmuMutate = vi.fn();
-const mockSfdmuReset = vi.fn();
-const mockUniversalMutate = vi.fn();
-const mockUniversalReset = vi.fn();
 
+/** A mutation as the page reads it, its state set by each test. */
 interface MockMutationState {
-  mutate: ReturnType<typeof vi.fn>;
-  data: {
-    success: boolean;
-    config?: Record<string, unknown>;
-    detectedFormat?: string;
-    error?: string;
-  } | null;
-  loading: boolean;
-  error: string | null;
-  reset: ReturnType<typeof vi.fn>;
-}
-
-/** Mutable mutation state for migration:import-sfdmu. */
-let mockSfdmuState: MockMutationState = {
-  mutate: mockSfdmuMutate,
-  data: null,
-  loading: false,
-  error: null,
-  reset: mockSfdmuReset,
-};
-
-/** Mutable mutation state for migration:import. */
-let mockUniversalState: MockMutationState = {
-  mutate: mockUniversalMutate,
-  data: null,
-  loading: false,
-  error: null,
-  reset: mockUniversalReset,
-};
-
-const mockRunMutate = vi.fn();
-const mockRunReset = vi.fn();
-
-/** Mutable mutation state for sync:execute (the "run this import" button). */
-let mockRunState: {
-  mutate: ReturnType<typeof vi.fn>;
-  data: SyncExecutionResult | null;
-  loading: boolean;
-  error: string | null;
-  reset: ReturnType<typeof vi.fn>;
-} = {
-  mutate: mockRunMutate,
-  data: null,
-  loading: false,
-  error: null,
-  reset: mockRunReset,
-};
-
-const mockSaveSyncMutate = vi.fn();
-const mockSaveSyncReset = vi.fn();
-
-/** Mutable mutation state for migration:save-sync-config. */
-let mockSaveSyncState: {
   mutate: ReturnType<typeof vi.fn>;
   data: Record<string, unknown> | null;
   loading: boolean;
   error: string | null;
+  errorCode: string | null;
   reset: ReturnType<typeof vi.fn>;
-} = {
-  mutate: mockSaveSyncMutate,
-  data: null,
-  loading: false,
-  error: null,
-  reset: mockSaveSyncReset,
-};
+}
+
+function mutationState(data: Record<string, unknown> | null = null): MockMutationState {
+  return { mutate: vi.fn(), data, loading: false, error: null, errorCode: null, reset: vi.fn() };
+}
+
+/** migration:import-sfdmu, migration:save-sync-config and migration:pick-file. */
+let importState = mutationState();
+let saveState = mutationState();
+let pickState = mutationState();
+
+/** Every channel the page set up a mutation on. */
+const asked = new Set<string>();
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
-    if (type === 'migration:save-sync-config') {
-      return mockSaveSyncState;
-    }
-    if (type === 'migration:import-sfdmu') {
-      return mockSfdmuState;
-    }
-    if (type === 'migration:import') {
-      return mockUniversalState;
-    }
-    if (type === 'sync:execute') {
-      return mockRunState;
-    }
-    return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
+    asked.add(type);
+    if (type === 'migration:import-sfdmu') return importState;
+    if (type === 'migration:save-sync-config') return saveState;
+    if (type === 'migration:pick-file') return pickState;
+    return mutationState();
   },
 }));
-
-/** A completed run as the orchestrator reports it on sync:execute:response. */
-const runResult: SyncExecutionResult = {
-  configId: 'cfg-1',
-  operationId: 'op-1',
-  status: 'success',
-  objectResults: [],
-  totalProcessed: 120,
-  totalSuccess: 118,
-  totalFailed: 2,
-  totalSkipped: 3,
-  duration: 4200,
-  timestamp: '2024-01-01T00:00:00Z',
-};
 
 /** Converted SyncConfig as returned by the SFDMU importer. */
 const sfdmuConfig: Record<string, unknown> = {
@@ -137,7 +66,10 @@ const sfdmuConfig: Record<string, unknown> = {
       objectApiName: 'Contact',
       operation: 'insert',
       fieldMappings: [],
-      transformRules: [],
+      transformRules: [
+        { type: 'prefix', config: { prefix: 'QA-' } },
+        { type: 'suffix', config: { suffix: '-x' } },
+      ],
       excludedFields: [],
       addOnFields: [],
       batchSize: 200,
@@ -150,136 +82,133 @@ const sfdmuConfig: Record<string, unknown> = {
   updatedAt: '2024-01-01T00:00:00Z',
 };
 
-describe('MigrationPage', () => {
-  beforeEach(() => {
-    mockSfdmuMutate.mockClear();
-    mockSfdmuReset.mockClear();
-    mockUniversalMutate.mockClear();
-    mockUniversalReset.mockClear();
-    mockSfdmuState = {
-      mutate: mockSfdmuMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockSfdmuReset,
-    };
-    mockUniversalState = {
-      mutate: mockUniversalMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockUniversalReset,
-    };
-  });
+const [account, contact] = sfdmuConfig.objects as Array<Record<string, unknown>>;
 
-  it('should render the page with SFDMU selected by default', () => {
+beforeEach(() => {
+  importState = mutationState();
+  saveState = mutationState();
+  pickState = mutationState();
+  asked.clear();
+  useAppStore.setState({ currentRoute: 'migration', navigationIntent: null });
+  useOrgStore.setState({
+    orgs: [
+      { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
+      { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
+    ] as never,
+  });
+});
+
+function typePath(value: string): void {
+  fireEvent.change(screen.getByTestId('migration-path-input'), { target: { value } });
+}
+
+describe('MigrationPage — the file to import', () => {
+  it('opens on the SFDMU export.json importer, with no card for a CSV or JSON data file', () => {
+    // "CSV or JSON file" promised its columns mapped to Salesforce fields: it
+    // read the column names, dropped the rows and named the object after the
+    // file, so a run copied the source org's own records.
     render(<MigrationPage />);
     expect(screen.getByTestId('migration-page')).toBeDefined();
-    expect(screen.getByText('Migration')).toBeDefined();
-    expect(screen.getByTestId('migration-type-sfdmu').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByTestId('migration-type-universal').getAttribute('aria-pressed')).toBe(
-      'false',
-    );
-    expect(screen.getByText('Only a .json file (SFDMU export.json) is accepted.')).toBeDefined();
+    expect(screen.getByTestId('migration-source-card').textContent).toContain('SFDMU export.json');
+    expect(screen.queryByTestId('migration-type-universal')).toBeNull();
+    expect(screen.getByTestId('migration-page').textContent).not.toMatch(/CSV or JSON/);
+    expect(asked.has('migration:import')).toBe(false);
   });
 
-  it('should switch to the universal importer and update the extension hint', () => {
+  it('sends a CSV file of records to Seed’s CSV Upload, which loads its rows', () => {
     render(<MigrationPage />);
-    fireEvent.click(screen.getByTestId('migration-type-universal'));
-    expect(screen.getByTestId('migration-type-universal').getAttribute('aria-pressed')).toBe(
-      'true',
+    expect(screen.getByTestId('migration-csv-data').textContent).toContain(
+      "Seed's CSV Upload loads a CSV file's rows into an org.",
     );
-    expect(screen.getByText('Accepted files: .json or .csv.')).toBeDefined();
-    /* Switching type resets both mutations */
-    expect(mockSfdmuReset).toHaveBeenCalled();
-    expect(mockUniversalReset).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('migration-csv-data-btn'));
+
+    expect(useAppStore.getState().currentRoute).toBe('seed');
+    expect(useAppStore.getState().navigationIntent).toEqual({ route: 'seed', seedMode: 'csv' });
+  });
+
+  it('offers neutral example paths, not Windows ones', () => {
+    // "C:/projects/sfdmu/export.json" was the example on Linux and macOS too.
+    render(<MigrationPage />);
+    const input = screen.getByTestId('migration-path-input') as HTMLInputElement;
+    expect(input.placeholder).toBe('/path/to/export.json');
+    typePath('relative/export.json');
+    expect(screen.getByText(/The path must be absolute/).textContent).not.toMatch(/C:/);
+  });
+
+  it('fills File path with the file Browse… picked in the window’s dialog', () => {
+    const { rerender } = render(<MigrationPage />);
+
+    fireEvent.click(screen.getByTestId('migration-browse-btn'));
+    expect(pickState.mutate).toHaveBeenCalledTimes(1);
+
+    pickState = mutationState({ filePath: '/home/user/sfdmu/export.json' });
+    rerender(<MigrationPage />);
+
+    expect((screen.getByTestId('migration-path-input') as HTMLInputElement).value).toBe(
+      '/home/user/sfdmu/export.json',
+    );
+    fireEvent.click(screen.getByTestId('migration-import-btn'));
+    expect(importState.mutate).toHaveBeenCalledWith({ filePath: '/home/user/sfdmu/export.json' });
+  });
+
+  it('leaves File path as typed when the dialog was closed', () => {
+    const { rerender } = render(<MigrationPage />);
+    typePath('/home/user/typed/export.json');
+    fireEvent.click(screen.getByTestId('migration-browse-btn'));
+
+    pickState = mutationState({});
+    rerender(<MigrationPage />);
+
+    expect((screen.getByTestId('migration-path-input') as HTMLInputElement).value).toBe(
+      '/home/user/typed/export.json',
+    );
+  });
+
+  it('says why Browse… was refused', () => {
+    pickState = { ...mutationState(), error: 'pick a file there' };
+    render(<MigrationPage />);
+    expect(screen.getByTestId('migration-browse-error').textContent).toContain('pick a file there');
   });
 
   it('should keep the import button disabled while the path is empty', () => {
     render(<MigrationPage />);
-    const button = screen.getByTestId('migration-import-btn');
-    expect(button.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('migration-import-btn').hasAttribute('disabled')).toBe(true);
   });
 
   it('should reject a relative path with a validation error', () => {
     render(<MigrationPage />);
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: 'relative/path/export.json' },
-    });
+    typePath('relative/path/export.json');
     expect(screen.getByText(/The path must be absolute/)).toBeDefined();
     expect(screen.getByTestId('migration-import-btn').hasAttribute('disabled')).toBe(true);
-    expect(mockSfdmuMutate).not.toHaveBeenCalled();
+    expect(importState.mutate).not.toHaveBeenCalled();
   });
 
-  it('should reject a .csv path for the SFDMU importer', () => {
+  it('refuses a .csv path: the importer takes an export.json', () => {
     render(<MigrationPage />);
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: '/home/user/data.csv' },
-    });
-    expect(screen.getByText(/Unsupported file extension/)).toBeDefined();
+    typePath('/home/user/data.csv');
+    expect(screen.getByText('Unsupported file extension. Expected: .json.')).toBeDefined();
     expect(screen.getByTestId('migration-import-btn').hasAttribute('disabled')).toBe(true);
-    expect(mockSfdmuMutate).not.toHaveBeenCalled();
   });
 
   it('should send migration:import-sfdmu with the trimmed absolute path', () => {
     render(<MigrationPage />);
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: '  /home/user/sfdmu/export.json  ' },
-    });
+    typePath('  /home/user/sfdmu/export.json  ');
     fireEvent.click(screen.getByTestId('migration-import-btn'));
-    expect(mockSfdmuMutate).toHaveBeenCalledWith({ filePath: '/home/user/sfdmu/export.json' });
-    expect(mockUniversalMutate).not.toHaveBeenCalled();
+    expect(importState.mutate).toHaveBeenCalledWith({ filePath: '/home/user/sfdmu/export.json' });
   });
 
   it('should accept a Windows drive path', () => {
     render(<MigrationPage />);
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: 'C:\\projects\\sfdmu\\export.json' },
-    });
+    typePath('C:\\projects\\sfdmu\\export.json');
     fireEvent.click(screen.getByTestId('migration-import-btn'));
-    expect(mockSfdmuMutate).toHaveBeenCalledWith({ filePath: 'C:\\projects\\sfdmu\\export.json' });
-  });
-
-  it('should send migration:import for a CSV file on the universal importer', () => {
-    render(<MigrationPage />);
-    fireEvent.click(screen.getByTestId('migration-type-universal'));
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: '/home/user/data/accounts.csv' },
+    expect(importState.mutate).toHaveBeenCalledWith({
+      filePath: 'C:\\projects\\sfdmu\\export.json',
     });
-    fireEvent.click(screen.getByTestId('migration-import-btn'));
-    expect(mockUniversalMutate).toHaveBeenCalledWith({
-      filePath: '/home/user/data/accounts.csv',
-    });
-    expect(mockSfdmuMutate).not.toHaveBeenCalled();
-  });
-
-  it('should render the converted config preview on success', () => {
-    mockSfdmuState = { ...mockSfdmuState, data: { success: true, config: sfdmuConfig } };
-    render(<MigrationPage />);
-    expect(screen.getByTestId('migration-result')).toBeDefined();
-    expect(screen.getByTestId('migration-objects-count').textContent).toBe('2 objects');
-    expect(screen.getByTestId('migration-object-Account')).toBeDefined();
-    expect(screen.getByTestId('migration-object-Contact')).toBeDefined();
-    expect(screen.getByText('upsert')).toBeDefined();
-    expect(screen.getByText('External ID: External_Id__c')).toBeDefined();
-    expect(screen.getByTestId('migration-raw-config')).toBeDefined();
-  });
-
-  it('should show the detected format badge for a universal import', () => {
-    mockUniversalState = {
-      ...mockUniversalState,
-      data: { success: true, config: sfdmuConfig, detectedFormat: 'csv' },
-    };
-    render(<MigrationPage />);
-    fireEvent.click(screen.getByTestId('migration-type-universal'));
-    expect(screen.getByTestId('migration-detected-format').textContent).toContain('csv');
   });
 
   it('should display the error carried by a failed response payload', () => {
-    mockSfdmuState = {
-      ...mockSfdmuState,
-      data: { success: false, error: 'Invalid import path: not absolute.' },
-    };
+    importState = mutationState({ success: false, error: 'Invalid import path: not absolute.' });
     render(<MigrationPage />);
     expect(screen.getByTestId('migration-error').textContent).toContain(
       'Invalid import path: not absolute.',
@@ -287,13 +216,13 @@ describe('MigrationPage', () => {
   });
 
   it('should display a bridge-level error', () => {
-    mockSfdmuState = { ...mockSfdmuState, error: 'Request timed out' };
+    importState = { ...mutationState(), error: 'Request timed out' };
     render(<MigrationPage />);
     expect(screen.getByTestId('migration-error').textContent).toContain('Request timed out');
   });
 
   it('should show the loading state while importing', () => {
-    mockSfdmuState = { ...mockSfdmuState, loading: true };
+    importState = { ...mutationState(), loading: true };
     render(<MigrationPage />);
     const button = screen.getByTestId('migration-import-btn');
     expect(button.textContent).toBe('Importing…');
@@ -301,66 +230,169 @@ describe('MigrationPage', () => {
   });
 
   it('should reset the form and the mutations when starting a new import', () => {
-    mockSfdmuState = { ...mockSfdmuState, data: { success: true, config: sfdmuConfig } };
+    importState = mutationState({ success: true, config: sfdmuConfig });
     render(<MigrationPage />);
-    fireEvent.change(screen.getByTestId('migration-path-input'), {
-      target: { value: '/home/user/sfdmu/export.json' },
-    });
+    typePath('/home/user/sfdmu/export.json');
     fireEvent.click(screen.getByTestId('migration-reset-btn'));
-    expect(mockSfdmuReset).toHaveBeenCalled();
-    expect(mockUniversalReset).toHaveBeenCalled();
+    expect(importState.reset).toHaveBeenCalled();
+    expect(saveState.reset).toHaveBeenCalled();
     expect((screen.getByTestId('migration-path-input') as HTMLInputElement).value).toBe('');
   });
 });
 
-describe('MigrationPage — running an imported config', () => {
+describe('MigrationPage — the imported config', () => {
   beforeEach(() => {
-    mockRunMutate.mockClear();
-    mockRunReset.mockClear();
-    mockRunState = {
-      mutate: mockRunMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockRunReset,
-    };
-    useOrgStore.setState({
-      orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
-      ] as never,
-    });
-    mockSfdmuState = {
-      mutate: mockSfdmuMutate,
-      data: { success: true, config: sfdmuConfig },
-      loading: false,
-      error: null,
-      reset: mockSfdmuReset,
-    };
+    importState = mutationState({ success: true, config: sfdmuConfig });
   });
 
-  it('runs the imported config against the orgs the user picks', () => {
-    // The importer fills sourceOrgId/targetOrgId with UUID placeholders, so an
-    // imported config was structurally runnable and pointed at nothing. Before
-    // this, the converted config was rendered and dropped on unmount.
+  it('lists each object once, in the editor, with what it carries under its row in the plural it takes', () => {
+    // The objects were listed twice, read-only above the editor, and the
+    // counts read "1 field mappings".
     render(<MigrationPage />);
+    expect(screen.getByTestId('migration-result')).toBeDefined();
+    expect(screen.queryByTestId('migration-objects')).toBeNull();
+    expect(screen.getAllByText('Account')).toHaveLength(1);
+    expect(screen.getByTestId('object-detail-Account').textContent).toBe(
+      '1 field mapping · 0 transform rules · 1 excluded field',
+    );
+    expect(screen.getByTestId('object-detail-Contact').textContent).toBe(
+      '0 field mappings · 2 transform rules · 0 excluded fields',
+    );
+    expect(screen.getByTestId('migration-raw-config')).toBeDefined();
+  });
+});
 
+describe('MigrationPage — saving the import and opening it in Sync', () => {
+  beforeEach(() => {
+    importState = mutationState({ success: true, config: sfdmuConfig });
+  });
+
+  type SentConfig = Record<string, unknown> & { objects: Array<Record<string, unknown>> };
+
+  function pickOrgs(): void {
     fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
     fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
-    fireEvent.click(screen.getByTestId('migration-run-btn'));
+  }
 
-    expect(mockRunMutate).toHaveBeenCalledTimes(1);
-    const sent = mockRunMutate.mock.calls[0][0] as { config: Record<string, unknown> };
-    expect(sent.config.sourceOrgId).toBe('org-a');
-    expect(sent.config.targetOrgId).toBe('org-b');
-    // The rest of the converted config must survive untouched.
-    expect(sent.config.objects).toEqual(sfdmuConfig.objects);
+  /** Pick the two orgs, name the configuration, save, and return what was sent. */
+  function saveAndRead(name = 'Nightly accounts'): { name: string; config: SentConfig } {
+    pickOrgs();
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), { target: { value: name } });
+    fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+    expect(saveState.mutate).toHaveBeenCalledTimes(1);
+    return saveState.mutate.mock.calls[0][0] as { name: string; config: SentConfig };
+  }
+
+  /** The host's answer to the save, as the page reads it on its next render. */
+  function hostSaved(rerender: (ui: React.ReactElement) => void, id = 'cfg-9'): void {
+    saveState = { ...saveState, data: { success: true, id, name: 'Nightly accounts' } };
+    rerender(<MigrationPage />);
+  }
+
+  it('runs nothing itself: no Run sync, and no sync:execute or sync:simulate set up', () => {
+    // Its Run sync waited 120 s, said "Try again" while the host went on
+    // writing, and a second click wrote every record twice.
+    render(<MigrationPage />);
+    expect(screen.queryByTestId('migration-run-btn')).toBeNull();
+    expect(screen.queryByText('Run sync')).toBeNull();
+    expect(asked.has('sync:execute')).toBe(false);
+    expect(asked.has('sync:simulate')).toBe(false);
+  });
+
+  it('opens the configuration saved on Sync’s execute step, between the orgs picked', () => {
+    const { rerender } = render(<MigrationPage />);
+    saveAndRead();
+    expect(screen.queryByTestId('migration-open-in-sync-btn')).toBeNull();
+
+    hostSaved(rerender);
+    expect(screen.getByTestId('migration-save-sync-saved').textContent).toBe(
+      'Saved as the Sync configuration “Nightly accounts”: the Sync page lists it with its saved configurations, and a schedule can run it.',
+    );
+    fireEvent.click(screen.getByTestId('migration-open-in-sync-btn'));
+
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+    expect(useAppStore.getState().navigationIntent).toEqual({
+      route: 'sync',
+      sourceOrgId: 'org-a',
+      targetOrgId: 'org-b',
+      syncConfig: { id: 'cfg-9', name: 'Nightly accounts' },
+    });
+  });
+
+  it('keeps Save off once the configuration on screen is saved: a second save would be refused its name', () => {
+    const { rerender } = render(<MigrationPage />);
+    saveAndRead();
+    hostSaved(rerender);
+    expect((screen.getByTestId('migration-save-sync-btn') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('offers no Open in Sync for a configuration changed since it was saved', () => {
+    // Sync would have opened what was saved, not what the page shows.
+    const { rerender } = render(<MigrationPage />);
+    saveAndRead();
+    hostSaved(rerender);
+
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+
+    expect(screen.queryByTestId('migration-open-in-sync-btn')).toBeNull();
+    expect(screen.getByTestId('migration-save-sync-changed').textContent).toBe(
+      'Changed since it was saved as “Nightly accounts”: save it under another name to open it in Sync.',
+    );
+    expect((screen.getByTestId('migration-save-sync-btn') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('saves the config as edited here, between the orgs picked here, under the name given', () => {
+    render(<MigrationPage />);
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+
+    const sent = saveAndRead('  Nightly accounts  ');
+
+    expect(sent.name).toBe('Nightly accounts');
+    expect(sent.config).toMatchObject({ sourceOrgId: 'org-a', targetOrgId: 'org-b' });
+    // Excluded fields, mappings and add-on fields go as the import gave them.
+    expect(sent.config.objects).toEqual([account]);
+    expect(sent.config.name).toBe('SFDMU Import');
+  });
+
+  it('saves an object with the operation, External ID, batch size and filter edited here', () => {
+    render(<MigrationPage />);
+    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
+    fireEvent.change(screen.getByLabelText('External ID — Contact'), {
+      target: { value: 'Ext_Key__c' },
+    });
+    fireEvent.change(screen.getByLabelText('Batch Size — Contact'), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('WHERE clause — Contact'), {
+      target: { value: 'LastName != null' },
+    });
+
+    expect(saveAndRead().config.objects).toEqual([
+      account,
+      {
+        ...contact,
+        operation: 'upsert',
+        externalIdField: 'Ext_Key__c',
+        batchSize: 50,
+        where: 'LastName != null',
+      },
+    ]);
+  });
+
+  it('puts a removed object back as imported, where it stood', () => {
+    render(<MigrationPage />);
+    fireEvent.click(screen.getByTestId('remove-obj-Account'));
+
+    const addRow = screen.getByTestId('add-object-row');
+    fireEvent.change(within(addRow).getByRole('combobox'), { target: { value: 'Account' } });
+    fireEvent.click(screen.getByTestId('add-object-btn'));
+
+    expect(saveAndRead().config.objects).toEqual([account, contact]);
   });
 
   it('names each org with its type, and picks none until the user does', () => {
-    // The options gave the alias alone, so a production target went unsaid on
-    // the page that runs without a review step; and with no empty option the
-    // first org showed as picked while the page held none.
     useOrgStore.setState({
       orgs: [
         { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
@@ -378,295 +410,11 @@ describe('MigrationPage — running an imported config', () => {
         'p@e.com [PROD]',
       ]);
       expect(select.value).toBe('');
-      expect(options[0].selected).toBe(true);
       expect(options[0].disabled).toBe(true);
     }
   });
 
-  it('refuses to run into the org it reads from', () => {
-    render(<MigrationPage />);
-
-    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
-    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-a' } });
-    fireEvent.click(screen.getByTestId('migration-run-btn'));
-
-    expect(mockRunMutate).not.toHaveBeenCalled();
-    expect(screen.getByTestId('migration-run-hint')).toBeDefined();
-  });
-
-  it('does not promise a read-only page while it offers to run the import', () => {
-    render(<MigrationPage />);
-
-    expect(screen.getByTestId('migration-run-btn')).toBeDefined();
-    const page = screen.getByTestId('migration-page').textContent ?? '';
-    // The subtitle said nothing is written, above a button that writes the
-    // converted configuration's records into the target org.
-    expect(page).not.toMatch(/nothing is written|not executed|only read/i);
-    expect(page).toMatch(/writes records to the target org/i);
-  });
-
-  it('renders nothing about the outcome before the run answers', () => {
-    render(<MigrationPage />);
-    expect(screen.queryByTestId('migration-run-result')).toBeNull();
-    expect(screen.queryByTestId('migration-run-error')).toBeNull();
-  });
-
-  it('reports what the run actually moved once the channel answers', () => {
-    // The run moved records for real and rendered nothing back — the
-    // user could not tell whether it had happened, let alone what it did.
-    mockRunState = { ...mockRunState, data: runResult };
-    render(<MigrationPage />);
-
-    const summary = screen.getByTestId('migration-run-result');
-    expect(summary.textContent).toContain('Sync Complete');
-    expect(summary.textContent).toContain('Total Processed');
-    expect(summary.textContent).toContain('120');
-    expect(summary.textContent).toContain('118');
-    expect(summary.textContent).toContain('Total Failed');
-    expect(summary.textContent).toContain('2');
-    expect(summary.textContent).toContain('Total Skipped');
-    expect(summary.textContent).toContain('3');
-  });
-
-  it('labels a partial run as partial rather than complete', () => {
-    mockRunState = {
-      ...mockRunState,
-      data: { ...runResult, status: 'partial', totalSuccess: 60, totalFailed: 60 },
-    };
-    render(<MigrationPage />);
-
-    const summary = screen.getByTestId('migration-run-result');
-    expect(summary.textContent).toContain('Partially Complete');
-    expect(summary.textContent).not.toContain('Sync Complete');
-  });
-
-  it('labels a run a cancel stopped as cancelled rather than partial', () => {
-    mockRunState = {
-      ...mockRunState,
-      data: { ...runResult, status: 'partial', cancelled: true },
-    };
-    render(<MigrationPage />);
-
-    const summary = screen.getByTestId('migration-run-result');
-    expect(summary.textContent).toContain('Cancelled');
-    expect(summary.textContent).not.toContain('Partially Complete');
-  });
-
-  it('omits the failure and skipped counters when the run reported none', () => {
-    mockRunState = {
-      ...mockRunState,
-      data: { ...runResult, totalFailed: 0, totalSkipped: 0 },
-    };
-    render(<MigrationPage />);
-
-    const summary = screen.getByTestId('migration-run-result');
-    expect(summary.textContent).not.toContain('Total Failed');
-    expect(summary.textContent).not.toContain('Total Skipped');
-  });
-
-  it('surfaces the failure the sync:error channel settles the run with', () => {
-    mockRunState = { ...mockRunState, error: 'Operation blocked by Production Guard' };
-    render(<MigrationPage />);
-
-    const banner = screen.getByTestId('migration-run-error');
-    expect(banner.textContent).toContain('Operation blocked by Production Guard');
-    expect(screen.queryByTestId('migration-run-result')).toBeNull();
-  });
-
-  it('dismissing the run failure resets the run mutation', () => {
-    mockRunState = { ...mockRunState, error: 'Sync failed: target org unreachable' };
-    render(<MigrationPage />);
-
-    fireEvent.click(screen.getByTestId('migration-run-error').querySelector('button')!);
-    expect(mockRunReset).toHaveBeenCalled();
-  });
-
-  it('does not present the previous outcome while a new run is in flight', () => {
-    mockRunState = { ...mockRunState, data: runResult, loading: true };
-    render(<MigrationPage />);
-
-    expect(screen.queryByTestId('migration-run-result')).toBeNull();
-    expect(screen.getByTestId('migration-run-btn').textContent).toBe('Running…');
-  });
-});
-
-describe('MigrationPage — editing the imported config before a run', () => {
-  beforeEach(() => {
-    mockRunMutate.mockClear();
-    mockRunState = {
-      mutate: mockRunMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockRunReset,
-    };
-    useOrgStore.setState({
-      orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
-      ] as never,
-    });
-    mockSfdmuState = {
-      mutate: mockSfdmuMutate,
-      data: { success: true, config: sfdmuConfig },
-      loading: false,
-      error: null,
-      reset: mockSfdmuReset,
-    };
-  });
-
-  type SentConfig = Record<string, unknown> & { objects: Array<Record<string, unknown>> };
-
-  /** Pick the two orgs, run, and return the config sent. */
-  function runAndReadConfig(): SentConfig {
-    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
-    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
-    fireEvent.click(screen.getByTestId('migration-run-btn'));
-    expect(mockRunMutate).toHaveBeenCalledTimes(1);
-    return (mockRunMutate.mock.calls[0][0] as { config: SentConfig }).config;
-  }
-
-  const [account, contact] = sfdmuConfig.objects as Array<Record<string, unknown>>;
-
-  it('runs an object with the operation, External ID, batch size and filter edited here', () => {
-    render(<MigrationPage />);
-
-    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
-    fireEvent.change(screen.getByLabelText('External ID — Contact'), {
-      target: { value: 'Ext_Key__c' },
-    });
-    fireEvent.change(screen.getByLabelText('Batch Size — Contact'), { target: { value: '50' } });
-    fireEvent.change(screen.getByLabelText('WHERE clause — Contact'), {
-      target: { value: 'LastName != null' },
-    });
-
-    const config = runAndReadConfig();
-    expect(config.objects).toEqual([
-      account,
-      {
-        ...contact,
-        operation: 'upsert',
-        externalIdField: 'Ext_Key__c',
-        batchSize: 50,
-        where: 'LastName != null',
-      },
-    ]);
-  });
-
-  it('leaves out of the run an object removed here, and sends the other as imported', () => {
-    render(<MigrationPage />);
-
-    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
-
-    const config = runAndReadConfig();
-    // Excluded fields, mappings and add-on fields go as the import gave them.
-    expect(config.objects).toEqual([account]);
-    expect(config.objects[0].excludedFields).toEqual(['CreatedDate']);
-    expect(config.name).toBe('SFDMU Import');
-    expect(screen.queryByTestId('migration-object-Contact')).toBeNull();
-  });
-
-  it('puts a removed object back as imported, where it stood', () => {
-    render(<MigrationPage />);
-    fireEvent.click(screen.getByTestId('remove-obj-Account'));
-
-    const addRow = screen.getByTestId('add-object-row');
-    fireEvent.change(within(addRow).getByRole('combobox'), { target: { value: 'Account' } });
-    fireEvent.click(screen.getByTestId('add-object-btn'));
-
-    expect(runAndReadConfig().objects).toEqual([account, contact]);
-  });
-
-  it('keeps Run disabled, saying why, for an upsert with no External ID field', () => {
-    render(<MigrationPage />);
-    fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
-    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
-    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
-
-    expect((screen.getByTestId('migration-run-btn') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
-      'An upsert of Contact needs an External ID field both orgs share: matching on Id cannot work. Name one, or set the operation to insert.',
-    );
-    fireEvent.click(screen.getByTestId('migration-run-btn'));
-    expect(mockRunMutate).not.toHaveBeenCalled();
-  });
-
-  it('keeps Run disabled once every object is removed', () => {
-    render(<MigrationPage />);
-    fireEvent.click(screen.getByTestId('remove-obj-Account'));
-    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
-    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
-    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
-
-    expect((screen.getByTestId('migration-run-btn') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
-      'Keep at least one object: a run with none would move nothing.',
-    );
-  });
-});
-
-describe('MigrationPage — saving the import as a Sync configuration', () => {
-  beforeEach(() => {
-    mockSaveSyncMutate.mockClear();
-    mockSaveSyncReset.mockClear();
-    mockSaveSyncState = {
-      mutate: mockSaveSyncMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockSaveSyncReset,
-    };
-    mockRunState = {
-      mutate: mockRunMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockRunReset,
-    };
-    useOrgStore.setState({
-      orgs: [
-        { id: 'org-a', alias: 'devA', username: 'a@e.com', orgType: 'Sandbox', tags: [] },
-        { id: 'org-b', alias: 'devB', username: 'b@e.com', orgType: 'Sandbox', tags: [] },
-      ] as never,
-    });
-    mockSfdmuState = {
-      mutate: mockSfdmuMutate,
-      data: { success: true, config: sfdmuConfig },
-      loading: false,
-      error: null,
-      reset: mockSfdmuReset,
-    };
-  });
-
-  function pickOrgs(): void {
-    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
-    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
-  }
-
-  it('saves the config as edited here, between the orgs picked here, under the name given', () => {
-    // A converted config could be run once from here, and kept nowhere a
-    // schedule could run it from.
-    render(<MigrationPage />);
-    pickOrgs();
-    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
-    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
-      target: { value: '  Nightly accounts  ' },
-    });
-    fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
-
-    expect(mockSaveSyncMutate).toHaveBeenCalledTimes(1);
-    const sent = mockSaveSyncMutate.mock.calls[0][0] as {
-      name: string;
-      config: Record<string, unknown>;
-    };
-    expect(sent.name).toBe('Nightly accounts');
-    expect(sent.config).toMatchObject({ sourceOrgId: 'org-a', targetOrgId: 'org-b' });
-    expect(
-      (sent.config.objects as Array<{ objectApiName: string }>).map((o) => o.objectApiName),
-    ).toEqual(['Account']);
-  });
-
-  it('asks for a name, the orgs and a config Sync accepts before it offers to save', () => {
+  it('asks for two different orgs, a name and a config Sync accepts before it offers to save', () => {
     render(<MigrationPage />);
     const save = (): HTMLButtonElement =>
       screen.getByTestId('migration-save-sync-btn') as HTMLButtonElement;
@@ -675,6 +423,12 @@ describe('MigrationPage — saving the import as a Sync configuration', () => {
       target: { value: 'Nightly accounts' },
     });
     expect(save().disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-a' } });
+    expect(save().disabled).toBe(true);
+    expect(screen.getByTestId('migration-run-hint').textContent).toBe(
+      'Pick two different orgs to save this import for Sync.',
+    );
     pickOrgs();
     expect(save().disabled).toBe(false);
     fireEvent.change(screen.getByTestId('migration-save-sync-name'), { target: { value: '   ' } });
@@ -684,29 +438,46 @@ describe('MigrationPage — saving the import as a Sync configuration', () => {
     });
     fireEvent.change(screen.getByLabelText('Operation — Contact'), { target: { value: 'upsert' } });
     expect(save().disabled).toBe(true);
+    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
+      'An upsert of Contact needs an External ID field both orgs share: matching on Id cannot work. Name one, or set the operation to insert.',
+    );
     fireEvent.click(save());
-    expect(mockSaveSyncMutate).not.toHaveBeenCalled();
+    expect(saveState.mutate).not.toHaveBeenCalled();
   });
 
-  it('says the configuration was saved, under the name it was saved with', () => {
-    mockSaveSyncState.data = { success: true, id: 'cfg-9', name: 'Nightly accounts' };
+  it('keeps Save off once every object is removed, saying why', () => {
     render(<MigrationPage />);
+    fireEvent.click(screen.getByTestId('remove-obj-Account'));
+    fireEvent.click(screen.getByTestId('remove-obj-Contact'));
+    pickOrgs();
+    fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
+      target: { value: 'Nightly accounts' },
+    });
 
-    expect(screen.getByTestId('migration-save-sync-saved').textContent).toBe(
-      'Saved as the Sync configuration “Nightly accounts”: the Sync page lists it with its saved configurations, and a schedule can run it.',
+    expect((screen.getByTestId('migration-save-sync-btn') as HTMLButtonElement).disabled).toBe(
+      true,
     );
+    expect(screen.getByTestId('migration-edit-problem').textContent).toBe(
+      'Keep at least one object: a run with none would move nothing.',
+    );
+  });
+
+  it('says the import changes nothing, and that Sync writes the records', () => {
+    render(<MigrationPage />);
+    const page = screen.getByTestId('migration-page').textContent ?? '';
+    expect(page).toMatch(/Importing reads the file and changes nothing in any org/);
+    expect(page).toMatch(/writes records to the target org/);
   });
 
   it('says why nothing was saved, in the page’s words, for each refusal of the host', () => {
     const refusal = (payload: Record<string, unknown>): string => {
-      mockSaveSyncState.data = { success: false, ...payload };
-      const { unmount } = render(<MigrationPage />);
-      pickOrgs();
-      fireEvent.change(screen.getByTestId('migration-save-sync-name'), {
-        target: { value: 'Nightly accounts' },
-      });
-      fireEvent.click(screen.getByTestId('migration-save-sync-btn'));
+      saveState = mutationState();
+      const { unmount, rerender } = render(<MigrationPage />);
+      saveAndRead();
+      saveState = { ...saveState, data: { success: false, ...payload } };
+      rerender(<MigrationPage />);
       const text = screen.getByTestId('migration-save-sync-error').textContent ?? '';
+      expect(screen.queryByTestId('migration-open-in-sync-btn')).toBeNull();
       unmount();
       return text;
     };
@@ -714,8 +485,11 @@ describe('MigrationPage — saving the import as a Sync configuration', () => {
     expect(refusal({ code: 'DUPLICATE_NAME' })).toContain(
       'A saved Sync configuration is already named “Nightly accounts”.',
     );
-    expect(refusal({ code: 'SYNC_CANNOT_COPY', objects: ['User', 'ContentVersion'] })).toContain(
-      'Sync does not copy User, ContentVersion:',
+    // Sync copies a record's files when asked: "files" alone said it never did.
+    const cannotCopy = refusal({ code: 'SYNC_CANNOT_COPY', objects: ['User', 'ContentVersion'] });
+    expect(cannotCopy).toContain('Sync does not copy User, ContentVersion:');
+    expect(cannotCopy).toContain(
+      "file objects (a record's files go with it when Copy the files of these records is ticked in Sync)",
     );
     expect(
       refusal({ code: 'INVALID_CONFIG', reason: 'mode: Sync runs a full sync only' }),
@@ -728,11 +502,8 @@ describe('MigrationPage — saving the import as a Sync configuration', () => {
   });
 
   it('forgets the save with the import when a new import starts', () => {
-    mockSaveSyncState.data = { success: true, id: 'cfg-9', name: 'Nightly accounts' };
     render(<MigrationPage />);
-
     fireEvent.click(screen.getByTestId('migration-reset-btn'));
-
-    expect(mockSaveSyncReset).toHaveBeenCalled();
+    expect(saveState.reset).toHaveBeenCalled();
   });
 });

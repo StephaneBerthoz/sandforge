@@ -735,6 +735,19 @@ describe('SeedPage', () => {
     expect(screen.queryByTestId('clone-wizard-container')).toBeNull();
   });
 
+  it('opens CSV Upload when Migration sends a CSV file of records here', () => {
+    // Migration's "CSV or JSON file" read the file's column names and dropped
+    // its rows; CSV Upload loads them.
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    useAppStore.setState({ navigationIntent: { route: 'seed', seedMode: 'csv' } });
+
+    render(<SeedPage />);
+
+    expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
+    expect(screen.queryByTestId('template-gallery')).toBeNull();
+    expect(useAppStore.getState().navigationIntent).toBeNull();
+  });
+
   it('selects the recommended org once a template is picked', () => {
     useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
     useAppStore.setState({

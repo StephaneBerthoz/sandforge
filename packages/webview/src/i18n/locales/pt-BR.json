@@ -1803,53 +1803,47 @@
     "delta": {
       "mode": "Delta",
       "withDeletes": "Delta, exclusões aplicadas"
-    }
+    },
+    "chooseObject": "Escolha um objeto…"
   },
   "migration": {
     "title": "Migração",
-    "subtitle": "Importe uma definição de migração existente e converta-a em uma configuração de sincronização do SandForge. A importação lê o arquivo sem alterar nada; executar a configuração convertida grava registros na org de destino.",
-    "sourceTitle": "Arquivo de origem",
+    "subtitle": "Converta um export.json do SFDMU em uma configuração do Sync. A importação lê o arquivo sem alterar nada em nenhuma org; o Sync executa a configuração depois de salva e grava registros na org de destino.",
     "type": {
       "sfdmu": {
         "title": "export.json do SFDMU",
         "description": "Converta uma definição export.json do SFDMU: objetos, mapeamentos de campos e mapeamentos de valores."
-      },
-      "universal": {
-        "title": "Arquivo CSV ou JSON",
-        "description": "Importe qualquer arquivo de dados CSV ou JSON — as colunas são mapeadas automaticamente para os campos do Salesforce."
       }
     },
-    "allowedExtensionsSfdmu": "Somente um arquivo .json (export.json do SFDMU) é aceito.",
-    "allowedExtensionsUniversal": "Arquivos aceitos: .json ou .csv.",
     "filePathLabel": "Caminho do arquivo",
-    "filePathPlaceholderSfdmu": "C:/projetos/sfdmu/export.json",
-    "filePathPlaceholderUniversal": "C:/projetos/dados/contas.csv",
-    "filePathHint": "Caminho absoluto. O arquivo deve estar dentro de uma pasta do workspace aberta ou no seu diretório pessoal.",
+    "filePathPlaceholderSfdmu": "/caminho/para/export.json",
+    "filePathHint": "Use Procurar… para escolhê-lo, ou cole o caminho absoluto. O arquivo deve estar dentro de uma pasta do workspace aberta ou no seu diretório pessoal.",
     "import": "Importar",
     "importing": "Importando…",
     "reset": "Nova importação",
     "successTitle": "Importação concluída",
     "successDescription": "Configuração convertida",
     "unknownError": "A importação falhou por um motivo desconhecido.",
-    "detectedFormat": "Formato detectado: {{format}}",
-    "objectsCount_one": "{{count}} objeto",
-    "objectsCount_other": "{{count}} objetos",
-    "externalId": "ID externo: {{field}}",
-    "objectSummary": "{{mappings}} mapeamentos de campos · {{rules}} regras de transformação · {{excluded}} campos excluídos",
+    "objectSummary": {
+      "mappings_one": "{{count}} mapeamento de campo",
+      "mappings_other": "{{count}} mapeamentos de campos",
+      "rules_one": "{{count}} regra de transformação",
+      "rules_other": "{{count}} regras de transformação",
+      "excluded_one": "{{count}} campo excluído",
+      "excluded_other": "{{count}} campos excluídos"
+    },
     "rawConfig": "Configuração bruta",
     "validation": {
       "pathRequired": "Informe o caminho do arquivo a ser importado.",
-      "pathNotAbsolute": "O caminho deve ser absoluto (ex.: C:/projetos/export.json ou /home/voce/export.json).",
+      "pathNotAbsolute": "O caminho deve ser absoluto: clique em Procurar… para escolher o arquivo, ou cole o caminho completo.",
       "pathExtension": "Extensão de arquivo não suportada. Esperado: {{extensions}}."
     },
     "run": {
-      "title": "Executar esta importação",
-      "subtitle": "Escolha as orgs de origem e destino — o arquivo importado nomeia as suas, que não existem aqui.",
+      "title": "Executá-la pelo Sync",
+      "subtitle": "Escolha as orgs de origem e destino — o arquivo importado nomeia as suas, que não existem aqui — e salve-a como configuração do Sync. Abrir no Sync a mostra então na etapa Executar do Sync: Simular a verifica, Executar a sincronização a grava, e os resultados dizem o que ela criou e podem removê-lo.",
       "sourceOrg": "Org de origem",
       "targetOrg": "Org de destino",
-      "action": "Executar sincronização",
-      "running": "Em execução…",
-      "orgsRequired": "Escolha duas orgs diferentes para executar esta importação."
+      "orgsRequired": "Escolha duas orgs diferentes para salvar esta importação para o Sync."
     },
     "edit": {
       "noObjects": "Mantenha pelo menos um objeto: uma execução sem objetos não moveria nada.",
@@ -1857,8 +1851,6 @@
       "invalid": "Esta configuração não pode ser executada como foi editada — {{reason}}"
     },
     "saveSync": {
-      "title": "Salvar como configuração do Sync",
-      "subtitle": "Guarda esta importação, como editada aqui e entre as duas orgs escolhidas acima, entre as configurações salvas do Sync: a página Sync a lista, e um agendamento pode executá-la.",
       "nameLabel": "Nome da configuração do Sync",
       "action": "Salvar como configuração do Sync",
       "saving": "Salvando…",
@@ -1866,8 +1858,15 @@
       "saved": "Salva como a configuração do Sync “{{name}}”: a página Sync a lista com suas configurações salvas, e um agendamento pode executá-la.",
       "nameRequired": "Dê um nome à configuração e depois salve-a.",
       "duplicateName": "Já existe uma configuração do Sync salva com o nome “{{name}}”. Escolha outro nome: nada foi salvo.",
-      "cannotCopy": "O Sync não copia {{objects}}: nenhuma cópia grava usuários e seus acessos, metadados, o histórico de um registro, linhas de feed ou de compartilhamento, arquivos, nem os registros que a plataforma guarda para si. Remova-os e salve novamente: nada foi salvo.",
-      "invalid": "O Sync não pode executar esta configuração, por isso ela não foi salva — {{reason}}"
+      "cannotCopy": "O Sync não copia {{objects}}: nenhuma cópia grava usuários e seus acessos, metadados, o histórico de um registro, linhas de feed ou de compartilhamento, objetos de arquivo (os arquivos de um registro vão com ele quando Copiar os arquivos destes registros está marcado no Sync), nem os registros que a plataforma guarda para si. Remova-os e salve novamente: nada foi salvo.",
+      "invalid": "O Sync não pode executar esta configuração, por isso ela não foi salva — {{reason}}",
+      "openInSync": "Abrir no Sync",
+      "changedSinceSaved": "Alterada desde que foi salva como “{{name}}”: salve-a com outro nome para abri-la no Sync."
+    },
+    "browse": "Procurar…",
+    "csvData": {
+      "text": "Um arquivo CSV de registros? Esta página só converte definições do SFDMU: o Upload CSV do Seed carrega as linhas de um arquivo CSV em uma org.",
+      "action": "Abrir Upload CSV"
     }
   },
   "dataops": {
@@ -3242,12 +3241,12 @@
       "tip": "As etapas Sync, Seed, Anonimização e Retrocesso gravam em uma org. Seed e Anonimização nunca em produção; um Retrocesso é executado depois de confirmado."
     },
     "migration": {
-      "step1": "Escolha o tipo do seu arquivo: export.json do SFDMU, ou Arquivo CSV ou JSON.",
-      "step2": "Digite o caminho absoluto do arquivo em Caminho do arquivo e clique em Importar.",
-      "step3": "Em Conjunto de objetos, confira a operação, o ID externo e a Cláusula WHERE de cada objeto.",
-      "step4": "Em Executar esta importação, escolha a Org de origem e a Org de destino e clique em Executar sincronização.",
-      "step5": "Para executá-la de novo mais tarde, dê um nome a ela e clique em Salvar como configuração do Sync.",
-      "tip": "Importar não grava em nenhuma org; só Executar sincronização grava, na Org de destino, depois que o Production Guard avalia a execução."
+      "step1": "Clique em Procurar… e escolha seu export.json do SFDMU, ou cole o caminho absoluto em Caminho do arquivo.",
+      "step2": "Clique em Importar: o SandForge lê o arquivo e não grava em nenhuma org.",
+      "step3": "Em Conjunto de objetos, confira a operação, o ID externo, o tamanho do lote e a Cláusula WHERE de cada objeto.",
+      "step4": "Escolha a Org de origem e a Org de destino, dê um nome e clique em Salvar como configuração do Sync.",
+      "step5": "Clique em Abrir no Sync: Simular a verifica lá, e Executar a sincronização a grava.",
+      "tip": "Um arquivo CSV de registros vai para o Upload CSV do Seed, que carrega suas linhas. Só o Sync grava, depois que o Production Guard avalia a execução."
     },
     "reports": {
       "step1": "Em Execuções, clique em uma execução do Forge ou do Sync para ler os detalhes abaixo da lista.",

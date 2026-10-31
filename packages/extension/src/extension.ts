@@ -30,6 +30,7 @@ import {
   confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
+  migrationExportPicker,
   startOfflineProbing,
   wireBackgroundNotifications,
   wireOfflineNotifications,
@@ -210,6 +211,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const fsReader = {
     readFile: (filePath: string) => fs.readFile(filePath, 'utf-8'),
     statSize: async (filePath: string) => (await fs.stat(filePath)).size,
+    // Browse… on the Migration page picks its export.json here.
+    pickExportFile: migrationExportPicker(os.homedir()),
   };
 
   // 5. MessageBroker + MessageRouter + WebviewStateSync

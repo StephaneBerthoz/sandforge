@@ -1594,13 +1594,9 @@ export const aiScenarioDraftPayloadSchema = z.object({
 });
 
 // ── migration:* payload schemas ───────────────────────────────────────────
-// Mirror the shared request contracts (no current webview emitter). The
-// handler re-validates the path against traversal after parsing.
+// Mirror the shared request contracts. The handler re-validates the path
+// against traversal after parsing. `migration:pick-file` carries no payload.
 
-export const migrationImportPayloadSchema = z.object({
-  filePath: z.string().min(1).max(2_000),
-  format: z.string().max(50).optional(),
-});
 export const migrationImportSfdmuPayloadSchema = z.object({
   filePath: z.string().min(1).max(2_000),
 });

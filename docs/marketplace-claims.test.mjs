@@ -781,8 +781,8 @@ test('both READMEs answer "why switch", with the same four claims', () => {
 });
 
 test('the CSV claim says optional, never absent', () => {
-  // Seed and Migration both advertise CSV import further down the same page;
-  // "no CSV" would contradict the module table two screens below.
+  // Seed advertises CSV import further down the same page; "no CSV" would
+  // contradict the module table two screens below.
   for (const relPath of READMES) {
     const block = whySwitch(relPath);
     assert.match(
@@ -793,7 +793,7 @@ test('the CSV claim says optional, never absent', () => {
     assert.match(
       block,
       /CSV import is still there/i,
-      `${relPath}: the same page advertises CSV import twice below; do not deny it here`,
+      `${relPath}: the same page advertises CSV import below (Seed); do not deny it here`,
     );
   }
 });
@@ -1289,23 +1289,36 @@ test('anchor: the first step names the controls the launcher and the Organizatio
   }
 });
 
-test('anchor: Migration imports CSV and JSON files, as both READMEs say', () => {
+test('anchor: Migration imports an SFDMU export.json alone, run from Sync, as both READMEs say', () => {
+  // It also took a "CSV or JSON file": it read the column names, dropped the
+  // rows and named the object after the file. Seed's CSV Upload loads rows.
   const handler = read(...EXT, 'src', 'bridge', 'handlers', 'MigrationHandler.ts');
   assert.match(
     handler,
-    /UNIVERSAL_IMPORT_EXTENSIONS = new Set\(\['\.json', '\.csv'\]\)/,
-    'the universal import takes other files now — re-read the Migration rows',
+    /const SFDMU_IMPORT_EXTENSIONS = new Set\(\['\.json'\]\);/,
+    'the SFDMU import takes other files now — re-read the Migration rows',
+  );
+  assert.doesNotMatch(
+    handler,
+    /'migration:import'|UNIVERSAL_IMPORT_EXTENSIONS/,
+    'a CSV or JSON data file is imported again — re-read the Migration rows',
   );
   for (const relPath of READMES) {
-    const row = read(...relPath.split('/'))
-      .split('\n')
-      .find((line) => line.startsWith('| **Migration**'));
-    assert.ok(row, `${relPath}: the Migration row is gone`);
-    assert.match(
-      row,
-      /CSV\/JSON files/,
-      `${relPath}: the Migration row does not say CSV/JSON files`,
-    );
+    const lines = read(...relPath.split('/')).split('\n');
+    const rows = [
+      lines.find((line) => line.startsWith('| **Migration**')),
+      lines.find((line) => line.startsWith('| [Migration]')),
+    ];
+    for (const row of rows) {
+      assert.ok(row, `${relPath}: a Migration row is gone`);
+      assert.match(row, /SFDMU `?export\.json`?/, `${relPath}: a Migration row no longer names it`);
+      assert.doesNotMatch(
+        row,
+        /CSV|JSON file/,
+        `${relPath}: a Migration row promises a CSV or JSON data file it no longer imports`,
+      );
+      assert.match(row, /run from Sync/, `${relPath}: say Sync runs what Migration saves`);
+    }
   }
 });
 

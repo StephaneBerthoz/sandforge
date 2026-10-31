@@ -252,21 +252,21 @@ export interface PipelineSaveResponse extends BaseMessage {
   payload: { success: boolean; id: string };
 }
 
-/** Migration import (universal) */
-export interface MigrationImportRequest extends BaseMessage {
-  type: 'migration:import';
-  payload: { filePath: string; format?: string };
+/**
+ * Browse… on the Migration page: the window's open dialog, for an SFDMU
+ * export.json. The page had only a field to type an absolute path in.
+ */
+export interface MigrationPickFileRequest extends BaseMessage {
+  type: 'migration:pick-file';
 }
 
-/** Response after importing a migration file with detected format */
-export interface MigrationImportResponse extends BaseMessage {
-  type: 'migration:import:response';
-  payload: {
-    success: boolean;
-    config?: Record<string, unknown>;
-    detectedFormat?: string;
-    error?: string;
-  };
+/**
+ * The file picked, or no path when the dialog was closed. The page fills its
+ * File path with it; the import then checks it as it checks a typed one.
+ */
+export interface MigrationPickFileResponse extends BaseMessage {
+  type: 'migration:pick-file:response';
+  payload: { filePath?: string };
 }
 
 /** Migration import (SFDMU) */

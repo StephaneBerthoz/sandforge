@@ -310,6 +310,7 @@ export const SyncPage: React.FC = () => {
     handleSaveConfig,
     handleRunSavedConfig,
     savedRunLabel,
+    openedConfigLabel,
     savedRunStarting,
     configSaved,
     writeOrder,
@@ -934,10 +935,15 @@ export const SyncPage: React.FC = () => {
             {currentStep === 4 && (
               <div className="flex flex-col gap-3" data-testid="sync-step-execute">
                 <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
-                {/* While it runs: back on this step afterwards, Run is the wizard's. */}
-                {busy && savedRunLabel !== null && (
+                {/* While it runs: back on this step afterwards, Run is the
+                  wizard's, unless another page opened a saved configuration
+                  here (Migration's "Open in Sync"): Simulate and Run below
+                  are then that configuration's, and it is named. */}
+                {((busy && savedRunLabel !== null) || openedConfigLabel !== null) && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
-                    {t('syncParts.savedConfigs.ofSaved', { name: savedRunLabel })}
+                    {t('syncParts.savedConfigs.ofSaved', {
+                      name: busy && savedRunLabel !== null ? savedRunLabel : openedConfigLabel,
+                    })}
                   </p>
                 )}
                 {/* Files are copied by a saved configuration only: the
@@ -1040,7 +1046,7 @@ export const SyncPage: React.FC = () => {
             {/* Step 5: Results */}
             {currentStep === 5 && (
               <div className="flex flex-col gap-3" data-testid="sync-step-results">
-                {savedRunLabel !== null && result && (
+                {savedRunLabel !== null && (result || simulation) && (
                   <p className="text-xs text-text-primary" data-testid="sync-saved-run">
                     {t('syncParts.savedConfigs.ofSaved', { name: savedRunLabel })}
                   </p>

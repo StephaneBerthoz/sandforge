@@ -223,6 +223,12 @@ export interface SyncPageData {
   handleRunSavedConfig: (configId: string, label: string) => void;
   /** The label of the saved configuration the run on the page is of, or null for the wizard's own. */
   savedRunLabel: string | null;
+  /**
+   * The name of the saved configuration another page opened on the execute
+   * step — Migration's "Open in Sync" — which Simulate and Run act on, as it
+   * was saved; null while those buttons are the wizard's own.
+   */
+  openedConfigLabel: string | null;
   /** Whether a saved configuration asked to run is being read back, before its run starts. */
   savedRunStarting: boolean;
   /** Whether the configuration on screen is the one the host last confirmed saving. */
@@ -404,15 +410,31 @@ export function useSyncPageData(): SyncPageData {
 
   const [draft, setDraft] = useWebviewPersistedState<SyncDraftState>('syncDraft', defaultDraft);
   // Opened from Home's sync recommendation: a fresh draft on the two orgs it
-  // named, rather than whatever draft was left for another pair.
+  // named, rather than whatever draft was left for another pair. Opened on a
+  // saved configuration (Migration's "Open in Sync"): the same, on the orgs
+  // it runs between, at the execute step, where its Simulate and Run are.
   const [startingDraft] = useState<SyncDraftState>(() => {
     const intent = useAppStore.getState().navigationIntent;
     if (intent?.route !== 'sync') return draft;
     return {
       ...defaultDraft,
+      currentStep: intent.syncConfig ? 4 : 0,
       sourceOrgId: intent.sourceOrgId ?? '',
       targetOrgId: intent.targetOrgId ?? '',
     };
+  });
+  /**
+   * The saved configuration another page opened here, on the execute step:
+   * Migration's "Open in Sync". Simulate and Run act on it as it was saved,
+   * read back by its id — what it holds that the wizard cannot show (a
+   * transform of one object alone, excluded fields) goes with it — until the
+   * wizard's own steps are opened again.
+   */
+  const [openedConfig, setOpenedConfig] = useState<{ id: string; label: string } | null>(() => {
+    const intent = useAppStore.getState().navigationIntent;
+    return intent?.route === 'sync' && intent.syncConfig
+      ? { id: intent.syncConfig.id, label: intent.syncConfig.name }
+      : null;
   });
   const initialDraft = useRef(startingDraft);
   const clearNavigationIntent = useAppStore((s) => s.clearNavigationIntent);
@@ -584,8 +606,16 @@ export function useSyncPageData(): SyncPageData {
     'sync:config:load',
     { responseType: 'sync:config:load:response' },
   );
-  /** The saved configuration asked to run now, until it is read back and sent to the run. */
-  const [savedRunAsked, setSavedRunAsked] = useState<string | null>(null);
+  /**
+   * The saved configuration asked to run or to simulate now, until it is read
+   * back and sent: whether to simulate it, and whether the run mutes the
+   * target's automation, as the box beside Run was left.
+   */
+  const [savedRunAsked, setSavedRunAsked] = useState<{
+    id: string;
+    simulate: boolean;
+    muteAutomation: boolean;
+  } | null>(null);
   /** The label of the saved configuration the run on the page is of; null for the wizard's own. */
   const [savedRunLabel, setSavedRunLabel] = useState<string | null>(null);
 
@@ -638,8 +668,10 @@ export function useSyncPageData(): SyncPageData {
   // A simulation stands for the configuration it was run on and no other:
   // once the orgs, objects, mappings, transforms or strategy change, its
   // findings say nothing of what a run would now do, and the run it offers
-  // would not be the one simulated.
+  // would not be the one simulated. A saved configuration opened here is
+  // simulated as saved, and its findings go when the wizard's steps reopen.
   const simulatedConfig = JSON.stringify({
+    opened: openedConfig?.id ?? null,
     sourceOrgId,
     targetOrgId,
     direction,
@@ -924,9 +956,10 @@ export function useSyncPageData(): SyncPageData {
    * Files are copied by a saved configuration only, which keeps which file it
    * copied where: the extension refuses a run, and a simulation, of one that
    * is not saved. The page warned and sent the run all the same, to be
-   * refused once the execute step had started.
+   * refused once the execute step had started. A saved configuration opened
+   * here is saved: what it copies is its own.
    */
-  const filesNeedSave = copyFiles && savedIdOnScreen === null;
+  const filesNeedSave = openedConfig === null && copyFiles && savedIdOnScreen === null;
 
   /** The objects a delta run would be refused for: see {@link DELTA_OPERATIONS}. */
   const deltaBlockers =
@@ -934,7 +967,33 @@ export function useSyncPageData(): SyncPageData {
       ? objectEntries.filter((e) => !DELTA_OPERATIONS.has(e.operation)).map((e) => e.objectApiName)
       : [];
 
+  /**
+   * Read a saved configuration back by its id, to run or simulate it as the
+   * store holds it once it answers (see `startSavedRun`).
+   */
+  const readBackSaved = (
+    saved: { id: string; label: string },
+    simulate: boolean,
+    mute: boolean,
+  ): void => {
+    if (busy) return;
+    setError(null);
+    executeMutation.reset();
+    simulateMutation.reset();
+    setSavedRunLabel(saved.label);
+    setSavedRunAsked({ id: saved.id, simulate, muteAutomation: mute });
+    if (simulate) setSimulatedFor(simulatedConfig);
+    setCurrentStep(4);
+    loadConfigMutation.mutate({ id: saved.id });
+  };
+
   const handleExecute = () => {
+    // A saved configuration opened here runs as it was saved, the box beside
+    // Run as it is left.
+    if (openedConfig !== null) {
+      readBackSaved(openedConfig, false, muteAutomation);
+      return;
+    }
     if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
     setError(null);
 
@@ -968,19 +1027,17 @@ export function useSyncPageData(): SyncPageData {
    */
   const handleRunSavedConfig = (configId: string, label: string) => {
     if (busy) return;
-    setError(null);
-    executeMutation.reset();
-    simulateMutation.reset();
-    setSavedRunLabel(label);
-    setSavedRunAsked(configId);
-    setCurrentStep(4);
-    loadConfigMutation.mutate({ id: configId });
+    // Run now names its configuration: one opened here before is put away.
+    if (openedConfig?.id !== configId) setOpenedConfig(null);
+    readBackSaved({ id: configId, label }, false, false);
   };
 
-  // The saved configuration read back goes to the run, once per answer.
+  // The saved configuration read back goes to the run or the simulation
+  // asked, once per answer.
   const loaded = loadConfigMutation.data;
   const startSavedRun = useLatestRef(() => {
     if (!loaded || savedRunAsked === null) return;
+    const asked = savedRunAsked;
     setSavedRunAsked(null);
     if (!loaded.config) {
       setSavedRunLabel(null);
@@ -988,7 +1045,14 @@ export function useSyncPageData(): SyncPageData {
       return;
     }
     setSyncStartedAt(Date.now());
-    executeMutation.mutate({ config: loaded.config });
+    if (asked.simulate) {
+      simulateMutation.mutate({ config: loaded.config });
+      return;
+    }
+    executeMutation.mutate({
+      config: loaded.config,
+      ...(asked.muteAutomation ? { muteAutomation: true } : {}),
+    });
   });
   useEffect(() => {
     startSavedRun.current();
@@ -1000,6 +1064,11 @@ export function useSyncPageData(): SyncPageData {
    * in conflict. Nothing is written, and nothing is recorded as a run.
    */
   const handleSimulate = () => {
+    // A saved configuration opened here is simulated as it was saved.
+    if (openedConfig !== null) {
+      readBackSaved(openedConfig, true, false);
+      return;
+    }
     if (!sourceOrgId || !targetOrgId || busy || filesNeedSave) return;
     setError(null);
 
@@ -1033,6 +1102,16 @@ export function useSyncPageData(): SyncPageData {
     const config = buildConfig(id, name, 'Saved from the SandForge sync wizard');
     saveConfigMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
+
+  /**
+   * The wizard's own navigation. Back on a step before the execute step, the
+   * steps are the wizard's again: a saved configuration opened here is put
+   * away, and Simulate and Run are the wizard's when they come round again.
+   */
+  const goToStep = useCallback((step: number) => {
+    if (step < 4) setOpenedConfig(null);
+    setCurrentStep(step);
+  }, []);
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
@@ -1073,7 +1152,7 @@ export function useSyncPageData(): SyncPageData {
     clearError: () => setError(null),
     piiWarnings,
     currentStep,
-    setCurrentStep,
+    setCurrentStep: goToStep,
     sourceOrgId,
     targetOrgId,
     findsHeldRecords,
@@ -1116,6 +1195,7 @@ export function useSyncPageData(): SyncPageData {
     handleSaveConfig,
     handleRunSavedConfig,
     savedRunLabel,
+    openedConfigLabel: openedConfig?.label ?? null,
     savedRunStarting: loadConfigMutation.loading,
     // Only while the configuration on screen is the one the host confirmed.
     configSaved: savedIdOnScreen !== null,

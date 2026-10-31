@@ -9,7 +9,13 @@ import { join } from 'node:path';
 // genuinely translated while the rest stays English and readable.
 const l10nBundle = vi.hoisted(() => ({ current: {} as Record<string, string> }));
 
+/** The folders open in the window, which a test sets: none by default. */
+const openFolders = vi.hoisted(() => ({
+  workspaceFolders: undefined as Array<{ uri: { scheme: string; fsPath: string } }> | undefined,
+}));
+
 vi.mock('vscode', () => ({
+  workspace: openFolders,
   window: {
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
@@ -40,6 +46,7 @@ import {
   confirmRemovalLeavingUndeletable,
   confirmRestoreIntoReplacedOrg,
   createBackgroundComposition,
+  migrationExportPicker,
   runQuestionDetail,
   wireBackgroundNotifications,
   wireOfflineNotifications,
@@ -1222,6 +1229,63 @@ describe('the dialogs a checkpoint’s Export… and Import… pick their file i
       'on the disk of the machine it runs on: pick a folder there',
     );
     await expect(dialogs.pickImportFile()).rejects.toThrow('pick a folder there');
+  });
+});
+
+describe('the dialog Browse… on the Migration page picks an export.json in (localized)', () => {
+  const HOME = '/home/tester';
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showOpenDialog).mockReset();
+    openFolders.workspaceFolders = undefined;
+    l10nBundle.current = {};
+  });
+
+  it('asks for one file, export.json files first and every file offered, and gives its path', async () => {
+    l10nBundle.current = { Import: 'Importer' };
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([
+      vscode.Uri.file('/home/tester/sfdmu/export.json'),
+    ]);
+
+    await expect(migrationExportPicker(HOME)()).resolves.toBe('/home/tester/sfdmu/export.json');
+
+    const options = vi.mocked(vscode.window.showOpenDialog).mock.calls[0][0];
+    expect(options).toMatchObject({
+      title: 'Import an SFDMU export.json',
+      openLabel: 'Importer',
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      // No folder open: where the import takes a file from, the home folder.
+      defaultUri: { fsPath: HOME },
+    });
+    expect(options?.filters).toEqual({ 'SFDMU export.json': ['json'], 'All files': ['*'] });
+  });
+
+  it('opens in the first folder of the window when one is open', async () => {
+    openFolders.workspaceFolders = [{ uri: vscode.Uri.file('/work/repo') }];
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue(undefined);
+
+    await migrationExportPicker(HOME)();
+
+    expect(vi.mocked(vscode.window.showOpenDialog).mock.calls[0][0]?.defaultUri).toMatchObject({
+      fsPath: '/work/repo',
+    });
+  });
+
+  it('gives nothing for a dialog closed', async () => {
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue(undefined);
+
+    await expect(migrationExportPicker(HOME)()).resolves.toBeUndefined();
+  });
+
+  it('refuses, in words, a file off this machine’s disk that the dialog offered', async () => {
+    const remote = { scheme: 'vscode-userdata', fsPath: '/elsewhere/export.json' };
+    vi.mocked(vscode.window.showOpenDialog).mockResolvedValue([remote] as never);
+
+    await expect(migrationExportPicker(HOME)()).rejects.toThrow(
+      'from the disk of the machine it runs on: pick a file there',
+    );
   });
 });
 
