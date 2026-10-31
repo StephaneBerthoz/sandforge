@@ -130,6 +130,18 @@ function firedOn(
 }
 
 /**
+ * What one write of a record of `object` fires in the target, in the order
+ * the platform runs it, an undelete included: what a run that mutes the
+ * target's automation plans from, write by write.
+ */
+export function automationFiredOn(
+  object: ForgeTargetObjectAutomation,
+  write: ForgeAutomationWrite,
+): ForgeAutomationFired[] {
+  return firedOn(object, write);
+}
+
+/**
  * What each write a Forge run makes of a record of `object` fires in the
  * target ({@link firedOn}). A flow that starts on a record created or
  * updated fires on both writes, and is listed under each. A trigger that
@@ -423,6 +435,19 @@ export function firedOnRemovalStepsOf(
       step,
     }));
   });
+}
+
+/**
+ * The writes each step of a removal that takes a whole run back makes, per
+ * object: what a mute of it plans for (`mutePlanOf`).
+ */
+export function removalStepsWrites(
+  steps: ForgeRemovalSteps,
+): (objectApiName: string, write: ForgeAutomationWrite) => boolean {
+  return (objectApiName, write) =>
+    REMOVAL_STEPS.some(
+      ([step, written]) => written === write && (steps[step] ?? []).includes(objectApiName),
+    );
 }
 
 /**

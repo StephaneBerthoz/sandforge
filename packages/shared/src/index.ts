@@ -259,6 +259,7 @@ export type {
 export {
   assignPermsetCommand,
   automationByWrite,
+  automationFiredOn,
   blindedBy,
   bypassAssignmentsOf,
   bypassesOfWrites,
@@ -273,6 +274,7 @@ export {
   removalBypassesOf,
   removalRisksOf,
   removalStepsBypassesOf,
+  removalStepsWrites,
   type ForgeAutomationFired,
   type ForgeAutomationOfWrite,
   type ForgeAutomationWrite,
@@ -284,6 +286,22 @@ export {
   type ForgeRemovalSteps,
   type ForgeRunWrite,
 } from './utils/forge-target-automation.js';
+export {
+  auditMutedOf,
+  mutedAutomationOf,
+  mutedEntryWords,
+  mutePermissionsOf,
+  mutePlanOf,
+  stillRunsWords,
+  type AuditMutedAutomation,
+  type MuteAssignment,
+  type MutedAutomation,
+  type MutedAutomationEntry,
+  type MutedAutomationSilenced,
+  type MutedAutomationStillRunning,
+  type MutePlan,
+  type MuteStillRunsWhy,
+} from './utils/automation-mute.js';
 export { seedEmailEstimates, seedEmailsRefused } from './utils/seed-automation.js';
 export {
   FORGE_READ_CEILING_PER_OBJECT,

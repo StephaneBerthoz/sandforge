@@ -2666,7 +2666,7 @@ describe('automationLines', () => {
       '  Case',
       '    on insert: Apex trigger CaseTrigger (before and after save), flow "Case notify" (after save; not for a user with Case_BypassFlow)',
       '    on update: flow "Case sync" (after save; start condition not read)',
-      '  bypass: assign Case_BypassFlow to the user the run writes as, and the flows whose start condition excludes them stay quiet',
+      '  bypass: assign Case_BypassFlow to the user the run writes as, and the flows whose start condition excludes them stay quiet; --mute-automation assigns them for the run alone, and takes them back as it ends',
       `  1 start condition(s) not read: the read takes ${CONDITIONS_BOUND} at most`,
       '  the start conditions of some flows could not be read: INSUFFICIENT_ACCESS: no access',
       '  read in 27 request(s) to TGT',

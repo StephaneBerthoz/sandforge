@@ -11,7 +11,21 @@ import type {
   SeedScenarioRunInfo,
   SeedScenarioTestFileOutcome,
 } from '@sandforge/shared';
-import { integerDigitsOf, sanitizeSoqlObjectName, guardTierOf } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  integerDigitsOf,
+  sanitizeSoqlObjectName,
+  guardTierOf,
+  type ForgeTargetAutomation,
+  type MutedAutomation,
+} from '@sandforge/shared';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+  type RunMute,
+} from '../../modules/forge/AutomationMuteLease.js';
 import type {
   HandlerDeps,
   DomainHandler,
@@ -138,6 +152,8 @@ interface SeedRunPayload {
   personObjects: string[];
   /** The locale its people and places are drawn in. */
   locale: string;
+  /** The mute it was asked for, planned before its gate: held while it writes. */
+  mute?: RunMute;
 }
 
 /**
@@ -431,18 +447,31 @@ export class SeedOpsHandler implements DomainHandler {
     transport: Parameters<typeof readEmailLimits>[0],
     objects: readonly string[],
     org: string,
+    muted?: ForgeTargetAutomation,
   ): Promise<SeedAutomationRead> {
     const reader = this.targetAutomation;
     return readSeedAutomation({
       org,
       objects,
+      // A run that mutes counts the emails of what still runs: the read its
+      // mute was planned from, with what it keeps quiet held quiet.
       readAutomation: (names) =>
-        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
-          reader.read(orgId, names),
-        ),
+        muted
+          ? Promise.resolve(muted)
+          : new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('seed automation', () =>
+              reader.read(orgId, names),
+            ),
       readLimits: () => readEmailLimits(transport),
     });
   }
+
+  /** Where and how a seed that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
 
   /**
    * `seed:automation`: what the org runs as a seed creates the records of the
@@ -1396,11 +1425,54 @@ export class SeedOpsHandler implements DomainHandler {
       objectApiName: o.objectApiName,
       recordCount: o.recordCount,
     }));
+    // Asked to mute, the seed plans it from what the target runs on the
+    // objects it creates; refused on a production org or for a user who
+    // cannot assign, it writes nothing. The lease is taken before its first
+    // write, below.
+    let mute: RunMute | undefined;
+    // The panel's request may ask it; a pipeline's Seed step never does.
+    if ('muteAutomation' in asked && asked.muteAutomation === true) {
+      const reader = this.targetAutomation;
+      const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+        .withTimeout('seed automation', () =>
+          reader.read(
+            payload.orgId,
+            written.map((o) => o.objectApiName),
+          ),
+        )
+        .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+      try {
+        mute = await muteForRun(async () => muteOrgOf(conn), read, {
+          ...this.muteLeases,
+          writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+        });
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        recordWriteRun(this.deps, {
+          action: 'seed_execute',
+          module: 'seed',
+          operationId,
+          orgId: payload.orgId,
+          outcome: 'stopped',
+          code: err.code,
+        });
+        return {
+          refusal: {
+            code: err.code,
+            message: err.message,
+            extraPayload: {},
+            failed: { authored: true },
+          },
+        };
+      }
+    }
+    if (mute) payload.mute = mute;
     const automation = await this.readAutomation(
       payload.orgId,
       conn,
       written.map((o) => o.objectApiName),
       orgName,
+      mute?.automation,
     );
     const emails = seedEmailGate(automation, written, orgName);
     for (const line of emails.unknown ?? []) warn(line);
@@ -1965,8 +2037,18 @@ export class SeedOpsHandler implements DomainHandler {
       let result: Awaited<ReturnType<typeof orchestrator.execute>>;
       // Running until its end is kept: a removal of it is refused until then.
       this.runningRuns.add(runId);
+      /** What the seed muted of the target's automation, once it ended. */
+      const mute = payload.mute;
+      let mutedAutomation: MutedAutomation | undefined = mute?.muted;
       try {
-        result = await orchestrator.execute(template, payload.orgId, runId);
+        // The lease is taken before the first write and given back as the
+        // seed ends, written, failed, stopped or thrown alike.
+        const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
+        if (held) mutedAutomation = held.outcome;
+        result = await orchestrator.execute(template, payload.orgId, runId).finally(async () => {
+          if (held) mutedAutomation = await held.release();
+        });
+        if (mutedAutomation) result = { ...result, mutedAutomation };
       } catch (err: unknown) {
         // What it inserted before it threw stays removable, the run ended failed.
         await kept
@@ -2048,6 +2130,7 @@ export class SeedOpsHandler implements DomainHandler {
           failed: object.recordsFailed,
         })),
         source,
+        ...(result.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
       });
 
       const response = buildResponse(

@@ -133,6 +133,14 @@ import {
   type SeedEmailGate,
 } from '../src/modules/seed/seedAutomation.js';
 import {
+  isMuteRefusedError,
+  muteForRun,
+  muteLines,
+  muteOrgOf,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
+import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
+import {
   nodeSeedRunCreations,
   SEED_RUNS_DIR,
   seedRunKept,
@@ -215,6 +223,16 @@ Options:
                          before its next call, or aborts the job still open,
                          and the summary says what it wrote
   --dry-run              build and map, write nothing      (default: off)
+  --mute-automation      mute the target's automation for the run through
+                         its own bypass: assign the user the run writes as,
+                         for the run alone, the permission sets holding the
+                         custom permissions its flows, processes and
+                         workflow rules test to stay quiet, and take them
+                         back as it ends; what no bypass keeps quiet still
+                         runs, and is named. Refused on a production org and
+                         for a user who cannot assign permission sets, exit
+                         1; with --dry-run, says what would be muted and
+                         assigns nothing                   (default: off)
   --seed <n>             draw as the run that printed this seed did: the
                          same command with the same seed plans and writes
                          the same numbers. Every run prints its seed
@@ -307,6 +325,9 @@ Remove what a run created:
                          not say what it runs. Each is named before anything
                          is deleted; without the flag the removal then
                          deletes nothing, exit 1             (default: off)
+  --mute-automation      mute the target's automation for the removal through
+                         its own bypass, as for a run; what no bypass keeps
+                         quiet still needs --accept-automation (default: off)
   --sweep                before the run's records go, delete too what the
                          target's automation created during the run, as the
                          run's user, that the run did not write: in the objects
@@ -420,6 +441,8 @@ what it created.
 /** Everything the command line settled. */
 interface CliArgs {
   target: string;
+  /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
+  muteAutomation?: boolean;
   templateId?: string;
   /** A seed template in a JSON file, read and checked before any org is reached. */
   templateFile?: string;
@@ -652,7 +675,14 @@ function countChildren(
 
 /** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
 const RUN_FLAGS: CommandFlags = {
-  switches: ['--list-templates', '--dry-run', '--json', '--existing', '--fail-on-partial'],
+  switches: [
+    '--list-templates',
+    '--dry-run',
+    '--json',
+    '--existing',
+    '--fail-on-partial',
+    '--mute-automation',
+  ],
   values: [
     '--target',
     '--template',
@@ -851,6 +881,7 @@ export function parseArgs(argv: string[]): CliArgs {
     dryRun: args.includes('--dry-run'),
     json: args.includes('--json'),
     failOnPartial: args.includes('--fail-on-partial'),
+    muteAutomation: args.includes('--mute-automation'),
     ...(seed !== undefined ? { seed } : {}),
     ...(locale !== undefined ? { locale } : {}),
     recordTypes,
@@ -1673,13 +1704,34 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     if (!args.dryRun) throw new Error(storage.refusal);
     log(`  a real run would be refused: ${storage.refusal}`);
   }
+  // Asked to mute, the run plans it from what the target runs on the objects
+  // it writes before it counts their emails, which then leave out what the
+  // mute keeps quiet. Refused on a production org or for a user who cannot
+  // assign, a real run writes nothing; a dry run says so, and assigns nothing.
+  let mute: RunMute | undefined;
+  if (args.muteAutomation) {
+    const objects = template.objects.map((object) => object.objectApiName);
+    const read = await targetAutomationReader(conn)
+      .read(args.target, objects)
+      .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+    try {
+      mute = await muteForRun(async () => muteOrgOf(conn), read, {
+        writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+      });
+      for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
+    } catch (err: unknown) {
+      if (!isMuteRefusedError(err) || !args.dryRun) throw err;
+      log(`  a real run would be refused: ${err.message}`);
+    }
+  }
   // What the target runs as these records are created, and the emails they
   // make it send, before the first write: a seed of 75 contacts left a
   // Developer Edition at -60 of its 15 single emails a day.
   const automation = await seedAutomationCheck({
     target: args.target,
     objects: template.objects,
-    readAutomation: (objects) => targetAutomationReader(conn).read(args.target, objects),
+    readAutomation: async (objects) =>
+      mute?.automation ?? targetAutomationReader(conn).read(args.target, objects),
     readLimits: () => readEmailLimits(conn),
   });
   for (const line of automation.lines) log(line);
@@ -1840,8 +1892,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   const keepFailed = (err: unknown): void => {
     unkept = err instanceof Error ? err.message : String(err);
   };
+  /** What the run muted of the target's automation, once it ended. */
+  let mutedAutomation: MutedAutomation | undefined = mute?.muted;
   try {
-    result = await orchestrator.execute(template, args.target, runId);
+    // The lease is taken before the first write and given back as the run
+    // ends, written, failed, stopped or thrown alike.
+    const held = !args.dryRun && mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
+    if (held) mutedAutomation = held.outcome;
+    result = await orchestrator.execute(template, args.target, runId).finally(async () => {
+      if (held) {
+        mutedAutomation = await held.release();
+        for (const line of muteLines(mutedAutomation, args.target)) log(line);
+      }
+    });
+    if (mutedAutomation && !args.dryRun) result = { ...result, mutedAutomation };
   } catch (err: unknown) {
     // What it inserted before it threw stays removable, the run ended failed.
     await kept
@@ -2098,6 +2162,8 @@ export interface RemoveArgs {
   leaveUndeletable: boolean;
   /** Remove although the target runs automation as the removal writes, or could not say what. */
   acceptAutomation: boolean;
+  /** Mute the target's automation for the removal, through its own bypass (`--mute-automation`). */
+  muteAutomation: boolean;
   /** Say what the removal would do, and do nothing. Absent unless given. */
   preview?: true;
 }
@@ -2109,6 +2175,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--preview',
   '--include-changed',
   '--accept-automation',
+  '--mute-automation',
   '--sweep',
   '--sweep-list',
   '--leave-undeletable',
@@ -2136,8 +2203,9 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --preview, --include-changed, --accept-automation, --sweep, ` +
-          `--sweep-list, --leave-undeletable and --json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --preview, --include-changed, --accept-automation, ` +
+          `--mute-automation, --sweep, --sweep-list, --leave-undeletable and --json, not ` +
+          `"${arg}". Run with --help.\n`,
       );
       process.exit(2);
     }
@@ -2177,6 +2245,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     json: args.includes('--json'),
     leaveUndeletable: args.includes('--leave-undeletable'),
     acceptAutomation: args.includes('--accept-automation'),
+    muteAutomation: args.includes('--mute-automation'),
     ...(args.includes('--preview') ? { preview: true as const } : {}),
   };
 }
@@ -2585,11 +2654,28 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   // a word of it. A seed only creates, so nothing is brought back from the
   // recycle bin, and what runs on an undelete is not read.
   const removed = [...new Set(plan.map(({ objectApiName }) => objectApiName))];
+  /** The removal's mute, asked with --mute-automation, held while it deletes. */
+  let removalMute: RunMute | undefined;
   if (removed.length > 0) {
     const steps: ForgeRemovalSteps = { setToDraft: setBackToDraftOf(removed), delete: removed };
-    const automation = await targetAutomationReader(conn).read(args.target, removed);
+    const read = await targetAutomationReader(conn).read(args.target, removed);
     say('');
-    for (const line of removalStepsAutomationLines(automation, args.target, steps)) say(line);
+    for (const line of removalStepsAutomationLines(read, args.target, steps)) say(line);
+    // Asked to mute, the removal plans it from what it read, and asks only
+    // for what still runs; refused, it deletes nothing.
+    if (args.muteAutomation) {
+      try {
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          writes: removalStepsWrites(steps),
+        });
+        for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+    }
+    const automation = removalMute?.automation ?? read;
     const automationStop = removalStepsAutomationRefusal(automation, args.target, {
       steps,
       assign: bypassesToAssign(
@@ -2635,6 +2721,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       }
     : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
+  // The lease is taken before the removal's first delete and given back as it
+  // ends, whatever it ended on.
+  const held = removalMute?.prepared
+    ? await removalMute.prepared
+        .acquire(`sandforge-seed --remove ${run.runId}`)
+        .catch((err: unknown) => {
+          if (!isMuteRefusedError(err)) throw err;
+          releaseStop();
+          process.stderr.write(`${err.message}\n`);
+          process.exit(1);
+        })
+    : undefined;
+  let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
   try {
     outcome = await removeSyncRun({
       run,
@@ -2655,7 +2754,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     });
   } finally {
     releaseStop();
+    if (held) {
+      mutedAutomation = await held.release();
+      for (const line of muteLines(mutedAutomation, args.target)) say(line);
+    }
   }
+  if (mutedAutomation) outcome = { ...outcome, result: { ...outcome.result, mutedAutomation } };
   // Stopped before its first delete, for objects the user may not delete:
   // named above, and nothing was removed.
   if (outcome.stoppedForUndeletable) process.exit(1);

@@ -1,3 +1,4 @@
+import type { AuditMutedAutomation } from '../utils/automation-mute.js';
 import type { UUID, ISODateString } from './common.types.js';
 import type { ForgeGapDecisionKind, ForgeVerificationVerdict } from './forge.types.js';
 
@@ -221,6 +222,13 @@ export interface AuditLogEntry {
   userId?: string;
   /** How the run was set up and let through, beside what it wrote; see {@link AuditRunContext}. */
   context?: AuditRunContext;
+  /**
+   * What the run muted of the target's automation, when it was asked to: the
+   * permission sets assigned to the user it wrote as for its duration, and
+   * whether they were taken back; the automations silenced and still running,
+   * counted, never named.
+   */
+  muted?: AuditMutedAutomation;
   details: Record<string, unknown>;
   timestamp: ISODateString;
   ipAddress?: string;

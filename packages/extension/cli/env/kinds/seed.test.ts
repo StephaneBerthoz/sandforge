@@ -198,6 +198,7 @@ describe('a seed resource’s lines', () => {
       json: true,
       leaveUndeletable: false,
       acceptAutomation: false,
+      muteAutomation: false,
     });
     expect(
       parseRemoveArgs(
@@ -219,6 +220,7 @@ describe('a seed resource’s lines', () => {
       json: true,
       leaveUndeletable: true,
       acceptAutomation: true,
+      muteAutomation: false,
       preview: true,
     });
     expect(seedRemoveLine({ ...removal, sweep: true })).toContain('--sweep');

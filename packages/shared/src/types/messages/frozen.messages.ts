@@ -83,6 +83,15 @@ export interface FrozenLoadOptionsPayload {
   reload?: boolean;
   writeEncrypted?: boolean;
   maxRecords?: number;
+  /**
+   * Mute the target's automation for the run: assign the user it writes as,
+   * for its duration, the permission sets holding the bypasses the target's
+   * flows, processes and workflow rules test to stay quiet, and take them
+   * back as it ends. Refused on a production org, and for a user who cannot
+   * assign permission sets; what no bypass keeps quiet still runs, and is
+   * asked about as ever.
+   */
+  muteAutomation?: boolean;
 }
 
 /**

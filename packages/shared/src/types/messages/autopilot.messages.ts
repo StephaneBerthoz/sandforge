@@ -1,3 +1,4 @@
+import type { MutedAutomation } from '../../utils/automation-mute.js';
 import type { BaseMessage } from './base.messages.js';
 import type {
   AutopilotGraph,
@@ -95,6 +96,15 @@ export interface AutopilotExecuteRequest extends BaseMessage {
   type: 'autopilot:execute';
   payload: {
     grappeThreshold: number;
+    /**
+     * Mute the target's automation for the run: assign the user it writes as,
+     * for its duration, the permission sets holding the bypasses the target's
+     * flows, processes and workflow rules test to stay quiet, and take them
+     * back as it ends. Refused on a production org, and for a user who cannot
+     * assign permission sets; what no bypass keeps quiet still runs, and is
+     * asked about as ever.
+     */
+    muteAutomation?: boolean;
   };
 }
 
@@ -170,6 +180,13 @@ export interface AutopilotCompleted extends BaseMessage {
      * Counted among the email node's records not sent. Absent when none.
      */
     emailsHeldForTheirTask?: number;
+    /**
+     * What the run muted of the target's automation, when it was asked to
+     * (`muteAutomation`): the permission sets assigned to the user it wrote as
+     * for its duration, what they silenced, what still ran, and whether they
+     * were taken back. Absent when it was not asked.
+     */
+    mutedAutomation?: MutedAutomation;
   };
 }
 

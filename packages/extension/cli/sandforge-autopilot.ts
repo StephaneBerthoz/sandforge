@@ -92,6 +92,14 @@ import {
   type DataStorage,
 } from '../src/modules/forge/ForgeRunGate.js';
 import { targetAutomationReader } from './sandforge-clone.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteLines,
+  muteOrgOf,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
+import type { MutedAutomation } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 
 const HELP = `sandforge-autopilot — run an Autopilot copy between two orgs, without the editor.
@@ -123,6 +131,16 @@ Options:
                          whatever the framework                   (default: off)
   --batch-size <n>       records per write call                   (default: 200)
   --plan-only            scan, graph and plan, then stop          (default: off)
+  --mute-automation      mute the target's automation for the run through
+                         its own bypass: assign the user the run writes as,
+                         for the run alone, the permission sets holding the
+                         custom permissions its flows, processes and
+                         workflow rules test to stay quiet, and take them
+                         back as it ends; what no bypass keeps quiet still
+                         runs, and is named. Refused on a production org and
+                         for a user who cannot assign permission sets, exit
+                         1; with --plan-only, says what would be muted and
+                         assigns nothing                   (default: off)
   --json                 emit the run summary as JSON, with the id
                          of every record the run created          (default: off)
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
@@ -168,6 +186,8 @@ interface CliArgs {
   json: boolean;
   /** Exit 3, not 0, when the run wrote some records and the target refused others. */
   failOnPartial: boolean;
+  /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
+  muteAutomation: boolean;
 }
 
 /** SObject API name — letter-prefixed, alphanumeric and underscore. */
@@ -181,6 +201,7 @@ const FLAGS: CommandFlags = {
     '--plan-only',
     '--json',
     '--fail-on-partial',
+    '--mute-automation',
   ],
   values: [
     '--source',
@@ -268,6 +289,7 @@ export function parseArgs(argv: string[]): CliArgs {
     keepContactPoints: args.includes('--keep-contact-points'),
     json: args.includes('--json'),
     failOnPartial: args.includes('--fail-on-partial'),
+    muteAutomation: args.includes('--mute-automation'),
   };
 }
 
@@ -505,10 +527,31 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   // The emails the target's flows send as the plan's records go in, against
   // what it has left today: its automation read as Forge reads it, its limits
   // when something sends. Past them, the run is refused, as past the storage.
+  // Asked to mute, the run plans it from what the target runs on the objects
+  // it writes before it counts their emails, which then leave out what the
+  // mute keeps quiet. Refused on a production org or for a user who cannot
+  // assign, a real run writes nothing; --plan-only says so, and assigns nothing.
+  let mute: RunMute | undefined;
+  let muteRefused: string | undefined;
+  if (args.muteAutomation) {
+    const read = await targetAutomationReader(targetConn)
+      .read(args.target, objectsThePlanWrites(plan))
+      .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+    try {
+      mute = await muteForRun(async () => muteOrgOf(targetConn), read, {
+        writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+      });
+      for (const line of muteLines(mute.muted, args.target)) log(`  ${line}`);
+    } catch (err: unknown) {
+      if (!isMuteRefusedError(err)) throw err;
+      muteRefused = err.message.replace(/ Nothing was assigned\.$/, '');
+    }
+  }
   const emails = await autopilotEmails({
     plan: writePlan,
     objects: objectsThePlanWrites(plan),
-    readAutomation: (objects) => targetAutomationReader(targetConn).read(args.target, objects),
+    readAutomation: async (objects) =>
+      mute?.automation ?? targetAutomationReader(targetConn).read(args.target, objects),
     readLimits: () => readEmailLimits(targetConn),
   });
   for (const line of emailCheckLines(emails.checks, args.target)) log(line);
@@ -524,6 +567,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     // Its own refusal closes on the sentence the thrown error adds once.
     apiBudgetRefusal(api, args.target)?.replace(/ Nothing was written\.$/, ''),
     emailRefusal(emails.checks, args.target),
+    muteRefused,
   ].filter((reason): reason is string => reason !== undefined);
 
   if (args.planOnly) {
@@ -575,20 +619,33 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   };
   const releaseStop = onStopSignal(interrupt);
   let result: ExecutionResult;
+  /** What the run muted of the target's automation, once it ended. */
+  let mutedAutomation: MutedAutomation | undefined;
   try {
-    result = await orchestrator.executePlan(
-      plan,
-      graph,
-      rules,
-      recordCounts,
-      undefined,
-      stop.signal,
-      scan.parentIds,
-      args.keepContactPoints ? { keepContactPoints: true } : {},
-    );
+    // The lease is taken before the first write and given back as the run
+    // ends, written, failed, stopped or thrown alike.
+    const held = mute?.prepared
+      ? await mute.prepared.acquire(`sandforge-autopilot ${t0}`)
+      : undefined;
+    mutedAutomation = held?.outcome ?? mute?.muted;
+    result = await orchestrator
+      .executePlan(
+        plan,
+        graph,
+        rules,
+        recordCounts,
+        undefined,
+        stop.signal,
+        scan.parentIds,
+        args.keepContactPoints ? { keepContactPoints: true } : {},
+      )
+      .finally(async () => {
+        if (held) mutedAutomation = await held.release();
+      });
   } finally {
     releaseStop();
   }
+  for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   const elapsedMs = Date.now() - t0;
   const interrupted = stop.signal.aborted;
   // A run that died, or whose every record the target refused, exited 0 as
@@ -601,7 +658,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   if (args.json) {
     process.stdout.write(
-      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
+      `${JSON.stringify({ tool: 'sandforge-autopilot', source: args.source, target: args.target, result, created: Object.fromEntries(created), ...(mutedAutomation ? { mutedAutomation } : {}), elapsedMs, ...(interrupted ? { interrupted: true } : {}) }, null, 2)}\n`,
     );
     if (interrupted) process.stderr.write(`${autopilotInterruptedLine(result)}\n`);
     return;

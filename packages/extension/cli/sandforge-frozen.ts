@@ -64,6 +64,8 @@ import type {
 import { orgTypeOf } from '@sandforge/shared';
 import { loadOrg, makeConn } from './sfSession.js';
 import { sweepLines, sweepListingLines, targetAutomationReader } from './sandforge-clone.js';
+import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
+import type { MutedAutomation } from '@sandforge/shared';
 import { fileConfigStore } from './fileConfigStore.js';
 import { FrozenDatasetHandler } from '../src/bridge/handlers/FrozenDatasetHandler.js';
 import { BackgroundOperationRegistry } from '../src/core/engine/BackgroundOperationRegistry.js';
@@ -135,6 +137,14 @@ Options:
                          holds them, though its manifest does not say its extraction
                          left out what it read masked — they may hold masks such as
                          ****1234 (left out otherwise, each named)
+  --mute-automation      with load: mute the target's automation for the load through
+                         its own bypass — assign the user it writes as, for the load
+                         alone, the permission sets holding the custom permissions its
+                         flows, processes and workflow rules test to stay quiet, and
+                         take them back as it ends; what no bypass keeps quiet still
+                         runs, and is named. Refused on a production org and for a user
+                         who cannot assign permission sets, exit 1; with --dry-run,
+                         says what would be muted and assigns nothing
   --include-changed      remove also the records changed since the load, and what
                          was added to them since (kept otherwise)
   --sweep                with remove: before the load's records go, delete too what
@@ -220,6 +230,8 @@ interface CliArgs {
   dryRun: boolean;
   /** With load: write the fields the target encrypts though the dataset may hold their masks. */
   writeEncrypted: boolean;
+  /** With load: mute the target's automation for the load, through its own bypass. */
+  muteAutomation: boolean;
   includeChanged: boolean;
   /** With remove: sweep first what the target's automation created during the load. */
   sweep: boolean;
@@ -241,6 +253,7 @@ const FLAGS: CommandFlags = {
     '--reload',
     '--dry-run',
     '--write-encrypted',
+    '--mute-automation',
     '--include-changed',
     '--sweep',
     '--sweep-list',
@@ -302,6 +315,10 @@ export function parseArgs(argv: string[]): CliArgs {
     process.stderr.write('--write-encrypted goes with load. Run with --help.\n');
     process.exit(2);
   }
+  if (args.includes('--mute-automation') && step !== 'load') {
+    process.stderr.write('--mute-automation goes with load. Run with --help.\n');
+    process.exit(2);
+  }
   if (args.includes('--preview') && step !== 'remove') {
     // A load's is --dry-run; a removal's is --preview, as for the other removals.
     process.stderr.write(
@@ -344,6 +361,7 @@ export function parseArgs(argv: string[]): CliArgs {
     reload: args.includes('--reload'),
     dryRun: args.includes('--dry-run'),
     writeEncrypted: args.includes('--write-encrypted'),
+    muteAutomation: args.includes('--mute-automation'),
     includeChanged: args.includes('--include-changed'),
     sweep: args.includes('--sweep'),
     sweepList: args.includes('--sweep-list'),
@@ -1008,6 +1026,8 @@ export function messageLines(message: Posted): string[] {
         lines.push('kept by the purge, the platform does not delete them:');
         for (const [objectApiName, count] of kept) lines.push(`  ${objectApiName}: ${count}`);
       }
+      const muted = (p.report as { mutedAutomation?: MutedAutomation }).mutedAutomation;
+      if (muted) lines.push(...muteLines(muted, 'the target'));
       return lines;
     }
     case 'frozen:load:preview:response': {
@@ -1650,6 +1670,20 @@ export async function main(argv: string[] = process.argv): Promise<void> {
             refusals.push(tooMany);
             log(`a load would be refused: ${tooMany}`);
           }
+          // What a load with --mute-automation would assign, silence and leave
+          // running, read from the target as the load would read it; nothing
+          // assigned.
+          if (args.muteAutomation && plan && targetConn) {
+            const automation = await targetAutomationReader(targetConn).read(
+              targetOrgId!,
+              plan.perObject.map((object) => object.objectApiName),
+            );
+            const { planned } = planMute(
+              automation,
+              (_objectApiName, write) => write === 'insert' || write === 'update',
+            );
+            for (const line of muteLines(planned, args.target ?? 'the target')) log(line);
+          }
           break;
         }
         if (!args.yes) {
@@ -1668,6 +1702,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
           ...(args.reload ? { reload: true } : {}),
           ...(args.writeEncrypted ? { writeEncrypted: true } : {}),
           ...(args.maxTotal !== undefined ? { maxRecords: args.maxTotal } : {}),
+          ...(args.muteAutomation ? { muteAutomation: true } : {}),
         });
         break;
       }

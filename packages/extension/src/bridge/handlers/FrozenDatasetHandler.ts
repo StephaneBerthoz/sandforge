@@ -23,8 +23,9 @@ import type {
   ForgeSweepResult,
   ForgeTargetAutomation,
   GuardDecision,
+  MutedAutomation,
 } from '@sandforge/shared';
-import { guardTierOf } from '@sandforge/shared';
+import { auditMutedOf, guardTierOf } from '@sandforge/shared';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { SafetyTier } from '../../core/precheck/ProductionGuard.js';
 import {
@@ -49,6 +50,12 @@ import {
   type SweepInput,
 } from '../../modules/forge/ForgeRunSweep.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+} from '../../modules/forge/AutomationMuteLease.js';
 import { seedWrittenBetween } from '../../modules/seed/seedRunSweep.js';
 import {
   removalAuditObjects,
@@ -863,6 +870,14 @@ export class FrozenDatasetHandler implements DomainHandler {
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
   }
+
+  /** Where and how a load that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
 
   /** The handler's own reader of the target's automation, as Forge reads it, off the activation path. */
   private ownReader(): Promise<TargetAutomationReader> {
@@ -2205,8 +2220,11 @@ export class FrozenDatasetHandler implements DomainHandler {
         source: { origin: 'dataset', label: datasetLabel },
         carried,
         ...(code ? { code } : {}),
+        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
       });
     };
+    /** What the load muted of the target's automation, when it was asked to. */
+    let mutedAutomation: MutedAutomation | undefined;
 
     try {
       const guard = new SasPathGuard();
@@ -2261,7 +2279,31 @@ export class FrozenDatasetHandler implements DomainHandler {
         serverTime: () => targetClock.serverTime(),
       });
 
-      const report = await loader.load({
+      // Asked to mute, the load reads what the target runs on the objects it
+      // writes — it has no gate of its own that does — and plans the mute
+      // from it: refused on a production org or for a user who cannot
+      // assign, it writes nothing. The lease is taken before its first
+      // write, and given back as it ends, whatever it ended on.
+      const mute =
+        parsed.muteAutomation === true
+          ? await muteForRun(
+              async () => muteOrgOf(conn),
+              await this.targetAutomation
+                .read(
+                  parsed.targetOrgId,
+                  dataset.objects.map((object) => object.objectApiName),
+                )
+                .catch((err: unknown) => ({ unread: extractErrorMessage(err) })),
+              {
+                ...this.muteLeases,
+                writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+              },
+            )
+          : undefined;
+      mutedAutomation = mute?.muted;
+      const held = mute?.prepared ? await mute.prepared.acquire(operationId) : undefined;
+      if (held) mutedAutomation = held.outcome;
+      const loaded = loader.load({
         orgId: parsed.targetOrgId,
         orgTier: this.targetTier(parsed.targetOrgId),
         dataset,
@@ -2279,6 +2321,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         // The controller the registry aborts: the load stops before its next
         // write, where it used to run to its end.
         signal: abortController.signal,
+      });
+      const report = await loaded.finally(async () => {
+        if (held) mutedAutomation = await held.release();
       });
       throttledProgress.flush();
       recordLoad(
@@ -2298,7 +2343,10 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.recordLastRun(lastRun);
 
       const response = buildResponse(this.deps, msg, 'frozen:load:response', {
-        report: toLoadReportInfo(report),
+        report: {
+          ...toLoadReportInfo(report),
+          ...(mutedAutomation ? { mutedAutomation } : {}),
+        },
       });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { status: report.status });
@@ -2347,16 +2395,21 @@ export class FrozenDatasetHandler implements DomainHandler {
       // nothing was written. After a batch went through, the load failed —
       // recorded with what it wrote, when it says, which its mapping names;
       // the code is the one of what it failed on.
+      // A mute refused stops the load before its first write.
+      const muteRefused = isMuteRefusedError(err) ? err : undefined;
       const stopped =
-        (guardDecision === 'refused' || guardDecision === 'declined') && !batchLetThrough;
+        muteRefused !== undefined ||
+        ((guardDecision === 'refused' || guardDecision === 'declined') && !batchLetThrough);
       const failed = err instanceof FrozenLoadFailedError ? err : undefined;
       const cause = failed ? failed.cause : err;
       recordLoad(
         stopped ? 'stopped' : 'failure',
         failed ? frozenAuditObjects(failed.written) : undefined,
+        undefined,
+        muteRefused?.code,
       );
       sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
-        code: this.errorCodeFor(cause, 'LOAD_ERROR'),
+        code: muteRefused?.code ?? this.errorCodeFor(cause, 'LOAD_ERROR'),
         retryable: cause instanceof TimeoutError,
       });
       // The load's end, as every write run posts it: with the error alone,

@@ -57,6 +57,14 @@ import {
 } from '../../modules/autopilot/AutopilotRunGate.js';
 import { detectPersonalFields } from '../../modules/autopilot/personalFields.js';
 import { emptyCounts, recordWriteRun } from '../../modules/audit/auditTrail.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+  type RunMute,
+} from '../../modules/forge/AutomationMuteLease.js';
+import { auditMutedOf, type ForgeTargetAutomation, type MutedAutomation } from '@sandforge/shared';
 import { RUN_CANCELLED } from '../../modules/forge/forgeAudit.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -650,7 +658,7 @@ export class AutopilotHandler implements DomainHandler {
       rules: AutopilotAnonymizationRule[];
       scanResult: SchemaScanResult;
     },
-    payload: { grappeThreshold?: number; keepContactPoints?: boolean },
+    payload: { grappeThreshold?: number; keepContactPoints?: boolean; muteAutomation?: boolean },
     guard: ProductionGuard,
   ): Promise<void> {
     if (!this.orchestrator) return;
@@ -722,7 +730,38 @@ export class AutopilotHandler implements DomainHandler {
     // storage or past a daily email limit, before anything is written. A
     // person account is sized at 4 KB, as Salesforce counts it.
     const writePlan = autopilotWritePlan(plan, scanResult.recordCounts, scanResult.personAccounts);
-    const emails = await this.targetEmails(operation.targetOrgId, plan, writePlan);
+    // Asked to mute, the run plans it from what the target runs on the
+    // objects the plan writes, and its gate counts the emails of what still
+    // runs; refused on a production org or for a user who cannot assign, it
+    // writes nothing. The lease is taken before its first write, below.
+    let mute: RunMute | undefined;
+    if (payload.muteAutomation === true) {
+      try {
+        mute = await this.runMute(operation.targetOrgId, plan);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        recordWriteRun(this.deps, {
+          action: 'autopilot_execute',
+          module: 'autopilot',
+          operationId: msg.id,
+          orgId: operation.targetOrgId,
+          outcome: 'stopped',
+          guard: guardDecision,
+          code: err.code,
+        });
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err, {
+          code: err.code,
+        });
+        settle(err);
+        return;
+      }
+    }
+    const emails = await this.targetEmails(
+      operation.targetOrgId,
+      plan,
+      writePlan,
+      mute?.automation,
+    );
     const gate = await gateAutopilotWrite({
       plan: writePlan,
       storage: await this.readTargetDataStorage(operation.targetOrgId),
@@ -758,6 +797,8 @@ export class AutopilotHandler implements DomainHandler {
     const written = new Map<string, AuditObjectCounts>();
     /** A run is recorded once, whichever way it ends. */
     let recorded = false;
+    /** What the run muted of the target's automation, once it ended. */
+    let mutedAutomation: MutedAutomation | undefined = mute?.muted;
     const recordRun = (
       outcome: 'success' | 'partial' | 'failure' | 'stopped' | 'cancelled',
     ): void => {
@@ -775,6 +816,7 @@ export class AutopilotHandler implements DomainHandler {
         // Stopped before it wrote anything, under the code a cancelled
         // Forge run is recorded with: read as a failure otherwise.
         ...(outcome === 'stopped' ? { code: RUN_CANCELLED } : {}),
+        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
       });
     };
     try {
@@ -808,7 +850,11 @@ export class AutopilotHandler implements DomainHandler {
         for (const objectApiName of wave.objects) waveOf.set(String(objectApiName), wave.order);
       }
 
-      const result = await this.orchestrator.executePlan(
+      // The lease is taken before the first write and given back as the run
+      // ends, written, failed, stopped or thrown alike.
+      const held = mute?.prepared ? await mute.prepared.acquire(msg.id) : undefined;
+      if (held) mutedAutomation = held.outcome;
+      const ran = this.orchestrator.executePlan(
         plan,
         graph,
         rules,
@@ -861,6 +907,9 @@ export class AutopilotHandler implements DomainHandler {
         // was unticked: see `AutopilotRunOptions`.
         payload.keepContactPoints === true ? { keepContactPoints: true } : {},
       );
+      const result = await ran.finally(async () => {
+        if (held) mutedAutomation = await held.release();
+      });
 
       // Send node-progress 'completed' or 'failed' per node based on execution result
       const completedSet = new Set(result.completedObjects);
@@ -991,6 +1040,7 @@ export class AutopilotHandler implements DomainHandler {
         totalFailureCount: result.totalFailure,
         totalElapsedMs: result.elapsedMs,
         totalApiCalls: 0,
+        ...(mutedAutomation ? { mutedAutomation } : {}),
         ...(result.stopped
           ? {
               stopped: true,
@@ -1050,6 +1100,38 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
+  /** Where and how a run that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
+  /**
+   * The mute of a run that asked for one, planned from what the target runs
+   * on the objects the plan writes. Throws `MuteRefusedError` when refused.
+   */
+  private async runMute(targetOrgId: string, plan: Pick<ExecutionPlan, 'waves'>): Promise<RunMute> {
+    const reader = this.targetAutomation;
+    const read = await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+      .withTimeout('autopilot:automation', () =>
+        reader.read(targetOrgId, objectsThePlanWrites(plan)),
+      )
+      .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+    return muteForRun(
+      async () =>
+        muteOrgOf(
+          await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager),
+        ),
+      read,
+      {
+        ...this.muteLeases,
+        writes: (_objectApiName, write) => write === 'insert' || write === 'update',
+      },
+    );
+  }
+
   /** The daily API requests the target has, read when its storage could not be. */
   private async readTargetApiBudget(targetOrgId: string): Promise<ApiBudget> {
     const conn = await getJsforceConnection(
@@ -1072,15 +1154,19 @@ export class AutopilotHandler implements DomainHandler {
     targetOrgId: string,
     plan: Pick<ExecutionPlan, 'waves'>,
     writePlan: WritePlan,
+    muted?: ForgeTargetAutomation,
   ): Promise<AutopilotEmails> {
     const reader = this.targetAutomation;
     const emails = await autopilotEmails({
       plan: writePlan,
       objects: objectsThePlanWrites(plan),
+      // A run that mutes counts the emails of what still runs.
       readAutomation: (objects) =>
-        new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('autopilot:automation', () =>
-          reader.read(targetOrgId, objects),
-        ),
+        muted
+          ? Promise.resolve(muted)
+          : new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('autopilot:automation', () =>
+              reader.read(targetOrgId, objects),
+            ),
       readLimits: async () => {
         const conn = await getJsforceConnection(
           targetOrgId,

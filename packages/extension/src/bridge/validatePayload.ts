@@ -370,7 +370,11 @@ export const fileSavePayloadSchema = z.object({
     .optional(),
 });
 
-export const syncExecutePayloadSchema = z.object({ config: syncConfigPayloadSchema });
+export const syncExecutePayloadSchema = z.object({
+  config: syncConfigPayloadSchema,
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
+});
 /** `sync:simulate` — the configuration a run would be given, checked as one is. */
 export const syncSimulatePayloadSchema = z.object({ config: syncConfigPayloadSchema });
 /** `sync:pause` / `sync:resume` — the run, by the id of the request that started it. */
@@ -479,6 +483,8 @@ export const syncRemovePayloadSchema = z.object({
   sweep: z.boolean().optional(),
   // Take every record the run created: an undo brought back what a removal found gone.
   again: z.boolean().optional(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 // What a sweep asked with a Sync run's removal would take: the run, named as for its removal.
 export const syncRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
@@ -497,6 +503,8 @@ export const seedRemovePayloadSchema = z.object({
   sweep: z.boolean().optional(),
   // Take every record the run created: an undo brought back what a removal found gone.
   again: z.boolean().optional(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 // What a sweep asked with a run's removal would take: the run, named as for its removal.
 export const seedRemoveSweepPayloadSchema = z.object({ runId: opaqueIdSchema });
@@ -596,6 +604,9 @@ export const seedTemplatePayloadSchema = seedConfigSchema
 export const seedExecutePayloadSchema = z.object({
   orgId: orgIdSchema,
   template: seedTemplatePayloadSchema,
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
+
   /**
    * The locale the people, addresses and phone numbers are drawn in, as
    * Salesforce writes one (`fr_FR`). Absent, the org's default locale.
@@ -1151,6 +1162,8 @@ export const frozenLoadPayloadSchema = z.object({
   writeEncrypted: z.boolean().optional(),
   // The most records the load may insert: the count its preview gave.
   maxRecords: z.number().int().positive().max(1_000_000).optional(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
 // The load is named — its org, when it wrote its last record — never its
@@ -1278,6 +1291,8 @@ export const checkpointRewindPayloadSchema = z.object({
   previewId: previewIdSchema,
   objects: checkpointObjectsSchema.optional(),
   acceptAutomation: z.boolean(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
   acceptNoUndo: z.boolean(),
   acceptRecreate: z.boolean(),
   acceptOutside: z.boolean(),
@@ -1313,6 +1328,8 @@ export const checkpointUndoPayloadSchema = z.object({
   checkpointId: checkpointIdSchema,
   rewindId: rewindIdSchema,
   acceptAutomation: z.boolean(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 export const checkpointDeletePayloadSchema = z.object({
   checkpointIds: z
@@ -1403,6 +1420,8 @@ export const autopilotExecutePayloadSchema = z.object({
   grappeThreshold: z.number().int().nonnegative(),
   /** Write emails and phone numbers as read; absent, the run neutralizes them. */
   keepContactPoints: z.boolean().optional(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 
 export const autopilotSkipNodePayloadSchema = z.object({

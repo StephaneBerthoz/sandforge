@@ -23,6 +23,7 @@
  * the missing half held.
  */
 
+import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { ForgeEmailLimit, ForgeUndoObjectResult } from './forge.types.js';
 import type { ISODateString } from './common.types.js';
 import type { SyncRestoreObjectResult, SyncUndeleteObjectResult } from './sync.types.js';
@@ -573,7 +574,14 @@ export type CheckpointRefusalCode =
    * (`rewindGrantDigest`). Said with the step's name, and that typing the
    * org's alias on the step confirms it.
    */
-  | 'NOT_CONFIRMED';
+  | 'NOT_CONFIRMED'
+  /**
+   * Asked to mute the org's automation (`muteAutomation`), the rewind or the
+   * undo could not: the org is a production org, its user cannot assign
+   * permission sets, or a set could not be assigned. Said with why; nothing
+   * was assigned, nothing written.
+   */
+  | 'MUTE';
 
 /**
  * What a rewind nobody watches is held to, in the place of the person who
@@ -1049,6 +1057,13 @@ export interface RewindRecreatedObject {
 export interface RewindResult {
   checkpointId: string;
   rewindId: string;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   status: RewindStatus;
   /** What it deleted, per object, children before their parents. */
   deleted: ForgeUndoObjectResult[];

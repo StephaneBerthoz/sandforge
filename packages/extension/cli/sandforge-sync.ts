@@ -181,9 +181,19 @@ import {
 import {
   gateSyncWrite,
   measureSyncWrite,
+  mutingSyncWriteGate,
+  syncRunWrites,
   type SyncWriteGate,
   type SyncWriteMeasures,
 } from '../src/modules/sync/SyncRunGate.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteLines,
+  muteOrgOf,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
+import { removalStepsWrites, type MutedAutomation } from '@sandforge/shared';
 import { SyncRunRefused } from '../src/modules/sync/SyncRunFailure.js';
 import {
   journalDirOf,
@@ -234,6 +244,16 @@ Options:
                          run (see SANDFORGE_JOURNAL_DIR).
   --fail-on-partial      exit 3, not 0, when the run wrote some records and
                          the target refused others        (default: off)
+  --mute-automation      mute the target's automation for the run through
+                         its own bypass: assign the user the run writes as,
+                         for the run alone, the permission sets holding the
+                         custom permissions its flows, processes and
+                         workflow rules test to stay quiet, and take them
+                         back as it ends; what no bypass keeps quiet still
+                         runs, and is named. Refused on a production org and
+                         for a user who cannot assign permission sets, exit
+                         1; with --dry-run, says what would be muted and
+                         assigns nothing                   (default: off)
   --help                 this text
 
 Run a saved configuration:
@@ -298,6 +318,9 @@ Remove what a run created:
                          deletes them, or could not say what it runs. Each is
                          named before anything is written; without the flag
                          the removal then writes nothing, exit 1 (default: off)
+  --mute-automation      mute the target's automation for the removal through
+                         its own bypass, as for a run; what no bypass keeps
+                         quiet still needs --accept-automation (default: off)
   --store <dir>          for a run of a saved configuration: its store, which
                          the removal tells what it took, so that the next
                          delta run reads those objects whole and copies the
@@ -389,6 +412,8 @@ interface CliArgs {
   json: boolean;
   /** Exit 3, not 0, when the run wrote some records and the target refused others. */
   failOnPartial: boolean;
+  /** Mute the target's automation for the run, through its own bypass (`--mute-automation`). */
+  muteAutomation: boolean;
   /** A saved configuration to run instead of the objects of the line. */
   configFile?: string;
   /** Where that configuration is kept between runs. */
@@ -410,7 +435,14 @@ const API_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
 
 /** What the line of a run reads; a removal's reads its own (`REMOVE_FLAGS`). */
 const RUN_FLAGS: CommandFlags = {
-  switches: ['--dry-run', '--files', '--keep-contact-points', '--json', '--fail-on-partial'],
+  switches: [
+    '--dry-run',
+    '--files',
+    '--keep-contact-points',
+    '--json',
+    '--fail-on-partial',
+    '--mute-automation',
+  ],
   values: [
     '--source',
     '--target',
@@ -478,6 +510,7 @@ export function parseArgs(argv: string[]): CliArgs {
       keepContactPoints: false,
       json: has('--json'),
       failOnPartial: has('--fail-on-partial'),
+      muteAutomation: has('--mute-automation'),
       configFile,
       store,
     };
@@ -552,6 +585,7 @@ export function parseArgs(argv: string[]): CliArgs {
     keepContactPoints: has('--keep-contact-points'),
     json: has('--json'),
     failOnPartial: has('--fail-on-partial'),
+    muteAutomation: has('--mute-automation'),
   };
 }
 
@@ -1596,10 +1630,11 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     : ('production' as const);
   /** What the gate measured of the run, for its summary. */
   let gateCheck: SyncWriteCheck | undefined;
-  const writeGate: SyncWriteGate = {
-    measure: async (counted) => (await measureSyncWrite(counted, measures)).check,
+  const gateOver = (readAutomation: SyncWriteMeasures['readAutomation']): SyncWriteGate => ({
+    measure: async (counted) =>
+      (await measureSyncWrite(counted, { ...measures, readAutomation })).check,
     hold: async (counted) => {
-      const measured = await measureSyncWrite(counted, measures);
+      const measured = await measureSyncWrite(counted, { ...measures, readAutomation });
       gateCheck = measured.check;
       log('');
       for (const line of writeCheckLines(measured.check, args.target)) log(line);
@@ -1612,7 +1647,28 @@ export async function main(argv: string[] = process.argv): Promise<void> {
         }),
       };
     },
-  };
+  });
+  // Asked to mute, the run's gate plans the mute from what the target runs on
+  // the objects it writes, measures what still runs, and takes the lease
+  // once it lets the run write; it is given back as the run ends.
+  const muting =
+    args.muteAutomation && !args.dryRun
+      ? mutingSyncWriteGate(
+          gateOver,
+          measures.readAutomation,
+          async (read) => {
+            const planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
+              writes: syncRunWrites,
+            });
+            for (const line of muteLines(planned.muted, args.target)) log(`  ${line}`);
+            return planned;
+          },
+          `sandforge-sync ${runId}`,
+        )
+      : undefined;
+  const writeGate: SyncWriteGate = muting?.gate ?? gateOver(measures.readAutomation);
+  /** What the run muted of the target's automation, once it ended. */
+  let mutedAutomation: MutedAutomation | undefined;
 
   // A configuration that copies files replaces a changed attachment where
   // Production Guard lets Sync delete in the target, as the panel's run does:
@@ -1764,6 +1820,23 @@ export async function main(argv: string[] = process.argv): Promise<void> {
   if (args.dryRun) {
     log('\nsimulating… (DRY-RUN: nothing is written)');
     const simulation = await orchestrator.simulate(config);
+    // What a run with --mute-automation would assign, silence and leave
+    // running, read as the run's gate reads it: nothing assigned.
+    if (args.muteAutomation) {
+      const objects = config.objects.map((object) => object.objectApiName);
+      const read = await measures
+        .readAutomation(objects)
+        .catch((err: unknown) => ({ unread: err instanceof Error ? err.message : String(err) }));
+      try {
+        const planned = await muteForRun(async () => muteOrgOf(targetConn), read, {
+          writes: syncRunWrites,
+        });
+        for (const line of muteLines(planned.muted, args.target)) log(line);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        log(`a real run would be refused: ${err.message}`);
+      }
+    }
     const elapsed = Date.now() - t0;
     if (args.json) {
       process.stdout.write(
@@ -1803,7 +1876,10 @@ export async function main(argv: string[] = process.argv): Promise<void> {
     status: 'failure',
   };
   try {
-    result = await orchestrator.execute(config);
+    result = await orchestrator.execute(config).finally(async () => {
+      mutedAutomation = await muting?.release();
+    });
+    if (mutedAutomation) result = { ...result, mutedAutomation };
     ending = { status: result.status, ...(result.cancelled ? { cancelled: true } : {}) };
   } catch (err: unknown) {
     // Refused before its first write: nothing was written.
@@ -1908,6 +1984,7 @@ export async function main(argv: string[] = process.argv): Promise<void> {
 
   const objects = (result as { objectResults?: unknown[] }).objectResults ?? [];
   log(`\nstatus:  ${(result as { status?: string }).status ?? 'unknown'}`);
+  for (const line of mutedAutomation ? muteLines(mutedAutomation, args.target) : []) log(line);
   for (const entry of objects as Array<Record<string, unknown>>) {
     const failed = Number(entry.failed ?? 0);
     log(
@@ -2002,6 +2079,8 @@ export interface RemoveArgs {
   includeChanged: boolean;
   /** Remove although the target runs automation as the removal writes, or could not say what. */
   acceptAutomation: boolean;
+  /** Mute the target's automation for the removal, through its own bypass (`--mute-automation`). */
+  muteAutomation: boolean;
   /** Print the removal as JSON on stdout, every other line on stderr. */
   json: boolean;
   /** The store of the saved configuration the run was of, which the removal tells. */
@@ -2020,6 +2099,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--target',
   '--include-changed',
   '--accept-automation',
+  '--mute-automation',
   '--store',
   '--sweep',
   '--sweep-list',
@@ -2039,8 +2119,9 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     }
     if (!REMOVE_FLAGS.has(arg)) {
       process.stderr.write(
-        `--remove takes --target, --include-changed, --accept-automation, --store, --sweep, ` +
-          `--sweep-list, --leave-undeletable and --json, not "${arg}". Run with --help.\n`,
+        `--remove takes --target, --include-changed, --accept-automation, --mute-automation, ` +
+          `--store, --sweep, --sweep-list, --leave-undeletable and --json, not "${arg}". Run ` +
+          'with --help.\n',
       );
       process.exit(2);
     }
@@ -2074,6 +2155,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     target,
     includeChanged: args.includes('--include-changed'),
     acceptAutomation: args.includes('--accept-automation'),
+    muteAutomation: args.includes('--mute-automation'),
     json: args.includes('--json'),
     ...(store !== undefined ? { store } : {}),
     sweep: args.includes('--sweep'),
@@ -2855,12 +2937,29 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     delete: names(plan),
   };
   const written = [...new Set(Object.values(steps).flat())];
+  /** The removal's mute, asked with --mute-automation, held while it writes. */
+  let removalMute: RunMute | undefined;
   if (written.length > 0) {
-    const automation = await targetAutomationReader(conn).read(args.target, written, {
+    const read = await targetAutomationReader(conn).read(args.target, written, {
       undeletes: true,
     });
     say('');
-    for (const line of removalStepsAutomationLines(automation, args.target, steps)) say(line);
+    for (const line of removalStepsAutomationLines(read, args.target, steps)) say(line);
+    // Asked to mute, the removal plans it from what it read, and asks only
+    // for what still runs; refused, it writes nothing.
+    if (args.muteAutomation) {
+      try {
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          writes: removalStepsWrites(steps),
+        });
+        for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+    }
+    const automation = removalMute?.automation ?? read;
     const automationStop = removalStepsAutomationRefusal(automation, args.target, {
       steps,
       assign: bypassesToAssign(
@@ -2904,6 +3003,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       }
     : undefined;
   let outcome: Awaited<ReturnType<typeof removeSyncRun>>;
+  // The lease is taken before the removal's first write and given back as it
+  // ends, whatever it ended on.
+  const held = removalMute?.prepared
+    ? await removalMute.prepared
+        .acquire(`sandforge-sync --remove ${run.runId}`)
+        .catch((err: unknown) => {
+          if (!isMuteRefusedError(err)) throw err;
+          releaseStop();
+          process.stderr.write(`${err.message}\n`);
+          process.exit(1);
+        })
+    : undefined;
+  let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
   try {
     outcome = await removeSyncRun({
       run,
@@ -2935,7 +3047,12 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     });
   } finally {
     releaseStop();
+    if (held) {
+      mutedAutomation = await held.release();
+      for (const line of muteLines(mutedAutomation, args.target)) say(line);
+    }
   }
+  if (mutedAutomation) outcome = { ...outcome, result: { ...outcome.result, mutedAutomation } };
   // Stopped before its first delete, for objects the user may not delete:
   // named above, and nothing was removed.
   if (outcome.stoppedForUndeletable) process.exit(1);

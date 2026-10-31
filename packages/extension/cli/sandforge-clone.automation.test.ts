@@ -10,7 +10,11 @@ vi.mock('./sfSession.js', async (importOriginal) => {
 
 import { loadOrg, makeConn } from './sfSession.js';
 import { selectRows, type FakeRow } from '../src/test/fakeSoql.js';
-import { main } from './sandforge-clone';
+import {
+  memoryPermissionOrg,
+  type MemoryPermissionOrgSetup,
+} from '../src/test/memoryPermissionOrg.js';
+import { main, parseRemoveArgs } from './sandforge-clone';
 
 /** Thrown in place of `process.exit` so a test can read the code it was given. */
 class ExitCalled extends Error {
@@ -362,7 +366,7 @@ describe('sandforge-clone target automation', () => {
       '  Contact',
       '    on insert: flow "Contact welcome" (after save; not for a user with Load_Data (not held))',
       '    duplicate rules: "Contact rule": the run saves a record a rule only alerts on; a rule that blocks still refuses it',
-      '  bypass: assign Load_Data to the user the run writes as, and the flows whose start condition excludes them stay quiet',
+      '  bypass: assign Load_Data to the user the run writes as, and the flows whose start condition excludes them stay quiet; --mute-automation assigns them for the run alone, and takes them back as it ends',
       '    Load_Data: no permission set of TGT holds it: an admin creates one that includes it',
       // Flows, triggers, processes, workflow rules and duplicate rules; the
       // start condition; the permissions of the user the run writes as; the
@@ -903,5 +907,133 @@ describe('sandforge-clone target automation', () => {
 
     expect(orgs.TGT.tooling).toEqual([]);
     expect(orgs.TGT.regular.some((soql) => soql.includes(' FROM FlowDefinitionView '))).toBe(false);
+  });
+
+  describe('--mute-automation', () => {
+    /** The permission set the target's bypass of the welcome flow is held by. */
+    const DATA_LOAD = '0PSxx0000000001AAA';
+
+    /**
+     * The target, its permission sets and their assignments answered as
+     * Salesforce answers them, and every write in the order it was sent: the
+     * assignments and the records alike.
+     */
+    function mutableTarget(setup: MemoryPermissionOrgSetup = {}) {
+      const events: string[] = [];
+      const perms = memoryPermissionOrg({
+        sets: [{ id: DATA_LOAD, name: 'Data_Load' }],
+        beforeWrite: (write) => {
+          events.push(`assignment ${write.kind}`);
+        },
+        ...setup,
+      });
+      const target = fakeOrg({ permissionSets: [{ name: 'Data_Load', grants: 1 }] });
+      const base = target.conn as unknown as {
+        query: (soql: string) => Promise<unknown>;
+        sobject: (name: string) => Record<string, unknown> & {
+          create: (records: unknown[], options?: unknown) => Promise<unknown>;
+        };
+      };
+      const permsConn = perms.connection as unknown as {
+        query: (soql: string) => Promise<unknown>;
+        sobject: (name: string) => unknown;
+        identity: () => Promise<unknown>;
+      };
+      const conn = Object.assign(Object.create(null) as object, target.conn, {
+        identity: permsConn.identity,
+        query: (soql: string) =>
+          /FROM (UserPermissionAccess|PermissionSet|PermissionSetAssignment)\b/.test(soql)
+            ? permsConn.query(soql)
+            : base.query(soql),
+        sobject: (name: string) => {
+          if (name === 'PermissionSetAssignment') return permsConn.sobject(name);
+          const object = base.sobject(name);
+          return {
+            ...object,
+            create: async (records: unknown[], options?: unknown) => {
+              events.push(`write ${name}`);
+              return object.create(records, options);
+            },
+          };
+        },
+      });
+      return { target: { ...target, conn: conn as unknown as Connection }, perms, events };
+    }
+
+    it('assigns the set holding the bypass before the first write, asks only for what still runs, and takes it back after the last', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+
+      // Without --accept-automation: the welcome flow is muted, and nothing else fires.
+      expect(await run(argv('--skip-preflight', '--mute-automation'))).toBeUndefined();
+
+      expect(events).toEqual([
+        'assignment insert',
+        'write Account',
+        'write Contact',
+        'assignment delete',
+      ]);
+      expect(perms.assignments()).toEqual([]);
+      expect(printed).toContain(
+        'mute: assigned Data_Load to the user the run writes as in TGT, for the run alone',
+      );
+      expect(printed).toContain('  taken back: Data_Load, as the run ended');
+    });
+
+    it('says on a dry run what would be muted and what still runs, and assigns nothing', async () => {
+      const { target, perms } = mutableTarget();
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--dry-run'))).toBeUndefined();
+
+      expect(printed).toContain(
+        '  mute: a real run would assign the permission set(s) holding Load_Data to the user it ' +
+          'writes as in TGT, for the run alone; this dry run assigns nothing',
+      );
+      expect(printed).toContain('    silenced: Contact: flow "Contact welcome" (bypass Load_Data)');
+      expect(perms.writes).toEqual([]);
+      // The flow it would mute is asked about no more.
+      expect(printed).not.toContain(
+        '  a real run writes nothing without --accept-automation: see what fires as it inserts ' +
+          'and updates, or could not be read, above',
+      );
+    });
+
+    it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
+      const { target, perms, events } = mutableTarget({ canAssign: false });
+      withOrgs(target);
+
+      expect(await run(argv('--skip-preflight', '--mute-automation'))).toBe(1);
+
+      expect(stderr).toContain('cannot assign permission sets');
+      expect(events).toEqual([]);
+      expect(perms.queries.some((soql) => /FROM PermissionSet\b/.test(soql))).toBe(false);
+    });
+
+    it('takes the set back when the run throws once it holds it: refused at its write gate', async () => {
+      const { target, perms, events } = mutableTarget();
+      withOrgs(target);
+
+      // Two records read, one allowed: the executor throws before its first write.
+      expect(await run(argv('--skip-preflight', '--mute-automation', '--max-total', '1'))).toBe(1);
+
+      expect(stderr).toContain('more than --max-total 1');
+      expect(events).toEqual(['assignment insert', 'assignment delete']);
+      expect(perms.assignments()).toEqual([]);
+    });
+
+    it('is read by the removal too', () => {
+      expect(
+        parseRemoveArgs([
+          'node',
+          'sandforge-clone.ts',
+          '--remove',
+          'summary.json',
+          '--target',
+          'TGT',
+          '--mute-automation',
+        ]).muteAutomation,
+      ).toBe(true);
+    });
   });
 });

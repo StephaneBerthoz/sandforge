@@ -18,7 +18,18 @@ import type { ForgeRemovalSteps } from '../../utils/forge-target-automation.js';
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
   type: 'sync:execute';
-  payload: { configId: string };
+  payload: {
+    configId: string;
+    /**
+     * Mute the target's automation for the run: assign the user it writes as,
+     * for its duration, the permission sets holding the bypasses the target's
+     * flows, processes and workflow rules test to stay quiet, and take them
+     * back as it ends. Refused on a production org, and for a user who cannot
+     * assign permission sets; what no bypass keeps quiet still runs, and is
+     * asked about as ever.
+     */
+    muteAutomation?: boolean;
+  };
 }
 
 /** Response for sync execution — the SyncOrchestrator result (consumed by useSyncPageData). */
@@ -329,6 +340,15 @@ export interface SyncRemoveRequest extends BaseMessage {
      * as ever; the undo dated them anew, so they read as changed since the run.
      */
     again?: boolean;
+    /**
+     * Mute the target's automation for the run: assign the user it writes as,
+     * for its duration, the permission sets holding the bypasses the target's
+     * flows, processes and workflow rules test to stay quiet, and take them
+     * back as it ends. Refused on a production org, and for a user who cannot
+     * assign permission sets; what no bypass keeps quiet still runs, and is
+     * asked about as ever.
+     */
+    muteAutomation?: boolean;
   };
 }
 

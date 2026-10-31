@@ -20,8 +20,10 @@ import type {
   ForgeWrittenBetween,
   ComplianceFrameworkType,
   GuardDecision,
+  MutedAutomation,
 } from '@sandforge/shared';
 import {
+  auditMutedOf,
   FORGE_MAX_RECORDS_PER_OBJECT_BOUND,
   emailsPerInsertOf,
   fileCopyRefusal,
@@ -62,6 +64,14 @@ import { validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteOrg,
+  type MuteLeaseOptions,
+  type RunMute,
+} from '../../modules/forge/AutomationMuteLease.js';
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -247,6 +257,8 @@ const executePayloadSchema = z.object({
   retryOf: z.string().min(1).max(200).optional(),
   // Started by Clone directly, with no stop on Review: the audit trail says so.
   reviewSkipped: z.boolean().optional(),
+  // Mute the target's automation for the run, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 
 /**
@@ -288,6 +300,8 @@ const resumeRunPayloadSchema = z
     forgeId: z.string().min(1).max(200),
     graph: forgeGraphSchema.optional(),
     config: forgeConfigSchema.optional(),
+    // Mute the target's automation for the part resumed, as for a run.
+    muteAutomation: z.boolean().optional(),
   })
   .strict();
 
@@ -360,6 +374,8 @@ const undoPayloadSchema = z.object({
   sweep: z.boolean().optional(),
   // Every record the run created: an undo brought back what a removal found gone.
   again: z.boolean().optional(),
+  // Mute the target's automation for the removal, through its own bypass.
+  muteAutomation: z.boolean().optional(),
 });
 // The run alone: what its removal deletes is read from the history, as the
 // removal reads it — every record it created, `again`.
@@ -558,6 +574,13 @@ export interface ForgeServices {
    * it the progress says none, as the result does.
    */
   requestsSent?: () => number;
+  /**
+   * What a run that mutes the target's automation reads and assigns in the
+   * target (`AutomationMuteLease`): the org's connection, unless told.
+   */
+  muteOrg?: (orgId: string) => Promise<MuteOrg>;
+  /** Where and how the mute leases are kept: the home directory's, unless told. */
+  muteLeases?: MuteLeaseOptions;
 }
 
 /**
@@ -1143,6 +1166,10 @@ export class ForgeHandler implements DomainHandler {
   private targetGaps?: TargetGapReader;
   /** The requests the executor's deps have sent so far, when they count them. */
   private requestsSent?: () => number;
+  /** What a run that mutes reads and assigns in its target, when not the org's connection. */
+  private muteOrgOf?: (orgId: string) => Promise<MuteOrg>;
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases?: MuteLeaseOptions;
   private rehearser?: ForgeRehearser;
   /** The operation of the rehearsal under way, when one is: one at a time. */
   private rehearseOperationId: string | null = null;
@@ -1298,6 +1325,8 @@ export class ForgeHandler implements DomainHandler {
       this.removalPlans = services.removalPlans;
       this.runJournal = services.runJournal;
       this.requestsSent = services.requestsSent;
+      this.muteOrgOf = services.muteOrg;
+      this.muteLeases = services.muteLeases;
       this.rehearser = services.rehearser;
     }
   }
@@ -1799,7 +1828,7 @@ export class ForgeHandler implements DomainHandler {
       ? resume.startedWith
       : parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
-    const { graph, config, anonymizationRules, files, reviewSkipped } = parsed;
+    const { graph, config, anonymizationRules, files, reviewSkipped, muteAutomation } = parsed;
     // A run taken up where it stopped names the part it resumes, as a retry
     // names the run it retries: the history walks back through both.
     const retryOf = resume ? resume.forgeId : parsed.retryOf;
@@ -2188,6 +2217,10 @@ export class ForgeHandler implements DomainHandler {
     let targetAutomation: TargetAutomationRead | undefined;
     /** Of a simulation, what it would write, kept for the run of its case that follows once it ends. */
     let simulatedPlan: WritePlan | undefined;
+    /** The mute the run asked for, held while it writes; undefined when it asked none, or nothing can be muted. */
+    let mute: Awaited<ReturnType<typeof muteForRun>>['prepared'];
+    /** What the run says of its mute: planned before it writes, as it ended after. */
+    let mutedAutomation: MutedAutomation | undefined;
 
     // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
     // of 200 records, a 50K-record clone fires ~250 events; spamming each
@@ -2256,17 +2289,39 @@ export class ForgeHandler implements DomainHandler {
       // read to it.
       const readCeiling = this.maxRecordsPerObject();
       if (!dryRun) {
-        const automation = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        const updated = objectsUpdatedAfterInsert(graph, {
+          leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
+          retry: retryOf !== undefined,
+        });
+        const read = await this.automationBeforeTheRun(config.targetOrgId, graph);
+        // Asked to mute, the run plans it from what it read, and its gate asks
+        // only for what still runs: the bypasses it is to hold count as held.
+        // Refused on a production org or for a user who cannot assign, it
+        // writes nothing; nothing to mute, it goes on as without the option.
+        let automation = read;
+        if (muteAutomation === true) {
+          const updatedNames = new Set(updated.map((object) => object.objectApiName));
+          const planned = await muteForRun(
+            () => this.muteOrg(config.targetOrgId),
+            'automation' in read ? read.automation : read,
+            {
+              ...this.muteLeases,
+              writes: (objectApiName, write) =>
+                write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
+            },
+          );
+          mute = planned.prepared;
+          mutedAutomation = planned.muted;
+          if ('automation' in read && planned.automation) {
+            automation = { ...read, automation: planned.automation };
+          }
+        }
         targetAutomation = automation;
         if ('automation' in automation) emailsPerInsert = emailsPerInsertOf(automation.automation);
         if (runController.signal.aborted) {
           stoppedBeforeStart = true;
           throw new Error(ABORTED_BEFORE_START_MESSAGE);
         }
-        const updated = objectsUpdatedAfterInsert(graph, {
-          leftOut: new Set(graph.nodes.filter(leftOutByTheUser).map((n) => n.objectApiName)),
-          retry: retryOf !== undefined,
-        });
         audit.automationRead(automation, updated);
         const automationAnswer = await this.confirmAutomation(
           guard,
@@ -2389,6 +2444,10 @@ export class ForgeHandler implements DomainHandler {
         stoppedBeforeStart = true;
         throw new Error(ABORTED_BEFORE_START_MESSAGE);
       }
+      // The lease is taken before the first write and given back once the run
+      // ends, written, failed, stopped or thrown alike.
+      const held = mute ? await mute.acquire(operationId) : undefined;
+      if (held) mutedAutomation = held.outcome;
       const executed = await this.orchestrator
         .execute(graph, config, {
           recordTypeMappings,
@@ -2424,7 +2483,10 @@ export class ForgeHandler implements DomainHandler {
           }),
         })
         // Every line of the journal written before the run's end is said.
-        .finally(closeStore);
+        .finally(closeStore)
+        .finally(async () => {
+          if (held) mutedAutomation = await held.release();
+        });
       // A retry names the run it retried, which the history walks back to
       // before a later retry is built on it.
       const counted = withCallsBefore(executed, lookup.requests);
@@ -2433,10 +2495,17 @@ export class ForgeHandler implements DomainHandler {
         counted.remapInJournal && store && journalId
           ? { journalId, journalPart: Math.max(0, store.partCount - 1) }
           : {};
+      const muted = mutedAutomation ? { mutedAutomation } : {};
       const result =
         retryOf !== undefined
-          ? { ...counted, ...inJournal, retryOf, ...(resume ? { resumed: true as const } : {}) }
-          : { ...counted, ...inJournal };
+          ? {
+              ...counted,
+              ...inJournal,
+              ...muted,
+              retryOf,
+              ...(resume ? { resumed: true as const } : {}),
+            }
+          : { ...counted, ...inJournal, ...muted };
       if ('journalId' in inJournal && !dryRun) {
         journalAfter = { keep: true, status: 'success', forgeId: result.forgeId };
       }
@@ -2472,6 +2541,7 @@ export class ForgeHandler implements DomainHandler {
           carried: forgeCarried(result),
           ...contactPointsAudit(result.contactPoints),
           context: audit.context(result.decisionsApplied),
+          ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         });
         this.addToHistory(result, config);
       } else {
@@ -2504,6 +2574,8 @@ export class ForgeHandler implements DomainHandler {
       // before the first record was written: no failure, whatever the reads
       // had met, and nothing for the history to keep.
       const gate = isForgeRunGateError(error) ? error : undefined;
+      // A mute refused stops the run before its first write, as a gate does.
+      const muteRefused = isMuteRefusedError(error) ? error : undefined;
       if (
         gate?.code === 'AUTOMATION_DECLINED' ||
         gate?.code === 'READ_DECLINED' ||
@@ -2514,7 +2586,11 @@ export class ForgeHandler implements DomainHandler {
       // A cancel, not a failure: stopped before the executor started, or by
       // the executor's own abort. Any other error thrown while the cancel is
       // pending is still the run's failure.
-      const cancelled = stoppedBeforeStart || isForgeAbort(error) || gate !== undefined;
+      const cancelled =
+        stoppedBeforeStart ||
+        isForgeAbort(error) ||
+        gate !== undefined ||
+        muteRefused !== undefined;
       if (!cancelled) runError = error;
       // What the run wrote before it threw travels with the error: an abort
       // after the first objects, or a failure further on, is recorded with
@@ -2531,18 +2607,20 @@ export class ForgeHandler implements DomainHandler {
        * Any other error is the run's failure.
        */
       const outcome: AuditOutcome =
-        stoppedBeforeStart || gate
+        stoppedBeforeStart || gate || muteRefused
           ? 'stopped'
           : cancelled
             ? cancelledRunOutcome(partial, objects)
             : 'failure';
       const code = gate
         ? gate.code
-        : stoppedBeforeStart
-          ? ABORTED_BEFORE_START
-          : outcome === 'stopped'
-            ? RUN_CANCELLED
-            : undefined;
+        : muteRefused
+          ? muteRefused.code
+          : stoppedBeforeStart
+            ? ABORTED_BEFORE_START
+            : outcome === 'stopped'
+              ? RUN_CANCELLED
+              : undefined;
       // A failure is logged by the error it posts; a cancel posts none.
       logger.info('Forge execute stopped', {
         outcome,
@@ -2600,6 +2678,7 @@ export class ForgeHandler implements DomainHandler {
             : {}),
           ...contactPointsAudit(partial?.contactPoints),
           context: audit.context(partial?.decisionsApplied),
+          ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         });
       this.dmlTracker.markFailed(forgeOpId);
       // A failed or stopped run is re-runnable at once: clear any cooldown so
@@ -2963,6 +3042,34 @@ export class ForgeHandler implements DomainHandler {
    * stands, a read of its own otherwise — or why it could not be read, which
    * the question says rather than taking it for nothing firing.
    */
+  /**
+   * The mute of a removal that asked for one, planned from what the target
+   * runs as it deletes the records of `objects` and sets those past Draft back
+   * to Draft first: as the removal's question reads it.
+   */
+  private async removalMute(targetOrgId: string, objects: readonly string[]): Promise<RunMute> {
+    const reader = this.targetAutomation;
+    const read: ForgeTargetAutomation | { unread: string } = reader
+      ? await new TimeoutManager(AUTOMATION_TIMEOUT_MS)
+          .withTimeout('forge:undo-automation', () => reader.read(targetOrgId, [...objects]))
+          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }))
+      : { unread: "no reader of the target org's automation is set up" };
+    const drafted = new Set(setBackToDraftOf(objects));
+    return muteForRun(() => this.muteOrg(targetOrgId), read, {
+      ...this.muteLeases,
+      writes: (objectApiName, write) =>
+        write === 'delete' || (write === 'update' && drafted.has(objectApiName)),
+    });
+  }
+
+  /** What a run that mutes reads and assigns in its target: the org's own connection, unless told. */
+  private async muteOrg(orgId: string): Promise<MuteOrg> {
+    if (this.muteOrgOf) return this.muteOrgOf(orgId);
+    return muteOrgOf(
+      await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager),
+    );
+  }
+
   private async automationBeforeTheRun(
     targetOrgId: string,
     graph: ForgeGraph,
@@ -3627,6 +3734,7 @@ export class ForgeHandler implements DomainHandler {
     const includeChanged = parsed.includeChanged === true;
     const sweep = parsed.sweep === true;
     const again = parsed.again === true;
+    const muteAutomation = parsed.muteAutomation === true;
     const refuse = (message: string, code: string): void => this.refuseUndo(msg, message, code);
 
     let entry = this.loadHistory().find((e) => e.forgeId === forgeId);
@@ -3778,7 +3886,7 @@ export class ForgeHandler implements DomainHandler {
           msg,
           run,
           plan,
-          { includeChanged, again },
+          { includeChanged, again, muteAutomation },
           sweep ? entry : undefined,
           pending,
         );
@@ -4334,7 +4442,12 @@ export class ForgeHandler implements DomainHandler {
       journalId,
       head,
       end,
-      startedWith: { graph, config, ...(anonymizationRules ? { anonymizationRules } : {}) },
+      startedWith: {
+        graph,
+        config,
+        ...(anonymizationRules ? { anonymizationRules } : {}),
+        ...(parsed.muteAutomation === true ? { muteAutomation: true } : {}),
+      },
     });
   }
 
@@ -4810,7 +4923,7 @@ export class ForgeHandler implements DomainHandler {
     msg: InboundRequest,
     entry: RunToRemove,
     plan: ForgeRunObjectRecords[] | RunRecords,
-    asked: { includeChanged: boolean; again: boolean },
+    asked: { includeChanged: boolean; again: boolean; muteAutomation?: boolean },
     sweepOf?: ForgeExecutionResult,
     pending?: PendingStart,
   ): Promise<void> {
@@ -4904,6 +5017,28 @@ export class ForgeHandler implements DomainHandler {
       );
       return;
     }
+    // Asked to mute, the removal reads what its deletes fire and plans the
+    // mute from it before it deletes anything: refused on a production org or
+    // for a user who cannot assign, it deletes nothing.
+    let removalMute: RunMute | undefined;
+    if (asked.muteAutomation === true && total > 0) {
+      try {
+        removalMute = await this.removalMute(targetOrgId, objectsIn(plan));
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        recordWriteRun(this.deps, {
+          action: 'cleanup_delete',
+          module: 'forge',
+          operationId: msg.id,
+          orgId: targetOrgId,
+          outcome: 'stopped',
+          guard: decision,
+          code: err.code,
+        });
+        refuse(err.message, err.code);
+        return;
+      }
+    }
 
     const operationId = msg.id;
     const description =
@@ -4984,6 +5119,12 @@ export class ForgeHandler implements DomainHandler {
       // The run's other parts, removed apart from this one: what this
       // removal's deletes restamp of their records is kept on each.
       if (total > 0) parts = await this.otherPartsOf(forgeId, targetOrgId, conn);
+      // The lease is taken before the first delete, and given back once the
+      // removal ends, whatever it ended on.
+      const held = removalMute?.prepared
+        ? await removalMute.prepared.acquire(operationId)
+        : undefined;
+      let mutedAutomation = held?.outcome ?? removalMute?.muted;
       const outcome: RunRemovalOutcome =
         total === 0
           ? NOTHING_REMOVED
@@ -5010,6 +5151,8 @@ export class ForgeHandler implements DomainHandler {
                 }
                 this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
               },
+            }).finally(async () => {
+              if (held) mutedAutomation = await held.release();
             });
       if (parts) await this.keepOtherPartStamps(parts.parts, outcome.otherPartStamps ?? []);
       const sweepResult = sweepMade.result;
@@ -5029,6 +5172,7 @@ export class ForgeHandler implements DomainHandler {
         ...(leftBy ? { leftBy } : {}),
         ...(unreachable > 0 ? { mayHaveBeenWritten: unreachable } : {}),
         ...(entry.notLookedFor ? { notLookedFor: entry.notLookedFor } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
       // A sweep alone removed none of the run's records: its own entry says what it did.
@@ -5042,6 +5186,7 @@ export class ForgeHandler implements DomainHandler {
           guard: decision,
           objects: removalAuditObjects(removed.objects),
           ...(leftBy ? { leftBy } : {}),
+          ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         });
       }
 
@@ -5155,18 +5300,21 @@ export class ForgeHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
+      // A lease that could not be taken stopped the removal before its first delete.
+      const muteRefused = isMuteRefusedError(error) ? error : undefined;
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
         module: 'forge',
         operationId,
         orgId: targetOrgId,
-        outcome: 'failure',
+        outcome: muteRefused ? 'stopped' : 'failure',
         guard: decision,
+        ...(muteRefused ? { code: muteRefused.code } : {}),
       });
       // Single error channel (see handleDiscover); the completion ends the
       // operation the panels listed as running.
       sendHandlerError(this.deps, 'forge:undo', 'forge:undo:error', msg, error, {
-        code: 'UNDO_ERROR',
+        code: muteRefused?.code ?? 'UNDO_ERROR',
         retryable: true,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

@@ -66,6 +66,9 @@ afterEach(() => {
  */
 const journals = mkdtempSync(join(tmpdir(), 'sandforge-journals-'));
 process.env['SANDFORGE_JOURNAL_DIR'] = journals;
+// The leases of a run that mutes the target's automation are journaled in the
+// home directory whatever `SANDFORGE_JOURNAL_DIR` says: kept here instead.
+process.env['SANDFORGE_MUTE_LEASES_DIR'] = join(journals, 'mute-leases');
 
 afterAll(() => {
   rmSync(journals, { recursive: true, force: true });

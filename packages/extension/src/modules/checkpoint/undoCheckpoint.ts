@@ -53,12 +53,14 @@ import {
   type CheckpointRefusalCode,
   type ForgeRemovalSteps,
   type ForgeTargetAutomation,
+  type MutedAutomation,
   type OrgCheckpoint,
   type OrgTypeAndEdition,
   type RewindResidual,
   type RewindResult,
   type RewindStatus,
 } from '@sandforge/shared';
+import { isMuteRefusedError } from '../forge/AutomationMuteLease.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { RunRemovalOptions } from '../forge/ForgeRunRemoval.js';
 import type { UndeleteCall } from '../sync/SyncRunUndelete.js';
@@ -82,7 +84,14 @@ import {
   type SpooledUndoPlans,
 } from './rewindJournal.js';
 import { noteRewindUndone } from './rewindLedger.js';
-import { automationUnread, counted, type RewindOrg } from './rewindOrg.js';
+import {
+  automationUnread,
+  counted,
+  heldWhile,
+  muteOfSteps,
+  type MuteOfWrites,
+  type RewindOrg,
+} from './rewindOrg.js';
 import { idLists, RECORDS_PER_CALL } from '../dataops/RecordRemoval.js';
 import { rewindWriters } from './rewindPlan.js';
 import { undoRewind, type UndoResidual, type UndoRewindOutcome } from './undoRewind.js';
@@ -118,6 +127,11 @@ export interface UndoCheckpointDeps {
   signal?: AbortSignal;
   /** This machine's clock: when the checkpoint is told it was undone. */
   now?: () => Date;
+  /**
+   * Mute the org's automation for the undo, asked (`muteAutomation`), as a
+   * rewind does (`RewindDeps.mute`). Not given, nothing is muted.
+   */
+  mute?: MuteOfWrites;
 }
 
 /** What an undo is asked. */
@@ -454,6 +468,11 @@ export async function undoCheckpoint(
       // Read through the host's own reader: counted as it says it sent them.
       count.add(automation.requests);
     }
+    // Asked to mute, the undo plans it from what it read, and its gate asks
+    // only for what still runs; refused, it writes nothing.
+    const muting = objects.length > 0 ? await muteOfSteps(deps.mute, automation, steps) : {};
+    if ('refusal' in muting) return { undone: false, refusal: muting.refusal };
+    if (muting.automation) automation = muting.automation;
     // What sends emails and could not be read is not counted below: the
     // acceptance of the automation covers it, and its refusal says so.
     const written = writtenByUndo(rewound, along);
@@ -487,21 +506,39 @@ export async function undoCheckpoint(
     const userId = await count.org.userId();
     const owners = new Set(rewindWriters(checkpoint.takenBy, userId).map(keyOf));
     progress(20, 'Bringing back what the rewind deleted and giving back what it wrote over');
-    const outcome = await undoRewind({
-      folder,
-      rewindId,
-      lock: locked.lock,
-      objects: checkpoint.objects,
-      org: count.org,
-      undelete: count.undelete,
-      ...(signal ? { signal } : {}),
-      ...(deps.onUndeletable ? { onUndeletable: deps.onUndeletable } : {}),
-      onProgress: (settled, total, objectApiName) =>
-        progress(
-          20 + Math.round((70 * settled) / Math.max(total, 1)),
-          `${sending}: ${objectApiName} ${settled} / ${total}`,
-        ),
-    });
+    let muted: MutedAutomation | undefined;
+    let outcome: Awaited<ReturnType<typeof undoRewind>>;
+    try {
+      outcome = await heldWhile(
+        muting.mute,
+        `undo ${checkpoint.checkpointId} ${rewindId}`,
+        () =>
+          undoRewind({
+            folder,
+            rewindId,
+            lock: locked.lock,
+            objects: checkpoint.objects,
+            org: count.org,
+            undelete: count.undelete,
+            ...(signal ? { signal } : {}),
+            ...(deps.onUndeletable ? { onUndeletable: deps.onUndeletable } : {}),
+            onProgress: (settled, total, objectApiName) =>
+              progress(
+                20 + Math.round((70 * settled) / Math.max(total, 1)),
+                `${sending}: ${objectApiName} ${settled} / ${total}`,
+              ),
+          }),
+        (ended) => {
+          muted = ended;
+        },
+      );
+    } catch (err: unknown) {
+      if (!isMuteRefusedError(err)) throw err;
+      return {
+        undone: false,
+        refusal: { code: 'MUTE', message: `${err.message} No record was written.` },
+      };
+    }
     const residual = residualOf(outcome.residual, owners);
     const status = statusOf(outcome, residual);
     const notes = [...outcome.notes];
@@ -548,6 +585,7 @@ export async function undoCheckpoint(
         passes: 1,
         apiRequests: { used, leftToday: Math.max(0, budget.remaining - used) },
         finishedAt: outcome.finishedAt,
+        ...(muted ? { mutedAutomation: muted } : {}),
       },
       notes,
     };

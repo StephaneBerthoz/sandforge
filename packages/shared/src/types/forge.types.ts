@@ -1,3 +1,4 @@
+import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { AnonymizationMethod, CurrencyReplaced } from './common.types.js';
 
 /** Mode used to specify the input for a Forge operation */
@@ -739,6 +740,13 @@ export interface ForgeUndoObjectResult {
 export interface ForgeUndoResult {
   /** The run whose records were removed. */
   forgeId: string;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   /** How the removal ended. */
   status: ForgeUndoStatus;
   /** Whether records modified since the run, and what was added to them since, went too. */
@@ -1412,6 +1420,13 @@ export interface ForgeRemovalSpan {
 export interface ForgeExecutionResult {
   /** Unique identifier for this Forge execution */
   forgeId: string;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   /** Overall outcome of the operation */
   status: 'success' | 'partial' | 'failure';
   /** Final state of the dependency graph */

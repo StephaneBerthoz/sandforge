@@ -29,6 +29,10 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import { InMemoryConfigStoreBackend } from '../../test/InMemoryConfigStoreBackend.js';
 import { AuditTrailStore } from '../../modules/audit/auditTrail.js';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { muteOrgOf } from '../../modules/forge/AutomationMuteLease.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -2157,6 +2161,120 @@ describe('forge:execute, the gate before the first write', () => {
       expect(questions.map((q) => q.stage)).toEqual(['write']);
       expect(executorDeps.insertRecords).toHaveBeenCalled();
       expect(posted('forge:execute:response')).toHaveLength(1);
+    });
+  });
+
+  describe('muting the target’s automation', () => {
+    /** The contacts' flow, its bypass held by the permission set `Data_Load`. */
+    const MUTABLE: ForgeTargetAutomation = {
+      ...FIRES,
+      bypassGrants: [
+        {
+          permission: 'Load_Data',
+          permissionSets: [{ name: 'Data_Load', label: 'Data load', grants: 1 }],
+        },
+      ],
+    };
+    const SET = '0PSxx0000000001AAA';
+
+    function muting(setup: Parameters<typeof memoryPermissionOrg>[0] = {}) {
+      const dir = mkdtempSync(path.join(tmpdir(), 'forge-mute-'));
+      const org = memoryPermissionOrg({
+        sets: [{ id: SET, name: 'Data_Load' }],
+        beforeWrite: (write) => {
+          calls.push(`assignment ${write.kind}`);
+        },
+        ...setup,
+      });
+      handler.setForgeOrchestrator(orchestratorHanding(), {
+        targetAutomation: readerOf(MUTABLE),
+        muteOrg: async () => muteOrgOf(org.connection),
+        muteLeases: { dir, renewEveryMs: 0 },
+      });
+      return { org, done: () => rmSync(dir, { recursive: true, force: true }) };
+    }
+
+    function executeMuted(): Promise<boolean> {
+      return handler.handle(
+        inboundRequest({
+          id: 'wv-execute',
+          type: 'forge:execute',
+          timestamp: Date.now(),
+          payload: { graph: graphOf(), config: CONFIG, muteAutomation: true },
+        } as BaseMessage),
+      );
+    }
+
+    it('asks only about what still runs, holds the bypass while it writes, and gives it back after', async () => {
+      const { org, done } = muting();
+
+      await executeMuted();
+
+      // The flow its bypass keeps quiet is asked about no more: the trigger is.
+      expect(questions).toHaveLength(1);
+      expect(questions[0]).toMatchObject({
+        stage: 'automation',
+        fired: [{ objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' }],
+        // Held for the run: nothing left to assign.
+        assign: [],
+      });
+      expect(
+        calls.filter((call) => call !== 'connection tgt-org' && call !== 'connection src-org'),
+      ).toEqual(['asked automation', 'assignment insert', 'written', 'assignment delete']);
+      expect(org.assignments()).toEqual([]);
+      const [response] = posted('forge:execute:response');
+      expect(response.payload.result).toMatchObject({
+        mutedAutomation: {
+          state: 'muted',
+          assigned: ['Data_Load'],
+          released: true,
+          silenced: [expect.objectContaining({ name: 'Contact welcome' })],
+          stillRan: [expect.objectContaining({ name: 'ContactTrigger', why: 'noBypass' })],
+        },
+      });
+      expect(runs()[0]).toMatchObject({
+        muted: {
+          state: 'muted',
+          assigned: ['Data_Load'],
+          silenced: 1,
+          stillRan: 1,
+          released: true,
+        },
+      });
+      done();
+    });
+
+    it('writes nothing, and assigns nothing, for a user who cannot assign permission sets', async () => {
+      const { org, done } = muting({ canAssign: false });
+
+      await executeMuted();
+
+      expect(calls).not.toContain('written');
+      expect(org.writes).toEqual([]);
+      const errors = posted('forge:execute:error');
+      expect(errors[0].payload).toMatchObject({ code: 'MUTE_NO_RIGHT' });
+      expect(runs()).toEqual([
+        expect.objectContaining({
+          outcome: 'stopped',
+          details: expect.objectContaining({ code: 'MUTE_NO_RIGHT' }),
+        }),
+      ]);
+      done();
+    });
+
+    it('asks about the flow as ever without the option', async () => {
+      const { org, done } = muting();
+
+      await execute();
+
+      expect(questions[0]).toMatchObject({
+        fired: [
+          { objectApiName: 'Contact', kind: 'trigger', name: 'ContactTrigger' },
+          { objectApiName: 'Contact', kind: 'flow', name: 'Contact welcome' },
+        ],
+      });
+      expect(org.writes).toEqual([]);
+      done();
     });
   });
 });

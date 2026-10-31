@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type {
   AuditAction,
   AuditFacets,
+  AuditMutedAutomation,
   AuditLogEntry,
   AuditObjectCounts,
   AuditOutcome,
@@ -195,6 +196,8 @@ export interface WriteRun {
   context?: AuditRunContext;
   /** For the verification of a run's records: what it concluded. */
   verdict?: ForgeVerificationVerdict;
+  /** What the run muted of the target's automation, when it was asked to. */
+  muted?: AuditMutedAutomation;
 }
 
 /**
@@ -283,6 +286,7 @@ export function recordWriteRun(deps: AuditDeps, run: WriteRun, now: Date = new D
       ...(userId ? { userId } : {}),
       ...(run.context ? { context: run.context } : {}),
       ...(run.verdict ? { verdict: run.verdict } : {}),
+      ...(run.muted ? { muted: run.muted } : {}),
       details: { ...run.details, ...(run.code ? { code: run.code } : {}) },
       timestamp,
     });

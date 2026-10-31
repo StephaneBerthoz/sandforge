@@ -1,3 +1,4 @@
+import type { MutedAutomation } from '../utils/automation-mute.js';
 import type { UUID, ISODateString, ApiName } from './common.types.js';
 import type {
   ForgeEmailLimit,
@@ -203,6 +204,13 @@ export interface FieldRuleConfig {
 /** Seed execution result */
 export interface SeedExecutionResult {
   templateId: UUID;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   operationId: UUID;
   status: 'success' | 'partial' | 'failure';
   objectResults: SeedObjectResult[];
@@ -571,6 +579,13 @@ export interface SeedRunRemovalInfo {
 /** What removing what a Seed run created did, object by object, the last written first. */
 export interface SeedRemovalResult {
   runId: string;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   status: ForgeUndoStatus;
   /** Whether records modified since the run, and what was added to them since, went too. */
   includeChanged: boolean;

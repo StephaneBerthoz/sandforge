@@ -217,6 +217,7 @@ On disk, the take says before it runs about what it will take: the file that lis
 
 - **Which checkpoint**: `--checkpoint` takes an id, a name or `latest`, the default. `rewind --yes` and `undo --yes`, which do not ask, need it named by its id or its name: `latest` could be a checkpoint taken since by someone else. A name two checkpoints share is refused, exit `2`, with their ids.
 - **The acceptances**: `--accept-automation` for automation that runs as records are updated, deleted or brought back, `--accept-no-undo` for deletions Undo could not bring back, `--accept-recreate` for the records the recycle bin no longer gives back, made again with new Ids, `--accept-outside` for the records outside a checkpoint of picked objects, `--accept-unseen`, for a user without View All Data and Modify All Data, for the records of objects the user is not proven to see that the records it deletes take along. Without `--accept-outside`, the records they hang from stay; without any other, such a rewind writes nothing, exit `1`.
+- **Muting the org's automation**: `--mute-automation` on `rewind` and `undo` keeps quiet, for that rewind or undo alone, what the org's own bypasses keep quiet, assigning the user it writes as the permission sets holding them and taking them back as it ends; what still runs still needs `--accept-automation`. See [Muting the target's automation for a run](../faq.md#muting-the-targets-automation-for-a-run).
 - **Bounds, for a rewind nobody watches**: `--max-records <n>` refuses a rewind that would delete, give back, bring back and make again more than `<n>` records together, and `--refuse-when-active` one of an org where anyone but the user it writes as and the org's Automated Process changed records of the checkpoint's objects in the hour before it read the org, the refusal saying how many people and naming none. Each is checked on the preview the rewind then acts on, before it writes, exit `1`; with `--yes` in a cron job or a CI step, they stand in for the person who would read that preview. Where people sign in as the user SandForge connects as, their changes are that user's, and are not told apart.
 - **One object, or a few**: `preview --object Contact` and `rewind --object Contact --object Case` limit the rewind to the objects named, each repeated `--object` one more; an object the checkpoint does not hold is refused, exit `2`, before the org is reached. The org is still read whole, and the preview's numbers, its estimate and the automation it reads are those of a rewind of the objects named. The rewind never adds what they depend on: it leaves what cannot be rewound without another object, says why, and names the `--object` to add -- records that come back from the recycle bin only with a parent left deleted (contacts deleted with their account, products with their opportunity); a lookup naming a record left deleted, which Salesforce refuses, the record's other fields given back; a record created since that records of an object not named created since hang from, kept unless `--accept-outside`, or that a record of the checkpoint was moved under, kept; the values products created since hold in place on their opportunity, its other fields given back. It writes the other objects only to delete again the records created since that come back with a record it brings back. A record of an object not named that looks up a record it deletes has that lookup emptied by Salesforce, as any delete empties it. Once read again, the objects named alone are compared: exit `0` when they match, whatever still differs in the others, which `--json` names (`notRewound`), and the histories of Seed, Sync and Forge mark as rewound only the runs on the objects named.
 - **Fields not to compare**: `take --ignore-field Case.Last_Touched__c`, or `rewind --ignore-field …` once, kept in the checkpoint from then on: a field your automation sets on every save otherwise keeps every rewind partial.
@@ -311,6 +312,14 @@ rewind:
   --accept-automation            rewind even when the org runs flows, Apex triggers, processes or
                                  workflow rules as records are updated, deleted or brought back;
                                  without it such a rewind writes nothing, exit 1
+  --mute-automation              mute the org's automation for the rewind through its own bypass:
+                                 assign the user it writes as, for the rewind alone, the permission
+                                 sets holding the custom permissions its flows, processes and
+                                 workflow rules test to stay quiet, and take them back as it ends;
+                                 what no bypass keeps quiet still runs, and still needs
+                                 --accept-automation. Refused on a production org and for a user
+                                 who cannot assign permission sets, exit 1; with --dry-run, says
+                                 what would be muted and assigns nothing
   --accept-no-undo               rewind even when undo could not bring back some records it deletes
                                  (objects Salesforce undeletes only with their parent, such as
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
@@ -344,6 +353,7 @@ rewind:
                                  step — it stops at its question, exit 2, having written nothing
 undo:
   --accept-automation            as for rewind
+  --mute-automation              as for rewind
   --yes                          as for rewind
 delete:
   --all                          every checkpoint of the org

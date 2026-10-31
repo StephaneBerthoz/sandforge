@@ -183,6 +183,9 @@ import * as z from 'zod';
 import {
   blindedBy,
   firedOnRemovalStepsOf,
+  removalStepsWrites,
+  type ForgeAutomationWrite,
+  type MutedAutomation,
   type CheckpointRefusal,
   type CheckpointRefusalCode,
   type ForgeRemovalSpan,
@@ -206,6 +209,7 @@ import {
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { isMuteRefusedError, type RunMute } from '../forge/AutomationMuteLease.js';
 import { readColumnsApart } from '../../core/common/wideRead.js';
 import { idLists, RECORDS_PER_CALL, workedObjects } from '../dataops/RecordRemoval.js';
 import {
@@ -670,6 +674,63 @@ export interface RewindDeps {
   signal?: AbortSignal;
   /** This machine's clock: the ids of the reads and of the journal, and when it finished. */
   now?: () => Date;
+  /**
+   * Mute the org's automation for the rewind, asked (`muteAutomation`): its
+   * mute planned from what was read of the automation its writes fire
+   * (`muteForRun`). Not given, nothing is muted.
+   */
+  mute?: MuteOfWrites;
+}
+
+/**
+ * Plan the mute of a rewind's or an undo's writes from what was read of the
+ * org's automation; throws `MuteRefusedError` when it is refused.
+ */
+export type MuteOfWrites = (
+  automation: ForgeTargetAutomation,
+  writes: (objectApiName: string, write: ForgeAutomationWrite) => boolean,
+) => Promise<RunMute>;
+
+/**
+ * Plan the mute of the writes of `steps`, when one was asked: the read the
+ * gate is to take, and the mute to hold; a refusal, said as the act's own,
+ * nothing assigned.
+ */
+export async function muteOfSteps(
+  mute: MuteOfWrites | undefined,
+  automation: ForgeTargetAutomation | undefined,
+  steps: ForgeRemovalSteps,
+): Promise<
+  { automation?: ForgeTargetAutomation; mute?: RunMute } | { refusal: CheckpointRefusal }
+> {
+  if (!mute || !automation) return automation ? { automation } : {};
+  try {
+    const planned = await mute(automation, removalStepsWrites(steps));
+    return { automation: planned.automation ?? automation, mute: planned };
+  } catch (err: unknown) {
+    if (!isMuteRefusedError(err)) throw err;
+    return { refusal: { code: 'MUTE', message: `${err.message} ${NOTHING_WRITTEN}` } };
+  }
+}
+
+/**
+ * Take the lease of `mute` before the act's first write, run `write`, and give
+ * the lease back once it ends, whatever it ended on: what was muted, as it
+ * ended, is handed to `ended`.
+ */
+export async function heldWhile<T>(
+  mute: RunMute | undefined,
+  runId: string,
+  write: () => Promise<T>,
+  ended: (muted: MutedAutomation) => void,
+): Promise<T> {
+  const held = mute?.prepared ? await mute.prepared.acquire(runId) : undefined;
+  if (mute && !held) ended(mute.muted);
+  try {
+    return await write();
+  } finally {
+    if (held) ended(await held.release());
+  }
 }
 
 /** What a rewind is asked. */
@@ -1849,6 +1910,11 @@ class Rewind {
       // Read through the host's own reader: counted as it says it sent them.
       this.count.add(automation.requests);
     }
+    // Asked to mute, the rewind plans it from what it read, and its gate asks
+    // only for what still runs; refused, it writes nothing.
+    const muting = writing ? await muteOfSteps(this.deps.mute, automation, steps) : {};
+    if ('refusal' in muting) return { rewound: false, refusal: muting.refusal };
+    if (muting.automation) automation = muting.automation;
     // What it sent so far, its reads and the automation's, and what its
     // writes and the reads after them take.
     const rest = rewindWritesCost({
@@ -1901,8 +1967,27 @@ class Rewind {
         : {}),
       now: this.now,
     });
+    let muted: MutedAutomation | undefined;
     try {
-      return await this.passes(journal, tr, fresh, first, budget.remaining);
+      const outcome = await heldWhile(
+        muting.mute,
+        `rewind ${checkpoint.checkpointId} ${tr}`,
+        () => this.passes(journal, tr, fresh, first, budget.remaining),
+        (ended) => {
+          muted = ended;
+        },
+      ).catch((err: unknown) => {
+        if (isMuteRefusedError(err)) {
+          return {
+            rewound: false as const,
+            refusal: { code: 'MUTE' as const, message: `${err.message} ${NOTHING_WRITTEN}` },
+          };
+        }
+        throw err;
+      });
+      return outcome.rewound && muted
+        ? { ...outcome, result: { ...outcome.result, mutedAutomation: muted } }
+        : outcome;
     } finally {
       await journal.close();
     }

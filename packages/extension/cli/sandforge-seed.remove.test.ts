@@ -129,6 +129,7 @@ describe('sandforge-seed --remove: the command line and the summary', () => {
       json: true,
       leaveUndeletable: false,
       acceptAutomation: false,
+      muteAutomation: false,
     });
     expect(
       parseRemoveArgs(argv('--remove', 'run.json', '--target', 'TGT', '--leave-undeletable')),

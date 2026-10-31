@@ -1,3 +1,4 @@
+import type { MutedAutomation } from '../utils/automation-mute.js';
 import type {
   UUID,
   ISODateString,
@@ -272,6 +273,13 @@ export interface AddOnField {
 /** Sync execution result */
 export interface SyncExecutionResult {
   configId: UUID;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   operationId: UUID;
   status: 'success' | 'partial' | 'failure';
   objectResults: SyncObjectResult[];
@@ -466,6 +474,13 @@ export interface SyncRunRemovalInfo {
 /** What removing what a Sync run created did, object by object. */
 export interface SyncRemovalResult {
   runId: string;
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   status: ForgeUndoStatus;
   /** Whether records modified since the run, and what was added to them since, went too. */
   includeChanged: boolean;

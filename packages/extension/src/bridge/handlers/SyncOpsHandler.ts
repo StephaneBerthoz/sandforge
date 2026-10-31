@@ -16,7 +16,12 @@ import type {
   SyncRunControlAnswer,
   SyncSimulationResult,
 } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, guardTierOf, recordWriteHeaders } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  sanitizeSoqlObjectName,
+  guardTierOf,
+  recordWriteHeaders,
+} from '@sandforge/shared';
 import type { OrgTypeAndEdition } from '@sandforge/shared';
 import type {
   HandlerDeps,
@@ -135,10 +140,18 @@ import {
   readEmailLimits,
 } from '../../modules/forge/ForgeRunGate.js';
 import {
+  mutingSyncWriteGate,
+  syncRunWrites,
   syncWriteGate,
   type SyncGatePolicy,
   type SyncWriteGate,
+  type SyncWriteMeasures,
 } from '../../modules/sync/SyncRunGate.js';
+import {
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+} from '../../modules/forge/AutomationMuteLease.js';
 import {
   lookupsOf,
   orderSyncObjects,
@@ -455,6 +468,7 @@ export class SyncOpsHandler implements DomainHandler {
     config: SyncConfig,
     targetConn: Awaited<ReturnType<typeof getJsforceConnection>>,
     policy: SyncGatePolicy,
+    readAutomation?: SyncWriteMeasures['readAutomation'],
   ): SyncWriteGate {
     const target = this.deps.orgManager.getOrg(config.targetOrgId);
     const reader = this.targetAutomation;
@@ -469,10 +483,12 @@ export class SyncOpsHandler implements DomainHandler {
           new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
             readApiBudget(targetConn),
           ),
-        readAutomation: (objects) =>
-          new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('sync:automation', () =>
-            reader.read(config.targetOrgId, objects),
-          ),
+        readAutomation:
+          readAutomation ??
+          ((objects) =>
+            new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('sync:automation', () =>
+              reader.read(config.targetOrgId, objects),
+            )),
         readLimits: () =>
           new TimeoutManager(LIMITS_TIMEOUT_MS).withTimeout('sync:limits', () =>
             readEmailLimits(targetConn),
@@ -497,6 +513,14 @@ export class SyncOpsHandler implements DomainHandler {
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
   }
+
+  /** Where and how a run that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
 
   /**
    * Inject the sync execution-history logger.
@@ -774,6 +798,7 @@ export class SyncOpsHandler implements DomainHandler {
       source: { origin: 'org', orgId: config.sourceOrgId },
       // What started it: the page, a re-run, a schedule or a pipeline.
       details: { triggeredBy },
+      ...(result.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
     });
   }
 
@@ -1106,7 +1131,7 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
-    await this.startExecution(msg, parsed.config, 'manual');
+    await this.startExecution(msg, parsed.config, 'manual', parsed.muteAutomation === true);
   }
 
   /**
@@ -1858,6 +1883,7 @@ export class SyncOpsHandler implements DomainHandler {
     msg: InboundRequest,
     rawConfig: unknown,
     triggeredBy: 'manual' | 'rerun',
+    muteAutomation = false,
   ): Promise<void> {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
@@ -1973,6 +1999,7 @@ export class SyncOpsHandler implements DomainHandler {
         abortController,
         triggeredBy,
         guardDecision,
+        muteAutomation,
       );
 
       // Register with BackgroundOperationRegistry if available
@@ -2085,8 +2112,13 @@ export class SyncOpsHandler implements DomainHandler {
     abortController: AbortController,
     triggeredBy: SyncHistoryEntry['triggeredBy'],
     guardDecision?: GuardDecision,
+    muteAutomation = false,
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = robustnessConfigOf(this.deps);
+    /** What the run muted of the target's automation, once it ended. */
+    let mutedAutomation: import('@sandforge/shared').MutedAutomation | undefined;
+    /** The run's gate when it mutes the target's automation, and its lease. */
+    let muting: ReturnType<typeof mutingSyncWriteGate> | undefined;
     // The run's pause, found by `sync:pause` and `sync:resume` while it runs.
     const pauseGate = new PauseGate();
     this.pauseGates.set(operationId, pauseGate);
@@ -2222,11 +2254,30 @@ export class SyncOpsHandler implements DomainHandler {
         // Held, before its first write, to the target's data storage, its
         // daily emails and the setting's volume: asked of the user who
         // started it, refused past the emails when nobody watches it.
-        writeGate: this.writeGateFor(
-          config,
-          targetConn,
-          triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask',
-        ),
+        writeGate: ((): SyncWriteGate => {
+          const policy: SyncGatePolicy =
+            triggeredBy === 'schedule' || triggeredBy === 'pipeline' ? 'unattended' : 'ask';
+          if (!muteAutomation) return this.writeGateFor(config, targetConn, policy);
+          // Asked to mute, the gate plans the mute from what the target runs
+          // on the objects the run writes, measures what still runs, and
+          // takes the lease once it lets the run write.
+          const reader = this.targetAutomation;
+          const readAutomation: SyncWriteMeasures['readAutomation'] = (objects) =>
+            new TimeoutManager(AUTOMATION_TIMEOUT_MS).withTimeout('sync:automation', () =>
+              reader.read(config.targetOrgId, objects),
+            );
+          muting = mutingSyncWriteGate(
+            (read) => this.writeGateFor(config, targetConn, policy, read),
+            readAutomation,
+            (read) =>
+              muteForRun(async () => muteOrgOf(targetConn), read, {
+                ...this.muteLeases,
+                writes: syncRunWrites,
+              }),
+            operationId,
+          );
+          return muting.gate;
+        })(),
         // Both orgs' record types, a record's mapped to the target's.
         recordTypes: readers.recordTypes,
         // Both orgs' currencies: a row in one the target does not hold active
@@ -2272,7 +2323,10 @@ export class SyncOpsHandler implements DomainHandler {
       );
 
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
-      const result = await orchestrator.execute(config);
+      const ran = await orchestrator.execute(config).finally(async () => {
+        mutedAutomation = await muting?.release();
+      });
+      const result = mutedAutomation ? { ...ran, mutedAutomation } : ran;
       await creations?.end({ status: result.status, cancelled: result.cancelled === true });
       closeBackup();
       if (result.cancelled) {

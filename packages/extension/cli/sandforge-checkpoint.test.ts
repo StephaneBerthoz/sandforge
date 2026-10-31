@@ -189,6 +189,7 @@ describe('parseArgs', () => {
       objects: [],
       dryRun: false,
       acceptAutomation: false,
+      muteAutomation: false,
       acceptNoUndo: false,
       acceptRecreate: false,
       acceptOutside: false,

@@ -27,6 +27,7 @@ import type {
   TriggerType,
 } from '@sandforge/shared';
 import {
+  auditMutedOf,
   isDevelopmentOrg,
   pipelineCheckpointStepConfigSchema,
   pipelineRewindStepConfigSchema,
@@ -75,6 +76,13 @@ import { withRestoreAudit } from '../../modules/sync/SyncRunRestore.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { DetectedSandboxRefresh } from '../../modules/monitor/SandboxRefreshDetector.js';
 import type { TargetAutomationReader } from '../../modules/forge/TargetAutomationReader.js';
+import {
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+} from '../../modules/forge/AutomationMuteLease.js';
+import type { MuteOfWrites } from '../../modules/checkpoint/rewindOrg.js';
+import type { Connection } from 'jsforce';
 import type { SyncRunKept } from '../../modules/sync/SyncRunCreations.js';
 import { THIS_HOST, writtenElsewhere, type RunWriterHost } from '../../modules/sync/runWriter.js';
 import type {
@@ -658,6 +666,9 @@ export class CheckpointHandler implements DomainHandler {
    */
   private readonly importFiles = new Map<string, string>();
 
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
   /**
    * @param deps - Injected handler dependencies.
    * @param writers - What this window writes to orgs, which refuses a take.
@@ -689,6 +700,11 @@ export class CheckpointHandler implements DomainHandler {
   /** Another reader of what the org runs than the handler's own. */
   setTargetAutomation(reader: Pick<TargetAutomationReader, 'read'>): void {
     this.targetAutomation = reader;
+  }
+
+  /** Where and how a rewind or an undo that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
   }
 
   /**
@@ -1961,6 +1977,7 @@ export class CheckpointHandler implements DomainHandler {
           }
         : {}),
       ...(code !== undefined ? { code } : {}),
+      ...(result?.mutedAutomation ? { muted: auditMutedOf(result.mutedAutomation) } : {}),
       details: {
         checkpointId: checkpoint.checkpointId,
         ...(rewindId !== undefined ? { rewindId } : {}),
@@ -2360,6 +2377,7 @@ export class CheckpointHandler implements DomainHandler {
               onUndeletable: undeletableAsker(this.deps, org.id, 'checkpoint:rewind'),
               onProgress: ({ percentage, step }) => onProgress(percentage, step),
               signal,
+              ...(parsed.muteAutomation === true ? { mute: this.muteOf(conn) } : {}),
             },
             {
               checkpoint,
@@ -2436,6 +2454,7 @@ export class CheckpointHandler implements DomainHandler {
               onUndeletable: undeletableAsker(this.deps, org.id, 'checkpoint:undo'),
               onProgress: ({ percentage, step }) => onProgress(percentage, step),
               signal,
+              ...(parsed.muteAutomation === true ? { mute: this.muteOf(conn) } : {}),
             },
             {
               checkpoint,
@@ -2459,6 +2478,19 @@ export class CheckpointHandler implements DomainHandler {
     } finally {
       pending?.release();
     }
+  }
+
+  /**
+   * How a rewind or an undo asked to mute plans it: through the org's own
+   * bypass, assigned to the user it writes as for the act alone
+   * (`AutomationMuteLease`).
+   */
+  private muteOf(conn: Connection): MuteOfWrites {
+    return (automation, writes) =>
+      muteForRun(async () => muteOrgOf(conn), automation, {
+        ...this.muteLeases,
+        writes,
+      });
   }
 
   /** A page's request, as an act answers it. */

@@ -2309,7 +2309,8 @@ export function automationLines(
   if (toAssign.length > 0) {
     lines.push(
       `  bypass: assign ${toAssign.join(', ')} to the user the run writes as, and the flows ` +
-        'whose start condition excludes them stay quiet',
+        'whose start condition excludes them stay quiet; --mute-automation assigns them for ' +
+        'the run alone, and takes them back as it ends',
     );
     // What would assign each, as the read found it: shown, never run.
     for (const { permission, permissionSet, others } of bypassAssignmentsOf(automation, toAssign)) {

@@ -5,8 +5,20 @@ import type {
   SeedRemovalResult,
   SeedRunRemovalInfo,
 } from '@sandforge/shared';
-import { guardTierOf } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  guardTierOf,
+  removalStepsWrites,
+  type MutedAutomation,
+} from '@sandforge/shared';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+  type RunMute,
+} from '../../modules/forge/AutomationMuteLease.js';
 import {
   ABORTED_BEFORE_START,
   GUARD_REFUSAL,
@@ -36,7 +48,7 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { recordWriteRun } from '../../modules/audit/auditTrail.js';
-import { removalOrg } from '../../modules/forge/ForgeRunRemoval.js';
+import { removalOrg, setBackToDraftOf } from '../../modules/forge/ForgeRunRemoval.js';
 import { removalAuditObjects, removalAuditOutcome } from '../../modules/forge/removalOutcome.js';
 import {
   createdCount,
@@ -692,6 +704,14 @@ export class SeedRemovalHandler implements DomainHandler {
    * or its org is gone; then Production Guard judges the delete, and the
    * removal runs.
    */
+  /** Where and how a removal that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
   private async handleRemove(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedRemovePayloadSchema, msg, 'seed:remove:error', this.deps);
@@ -755,6 +775,7 @@ export class SeedRemovalHandler implements DomainHandler {
           includeChanged: parsed.includeChanged === true,
           sweep: parsed.sweep === true,
           again,
+          muteAutomation: parsed.muteAutomation === true,
         },
         pending,
       );
@@ -772,7 +793,7 @@ export class SeedRemovalHandler implements DomainHandler {
     msg: InboundRequest,
     store: SeedRunCreations,
     run: SyncRunKept,
-    asked: { includeChanged: boolean; sweep: boolean; again: boolean },
+    asked: { includeChanged: boolean; sweep: boolean; again: boolean; muteAutomation?: boolean },
     pending: PendingStart | undefined,
   ): Promise<void> {
     const { includeChanged, again } = asked;
@@ -866,6 +887,26 @@ export class SeedRemovalHandler implements DomainHandler {
             return sweepMade.result.objects.some((object) => object.deleted > 0);
           }
         : undefined;
+      // Asked to mute, the removal reads what its deletes fire, plans the mute
+      // from it, and takes the lease before its first delete; it is given
+      // back as the removal ends, whatever it ended on. Refused, nothing goes.
+      let removalMute: RunMute | undefined;
+      if (asked.muteAutomation === true) {
+        const removed = [...new Set(plan.map((object) => object.objectApiName))];
+        const steps = { setToDraft: setBackToDraftOf(removed), delete: removed };
+        const reader = this.targetAutomation;
+        const read = await new TimeoutManager(SWEEP_AUTOMATION_TIMEOUT_MS)
+          .withTimeout('seed:remove automation', () => reader.read(run.targetOrgId, removed))
+          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          ...this.muteLeases,
+          writes: removalStepsWrites(steps),
+        });
+      }
+      const held = removalMute?.prepared
+        ? await removalMute.prepared.acquire(operationId)
+        : undefined;
+      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
       const { result: removed, notes } = await removeSyncRun({
         run,
         org: removalOrg(conn, 'seed:remove'),
@@ -881,6 +922,8 @@ export class SeedRemovalHandler implements DomainHandler {
           if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
+      }).finally(async () => {
+        if (held) mutedAutomation = await held.release();
       });
       for (const note of notes) this.deps.log(`[WARN] seed:remove ${operationId}: ${note}`);
       const result: SeedRemovalResult = {
@@ -891,6 +934,7 @@ export class SeedRemovalHandler implements DomainHandler {
         finishedAt: removed.finishedAt,
         ...(removed.leftBy ? { leftBy: removed.leftBy } : {}),
         ...(sweepMade.result ? { sweep: sweepMade.result } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
       };
 
       recordWriteRun(this.deps, {
@@ -902,6 +946,7 @@ export class SeedRemovalHandler implements DomainHandler {
         guard: decision,
         objects: removalAuditObjects(result.objects),
         ...(result.leftBy ? { leftBy: result.leftBy } : {}),
+        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         details: { runId: run.runId },
       });
 
@@ -925,9 +970,14 @@ export class SeedRemovalHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
-      this.recordNotRemoved(msg, run, 'failure', { guard: decision });
+      // A mute refused stopped the removal before its first delete.
+      const muteRefused = isMuteRefusedError(error) ? error : undefined;
+      this.recordNotRemoved(msg, run, muteRefused ? 'stopped' : 'failure', {
+        guard: decision,
+        ...(muteRefused ? { code: muteRefused.code } : {}),
+      });
       sendHandlerError(this.deps, 'seed:remove', 'seed:remove:error', msg, error, {
-        code: 'REMOVE_ERROR',
+        code: muteRefused?.code ?? 'REMOVE_ERROR',
         retryable: true,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

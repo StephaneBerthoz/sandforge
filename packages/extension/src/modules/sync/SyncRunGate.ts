@@ -18,12 +18,20 @@
  */
 
 import type {
+  ForgeAutomationWrite,
   ForgeEmailLimit,
   ForgeTargetAutomation,
+  MutedAutomation,
   SyncOperation,
   SyncUnwritableReason,
   SyncWriteCheck,
 } from '@sandforge/shared';
+import {
+  isMuteRefusedError,
+  type HeldMute,
+  type MuteRefusalCode,
+  type RunMute,
+} from '../forge/AutomationMuteLease.js';
 import type {
   RunConfirmationAnswer,
   SafetyTier,
@@ -276,7 +284,8 @@ export type SyncGateCode =
   | 'SYNC_TARGET_UNWRITABLE'
   | 'SYNC_EMAILS_EXCEEDED'
   | 'SYNC_WRITE_DECLINED'
-  | 'SYNC_CONFIRMATION_UNAVAILABLE';
+  | 'SYNC_CONFIRMATION_UNAVAILABLE'
+  | MuteRefusalCode;
 
 /**
  * Who answers for a run before it writes:
@@ -444,6 +453,95 @@ export function syncWriteGate(
     hold: async (counted) => {
       const measured = await measureSyncWrite(counted, measures);
       return { check: measured.check, answer: await gateSyncWrite(measured, decide) };
+    },
+  };
+}
+
+/** What a run writes of each object it writes: it inserts, upserts, updates — and deletes, mirroring. */
+export function syncRunWrites(_objectApiName: string, write: ForgeAutomationWrite): boolean {
+  return write === 'insert' || write === 'update' || write === 'delete';
+}
+
+/** A Sync run's gate that mutes the target's automation, and how its lease is given back. */
+export interface MutingSyncWriteGate {
+  gate: SyncWriteGate;
+  /**
+   * Give the lease back once the run ends, whatever it ended on: what the
+   * run muted, or undefined when it never reached its gate.
+   */
+  release(): Promise<MutedAutomation | undefined>;
+}
+
+/**
+ * The gate of a run asked to mute the target's automation. As the gate holds
+ * the run, before its first write, the mute is planned from what the target
+ * runs on the objects it writes (`plan`), and the gate measures the run on
+ * that read with what the mute keeps quiet held quiet: what still runs is
+ * what it counts the emails of. Once the gate lets the run write, the lease
+ * is taken. Refused — a production org, a user who cannot assign, a set that
+ * cannot be assigned — the run stops at its gate, nothing written.
+ *
+ * @param build - The run's gate, over the reader of the target's automation it is given.
+ * @param plan - The mute of a run writing the objects read; throws `MuteRefusedError` when refused.
+ */
+export function mutingSyncWriteGate(
+  build: (readAutomation: SyncWriteMeasures['readAutomation']) => SyncWriteGate,
+  readAutomation: SyncWriteMeasures['readAutomation'],
+  plan: (read: ForgeTargetAutomation | { unread: string }) => Promise<RunMute>,
+  runId: string,
+): MutingSyncWriteGate {
+  let mute: RunMute | undefined;
+  let held: HeldMute | undefined;
+  let muted: MutedAutomation | undefined;
+  const gate = build(async (objects) => {
+    const wanted = new Set(objects);
+    const view = mute?.automation;
+    if (view && objects.every((name) => view.objectsRead.includes(name))) {
+      return {
+        ...view,
+        objectsRead: view.objectsRead.filter((name) => wanted.has(name)),
+        objects: view.objects.filter((object) => wanted.has(object.objectApiName)),
+      };
+    }
+    return readAutomation(objects);
+  });
+  const refusedBy = (err: unknown): SyncGateAnswer => {
+    if (!isMuteRefusedError(err)) throw err;
+    return { go: false, code: err.code, message: err.message };
+  };
+  return {
+    gate: {
+      measure: (counted) => gate.measure(counted),
+      hold: async (counted) => {
+        const objects = counted.objects
+          .filter((object) => object.rows > 0)
+          .map((object) => object.objectApiName);
+        if (!mute && objects.length > 0) {
+          const read = await readAutomation(objects).catch((err: unknown) => ({
+            unread: err instanceof Error ? err.message : String(err),
+          }));
+          try {
+            mute = await plan(read);
+            muted = mute.muted;
+          } catch (err: unknown) {
+            return { check: await gate.measure(counted), answer: refusedBy(err) };
+          }
+        }
+        const answer = await gate.hold(counted);
+        if (answer.answer.go && mute?.prepared && !held) {
+          try {
+            held = await mute.prepared.acquire(runId);
+            muted = held.outcome;
+          } catch (err: unknown) {
+            return { check: answer.check, answer: refusedBy(err) };
+          }
+        }
+        return answer;
+      },
+    },
+    release: async () => {
+      if (held) muted = await held.release();
+      return muted;
     },
   };
 }

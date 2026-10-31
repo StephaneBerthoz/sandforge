@@ -113,6 +113,8 @@ import { HELD_WHEN_PICKED } from '../src/modules/checkpoint/checkpointScope.js';
 import { DEFAULT_MAX_TOTAL, takeOrgOf } from '../src/modules/checkpoint/takeCheckpoint.js';
 import { getJsforceConnection } from '../src/core/connection/ConnectionHelper.js';
 import { formatMB } from '../src/modules/forge/ForgeRunGate.js';
+import { muteLines, planMute } from '../src/modules/forge/AutomationMuteLease.js';
+import { removalStepsWrites } from '@sandforge/shared';
 import { holdOutputWhole } from './wholeOutput.js';
 
 // The counts the bounds of a rewind are read by (`rewindBounds.ts`), which
@@ -175,6 +177,14 @@ rewind:
   --accept-automation            rewind even when the org runs flows, Apex triggers, processes or
                                  workflow rules as records are updated, deleted or brought back;
                                  without it such a rewind writes nothing, exit 1
+  --mute-automation              mute the org's automation for the rewind through its own bypass:
+                                 assign the user it writes as, for the rewind alone, the permission
+                                 sets holding the custom permissions its flows, processes and
+                                 workflow rules test to stay quiet, and take them back as it ends;
+                                 what no bypass keeps quiet still runs, and still needs
+                                 --accept-automation. Refused on a production org and for a user
+                                 who cannot assign permission sets, exit 1; with --dry-run, says
+                                 what would be muted and assigns nothing
   --accept-no-undo               rewind even when undo could not bring back some records it deletes
                                  (objects Salesforce undeletes only with their parent, such as
                                  OpportunityLineItem); without it such a rewind writes nothing, exit 1
@@ -208,6 +218,7 @@ rewind:
                                  step — it stops at its question, exit 2, having written nothing
 undo:
   --accept-automation            as for rewind
+  --mute-automation              as for rewind
   --yes                          as for rewind
 delete:
   --all                          every checkpoint of the org
@@ -462,6 +473,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
       ...COMMON.switches,
       '--dry-run',
       '--accept-automation',
+      '--mute-automation',
       '--accept-no-undo',
       '--accept-recreate',
       '--accept-outside',
@@ -473,7 +485,7 @@ const FLAGS: Readonly<Record<Command, CommandFlags>> = {
   },
   undo: {
     words: 1,
-    switches: [...COMMON.switches, '--accept-automation', '--yes'],
+    switches: [...COMMON.switches, '--accept-automation', '--mute-automation', '--yes'],
     values: [...COMMON.values, '--checkpoint'],
   },
   delete: {
@@ -542,6 +554,8 @@ export type CliArgs =
       objects: string[];
       dryRun: boolean;
       acceptAutomation: boolean;
+      /** Mute the org's automation for the rewind, through its own bypass. */
+      muteAutomation: boolean;
       acceptNoUndo: boolean;
       acceptRecreate: boolean;
       acceptOutside: boolean;
@@ -560,6 +574,8 @@ export type CliArgs =
       /** Absent: the checkpoint the org's last rewind went back to. */
       checkpoint?: string;
       acceptAutomation: boolean;
+      /** Mute the org's automation for the undo, through its own bypass. */
+      muteAutomation: boolean;
       yes: boolean;
     })
   | (CommonArgs & {
@@ -764,6 +780,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         objects: objectsNamed(),
         dryRun: args.includes('--dry-run'),
         acceptAutomation: args.includes('--accept-automation'),
+        muteAutomation: args.includes('--mute-automation'),
         acceptNoUndo: args.includes('--accept-no-undo'),
         acceptRecreate: args.includes('--accept-recreate'),
         acceptOutside: args.includes('--accept-outside'),
@@ -784,6 +801,7 @@ export function parseArgs(argv: readonly string[], now: Date = new Date()): CliA
         org: named,
         ...(checkpoint !== undefined ? { checkpoint } : {}),
         acceptAutomation: args.includes('--accept-automation'),
+        muteAutomation: args.includes('--mute-automation'),
         yes: args.includes('--yes'),
       };
     }
@@ -3328,9 +3346,18 @@ async function rewind(
   const selection = objects
     ? await selectionOf(host, whole.diff, objects, args.acceptOutside)
     : undefined;
-  const preview = selection ? { ...whole, diff: selection.diff } : whole;
-  for (const line of previewLines(args.org, checkpoint, preview, org.username)) say(line);
+  const shown = selection ? { ...whole, diff: selection.diff } : whole;
+  for (const line of previewLines(args.org, checkpoint, shown, org.username)) say(line);
   for (const line of selection ? selectionLines(selection.plan) : []) say(line);
+  // Asked to mute, what it would assign and what still runs is said before
+  // the question, and the gate asks only for what still runs; the extension
+  // assigns as the rewind starts, and a dry run assigns nothing.
+  const muted =
+    args.muteAutomation && shown.automation
+      ? planMute(shown.automation, removalStepsWrites(rewindStepsOf(shown.diff)))
+      : undefined;
+  for (const line of muted ? muteLines(muted.planned, args.org) : []) say(`  ${line}`);
+  const preview = muted ? { ...shown, automation: muted.automation } : shown;
   const writes = objectsWrittenBy(preview.diff).length > 0;
   // What stands in for reading the preview in a cron job or a CI step: the
   // bounds the flags give, then the acceptances it needs, as a pipeline's
@@ -3381,6 +3408,7 @@ async function rewind(
           previewId: preview.diff.previewId,
           ...(objects ? { objects } : {}),
           acceptAutomation: args.acceptAutomation,
+          ...(args.muteAutomation ? { muteAutomation: true } : {}),
           acceptNoUndo: args.acceptNoUndo,
           acceptRecreate: args.acceptRecreate,
           acceptOutside: args.acceptOutside,
@@ -3391,6 +3419,9 @@ async function rewind(
   );
   const result = resultOfAnswer(sent, 'The rewind');
   for (const line of rewindLines(args.org, checkpoint, result, preview.diff.userNames)) say(line);
+  for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
+    say(line);
+  }
   answerJson(resultJson('rewind', args.org, checkpoint, result, preview.diff));
   endWith(resultExitCode(result.status, sent.stoppedBy));
 }
@@ -3497,12 +3528,16 @@ async function undo(
           checkpointId: entry.checkpointId,
           rewindId,
           acceptAutomation: args.acceptAutomation,
+          ...(args.muteAutomation ? { muteAutomation: true } : {}),
         },
         timeoutMs: WRITE_TIMEOUT_MS,
       }),
   );
   const result = resultOfAnswer(sent, 'The undo');
   for (const line of undoLines(args.org, checkpoint, result)) say(line);
+  for (const line of result.mutedAutomation ? muteLines(result.mutedAutomation, args.org) : []) {
+    say(line);
+  }
   answerJson(resultJson('undo', args.org, checkpoint, result));
   endWith(resultExitCode(result.status, sent.stoppedBy));
 }

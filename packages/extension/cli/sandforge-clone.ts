@@ -231,6 +231,13 @@ import {
   type DataStorage,
   type WritePlan,
 } from '../src/modules/forge/ForgeRunGate.js';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteLines,
+  muteOrgOf,
+  type RunMute,
+} from '../src/modules/forge/AutomationMuteLease.js';
 import { partialSummaryOf } from '../src/modules/forge/interruptedRun.js';
 import {
   ForgeRunJournal,
@@ -248,6 +255,7 @@ import {
 import { forgeRunFingerprint, sameRunSetup } from '../src/modules/forge/runFingerprint.js';
 import { extractErrorMessage } from '../src/core/common/extractErrorMessage.js';
 import type { ForgeRehearsal } from '@sandforge/shared';
+import { auditMutedOf, type MutedAutomation } from '@sandforge/shared';
 import { undeletableAnswer } from './undeletableAnswer.js';
 import { rehearsalExecutorDeps } from '../src/modules/forge/rehearsal/RehearsalWriter.js';
 import {
@@ -329,6 +337,12 @@ export interface CliArgs {
    * records, or could not say what it runs (`--accept-automation`).
    */
   acceptAutomation: boolean;
+  /**
+   * Mute the target's automation for the run through its own bypass
+   * (`--mute-automation`): the permission sets holding it assigned to the
+   * user the run writes as for the run alone, taken back as it ends.
+   */
+  muteAutomation: boolean;
   /** The most records a run may write in all; past it, nothing is written (`--max-total`). */
   maxTotal: number;
   /**
@@ -391,7 +405,7 @@ Usage:
     --source <alias> --target <alias> [options]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --remove <summary.json> --target <alias> [--include-changed] [--accept-automation]
-      [--leave-undeletable] [--json]
+      [--mute-automation] [--leave-undeletable] [--json]
       [--preview | --sweep | --sweep-list] [--audit <file>]
   pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
     --verify <summary.json> --target <alias> [--source <alias>] [--json] [--audit <file>]
@@ -526,6 +540,17 @@ Options:
   --accept-automation    write although the target runs flows or Apex
                          triggers as the clone inserts, or as it updates the
                          records it inserted, or could not say what it runs
+                                                                (default: off)
+  --mute-automation      mute the target's automation for the run through its
+                         own bypass: assign the user the run writes as, for the
+                         run alone, the permission sets holding the custom
+                         permissions its flows, processes and workflow rules
+                         test to stay quiet, and take them back as it ends.
+                         What no bypass keeps quiet (an Apex trigger, a managed
+                         package's flow) still runs, and still needs
+                         --accept-automation. Refused on a production org and
+                         for a user who cannot assign permission sets, exit 1;
+                         a dry run says what would be muted and assigns nothing
                                                                 (default: off)
   --max-total <n>        most records the run may write in all  (default: 10000)
                          Counted once every row is read: past it, nothing is
@@ -674,6 +699,12 @@ Remove what a run created:
                          before or after a delete, or as an activated order
                          is set back to Draft for its delete — or could not
                          say what it runs                       (default: off)
+  --mute-automation      mute the target's automation for the removal through
+                         its own bypass, as for a run: the permission sets
+                         holding the bypasses of what fires as the records go
+                         assigned to the user it deletes as, for the removal
+                         alone, and taken back as it ends; what no bypass keeps
+                         quiet still needs --accept-automation (default: off)
   --leave-undeletable    remove the rest when the user the removal runs as
                          may not delete the records of some objects of the
                          run, leaving those with what they hang from; without
@@ -1092,6 +1123,7 @@ const CLONE_FLAGS: CommandFlags = {
     '--dry-run',
     '--rehearse',
     '--accept-automation',
+    '--mute-automation',
     '--upsert',
     '--expand-orphans',
     '--apply-assignment-rules',
@@ -1502,6 +1534,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     remapCsv: remapCsvArg(args),
     files,
     acceptAutomation: has('--accept-automation'),
+    muteAutomation: has('--mute-automation'),
     maxTotal,
     readCeiling,
     ...(pageSize !== undefined ? { pageSize } : {}),
@@ -3158,6 +3191,8 @@ export interface RemoveArgs {
   json: boolean;
   /** Delete although the target runs automation as the records go, or could not say what it runs. */
   acceptAutomation: boolean;
+  /** Mute the target's automation for the removal, through its own bypass (`--mute-automation`). */
+  muteAutomation: boolean;
   /**
    * Remove the rest when the user may not delete the records of some objects
    * of the run, leaving those; without it the removal stops before its first
@@ -3186,6 +3221,7 @@ const REMOVE_FLAGS: ReadonlySet<string> = new Set([
   '--sweep',
   '--sweep-list',
   '--audit',
+  '--mute-automation',
 ]);
 
 /** The flags of a removal that take a value. */
@@ -3263,6 +3299,7 @@ export function parseRemoveArgs(argv: string[]): RemoveArgs {
     includeChanged: has('--include-changed'),
     json: has('--json'),
     acceptAutomation: has('--accept-automation'),
+    muteAutomation: has('--mute-automation'),
     leaveUndeletable: has('--leave-undeletable'),
     sweep: has('--sweep'),
     sweepList: has('--sweep-list'),
@@ -4138,6 +4175,9 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
   /** The removal's entry in the audit trail, with --audit; one operation id for the process. */
   const audited = new Map([[org.id, { alias: args.target, username: session.username }]]);
   const operationId = `sandforge-clone-${randomUUID()}`;
+  /** What the removal muted of the target's automation, asked with --mute-automation. */
+  let removalMute: RunMute | undefined;
+  let mutedAutomation: MutedAutomation | undefined;
   const recordRemoval = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) =>
     recordCliRun(args.audit, audited, {
       action: 'cleanup_delete',
@@ -4145,6 +4185,7 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       operationId,
       orgId: org.id,
       ...run,
+      ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
     });
   // A listing deletes nothing; a removal and a sweep delete, and a
   // production org is refused before either reads anything.
@@ -4275,11 +4316,30 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
     // fires as an activated order is set back to Draft for its delete.
     const removed = plan.map((object) => object.objectApiName);
     const drafted = setBackToDraftOf(removed);
-    const automation = await targetAutomationReader(conn).read(args.target, removed);
+    const read = await targetAutomationReader(conn).read(args.target, removed);
     say('');
-    for (const line of removalAutomationLines(automation, args.target, removed.length, drafted)) {
+    for (const line of removalAutomationLines(read, args.target, removed.length, drafted)) {
       say(line);
     }
+    // Asked to mute, the removal plans it from what it read, and asks only
+    // for what still runs; refused, it deletes nothing.
+    if (args.muteAutomation) {
+      const draftedSet = new Set(drafted);
+      try {
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          writes: (objectApiName, write) =>
+            write === 'delete' || (write === 'update' && draftedSet.has(objectApiName)),
+        });
+        mutedAutomation = removalMute.muted;
+        for (const line of muteLines(removalMute.muted, args.target)) say(`  ${line}`);
+      } catch (err: unknown) {
+        if (!isMuteRefusedError(err)) throw err;
+        recordRemoval({ outcome: 'stopped', code: err.code });
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+    }
+    const automation = removalMute?.automation ?? read;
     const automationStop = removalAutomationRefusal(automation, args.target, {
       drafted,
       assign: bypassesToAssign(
@@ -4308,6 +4368,19 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
 
   /** The removal of what is left of the run, its sweep first, recorded as it always was. */
   async function removeThePlan(): Promise<RunRemovalOutcome> {
+    // The lease is taken before the first delete, and given back as the
+    // removal ends, whatever it ended on.
+    const held = removalMute?.prepared
+      ? await removalMute.prepared
+          .acquire(`sandforge-clone --remove ${operationId}`)
+          .catch((err: unknown) => {
+            if (!isMuteRefusedError(err)) throw err;
+            recordRemoval({ outcome: 'stopped', code: err.code });
+            process.stderr.write(`${err.message}\n`);
+            process.exit(1);
+          })
+      : undefined;
+    if (held) mutedAutomation = held.outcome;
     const releaseStop = onStopSignal(interrupt);
     const span = summary.result.writtenBetween;
     let removal: RunRemovalOutcome;
@@ -4335,6 +4408,10 @@ export async function removeMain(argv: string[] = process.argv): Promise<void> {
       });
     } finally {
       releaseStop();
+      if (held) {
+        mutedAutomation = await held.release();
+        for (const line of muteLines(mutedAutomation, args.target)) say(line);
+      }
     }
     if (removal.stoppedForUndeletable) return removal;
     // A removal after an earlier one of the summary takes what that one left,
@@ -5180,6 +5257,8 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   let sourceOrgId: string | undefined;
   const operationId = `sandforge-clone-${randomUUID()}`;
   /** A real run's entry; a dry run, a listing and a rehearsal write nothing, and record nothing. */
+  /** What the run muted of the target's automation, asked with --mute-automation. */
+  let mutedAutomation: MutedAutomation | undefined;
   const recordClone = (run: Omit<WriteRun, 'action' | 'module' | 'operationId' | 'orgId'>) => {
     if (targetOrgId === undefined || args.dryRun || args.listObjects || args.rehearse) return;
     recordCliRun(args.audit, audited, {
@@ -5188,6 +5267,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
       operationId,
       orgId: targetOrgId,
       ...run,
+      ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
     });
   };
   if (!args.dryRun && !args.listObjects) {
@@ -5515,25 +5595,52 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     leftOut: new Set(objectsLeftOut),
     upsert: args.upsert,
   });
-  const automationStop = automationRefusal(targetAutomation, args.target, {
+  // Asked to mute, the run plans it from what it read, and its gate asks only
+  // for what still runs. Refused on a production org or for a user who cannot
+  // assign, a real run writes nothing; a dry run says so, and assigns nothing.
+  let mute: RunMute | undefined;
+  /** Why a dry run's mute would be refused, said with the rest of its refusals. */
+  let muteRefused: string | undefined;
+  if (args.muteAutomation) {
+    const updatedNames = new Set(updated.map((object) => object.objectApiName));
+    try {
+      mute = await muteForRun(async () => muteOrgOf(conns.get(args.target)!), targetAutomation, {
+        writes: (objectApiName, write) =>
+          write === 'insert' || (write === 'update' && updatedNames.has(objectApiName)),
+      });
+      for (const line of muteLines(mute.muted, args.target)) say(`  ${line}`);
+    } catch (err: unknown) {
+      if (!isMuteRefusedError(err)) throw err;
+      if (!args.dryRun) {
+        recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
+        process.stderr.write(`${err.message}\n`);
+        process.exit(1);
+      }
+      muteRefused = err.message;
+      say(`  a real run would be refused: ${err.message}`);
+    }
+  }
+  /** What the run's gate reads: what the mute keeps quiet held quiet. */
+  const gated = mute?.automation ?? targetAutomation;
+  const automationStop = automationRefusal(gated, args.target, {
     updated,
     assign: bypassesToAssign(
-      targetAutomation,
+      gated,
       runBypassesOf(
-        targetAutomation,
+        gated,
         updated.map((object) => object.objectApiName),
       ),
       targetOrg.username ? { alias: args.target, username: targetOrg.username } : undefined,
     ),
   });
-  runAudit().automationRead({ automation: targetAutomation }, updated);
+  runAudit().automationRead({ automation: gated }, updated);
   if (automationStop && args.acceptAutomation) runAudit().confirm('automation');
   /**
    * What a dry run says a real run would be refused for, each in its own
    * words: given with --json under `wouldBeRefused`, where a pipeline reads
    * it, as the lines say it on stderr.
    */
-  const dryRunRefusals: string[] = [];
+  const dryRunRefusals: string[] = muteRefused !== undefined ? [muteRefused] : [];
   if (automationStop && !args.acceptAutomation) {
     if (!args.dryRun) {
       recordClone({
@@ -5889,7 +5996,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // some. Past them, the run is refused, as Autopilot's and Seed's are: a
     // clone of 36 contacts into a Developer Edition said its alerts fitted in
     // the workflow emails, and took its single emails from −75 to −117.
-    const sending = emailsPerInsertOf(targetAutomation);
+    const sending = emailsPerInsertOf(gated);
     let overEmails: string | undefined;
     let emailCounts: Array<{ limit: string; emails: number }> | undefined;
     if (sending.length > 0) {
@@ -5906,7 +6013,7 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // no one reads. It is said, as Sync and Autopilot say it, and refuses
     // nothing: --accept-automation, without which a run that fires anything
     // unread writes nothing, already covers it.
-    const emailsUncounted = emailsUncountedOf(targetAutomation, insertsOf(plan));
+    const emailsUncounted = emailsUncountedOf(gated, insertsOf(plan));
     if (emailsUncounted !== undefined) {
       say(`  emails: not counted, ${emailsUncounted} could not be read`);
     }
@@ -5993,6 +6100,10 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
     // rules, the custom permissions that keep a flow quiet and whether the
     // user the run writes as holds them, and what could not be read.
     targetAutomation,
+    // What the run muted of it, asked with --mute-automation: the permission
+    // sets assigned to its user for the run, what they silenced, what still
+    // ran, and whether they were taken back.
+    ...(mutedAutomation ? { mutedAutomation } : {}),
     // What may refuse a removal of the run's records, per object: the flows
     // before a delete, the Apex triggers on one, the records that lock past
     // Draft.
@@ -6099,32 +6210,51 @@ async function cloneMain(argv: string[], interrupts: CloneInterrupts): Promise<v
   // take it back from.
   running.executor = executor;
   await stopIfInterrupted(() => endJournal('cancelled', false));
+  // The lease is taken before the first write and given back as the run ends,
+  // written, failed, stopped or thrown alike, before anything is said of it.
+  const held =
+    !args.dryRun && mute?.prepared
+      ? await mute.prepared.acquire(`sandforge-clone ${t0}`).catch((err: unknown) => {
+          if (!isMuteRefusedError(err)) throw err;
+          recordClone({ outcome: 'stopped', code: err.code, context: runAudit().context() });
+          process.stderr.write(`${err.message}\n`);
+          process.exit(1);
+        })
+      : undefined;
+  if (held) mutedAutomation = held.outcome;
   try {
-    const executed = await executor.execute(
-      graph,
-      args.source,
-      args.target,
-      (event) => {
-        const line = outcomeLine(event);
-        if (line) say(line);
-        if (args.summary && OBJECT_ENDS.has(event.status)) keepSoFar();
-      },
-      withTheJournal(
-        {
-          // A clone of whole tables goes as the panel's run of a query goes:
-          // each table read and written page by page.
-          ...(args.tables
-            ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
-                discovery.personalFields(fields),
-              )
-            : executeOptions(args, graph, recordTypeMappings, (fields) =>
-                discovery.personalFields(fields),
-              )),
-          beforeWrite,
+    const executed = await executor
+      .execute(
+        graph,
+        args.source,
+        args.target,
+        (event) => {
+          const line = outcomeLine(event);
+          if (line) say(line);
+          if (args.summary && OBJECT_ENDS.has(event.status)) keepSoFar();
         },
-        journalStore,
-      ),
-    );
+        withTheJournal(
+          {
+            // A clone of whole tables goes as the panel's run of a query goes:
+            // each table read and written page by page.
+            ...(args.tables
+              ? tablesExecuteOptions(args, runConfig, graph, recordTypeMappings, (fields) =>
+                  discovery.personalFields(fields),
+                )
+              : executeOptions(args, graph, recordTypeMappings, (fields) =>
+                  discovery.personalFields(fields),
+                )),
+            beforeWrite,
+          },
+          journalStore,
+        ),
+      )
+      .finally(async () => {
+        if (held) {
+          mutedAutomation = await held.release();
+          for (const line of muteLines(mutedAutomation, args.target)) say(line);
+        }
+      });
     summary = withRecordTypeCalls(executed);
     // The diagnostic says what went through the cursor, as the paged read it shows.
     if (args.pageSize !== undefined) {

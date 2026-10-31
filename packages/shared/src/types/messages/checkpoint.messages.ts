@@ -141,6 +141,15 @@ export interface CheckpointRewindRequest extends BaseMessage {
     objects?: string[];
     /** Rewind even though the org runs automation as its records are updated, deleted or brought back. */
     acceptAutomation: boolean;
+    /**
+     * Mute the target's automation for the run: assign the user it writes as,
+     * for its duration, the permission sets holding the bypasses the target's
+     * flows, processes and workflow rules test to stay quiet, and take them
+     * back as it ends. Refused on a production org, and for a user who cannot
+     * assign permission sets; what no bypass keeps quiet still runs, and is
+     * asked about as ever.
+     */
+    muteAutomation?: boolean;
     /** Rewind even though Undo couldn't bring back records it deletes. */
     acceptNoUndo: boolean;
     /**
@@ -175,6 +184,15 @@ export interface CheckpointUndoRequest extends BaseMessage {
     rewindId: string;
     /** Undo even though the org runs automation as its records are updated, deleted or brought back. */
     acceptAutomation: boolean;
+    /**
+     * Mute the target's automation for the run: assign the user it writes as,
+     * for its duration, the permission sets holding the bypasses the target's
+     * flows, processes and workflow rules test to stay quiet, and take them
+     * back as it ends. Refused on a production org, and for a user who cannot
+     * assign permission sets; what no bypass keeps quiet still runs, and is
+     * asked about as ever.
+     */
+    muteAutomation?: boolean;
   };
 }
 

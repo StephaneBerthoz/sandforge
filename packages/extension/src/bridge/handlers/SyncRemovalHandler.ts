@@ -6,7 +6,20 @@ import type {
   SyncRemovalResult,
   SyncRunRemovalInfo,
 } from '@sandforge/shared';
-import { guardTierOf, sanitizeSoqlObjectName } from '@sandforge/shared';
+import {
+  auditMutedOf,
+  guardTierOf,
+  removalStepsWrites,
+  sanitizeSoqlObjectName,
+  type MutedAutomation,
+} from '@sandforge/shared';
+import {
+  isMuteRefusedError,
+  muteForRun,
+  muteOrgOf,
+  type MuteLeaseOptions,
+  type RunMute,
+} from '../../modules/forge/AutomationMuteLease.js';
 import type { DomainHandler, HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import {
   ABORTED_BEFORE_START,
@@ -899,6 +912,14 @@ export class SyncRemovalHandler implements DomainHandler {
    * it is being removed now, or its org is gone; then Production Guard judges
    * the delete, and the removal runs.
    */
+  /** Where and how a removal that mutes keeps its lease, in place of the home directory's. */
+  setMuteLeases(options: MuteLeaseOptions): void {
+    this.muteLeases = options;
+  }
+
+  /** Where and how the mute leases are kept, when not the home directory's. */
+  private muteLeases: MuteLeaseOptions = {};
+
   private async handleRemove(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncRemovePayloadSchema, msg, 'sync:remove:error', this.deps);
@@ -985,6 +1006,7 @@ export class SyncRemovalHandler implements DomainHandler {
           includeChanged: parsed.includeChanged === true,
           sweep: parsed.sweep === true,
           again,
+          muteAutomation: parsed.muteAutomation === true,
         },
         pending,
       );
@@ -1002,7 +1024,7 @@ export class SyncRemovalHandler implements DomainHandler {
     msg: InboundRequest,
     store: SyncRunCreations,
     run: SyncRunKept,
-    asked: { includeChanged: boolean; sweep: boolean; again: boolean },
+    asked: { includeChanged: boolean; sweep: boolean; again: boolean; muteAutomation?: boolean },
     pending: PendingStart | undefined,
   ): Promise<void> {
     const { includeChanged, again } = asked;
@@ -1111,6 +1133,28 @@ export class SyncRemovalHandler implements DomainHandler {
             return sweepMade.result.objects.some((object) => object.deleted > 0);
           }
         : undefined;
+      // Asked to mute, the removal reads what its writes fire, plans the mute
+      // from it, and takes the lease before its first write; it is given back
+      // as the removal ends, whatever it ended on. Refused, nothing is written.
+      let removalMute: RunMute | undefined;
+      if (asked.muteAutomation === true) {
+        const steps = this.removalStepsOf(run, again);
+        const objects = [...new Set(Object.values(steps).flat())];
+        const reader = this.targetAutomation;
+        const read = await new TimeoutManager(REMOVAL_AUTOMATION_TIMEOUT_MS)
+          .withTimeout('sync:remove:automation', () =>
+            reader.read(run.targetOrgId, objects, { undeletes: true }),
+          )
+          .catch((err: unknown) => ({ unread: extractErrorMessage(err) }));
+        removalMute = await muteForRun(async () => muteOrgOf(conn), read, {
+          ...this.muteLeases,
+          writes: removalStepsWrites(steps),
+        });
+      }
+      const held = removalMute?.prepared
+        ? await removalMute.prepared.acquire(operationId)
+        : undefined;
+      let mutedAutomation: MutedAutomation | undefined = held?.outcome ?? removalMute?.muted;
       const {
         result: removed,
         notes,
@@ -1141,6 +1185,8 @@ export class SyncRemovalHandler implements DomainHandler {
           if (!abortController.signal.aborted) this.registry?.updateProgress(operationId, percent);
           this.liveTracker?.updateProgress(operationId, percent, settled, of, objectApiName);
         },
+      }).finally(async () => {
+        if (held) mutedAutomation = await held.release();
       });
       for (const note of notes) this.deps.log(`[WARN] sync:remove ${operationId}: ${note}`);
       for (const { runId, records } of earlierStamped ?? []) {
@@ -1149,9 +1195,11 @@ export class SyncRemovalHandler implements DomainHandler {
             `the earlier run ${runId} again, stamped on it`,
         );
       }
-      const result: SyncRemovalResult = sweepMade.result
-        ? { ...removed, sweep: sweepMade.result }
-        : removed;
+      const result: SyncRemovalResult = {
+        ...removed,
+        ...(sweepMade.result ? { sweep: sweepMade.result } : {}),
+        ...(mutedAutomation ? { mutedAutomation } : {}),
+      };
 
       recordWriteRun(this.deps, {
         action: 'cleanup_delete',
@@ -1166,6 +1214,7 @@ export class SyncRemovalHandler implements DomainHandler {
           result.undeleted ?? [],
         ),
         ...(result.leftBy ? { leftBy: result.leftBy } : {}),
+        ...(mutedAutomation ? { muted: auditMutedOf(mutedAutomation) } : {}),
         details: { runId: run.runId },
       });
 
@@ -1189,9 +1238,14 @@ export class SyncRemovalHandler implements DomainHandler {
       }
     } catch (error: unknown) {
       runError = error;
-      this.recordNotRemoved(msg, run, 'failure', { guard: decision });
+      // A mute refused stopped the removal before its first write.
+      const muteRefused = isMuteRefusedError(error) ? error : undefined;
+      this.recordNotRemoved(msg, run, muteRefused ? 'stopped' : 'failure', {
+        guard: decision,
+        ...(muteRefused ? { code: muteRefused.code } : {}),
+      });
       sendHandlerError(this.deps, 'sync:remove', 'sync:remove:error', msg, error, {
-        code: 'REMOVE_ERROR',
+        code: muteRefused?.code ?? 'REMOVE_ERROR',
         retryable: true,
       });
       sendOperationCompleted(this.deps, operationId, { status: 'failure' });

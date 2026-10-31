@@ -17,6 +17,7 @@
  * per-project configuration.
  */
 
+import type { MutedAutomation } from '../utils/automation-mute.js';
 import type {
   ForgeFieldRefusal,
   ForgeRefusedField,
@@ -498,6 +499,13 @@ export interface FrozenPerObjectLoadResult {
 /** Final load report — every exclusion/adjustment is listed. */
 export interface FrozenLoadReportInfo {
   status: 'completed' | 'completed-with-errors';
+  /**
+   * What the run muted of the target's automation, when it was asked to
+   * (`muteAutomation`): the permission sets assigned to the user it wrote as
+   * for its duration, what they silenced, what still ran, and whether they
+   * were taken back. Absent when it was not asked.
+   */
+  mutedAutomation?: MutedAutomation;
   orgId: string;
   mode: { pilot: boolean; reload: boolean };
   startedAt: string;

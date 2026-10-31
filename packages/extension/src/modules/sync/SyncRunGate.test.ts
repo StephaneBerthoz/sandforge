@@ -2,9 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { DATA_STORAGE_NOT_TOLD, type ForgeTargetAutomation } from '@sandforge/shared';
 import type { WriteConfirmation } from '../../core/precheck/ProductionGuard.js';
 import { readApiBudget, readDataStorage } from '../forge/ForgeRunGate.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { memoryPermissionOrg } from '../../test/memoryPermissionOrg.js';
+import { muteForRun, muteOrgOf } from '../forge/AutomationMuteLease.js';
 import {
   gateSyncWrite,
   measureSyncWrite,
+  mutingSyncWriteGate,
+  syncRunWrites,
   syncWriteGate,
   syncWritePlan,
   type SyncCountedWrite,
@@ -654,5 +661,83 @@ describe('syncWriteGate', () => {
     const held = await gate.hold(write);
     expect(held.answer).toMatchObject({ go: false, code: 'SYNC_WRITE_DECLINED' });
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mutingSyncWriteGate', () => {
+  /** The welcome flow, kept quiet for a holder of `Contact_Bypass`, which `PS_Bypass` holds. */
+  const BYPASSED: ForgeTargetAutomation = {
+    ...WELCOME_FLOW,
+    objects: WELCOME_FLOW.objects.map((object) => ({
+      ...object,
+      flows: object.flows.map((flow) => ({
+        ...flow,
+        permissions: [{ name: 'Contact_Bypass', bypass: true, held: false }],
+      })),
+    })),
+    bypassGrants: [
+      {
+        permission: 'Contact_Bypass',
+        permissionSets: [{ name: 'PS_Bypass', label: 'Bypass', grants: 1 }],
+      },
+    ],
+  };
+  const SET = '0PSxx0000000001AAA';
+  // Twenty contacts, two emails each, twelve left today: refused unless muted.
+  const write = counted([{ objectApiName: 'Contact', operation: 'insert', rows: 20 }]);
+
+  function gateOf(setup: Parameters<typeof memoryPermissionOrg>[0] = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'sync-mute-'));
+    const org = memoryPermissionOrg({ sets: [{ id: SET, name: 'PS_Bypass' }], ...setup });
+    const readAutomation = vi.fn(async () => BYPASSED);
+    const muting = mutingSyncWriteGate(
+      (read) =>
+        syncWriteGate(measures({ readAutomation: read }), {
+          policy: 'refuse',
+          org: 'TRAP',
+          orgTier: 'development',
+        }),
+      readAutomation,
+      (read) =>
+        muteForRun(async () => muteOrgOf(org.connection), read, {
+          dir,
+          renewEveryMs: 0,
+          writes: syncRunWrites,
+        }),
+      'run-1',
+    );
+    return { muting, org, done: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('measures what still runs once the mute is planned, and takes the lease as the gate lets the run write', async () => {
+    // Unmuted, the emails refuse the run.
+    const plain = syncWriteGate(measures({ readAutomation: async () => BYPASSED }), {
+      policy: 'refuse',
+      org: 'TRAP',
+      orgTier: 'development',
+    });
+    expect((await plain.hold(write)).answer).toMatchObject({
+      go: false,
+      code: 'SYNC_EMAILS_EXCEEDED',
+    });
+
+    const { muting, org, done } = gateOf();
+    const held = await muting.gate.hold(write);
+    expect(held.answer).toEqual({ go: true, asked: false });
+    expect(org.assignments().map((a) => a.permissionSetId)).toEqual([SET]);
+
+    const muted = await muting.release();
+    expect(muted).toMatchObject({ state: 'muted', assigned: ['PS_Bypass'], released: true });
+    expect(org.assignments()).toEqual([]);
+    done();
+  });
+
+  it('stops the run at its gate when the mute is refused, nothing assigned', async () => {
+    const { muting, org, done } = gateOf({ canAssign: false });
+    const held = await muting.gate.hold(write);
+    expect(held.answer).toMatchObject({ go: false, code: 'MUTE_NO_RIGHT' });
+    expect(org.writes).toEqual([]);
+    expect(await muting.release()).toBeUndefined();
+    done();
   });
 });
